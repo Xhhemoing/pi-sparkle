@@ -19,7 +19,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: temporary-directory storage tests.
   - Depends on: T2.
 
-- [ ] T4: Implement project discovery and single-run coordinator.
+- [x] T4: Implement project discovery and single-run coordinator.
   - Acceptance: a temporary Git project produces a durable completed, failed, or cancelled fake-agent run.
   - Verify: M0 coordinator integration tests.
   - Depends on: T3.
