@@ -9,7 +9,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
   - Depends on: approved Node/pnpm baseline and package-review decision.
 
-- [ ] T2: Define domain contracts, validation schemas, and state transitions.
+- [x] T2: Define domain contracts, validation schemas, and state transitions.
   - Acceptance: invalid input and illegal transitions are rejected without Pi/filesystem imports.
   - Verify: focused domain tests and `pnpm typecheck`.
   - Depends on: T1.

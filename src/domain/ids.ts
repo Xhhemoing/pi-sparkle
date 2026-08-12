@@ -1,0 +1,89 @@
+import { randomUUID } from "node:crypto";
+import { DomainValidationError } from "./errors.js";
+
+export type IdBrand =
+  | "ProjectId"
+  | "RunId"
+  | "TaskId"
+  | "MessageId"
+  | "EventId"
+  | "ArtifactId"
+  | "EvidenceId"
+  | "AgentInstanceId";
+
+export type BrandedId<B extends IdBrand> = string & { readonly __brand: B };
+
+export type ProjectId = BrandedId<"ProjectId">;
+export type RunId = BrandedId<"RunId">;
+export type TaskId = BrandedId<"TaskId">;
+export type MessageId = BrandedId<"MessageId">;
+export type EventId = BrandedId<"EventId">;
+export type ArtifactId = BrandedId<"ArtifactId">;
+export type EvidenceId = BrandedId<"EvidenceId">;
+export type AgentInstanceId = BrandedId<"AgentInstanceId">;
+
+const ID_PREFIXES: Record<IdBrand, string> = {
+  ProjectId: "prj",
+  RunId: "run",
+  TaskId: "tsk",
+  MessageId: "msg",
+  EventId: "evt",
+  ArtifactId: "art",
+  EvidenceId: "evd",
+  AgentInstanceId: "agt"
+};
+
+const ID_SUFFIX_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export type IdGenerator = () => string;
+
+export function createId<B extends IdBrand>(brand: B, generate?: IdGenerator): BrandedId<B> {
+  const prefix = ID_PREFIXES[brand];
+  if (prefix === undefined) {
+    throw new DomainValidationError(`Unknown id brand: ${brand}`);
+  }
+  const suffix = (generate ?? randomUUID)();
+  if (!ID_SUFFIX_PATTERN.test(suffix)) {
+    throw new DomainValidationError(`Invalid ${brand} id suffix: must match ${ID_SUFFIX_PATTERN}`);
+  }
+  return `${prefix}_${suffix}` as BrandedId<B>;
+}
+
+export function isId<B extends IdBrand>(brand: B, value: unknown): value is BrandedId<B> {
+  if (typeof value !== "string") return false;
+  const prefix = ID_PREFIXES[brand];
+  if (prefix === undefined) return false;
+  const expectedPrefix = `${prefix}_`;
+  return value.startsWith(expectedPrefix) && ID_SUFFIX_PATTERN.test(value.slice(expectedPrefix.length));
+}
+
+export function parseId<B extends IdBrand>(brand: B, value: unknown): BrandedId<B> {
+  if (!isId(brand, value)) {
+    const prefix = ID_PREFIXES[brand];
+    throw new DomainValidationError(`Invalid ${brand}: expected "${prefix}_<suffix>"`);
+  }
+  return value;
+}
+
+export const createProjectId = (generate?: IdGenerator): ProjectId => createId("ProjectId", generate);
+export const createRunId = (generate?: IdGenerator): RunId => createId("RunId", generate);
+export const createTaskId = (generate?: IdGenerator): TaskId => createId("TaskId", generate);
+export const createMessageId = (generate?: IdGenerator): MessageId => createId("MessageId", generate);
+export const createEventId = (generate?: IdGenerator): EventId => createId("EventId", generate);
+export const createArtifactId = (generate?: IdGenerator): ArtifactId => createId("ArtifactId", generate);
+export const createEvidenceId = (generate?: IdGenerator): EvidenceId => createId("EvidenceId", generate);
+export const createAgentInstanceId = (generate?: IdGenerator): AgentInstanceId =>
+  createId("AgentInstanceId", generate);
+
+export const isProjectId = (value: unknown): value is ProjectId => isId("ProjectId", value);
+export const isRunId = (value: unknown): value is RunId => isId("RunId", value);
+export const isTaskId = (value: unknown): value is TaskId => isId("TaskId", value);
+export const isMessageId = (value: unknown): value is MessageId => isId("MessageId", value);
+export const isEventId = (value: unknown): value is EventId => isId("EventId", value);
+export const isArtifactId = (value: unknown): value is ArtifactId => isId("ArtifactId", value);
+export const isEvidenceId = (value: unknown): value is EvidenceId => isId("EvidenceId", value);
+export const isAgentInstanceId = (value: unknown): value is AgentInstanceId => isId("AgentInstanceId", value);
+
+export const parseRunId = (value: unknown): RunId => parseId("RunId", value);
+export const parseTaskId = (value: unknown): TaskId => parseId("TaskId", value);
+export const parseProjectId = (value: unknown): ProjectId => parseId("ProjectId", value);
