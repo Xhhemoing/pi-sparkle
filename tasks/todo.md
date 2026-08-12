@@ -4,7 +4,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
 
 ## M0
 
-- [ ] T1: Bootstrap TypeScript project and pin the reviewed Pi dependency.
+- [x] T1: Bootstrap TypeScript project and pin the reviewed Pi dependency.
   - Acceptance: strict typecheck, lint, test, build, and package hygiene commands work.
   - Verify: `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
   - Depends on: approved Node/pnpm baseline and package-review decision.

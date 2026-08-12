@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.pi-sparkle/
+.codebase-memory/
+*.log
+.DS_Store
