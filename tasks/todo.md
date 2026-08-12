@@ -14,7 +14,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: focused domain tests and `pnpm typecheck`.
   - Depends on: T1.
 
-- [ ] T3: Implement JSONL event log, atomic checkpoint, and replay recovery.
+- [x] T3: Implement JSONL event log, atomic checkpoint, and replay recovery.
   - Acceptance: valid events replay; truncated final lines recover safely; no secrets are persisted.
   - Verify: temporary-directory storage tests.
   - Depends on: T2.
