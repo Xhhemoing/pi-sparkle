@@ -65,6 +65,7 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
   let sawStarted = false;
   let sawTerminal = false;
   let sawCancel = false;
+  let sawWaiting = false;
 
   for (const event of events) {
     switch (event.type) {
@@ -105,12 +106,27 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
         sawCancel = true;
         break;
       }
+      case "RUN_WAITING_FOR_USER": {
+        if (sawTerminal) anomalies.push("RUN_WAITING_FOR_USER after a terminal event");
+        sawWaiting = true;
+        break;
+      }
+      case "USER_ANSWER": {
+        sawWaiting = false;
+        break;
+      }
+      case "CHILD_RUN_CREATED":
+      case "CHILD_MESSAGE":
+      case "TASK_TIMEOUT":
+      case "TASK_RETRY":
+        break;
     }
     lastEventId = event.id;
   }
 
   if (!sawTerminal) {
     if (sawCancel) status = "CANCELLED";
+    else if (sawWaiting) status = "WAITING_FOR_USER";
     else if (sawStarted) status = "RUNNING";
   }
 

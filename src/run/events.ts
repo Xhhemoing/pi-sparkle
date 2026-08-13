@@ -2,10 +2,12 @@ import { DomainValidationError } from "../domain/errors.js";
 import {
   isAgentInstanceId,
   isEventId,
+  isMessageId,
   isRunId,
   isTaskId,
   type AgentInstanceId,
   type EventId,
+  type MessageId,
   type RunId,
   type TaskId
 } from "../domain/ids.js";
@@ -13,6 +15,7 @@ import { validateProjectSnapshot } from "../domain/project.js";
 import { isRecord } from "../domain/record.js";
 import { validateRun } from "../domain/run.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
+import { validateAgentMessage, type AgentMessage } from "../protocol/v1.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -23,7 +26,13 @@ export const EVENT_TYPES = [
   "AGENT_FINISHED",
   "RUN_COMPLETED",
   "RUN_FAILED",
-  "RUN_CANCEL_REQUESTED"
+  "RUN_CANCEL_REQUESTED",
+  "CHILD_RUN_CREATED",
+  "CHILD_MESSAGE",
+  "TASK_TIMEOUT",
+  "TASK_RETRY",
+  "RUN_WAITING_FOR_USER",
+  "USER_ANSWER"
 ] as const;
 
 export type M0EventType = (typeof EVENT_TYPES)[number];
@@ -64,6 +73,34 @@ export interface RunFailedPayload {
   reason: string;
 }
 
+export interface ChildRunCreatedPayload {
+  childRun: import("../domain/run.js").Run;
+}
+
+export interface ChildMessagePayload {
+  message: AgentMessage;
+}
+
+export interface TaskTimeoutPayload {
+  childRunId: RunId;
+  attempt: number;
+}
+
+export interface TaskRetryPayload {
+  childRunId: RunId;
+  attempt: number;
+  reason: string;
+}
+
+export interface RunWaitingForUserPayload {
+  messageId: MessageId;
+}
+
+export interface UserAnswerPayload {
+  messageId: MessageId;
+  answer: string;
+}
+
 export interface EventBase {
   id: EventId;
   schemaVersion: 1;
@@ -83,7 +120,13 @@ export type Event =
   | (EventBase & { type: "AGENT_FINISHED"; payload: AgentFinishedPayload })
   | (EventBase & { type: "RUN_COMPLETED"; payload: EmptyPayload })
   | (EventBase & { type: "RUN_FAILED"; payload: RunFailedPayload })
-  | (EventBase & { type: "RUN_CANCEL_REQUESTED"; payload: EmptyPayload });
+  | (EventBase & { type: "RUN_CANCEL_REQUESTED"; payload: EmptyPayload })
+  | (EventBase & { type: "CHILD_RUN_CREATED"; payload: ChildRunCreatedPayload })
+  | (EventBase & { type: "CHILD_MESSAGE"; payload: ChildMessagePayload })
+  | (EventBase & { type: "TASK_TIMEOUT"; payload: TaskTimeoutPayload })
+  | (EventBase & { type: "TASK_RETRY"; payload: TaskRetryPayload })
+  | (EventBase & { type: "RUN_WAITING_FOR_USER"; payload: RunWaitingForUserPayload })
+  | (EventBase & { type: "USER_ANSWER"; payload: UserAnswerPayload });
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -143,6 +186,51 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
     case "RUN_FAILED": {
       if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
         return "payload.reason must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "CHILD_RUN_CREATED": {
+      if (payload.childRun === undefined) return "payload.childRun is required";
+      try {
+        validateRun(payload.childRun);
+      } catch (error) {
+        return `payload.childRun: ${messageOf(error)}`;
+      }
+      return undefined;
+    }
+    case "CHILD_MESSAGE": {
+      try {
+        validateAgentMessage(payload.message);
+      } catch (error) {
+        return `payload.message: ${messageOf(error)}`;
+      }
+      return undefined;
+    }
+    case "TASK_TIMEOUT": {
+      if (!isRunId(payload.childRunId)) return "payload.childRunId must be a valid RunId";
+      if (typeof payload.attempt !== "number" || !Number.isInteger(payload.attempt) || payload.attempt < 1) {
+        return "payload.attempt must be a positive integer";
+      }
+      return undefined;
+    }
+    case "TASK_RETRY": {
+      if (!isRunId(payload.childRunId)) return "payload.childRunId must be a valid RunId";
+      if (typeof payload.attempt !== "number" || !Number.isInteger(payload.attempt) || payload.attempt < 1) {
+        return "payload.attempt must be a positive integer";
+      }
+      if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
+        return "payload.reason must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "RUN_WAITING_FOR_USER": {
+      if (!isMessageId(payload.messageId)) return "payload.messageId must be a valid MessageId";
+      return undefined;
+    }
+    case "USER_ANSWER": {
+      if (!isMessageId(payload.messageId)) return "payload.messageId must be a valid MessageId";
+      if (typeof payload.answer !== "string" || payload.answer.trim() === "") {
+        return "payload.answer must be a non-empty string";
       }
       return undefined;
     }
