@@ -14,6 +14,8 @@ import {
 import { validateProjectSnapshot } from "../domain/project.js";
 import { isRecord } from "../domain/record.js";
 import { validateRun } from "../domain/run.js";
+import { isTaskStatus } from "../domain/status.js";
+import { validateTaskNode } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 import { validateAgentMessage, type AgentMessage } from "../protocol/v1.js";
 
@@ -32,7 +34,15 @@ export const EVENT_TYPES = [
   "TASK_TIMEOUT",
   "TASK_RETRY",
   "RUN_WAITING_FOR_USER",
-  "USER_ANSWER"
+  "USER_ANSWER",
+  "TASK_GRAPH_ACCEPTED",
+  "TASK_LEASED",
+  "TASK_LEASE_EXPIRED",
+  "TASK_STATUS_CHANGED",
+  "LEDGER_UPDATED",
+  "STALL_DETECTED",
+  "JUDGE_DECISION",
+  "RUN_BLOCKED"
 ] as const;
 
 export type M0EventType = (typeof EVENT_TYPES)[number];
@@ -101,6 +111,52 @@ export interface UserAnswerPayload {
   answer: string;
 }
 
+export interface TaskGraphAcceptedPayload {
+  tasks: import("../domain/task.js").TaskNode[];
+}
+
+export interface TaskLeasedPayload {
+  taskId: TaskId;
+  childRunId: RunId;
+  expiresAt: IsoTimestamp;
+}
+
+export interface TaskLeaseExpiredPayload {
+  taskId: TaskId;
+  childRunId: RunId;
+}
+
+export interface TaskStatusChangedPayload {
+  taskId: TaskId;
+  status: import("../domain/status.js").TaskStatus;
+  attempt: number;
+}
+
+export interface LedgerUpdatedPayload {
+  revision: number;
+  round: number;
+  consecutiveStalls: number;
+  isBlocked: boolean;
+}
+
+export interface StallDetectedPayload {
+  round: number;
+  consecutiveStalls: number;
+  requiredEvidence: string[];
+}
+
+export interface JudgeDecisionPayload {
+  taskId: TaskId;
+  verdict: "APPROVED" | "REJECTED" | "NEEDS_USER_DECISION";
+  evidenceIds: import("../domain/ids.js").EvidenceId[];
+  reason?: string;
+}
+
+export interface RunBlockedPayload {
+  reason: string;
+  requiredEvidence: string[];
+}
+
 export interface EventBase {
   id: EventId;
   schemaVersion: 1;
@@ -126,7 +182,15 @@ export type Event =
   | (EventBase & { type: "TASK_TIMEOUT"; payload: TaskTimeoutPayload })
   | (EventBase & { type: "TASK_RETRY"; payload: TaskRetryPayload })
   | (EventBase & { type: "RUN_WAITING_FOR_USER"; payload: RunWaitingForUserPayload })
-  | (EventBase & { type: "USER_ANSWER"; payload: UserAnswerPayload });
+  | (EventBase & { type: "USER_ANSWER"; payload: UserAnswerPayload })
+  | (EventBase & { type: "TASK_GRAPH_ACCEPTED"; payload: TaskGraphAcceptedPayload })
+  | (EventBase & { type: "TASK_LEASED"; payload: TaskLeasedPayload })
+  | (EventBase & { type: "TASK_LEASE_EXPIRED"; payload: TaskLeaseExpiredPayload })
+  | (EventBase & { type: "TASK_STATUS_CHANGED"; payload: TaskStatusChangedPayload })
+  | (EventBase & { type: "LEDGER_UPDATED"; payload: LedgerUpdatedPayload })
+  | (EventBase & { type: "STALL_DETECTED"; payload: StallDetectedPayload })
+  | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
+  | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload });
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -231,6 +295,87 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       if (!isMessageId(payload.messageId)) return "payload.messageId must be a valid MessageId";
       if (typeof payload.answer !== "string" || payload.answer.trim() === "") {
         return "payload.answer must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "TASK_GRAPH_ACCEPTED": {
+      if (!Array.isArray(payload.tasks) || payload.tasks.length === 0) {
+        return "payload.tasks must be a non-empty array";
+      }
+      try {
+        for (const task of payload.tasks) validateTaskNode(task);
+      } catch (error) {
+        return `payload.tasks: ${messageOf(error)}`;
+      }
+      return undefined;
+    }
+    case "TASK_LEASED": {
+      if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
+      if (!isRunId(payload.childRunId)) return "payload.childRunId must be a valid RunId";
+      if (!isIsoTimestamp(payload.expiresAt)) return "payload.expiresAt must be a valid IsoTimestamp";
+      return undefined;
+    }
+    case "TASK_LEASE_EXPIRED": {
+      if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
+      if (!isRunId(payload.childRunId)) return "payload.childRunId must be a valid RunId";
+      return undefined;
+    }
+    case "TASK_STATUS_CHANGED": {
+      if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
+      if (!isTaskStatus(payload.status)) return "payload.status must be a known TaskStatus";
+      if (typeof payload.attempt !== "number" || !Number.isInteger(payload.attempt) || payload.attempt < 0) {
+        return "payload.attempt must be a non-negative integer";
+      }
+      return undefined;
+    }
+    case "LEDGER_UPDATED": {
+      if (typeof payload.revision !== "number" || !Number.isInteger(payload.revision) || payload.revision < 0) {
+        return "payload.revision must be a non-negative integer";
+      }
+      if (typeof payload.round !== "number" || !Number.isInteger(payload.round) || payload.round < 0) {
+        return "payload.round must be a non-negative integer";
+      }
+      if (typeof payload.consecutiveStalls !== "number" || !Number.isInteger(payload.consecutiveStalls) || payload.consecutiveStalls < 0) {
+        return "payload.consecutiveStalls must be a non-negative integer";
+      }
+      if (typeof payload.isBlocked !== "boolean") return "payload.isBlocked must be a boolean";
+      return undefined;
+    }
+    case "STALL_DETECTED": {
+      if (typeof payload.round !== "number" || !Number.isInteger(payload.round) || payload.round < 1) {
+        return "payload.round must be a positive integer";
+      }
+      if (typeof payload.consecutiveStalls !== "number" || !Number.isInteger(payload.consecutiveStalls) || payload.consecutiveStalls < 1) {
+        return "payload.consecutiveStalls must be a positive integer";
+      }
+      if (!Array.isArray(payload.requiredEvidence) || !payload.requiredEvidence.every((e) => typeof e === "string" && e !== "")) {
+        return "payload.requiredEvidence must be an array of non-empty strings";
+      }
+      return undefined;
+    }
+    case "JUDGE_DECISION": {
+      if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
+      const verdicts = ["APPROVED", "REJECTED", "NEEDS_USER_DECISION"];
+      if (typeof payload.verdict !== "string" || !verdicts.includes(payload.verdict)) {
+        return "payload.verdict must be a known verdict";
+      }
+      if (
+        !Array.isArray(payload.evidenceIds) ||
+        !payload.evidenceIds.every((id) => typeof id === "string" && id.startsWith("evd_"))
+      ) {
+        return "payload.evidenceIds must be an array of EvidenceIds";
+      }
+      if (payload.reason !== undefined && (typeof payload.reason !== "string" || payload.reason.trim() === "")) {
+        return "payload.reason must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "RUN_BLOCKED": {
+      if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
+        return "payload.reason must be a non-empty string";
+      }
+      if (!Array.isArray(payload.requiredEvidence) || !payload.requiredEvidence.every((e) => typeof e === "string" && e !== "")) {
+        return "payload.requiredEvidence must be an array of non-empty strings";
       }
       return undefined;
     }

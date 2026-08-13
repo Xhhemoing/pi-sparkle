@@ -101,3 +101,19 @@ test("RUN_WAITING_FOR_USER after a terminal event is an anomaly", () => {
   const replayed = replayRun(events);
   assert.ok(replayed.anomalies.some((a) => /WAITING_FOR_USER.*terminal/.test(a)));
 });
+
+test("replay maps RUN_BLOCKED to BLOCKED and tolerates M2 events", () => {
+  const events = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("TASK_GRAPH_ACCEPTED", { tasks: [] }, { taskId }),
+    makeEvent("TASK_LEASED", { taskId, childRunId, expiresAt: "2026-08-12T09:01:00.000Z" }, { taskId }),
+    makeEvent("TASK_STATUS_CHANGED", { taskId, status: "RUNNING", attempt: 0 }, { taskId }),
+    makeEvent("LEDGER_UPDATED", { revision: 1, round: 1, consecutiveStalls: 1, isBlocked: false }),
+    makeEvent("STALL_DETECTED", { round: 3, consecutiveStalls: 3, requiredEvidence: ["add evidence"] }),
+    makeEvent("RUN_BLOCKED", { reason: "stalled", requiredEvidence: ["add evidence"] })
+  ];
+  const replayed = replayRun(events);
+  assert.equal(replayed.status, "BLOCKED");
+  assert.deepEqual(replayed.anomalies, []);
+});

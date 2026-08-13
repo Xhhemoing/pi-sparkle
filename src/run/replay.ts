@@ -101,6 +101,12 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
         status = event.type === "RUN_COMPLETED" ? "COMPLETED" : "FAILED";
         break;
       }
+      case "RUN_BLOCKED": {
+        if (sawTerminal) anomalies.push("RUN_BLOCKED after a terminal event");
+        sawTerminal = true;
+        status = "BLOCKED";
+        break;
+      }
       case "RUN_CANCEL_REQUESTED": {
         if (sawTerminal) anomalies.push("RUN_CANCEL_REQUESTED after a terminal event");
         sawCancel = true;
@@ -119,6 +125,13 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
       case "CHILD_MESSAGE":
       case "TASK_TIMEOUT":
       case "TASK_RETRY":
+      case "TASK_GRAPH_ACCEPTED":
+      case "TASK_LEASED":
+      case "TASK_LEASE_EXPIRED":
+      case "TASK_STATUS_CHANGED":
+      case "LEDGER_UPDATED":
+      case "STALL_DETECTED":
+      case "JUDGE_DECISION":
         break;
     }
     lastEventId = event.id;
