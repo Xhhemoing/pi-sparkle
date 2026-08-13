@@ -282,3 +282,140 @@ T1 bootstrap and conventions
 ## Implementation Rule
 
 Do not begin implementation until the human approves the open questions or explicitly authorizes reasonable defaults. Once approved, implement one task at a time, test before moving forward, and commit each working increment atomically.
+
+## P1–P7 Integration & Governance Extensions (M2.5+)
+
+This section fuses the user's P1–P7 requirements into the roadmap. Features are classified per P7:
+- **Permanent (常驻, core)**: P1 (智能模型路由), P2 (置信度 + 人类审批机制), P4 (框架规范, 简单非复杂化).
+- **Optional extensions (可选功能)**: P3 (git 规范管理, 用更优方法替代), P5 (中途注入与暂停).
+- P6 is addressed by providing lightweight normative frameworks (PolicyEngine, DecisionPolicy) rather than heavy rules.
+- P4 (禁止哈希、避免过度 git 复杂化) is explicitly not adopted; we keep simple conventional commit generation as optional bridge only.
+
+All additions preserve the event-sourced contract, JSONL + checkpoints, and M0-M2 compatibility. Flowchart Supervisor becomes the primary vehicle for P1/P2 integration.
+
+## M2.5: Flowchart Supervisor + P1/P2 Core Governance (Permanent)
+
+**Rationale (fused with P1/P2):** The M2 ledger provides stall detection and judge routes. To make sub-agent orchestration production-grade we elevate the supervisor to a **Flowchart** model (already planned) while embedding:
+
+- **P1 Intelligent Model Routing**: Each FlowNode declares a `modelPolicy` (role-based, complexity-based, cost-aware, confidence-aware). A lightweight `ModelRouter` (core, permanent) selects the actual provider/model at lease time, records the route decision + justification as an event, and respects per-run cost/time limits. Router can be extended later but the interface and event are permanent.
+
+- **P2 Confidence & Human-in-the-Loop**: 
+  - `TaskNode` and `LedgerFact` carry `confidence: number (0-1)`.
+  - `RunLimits` gains `minHumanConfidence?: number` (set at init or project policy). When a decision's confidence < threshold, the run transitions to `WAITING_FOR_USER` and emits an `AgentQuestion` with confidence score + rationale.
+  - Structured decisions/operations (judge output, edge evaluation, fact recording) are required to emit confidence.
+  - AI judges user preference + project state to decide whether to auto-apply or require human sign-off.
+  - **Selective Execution in Approval Plans**: When a planner produces a plan, the `TASK_REQUEST` envelope includes an `ApprovalPlan` with selectable items (checkbox semantics). User can choose subset; only selected branches/nodes are executed. This is expressed in the protocol as `selectedActionIds` on the reply.
+
+Flowchart nodes now carry `role`, `objective`, `modelPolicy`, `confidenceThreshold`, `approvalRequired`, `parallelGroup?`, `joinPolicy?`.
+Edges carry `condition` (success | evidenceCount | confidence | userDecision | custom).
+
+This makes P1 and P2 **permanent core** of M2.5 while keeping the original ledger/stall logic for compatibility.
+
+### Task 12: Flowchart schema + ModelRouter + Confidence types (Permanent core)
+
+**Description:** Define `Flowchart`, `FlowNode` (with `modelPolicy`, `confidenceThreshold`), `FlowEdge` (with confidence-aware conditions), `ModelRouter` interface, `ConfidenceScore`, `ApprovalPlan`, `DecisionPolicy`. Implement validators. Router default: role + task complexity heuristic (no external calls in core). Confidence defaults to 0.7 for auto-apply unless overridden.
+
+**Acceptance criteria:**
+- Flowchart with modelPolicy and confidenceThreshold validates and executes.
+- ModelRouter records `MODEL_ROUTED` event with justification; respects limits.
+- Task/Decision with confidence < minHumanConfidence forces `WAITING_FOR_USER`.
+- ApprovalPlan with `selectable: true` items allows partial selection on reply.
+- Existing M2 ledger paths remain functional (no regression).
+
+**Files likely touched:** `src/domain/flowchart.ts` (new), `src/domain/limits.ts` (extend), `src/supervisor/model-router.ts` (new), `src/protocol/v1.ts` (extend ApprovalPlan), `src/supervisor/ledger.ts` (add confidence fields).
+
+**Estimated scope:** Medium-High.
+
+### Task 13: FlowchartSupervisor with P1 routing + P2 confidence/approval (Permanent core)
+
+**Description:** Implement `FlowchartSupervisor` that:
+- Uses ModelRouter at every lease to pick model.
+- Evaluates edge conditions including confidence.
+- On low-confidence or approvalRequired nodes, emits structured `AgentQuestion` containing `ApprovalPlan` (with checkboxes) and current confidence scores.
+- Supports selective execution: only selected sub-flows are leased.
+- Integrates with existing ledger for stall detection across parallel branches.
+
+**Acceptance criteria:**
+- Parallel branches with different modelPolicies route correctly.
+- Human approval with selective checkboxes works end-to-end in fake-executor tests.
+- Confidence propagation from child `TASK_RESULT` to parent decision is recorded.
+- Resume restores router state + pending approval plans.
+
+**Files likely touched:** `src/supervisor/flowchart-supervisor.ts` (new), `src/run/child-coordinator.ts` (integrate router + approval), `src/supervisor/judge.ts` (refactor to use DecisionPolicy).
+
+**Estimated scope:** High.
+
+### Task 14: Flowchart + ledger + confidence persistence + M2.5 gates (Permanent)
+
+**Description:** Persist flowchart cursor, active model routes, confidence ledger entries, and pending `ApprovalPlan` selections in checkpoints. Ensure stall detection works when confidence-driven waits occur. All M2 tests still pass.
+
+**Acceptance criteria:**
+- Non-trivial flowchart (fork with different models + confidence gate + selective join) completes or waits for user correctly.
+- Resume after crash restores pending approval state and router decisions.
+- Full quality gates + no regression on T9–T11.
+
+**Files likely touched:** `src/run/resume.ts`, `src/run/checkpoint-store.ts` (extend), `test/integration/m2.5/`.
+
+**Estimated scope:** Medium.
+
+**Checkpoint D (M2.5):** P1 (ModelRouter) and P2 (confidence + selective human approval) are permanent core. Flowchart is the canonical orchestration engine. Linear ledger mode remains for simple runs.
+
+## M3: Optional Governance & Extensibility (P3, P5, P6 Framework)
+
+These are explicitly **optional extensions** (per P7). They do not block M2.5 completion and are behind feature flags or separate packages.
+
+### P3: Decision-to-Commit Bridge (better than raw git规范)
+
+Instead of forcing "规范的git提交" inside the runtime (which would complicate git and violate P4), we provide an optional **Decision Ledger → Conventional Commit** adapter.
+
+**Idea:** After a run (or selected nodes) completes, the bridge reads the event log + flowchart decisions + confidence facts and generates a set of conventional commits (type(scope): message + evidence links). User reviews and signs. No hashes are required or prohibited; no complex git workflows are introduced into the core supervisor. The bridge is a separate CLI command or post-run hook.
+
+This satisfies the spirit of "规范git提交" without making git a first-class concern of the multi-agent runtime.
+
+**Task 15 (Optional):** Implement `decision-to-commit` generator (reads ledger, emits conventional commit messages + evidence references). Optional signing step. Lives in `src/tools/decision-commit.ts` or a separate `@pi-sparkle/git-bridge` package.
+
+**Acceptance:** Generated commits follow conventional format; evidence IDs are included; user can edit before apply. No core changes to EventStore or supervisor.
+
+**Scope:** Low-Medium (optional).
+
+### P5: Mid-run Injection & Pause Controller (Optional Extension)
+
+**Framework (P6 simple norm):** Provide a narrow `InjectionController` interface and `PauseToken` that any coordinator can consult. Injection points are explicit events (`INJECTION_REQUESTED`, `PAUSE_REQUESTED`) recorded in the ledger. The controller does not interpret arbitrary user input; it only allows typed injections that match the current flowchart node policy (e.g., "add fact", "override confidence", "skip node").
+
+**Task 16 (Optional):** Implement `PauseController` + `InjectionPoint` registry. Expose via CLI (`pi-sparkle pause`, `pi-sparkle inject --type fact --value ...`). All injections are validated against the active `DecisionPolicy` and recorded with confidence/actor. Resume continues from the injection point.
+
+**Acceptance:** Pause works on long-running flowchart; typed injection is accepted and reflected in ledger; no arbitrary code execution.
+
+**Scope:** Medium (optional, behind flag).
+
+### P6: Lightweight Normative Framework (Permanent supporting)
+
+Instead of heavy rule engines, we define simple permanent interfaces that all permanent components must implement:
+
+- `DecisionPolicy` — returns required confidence, approval flag, model constraints for a given (role, objective, currentLedger).
+- `ModelRouter` — pure function + event emitter (already in M2.5).
+- `EvidencePolicy` — minimum evidence types per node type.
+
+These are small, testable, and extensible. AI agents are expected to consult them; the framework itself stays minimal.
+
+**Task 17 (Permanent support):** Extract `DecisionPolicy` and `EvidencePolicy` interfaces + default implementations during T12/T13. Document the normative expectations in `docs/policies.md`.
+
+**Scope:** Small (done as part of M2.5).
+
+## Updated Risks (M2.5 + M3 optional)
+
+Original risks remain. New:
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| ModelRouter complexity | Medium | Keep default heuristic simple; interface allows future learned router. |
+| Confidence mis-calibration | Medium | Default thresholds conservative; always allow human override. |
+| Selective approval UX burden | Low | ApprovalPlan is optional per node; simple checkbox protocol. |
+| Optional git-bridge pollutes core | Low | Strictly separate package / CLI entry; never imported by supervisor. |
+| Pause/inject abuse | Low | Typed, policy-validated injections only; full audit trail. |
+
+## Open Questions (post M2.5)
+
+- Whether the initial flowchart can be discovered by a planner agent or must be supplied.
+- Default confidence model (simple heuristic vs provider-reported).
+- Visualization of flowchart + confidence heat-map (future UI, not M2.5).

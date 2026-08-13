@@ -5,11 +5,13 @@ import {
   isMessageId,
   isRunId,
   isTaskId,
+  isEpisodeId,
   type AgentInstanceId,
   type EventId,
   type MessageId,
   type RunId,
-  type TaskId
+  type TaskId,
+  type EpisodeId
 } from "../domain/ids.js";
 import { validateProjectSnapshot } from "../domain/project.js";
 import { isRecord } from "../domain/record.js";
@@ -18,6 +20,7 @@ import { isTaskStatus } from "../domain/status.js";
 import { validateTaskNode } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 import { validateAgentMessage, type AgentMessage } from "../protocol/v1.js";
+import type { ProjectEpisode } from "../domain/episode.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -42,7 +45,9 @@ export const EVENT_TYPES = [
   "LEDGER_UPDATED",
   "STALL_DETECTED",
   "JUDGE_DECISION",
-  "RUN_BLOCKED"
+  "RUN_BLOCKED",
+  "EPISODE_OPENED",
+  "EPISODE_CLOSED"
 ] as const;
 
 export type M0EventType = (typeof EVENT_TYPES)[number];
@@ -157,6 +162,17 @@ export interface RunBlockedPayload {
   requiredEvidence: string[];
 }
 
+export interface EpisodeOpenedPayload {
+  episode: ProjectEpisode;
+}
+
+export interface EpisodeClosedPayload {
+  episodeId: EpisodeId;
+  status: import("../domain/episode.js").EpisodeStatus;
+  closedAt: IsoTimestamp;
+  outcomeId?: string;
+}
+
 export interface EventBase {
   id: EventId;
   schemaVersion: 1;
@@ -190,7 +206,9 @@ export type Event =
   | (EventBase & { type: "LEDGER_UPDATED"; payload: LedgerUpdatedPayload })
   | (EventBase & { type: "STALL_DETECTED"; payload: StallDetectedPayload })
   | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
-  | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload });
+  | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
+  | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
+  | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload });
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -376,6 +394,26 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       }
       if (!Array.isArray(payload.requiredEvidence) || !payload.requiredEvidence.every((e) => typeof e === "string" && e !== "")) {
         return "payload.requiredEvidence must be an array of non-empty strings";
+      }
+      return undefined;
+    }
+    case "EPISODE_OPENED": {
+      if (payload.episode === undefined || payload.episode === null) return "payload.episode is required";
+      const ep = payload.episode as Record<string, unknown>;
+      if (typeof ep.id !== "string" || !ep.id.startsWith("ep_")) {
+        return "payload.episode.id must be a valid EpisodeId";
+      }
+      return undefined;
+    }
+    case "EPISODE_CLOSED": {
+      if (!isEpisodeId(payload.episodeId)) return "payload.episodeId must be a valid EpisodeId";
+      const closedStatuses = ["COMPLETED", "FAILED", "ABANDONED", "WAITING_FOR_USER"] as const;
+      if (typeof payload.status !== "string" || !(closedStatuses as readonly string[]).includes(payload.status)) {
+        return "payload.status must be a valid closed EpisodeStatus";
+      }
+      if (!isIsoTimestamp(payload.closedAt)) return "payload.closedAt must be a valid IsoTimestamp";
+      if (payload.outcomeId !== undefined && typeof payload.outcomeId !== "string") {
+        return "payload.outcomeId must be a string when present";
       }
       return undefined;
     }

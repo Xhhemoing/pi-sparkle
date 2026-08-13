@@ -161,11 +161,6 @@ export function reconstructSupervisorState(events: readonly Event[]): Supervisor
   return { graph, statuses, attempts, leases, ledger };
 }
 
-/**
- * Runs supervisor rounds from the given state until a terminal condition.
- * Completed tasks are never re-planned; expired leases recover to BLOCKED and
- * retry per the declared state machine.
- */
 export async function runSupervisorRounds(
   ctx: SupervisorContext,
   state: SupervisorState,
@@ -198,7 +193,7 @@ export async function runSupervisorRounds(
   }
 
   const startRound = ledger.round + 1;
-  outer: for (let round = startRound; round <= limits.maxRounds; round += 1) {
+  for (let round = startRound; round <= limits.maxRounds; round += 1) {
     if (controller.signal.aborted) {
       finalStatus = "CANCELLED";
       await append(make("RUN_CANCEL_REQUESTED", {}));
@@ -259,7 +254,7 @@ export async function runSupervisorRounds(
       continue;
     }
 
-    // Execute the round's ready tasks.
+    // Execute the round's ready tasks concurrently on a single ChildCoordinator.
     const roundEvent: LedgerRoundEvent = {
       completedTasks: [],
       newEvidenceIds: [],
@@ -268,9 +263,20 @@ export async function runSupervisorRounds(
       userDecision: false
     };
 
-    for (const taskId of ready) {
+    const childCoordinator = new ChildCoordinator({
+      stateRoot: deps.stateRoot,
+      executor: deps.executor,
+      parentRunId: ctx.runId,
+      project: ctx.project,
+      registry: deps.registry,
+      maxConcurrentTasks: limits.maxConcurrentTasks,
+      now,
+      ...(generateId !== undefined ? { generateId } : {})
+    });
+
+    const taskPromises = ready.map(async (taskId) => {
       const node = graph.byId.get(taskId);
-      if (node === undefined) continue;
+      if (node === undefined) return;
       const childRunId = createRunId(generateId);
       leases.lease(taskId, childRunId, LEASE_MS);
       await append(
@@ -281,17 +287,6 @@ export async function runSupervisorRounds(
         )
       );
       await recordStatus(taskId, "RUNNING", attempts.get(taskId) ?? 0);
-
-      const childCoordinator = new ChildCoordinator({
-        stateRoot: deps.stateRoot,
-        executor: deps.executor,
-        parentRunId: ctx.runId,
-        project: ctx.project,
-        registry: deps.registry,
-        maxConcurrentTasks: limits.maxConcurrentTasks,
-        now,
-        ...(generateId !== undefined ? { generateId } : {})
-      });
 
       const outcome = await childCoordinator.startChildTask(
         {
@@ -311,7 +306,7 @@ export async function runSupervisorRounds(
       if (controller.signal.aborted) {
         finalStatus = "CANCELLED";
         await append(make("RUN_CANCEL_REQUESTED", {}));
-        break outer;
+        return;
       }
 
       const terminal = outcome.terminalResult;
@@ -347,8 +342,6 @@ export async function runSupervisorRounds(
           const transition = applyTaskOutcome({ ...node, attempt: attempt - 1 }, toTaskOutcome(outcome.outcome));
           await recordStatus(taskId, transition.status, transition.attempt);
           if (transition.status === "BLOCKED") {
-            // Supervisor-owned retry: BLOCKED -> READY when attempts remain.
-            // Retrying without new evidence is NOT progress (spec: stalls).
             await recordStatus(taskId, "READY", transition.attempt);
           }
           break;
@@ -358,7 +351,9 @@ export async function runSupervisorRounds(
           roundEvent.userDecision = true;
           break;
       }
-    }
+    });
+
+    await Promise.all(taskPromises);
 
     const progress = classifyRoundProgress(roundEvent, ledger);
     const advanced = advanceLedgerRound(ledger, progress, limits.maxConsecutiveStalls, {
@@ -412,15 +407,15 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
     });
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
-    const limits = input.limits ?? defaultRunLimits();
     const rootTaskId = createTaskId(generateId);
 
+    const graph = validateTaskGraph(input.tasks);
     const run: Run = {
       id: runId,
       projectId: project.id,
       rootTaskId,
       status: "PLANNING",
-      limits,
+      limits: input.limits ?? defaultRunLimits(),
       createdAt: now(),
       updatedAt: now()
     };
@@ -439,25 +434,25 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
 
     const append = (event: Event) => eventStore.append(event);
 
-    // Validate before any worker starts.
-    const graph: TaskGraph = validateTaskGraph(input.tasks);
     await append(make("PROJECT_DISCOVERED", { project }));
     await append(make("RUN_CREATED", { run }));
     await append(make("RUN_STARTED", {}));
-    await append(make("TASK_GRAPH_ACCEPTED", { tasks: [...graph.tasks] }));
+    await append(make("TASK_GRAPH_ACCEPTED", { tasks: graph.tasks }));
 
-    const statuses = new Map<TaskId, TaskStatus>();
-    for (const node of graph.tasks) statuses.set(node.id, "PENDING");
-    const attempts = new Map<TaskId, number>();
-    const leases = new LeaseRegistry(() => Date.parse(now()));
-    let ledger = createLedger(input.objective, limits.maxConsecutiveStalls);
+    const state: SupervisorState = {
+      graph,
+      statuses: new Map(graph.tasks.map((t) => [t.id, t.status])),
+      attempts: new Map(graph.tasks.map((t) => [t.id, t.attempt])),
+      leases: new LeaseRegistry(() => Date.now()),
+      ledger: createLedger(input.objective, input.limits?.maxConsecutiveStalls ?? 3)
+    };
 
     const ctx: SupervisorContext = {
       deps,
       runId,
       project,
       run,
-      limits,
+      limits: run.limits,
       now,
       generateId,
       judge,
@@ -468,15 +463,14 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
       make
     };
 
-    const state: SupervisorState = { graph, statuses, attempts, leases, ledger };
-    const result = await runSupervisorRounds(ctx, state, input.objective);
+    const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
     const status = result.status;
 
-    const read = await eventStore.readAll();
-    const replayed = replayRun(read.events);
-    const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, now()));
+    const finalRead = await eventStore.readAll();
+    const finalReplayed = replayRun(finalRead.events);
+    const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
     await checkpointStore.write(checkpoint);
-    return { runId, status, events: read.events, checkpoint, project };
+    return { runId, status, events: finalRead.events, checkpoint, project: project };
   })();
 
   return {
@@ -486,11 +480,7 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
   };
 }
 
-/**
- * M2: resumes a supervised run from its persisted events. Completed work is
- * never re-planned; joins, leases, and stall state recover after restart.
- * A run that already reached a terminal state is returned unchanged.
- */
+/** Resume a supervised run from persisted events. */
 export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): SupervisedRunHandle {
   const controller = new AbortController();
   const now = deps.now ?? nowIso;
@@ -500,31 +490,37 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
   const done = (async (): Promise<SupervisedRunOutcome> => {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
+
     const read = await eventStore.readAll();
     if (read.events.length === 0) {
-      throw new Error(`Run ${runId} not found under ${deps.stateRoot}`);
-    }
-    const replayed = replayRun(read.events);
-    if (replayed.run === undefined) {
-      throw new Error(`Run ${runId} has no RUN_CREATED event`);
-    }
-    if (replayed.project === undefined) {
-      throw new Error(`Run ${runId} has no project snapshot`);
+      throw new Error(`Run ${runId} not found`);
     }
 
-    // Terminal runs resume to the same state.
-    if (replayed.status === "COMPLETED" || replayed.status === "FAILED" || replayed.status === "BLOCKED" || replayed.status === "CANCELLED") {
-      const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, now()));
-      await checkpointStore.write(checkpoint);
-      return { runId, status: replayed.status, events: read.events, checkpoint, project: replayed.project };
+    const replayed = replayRun(read.events);
+    if (!replayed.run) {
+      throw new Error(`Run ${runId} has no RUN_CREATED event`);
     }
 
     const state = reconstructSupervisorState(read.events);
-    if (state === undefined) {
-      throw new Error(`Run ${runId} has no accepted task graph`);
+    if (!state) {
+      throw new Error(`Run ${runId} has no TASK_GRAPH_ACCEPTED event`);
     }
-    const limits = replayed.run.limits;
+
+    // If already terminal, return immediately without appending events.
+    if (replayed.status === "COMPLETED" || replayed.status === "FAILED" || replayed.status === "CANCELLED" || replayed.status === "BLOCKED") {
+      const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, now()));
+      await checkpointStore.write(checkpoint);
+      return {
+        runId,
+        status: replayed.status,
+        events: read.events,
+        checkpoint,
+        project: replayed.project!
+      };
+    }
+
     const run = replayed.run;
+    const limits = run.limits;
 
     const make = (type: Event["type"], payload: unknown, taskId?: TaskId): Event =>
       ({
@@ -543,7 +539,7 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
     const ctx: SupervisorContext = {
       deps,
       runId,
-      project: replayed.project,
+      project: replayed.project!,
       run,
       limits,
       now,
@@ -563,7 +559,7 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
     const finalReplayed = replayRun(finalRead.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
     await checkpointStore.write(checkpoint);
-    return { runId, status, events: finalRead.events, checkpoint, project: replayed.project };
+    return { runId, status, events: finalRead.events, checkpoint, project: replayed.project! };
   })();
 
   return {

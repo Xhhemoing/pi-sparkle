@@ -78,3 +78,62 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - The local suite (fake-executor path) verifies M0-M2 acceptance scenarios;
     the real-provider Pi smoke remains opt-in (requires PI_PROVIDER/PI_MODEL
     and credentials).
+
+## P1–P7 Integration & Governance Extensions (M2.5+)
+
+**Classification (P7):**
+- **Permanent core (常驻)**: P1 (智能模型路由), P2 (置信度 + 人类审批 + 选择性执行), P4 (轻量框架规范).
+- **Optional extensions (可选)**: P3 (Decision-to-Commit 桥接, 替代 git 规范), P5 (中途注入与暂停).
+- P6: 轻量 `DecisionPolicy` / `ModelRouter` / `EvidencePolicy` 框架（随 M2.5 落地）。
+
+## M2.5: Flowchart Supervisor + P1/P2 Core (Permanent)
+
+- [ ] T12: Flowchart schema + ModelRouter + Confidence types (Permanent core).
+  - Acceptance: modelPolicy, confidenceThreshold, ApprovalPlan with selectable items; ModelRouter emits MODEL_ROUTED; low-confidence forces WAITING_FOR_USER; no M2 regression.
+  - Verify: flowchart + router unit tests + typecheck.
+  - Depends on: Checkpoint C.
+
+- [ ] T13: FlowchartSupervisor with P1 routing + P2 confidence/approval (Permanent core).
+  - Acceptance: parallel branches route via ModelRouter; selective checkbox approval works; confidence propagates; resume restores pending approvals.
+  - Verify: integration tests with mixed-model + confidence-gate scenarios.
+  - Depends on: T12.
+
+- [ ] T14: Flowchart + ledger + confidence persistence + M2.5 gates (Permanent).
+  - Acceptance: non-trivial flowchart (fork + different models + confidence gate + selective join) works; resume restores router + approval state; full gates pass.
+  - Verify: full quality gates + resume tests.
+  - Depends on: T13.
+
+- [ ] Checkpoint D (M2.5): P1 & P2 are permanent core. Flowchart is canonical orchestration engine.
+
+## M3: Optional Governance (P3, P5)
+
+- [ ] T15 (Optional): Decision-to-Commit bridge (P3).
+  - Acceptance: reads ledger + flowchart decisions, emits conventional commits with evidence links; user can edit/sign; no core supervisor changes.
+  - Verify: CLI tool test.
+  - Depends on: Checkpoint D.
+
+- [ ] T16 (Optional): PauseController + typed InjectionPoint (P5).
+  - Acceptance: pause works on long-running flowchart; typed injections (fact/override/skip) validated by DecisionPolicy and recorded; resume continues correctly.
+  - Verify: CLI injection tests + resume after pause.
+  - Depends on: T15 (or parallel if behind flag).
+
+- [ ] Checkpoint E (M3 optional): Optional governance features available but not required for core M2.5.
+
+## M2.5: Flowchart Supervisor
+
+- [ ] T12: Flowchart schema, validation, and execution semantics.
+  - Acceptance: invalid flowcharts rejected; linear flowchart executes; ledger backward compatible.
+  - Verify: flowchart unit tests + typecheck.
+  - Depends on: Checkpoint C.
+
+- [ ] T13: Flowchart-driven subagent orchestration + parallel execution.
+  - Acceptance: parallel sub-agents leased and joined; conditional edges evaluated from judge output; resume recovers cursor + branches.
+  - Verify: integration tests with fork/join scenarios.
+  - Depends on: T12.
+
+- [ ] T14: Flowchart + ledger integration, stall handling, and M2.5 acceptance.
+  - Acceptance: non-trivial flowchart (fork→parallel→join) works end-to-end; no regression on M2 tests.
+  - Verify: full quality gates + resume tests.
+  - Depends on: T13.
+
+- [ ] Checkpoint D (M2.5): Flowchart supervisor becomes the canonical orchestration model for complex sub-agent relationships.

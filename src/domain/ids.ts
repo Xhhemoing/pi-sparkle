@@ -7,6 +7,7 @@ export type IdBrand =
   | "TaskId"
   | "MessageId"
   | "EventId"
+  | "EpisodeId"
   | "ArtifactId"
   | "EvidenceId"
   | "AgentInstanceId"
@@ -19,6 +20,7 @@ export type RunId = BrandedId<"RunId">;
 export type TaskId = BrandedId<"TaskId">;
 export type MessageId = BrandedId<"MessageId">;
 export type EventId = BrandedId<"EventId">;
+export type EpisodeId = BrandedId<"EpisodeId">;
 export type ArtifactId = BrandedId<"ArtifactId">;
 export type EvidenceId = BrandedId<"EvidenceId">;
 export type AgentInstanceId = BrandedId<"AgentInstanceId">;
@@ -30,6 +32,7 @@ const ID_PREFIXES: Record<IdBrand, string> = {
   TaskId: "tsk",
   MessageId: "msg",
   EventId: "evt",
+  EpisodeId: "ep",
   ArtifactId: "art",
   EvidenceId: "evd",
   AgentInstanceId: "agt",
@@ -73,6 +76,7 @@ export const createRunId = (generate?: IdGenerator): RunId => createId("RunId", 
 export const createTaskId = (generate?: IdGenerator): TaskId => createId("TaskId", generate);
 export const createMessageId = (generate?: IdGenerator): MessageId => createId("MessageId", generate);
 export const createEventId = (generate?: IdGenerator): EventId => createId("EventId", generate);
+export const createEpisodeId = (generate?: IdGenerator): EpisodeId => createId("EpisodeId", generate);
 export const createArtifactId = (generate?: IdGenerator): ArtifactId => createId("ArtifactId", generate);
 export const createEvidenceId = (generate?: IdGenerator): EvidenceId => createId("EvidenceId", generate);
 export const createAgentInstanceId = (generate?: IdGenerator): AgentInstanceId =>
@@ -85,6 +89,7 @@ export const isRunId = (value: unknown): value is RunId => isId("RunId", value);
 export const isTaskId = (value: unknown): value is TaskId => isId("TaskId", value);
 export const isMessageId = (value: unknown): value is MessageId => isId("MessageId", value);
 export const isEventId = (value: unknown): value is EventId => isId("EventId", value);
+export const isEpisodeId = (value: unknown): value is EpisodeId => isId("EpisodeId", value);
 export const isArtifactId = (value: unknown): value is ArtifactId => isId("ArtifactId", value);
 export const isEvidenceId = (value: unknown): value is EvidenceId => isId("EvidenceId", value);
 export const isAgentInstanceId = (value: unknown): value is AgentInstanceId => isId("AgentInstanceId", value);
@@ -94,3 +99,5 @@ export const parseRunId = (value: unknown): RunId => parseId("RunId", value);
 export const parseTaskId = (value: unknown): TaskId => parseId("TaskId", value);
 export const parseProjectId = (value: unknown): ProjectId => parseId("ProjectId", value);
 export const parseAgentProfileId = (value: unknown): AgentProfileId => parseId("AgentProfileId", value);
+export const parseEventId = (value: unknown): EventId => parseId("EventId", value);
+export const parseEpisodeId = (value: unknown): EpisodeId => parseId("EpisodeId", value);

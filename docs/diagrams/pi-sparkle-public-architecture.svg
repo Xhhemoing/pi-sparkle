@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1200" viewBox="0 0 1920 1200" role="img" aria-labelledby="title desc">
+  <title id="title">pi-sparkle 核心工作流程与受控改进架构</title>
+  <desc id="desc">突出展示从需求、规划、执行到验收的核心主线，并在下方缩小展示基于证据的受控改进流程。</desc>
+  <defs>
+    <marker id="arrow-main" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#24323B"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#24775F"/>
+    </marker>
+    <marker id="arrow-coral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#C9634E"/>
+    </marker>
+    <style>
+      text { font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif; fill: #1D2932; letter-spacing: 0; }
+      .title { font-size: 48px; font-weight: 700; }
+      .subtitle { font-size: 21px; fill: #5D6870; }
+      .section { font-size: 17px; font-weight: 700; }
+      .stage { font-size: 15px; font-weight: 700; }
+      .node-title { font-size: 30px; font-weight: 700; }
+      .node-sub { font-size: 17px; fill: #56616A; }
+      .item { font-size: 18px; font-weight: 700; }
+      .small { font-size: 15px; fill: #68737B; }
+      .micro { font-size: 13px; fill: #7A858C; }
+      .white { fill: #FFFFFF; }
+      .muted-white { fill: #DCE4E6; }
+      .main-arrow { fill: none; stroke: #24323B; stroke-width: 7; stroke-linecap: round; marker-end: url(#arrow-main); }
+      .feedback { fill: none; stroke: #24775F; stroke-width: 3.5; stroke-dasharray: 10 8; stroke-linecap: round; marker-end: url(#arrow-green); }
+      .rework { fill: none; stroke: #C9634E; stroke-width: 3; stroke-dasharray: 8 7; stroke-linecap: round; marker-end: url(#arrow-coral); }
+    </style>
+  </defs>
+
+  <rect width="1920" height="1200" fill="#F6F8F6"/>
+
+  <!-- Header -->
+  <text id="title-text" x="70" y="82" class="title">pi-sparkle：从需求到可靠交付</text>
+  <text x="72" y="123" class="subtitle">一条主线完成项目；只有被证据证明、由你批准的改进，才进入下一轮</text>
+  <g transform="translate(1620 55)">
+    <rect width="230" height="46" rx="6" fill="#24323B"/>
+    <text x="115" y="30" text-anchor="middle" class="stage white">核心流程 · 架构总览</text>
+  </g>
+  <path d="M70 158H1850" stroke="#D8DDDA" stroke-width="2"/>
+
+  <!-- Main flow label and rail -->
+  <g transform="translate(70 188)">
+    <rect width="116" height="32" rx="5" fill="#24323B"/>
+    <text x="58" y="22" text-anchor="middle" class="stage white">核心主线</text>
+    <text x="134" y="22" class="small">正常任务始终沿深色轨道从左向右推进</text>
+  </g>
+  <path d="M376 452H430" class="main-arrow"/>
+  <path d="M926 452H990" class="main-arrow"/>
+  <path d="M1406 452H1470" class="main-arrow"/>
+  <text x="402" y="431" text-anchor="middle" class="micro">需求合同</text>
+  <text x="958" y="431" text-anchor="middle" class="micro">任务包</text>
+  <text x="1438" y="431" text-anchor="middle" class="micro">交付证据</text>
+
+  <!-- 01 Intent -->
+  <g>
+    <rect x="70" y="250" width="300" height="405" rx="8" fill="#FFFFFF" stroke="#E0D29E" stroke-width="2"/>
+    <rect x="70" y="250" width="300" height="12" rx="6" fill="#E6B83F"/>
+    <text x="98" y="302" class="stage" fill="#856615">01 · 意图与现场</text>
+    <text x="98" y="351" class="node-title">先听懂</text>
+    <text x="98" y="382" class="node-sub">把一句需求变成可验证合同</text>
+    <path d="M98 414H342" stroke="#E9ECE9" stroke-width="2"/>
+    <circle cx="108" cy="451" r="6" fill="#E6B83F"/>
+    <text x="128" y="457" class="item">当前目标与边界</text>
+    <text x="128" y="481" class="small">明确要做什么、不做什么</text>
+    <circle cx="108" cy="523" r="6" fill="#E6B83F"/>
+    <text x="128" y="529" class="item">项目规则与代码状态</text>
+    <text x="128" y="553" class="small">保留出处，不掩盖冲突</text>
+    <rect x="98" y="586" width="244" height="42" rx="5" fill="#FFF5D8"/>
+    <text x="220" y="612" text-anchor="middle" class="small" fill="#725B20">重要歧义才请你决定</text>
+  </g>
+
+  <!-- 02 Orchestration -->
+  <g>
+    <rect x="430" y="230" width="490" height="445" rx="8" fill="#FFFFFF" stroke="#8CC1B0" stroke-width="3"/>
+    <rect x="430" y="230" width="490" height="82" rx="7" fill="#1F6E58"/>
+    <rect x="430" y="294" width="490" height="18" fill="#1F6E58"/>
+    <text x="462" y="265" class="stage white">02 · PI-SPARKLE 项目总管</text>
+    <text x="462" y="293" class="small muted-white">理解、规划、分工，守住验收边界</text>
+    <text x="462" y="363" class="node-title">把目标变成可执行计划</text>
+    <text x="462" y="397" class="node-sub">先组织工作，再选择模型和协作方式</text>
+    <path d="M462 428H888" stroke="#E4E9E6" stroke-width="2"/>
+    <g transform="translate(462 458)">
+      <circle cx="17" cy="17" r="17" fill="#DCEFE8"/>
+      <text x="17" y="23" text-anchor="middle" class="stage" fill="#1F6E58">1</text>
+      <text x="48" y="23" class="item">看懂项目</text>
+      <text x="230" y="23" class="small">规则 · 边界 · 风险</text>
+    </g>
+    <g transform="translate(462 514)">
+      <circle cx="17" cy="17" r="17" fill="#DCEFE8"/>
+      <text x="17" y="23" text-anchor="middle" class="stage" fill="#1F6E58">2</text>
+      <text x="48" y="23" class="item">拆解任务</text>
+      <text x="230" y="23" class="small">负责人 · 依赖 · 检查</text>
+    </g>
+    <g transform="translate(462 570)">
+      <circle cx="17" cy="17" r="17" fill="#DCEFE8"/>
+      <text x="17" y="23" text-anchor="middle" class="stage" fill="#1F6E58">3</text>
+      <text x="48" y="23" class="item">选择方式</text>
+      <text x="230" y="23" class="small">单模型 · 搭档 · 团队</text>
+    </g>
+    <rect x="462" y="625" width="426" height="32" rx="5" fill="#EDF6F2"/>
+    <text x="675" y="647" text-anchor="middle" class="small" fill="#1F6E58">每项任务只携带刚好够用的上下文</text>
+  </g>
+
+  <!-- 03 Execution -->
+  <g>
+    <rect x="990" y="250" width="410" height="405" rx="8" fill="#FFFFFF" stroke="#ABC2DA" stroke-width="2"/>
+    <rect x="990" y="250" width="410" height="12" rx="6" fill="#4F7EAF"/>
+    <text x="1018" y="302" class="stage" fill="#355F8B">03 · 执行与验证</text>
+    <text x="1018" y="351" class="node-title">真正动手</text>
+    <text x="1018" y="382" class="node-sub">AI 与工具围绕同一验收标准工作</text>
+    <path d="M1018 414H1372" stroke="#E9ECE9" stroke-width="2"/>
+    <g transform="translate(1018 445)">
+      <circle cx="22" cy="22" r="22" fill="#DCEFE8"/>
+      <text x="22" y="28" text-anchor="middle" class="stage" fill="#1F6E58">做</text>
+      <text x="58" y="18" class="item">AI 开发者</text>
+      <text x="58" y="42" class="small">写代码 · 改文件 · 调工具</text>
+    </g>
+    <g transform="translate(1018 518)">
+      <circle cx="22" cy="22" r="22" fill="#F9E2DD"/>
+      <text x="22" y="28" text-anchor="middle" class="stage" fill="#A94F3D">审</text>
+      <text x="58" y="18" class="item">独立审查</text>
+      <text x="58" y="42" class="small">找问题 · 提异议 · 要证据</text>
+    </g>
+    <rect x="1018" y="591" width="354" height="42" rx="5" fill="#E9F0F7"/>
+    <text x="1195" y="617" text-anchor="middle" class="small" fill="#355F8B">测试 · 类型 · 构建 · 安全门禁</text>
+  </g>
+
+  <!-- 04 Acceptance -->
+  <g>
+    <rect x="1470" y="250" width="380" height="405" rx="8" fill="#FFFFFF" stroke="#E0D29E" stroke-width="2"/>
+    <rect x="1470" y="250" width="380" height="12" rx="6" fill="#E6B83F"/>
+    <text x="1498" y="302" class="stage" fill="#856615">04 · 验收与交付</text>
+    <text x="1498" y="351" class="node-title">逐项证明完成</text>
+    <text x="1498" y="382" class="node-sub">完成声明不能代替事实</text>
+    <path d="M1498 414H1822" stroke="#E9ECE9" stroke-width="2"/>
+    <circle cx="1508" cy="451" r="6" fill="#E6B83F"/>
+    <text x="1528" y="457" class="item">覆盖每条原始要求</text>
+    <circle cx="1508" cy="497" r="6" fill="#E6B83F"/>
+    <text x="1528" y="503" class="item">客观检查全部通过</text>
+    <circle cx="1508" cy="543" r="6" fill="#E6B83F"/>
+    <text x="1528" y="549" class="item">你作出最终确认</text>
+    <rect x="1498" y="586" width="324" height="42" rx="5" fill="#24323B"/>
+    <text x="1660" y="612" text-anchor="middle" class="stage white">通过 → 可靠交付</text>
+  </g>
+
+  <!-- Rework loop: visible but secondary -->
+  <path d="M1660 242V205H675V222" class="rework"/>
+  <text x="1165" y="193" text-anchor="middle" class="micro" fill="#A94F3D">验收未通过：带着失败证据返回规划，修正后重新执行</text>
+
+  <!-- Secondary adaptation plane -->
+  <g>
+    <rect x="70" y="735" width="1780" height="315" rx="8" fill="#F1F4F1" stroke="#D3DAD5" stroke-width="2"/>
+    <rect x="70" y="735" width="8" height="315" fill="#7A9188"/>
+    <text x="102" y="779" class="section">次级流程 · 受控改进</text>
+    <text x="305" y="779" class="small">不修改正在运行的任务；候选先验证，再由你批准</text>
+
+    <path d="M220 793V807" class="rework"/>
+    <text x="238" y="804" class="micro" fill="#A94F3D">来自验收与交付</text>
+
+    <g transform="translate(102 820)">
+      <text x="0" y="0" class="stage" fill="#A94F3D">证据复盘</text>
+      <text x="0" y="39" class="item">看完整项目过程</text>
+      <text x="0" y="66" class="small">定位返工、遗漏与超支</text>
+      <text x="0" y="91" class="small">重复证据才形成规律</text>
+    </g>
+    <path d="M352 900H430" class="feedback"/>
+
+    <g transform="translate(465 820)">
+      <text x="0" y="0" class="stage" fill="#1F6E58">候选改进</text>
+      <text x="0" y="39" class="item">只生成新版本候选</text>
+      <text x="0" y="66" class="small">路由 · 任务模板 · 提示 · 偏好</text>
+      <text x="0" y="91" class="small">保留版本、依据与适用范围</text>
+    </g>
+    <path d="M755 900H833" class="feedback"/>
+
+    <g transform="translate(868 820)">
+      <text x="0" y="0" class="stage" fill="#1F6E58">隔离验证</text>
+      <text x="0" y="39" class="item">重放 → 对比 → 小范围试用</text>
+      <text x="0" y="66" class="small">不碰真实项目，不越过红线</text>
+      <text x="0" y="91" class="small">没有更好就停止或回滚</text>
+    </g>
+    <path d="M1197 900H1275" class="feedback"/>
+
+    <g transform="translate(1310 808)">
+      <rect width="236" height="116" rx="7" fill="#FFFFFF" stroke="#86B8A8" stroke-width="2"/>
+      <text x="118" y="34" text-anchor="middle" class="stage" fill="#1F6E58">最终门槛</text>
+      <text x="118" y="69" text-anchor="middle" class="item">你的明确批准</text>
+      <text x="118" y="96" text-anchor="middle" class="small">候选才可成为启用版本</text>
+    </g>
+    <path d="M1555 866H1605" class="feedback"/>
+
+    <g transform="translate(1640 808)">
+      <rect width="178" height="116" rx="7" fill="#1F6E58"/>
+      <text x="89" y="41" text-anchor="middle" class="stage white">已批准版本</text>
+      <text x="89" y="72" text-anchor="middle" class="item white">用于下一轮</text>
+      <text x="89" y="98" text-anchor="middle" class="small muted-white">异常自动回滚</text>
+    </g>
+  </g>
+
+  <!-- Approved feedback to the next episode; kept compact and separate from the live run -->
+  <path d="M675 727V683" class="feedback"/>
+  <rect x="776" y="686" width="382" height="32" rx="5" fill="#E7F2ED"/>
+  <text x="967" y="708" text-anchor="middle" class="small" fill="#1F6E58">仅已批准版本进入下一轮规划</text>
+
+  <!-- Quiet guardrails -->
+  <path d="M70 1095H1850" stroke="#D8DDDA" stroke-width="2"/>
+  <text x="70" y="1140" class="section">系统底线</text>
+  <text x="210" y="1140" class="small">当前明确指令优先</text>
+  <circle cx="390" cy="1135" r="3" fill="#9BA4A8"/>
+  <text x="415" y="1140" class="small">测试与事实高于 AI 意见</text>
+  <circle cx="670" cy="1135" r="3" fill="#9BA4A8"/>
+  <text x="695" y="1140" class="small">执行域不能修改活动策略</text>
+  <circle cx="948" cy="1135" r="3" fill="#9BA4A8"/>
+  <text x="973" y="1140" class="small">每次改进可追溯、可撤销</text>
+  <text x="1850" y="1140" text-anchor="end" class="micro">Execution plane ≠ Adaptation plane</text>
+</svg>

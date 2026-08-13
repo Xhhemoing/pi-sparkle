@@ -17,6 +17,7 @@ import { EventStore } from "../run/event-store.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import { inspectRun } from "../run/inspection.js";
 import { materializeCheckpoint, replayRun, validateCheckpoint } from "../run/replay.js";
+import { resumeSupervisedRun } from "../run/supervisor.js";
 
 export interface CliIo {
   stdout(text: string): void;
@@ -105,7 +106,7 @@ const USAGE = `pi-sparkle — project-development multi-agent runtime
 Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
-  pi-sparkle resume --run <runId> [--state-root <dir>]
+  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
   pi-sparkle help
 
 State root defaults to ~/.pi-sparkle. The default executor is a deterministic
@@ -319,7 +320,9 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     args,
     options: {
       run: { type: "string" },
-      "state-root": { type: "string" }
+      "state-root": { type: "string" },
+      supervised: { type: "boolean", default: false },
+      executor: { type: "string" }
     }
   });
   if (values.run === undefined) {
@@ -333,6 +336,28 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   if (read.events.length === 0) {
     io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
     return 1;
+  }
+  if (values.supervised === true) {
+    const executorKind = values.executor ?? "fake-children";
+    const running = resumeSupervisedRun(
+      {
+        stateRoot,
+        executor: createExecutor(executorKind),
+        registry: createAgentProfileRegistry(defaultAgentProfiles())
+      },
+      runId
+    );
+    const outcome = await running.done;
+    io.stdout(`Run ${runId}: resumed (${outcome.status})\n`);
+    io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", runId, "events.jsonl")}\n`);
+    io.stdout(`  checkpoint: ${join(stateRoot, "runs", runId, "checkpoint.json")}\n`);
+    if (outcome.status === "FAILED") {
+      const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
+      const reason = failed !== undefined ? failed.payload.reason : "unknown";
+      io.stderr(`  reason: ${reason}\n`);
+      return 1;
+    }
+    return outcome.status === "COMPLETED" ? 0 : 1;
   }
   const state = replayRun(read.events);
   const checkpoint = validateCheckpoint(materializeCheckpoint(state, nowIso()));

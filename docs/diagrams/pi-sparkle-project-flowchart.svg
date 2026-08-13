@@ -1,0 +1,310 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1960" height="1820" viewBox="0 0 1960 1820" role="img">
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#33404A"/></marker>
+<marker id="arrg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#238264"/></marker>
+<marker id="arrc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#E97A61"/></marker>
+<marker id="arra" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#C88A2D"/></marker>
+<style>
+text { font-family:"Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif; fill:#1D2932; }
+.title { font-size:44px; font-weight:700; }
+.subtitle { font-size:20px; font-weight:400; fill:#5C6770; }
+.caption { font-size:15px; font-weight:700; fill:#657079; }
+.steptitle { font-size:18px; font-weight:700; }
+.stepnum { font-size:15px; font-weight:700; }
+.stepsub { font-size:13px; font-weight:400; fill:#4E5962; }
+.tag { font-size:11px; font-weight:400; fill:#8A949C; }
+.dtext { font-size:16px; font-weight:700; }
+.lab { font-size:13px; font-weight:400; fill:#657079; }
+.ylab { font-size:14px; font-weight:700; fill:#33404A; }
+.chip { font-size:14px; font-weight:700; }
+.legend { font-size:15px; font-weight:400; fill:#4E5962; }
+.white { fill:#FFFFFF; }
+.mw { fill:#DDE5E7; }
+.darkink { fill:#1D2932; }
+</style>
+</defs>
+<rect width="1960" height="1820" fill="#F5F7F4"/>
+<text x="60" y="74" class="title">pi-sparkle 项目流程图</text>
+<text x="62" y="112" class="subtitle">两列自上而下直读；所有返工、重试、修改与改进走边侧回路，互不交叉</text>
+<g transform="translate(1700 56)"><rect width="200" height="50" rx="7" fill="#18252D"/><text x="100" y="33" text-anchor="middle" class="stepnum white">紧凑版 · 双列直读</text></g>
+<rect x="60" y="142" width="30" height="22" rx="6" fill="#FFFFFF" stroke="#33404A" stroke-width="2"/>
+<text x="96" y="158" class="legend">步骤</text>
+<polygon points="180,153 206,153 193,143 193,163" fill="#FFFFFF" stroke="#33404A" stroke-width="2"/>
+<text x="216" y="158" class="legend">决策</text>
+<line x1="280" y1="153" x2="312" y2="153" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<text x="322" y="158" class="legend">主流程</text>
+<line x1="396" y1="153" x2="428" y2="153" stroke="#238264" stroke-width="3.5" stroke-dasharray="8 6" marker-end="url(#arrg)"/>
+<text x="438" y="158" class="legend">回路</text>
+<text x="610" y="165" text-anchor="middle" class="caption">左列：听懂 → 规划 → 执行</text>
+<text x="1350" y="165" text-anchor="middle" class="caption">右列：验收 → 复盘 → 进化</text>
+<rect x="445" y="170" width="330" height="500" rx="8" fill="#F6C453" fill-opacity="0.06"/>
+<rect x="770" y="178" width="130" height="46" rx="8" fill="#F6C453"/>
+<text x="835" y="208" text-anchor="middle" class="chip darkink">① 听懂需求</text>
+<rect x="445" y="670" width="330" height="400" rx="8" fill="#62B799" fill-opacity="0.06"/>
+<rect x="770" y="678" width="130" height="46" rx="8" fill="#62B799"/>
+<text x="835" y="708" text-anchor="middle" class="chip white">② 规划分工</text>
+<rect x="445" y="1070" width="330" height="400" rx="8" fill="#5A89C3" fill-opacity="0.06"/>
+<rect x="770" y="1078" width="130" height="46" rx="8" fill="#5A89C3"/>
+<text x="835" y="1108" text-anchor="middle" class="chip white">③ 执行验证</text>
+<rect x="1185" y="220" width="330" height="400" rx="8" fill="#E9A23B" fill-opacity="0.06"/>
+<rect x="1515" y="228" width="130" height="46" rx="8" fill="#E9A23B"/>
+<text x="1580" y="258" text-anchor="middle" class="chip white">④ 验收复盘</text>
+<rect x="1185" y="620" width="330" height="300" rx="8" fill="#E97A61" fill-opacity="0.06"/>
+<rect x="1515" y="628" width="130" height="46" rx="8" fill="#E97A61"/>
+<text x="1580" y="658" text-anchor="middle" class="chip white">⑤ 复盘学习</text>
+<rect x="1185" y="920" width="330" height="600" rx="8" fill="#1E6C57" fill-opacity="0.06"/>
+<rect x="1515" y="928" width="130" height="46" rx="8" fill="#1E6C57"/>
+<text x="1580" y="958" text-anchor="middle" class="chip white">⑥ 受控进化</text>
+<rect x="460" y="180" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="180" width="8" height="80" rx="4" fill="#F6C453"/>
+<circle cx="492" cy="220" r="15" fill="#F6C453"/>
+<text x="492" y="225" text-anchor="middle" class="stepnum darkink">1</text>
+<text x="516" y="214" class="steptitle">收集材料</text>
+<text x="486" y="234" class="stepsub">你的目标与要求</text>
+<text x="486" y="252" class="stepsub">项目文档与规则</text>
+<rect x="460" y="280" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="280" width="8" height="80" rx="4" fill="#F6C453"/>
+<circle cx="492" cy="320" r="15" fill="#F6C453"/>
+<text x="492" y="325" text-anchor="middle" class="stepnum darkink">2</text>
+<text x="516" y="314" class="steptitle">提取需求</text>
+<text x="486" y="334" class="stepsub">目标、约束、验收标准</text>
+<text x="486" y="352" class="stepsub">推断需求会标注出来</text>
+<text x="752" y="295" text-anchor="end" class="tag">RequirementContract</text>
+<rect x="460" y="380" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="380" width="8" height="80" rx="4" fill="#F6C453"/>
+<circle cx="492" cy="420" r="15" fill="#F6C453"/>
+<text x="492" y="425" text-anchor="middle" class="stepnum darkink">3</text>
+<text x="516" y="414" class="steptitle">歧义检查</text>
+<text x="486" y="434" class="stepsub">找出冲突与不明确处</text>
+<text x="486" y="452" class="stepsub">重要歧义才打扰你</text>
+<polygon points="460,516 610,480 760,516 610,552" fill="#FFFFFF" stroke="#33404A" stroke-width="2.5"/>
+<rect x="456" y="498" width="8" height="36" rx="4" fill="#F6C453"/>
+<text x="610" y="512" text-anchor="middle" class="dtext">有歧义</text>
+<text x="610" y="534" text-anchor="middle" class="dtext">或冲突？</text>
+<rect x="460" y="580" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="580" width="8" height="80" rx="4" fill="#F6C453"/>
+<circle cx="492" cy="620" r="15" fill="#F6C453"/>
+<text x="492" y="625" text-anchor="middle" class="stepnum darkink">4</text>
+<text x="516" y="614" class="steptitle">项目地图</text>
+<text x="486" y="634" class="stepsub">代码结构与公共接口</text>
+<text x="486" y="652" class="stepsub">规则、命令与风险点</text>
+<text x="752" y="595" text-anchor="end" class="tag">ProjectContextIndex</text>
+<rect x="460" y="680" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="680" width="8" height="80" rx="4" fill="#62B799"/>
+<circle cx="492" cy="720" r="15" fill="#62B799"/>
+<text x="492" y="725" text-anchor="middle" class="stepnum white">5</text>
+<text x="516" y="714" class="steptitle">拆解任务</text>
+<text x="486" y="734" class="stepsub">每项都有负责人</text>
+<text x="486" y="752" class="stepsub">每个目标都有检查方法</text>
+<rect x="460" y="780" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="780" width="8" height="80" rx="4" fill="#62B799"/>
+<circle cx="492" cy="820" r="15" fill="#62B799"/>
+<text x="492" y="825" text-anchor="middle" class="stepnum white">6</text>
+<text x="516" y="814" class="steptitle">选择工作方式</text>
+<text x="486" y="834" class="stepsub">直接做/单个AI/搭档</text>
+<text x="486" y="852" class="stepsub">团队/多方辩论</text>
+<rect x="460" y="880" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="880" width="8" height="80" rx="4" fill="#62B799"/>
+<circle cx="492" cy="920" r="15" fill="#62B799"/>
+<text x="492" y="925" text-anchor="middle" class="stepnum white">7</text>
+<text x="516" y="914" class="steptitle">选择模型</text>
+<text x="486" y="934" class="stepsub">按质量、成本、速度</text>
+<text x="486" y="952" class="stepsub">与风险匹配</text>
+<text x="752" y="895" text-anchor="end" class="tag">R0→R1 路由</text>
+<rect x="460" y="980" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="980" width="8" height="80" rx="4" fill="#62B799"/>
+<circle cx="492" cy="1020" r="15" fill="#62B799"/>
+<text x="492" y="1025" text-anchor="middle" class="stepnum white">8</text>
+<text x="516" y="1014" class="steptitle">准备资料包</text>
+<text x="486" y="1034" class="stepsub">每个任务只带</text>
+<text x="486" y="1052" class="stepsub">刚好够用的信息</text>
+<text x="752" y="995" text-anchor="end" class="tag">ContextPacket</text>
+<rect x="460" y="1080" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="1080" width="8" height="80" rx="4" fill="#5A89C3"/>
+<circle cx="492" cy="1120" r="15" fill="#5A89C3"/>
+<text x="492" y="1125" text-anchor="middle" class="stepnum white">9</text>
+<text x="516" y="1114" class="steptitle">AI 动手干活</text>
+<text x="486" y="1134" class="stepsub">写代码、改文件</text>
+<text x="486" y="1152" class="stepsub">调用工具、运行命令</text>
+<rect x="460" y="1180" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="1180" width="8" height="80" rx="4" fill="#5A89C3"/>
+<circle cx="492" cy="1220" r="15" fill="#5A89C3"/>
+<text x="492" y="1225" text-anchor="middle" class="stepnum white">10</text>
+<text x="516" y="1214" class="steptitle">自动检查</text>
+<text x="486" y="1234" class="stepsub">测试、类型、构建</text>
+<text x="486" y="1252" class="stepsub">规范与安全门禁</text>
+<text x="752" y="1195" text-anchor="end" class="tag">tests·lint·build</text>
+<polygon points="460,1316 610,1280 760,1316 610,1352" fill="#FFFFFF" stroke="#33404A" stroke-width="2.5"/>
+<rect x="456" y="1298" width="8" height="36" rx="4" fill="#5A89C3"/>
+<text x="610" y="1312" text-anchor="middle" class="dtext">自动检查</text>
+<text x="610" y="1334" text-anchor="middle" class="dtext">通过？</text>
+<rect x="460" y="1380" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="460" y="1380" width="8" height="80" rx="4" fill="#5A89C3"/>
+<circle cx="492" cy="1420" r="15" fill="#5A89C3"/>
+<text x="492" y="1425" text-anchor="middle" class="stepnum white">11</text>
+<text x="516" y="1414" class="steptitle">代码审查</text>
+<text x="486" y="1434" class="stepsub">AI 审查者找问题</text>
+<text x="486" y="1452" class="stepsub">修正后再次检查</text>
+<rect x="1200" y="230" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="230" width="8" height="80" rx="4" fill="#E9A23B"/>
+<circle cx="1232" cy="270" r="15" fill="#E9A23B"/>
+<text x="1232" y="275" text-anchor="middle" class="stepnum white">12</text>
+<text x="1256" y="264" class="steptitle">逐项验收</text>
+<text x="1226" y="284" class="stepsub">对照最初每一条</text>
+<text x="1226" y="302" class="stepsub">需求是否都已满足</text>
+<text x="1492" y="245" text-anchor="end" class="tag">CoverageMatrix</text>
+<rect x="1200" y="330" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="330" width="8" height="80" rx="4" fill="#E9A23B"/>
+<circle cx="1232" cy="370" r="15" fill="#E9A23B"/>
+<text x="1232" y="375" text-anchor="middle" class="stepnum white">13</text>
+<text x="1256" y="364" class="steptitle">你的最终确认</text>
+<text x="1226" y="384" class="stepsub">客观结果+你的判断</text>
+<text x="1226" y="402" class="stepsub">才算真正完成</text>
+<polygon points="1200,466 1350,430 1500,466 1350,502" fill="#FFFFFF" stroke="#33404A" stroke-width="2.5"/>
+<rect x="1196" y="448" width="8" height="36" rx="4" fill="#E9A23B"/>
+<text x="1350" y="462" text-anchor="middle" class="dtext">交付</text>
+<text x="1350" y="484" text-anchor="middle" class="dtext">通过？</text>
+<rect x="1200" y="530" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="530" width="8" height="80" rx="4" fill="#E9A23B"/>
+<circle cx="1232" cy="570" r="15" fill="#E9A23B"/>
+<text x="1232" y="575" text-anchor="middle" class="stepnum white">14</text>
+<text x="1256" y="564" class="steptitle">记录结果</text>
+<text x="1226" y="584" class="stepsub">完成、返工与错误</text>
+<text x="1226" y="602" class="stepsub">都成为后续证据</text>
+<text x="1492" y="545" text-anchor="end" class="tag">ProjectEpisode</text>
+<rect x="1200" y="630" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="630" width="8" height="80" rx="4" fill="#E97A61"/>
+<circle cx="1232" cy="670" r="15" fill="#E97A61"/>
+<text x="1232" y="675" text-anchor="middle" class="stepnum white">15</text>
+<text x="1256" y="664" class="steptitle">复盘过程</text>
+<text x="1226" y="684" class="stepsub">哪一步出错、返工</text>
+<text x="1226" y="702" class="stepsub">哪一步多余或超支</text>
+<rect x="1200" y="730" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="730" width="8" height="80" rx="4" fill="#E97A61"/>
+<circle cx="1232" cy="770" r="15" fill="#E97A61"/>
+<text x="1232" y="775" text-anchor="middle" class="stepnum white">16</text>
+<text x="1256" y="764" class="steptitle">找规律</text>
+<text x="1226" y="784" class="stepsub">重复问题与有效经验</text>
+<text x="1226" y="802" class="stepsub">多次证据才算数</text>
+<rect x="1200" y="830" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="830" width="8" height="80" rx="4" fill="#E97A61"/>
+<circle cx="1232" cy="870" r="15" fill="#E97A61"/>
+<text x="1232" y="875" text-anchor="middle" class="stepnum white">17</text>
+<text x="1256" y="864" class="steptitle">改进候选</text>
+<text x="1226" y="884" class="stepsub">只形成候选</text>
+<text x="1226" y="902" class="stepsub">绝不直接改动线上</text>
+<text x="1492" y="845" text-anchor="end" class="tag">CANDIDATE</text>
+<rect x="1200" y="930" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="930" width="8" height="80" rx="4" fill="#1E6C57"/>
+<circle cx="1232" cy="970" r="15" fill="#1E6C57"/>
+<text x="1232" y="975" text-anchor="middle" class="stepnum white">18</text>
+<text x="1256" y="964" class="steptitle">隔离验证</text>
+<text x="1226" y="984" class="stepsub">在副本上重放</text>
+<text x="1226" y="1002" class="stepsub">不碰你的真实项目</text>
+<text x="1492" y="945" text-anchor="end" class="tag">Replay/Holdout</text>
+<polygon points="1200,1066 1350,1030 1500,1066 1350,1102" fill="#FFFFFF" stroke="#33404A" stroke-width="2.5"/>
+<rect x="1196" y="1048" width="8" height="36" rx="4" fill="#1E6C57"/>
+<text x="1350" y="1062" text-anchor="middle" class="dtext">独立验证</text>
+<text x="1350" y="1084" text-anchor="middle" class="dtext">通过？</text>
+<rect x="1200" y="1130" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="1130" width="8" height="80" rx="4" fill="#1E6C57"/>
+<circle cx="1232" cy="1170" r="15" fill="#1E6C57"/>
+<text x="1232" y="1175" text-anchor="middle" class="stepnum white">19</text>
+<text x="1256" y="1164" class="steptitle">试运行</text>
+<text x="1226" y="1184" class="stepsub">影子运行/小范围试用</text>
+<text x="1226" y="1202" class="stepsub">与旧版对比观察</text>
+<text x="1492" y="1145" text-anchor="end" class="tag">Shadow/Canary</text>
+<polygon points="1200,1266 1350,1230 1500,1266 1350,1302" fill="#FFFFFF" stroke="#33404A" stroke-width="2.5"/>
+<rect x="1196" y="1248" width="8" height="36" rx="4" fill="#1E6C57"/>
+<text x="1350" y="1262" text-anchor="middle" class="dtext">你批准</text>
+<text x="1350" y="1284" text-anchor="middle" class="dtext">了吗？</text>
+<rect x="1200" y="1330" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="1330" width="8" height="80" rx="4" fill="#1E6C57"/>
+<circle cx="1232" cy="1370" r="15" fill="#1E6C57"/>
+<text x="1232" y="1375" text-anchor="middle" class="stepnum white">20</text>
+<text x="1256" y="1364" class="steptitle">正式启用</text>
+<text x="1226" y="1384" class="stepsub">切换新版并记录依据</text>
+<text x="1226" y="1402" class="stepsub">旧版完整保留</text>
+<text x="1492" y="1345" text-anchor="end" class="tag">APPROVED→ACTIVE</text>
+<rect x="1200" y="1430" width="300" height="80" rx="8" fill="#FFFFFF" stroke="#D8DDD8" stroke-width="2"/>
+<rect x="1200" y="1430" width="8" height="80" rx="4" fill="#1E6C57"/>
+<circle cx="1232" cy="1470" r="15" fill="#1E6C57"/>
+<text x="1232" y="1475" text-anchor="middle" class="stepnum white">21</text>
+<text x="1256" y="1464" class="steptitle">持续监控</text>
+<text x="1226" y="1484" class="stepsub">效果变差或触碰红线</text>
+<text x="1226" y="1502" class="stepsub">自动回滚旧版本</text>
+<line x1="610" y1="260" x2="610" y2="280" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="360" x2="610" y2="380" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="460" x2="610" y2="480" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="552" x2="610" y2="580" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="660" x2="610" y2="680" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="760" x2="610" y2="780" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="860" x2="610" y2="880" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="960" x2="610" y2="980" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="1060" x2="610" y2="1080" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="1160" x2="610" y2="1180" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="1260" x2="610" y2="1280" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="610" y1="1352" x2="610" y2="1380" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="310" x2="1350" y2="330" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="410" x2="1350" y2="430" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="502" x2="1350" y2="530" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="610" x2="1350" y2="630" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="710" x2="1350" y2="730" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="810" x2="1350" y2="830" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="910" x2="1350" y2="930" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="1010" x2="1350" y2="1030" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="1102" x2="1350" y2="1130" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="1210" x2="1350" y2="1230" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="1302" x2="1350" y2="1330" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<line x1="1350" y1="1410" x2="1350" y2="1430" stroke="#33404A" stroke-width="3.5" marker-end="url(#arr)"/>
+<path d="M 760 516 H 920" fill="none" stroke="#33404A" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr)"/>
+<text x="840" y="504.0" text-anchor="middle" class="ylab">是</text>
+<rect x="920" y="476" width="220" height="96" rx="8" fill="#FFFFFF" stroke="#C88A2D" stroke-width="2"/>
+<text x="936" y="509" class="steptitle">向你澄清</text>
+<text x="936" y="531" class="stepsub">只问会影响计划的问题</text>
+<text x="936" y="550" class="stepsub">你的回答直接进合同</text>
+<path d="M 1140 516 H 1720 V 320 H 760" fill="none" stroke="#33404A" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arr)"/>
+<text x="1100" y="306.0" text-anchor="start" class="lab">澄清后重新提取</text>
+<path d="M 760 1316 H 920" fill="none" stroke="#33404A" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr)"/>
+<text x="840" y="1304.0" text-anchor="middle" class="ylab">否</text>
+<rect x="920" y="1276" width="220" height="96" rx="8" fill="#FFFFFF" stroke="#5A89C3" stroke-width="2"/>
+<text x="936" y="1309" class="steptitle">换方法重试</text>
+<text x="936" y="1331" class="stepsub">次数与预算有限</text>
+<text x="936" y="1350" class="stepsub">绝不无限死磕</text>
+<path d="M 1030 1372 V 1620 H 180 V 1608 M 180 1592 V 1020 H 460" fill="none" stroke="#33404A" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="8 6" marker-end="url(#arr)"/>
+<text x="1100" y="1010.0" text-anchor="start" class="lab">重试（有上限）</text>
+<path d="M 1200 466 H 205" fill="none" stroke="#E97A61" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arrc)"/>
+<path d="M 205 466 V 620 H 760" fill="none" stroke="#E97A61" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arrc)"/>
+<text x="700" y="452.0" text-anchor="middle" class="ylab">否</text>
+<text x="217" y="768.0" text-anchor="start" class="lab">返工：回到规划</text>
+<path d="M 1500 1066 H 1660" fill="none" stroke="#C88A2D" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arra)"/>
+<path d="M 1500 1266 H 1660" fill="none" stroke="#C88A2D" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arra)"/>
+<path d="M 1660 1266 V 870 H 1500" fill="none" stroke="#C88A2D" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arra)"/>
+<text x="1522" y="1054.0" text-anchor="middle" class="ylab">否</text>
+<text x="1522" y="1254.0" text-anchor="middle" class="ylab">否</text>
+<text x="1508" y="1158.0" text-anchor="start" class="lab">否：修改后再验</text>
+<text x="1508" y="1194.0" text-anchor="start" class="lab">否：改完再来</text>
+<path d="M 760 1460 V 1600 H 165 V 270 H 1200" fill="none" stroke="#33404A" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arr)"/>
+<text x="680" y="1552" text-anchor="start" class="lab">转到右列继续</text>
+<path d="M 1500 1490 H 1760 V 170 H 460 V 220" fill="none" stroke="#238264" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arrg)"/>
+<text x="470" y="140" text-anchor="start" class="lab">改进与教训 → 用于下一次任务</text>
+<path d="M 1500 1440 H 1540 V 1370 H 1500" fill="none" stroke="#E97A61" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="9 6" marker-end="url(#arrc)"/>
+<text x="1552" y="1390" text-anchor="start" class="lab">异常 → 自动回滚旧版</text>
+<text x="632" y="568.0" text-anchor="start" class="ylab">否</text>
+<text x="632" y="1368.0" text-anchor="start" class="ylab">是</text>
+<text x="1372" y="518.0" text-anchor="start" class="ylab">是</text>
+<text x="1372" y="1118.0" text-anchor="start" class="ylab">是</text>
+<text x="1372" y="1318.0" text-anchor="start" class="ylab">是</text>
+<rect x="70" y="1670" width="1820" height="66" rx="8" fill="#18252D"/>
+<text x="100" y="1710" class="steptitle white">三条底线</text>
+<circle cx="250" cy="1703" r="19" fill="#F6C453"/>
+<text x="250" y="1709" text-anchor="middle" class="stepnum darkink">1</text>
+<text x="282" y="1709" class="stepsub mw">你当前明确说的话优先</text>
+<circle cx="720" cy="1703" r="19" fill="#62B799"/>
+<text x="720" y="1709" text-anchor="middle" class="stepnum white">2</text>
+<text x="752" y="1709" class="stepsub mw">测试和事实高于 AI 意见</text>
+<circle cx="1225" cy="1703" r="19" fill="#E97A61"/>
+<text x="1225" y="1709" text-anchor="middle" class="stepnum white">3</text>
+<text x="1257" y="1709" class="stepsub mw">每次改进都可追溯、可回滚</text>
+<text x="980" y="1766" text-anchor="middle" class="lab">所有回路都经过验证与批准，绝不悄悄改动线上版本</text>
+</svg>
