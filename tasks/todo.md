@@ -24,12 +24,16 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: M0 coordinator integration tests.
   - Depends on: T3.
 
-- [ ] T5: Implement Pi adapter and M0 CLI smoke commands.
+- [x] T5: Implement Pi adapter and M0 CLI smoke commands.
   - Acceptance: only the adapter imports Pi; fake tests are provider-free; real smoke is opt-in.
   - Verify: CLI integration tests, build, and conditional provider smoke test.
   - Depends on: T4.
 
 - [ ] Checkpoint A: M0 works end-to-end and passes full local quality gates.
+  - Items 1-3 verified by the local suite; item 4 (Pi package/version and
+    provider smoke configuration review) remains a human decision. Proceeding
+    to M1 with fake-executor defaults per the user's directive is safe because
+    fake execution is the required default proof path.
 
 ## M1
 

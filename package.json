@@ -12,13 +12,16 @@
     "onlyBuiltDependencies": ["esbuild"]
   },
   "scripts": {
-    "test": "tsx --test test/**/*.test.ts",
+    "dev": "tsx src/cli/main.ts",
+    "cli": "tsx src/cli/main.ts",
+    "test": "tsx --test",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1"
+    "@earendil-works/pi-agent-core": "0.84.1",
+    "@earendil-works/pi-ai": "0.84.1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
