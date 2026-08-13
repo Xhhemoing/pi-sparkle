@@ -29,7 +29,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: CLI integration tests, build, and conditional provider smoke test.
   - Depends on: T4.
 
-- [ ] Checkpoint A: M0 works end-to-end and passes full local quality gates.
+- [x] Checkpoint A: M0 works end-to-end and passes full local quality gates.
   - Items 1-3 verified by the local suite; item 4 (Pi package/version and
     provider smoke configuration review) remains a human decision. Proceeding
     to M1 with fake-executor defaults per the user's directive is safe because
@@ -52,7 +52,10 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: end-to-end CLI integration tests.
   - Depends on: T7.
 
-- [ ] Checkpoint B: M1 coordination paths pass and are resumable.
+- [x] Checkpoint B: M1 coordination paths pass and are resumable.
+  - Verified by the M1 unit/integration suite: parent-child CLI workflow,
+    protocol envelopes, cancellation, questions/answers, and inspection all
+    persist and replay from disk.
 
 ## M2
 
@@ -71,7 +74,7 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
   - Verify: multi-process resume tests plus full quality gates.
   - Depends on: T10.
 
-- [ ] Checkpoint C: M0-M2 specification acceptance scenarios all pass.
+- [x] Checkpoint C: M0-M2 specification acceptance scenarios all pass.
   - The local suite (fake-executor path) verifies M0-M2 acceptance scenarios;
     the real-provider Pi smoke remains opt-in (requires PI_PROVIDER/PI_MODEL
     and credentials).

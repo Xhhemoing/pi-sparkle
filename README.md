@@ -4,9 +4,12 @@
 
 ## Status
 
-M0 foundation is in progress. The repository contains the TypeScript runtime,
-durable event/checkpoint infrastructure, project discovery, a single-run
-coordinator, and an in-progress Pi adapter/CLI slice.
+M0-M2 is implemented and passes the full local quality gates. The repository
+contains the TypeScript runtime, durable event/checkpoint infrastructure,
+project discovery, a single-run coordinator, a Pi adapter/CLI slice, bounded
+parent/child coordination with a structured protocol (M1), and a resumable
+supervisor over validated task DAGs with stall detection and judge
+transitions (M2). Real-provider execution remains opt-in via the Pi adapter.
 
 ## Scope
 
