@@ -41,6 +41,8 @@ export interface ChildCoordinatorDeps {
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
   schedule?: (fn: () => void, ms: number) => { cancel(): void };
+  /** Supplies an explicit answer when a child asks a QUESTION. */
+  onQuestion?: (question: AgentQuestion) => Promise<string> | string;
 }
 
 export interface ChildTaskInput {
@@ -127,6 +129,7 @@ export class ChildCoordinator {
   private readonly gate: ConcurrencyGate;
   private readonly parentAgentInstanceId: AgentInstanceId;
   private readonly parentStore: EventStore;
+  private readonly onQuestion: ((question: AgentQuestion) => Promise<string> | string) | undefined;
   private readonly childStores = new Map<RunId, EventStore>();
 
   /** Active attempt controller per child run, for external cancellation. */
@@ -147,6 +150,7 @@ export class ChildCoordinator {
       deps.generateId === undefined ? undefined : deps.generateId
     );
     this.parentStore = new EventStore(deps.stateRoot, deps.parentRunId);
+    this.onQuestion = deps.onQuestion === undefined ? undefined : deps.onQuestion;
   }
 
   get pendingQuestions(): readonly AgentQuestion[] {
@@ -511,6 +515,11 @@ export class ChildCoordinator {
         if (message.type === "QUESTION") {
           this.pendingQuestionsList.push(message);
           await this.appendParentEvent("RUN_WAITING_FOR_USER", { messageId: message.id }, taskId);
+          if (this.onQuestion !== undefined) {
+            const answer = await this.onQuestion(message);
+            this.answerQuestion(message.id, answer);
+            return undefined;
+          }
           // Pause until an explicit USER_ANSWER arrives or the run is aborted.
           await new Promise<void>((resolve) => {
             if (signal.aborted) {
