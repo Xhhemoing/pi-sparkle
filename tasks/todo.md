@@ -56,19 +56,22 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
 
 ## M2
 
-- [ ] T9: Implement task DAG validation and deterministic scheduling.
+- [x] T9: Implement task DAG validation and deterministic scheduling.
   - Acceptance: invalid graphs fail before execution; dependencies, joins, and leases are correct.
   - Verify: graph unit and scheduler integration tests.
   - Depends on: Checkpoint B.
 
-- [ ] T10: Add supervisor ledger, bounded rounds, stall detection, and judge transitions.
+- [x] T10: Add supervisor ledger, bounded rounds, stall detection, and judge transitions.
   - Acceptance: no-progress loops block; judge outputs only use declared routes.
   - Verify: supervisor unit and integration tests.
   - Depends on: T9.
 
-- [ ] T11: Implement supervisor resume and M2 acceptance scenarios.
+- [x] T11: Implement supervisor resume and M2 acceptance scenarios.
   - Acceptance: completed work does not rerun; joins, leases, and stall state recover after restart.
   - Verify: multi-process resume tests plus full quality gates.
   - Depends on: T10.
 
 - [ ] Checkpoint C: M0-M2 specification acceptance scenarios all pass.
+  - The local suite (fake-executor path) verifies M0-M2 acceptance scenarios;
+    the real-provider Pi smoke remains opt-in (requires PI_PROVIDER/PI_MODEL
+    and credentials).

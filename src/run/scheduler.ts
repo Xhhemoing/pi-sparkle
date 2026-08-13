@@ -49,6 +49,14 @@ export class LeaseRegistry {
     }
   }
 
+  /** Restores a previously persisted lease (used by resume). */
+  restore(lease: TaskLease): void {
+    if (this.leases.has(lease.taskId)) {
+      throw new DomainValidationError(`Task ${lease.taskId} is already leased`);
+    }
+    this.leases.set(lease.taskId, lease);
+  }
+
   active(taskId: TaskId): TaskLease | undefined {
     return this.leases.get(taskId);
   }
