@@ -9,7 +9,8 @@ export type IdBrand =
   | "EventId"
   | "ArtifactId"
   | "EvidenceId"
-  | "AgentInstanceId";
+  | "AgentInstanceId"
+  | "AgentProfileId";
 
 export type BrandedId<B extends IdBrand> = string & { readonly __brand: B };
 
@@ -21,6 +22,7 @@ export type EventId = BrandedId<"EventId">;
 export type ArtifactId = BrandedId<"ArtifactId">;
 export type EvidenceId = BrandedId<"EvidenceId">;
 export type AgentInstanceId = BrandedId<"AgentInstanceId">;
+export type AgentProfileId = BrandedId<"AgentProfileId">;
 
 const ID_PREFIXES: Record<IdBrand, string> = {
   ProjectId: "prj",
@@ -30,7 +32,8 @@ const ID_PREFIXES: Record<IdBrand, string> = {
   EventId: "evt",
   ArtifactId: "art",
   EvidenceId: "evd",
-  AgentInstanceId: "agt"
+  AgentInstanceId: "agt",
+  AgentProfileId: "prf"
 };
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -74,6 +77,8 @@ export const createArtifactId = (generate?: IdGenerator): ArtifactId => createId
 export const createEvidenceId = (generate?: IdGenerator): EvidenceId => createId("EvidenceId", generate);
 export const createAgentInstanceId = (generate?: IdGenerator): AgentInstanceId =>
   createId("AgentInstanceId", generate);
+export const createAgentProfileId = (generate?: IdGenerator): AgentProfileId =>
+  createId("AgentProfileId", generate);
 
 export const isProjectId = (value: unknown): value is ProjectId => isId("ProjectId", value);
 export const isRunId = (value: unknown): value is RunId => isId("RunId", value);
@@ -83,7 +88,9 @@ export const isEventId = (value: unknown): value is EventId => isId("EventId", v
 export const isArtifactId = (value: unknown): value is ArtifactId => isId("ArtifactId", value);
 export const isEvidenceId = (value: unknown): value is EvidenceId => isId("EvidenceId", value);
 export const isAgentInstanceId = (value: unknown): value is AgentInstanceId => isId("AgentInstanceId", value);
+export const isAgentProfileId = (value: unknown): value is AgentProfileId => isId("AgentProfileId", value);
 
 export const parseRunId = (value: unknown): RunId => parseId("RunId", value);
 export const parseTaskId = (value: unknown): TaskId => parseId("TaskId", value);
 export const parseProjectId = (value: unknown): ProjectId => parseId("ProjectId", value);
+export const parseAgentProfileId = (value: unknown): AgentProfileId => parseId("AgentProfileId", value);
