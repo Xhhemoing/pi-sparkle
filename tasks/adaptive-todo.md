@@ -38,7 +38,7 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 - [x] M5-T2: Bayesian task-family outcome estimates.
 - [x] M5-T3: Router replay harness and propensity ledger.
 - [x] M5-T4: Contextual bandit in shadow mode.
-- [x] M5-T5: Execution-topology router.
+- [x] M5-T5: Execution-topology router. _(router delivered; per-round recording of topology decisions is deferred to Checkpoint F — see adaptive-plan.md)_
 - [ ] Checkpoint F: statistically valid held-out cost-quality improvement with zero policy violations.
 
 ## M6: Controlled self-optimization

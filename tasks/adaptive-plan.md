@@ -538,7 +538,7 @@ corepack pnpm run typecheck
 - [x] Additional agents require positive expected value under remaining cost/time budget.
 - [x] Failed repeated reflection triggers model/topology change or stop, not an unbounded loop.
 - [x] Majority opinion cannot override deterministic failure or unresolved user intent.
-- [x] Topology decision and aggregation cost are recorded.
+- [ ] Topology decision and aggregation cost are recorded. _(pending: the run loop does not call `planTaskTopology` yet; task-family semantics and remaining-budget bookkeeping are Checkpoint F prerequisites)_
 
 **Verification:** scenario table covering low-risk mechanical work, architecture, security, ambiguous product intent, open-ended search, and stalled refinement.
 

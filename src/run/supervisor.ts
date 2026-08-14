@@ -28,9 +28,13 @@ import { decideTopology } from "../routing/topology.js";
 import type { TopologyDecision } from "../routing/topology.js";
 
 /**
- * Topology planning integration point for supervised rounds: converts a
- * bounded task context into a recorded topology decision (including
- * aggregation cost). Pure and deterministic — safe to call per round.
+ * Topology planning API reserved for the supervised run loop.
+ *
+ * NOTE: the current run loop does NOT call this yet — the supervised rounds
+ * need task-family semantics and remaining-budget bookkeeping before a
+ * topology decision can be recorded per round (Checkpoint F / M6 owns that
+ * integration; see the unchecked M5-T5 recording item in tasks/adaptive-plan.md).
+ * Pure and deterministic — safe to call once integration lands.
  */
 export interface TopologyInput {
   readonly taskFamily: string;
