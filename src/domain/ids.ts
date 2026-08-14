@@ -12,7 +12,9 @@ export type IdBrand =
   | "EvidenceId"
   | "AgentInstanceId"
   | "AgentProfileId"
-  | "InvocationId";
+  | "InvocationId"
+  | "CandidateId"
+  | "ResourceVersionId";
 
 export type BrandedId<B extends IdBrand> = string & { readonly __brand: B };
 
@@ -27,6 +29,8 @@ export type EvidenceId = BrandedId<"EvidenceId">;
 export type AgentInstanceId = BrandedId<"AgentInstanceId">;
 export type AgentProfileId = BrandedId<"AgentProfileId">;
 export type InvocationId = BrandedId<"InvocationId">;
+export type CandidateId = BrandedId<"CandidateId">;
+export type ResourceVersionId = BrandedId<"ResourceVersionId">;
 
 const ID_PREFIXES: Record<IdBrand, string> = {
   ProjectId: "prj",
@@ -39,7 +43,9 @@ const ID_PREFIXES: Record<IdBrand, string> = {
   EvidenceId: "evd",
   AgentInstanceId: "agt",
   AgentProfileId: "prf",
-  InvocationId: "inv"
+  InvocationId: "inv",
+  CandidateId: "cnd",
+  ResourceVersionId: "rsv"
 };
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -88,6 +94,10 @@ export const createAgentProfileId = (generate?: IdGenerator): AgentProfileId =>
   createId("AgentProfileId", generate);
 export const createInvocationId = (generate?: IdGenerator): InvocationId =>
   createId("InvocationId", generate);
+export const createCandidateId = (generate?: IdGenerator): CandidateId =>
+  createId("CandidateId", generate);
+export const createResourceVersionId = (generate?: IdGenerator): ResourceVersionId =>
+  createId("ResourceVersionId", generate);
 
 export const isProjectId = (value: unknown): value is ProjectId => isId("ProjectId", value);
 export const isRunId = (value: unknown): value is RunId => isId("RunId", value);
@@ -100,6 +110,9 @@ export const isEvidenceId = (value: unknown): value is EvidenceId => isId("Evide
 export const isAgentInstanceId = (value: unknown): value is AgentInstanceId => isId("AgentInstanceId", value);
 export const isAgentProfileId = (value: unknown): value is AgentProfileId => isId("AgentProfileId", value);
 export const isInvocationId = (value: unknown): value is InvocationId => isId("InvocationId", value);
+export const isCandidateId = (value: unknown): value is CandidateId => isId("CandidateId", value);
+export const isResourceVersionId = (value: unknown): value is ResourceVersionId =>
+  isId("ResourceVersionId", value);
 
 export const parseRunId = (value: unknown): RunId => parseId("RunId", value);
 export const parseTaskId = (value: unknown): TaskId => parseId("TaskId", value);
