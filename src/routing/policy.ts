@@ -30,17 +30,6 @@ export interface CandidateCheck {
   readonly failures: readonly ConstraintFailure[];
 }
 
-export const CONSTRAINT_NAMES = [
-  "provider-policy",
-  "privacy-class",
-  "capability",
-  "context-window",
-  "max-output",
-  "budget",
-  "deadline",
-  "high-risk-approval",
-] as const;
-
 /**
  * Every hard constraint is evaluated independently so the full rejection
  * matrix is attributable: provider policy, privacy class, capabilities,

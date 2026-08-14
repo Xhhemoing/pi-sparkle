@@ -10,12 +10,14 @@ import {
   updatePosterior,
   weightedSampleSize,
 } from "./posterior.js";
-import { getModel } from "./capability-registry.js";
+import type { ModelDescriptor } from "./capability-registry.js";
 
 export interface R1Input {
   readonly r0: R0Decision;
   readonly role: string;
   readonly featureVersion: string;
+  /** Eligible models, same source as R0 — no hidden global registry state. */
+  readonly models: readonly ModelDescriptor[];
   readonly observations: readonly OutcomeObservation[];
   readonly config?: Partial<PosteriorConfig> | undefined;
   readonly nowMs: number;
@@ -63,10 +65,9 @@ export function routeR1(input: R1Input): R1Decision {
 
   const tierIds = [input.r0.selection, ...input.r0.fallbacks];
   const estimates: R1Estimate[] = [];
-  const posteriorByModel = new Map<string, { alpha: number; beta: number }>();
 
   for (const modelId of tierIds) {
-    const model = getModel(modelId);
+    const model = input.models.find((m) => m.modelId === modelId);
     const parts = {
       taskFamily: request.taskFamily,
       role: input.role,
@@ -75,7 +76,6 @@ export function routeR1(input: R1Input): R1Decision {
     };
     const keyed = observationsForKey(input.observations, parts);
     const posterior = updatePosterior(config, keyed, input.nowMs);
-    posteriorByModel.set(modelId, posterior);
     estimates.push({
       modelId,
       key: `${parts.taskFamily}|${parts.role}|${parts.modelVersion}|${parts.featureVersion}`,
@@ -102,7 +102,8 @@ export function routeR1(input: R1Input): R1Decision {
   const best = sampled.reduce((acc, current) => {
     if (current.lcb > acc.lcb) return current;
     if (current.lcb === acc.lcb) {
-      // Tie-break deterministically by R0 cost order (tier order).
+      // Tie-break deterministically by R0 cost order (tier order): keep the
+      // earlier tier instead of replacing it with an equally-scored later one.
       return acc;
     }
     return acc;

@@ -1,5 +1,5 @@
 import type { OutcomeObservation } from "./outcomes.js";
-import { outcomeKey } from "./outcomes.js";
+import { isInformativeOutcome, outcomeKey } from "./outcomes.js";
 
 export interface BetaPosterior {
   readonly alpha: number;
@@ -38,7 +38,7 @@ export function updatePosterior(
   let alpha = config.priorAlpha;
   let beta = config.priorBeta;
   for (const observation of observations) {
-    if (observation.outcome === "ABSTAIN" || observation.outcome === "UNOBSERVED") continue;
+    if (!isInformativeOutcome(observation)) continue;
     const ageMs = Math.max(0, nowMs - observation.occurredAtMs);
     const weight = Math.pow(2, -ageMs / config.halfLifeMs);
     if (observation.outcome === "PASS") alpha += weight;

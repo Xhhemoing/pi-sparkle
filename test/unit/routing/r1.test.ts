@@ -1,9 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  registerModel,
-  resetModelRegistry,
-} from "../../../src/routing/capability-registry.js";
 import type { ModelDescriptor } from "../../../src/routing/capability-registry.js";
 import type { RouteRequest } from "../../../src/routing/policy.js";
 import { routeR0 } from "../../../src/routing/r0.js";
@@ -81,17 +77,12 @@ function r1Input(observations: OutcomeObservation[], overrides: Partial<Paramete
     r0,
     role: "engineer",
     featureVersion: "feat-1",
+    models: [CHEAP, MID],
     observations,
     nowMs: 1000,
     ...overrides,
   };
 }
-
-beforeEach(() => {
-  resetModelRegistry();
-  registerModel(CHEAP);
-  registerModel(MID);
-});
 
 describe("M5-T2: Bayesian outcome posterior", () => {
   it("ignores ABSTAIN and UNOBSERVED — they are not failures or zeros", () => {
@@ -200,6 +191,7 @@ describe("M5-T2: R1 router", () => {
       r0,
       role: "engineer",
       featureVersion: "feat-1",
+      models: [CHEAP, MID],
       observations: [],
       nowMs: 1000,
     });
