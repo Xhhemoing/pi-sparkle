@@ -12,8 +12,12 @@ export interface ShadowConfig {
   readonly explorationBudget: number;
   /** Explicit budget authorizing isolated comparisons of unselected models. */
   readonly comparisonBudgetUsd?: number | undefined;
+  /** Estimated cost of one isolated comparison invocation, deducted from the comparison budget. */
+  readonly comparisonCostUsd?: number | undefined;
   readonly driftConfig?: DriftConfig | undefined;
 }
+
+const DEFAULT_COMPARISON_COST_USD = 0.05;
 
 export interface ShadowDecision {
   readonly episodeHash: string;
@@ -22,10 +26,12 @@ export interface ShadowDecision {
   /**
    * Shadow mode never invokes the unselected model and never changes
    * production side effects. An explicit comparison budget may authorize an
-   * isolated invocation instead.
+   * isolated invocation instead; each invocation spends its estimated cost.
    */
   readonly invoked: boolean;
   readonly sideEffects: "none" | "isolated-only";
+  /** Comparison budget spent by this decision (0 when not invoked). */
+  readonly comparisonSpentUsd: number;
   readonly highRisk: boolean;
   readonly guardrailBreached: boolean;
   readonly uncertaintyScale: number;
@@ -38,6 +44,8 @@ export interface ShadowState {
   readonly haltReason: string | undefined;
   readonly decisions: readonly ShadowDecision[];
   readonly highRiskExplorations: number;
+  /** Remaining comparison budget; isolated invocations stop when exhausted. */
+  readonly comparisonRemainingUsd: number;
 }
 
 export interface ShadowRunner {
@@ -71,6 +79,7 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
               exploratory: false,
               invoked: false,
               sideEffects: "none",
+              comparisonSpentUsd: 0,
               highRisk,
               guardrailBreached: false,
               uncertaintyScale: state.monitor.uncertaintyScale,
@@ -93,7 +102,12 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
       );
 
       const breached = guardrail(choice.arm, features);
-      const isolatedAuthorized = (config.comparisonBudgetUsd ?? 0) > 0 && choice.exploratory;
+      // Each isolated invocation spends its estimated cost against the
+      // remaining comparison budget; the budget is real, not a flag.
+      const comparisonCost = config.comparisonCostUsd ?? DEFAULT_COMPARISON_COST_USD;
+      const isolatedAuthorized =
+        choice.exploratory && state.comparisonRemainingUsd >= comparisonCost;
+      const spent = isolatedAuthorized ? comparisonCost : 0;
 
       const decision: ShadowDecision = {
         episodeHash,
@@ -101,6 +115,7 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
         exploratory: choice.exploratory,
         invoked: isolatedAuthorized,
         sideEffects: isolatedAuthorized ? "isolated-only" : "none",
+        comparisonSpentUsd: spent,
         highRisk,
         guardrailBreached: breached,
         uncertaintyScale: state.monitor.uncertaintyScale,
@@ -110,6 +125,10 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
         ? recordExploration(state.bandit, highRisk)
         : state.bandit;
 
+      const remainingUsd = isolatedAuthorized
+        ? roundUsd(state.comparisonRemainingUsd - comparisonCost)
+        : state.comparisonRemainingUsd;
+
       if (breached) {
         return {
           ...state,
@@ -117,6 +136,7 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
           halted: true,
           haltReason: `guardrail breach for arm ${choice.arm}`,
           decisions: [...state.decisions, decision],
+          comparisonRemainingUsd: remainingUsd,
           highRiskExplorations: highRisk
             ? state.highRiskExplorations + (choice.exploratory ? 1 : 0)
             : state.highRiskExplorations,
@@ -127,6 +147,7 @@ export function createShadowRunner(config: ShadowConfig): ShadowRunner {
         ...state,
         bandit: nextBandit,
         decisions: [...state.decisions, decision],
+        comparisonRemainingUsd: remainingUsd,
         highRiskExplorations: state.highRiskExplorations,
       };
     },
@@ -144,7 +165,13 @@ export function createShadowState(arms: readonly string[], config: ShadowConfig)
     haltReason: undefined,
     decisions: [],
     highRiskExplorations: 0,
+    comparisonRemainingUsd: config.comparisonBudgetUsd ?? 0,
   };
+}
+
+/** Round to 6 decimal places so repeated deduction stays drift-free. */
+function roundUsd(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 export { recordReward };

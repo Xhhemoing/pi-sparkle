@@ -135,6 +135,29 @@ describe("M5-T4: shadow runner", () => {
     assert.ok(state.decisions.some((d) => d.invoked));
   });
 
+  it("spends the comparison budget per isolated invocation and stops when exhausted", () => {
+    const tight = {
+      ...config,
+      comparisonBudgetUsd: 0.06,
+      comparisonCostUsd: 0.05,
+    };
+    const runner = createShadowRunner(tight);
+    let state = createShadowState(["cheap", "mid"], tight);
+    const rng = createSeededRng(6);
+    for (let i = 0; i < 20; i++) {
+      state = runner.step(state, `h${i}`, features(), false, () => false, rng);
+    }
+    const invoked = state.decisions.filter((d) => d.invoked);
+    // 0.06 covers exactly one 0.05 invocation; later exploratory draws must not invoke.
+    assert.equal(invoked.length, 1);
+    assert.equal(invoked[0]?.comparisonSpentUsd, 0.05);
+    assert.ok(
+      state.decisions.some((d) => d.exploratory && !d.invoked),
+      "exploratory draws after budget exhaustion must not invoke"
+    );
+    assert.equal(state.comparisonRemainingUsd, 0.01);
+  });
+
   it("high-risk tasks never explore even with epsilon 1", () => {
     const runner = createShadowRunner(config);
     let state = createShadowState(["cheap", "mid"], config);
