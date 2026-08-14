@@ -47,6 +47,8 @@ export const EVENT_TYPES = [
   "JUDGE_DECISION",
   "RUN_BLOCKED",
   "EPISODE_OPENED",
+  "RUN_ATTACHED",
+  "EPISODE_WAITING",
   "EPISODE_CLOSED"
 ] as const;
 
@@ -173,6 +175,18 @@ export interface EpisodeClosedPayload {
   outcomeId?: string;
 }
 
+export interface RunAttachedPayload {
+  episodeId: EpisodeId;
+  runId: RunId;
+  attachedAt: IsoTimestamp;
+}
+
+export interface EpisodeWaitingPayload {
+  episodeId: EpisodeId;
+  reason: string;
+  requiredEvidence: string[];
+}
+
 export interface EventBase {
   id: EventId;
   schemaVersion: 1;
@@ -208,7 +222,9 @@ export type Event =
   | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
   | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
   | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
-  | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload });
+  | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload })
+  | (EventBase & { type: "RUN_ATTACHED"; payload: RunAttachedPayload })
+  | (EventBase & { type: "EPISODE_WAITING"; payload: EpisodeWaitingPayload });
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -415,6 +431,18 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       if (payload.outcomeId !== undefined && typeof payload.outcomeId !== "string") {
         return "payload.outcomeId must be a string when present";
       }
+      return undefined;
+    }
+    case "RUN_ATTACHED": {
+      if (!isEpisodeId(payload.episodeId)) return "payload.episodeId must be a valid EpisodeId";
+      if (!isRunId(payload.runId)) return "payload.runId must be a valid RunId";
+      if (typeof payload.attachedAt !== "string" || !isIsoTimestamp(payload.attachedAt)) return "payload.attachedAt must be a valid IsoTimestamp";
+      return undefined;
+    }
+    case "EPISODE_WAITING": {
+      if (!isEpisodeId(payload.episodeId)) return "payload.episodeId must be a valid EpisodeId";
+      if (typeof payload.reason !== "string" || payload.reason.trim() === "") return "payload.reason must be a non-empty string";
+      if (!Array.isArray(payload.requiredEvidence)) return "payload.requiredEvidence must be an array";
       return undefined;
     }
   }

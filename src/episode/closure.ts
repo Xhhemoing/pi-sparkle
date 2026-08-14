@@ -1,4 +1,4 @@
-import type { EpisodeId, RunId } from "../domain/ids.js";
+import type { RunId } from "../domain/ids.js";
 import type { ProjectEpisode } from "../domain/episode.js";
 import { nowIso } from "../domain/timestamp.js";
 
@@ -8,13 +8,14 @@ export interface ClosureDecision {
   readonly requiredEvidence: string[];
 }
 
-export function decideClosure(episode: ProjectEpisode, latestRunIds: RunId[]): ClosureDecision {
+export function decideClosure(episode: ProjectEpisode, _latestRunIds: readonly RunId[]): ClosureDecision {
   if (episode.status !== "OPEN") {
     return { canClose: false, reason: "already-closed", requiredEvidence: [] };
   }
-  const missing = episode.acceptance.filter((a) => !episode.evidenceRefs.length);
+  const hasEvidence = episode.evidenceRefs.length > 0;
+  const missing = hasEvidence || episode.acceptance.length === 0 ? [] : episode.acceptance.map((a) => a.id);
   if (missing.length > 0) {
-    return { canClose: false, reason: "acceptance-incomplete", requiredEvidence: missing.map((m) => m.id) };
+    return { canClose: false, reason: "acceptance-incomplete", requiredEvidence: missing };
   }
   return { canClose: true, reason: "all-criteria-met", requiredEvidence: [] };
 }

@@ -1,4 +1,4 @@
-import type { ProjectId, RunId, EpisodeId } from "../domain/ids.js";
+import type { ProjectId, EpisodeId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
 
 export interface ProjectContextIndex {
