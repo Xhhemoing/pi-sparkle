@@ -87,6 +87,19 @@ describe("M5-T5: topology scenario table", () => {
     assert.equal(first.halt, false);
     assert.match(first.reason, /escalating topology/);
 
+    const broke = decideAfterFailedReflection({
+      currentTopology: "single",
+      failedReflectionCount: 1,
+      request: request({
+        taskFamily: "bugfix",
+        budget: { remainingBudgetUsd: 0.01, remainingTimeMs: 3_600_000 },
+        valuePerUtilityPointUsd: 0.01,
+      }),
+    });
+    assert.equal(broke.halt, true);
+    assert.equal(broke.topology, "single");
+    assert.match(broke.reason, /not approved/);
+
     const stopped = decideAfterFailedReflection({
       currentTopology: "refine",
       failedReflectionCount: MAX_REFLECTION_ATTEMPTS,

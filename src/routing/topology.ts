@@ -197,6 +197,18 @@ export function decideAfterFailedReflection(ctx: ReflectionContext): TopologyDec
     TOPOLOGY_GAIN[next as Exclude<TopologyKind, "single" | "human-boundary">],
     ctx.request.valuePerUtilityPointUsd
   );
+  // Escalation is subject to the same gate as initial topology choice:
+  // additional agents must have positive expected value inside the remaining
+  // budget. A failing reflection must not buy its way out.
+  if (!ev.approve) {
+    return baseDecision(
+      ctx.currentTopology,
+      `reflection failed but escalation to ${next} is not approved (evUsd=${ev.evUsd.toFixed(4)}${ev.affordable ? "" : ", over budget"}); stopping instead of looping`,
+      ZERO_COST,
+      0,
+      true
+    );
+  }
   return baseDecision(
     next,
     `reflection failed; escalating topology ${ctx.currentTopology} -> ${next}`,
