@@ -27,6 +27,11 @@ export interface ReplayAction {
   readonly modelId: string;
   readonly propensity: number;
   readonly eligible: readonly string[];
+  /** Propensity for every eligible action — the off-policy ledger. */
+  readonly propensities: readonly {
+    readonly modelId: string;
+    readonly propensity: number;
+  }[];
 }
 
 export interface ReplayResult {
@@ -85,7 +90,11 @@ export function replayPolicy(
       );
     }
     const propensity = policy.propensityFor(episode, selected);
-    actions.push({ episodeHash: hash, modelId: selected, propensity, eligible });
+    const propensities = eligible.map((modelId) => ({
+      modelId,
+      propensity: policy.propensityFor(episode, modelId),
+    }));
+    actions.push({ episodeHash: hash, modelId: selected, propensity, eligible, propensities });
   }
 
   const rerunHash = `rr_${stableStringify({ actions, manifestHash: manifestHash(manifest) })}`;

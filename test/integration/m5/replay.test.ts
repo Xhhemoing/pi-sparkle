@@ -110,6 +110,10 @@ describe("M5-T3: replay harness", () => {
     for (const action of result.actions) {
       assert.deepEqual(action.eligible, ["cheap", "mid"]);
       assert.equal(action.propensity, 0.5);
+      assert.deepEqual(action.propensities, [
+        { modelId: "cheap", propensity: 0.5 },
+        { modelId: "mid", propensity: 0.5 },
+      ]);
     }
   });
 
