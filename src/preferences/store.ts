@@ -28,6 +28,11 @@ export function isTombstoned(id: string): boolean {
   return tombstones.has(id);
 }
 
+/** All tombstoned observation ids, for authorized exports and audits. */
+export function listTombstones(): string[] {
+  return Array.from(tombstones);
+}
+
 function viewKey(scope: PreferenceScope, scopeKey: string): string {
   return `${scope}:${scopeKey}`;
 }
@@ -55,6 +60,13 @@ function rebuildViews(): void {
     const first = obsList[0];
     if (!first) return;
     const aggregates: Record<string, string | number | boolean> = {};
+    // Parallel weight sums so numeric merges are weighted means instead of
+    // naive averages; a heavier observation dominates the merged value.
+    const weights: Record<string, number> = {};
+    // Keys anchored by an explicit instruction: inferred conflicts against
+    // them keep the explicit value instead of merging (mirrors findConflicts'
+    // "keep-existing" resolution).
+    const explicitAnchored = new Set<string>();
     let sourceCount = 0;
     let explicitOverrides = 0;
     let inferredConflicts = 0;
@@ -62,23 +74,37 @@ function rebuildViews(): void {
       if (!obs.explicit && obs.recurrenceCount < minInferredRecurrence) continue;
       sourceCount += 1;
       const current = aggregates[obs.key];
+      const currentW = weights[obs.key] ?? 0;
       const hasConflict = current !== undefined && current !== obs.value;
-      if (!hasConflict) {
-        if (typeof current === "number" && typeof obs.value === "number") {
-          aggregates[obs.key] = (current + obs.value) / 2;
+
+      if (obs.explicit) {
+        // Explicit instruction anchors the key: it sets the value and any
+        // later inferred conflict keeps this value instead of merging.
+        aggregates[obs.key] = obs.value;
+        weights[obs.key] = obs.weight;
+        explicitAnchored.add(obs.key);
+        if (hasConflict) explicitOverrides += 1;
+      } else if (!hasConflict) {
+        if (typeof obs.value === "number" && typeof current === "number" && currentW > 0) {
+          // Same numeric value: the weighted mean is the value itself; only
+          // accumulate weight so later conflicting observations merge fairly.
+          weights[obs.key] = currentW + obs.weight;
         } else {
           aggregates[obs.key] = obs.value;
+          weights[obs.key] = obs.weight;
         }
-      } else if (obs.explicit) {
-        // Explicit instruction overrides any learned value and raises confidence.
-        aggregates[obs.key] = obs.value;
-        explicitOverrides += 1;
+      } else if (explicitAnchored.has(obs.key)) {
+        // Inferred conflict against an explicit anchor: keep the explicit
+        // value; confidence drops and history is preserved.
+        inferredConflicts += 1;
+      } else if (typeof current === "number" && typeof obs.value === "number") {
+        // Inferred-vs-inferred numeric conflict: weighted mean.
+        const merged = (current * currentW + obs.value * obs.weight) / (currentW + obs.weight);
+        aggregates[obs.key] = merged;
+        weights[obs.key] = currentW + obs.weight;
+        inferredConflicts += 1;
       } else {
-        // Inferred conflict: merge numbers when possible, otherwise keep the
-        // existing value; confidence drops either way and history is preserved.
-        if (typeof current === "number" && typeof obs.value === "number") {
-          aggregates[obs.key] = (current + obs.value) / 2;
-        }
+        // Inferred conflict on a non-numeric key: keep the existing value.
         inferredConflicts += 1;
       }
     }

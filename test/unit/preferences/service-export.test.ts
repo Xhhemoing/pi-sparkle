@@ -4,7 +4,6 @@ import {
   clearAll,
   correctPreference,
   deletePreference,
-  exportPreferences,
   inspectPreferences,
   isDeleted,
   recordExplicitPreference,
@@ -87,8 +86,20 @@ describe("M4-T5: preference inspect/correct/export/delete workflow", () => {
     assert.ok(!listObservations().some((o) => o.id === obs.id));
     assert.equal(getMaterializedView("user", "u1")?.effectiveKeys["format"], undefined);
 
-    const exported = JSON.parse(exportPreferences()) as Array<{ id: string }>;
-    assert.ok(!exported.some((o) => o.id === obs.id));
+    const exported = JSON.parse(exportAuthorizedPreferences().data) as {
+      observations: Array<{ id: string }>;
+    };
+    assert.ok(!exported.observations.some((o) => o.id === obs.id));
+
+    // The tombstone itself is included only on explicit request.
+    const withTombstones = JSON.parse(
+      exportAuthorizedPreferences({ includeTombstones: true }).data
+    ) as { tombstones?: string[] };
+    assert.ok(withTombstones.tombstones?.includes(obs.id));
+    const withoutTombstones = JSON.parse(exportAuthorizedPreferences().data) as {
+      tombstones?: string[];
+    };
+    assert.equal(withoutTombstones.tombstones, undefined);
 
     // Deleting the same id again reports not found; the tombstone persists.
     assert.equal(deletePreference(obs.id), false);

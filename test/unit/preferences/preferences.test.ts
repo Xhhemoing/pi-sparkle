@@ -143,11 +143,24 @@ describe("M4-T4: scoped preference observations and materialized views", () => {
     assert.ok(after.view.confidence > before);
   });
 
-  it("numeric preferences merge by averaging comparable recurrences", () => {
+  it("an explicit numeric instruction is never averaged away by later inferred evidence", () => {
     explicit("user", "u1", "max-tokens", 4000);
     inferred("user", "u1", "max-tokens", 2000, epA);
     inferred("user", "u1", "max-tokens", 2000, epB);
-    assert.equal(materializeView("user", "u1").effectiveKeys["max-tokens"], 3000);
+    assert.equal(materializeView("user", "u1").effectiveKeys["max-tokens"], 4000);
+  });
+
+  it("conflicting inferred numeric preferences merge by weighted average", () => {
+    configureMinInferredRecurrence(1);
+    inferred("user", "u1", "max-tokens", 2000, epA);
+    inferred("user", "u1", "max-tokens", 3000, epB);
+    // Equal 0.5 weights: (2000 + 3000) / 2.
+    assert.equal(materializeView("user", "u1").effectiveKeys["max-tokens"], 2500);
+
+    // Weight matters: the heavier observation dominates the merged value.
+    recordPreference("user", "u1", "budget", 100, epA, 0.25, false);
+    recordPreference("user", "u1", "budget", 200, epB, 0.75, false);
+    assert.equal(materializeView("user", "u1").effectiveKeys["budget"], 175);
   });
 
   it("findConflicts reports conflicts with resolutions", () => {

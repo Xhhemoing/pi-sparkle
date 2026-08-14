@@ -1,5 +1,5 @@
 import type { PreferenceScope } from "./types.js";
-import { listObservations } from "./store.js";
+import { listObservations, listTombstones } from "./store.js";
 
 export interface ExportOptions {
   readonly includeTombstones?: boolean;
@@ -27,6 +27,10 @@ export function exportAuthorizedPreferences(
     exportedAt: new Date().toISOString(),
     count: observations.length,
     observations,
+    // Tombstones are included only on explicit request so downstream
+    // datasets can reproduce deletion semantics without leaking them by
+    // default.
+    ...(options.includeTombstones === true ? { tombstones: listTombstones() } : {}),
   };
 
   return {

@@ -49,10 +49,6 @@ export function correctPreference(
   return recordExplicitPreference(scope, scopeKey, key, value, episodeId);
 }
 
-export function exportPreferences(scope?: PreferenceScope): string {
-  return JSON.stringify(listObservations(scope), null, 2);
-}
-
 export function deletePreference(id: string): boolean {
   return deleteObservation(id);
 }
