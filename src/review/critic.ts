@@ -2,6 +2,7 @@ import type { EpisodeId, RunId, TaskId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
 import type { Rubric } from "../rubric/types.js";
 import type { EvaluationOutcome } from "../evaluation/types.js";
+import { createEventId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 
 export interface CriticInput {
@@ -29,7 +30,7 @@ export interface CriticOutput {
 export function createCriticObservation(input: CriticInput): CriticOutput {
   if (input.actorDefense) {
     return {
-      observationId: `critic_${Date.now()}`,
+      observationId: createEventId(),
       episodeId: input.episodeId,
       scores: [],
       overall: "ABSTAIN",
@@ -56,7 +57,7 @@ export function createCriticObservation(input: CriticInput): CriticOutput {
   const overall: EvaluationOutcome = hasPass ? "PASS" : "UNOBSERVED";
 
   return {
-    observationId: `critic_${Date.now()}`,
+    observationId: createEventId(),
     episodeId: input.episodeId,
     scores,
     overall,

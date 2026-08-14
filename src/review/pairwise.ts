@@ -1,5 +1,6 @@
 import type { EpisodeId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
+import { createEventId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 
 export interface PairwiseInput {
@@ -49,7 +50,7 @@ export function blindPairwiseCompare(input: PairwiseInput, swapOrder = false): P
   }
 
   return {
-    id: `pw_${Date.now()}`,
+    id: createEventId(),
     episodeId: input.episodeId,
     aId,
     bId,
@@ -58,25 +59,4 @@ export function blindPairwiseCompare(input: PairwiseInput, swapOrder = false): P
     createdAt: nowIso(),
     orderSwapped: swapOrder,
   };
-}
-
-export function reconcilePairwise(results: readonly PairwiseResult[]): {
-  consensus: "a" | "b" | "tie" | "uncertain";
-  dissent: PairwiseResult[];
-} {
-  if (results.length === 0) {
-    return { consensus: "tie", dissent: [] };
-  }
-
-  const aWins = results.filter((r) => r.winner === "a").length;
-  const bWins = results.filter((r) => r.winner === "b").length;
-
-  if (aWins === bWins) {
-    return { consensus: "uncertain", dissent: [...results] };
-  }
-
-  const winner = aWins > bWins ? "a" : "b";
-  const dissent = results.filter((r) => r.winner !== winner && r.winner !== "tie");
-
-  return { consensus: winner, dissent };
 }

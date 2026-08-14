@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createCriticObservation } from "../../../src/review/critic.js";
-import { blindPairwiseCompare, reconcilePairwise } from "../../../src/review/pairwise.js";
+import { blindPairwiseCompare } from "../../../src/review/pairwise.js";
 import { reconcileReviews } from "../../../src/review/reconcile.js";
 import { createRubric } from "../../../src/rubric/types.js";
 import type { RubricCriterion } from "../../../src/rubric/types.js";
@@ -109,15 +109,17 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
       assert.equal(first.winner, "a");
       assert.equal(swapped.winner, "b");
 
-      const reconciliation = reconcilePairwise([first, swapped]);
+      const reconciliation = reconcileReviews([first, swapped]);
       assert.equal(reconciliation.consensus, "uncertain");
       assert.equal(reconciliation.dissent.length, 2);
+      assert.equal(reconciliation.dissentCount, 2);
     });
 
     it("an empty comparison set reconciles to a tie with no dissent", () => {
-      const result = reconcilePairwise([]);
+      const result = reconcileReviews([]);
       assert.equal(result.consensus, "tie");
       assert.equal(result.dissent.length, 0);
+      assert.equal(result.dissentCount, 0);
     });
   });
 
