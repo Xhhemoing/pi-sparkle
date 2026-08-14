@@ -22,10 +22,17 @@ export class DeliveryAdapter implements ProjectAdapter {
     context: AdapterContext,
     input: unknown
   ): Promise<AdapterEvaluation> {
-    if (!this.isDeliveryEvidence(input)) {
+    if (input === null || input === undefined) {
       return {
         outcome: "UNOBSERVED",
         reason: "no delivery evidence configured",
+      };
+    }
+
+    if (!this.isDeliveryEvidence(input)) {
+      return {
+        outcome: "ABSTAIN",
+        reason: "invalid input: expected DeliveryEvidence",
       };
     }
 
@@ -72,12 +79,15 @@ export class DeliveryAdapter implements ProjectAdapter {
   private isDeliveryEvidence(v: unknown): v is DeliveryEvidence {
     if (typeof v !== "object" || v === null) return false;
     const d = v as Record<string, unknown>;
+    // Every optional field must be either absent or correctly typed — a
+    // malformed payload is invalid input (ABSTAIN), not "no evidence"
+    // (UNOBSERVED). The previous OR-connected guard accepted almost any
+    // object, including `{ manualAcceptance: 42 }`.
     return (
-      d.manualAcceptance === undefined ||
-      typeof d.manualAcceptance === "boolean" ||
-      typeof d.userComment === "string" ||
-      typeof d.rollbackDetected === "boolean" ||
-      typeof d.reopenDetected === "boolean"
+      (d.manualAcceptance === undefined || typeof d.manualAcceptance === "boolean") &&
+      (d.userComment === undefined || typeof d.userComment === "string") &&
+      (d.rollbackDetected === undefined || typeof d.rollbackDetected === "boolean") &&
+      (d.reopenDetected === undefined || typeof d.reopenDetected === "boolean")
     );
   }
 }

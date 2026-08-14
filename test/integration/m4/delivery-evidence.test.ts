@@ -57,6 +57,15 @@ describe("M4-T2: delivery evidence end to end", () => {
     assert.match(result.reason ?? "", /rollback detected after delivery/);
   });
 
+  it("malformed delivery input abstains instead of masquerading as missing evidence", async () => {
+    const deliveryAdapter = createDeliveryAdapter();
+    // Wrongly typed fields must be invalid input (ABSTAIN), not "no evidence"
+    // (UNOBSERVED) — the OR-connected guard previously accepted these.
+    const malformed = await deliveryAdapter.evaluate(context, { manualAcceptance: "yes" });
+    assert.equal(malformed.outcome, "ABSTAIN");
+    assert.match(malformed.reason ?? "", /invalid input/);
+  });
+
   it("reopening a closed episode is an outcome, not silent closure", async () => {
     const deliveryAdapter = createDeliveryAdapter();
     const result = await deliveryAdapter.evaluate(context, { reopenDetected: true });

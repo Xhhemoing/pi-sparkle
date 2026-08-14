@@ -13,7 +13,6 @@ import {
   getPrecedenceWeight,
   selectHighestPrecedence,
 } from "../../../src/evaluation/precedence.js";
-import { EVALUATION_PRECEDENCE } from "../../../src/evaluation/types.js";
 import type { EvaluatorIdentity } from "../../../src/evaluation/types.js";
 import { createEpisodeId } from "../../../src/domain/ids.js";
 
@@ -114,8 +113,8 @@ describe("M4-T1: evaluator interface and evidence precedence", () => {
     assert.equal(getPrecedenceWeight("inferential"), 1);
     assert.ok(comparePrecedence("deterministic", "inferential") > 0);
     assert.ok(comparePrecedence("human", "inferential") > 0);
-    assert.equal(EVALUATION_PRECEDENCE.deterministic, 3);
     assert.equal(EVIDENCE_PRECEDENCE[0]?.kind, "deterministic");
+    assert.equal(EVIDENCE_PRECEDENCE[0]?.weight, 3);
   });
 
   it("records carry rubric identity, evaluator identity, and findings", () => {

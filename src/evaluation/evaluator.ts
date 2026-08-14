@@ -64,7 +64,7 @@ export function createEvaluationRecord(input: EvaluationInput): EvaluationRecord
   }
 
   return {
-    id: `eval_${createEventId()}`,
+    id: createEventId(),
     episodeId: input.episodeId,
     taskId: input.taskId,
     runId: input.runId,

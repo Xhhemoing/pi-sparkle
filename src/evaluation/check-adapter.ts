@@ -5,6 +5,7 @@ import type {
   CommandResult,
   ProjectAdapter,
 } from "./adapters.js";
+import { hash32 } from "../domain/hash.js";
 
 const CHECK_DECLARATION: AdapterDeclaration = {
   supportedCriteria: ["typecheck", "lint", "build", "test"],
@@ -101,11 +102,5 @@ export function createCheckAdapter(): ProjectAdapter {
 
 /** Deterministic artifact fingerprint so a specific stdout/stderr combination is attributable. */
 function hashArtifact(stdout: string, stderr: string): string {
-  let h = 0;
-  const input = `${stdout}\u0000${stderr}`;
-  for (let i = 0; i < input.length; i++) {
-    h = (h << 5) - h + input.charCodeAt(i);
-    h |= 0;
-  }
-  return `hash_${Math.abs(h).toString(16)}`;
+  return `hash_${hash32(`${stdout}\u0000${stderr}`)}`;
 }

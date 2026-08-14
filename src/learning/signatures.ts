@@ -1,5 +1,7 @@
 import type { EpisodeId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
+import { hash32 } from "../domain/hash.js";
+import { nowIso } from "../domain/timestamp.js";
 
 export type EpisodeSignatureKind =
   | "contract"
@@ -30,23 +32,14 @@ export function createSignature(
   kind: EpisodeSignatureKind,
   features: Record<string, number | string | boolean>
 ): EpisodeSignature {
-  const hash = simpleHash(JSON.stringify({ kind, features }));
+  const hash = hash32(JSON.stringify({ kind, features }));
   return {
     episodeId,
     kind,
     hash,
     features,
-    createdAt: new Date().toISOString() as IsoTimestamp,
+    createdAt: nowIso(),
   };
-}
-
-function simpleHash(str: string): string {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return `sig_${Math.abs(h).toString(16)}`;
 }
 
 export function compareSignatures(

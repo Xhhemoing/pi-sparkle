@@ -1,4 +1,6 @@
 import { DomainValidationError } from "../domain/errors.js";
+import { hash32 } from "../domain/hash.js";
+import { nowIso } from "../domain/timestamp.js";
 
 export interface DatasetManifest {
   readonly manifestVersion: 1;
@@ -34,16 +36,7 @@ export function stableStringify(value: unknown): string {
 }
 
 export function manifestHash(manifest: DatasetManifest): string {
-  return `mh_${simpleHash(stableStringify(manifest))}`;
-}
-
-function simpleHash(str: string): string {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h).toString(16);
+  return `mh_${hash32(stableStringify(manifest))}`;
 }
 
 export function validateManifest(manifest: DatasetManifest): void {
@@ -92,7 +85,7 @@ export function createManifest(
 ): DatasetManifest {
   const manifest: DatasetManifest = {
     manifestVersion: 1,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
     ...partial,
   };
   validateManifest(manifest);

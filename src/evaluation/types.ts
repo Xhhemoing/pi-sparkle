@@ -42,15 +42,3 @@ export interface EvaluationRecord {
   readonly createdAt: IsoTimestamp;
   readonly evidenceHash?: string | undefined;
 }
-
-export interface EvaluationPrecedence {
-  readonly deterministic: 3;
-  readonly human: 2;
-  readonly inferential: 1;
-}
-
-export const EVALUATION_PRECEDENCE: EvaluationPrecedence = {
-  deterministic: 3,
-  human: 2,
-  inferential: 1,
-} as const;

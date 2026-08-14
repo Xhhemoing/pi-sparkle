@@ -1,6 +1,7 @@
 import { DomainValidationError } from "../domain/errors.js";
 import { manifestHash, stableStringify } from "./manifest.js";
 import type { DatasetManifest } from "./manifest.js";
+import { hash32 } from "../domain/hash.js";
 import type { RouteRequest } from "../routing/policy.js";
 
 export interface FrozenEpisode {
@@ -100,7 +101,7 @@ export function replayPolicy(
   const rerunHash = `rr_${stableStringify({ actions, manifestHash: manifestHash(manifest) })}`;
   return {
     manifestHash: manifestHash(manifest),
-    rerunHash: simpleHashOf(rerunHash),
+    rerunHash: hash32(rerunHash),
     actions,
     policyVersion: policy.policyVersion,
     seed: manifest.seed,
@@ -120,13 +121,4 @@ export function assertIsolatedOutput(
       );
     }
   }
-}
-
-function simpleHashOf(str: string): string {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h).toString(16);
 }
