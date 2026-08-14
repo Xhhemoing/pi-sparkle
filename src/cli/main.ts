@@ -8,7 +8,7 @@ import { PiAgentExecutor } from "../pi-adapter/pi-executor.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, parseTaskId, isArtifactId, type TaskId, type ArtifactId, type EvidenceId, type MessageId } from "../domain/ids.js";
+import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, type TaskId, type ArtifactId, type EvidenceId, type MessageId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startParentRun, startRun } from "../run/coordinator.js";
@@ -18,6 +18,10 @@ import { CheckpointStore } from "../run/checkpoint-store.js";
 import { inspectRun } from "../run/inspection.js";
 import { materializeCheckpoint, replayRun, validateCheckpoint } from "../run/replay.js";
 import { resumeSupervisedRun } from "../run/supervisor.js";
+import { correctPreference, deletePreference, inspectPreferences } from "../preferences/service.js";
+import { exportAuthorizedPreferences } from "../preferences/export.js";
+import { getMaterializedView } from "../preferences/materialize.js";
+import type { PreferenceScope } from "../preferences/types.js";
 
 export interface CliIo {
   stdout(text: string): void;
@@ -107,6 +111,7 @@ Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
   pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
+  pi-sparkle pref list|correct|export|delete ...
   pi-sparkle help
 
 State root defaults to ~/.pi-sparkle. The default executor is a deterministic
@@ -366,6 +371,151 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
+const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;
+
+function isPreferenceScope(value: string): value is PreferenceScope {
+  return (PREFERENCE_SCOPES as readonly string[]).includes(value);
+}
+
+function parsePreferenceValue(raw: string): string | number | boolean {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  const num = Number(raw);
+  if (raw.trim() !== "" && Number.isFinite(num)) return num;
+  return raw;
+}
+
+const PREF_USAGE = `pi-sparkle pref — preference inspection and correction
+
+Usage:
+  pi-sparkle pref list [--scope user|project|task-family|role|model]
+  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>]
+  pi-sparkle pref export [--scope <scope>]
+  pi-sparkle pref delete --id <preferenceId>
+`;
+
+async function prefList(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { scope: { type: "string" } }
+  });
+  let scope: PreferenceScope | undefined;
+  if (values.scope !== undefined) {
+    if (!isPreferenceScope(values.scope)) {
+      io.stderr(`Invalid preference scope: ${values.scope}\n`);
+      return 1;
+    }
+    scope = values.scope;
+  }
+  const result = inspectPreferences(scope);
+  io.stdout(`preferences: ${result.count} observation(s)\n`);
+  for (const obs of result.observations) {
+    io.stdout(
+      `  ${obs.id} [${obs.scope}:${obs.scopeKey}] ${obs.key}=${String(obs.value)} explicit=${obs.explicit} recurrence=${obs.recurrenceCount} episode=${obs.evidenceEpisodeId}\n`
+    );
+  }
+  const pairs = new Map<string, { scope: PreferenceScope; scopeKey: string }>();
+  for (const obs of result.observations) {
+    pairs.set(`${obs.scope}:${obs.scopeKey}`, { scope: obs.scope, scopeKey: obs.scopeKey });
+  }
+  for (const pair of Array.from(pairs.values())) {
+    const materialized = getMaterializedView(pair.scope, pair.scopeKey);
+    if (materialized === undefined) continue;
+    io.stdout(
+      `  effective [${pair.scope}:${pair.scopeKey}] confidence=${materialized.view.confidence} sources=${materialized.view.sourceCount}\n`
+    );
+    for (const [key, value] of Object.entries(materialized.effectiveKeys)) {
+      io.stdout(`    ${key}=${String(value)}\n`);
+    }
+  }
+  return 0;
+}
+
+async function prefCorrect(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      scope: { type: "string" },
+      "scope-key": { type: "string" },
+      key: { type: "string" },
+      value: { type: "string" },
+      episode: { type: "string" }
+    }
+  });
+  const scope = values.scope;
+  const scopeKey = values["scope-key"];
+  const key = values.key;
+  const value = values.value;
+  if (scope === undefined || !isPreferenceScope(scope)) {
+    io.stderr(`pref correct requires --scope to be one of ${PREFERENCE_SCOPES.join("|")}\n`);
+    return 1;
+  }
+  if (!scopeKey || !key || value === undefined) {
+    io.stderr("pref correct requires --scope-key, --key and --value\n");
+    return 1;
+  }
+  const episodeId = values.episode !== undefined ? parseEpisodeId(values.episode) : createEpisodeId();
+  const obs = correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId);
+  io.stdout(`recorded explicit preference ${obs.id}\n`);
+  return 0;
+}
+
+async function prefExport(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { scope: { type: "string" } }
+  });
+  let scopes: PreferenceScope[] | undefined;
+  if (values.scope !== undefined) {
+    if (!isPreferenceScope(values.scope)) {
+      io.stderr(`Invalid preference scope: ${values.scope}\n`);
+      return 1;
+    }
+    scopes = [values.scope];
+  }
+  const result = exportAuthorizedPreferences(scopes !== undefined ? { scopes } : {});
+  io.stdout(`${result.data}\n`);
+  return 0;
+}
+
+async function prefDelete(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { id: { type: "string" } }
+  });
+  if (values.id === undefined) {
+    io.stderr("pref delete requires --id <preferenceId>\n");
+    return 1;
+  }
+  const deleted = deletePreference(values.id);
+  io.stdout(deleted ? `tombstoned preference ${values.id}\n` : `preference not found: ${values.id}\n`);
+  return deleted ? 0 : 1;
+}
+
+async function prefCommand(args: string[], io: CliIo): Promise<number> {
+  const [sub, ...rest] = args;
+  switch (sub) {
+    case "list":
+      return await prefList(rest, io);
+    case "correct":
+      return await prefCorrect(rest, io);
+    case "export":
+      return await prefExport(rest, io);
+    case "delete":
+      return await prefDelete(rest, io);
+    case "help":
+    case "--help":
+    case "-h":
+    case undefined:
+      io.stdout(PREF_USAGE);
+      return 0;
+    default:
+      io.stderr(`Unknown pref command: ${sub}\n`);
+      io.stderr(PREF_USAGE);
+      return 1;
+  }
+}
+
 export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
   const [command, ...rest] = argv;
   try {
@@ -376,6 +526,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await inspectCommand(rest, io);
       case "resume":
         return await resumeCommand(rest, io);
+      case "pref":
+        return await prefCommand(rest, io);
       case "help":
       case "--help":
       case "-h":

@@ -333,10 +333,10 @@ corepack pnpm run build
 
 **Acceptance:**
 
-- [ ] Unknown/stale rubric versions fail closed.
-- [ ] An evaluator can only score declared criteria and scopes.
-- [ ] `ABSTAIN` and missing evidence remain distinct from failure.
-- [ ] Deterministic criteria cannot be overridden by inferential evaluators.
+- [x] Unknown/stale rubric versions fail closed.
+- [x] An evaluator can only score declared criteria and scopes.
+- [x] `ABSTAIN` and missing evidence remain distinct from failure.
+- [x] Deterministic criteria cannot be overridden by inferential evaluators.
 
 **Verification:** focused registry/interface tests plus typecheck.
 
@@ -352,12 +352,12 @@ corepack pnpm run build
 
 **Acceptance:**
 
-- [ ] Each adapter declares supported criterion, input contract, trust class, timeout, unavailable semantics, and evidence owner.
+- [x] Each adapter declares supported criterion, input contract, trust class, timeout, unavailable semantics, and evidence owner.
 - [ ] Command exit status, stdout/stderr artifact hash, working directory, environment policy, and affected revision/change set are attributable.
-- [ ] Final validation is linked to the final change set; a pre-change pass cannot close an episode.
-- [ ] Diff-scope review distinguishes episode-owned changes, unrelated user changes, generated files, and unknown ownership.
-- [ ] Review rework and rollback are outcomes, not automatically agent failures; attribution remains explicit.
-- [ ] Runtime/manual acceptance remains unavailable when not configured or observed.
+- [x] Final validation is linked to the final change set; a pre-change pass cannot close an episode.
+- [x] Diff-scope review distinguishes episode-owned changes, unrelated user changes, generated files, and unknown ownership.
+- [x] Review rework and rollback are outcomes, not automatically agent failures; attribution remains explicit.
+- [x] Runtime/manual acceptance remains unavailable when not configured or observed.
 
 **RED:** fixtures fail for stale test results, wrong working directory, changed diff after validation, unrelated dirty files, missing manual acceptance, and rollback caused by an external dependency.
 
@@ -378,10 +378,10 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] A critic receives artifact, contract, rubric, and evidence—not actor identity or defense.
+- [x] A critic receives artifact, contract, rubric, and evidence—not actor identity or defense.
 - [ ] Pairwise input order is randomized and material comparisons are repeated with swapped order.
-- [ ] Position-sensitive disagreement becomes uncertainty/abstention.
-- [ ] Reconciliation deduplicates causal defects and preserves dissent.
+- [x] Position-sensitive disagreement becomes uncertainty/abstention.
+- [x] Reconciliation deduplicates causal defects and preserves dissent.
 - [ ] Self-review cannot update the actor's routing score or promote its resource.
 
 **Verification:** faux-provider integration tests for order bias, abstention, duplicate findings, and disagreement.
@@ -396,11 +396,11 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Current explicit instruction overrides every broader learned preference.
-- [ ] Explicit project and user-global observations remain separate.
-- [ ] Inferred observations require configured comparable recurrence and retain confidence/provenance.
-- [ ] Silence, completion, one edit, or one click cannot become a durable preference alone.
-- [ ] Conflicts lower confidence and preserve history.
+- [x] Current explicit instruction overrides every broader learned preference.
+- [x] Explicit project and user-global observations remain separate.
+- [x] Inferred observations require configured comparable recurrence and retain confidence/provenance.
+- [x] Silence, completion, one edit, or one click cannot become a durable preference alone.
+- [x] Conflicts lower confidence and preserve history.
 - [ ] Preference-loop evaluation includes correction cost and forgetting/reversal behavior, not only preference fit.
 
 **Verification:** precedence, recurrence, scope, conflict, expiry, and forbidden-inference tests.
@@ -415,10 +415,10 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] CLI lists effective preference, scope, confidence, and non-sensitive provenance.
-- [ ] Correction adds an explicit observation and recomputes the view without deleting audit history.
-- [ ] Export contains only authorized scopes.
-- [ ] Delete creates a tombstone and excludes dependent data from future datasets.
+- [x] CLI lists effective preference, scope, confidence, and non-sensitive provenance.
+- [x] Correction adds an explicit observation and recomputes the view without deleting audit history.
+- [x] Export contains only authorized scopes.
+- [x] Delete creates a tombstone and excludes dependent data from future datasets.
 - [ ] A deleted preference is absent after restart/replay.
 
 **Verification:** process-level CLI and deletion propagation tests.
@@ -435,8 +435,8 @@ corepack pnpm run typecheck
 
 - [ ] Default recurrence requires two independent comparable episodes; explicit severe safety events are labeled one-off readiness findings.
 - [ ] Detectors implement negative controls for repeated reads/edits, missing instrumentation, protective gate blocks, and unrelated failures.
-- [ ] Findings identify the earliest supported boundary: contract/context/plan/route/execution/tool/review/delivery.
-- [ ] No supported pattern produces an explicit no-candidate result rather than filler.
+- [x] Findings identify the earliest supported boundary: contract/context/plan/route/execution/tool/review/delivery.
+- [x] No supported pattern produces an explicit no-candidate result rather than filler.
 
 **Verification:** fixture matrix for each detector, negative control, confidence tier, and causal-boundary attribution.
 
@@ -446,12 +446,12 @@ corepack pnpm run typecheck
 
 ### Checkpoint E
 
-- [ ] Explicit feedback changes the next comparable episode with traceable precedence.
-- [ ] Final project/code/delivery evaluations are tied to the final change set and distinguish unrelated or externally caused outcomes.
-- [ ] One ambiguous behavior cannot create a durable preference.
-- [ ] Pairwise judge position/self-enhancement fixtures abstain or remain uncertain.
-- [ ] Repeated patterns link to evidence and negative controls.
-- [ ] Full quality gates pass.
+- [x] Explicit feedback changes the next comparable episode with traceable precedence.
+- [x] Final project/code/delivery evaluations are tied to the final change set and distinguish unrelated or externally caused outcomes.
+- [x] One ambiguous behavior cannot create a durable preference.
+- [x] Pairwise judge position/self-enhancement fixtures abstain or remain uncertain.
+- [x] Repeated patterns link to evidence and negative controls.
+- [x] Full quality gates pass.
 
 ## Phase M5: Adaptive routing and model clusters
 

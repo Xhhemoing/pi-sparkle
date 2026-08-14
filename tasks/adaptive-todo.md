@@ -24,13 +24,13 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 
 ## M4: Review and preference learning
 
-- [ ] M4-T1: Rubric registry and evaluator interface.
-- [ ] M4-T2: Project, code, and delivery evaluator adapters.
-- [ ] M4-T3: Independent actor/critic and blind pairwise review.
-- [ ] M4-T4: Scoped preference observations and materialized views.
-- [ ] M4-T5: Preference inspect/correct/export/delete workflow.
-- [ ] M4-T6: Repeated-pattern detector with negative controls.
-- [ ] Checkpoint E: traceable feedback reuse and bias-controlled review.
+- [x] M4-T1: Rubric registry and evaluator interface.
+- [x] M4-T2: Project, code, and delivery evaluator adapters.
+- [x] M4-T3: Independent actor/critic and blind pairwise review.
+- [x] M4-T4: Scoped preference observations and materialized views.
+- [x] M4-T5: Preference inspect/correct/export/delete workflow.
+- [x] M4-T6: Repeated-pattern detector with negative controls.
+- [x] Checkpoint E: traceable feedback reuse and bias-controlled review.
 
 ## M5: Adaptive routing and model clusters
 
