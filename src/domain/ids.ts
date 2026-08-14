@@ -11,7 +11,8 @@ export type IdBrand =
   | "ArtifactId"
   | "EvidenceId"
   | "AgentInstanceId"
-  | "AgentProfileId";
+  | "AgentProfileId"
+  | "InvocationId";
 
 export type BrandedId<B extends IdBrand> = string & { readonly __brand: B };
 
@@ -25,6 +26,7 @@ export type ArtifactId = BrandedId<"ArtifactId">;
 export type EvidenceId = BrandedId<"EvidenceId">;
 export type AgentInstanceId = BrandedId<"AgentInstanceId">;
 export type AgentProfileId = BrandedId<"AgentProfileId">;
+export type InvocationId = BrandedId<"InvocationId">;
 
 const ID_PREFIXES: Record<IdBrand, string> = {
   ProjectId: "prj",
@@ -36,7 +38,8 @@ const ID_PREFIXES: Record<IdBrand, string> = {
   ArtifactId: "art",
   EvidenceId: "evd",
   AgentInstanceId: "agt",
-  AgentProfileId: "prf"
+  AgentProfileId: "prf",
+  InvocationId: "inv"
 };
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -83,6 +86,8 @@ export const createAgentInstanceId = (generate?: IdGenerator): AgentInstanceId =
   createId("AgentInstanceId", generate);
 export const createAgentProfileId = (generate?: IdGenerator): AgentProfileId =>
   createId("AgentProfileId", generate);
+export const createInvocationId = (generate?: IdGenerator): InvocationId =>
+  createId("InvocationId", generate);
 
 export const isProjectId = (value: unknown): value is ProjectId => isId("ProjectId", value);
 export const isRunId = (value: unknown): value is RunId => isId("RunId", value);
@@ -94,6 +99,7 @@ export const isArtifactId = (value: unknown): value is ArtifactId => isId("Artif
 export const isEvidenceId = (value: unknown): value is EvidenceId => isId("EvidenceId", value);
 export const isAgentInstanceId = (value: unknown): value is AgentInstanceId => isId("AgentInstanceId", value);
 export const isAgentProfileId = (value: unknown): value is AgentProfileId => isId("AgentProfileId", value);
+export const isInvocationId = (value: unknown): value is InvocationId => isId("InvocationId", value);
 
 export const parseRunId = (value: unknown): RunId => parseId("RunId", value);
 export const parseTaskId = (value: unknown): TaskId => parseId("TaskId", value);

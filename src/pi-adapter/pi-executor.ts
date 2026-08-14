@@ -20,6 +20,11 @@ import {
   type SimpleStreamOptions
 } from "@earendil-works/pi-ai";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
+import { hash32 } from "../domain/hash.js";
+import { createInvocationId } from "../domain/ids.js";
+import { nowIso } from "../domain/timestamp.js";
+import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
+import type { ModelInvocation } from "../telemetry/model-invocation.js";
 
 export interface PiExecutorOptions {
   providerId: string;
@@ -28,6 +33,14 @@ export interface PiExecutorOptions {
   thinkingLevel?: ThinkingLevel;
   tools?: AgentTool<any>[];
   apiKey?: string;
+  /** Provider-pinned model version, recorded with each invocation when known. */
+  modelVersion?: string;
+  /**
+   * Optional sink receiving one validated invocation record per execute()
+   * call: frozen configuration snapshot, response hash, usage, and latency.
+   * The response body itself is never persisted — only its hash.
+   */
+  onInvocation?: (invocation: ModelInvocation) => void;
 }
 
 export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined {
@@ -80,6 +93,7 @@ export class PiAgentExecutor implements AgentExecutor {
       return;
     }
 
+    const startedAtMs = Date.now();
     const collected: ExecutionEvent[] = [];
     const agent = new Agent({
       initialState: {
@@ -109,6 +123,10 @@ export class PiAgentExecutor implements AgentExecutor {
       signal.removeEventListener("abort", onAbort);
     }
 
+    if (this.options.onInvocation !== undefined) {
+      this.options.onInvocation(recordInvocation(this.buildInvocation(request, collected, startedAtMs)));
+    }
+
     for (const event of collected) yield event;
     if (signal.aborted) {
       yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
@@ -117,5 +135,54 @@ export class PiAgentExecutor implements AgentExecutor {
     } else {
       yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
     }
+  }
+
+  /**
+   * Build the reference-only invocation record: frozen configuration hash,
+   * response-body hash, provider usage when available (undefined, not zero,
+   * when unavailable), and wall-clock latency. No prompt or response body is
+   * retained.
+   */
+  private buildInvocation(
+    request: AgentExecutionRequest,
+    collected: readonly ExecutionEvent[],
+    startedAtMs: number
+  ): ModelInvocation {
+    let responseText = "";
+    let tokensIn: number | undefined;
+    let tokensOut: number | undefined;
+    for (const event of collected) {
+      if (event.type === "TEXT_DELTA") {
+        responseText += event.text;
+      } else if (event.type === "TURN_FINISHED" && event.usage !== undefined) {
+        if (event.usage.inputTokens !== undefined) {
+          tokensIn = (tokensIn ?? 0) + event.usage.inputTokens;
+        }
+        if (event.usage.outputTokens !== undefined) {
+          tokensOut = (tokensOut ?? 0) + event.usage.outputTokens;
+        }
+      }
+    }
+    const toolNames = (this.options.tools ?? []).map((tool) => tool.name).sort();
+    const parameterHash = hash32(
+      `${this.options.providerId}|${this.options.modelId}|${this.options.thinkingLevel ?? "off"}|${toolNames.join(",")}|${this.options.systemPrompt ?? ""}`
+    );
+    return {
+      id: createInvocationId(),
+      taskId: request.taskId,
+      runId: request.runId,
+      agentInstanceId: request.agentInstanceId,
+      config: {
+        provider: this.options.providerId,
+        model: this.options.modelId,
+        modelVersion: this.options.modelVersion,
+        parameterHash,
+      },
+      responseHash: hashInvocationResponse(responseText),
+      tokensIn,
+      tokensOut,
+      latencyMs: Date.now() - startedAtMs,
+      occurredAt: nowIso(),
+    };
   }
 }
