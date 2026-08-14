@@ -182,3 +182,93 @@ describe("M5-T5: supervisor integration", () => {
     assert.equal(decision.topology, "human-boundary");
   });
 });
+
+describe("Checkpoint F-4: frozen-input reproduction", () => {
+  it("decideTopology reproduces identical decisions across the full scenario table", () => {
+    const scenarios: TopologyRequest[] = [
+      request(),
+      request({ deterministicOnly: true }),
+      request({ taskFamily: "security" }),
+      request({ taskFamily: "architecture" }),
+      request({ openEnded: true }),
+      request({ ambiguousIntent: true }),
+      request({ deterministicFailure: true, taskFamily: "architecture", openEnded: true }),
+      request({ taskFamily: "architecture", budget: { remainingBudgetUsd: 0.05, remainingTimeMs: 3_600_000 } }),
+      request({ openEnded: true, budget: { remainingBudgetUsd: 0.1, remainingTimeMs: 1000 } }),
+    ];
+    for (const scenario of scenarios) {
+      assert.deepEqual(decideTopology(scenario), decideTopology(scenario));
+    }
+  });
+
+  it("decideAfterFailedReflection reproduces identical escalation decisions", () => {
+    const base = request({ taskFamily: "bugfix" });
+    for (const ctx of [
+      { currentTopology: "single" as const, failedReflectionCount: 1, request: base },
+      { currentTopology: "critic" as const, failedReflectionCount: 2, request: base },
+      { currentTopology: "debate" as const, failedReflectionCount: 1, request: base },
+      {
+        currentTopology: "single" as const,
+        failedReflectionCount: 1,
+        request: request({ taskFamily: "bugfix", budget: { remainingBudgetUsd: 0.01, remainingTimeMs: 3_600_000 } }),
+      },
+    ]) {
+      assert.deepEqual(decideAfterFailedReflection(ctx), decideAfterFailedReflection(ctx));
+    }
+  });
+
+  it("planTaskTopology reproduces identical decisions for frozen supervisor inputs", () => {
+    const inputs = [
+      {
+        taskFamily: "architecture",
+        deterministicOnly: false,
+        highRisk: false,
+        ambiguousIntent: false,
+        deterministicFailure: false,
+        openEnded: false,
+        remainingBudgetUsd: 10,
+        remainingTimeMs: 3_600_000,
+      },
+      {
+        taskFamily: "bugfix",
+        deterministicOnly: false,
+        highRisk: true,
+        ambiguousIntent: false,
+        deterministicFailure: false,
+        openEnded: false,
+        remainingBudgetUsd: 0.05,
+        remainingTimeMs: 3_600_000,
+        valuePerUtilityPointUsd: 0.5,
+      },
+    ];
+    for (const input of inputs) {
+      assert.deepEqual(planTaskTopology(input), planTaskTopology(input));
+    }
+  });
+
+  it("planTaskTopology matches decideTopology given the same frozen request", () => {
+    const input = {
+      taskFamily: "security",
+      deterministicOnly: false,
+      highRisk: false,
+      ambiguousIntent: false,
+      deterministicFailure: false,
+      openEnded: false,
+      remainingBudgetUsd: 10,
+      remainingTimeMs: 3_600_000,
+      valuePerUtilityPointUsd: 1,
+    };
+    const viaSupervisor = planTaskTopology(input);
+    const direct = decideTopology({
+      taskFamily: input.taskFamily,
+      deterministicOnly: input.deterministicOnly,
+      highRisk: input.highRisk,
+      ambiguousIntent: input.ambiguousIntent,
+      deterministicFailure: input.deterministicFailure,
+      openEnded: input.openEnded,
+      budget: { remainingBudgetUsd: input.remainingBudgetUsd, remainingTimeMs: input.remainingTimeMs },
+      valuePerUtilityPointUsd: input.valuePerUtilityPointUsd,
+    });
+    assert.deepEqual(viaSupervisor, direct);
+  });
+});
