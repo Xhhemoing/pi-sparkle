@@ -5,7 +5,7 @@ import {
   compareSignatures,
 } from "../../../src/learning/signatures.js";
 import { detectRepeatedPatterns } from "../../../src/learning/patterns.js";
-import { attributeToBoundary, applyNegativeControl } from "../../../src/learning/attribution.js";
+import { attributeToBoundary } from "../../../src/learning/attribution.js";
 import { createEpisodeId } from "../../../src/domain/ids.js";
 
 function sig(kind: "contract" | "context" | "plan" | "route" | "execution" | "tool" | "review" | "delivery", features: Record<string, string | number | boolean>) {
@@ -59,15 +59,44 @@ describe("M4-T6: repeated-pattern detector with negative controls", () => {
     assert.deepEqual(detectRepeatedPatterns([a, b]), []);
   });
 
-  it("negative controls flag repeated reads and edit-only noise", () => {
-    const flagged = applyNegativeControl([
-      { key: "read-ops", negativeControl: false },
-      { key: "edit-only", negativeControl: false },
-      { key: "genuine-execution", negativeControl: false },
-    ]);
-    assert.equal(flagged[0]?.negativeControl, true);
-    assert.equal(flagged[1]?.negativeControl, true);
-    assert.equal(flagged[2]?.negativeControl, false);
+  it("negative controls flag repeated reads and edit-only noise from real clusters", () => {
+    const reads = [
+      sig("execution", { operation: "read", failure: "timeout" }),
+      sig("execution", { operation: "read", failure: "timeout" }),
+    ];
+    const edits = [
+      sig("tool", { operation: "edit", tool: "git" }),
+      sig("tool", { operation: "edit", tool: "git" }),
+    ];
+    const patterns = detectRepeatedPatterns([...reads, ...edits]);
+    assert.equal(patterns.length, 2);
+    assert.ok(patterns.every((p) => p.negativeControl));
+  });
+
+  it("negative controls flag missing instrumentation, gate blocks, and unrelated failures", () => {
+    const uninstrumented = [
+      sig("execution", { instrumented: false, failure: "timeout" }),
+      sig("execution", { instrumented: false, failure: "timeout" }),
+    ];
+    const blocked = [
+      sig("plan", { gateBlocked: true, kind_hint: "policy" }),
+      sig("plan", { gateBlocked: true, kind_hint: "policy" }),
+    ];
+    const unrelated = [
+      sig("delivery", { unrelated: true, failure: "flaky-ci" }),
+      sig("delivery", { unrelated: true, failure: "flaky-ci" }),
+    ];
+    const patterns = detectRepeatedPatterns([...uninstrumented, ...blocked, ...unrelated]);
+    assert.equal(patterns.length, 3);
+    assert.ok(patterns.every((p) => p.negativeControl));
+  });
+
+  it("a cluster with a benign marker on only some signatures stays actionable", () => {
+    const readNoise = sig("execution", { operation: "read", failure: "timeout", tool: "build" });
+    const realFailure = sig("execution", { operation: "execute", failure: "timeout", tool: "build" });
+    const patterns = detectRepeatedPatterns([readNoise, realFailure]);
+    assert.equal(patterns.length, 1);
+    assert.equal(patterns[0]?.negativeControl, false);
   });
 
   it("attributes findings to the earliest supported boundary", () => {

@@ -1,4 +1,4 @@
-import type { EpisodeSignatureKind } from "./signatures.js";
+import type { EpisodeSignature, EpisodeSignatureKind } from "./signatures.js";
 
 export interface AttributionResult {
   readonly boundary: EpisodeSignatureKind;
@@ -51,11 +51,42 @@ export function attributeToBoundary(
   };
 }
 
-export function applyNegativeControl(
-  patterns: Array<{ key: string; negativeControl: boolean }>
-): Array<{ key: string; negativeControl: boolean }> {
-  return patterns.map((p) => ({
-    ...p,
-    negativeControl: p.key.includes("read") || p.key.includes("edit-only"),
-  }));
+export interface NegativeControlMarker {
+  /** Feature key inspected on each signature in a cluster. */
+  readonly feature: string;
+  /** The feature value that indicates a benign cause. */
+  readonly negating: unknown;
+  /** Human-readable label for reports. */
+  readonly label: string;
+}
+
+/**
+ * Benign causes that may explain a repeated pattern without an actionable
+ * defect: repeated reads/edits, missing instrumentation, protective gate
+ * blocks, and unrelated failures. Signatures carrying one of these markers
+ * must not surface as improvement opportunities.
+ */
+export const NEGATIVE_CONTROL_MARKERS: readonly NegativeControlMarker[] = [
+  { feature: "operation", negating: "read", label: "repeated read" },
+  { feature: "operation", negating: "edit", label: "edit-only noise" },
+  { feature: "instrumented", negating: false, label: "missing instrumentation" },
+  { feature: "gateBlocked", negating: true, label: "protective gate block" },
+  { feature: "unrelated", negating: true, label: "unrelated failure" },
+] as const;
+
+/**
+ * A cluster is a negative control when EVERY signature carries the same
+ * benign-cause marker. Partial markers keep the pattern actionable: a single
+ * read-heavy episode inside a failure cluster is not enough to discard it.
+ */
+export function findNegativeControlMarker(
+  cluster: readonly EpisodeSignature[]
+): NegativeControlMarker | undefined {
+  if (cluster.length === 0) return undefined;
+  for (const marker of NEGATIVE_CONTROL_MARKERS) {
+    if (cluster.every((sig) => sig.features[marker.feature] === marker.negating)) {
+      return marker;
+    }
+  }
+  return undefined;
 }

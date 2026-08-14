@@ -1,4 +1,5 @@
 import type { EpisodeSignature, EpisodeSignatureKind } from "./signatures.js";
+import { findNegativeControlMarker } from "./attribution.js";
 
 export interface Pattern {
   readonly key: string;
@@ -44,7 +45,11 @@ export function detectRepeatedPatterns(
           kind,
           count: cluster.length,
           avgSimilarity: averageSimilarity(cluster),
-          negativeControl: false,
+          // Negative controls come from the signatures' own features, never
+          // from the cluster key: a uniform benign-cause marker (read-only
+          // noise, missing instrumentation, gate block, unrelated failure)
+          // demotes the pattern so it cannot surface as an improvement.
+          negativeControl: findNegativeControlMarker(cluster) !== undefined,
           boundary: kind,
         });
       }
