@@ -34,11 +34,11 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 
 ## M5: Adaptive routing and model clusters
 
-- [ ] M5-T1: Capability registry and deterministic R0 router.
-- [ ] M5-T2: Bayesian task-family outcome estimates.
-- [ ] M5-T3: Router replay harness and propensity ledger.
-- [ ] M5-T4: Contextual bandit in shadow mode.
-- [ ] M5-T5: Execution-topology router.
+- [x] M5-T1: Capability registry and deterministic R0 router.
+- [x] M5-T2: Bayesian task-family outcome estimates.
+- [x] M5-T3: Router replay harness and propensity ledger.
+- [x] M5-T4: Contextual bandit in shadow mode.
+- [x] M5-T5: Execution-topology router.
 - [ ] Checkpoint F: statistically valid held-out cost-quality improvement with zero policy violations.
 
 ## M6: Controlled self-optimization

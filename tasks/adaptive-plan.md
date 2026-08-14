@@ -461,11 +461,11 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Provider policy, privacy class, capabilities, context, tool needs, budget, and deadline are hard constraints.
-- [ ] Unknown capability is not treated as supported.
-- [ ] Every candidate rejection and fallback is recorded.
-- [ ] High-risk tasks use the configured approved model/topology and never explore.
-- [ ] R0 supports deterministic cost-cascade rules (cheap-model attempt with a confidence gate before escalation).
+- [x] Provider policy, privacy class, capabilities, context, tool needs, budget, and deadline are hard constraints.
+- [x] Unknown capability is not treated as supported.
+- [x] Every candidate rejection and fallback is recorded.
+- [x] High-risk tasks use the configured approved model/topology and never explore.
+- [x] R0 supports deterministic cost-cascade rules (cheap-model attempt with a confidence gate before escalation).
 
 **Verification:** exhaustive policy/capability matrix tests.
 
@@ -479,10 +479,10 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Estimates are keyed by task family, role, model version, and feature version.
-- [ ] Missing/abstained outcomes do not become failures or zeros.
-- [ ] Recency decay and minimum samples are explicit and deterministic under fake time.
-- [ ] Lower-confidence-bound fallback selects the conservative baseline.
+- [x] Estimates are keyed by task family, role, model version, and feature version.
+- [x] Missing/abstained outcomes do not become failures or zeros.
+- [x] Recency decay and minimum samples are explicit and deterministic under fake time.
+- [x] Lower-confidence-bound fallback selects the conservative baseline.
 
 **Verification:** seeded posterior, decay, sparse-sample, and model-version reset tests.
 
@@ -496,13 +496,13 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Dataset manifests freeze episode hashes, exclusions, split, resource versions, environment, and seed.
-- [ ] Replay cannot write to original workspaces or active pointers.
-- [ ] Every eligible action receives a logged probability/propensity.
-- [ ] Propensity support/overlap and effective sample size are reported before off-policy comparison.
-- [ ] Unsupported counterfactual regret claims are rejected by report validation.
-- [ ] Static baseline, observed utility, uncertainty, cost, and guardrails are reported separately.
-- [ ] Comparison uses a versioned evaluation card with domain coverage, difficulty tiers, and multiple metrics, not only local task replay.
+- [x] Dataset manifests freeze episode hashes, exclusions, split, resource versions, environment, and seed.
+- [x] Replay cannot write to original workspaces or active pointers.
+- [x] Every eligible action receives a logged probability/propensity.
+- [x] Propensity support/overlap and effective sample size are reported before off-policy comparison.
+- [x] Unsupported counterfactual regret claims are rejected by report validation.
+- [x] Static baseline, observed utility, uncertainty, cost, and guardrails are reported separately.
+- [x] Comparison uses a versioned evaluation card with domain coverage, difficulty tiers, and multiple metrics, not only local task replay.
 
 **Verification:** deterministic rerun hash, isolation, contamination, and report-schema tests.
 
@@ -516,11 +516,11 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] The bandit sees only versioned observable task features.
-- [ ] Shadow decisions never invoke an unselected model or change side effects unless an explicit experiment budget authorizes isolated comparison.
-- [ ] Exploration budget is separate and high-risk exploration count remains zero.
-- [ ] Distribution shift widens uncertainty and falls back.
-- [ ] Any guardrail breach stops the experiment.
+- [x] The bandit sees only versioned observable task features.
+- [x] Shadow decisions never invoke an unselected model or change side effects unless an explicit experiment budget authorizes isolated comparison.
+- [x] Exploration budget is separate and high-risk exploration count remains zero.
+- [x] Distribution shift widens uncertainty and falls back.
+- [x] Any guardrail breach stops the experiment.
 
 **Verification:** deterministic seeded simulations plus live-shadow faux-provider test.
 
@@ -534,11 +534,11 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Deterministic/tool-only and one-agent routes are preferred when sufficient.
-- [ ] Additional agents require positive expected value under remaining cost/time budget.
-- [ ] Failed repeated reflection triggers model/topology change or stop, not an unbounded loop.
-- [ ] Majority opinion cannot override deterministic failure or unresolved user intent.
-- [ ] Topology decision and aggregation cost are recorded.
+- [x] Deterministic/tool-only and one-agent routes are preferred when sufficient.
+- [x] Additional agents require positive expected value under remaining cost/time budget.
+- [x] Failed repeated reflection triggers model/topology change or stop, not an unbounded loop.
+- [x] Majority opinion cannot override deterministic failure or unresolved user intent.
+- [x] Topology decision and aggregation cost are recorded.
 
 **Verification:** scenario table covering low-risk mechanical work, architecture, security, ambiguous product intent, open-ended search, and stalled refinement.
 
@@ -550,7 +550,7 @@ corepack pnpm run typecheck
 
 - [ ] On a sealed held-out set, adaptive routing meets the approved cost-quality target against R0 under paired isolated evaluation or a predeclared estimator with valid overlap diagnostics.
 - [ ] Confidence intervals/raw counts and task-family breakdown are reported.
-- [ ] Zero privacy, budget, high-risk exploration, or provider-policy violations occur.
+- [x] Zero privacy, budget, high-risk exploration, or provider-policy violations occur.
 - [ ] Every deterministic routing/topology decision reproduces from frozen inputs; external model calls record configuration and response hashes plus run-to-run variance without claiming byte-identical replay.
 
 ## Phase M6: Controlled self-optimization
