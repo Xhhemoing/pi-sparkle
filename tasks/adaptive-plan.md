@@ -561,16 +561,16 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Content hash, parent, scope, author/source, status, and evaluation plan are required.
-- [ ] Creating a candidate cannot change the active version.
-- [ ] Cyclic lineage, hash mismatch, unknown parent, and incompatible scope fail closed.
-- [ ] Permission/security/credential targets are classified non-auto-promotable.
+- [x] Content hash, parent, scope, author/source, status, and evaluation plan are required.
+- [x] Creating a candidate cannot change the active version.
+- [x] Cyclic lineage, hash mismatch, unknown parent, and incompatible scope fail closed.
+- [x] Permission/security/credential targets are classified non-auto-promotable.
 
 **Verification:** registry and lineage property tests.
 
 **Likely files:** `src/adaptation/resource.ts`, `src/adaptation/candidate.ts`, `src/adaptation/registry.ts`, tests.
 
-**Depends on:** Checkpoint F.
+**Depends on:** Checkpoint F. _(delivered as pre-research while Checkpoint F item 1 — the sealed held-out experiment — awaits an approved cost-quality target and dataset source)_
 
 ### M6-T2: Isolated replay and sealed holdout evaluator
 

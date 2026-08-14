@@ -43,7 +43,7 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 
 ## M6: Controlled self-optimization
 
-- [ ] M6-T1: Versioned resource and improvement-candidate registry.
+- [x] M6-T1: Versioned resource and improvement-candidate registry. _(pre-research: delivered while Checkpoint F item 1 stays open)_
 - [ ] M6-T2: Isolated replay and sealed holdout evaluator.
 - [ ] M6-T3: Shadow/canary experiment runner.
 - [ ] M6-T4: Reflective prompt/workflow optimizer.
