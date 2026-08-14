@@ -1,63 +1,129 @@
 # pi-sparkle
 
-`pi-sparkle` is a project-development multi-agent runtime built on Pi. It manages a project-scoped run graph, structured parent/child agent collaboration, evidence, checkpoints, and verification. It does not fork Pi or claim to be a sandbox.
+`pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
-## Status
+## Quick Start
 
-M0-M2 is implemented and passes the full local quality gates. The repository
-contains the TypeScript runtime, durable event/checkpoint infrastructure,
-project discovery, a single-run coordinator, a Pi adapter/CLI slice, bounded
-parent/child coordination with a structured protocol (M1), and a resumable
-supervisor over validated task DAGs with stall detection and judge
-transitions (M2). Real-provider execution remains opt-in via the Pi adapter.
+### Install
 
-## Scope
+```bash
+git clone https://github.com/Xhhemoing/pi-sparkle.git
+cd pi-sparkle
+corepack enable
+pnpm install
+```
 
-The first delivery milestones are:
+### Run with the built-in fake executor (no API keys)
 
-- M0: a TypeScript CLI that discovers a project, creates a run, executes one Pi-backed agent, and writes replayable JSONL events.
-- M1: isolated child runs with structured messages, cancellation, timeouts, bounded concurrency, and parent/child state.
-- M2: a supervisor that schedules a validated task graph, persists its ledger, detects bounded stalls, and resumes from checkpoints.
+```bash
+pnpm cli run \
+  --project /path/to/your/project \
+  --objective "Refactor the payment module and add integration tests"
+```
 
-Model learning/routing, project delivery automation, a web control plane, and Harness Doctor are explicitly later milestones.
+This executes a deterministic fake agent, writes JSONL events, and produces a checkpoint under `~/.pi-sparkle/`.
 
-The proposed post-M2 adaptive work loop adds native episode review, scoped
-preference learning, evidence-driven model routing, and controlled resource
-optimization. It deliberately separates runtime execution from candidate
-evaluation and promotion.
+### Inspect a completed run
 
-## Design Documents
+```bash
+pnpm cli inspect --run <runId> --json
+```
 
-- [Architecture specification](docs/specs/m0-m2-architecture.md)
-- [Proposed adaptive agent work loop](docs/specs/adaptive-agent-work-loop.md)
-- [Adaptive work-loop research brief](docs/research/adaptive-agent-evidence.md)
-- [Modification-point validation and optimization](docs/research/modification-points-validation.md)
-- [ADR-001: Use Pi through a version-pinned adapter](docs/decisions/0001-pi-adapter-boundary.md)
-- [ADR-002: Event log and checkpoint persistence](docs/decisions/0002-event-log-and-checkpoints.md)
-- [ADR-003: Structured parent-child protocol](docs/decisions/0003-structured-agent-protocol.md)
-- [ADR-004: Separate runtime execution from controlled adaptation](docs/decisions/0004-controlled-adaptation.md)
-- [Implementation plan](tasks/plan.md)
-- [Task breakdown](tasks/todo.md)
-- [Proposed M3-M6 adaptive implementation plan](tasks/adaptive-plan.md)
-- [Adaptive task checklist](tasks/adaptive-todo.md)
+### Resume an interrupted run
+
+```bash
+pnpm cli resume --run <runId>
+```
+
+### Run with a real Pi provider
+
+Set the required environment variables and use `--executor pi`:
+
+```bash
+export PI_PROVIDER=openai
+export PI_MODEL=gpt-5.6-sol-pro
+export PI_API_KEY=sk-...
+export PI_THINKING_LEVEL=medium   # off | minimal | low | medium | high | xhigh
+
+pnpm cli run \
+  --project /path/to/your/project \
+  --objective "Implement the new checkout flow" \
+  --executor pi
+```
+
+### Parent + children (multi-agent DAG)
+
+Provide a child spec JSON file:
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task-research",
+      "role": "researcher",
+      "objective": "Survey the latest payment gateway options",
+      "acceptanceCriteria": [
+        { "id": "ac1", "description": "List 3+ candidates with pros/cons" }
+      ]
+    },
+    {
+      "id": "task-impl",
+      "role": "implementer",
+      "objective": "Integrate the chosen gateway",
+      "inputArtifactIds": ["art_research-report"]
+    }
+  ]
+}
+```
+
+Run the parent as a coordinator:
+
+```bash
+pnpm cli run \
+  --project /path/to/project \
+  --objective "Migrate to new payment provider" \
+  --children tasks.json \
+  --executor pi
+```
 
 ## Commands
 
-The current development commands are:
+| Command | Description |
+|---------|-------------|
+| `pnpm cli run --project <path> --objective <text>` | Start a new run (optionally with `--children`, `--executor`, `--state-root`) |
+| `pnpm cli inspect --run <runId>` | Print status, events, artifacts, and evidence |
+| `pnpm cli resume --run <runId>` | Resume a paused or interrupted run |
+| `pnpm test` | Run the full test suite (162 tests) |
+| `pnpm typecheck && pnpm lint && pnpm build` | Quality gates |
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev -- --help` | Run the development CLI help. |
-| `pnpm test` | Run the unit and integration test suite. |
-| `pnpm lint` | Lint source and tests. |
-| `pnpm typecheck` | Type-check without emitting JavaScript. |
-| `pnpm build` | Produce the distributable CLI. |
+State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 
-## Primary Source
+## What it does
 
-Pi integration decisions are based on the Pi agent-core documentation and source:
+- Executes Pi agents (or deterministic fakes) with structured event emission
+- Coordinates parent runs over child tasks with bounded concurrency, cancellation, and timeouts
+- Validates task DAGs, prevents cycles, and schedules joins deterministically
+- Persists resumable checkpoints and full event logs for replay and inspection
+- Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
+- Supports adaptive episode review, preference learning, and rubric-based critic passes (M2 complete)
 
-- https://github.com/earendil-works/pi/tree/main/packages/agent
-- https://github.com/earendil-works/pi/tree/main/packages/coding-agent
+## Project Status
 
-The public package metadata retrieved on 2026-08-12 identified `@earendil-works/pi-agent-core` and `@earendil-works/pi-coding-agent` at version `0.84.1`. The implementation will pin an explicitly reviewed version rather than follow `latest`.
+M0-M2 complete and passing all quality gates locally. Real-provider execution is opt-in via `PI_*` environment variables.
+
+- M0: single-run CLI + event persistence
+- M1: parent/child coordination with structured protocol
+- M2: supervisor over validated DAGs, stall detection, judge transitions, flowchart routing
+
+Later milestones (M3-M6) will add model learning, web control plane, and harness doctor tooling.
+
+## Documentation
+
+- [Architecture](docs/specs/m0-m2-architecture.md)
+- [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
+- [ADRs](docs/decisions/)
+- [Tasks & plans](tasks/)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
