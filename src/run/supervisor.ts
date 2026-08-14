@@ -24,6 +24,41 @@ import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
 import { materializeCheckpoint, replayRun, validateCheckpoint, type RunCheckpoint } from "./replay.js";
 import { applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
+import { decideTopology } from "../routing/topology.js";
+import type { TopologyDecision } from "../routing/topology.js";
+
+/**
+ * Topology planning integration point for supervised rounds: converts a
+ * bounded task context into a recorded topology decision (including
+ * aggregation cost). Pure and deterministic — safe to call per round.
+ */
+export interface TopologyInput {
+  readonly taskFamily: string;
+  readonly deterministicOnly: boolean;
+  readonly highRisk: boolean;
+  readonly ambiguousIntent: boolean;
+  readonly deterministicFailure: boolean;
+  readonly openEnded: boolean;
+  readonly remainingBudgetUsd: number;
+  readonly remainingTimeMs: number;
+  readonly valuePerUtilityPointUsd?: number;
+}
+
+export function planTaskTopology(input: TopologyInput): TopologyDecision {
+  return decideTopology({
+    taskFamily: input.taskFamily,
+    deterministicOnly: input.deterministicOnly,
+    highRisk: input.highRisk,
+    ambiguousIntent: input.ambiguousIntent,
+    deterministicFailure: input.deterministicFailure,
+    openEnded: input.openEnded,
+    budget: {
+      remainingBudgetUsd: input.remainingBudgetUsd,
+      remainingTimeMs: input.remainingTimeMs,
+    },
+    valuePerUtilityPointUsd: input.valuePerUtilityPointUsd ?? 1,
+  });
+}
 
 export interface SupervisorDeps {
   stateRoot: string;
