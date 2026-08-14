@@ -548,10 +548,10 @@ corepack pnpm run typecheck
 
 ### Checkpoint F
 
-- [ ] On a sealed held-out set, adaptive routing meets the approved cost-quality target against R0 under paired isolated evaluation or a predeclared estimator with valid overlap diagnostics.
-- [ ] Confidence intervals/raw counts and task-family breakdown are reported.
+- [ ] On a sealed held-out set, adaptive routing meets the approved cost-quality target against R0 under paired isolated evaluation or a predeclared estimator with valid overlap diagnostics. _(needs an approved cost-quality target and a sealed dataset source — open decision, not yet implemented)_
+- [x] Confidence intervals/raw counts and task-family breakdown are reported. _(module level: `src/experiments/comparison-report.ts` computes paired 95% CIs, raw counts, and per-family breakdown; improvement claims are gated on non-provisional samples, CI excluding zero, and cost tolerance — verified by `test/unit/experiments/comparison-report.test.ts`. No real held-out run exists yet; see the item above.)_
 - [x] Zero privacy, budget, high-risk exploration, or provider-policy violations occur.
-- [ ] Every deterministic routing/topology decision reproduces from frozen inputs; external model calls record configuration and response hashes plus run-to-run variance without claiming byte-identical replay.
+- [x] Every deterministic routing/topology decision reproduces from frozen inputs; external model calls record configuration and response hashes plus run-to-run variance without claiming byte-identical replay. _(routing rerun-hash tests + topology scenario-table reproduction tests; `src/telemetry/model-invocation.ts` records frozen config hash + response hash and `compareRunToRun` reports paired variance; wired into `PiAgentExecutor` via `onInvocation` and verified through the faux-provider path. Real-provider recording stays opt-in.)_
 
 ## Phase M6: Controlled self-optimization
 

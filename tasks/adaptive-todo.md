@@ -39,7 +39,7 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 - [x] M5-T3: Router replay harness and propensity ledger.
 - [x] M5-T4: Contextual bandit in shadow mode.
 - [x] M5-T5: Execution-topology router. _(router delivered; per-round recording of topology decisions is deferred to Checkpoint F — see adaptive-plan.md)_
-- [ ] Checkpoint F: statistically valid held-out cost-quality improvement with zero policy violations.
+- [ ] Checkpoint F: statistically valid held-out cost-quality improvement with zero policy violations. _(3/4 items: CI/raw-count/task-family reporting + frozen-input reproduction + invocation recording are done and test-verified; the sealed held-out experiment still needs an approved cost-quality target and a dataset source)_
 
 ## M6: Controlled self-optimization
 
