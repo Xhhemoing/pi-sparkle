@@ -2,26 +2,48 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
 import { PiAgentExecutor } from "../pi-adapter/pi-executor.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, type TaskId, type ArtifactId, type EvidenceId, type MessageId } from "../domain/ids.js";
+import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startParentRun, startRun } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
+import type { Event } from "../run/events.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
+import {
+  resumeFlowchartRun,
+  startFlowchartRun,
+  type FlowchartContinuation,
+  type FlowchartRunOutcome
+} from "../run/flowchart-run.js";
 import { inspectRun } from "../run/inspection.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint } from "../run/replay.js";
+import {
+  checkpointCarriesFlowchart,
+  eventsLookLikeFlowchartRun,
+  materializeCheckpoint,
+  replayRun,
+  validateCheckpoint,
+  type RunCheckpoint
+} from "../run/replay.js";
 import { resumeSupervisedRun } from "../run/supervisor.js";
-import { correctPreference, deletePreference, inspectPreferences } from "../preferences/service.js";
+import { configurePreferencePersistence, correctPreference, deletePreference, inspectPreferences } from "../preferences/service.js";
 import { exportAuthorizedPreferences } from "../preferences/export.js";
 import { getMaterializedView } from "../preferences/materialize.js";
 import type { PreferenceScope } from "../preferences/types.js";
+import { createCliModelRouter } from "./model-catalog.js";
+import {
+  collectSelectedActionIds,
+  parseChildNodeResultsFile,
+  parseFlowchartFile
+} from "./flowchart-io.js";
+import type { RunStatus } from "../domain/status.js";
+import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
 
 export interface CliIo {
   stdout(text: string): void;
@@ -71,7 +93,10 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
-function createExecutor(kind: string): AgentExecutor {
+function createExecutor(
+  kind: string,
+  hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void }
+): AgentExecutor {
   if (kind === "fake") {
     return new FakeExecutor([
       { type: "TEXT_DELTA", text: "fake worker: objective received" },
@@ -99,7 +124,8 @@ function createExecutor(kind: string): AgentExecutor {
       providerId,
       modelId,
       ...(process.env.PI_API_KEY !== undefined ? { apiKey: process.env.PI_API_KEY } : {}),
-      thinkingLevel: requestedLevel as (typeof THINKING_LEVELS)[number]
+      thinkingLevel: requestedLevel as (typeof THINKING_LEVELS)[number],
+      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {})
     });
   }
   throw new DomainValidationError(`Unknown executor "${kind}": expected "fake" or "pi"`);
@@ -109,15 +135,27 @@ const USAGE = `pi-sparkle — project-development multi-agent runtime
 
 Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>]
+  pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
   pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
-  pi-sparkle pref list|correct|export|delete ...
+  pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--state-root <dir>]
+  pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
+  pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
+  pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
   pi-sparkle help
 
 State root defaults to ~/.pi-sparkle. The default executor is a deterministic
 fake; pass --executor pi and set PI_PROVIDER/PI_MODEL/PI_API_KEY to run a real
 Pi agent. --children runs the parent as a coordinator over the child tasks in
 the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
+--flowchart starts a flowchart run (startFlowchartRun) from a JSON spec. It is
+incompatible with --children and --executor. Optional --results maps nodeId to a fake
+ChildNodeResult for the default fake proof path. Resume of a flowchart
+checkpoint continues resumeFlowchartRun (optional --results and --selected /
+--selected-ids). --supervised still uses M2 DAG resume and refuses flowchart
+checkpoints. Answer on a flowchart waiting run requires --selected or
+--selected-ids, correlates against the stored approval plan, and resumes;
+plain-text --message/--text remains valid for non-flowchart runs.
 `;
 
 /** Parses a --children spec file into validated ChildTaskInput values. */
@@ -187,6 +225,79 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
   });
 }
 
+function flowchartExitCode(status: RunStatus): number {
+  return status === "COMPLETED" || status === "WAITING_FOR_USER" ? 0 : 1;
+}
+
+function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
+  io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
+  io.stdout(`  project: ${outcome.project.rootPath}\n`);
+  io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
+  io.stdout(`  checkpoint: ${join(stateRoot, "runs", outcome.runId, "checkpoint.json")}\n`);
+  const nodes = Object.entries(outcome.snapshot.nodes)
+    .map(([id, node]) => `${id}=${node.state}`)
+    .join(" ");
+  io.stdout(`  flowchart: ${outcome.snapshot.status}${nodes === "" ? "" : ` (${nodes})`}\n`);
+  const pending = outcome.pendingApproval;
+  if (pending !== undefined) {
+    io.stdout(
+      `  pending approval ${pending.plan.id}: ${pending.plan.items.map((item) => item.id).join(", ")}\n`
+    );
+  }
+}
+
+async function readValidatedCheckpoint(stateRoot: string, runId: RunId): Promise<RunCheckpoint | undefined> {
+  const existing = await new CheckpointStore(stateRoot, runId).read();
+  if (existing === undefined) return undefined;
+  return validateCheckpoint(existing);
+}
+
+function refuseInventedFlowchartState(runId: RunId): never {
+  throw new DomainValidationError(
+    `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
+  );
+}
+
+function requireDurableFlowchartCheckpoint(runId: RunId, events: readonly Event[], existing: unknown): void {
+  if (eventsLookLikeFlowchartRun(events) && !checkpointCarriesFlowchart(existing)) {
+    refuseInventedFlowchartState(runId);
+  }
+}
+
+function approvalReplyFromCheckpoint(
+  checkpoint: RunCheckpoint,
+  selectedActionIds: readonly string[]
+): ApprovalReply {
+  const pending = checkpoint.flowchart?.snapshot.pendingApproval;
+  if (pending === undefined) {
+    throw new DomainValidationError("flowchart checkpoint has no pending approval to correlate");
+  }
+  return validateApprovalReplyAgainstPlan(pending.plan, {
+    approvalPlanId: pending.plan.id,
+    selectedActionIds
+  });
+}
+
+function flowchartContinuation(opts: {
+  selectedActionIds?: readonly string[];
+  answer?: string;
+  childResults?: FlowchartContinuation["childResults"];
+  checkpoint?: RunCheckpoint;
+}): FlowchartContinuation {
+  let approvalReply: ApprovalReply | undefined;
+  if (opts.selectedActionIds !== undefined) {
+    if (opts.checkpoint === undefined) {
+      throw new DomainValidationError("flowchart approval flags require a flowchart checkpoint");
+    }
+    approvalReply = approvalReplyFromCheckpoint(opts.checkpoint, opts.selectedActionIds);
+  }
+  return {
+    ...(approvalReply !== undefined ? { approvalReply } : {}),
+    ...(opts.answer !== undefined && opts.answer.trim() !== "" ? { answer: opts.answer } : {}),
+    ...(opts.childResults !== undefined ? { childResults: opts.childResults } : {})
+  };
+}
+
 async function runCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -194,17 +305,60 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       project: { type: "string" },
       objective: { type: "string" },
       "state-root": { type: "string" },
-      executor: { type: "string", default: "fake" },
-      children: { type: "string" }
+      executor: { type: "string" },
+      children: { type: "string" },
+      flowchart: { type: "string" },
+      results: { type: "string" }
     }
   });
   if (values.project === undefined || values.objective === undefined) {
     io.stderr("run requires --project <path> and --objective <text>\n");
     return 1;
   }
+  if (values.flowchart !== undefined && values.children !== undefined) {
+    io.stderr("run --flowchart is incompatible with --children\n");
+    return 1;
+  }
+  if (values.flowchart !== undefined && values.executor !== undefined) {
+    io.stderr("run --flowchart is incompatible with --executor\n");
+    return 1;
+  }
+  if (values.results !== undefined && values.flowchart === undefined) {
+    io.stderr("run --results requires --flowchart\n");
+    return 1;
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
-  const executorKind = values.children !== undefined && values.executor === "fake" ? "fake-children" : values.executor;
-  const executor = createExecutor(executorKind);
+  if (values.flowchart !== undefined) {
+    const flowchart = await parseFlowchartFile(values.flowchart);
+    const childResults =
+      values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const outcome = await startFlowchartRun(
+      { stateRoot, router: createCliModelRouter() },
+      {
+        projectRoot: values.project,
+        flowchart,
+        objective: values.objective,
+        ...(childResults !== undefined ? { childResults } : {})
+      }
+    );
+    printFlowchartOutcome(io, outcome, stateRoot);
+    if (outcome.status === "FAILED") {
+      const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
+      const reason =
+        failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
+      io.stderr(`  reason: ${reason}\n`);
+    }
+    return flowchartExitCode(outcome.status);
+  }
+  const executorKind =
+    values.children !== undefined && (values.executor ?? "fake") === "fake"
+      ? "fake-children"
+      : (values.executor ?? "fake");
+  const executor = createExecutor(executorKind, {
+    onInvocation: (invocation) => {
+      void appendFile(join(stateRoot, "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
+    }
+  });
   const running =
     values.children !== undefined
       ? startParentRun(
@@ -282,6 +436,21 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   if (state.run !== undefined) {
     io.stdout(`  project: ${state.run.projectId}\n`);
   }
+  const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
+  if (checkpoint?.flowchart !== undefined) {
+    const nodeSummary = Object.entries(checkpoint.flowchart.snapshot.nodes)
+      .map(([id, node]) => `${id}=${node.state}`)
+      .join(" ");
+    io.stdout(
+      `  flowchart: ${checkpoint.flowchart.snapshot.status}${nodeSummary === "" ? "" : ` (${nodeSummary})`}\n`
+    );
+    const pending = checkpoint.flowchart.snapshot.pendingApproval;
+    if (pending !== undefined) {
+      io.stdout(
+        `  pending approval ${pending.plan.id}: ${pending.plan.items.map((item) => item.id).join(", ")}\n`
+      );
+    }
+  }
   if (state.agentOutcomes.length > 0) {
     for (const record of state.agentOutcomes) {
       io.stdout(`  agent ${record.agentInstanceId}: ${record.outcome}\n`);
@@ -327,11 +496,22 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       run: { type: "string" },
       "state-root": { type: "string" },
       supervised: { type: "boolean", default: false },
-      executor: { type: "string" }
+      executor: { type: "string" },
+      results: { type: "string" },
+      selected: { type: "string", multiple: true },
+      "selected-ids": { type: "string" },
+      text: { type: "string" }
     }
   });
   if (values.run === undefined) {
     io.stderr("resume requires --run <runId>\n");
+    return 1;
+  }
+  const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
+  const wantsFlowchartFlags =
+    values.results !== undefined || selectedActionIds !== undefined || values.text !== undefined;
+  if (values.supervised === true && wantsFlowchartFlags) {
+    io.stderr("resume --supervised does not accept --results, --selected, --selected-ids, or --text\n");
     return 1;
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
@@ -342,6 +522,9 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
     return 1;
   }
+  const checkpointStore = new CheckpointStore(stateRoot, runId);
+  const existing = await checkpointStore.read();
+  requireDurableFlowchartCheckpoint(runId, read.events, existing);
   if (values.supervised === true) {
     const executorKind = values.executor ?? "fake-children";
     const running = resumeSupervisedRun(
@@ -364,9 +547,45 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     }
     return outcome.status === "COMPLETED" ? 0 : 1;
   }
+  if (checkpointCarriesFlowchart(existing)) {
+    const checkpoint = validateCheckpoint(existing);
+    const pending = checkpoint.flowchart?.snapshot.pendingApproval;
+    if (
+      values.text !== undefined &&
+      selectedActionIds === undefined &&
+      (pending !== undefined || checkpoint.status === "WAITING_FOR_USER")
+    ) {
+      throw new DomainValidationError(
+        "resume --text on a waiting flowchart requires --selected or --selected-ids"
+      );
+    }
+    const childResults =
+      values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const outcome = await resumeFlowchartRun(
+      { stateRoot, router: createCliModelRouter() },
+      runId,
+      flowchartContinuation({
+        checkpoint,
+        ...(selectedActionIds !== undefined ? { selectedActionIds } : {}),
+        ...(values.text !== undefined ? { answer: values.text } : {}),
+        ...(childResults !== undefined ? { childResults } : {})
+      })
+    );
+    printFlowchartOutcome(io, outcome, stateRoot);
+    if (outcome.status === "FAILED") {
+      const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
+      const reason =
+        failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
+      io.stderr(`  reason: ${reason}\n`);
+    }
+    return flowchartExitCode(outcome.status);
+  }
+  if (wantsFlowchartFlags) {
+    throw new DomainValidationError("resume --results/--selected/--text require a flowchart checkpoint");
+  }
   const state = replayRun(read.events);
   const checkpoint = validateCheckpoint(materializeCheckpoint(state, nowIso()));
-  await new CheckpointStore(stateRoot, runId).write(checkpoint);
+  await checkpointStore.write(checkpoint);
   io.stdout(`Run ${runId}: checkpoint rebuilt (${state.status}, ${read.events.length} events)\n`);
   return 0;
 }
@@ -388,17 +607,114 @@ function parsePreferenceValue(raw: string): string | number | boolean {
 const PREF_USAGE = `pi-sparkle pref — preference inspection and correction
 
 Usage:
-  pi-sparkle pref list [--scope user|project|task-family|role|model]
-  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>]
-  pi-sparkle pref export [--scope <scope>]
-  pi-sparkle pref delete --id <preferenceId>
+  pi-sparkle pref list [--scope user|project|task-family|role|model] [--state-root <dir>]
+  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--state-root <dir>]
+  pi-sparkle pref export [--scope <scope>] [--state-root <dir>]
+  pi-sparkle pref delete --id <preferenceId> [--state-root <dir>]
 `;
+
+function bindPreferenceStore(stateRoot: string): void {
+  configurePreferencePersistence(join(stateRoot, "preferences.json"));
+}
+
+async function answerCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      run: { type: "string" },
+      message: { type: "string" },
+      text: { type: "string" },
+      "state-root": { type: "string" },
+      selected: { type: "string", multiple: true },
+      "selected-ids": { type: "string" },
+      results: { type: "string" }
+    }
+  });
+  if (values.run === undefined) {
+    io.stderr("answer requires --run <runId>\n");
+    return 1;
+  }
+  const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const runId = parseRunId(values.run);
+  const store = new EventStore(stateRoot, runId);
+  const read = await store.readAll();
+  if (read.events.length === 0) {
+    io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
+    return 1;
+  }
+  const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
+  requireDurableFlowchartCheckpoint(runId, read.events, checkpoint);
+  if (checkpoint?.flowchart !== undefined) {
+    const pending = checkpoint.flowchart.snapshot.pendingApproval;
+    if (pending === undefined) {
+      throw new DomainValidationError(
+        "flowchart run has no pending approval; use resume to continue without an answer"
+      );
+    }
+    if (selectedActionIds === undefined) {
+      io.stderr(
+        "answer on a flowchart waiting run requires --selected <id> (repeatable) or --selected-ids <csv>\n"
+      );
+      return 1;
+    }
+    if (values.message !== undefined) {
+      const messageId = parseMessageId(values.message);
+      if (messageId !== pending.question.id) {
+        throw new DomainValidationError(
+          `answer --message ${messageId} does not match pending flowchart question ${pending.question.id}`
+        );
+      }
+    }
+    const childResults =
+      values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const outcome = await resumeFlowchartRun(
+      { stateRoot, router: createCliModelRouter() },
+      runId,
+      flowchartContinuation({
+        checkpoint,
+        selectedActionIds,
+        ...(values.text !== undefined ? { answer: values.text } : {}),
+        ...(childResults !== undefined ? { childResults } : {})
+      })
+    );
+    io.stdout(`Recorded answer for ${pending.question.id} on ${runId}\n`);
+    printFlowchartOutcome(io, outcome, stateRoot);
+    if (outcome.status === "FAILED") {
+      const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
+      const reason =
+        failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
+      io.stderr(`  reason: ${reason}\n`);
+    }
+    return flowchartExitCode(outcome.status);
+  }
+  if (values.message === undefined || values.text === undefined) {
+    io.stderr("answer requires --run <runId> --message <msgId> --text <answer>\n");
+    return 1;
+  }
+  if (selectedActionIds !== undefined || values.results !== undefined) {
+    throw new DomainValidationError("answer --selected/--results require a flowchart checkpoint");
+  }
+  const messageId = parseMessageId(values.message);
+  await store.append({
+    id: createEventId(),
+    schemaVersion: 1,
+    occurredAt: nowIso(),
+    runId,
+    type: "USER_ANSWER",
+    actor: "cli",
+    payload: { messageId, answer: values.text }
+  } as Event);
+  io.stdout(`Recorded answer for ${messageId} on ${runId}\n`);
+  return 0;
+}
 
 async function prefList(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { scope: { type: "string" } }
+    options: { scope: { type: "string" }, "state-root": { type: "string" } }
   });
+  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   let scope: PreferenceScope | undefined;
   if (values.scope !== undefined) {
     if (!isPreferenceScope(values.scope)) {
@@ -439,9 +755,11 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
       "scope-key": { type: "string" },
       key: { type: "string" },
       value: { type: "string" },
-      episode: { type: "string" }
+      episode: { type: "string" },
+      "state-root": { type: "string" }
     }
   });
+  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   const scope = values.scope;
   const scopeKey = values["scope-key"];
   const key = values.key;
@@ -463,8 +781,9 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
 async function prefExport(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { scope: { type: "string" } }
+    options: { scope: { type: "string" }, "state-root": { type: "string" } }
   });
+  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   let scopes: PreferenceScope[] | undefined;
   if (values.scope !== undefined) {
     if (!isPreferenceScope(values.scope)) {
@@ -481,8 +800,9 @@ async function prefExport(args: string[], io: CliIo): Promise<number> {
 async function prefDelete(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { id: { type: "string" } }
+    options: { id: { type: "string" }, "state-root": { type: "string" } }
   });
+  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   if (values.id === undefined) {
     io.stderr("pref delete requires --id <preferenceId>\n");
     return 1;
@@ -526,6 +846,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await inspectCommand(rest, io);
       case "resume":
         return await resumeCommand(rest, io);
+      case "answer":
+        return await answerCommand(rest, io);
       case "pref":
         return await prefCommand(rest, io);
       case "help":

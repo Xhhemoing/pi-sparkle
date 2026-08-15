@@ -45,3 +45,28 @@ export function assertTransitionTask(from: TaskStatus, to: TaskStatus): void {
     throw new DomainValidationError(`Illegal TaskStatus transition: ${from} -> ${to}`);
   }
 }
+
+/**
+ * Shortest legal path from `from` to `to`. Direct edges stay one step;
+ * PENDING → RUNNING expands through READY, and RUNNING → FAILED through BLOCKED.
+ */
+export function expandTaskTransition(from: TaskStatus, to: TaskStatus): TaskStatus[] {
+  if (from === to) return [];
+  if (canTransitionTask(from, to)) return [to];
+  const queue: TaskStatus[][] = [[from]];
+  const seen = new Set<TaskStatus>([from]);
+  while (queue.length > 0) {
+    const path = queue.shift();
+    if (path === undefined) break;
+    const current = path[path.length - 1];
+    if (current === undefined) continue;
+    for (const next of TASK_TRANSITIONS[current]) {
+      if (seen.has(next)) continue;
+      const nextPath = [...path, next];
+      if (next === to) return nextPath.slice(1);
+      seen.add(next);
+      queue.push(nextPath);
+    }
+  }
+  throw new DomainValidationError(`Illegal TaskStatus transition: ${from} -> ${to}`);
+}

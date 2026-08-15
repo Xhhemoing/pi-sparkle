@@ -12,6 +12,7 @@ import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
 import type { RunStatus } from "../domain/status.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
+import { DomainValidationError } from "../domain/errors.js";
 import type { AgentProfileRegistry } from "../agents/registry.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -131,13 +132,13 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
         if (sawTerminal) break;
         switch (executionEvent.type) {
           case "TEXT_DELTA":
-            await append(agentEvent("TEXT_DELTA", bounded(executionEvent.text)));
+            await append(agentEvent("TEXT_DELTA", `text delta (${executionEvent.text.length} chars)`));
             break;
           case "TOOL_STARTED":
             await append(agentEvent("TOOL_STARTED", bounded(executionEvent.toolName)));
             break;
           case "TOOL_FINISHED":
-            await append(agentEvent("TOOL_FINISHED", bounded(executionEvent.summary)));
+            await append(agentEvent("TOOL_FINISHED", executionEvent.isError ? "tool error" : "tool finished"));
             break;
           case "TURN_FINISHED":
             await append(agentEvent("TURN_FINISHED", "turn finished"));
@@ -236,6 +237,21 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     await append(make("RUN_CREATED", { run }));
     await append(make("RUN_STARTED", {}));
 
+    let cancelWritten = false;
+    const writeCancel = async (): Promise<void> => {
+      if (cancelWritten) return;
+      cancelWritten = true;
+      await append(make("RUN_CANCEL_REQUESTED", {}));
+    };
+    controller.signal.addEventListener("abort", () => {
+      void writeCancel();
+    }, { once: true });
+
+    let releaseQuestionHang = (): void => {};
+    const questionHang = new Promise<void>((resolve) => {
+      releaseQuestionHang = resolve;
+    });
+
     const childCoordinator = new ChildCoordinator({
       stateRoot: deps.stateRoot,
       executor: deps.executor,
@@ -246,11 +262,12 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       now,
       ...(generateId !== undefined ? { generateId } : {}),
       onQuestion: async (question) => {
-        // M1: questions pause the parent in WAITING_FOR_USER until the CLI
-        // supplies an explicit answer event. The child stays paused.
+        // Persist WAITING_FOR_USER via the child's QUESTION path. Never
+        // auto-answer with "" — hang until the parent has recorded the pause,
+        // then fail the in-flight attempt so the process can exit.
         resolveQuestion(question);
-        await new Promise<void>(() => {});
-        return "";
+        await questionHang;
+        throw new DomainValidationError("run is waiting for an explicit user answer");
       }
     });
 
@@ -275,7 +292,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
         );
         if (controller.signal.aborted) {
           status = "CANCELLED";
-          await append(make("RUN_CANCEL_REQUESTED", {}));
+          await writeCancel();
         } else if (failures.length > 0) {
           status = "FAILED";
           failureReason = failures
@@ -291,6 +308,9 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       status = "FAILED";
       failureReason = error instanceof Error ? error.message : String(error);
       await append(make("RUN_FAILED", { reason: failureReason }));
+    } finally {
+      releaseQuestionHang();
+      await Promise.allSettled(handles.map((handle) => handle.done));
     }
 
     const read = await eventStore.readAll();

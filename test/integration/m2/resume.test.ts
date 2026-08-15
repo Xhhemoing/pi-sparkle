@@ -171,6 +171,44 @@ test("resume of an already-terminal run returns the same state", async () => {
   });
 });
 
+test("resume of an in-window orphaned lease recovers instead of stalling", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const taskB = createTaskId(() => "b");
+    const tasks = [task("c", ["a", "b"]), task("a"), task("b")];
+    const liveNow = () => parseIsoTimestamp(new Date().toISOString());
+    const first = startSupervisedRun(
+      {
+        ...deps(stateRoot, new HangingExecutor([taskB])),
+        now: liveNow
+      },
+      { projectRoot, objective: "Ship it", tasks, limits: limits() }
+    );
+    const runId = first.runId;
+    const store = new EventStore(stateRoot, runId);
+    let sawCheckpoint = false;
+    for (let i = 0; i < 500; i += 1) {
+      const read = await store.readAll();
+      const types = read.events.filter((e) => e.type === "TASK_STATUS_CHANGED").map((e) => e.payload);
+      const aDone = types.some((p) => (p as { taskId: string }).taskId === "tsk_a" && (p as { status: string }).status === "COMPLETED");
+      const bRunning = types.some((p) => (p as { taskId: string }).taskId === "tsk_b" && (p as { status: string }).status === "RUNNING");
+      if (aDone && bRunning) {
+        sawCheckpoint = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(sawCheckpoint, true, "interrupted run must persist a completed task and a running lease");
+    const resumed = resumeSupervisedRun(
+      { ...deps(stateRoot, new HangingExecutor([])), now: liveNow },
+      runId
+    );
+    const outcome = await resumed.done;
+    assert.equal(outcome.status, "COMPLETED");
+    first.cancel();
+    await first.done.catch(() => undefined);
+  });
+});
+
 test("resume rejects an unknown run id", async () => {
   await withTempState(async (stateRoot, _projectRoot) => {
     const resumed = resumeSupervisedRun(

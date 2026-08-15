@@ -8,6 +8,7 @@ export interface RunLimits {
   maxConsecutiveStalls: number;
   maxWallTimeMs: number;
   maxCostUsd?: number;
+  minHumanConfidence?: number;
 }
 
 export function defaultRunLimits(): RunLimits {
@@ -51,6 +52,16 @@ function limitsError(value: unknown): string | undefined {
     if (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0) {
       return "maxCostUsd must be a positive number";
     }
+  }
+  const minHumanConfidence = record.minHumanConfidence;
+  if (
+    minHumanConfidence !== undefined &&
+    (typeof minHumanConfidence !== "number" ||
+      !Number.isFinite(minHumanConfidence) ||
+      minHumanConfidence < 0 ||
+      minHumanConfidence > 1)
+  ) {
+    return "minHumanConfidence must be a finite number between 0 and 1";
   }
   return undefined;
 }

@@ -25,35 +25,25 @@ export interface PairwiseResult {
 }
 
 export function blindPairwiseCompare(input: PairwiseInput, swapOrder = false): PairwiseResult {
-  let aScore = input.aScore;
-  let bScore = input.bScore;
-  let aId = input.aId;
-  let bId = input.bId;
-
-  if (swapOrder) {
-    [aScore, bScore] = [bScore, aScore];
-    [aId, bId] = [bId, aId];
-  }
-
   let winner: "a" | "b" | "tie";
   let rationale: string;
 
-  if (aScore === bScore) {
+  if (input.aScore === input.bScore) {
     winner = "tie";
     rationale = "scores equal; position bias avoided";
-  } else if (aScore > bScore) {
+  } else if (input.aScore > input.bScore) {
     winner = "a";
-    rationale = swapOrder ? "b higher after swap" : "a higher on first presentation";
+    rationale = swapOrder ? "a higher after swap" : "a higher on first presentation";
   } else {
     winner = "b";
-    rationale = swapOrder ? "a higher after swap" : "b higher on first presentation";
+    rationale = swapOrder ? "b higher after swap" : "b higher on first presentation";
   }
 
   return {
     id: createEventId(),
     episodeId: input.episodeId,
-    aId,
-    bId,
+    aId: input.aId,
+    bId: input.bId,
     winner,
     rationale,
     createdAt: nowIso(),

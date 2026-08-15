@@ -1,3 +1,4 @@
+import type { EpisodeId } from "../domain/ids.js";
 import type { PreferenceObservation, PreferenceScope } from "./types.js";
 import {
   recordPreference,
@@ -5,8 +6,10 @@ import {
   deleteObservation,
   isTombstoned,
   resetPreferenceStore,
+  configurePreferencePersistence,
 } from "./store.js";
-import type { EpisodeId } from "../domain/ids.js";
+
+export { configurePreferencePersistence };
 
 export interface InspectResult {
   readonly count: number;

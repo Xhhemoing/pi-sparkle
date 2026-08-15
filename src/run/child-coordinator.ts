@@ -22,8 +22,10 @@ import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import {
   assertAtMostOneTerminal,
   validateAgentMessage,
+  validateApprovalReplyForPlan,
   type AgentMessage,
   type AgentQuestion,
+  type ApprovalReply,
   type ChildRunLimits,
   type TaskRequest,
   type TaskResult
@@ -41,9 +43,16 @@ export interface ChildCoordinatorDeps {
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
   schedule?: (fn: () => void, ms: number) => { cancel(): void };
-  /** Supplies an explicit answer when a child asks a QUESTION. */
-  onQuestion?: (question: AgentQuestion) => Promise<string> | string;
+  /**
+   * Supplies an explicit answer when a child asks a QUESTION. Plain text
+   * answers a question with no approval plan; a question carrying a plan must
+   * be answered with an explicit {@link QuestionResponse} approvalReply.
+   */
+  onQuestion?: (question: AgentQuestion) => Promise<QuestionResponse> | QuestionResponse;
 }
+
+/** A plain answer, or an answer plus the selective approval decision. */
+export type QuestionResponse = string | { answer: string; approvalReply?: ApprovalReply };
 
 export interface ChildTaskInput {
   taskId: TaskId;
@@ -129,7 +138,9 @@ export class ChildCoordinator {
   private readonly gate: ConcurrencyGate;
   private readonly parentAgentInstanceId: AgentInstanceId;
   private readonly parentStore: EventStore;
-  private readonly onQuestion: ((question: AgentQuestion) => Promise<string> | string) | undefined;
+  private readonly onQuestion:
+    | ((question: AgentQuestion) => Promise<QuestionResponse> | QuestionResponse)
+    | undefined;
   private readonly childStores = new Map<RunId, EventStore>();
 
   /** Active attempt controller per child run, for external cancellation. */
@@ -157,8 +168,14 @@ export class ChildCoordinator {
     return [...this.pendingQuestionsList];
   }
 
-  /** Supplies an explicit user answer for a previously received QUESTION. */
-  answerQuestion(messageId: MessageId, answer: string): void {
+  /**
+   * Supplies an explicit user answer for a previously received QUESTION. A
+   * selective approval reply is correlated against the plan carried by the
+   * pending question, which is the authoritative copy; the reply never supplies
+   * its own plan. A question that carries a plan can only be answered with a
+   * matching reply, so free text can never stand in for an approval decision.
+   */
+  async answerQuestion(messageId: MessageId, answer: string, approvalReply?: ApprovalReply): Promise<void> {
     if (answer.trim() === "") {
       throw new DomainValidationError("answer must be a non-empty string");
     }
@@ -167,8 +184,25 @@ export class ChildCoordinator {
       throw new DomainValidationError(`No pending question for message ${messageId}`);
     }
     const question = this.pendingQuestionsList.find((q) => q.id === messageId);
+    const approvalPlan = question?.approvalPlan;
+    if (approvalPlan === undefined) {
+      if (approvalReply !== undefined) {
+        throw new DomainValidationError(`Question ${messageId} has no pending approval plan`);
+      }
+    } else {
+      if (approvalReply === undefined) {
+        throw new DomainValidationError(
+          `Question ${messageId} requires an approval reply for plan ${approvalPlan.id}`
+        );
+      }
+      validateApprovalReplyForPlan(approvalPlan, approvalReply);
+    }
     if (question !== undefined) {
-      void this.appendParentEvent("USER_ANSWER", { messageId, answer }, question.taskId);
+      await this.appendParentEvent(
+        "USER_ANSWER",
+        { messageId, answer, ...(approvalReply !== undefined ? { approvalReply } : {}) },
+        question.taskId
+      );
     }
     this.questionResolvers.delete(messageId);
     const index = this.pendingQuestionsList.findIndex((q) => q.id === messageId);
@@ -176,8 +210,12 @@ export class ChildCoordinator {
     resolve();
   }
 
-  startChildTask(input: ChildTaskInput, parentSignal: AbortSignal): ChildRunHandle {
-    const childRunId = createRunId(this.generateId);
+  startChildTask(
+    input: ChildTaskInput,
+    parentSignal: AbortSignal,
+    options?: { childRunId?: RunId }
+  ): ChildRunHandle {
+    const childRunId = options?.childRunId ?? createRunId(this.generateId);
     const taskId = input.taskId;
 
     const done = this.gate.acquire().then(async () => {
@@ -435,12 +473,18 @@ export class ChildCoordinator {
       executorOutcome = "FAILURE";
     }
 
+    const finishedOutcome =
+      terminalMessage !== undefined
+        ? terminalMessage.outcome === "PARTIAL"
+          ? "SUCCESS"
+          : terminalMessage.outcome
+        : (executorOutcome ?? "FAILURE");
     await this.appendChildEvent(
       childRunId,
       "AGENT_FINISHED",
       {
         agentInstanceId: childAgentId,
-        outcome: terminalMessage !== undefined ? terminalMessage.outcome : (executorOutcome ?? "FAILURE")
+        outcome: finishedOutcome
       },
       input.taskId
     );
@@ -471,7 +515,7 @@ export class ChildCoordinator {
         await this.appendChildEvent(
           childRunId,
           "AGENT_EVENT",
-          { agentInstanceId: childAgentId, kind: "TEXT_DELTA", summary: bounded(event.text) },
+          { agentInstanceId: childAgentId, kind: "TEXT_DELTA", summary: `text delta (${event.text.length} chars)` },
           taskId
         );
         return undefined;
@@ -487,7 +531,11 @@ export class ChildCoordinator {
         await this.appendChildEvent(
           childRunId,
           "AGENT_EVENT",
-          { agentInstanceId: childAgentId, kind: "TOOL_FINISHED", summary: bounded(event.summary) },
+          {
+            agentInstanceId: childAgentId,
+            kind: "TOOL_FINISHED",
+            summary: event.isError ? "tool error" : "tool finished"
+          },
           taskId
         );
         return undefined;
@@ -514,14 +562,7 @@ export class ChildCoordinator {
 
         if (message.type === "QUESTION") {
           this.pendingQuestionsList.push(message);
-          await this.appendParentEvent("RUN_WAITING_FOR_USER", { messageId: message.id }, taskId);
-          if (this.onQuestion !== undefined) {
-            const answer = await this.onQuestion(message);
-            this.answerQuestion(message.id, answer);
-            return undefined;
-          }
-          // Pause until an explicit USER_ANSWER arrives or the run is aborted.
-          await new Promise<void>((resolve) => {
+          const answered = new Promise<void>((resolve) => {
             if (signal.aborted) {
               resolve();
               return;
@@ -536,6 +577,24 @@ export class ChildCoordinator {
               resolve();
             });
           });
+          await this.appendParentEvent(
+            "RUN_WAITING_FOR_USER",
+            {
+              messageId: message.id,
+              ...(message.approvalPlan !== undefined ? { approvalPlan: message.approvalPlan } : {})
+            },
+            taskId
+          );
+          if (this.onQuestion !== undefined) {
+            const response = await this.onQuestion(message);
+            if (typeof response === "string") {
+              await this.answerQuestion(message.id, response);
+            } else {
+              await this.answerQuestion(message.id, response.answer, response.approvalReply);
+            }
+            return undefined;
+          }
+          await answered;
           return undefined;
         }
         if (message.type === "TASK_RESULT") {

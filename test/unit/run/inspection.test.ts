@@ -234,14 +234,21 @@ test("inspectRun surfaces pending questions and supplied answers", async () => {
     const taskId = createTaskId(seq);
     const handle = coordinator.startChildTask(childInput(taskId), new AbortController().signal);
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const paused = await inspectRun(stateRoot, parentRunId);
+    let paused = await inspectRun(stateRoot, parentRunId);
+    for (
+      let i = 0;
+      i < 100 && (paused.pendingQuestions.length === 0 || paused.status !== "WAITING_FOR_USER");
+      i += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      paused = await inspectRun(stateRoot, parentRunId);
+    }
     assert.equal(paused.status, "WAITING_FOR_USER");
     assert.equal(paused.pendingQuestions.length, 1);
     const questionId = paused.pendingQuestions[0]!.id;
     assert.match(questionId, /^msg_/);
 
-    coordinator.answerQuestion(questionId, "Yes");
+    await coordinator.answerQuestion(questionId, "Yes");
     resolveAnswer("Yes");
     const outcome = await handle.done;
     assert.equal(outcome.outcome, "SUCCESS");

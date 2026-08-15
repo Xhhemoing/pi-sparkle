@@ -9,6 +9,7 @@ import {
   type RunId,
   type TaskId
 } from "./ids.js";
+import { isConfidenceScore, type ConfidenceScore } from "./flowchart.js";
 import { isAgentRole, type AgentRole } from "./roles.js";
 import { isTaskStatus, type TaskStatus } from "./status.js";
 
@@ -31,6 +32,8 @@ export interface TaskNode {
   assignedRunId?: RunId;
   artifactIds: ArtifactId[];
   evidenceIds: EvidenceId[];
+  /** Absent on M2 graphs; present once a decision records its confidence. */
+  confidence?: ConfidenceScore;
 }
 
 function isAcceptanceCriterion(value: unknown): value is AcceptanceCriterion {
@@ -80,6 +83,9 @@ function taskNodeError(value: unknown): string | undefined {
   }
   if (!Array.isArray(task.evidenceIds) || !task.evidenceIds.every(isEvidenceId)) {
     return "evidenceIds must be an array of EvidenceIds";
+  }
+  if (task.confidence !== undefined && !isConfidenceScore(task.confidence)) {
+    return "confidence must be a finite number between 0 and 1";
   }
   return undefined;
 }

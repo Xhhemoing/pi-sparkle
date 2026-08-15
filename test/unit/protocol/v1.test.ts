@@ -17,8 +17,11 @@ import {
   PROTOCOL_VERSION,
   assertAtMostOneTerminal,
   isAgentMessage,
+  isApprovalReply,
   isTerminalMessage,
   validateAgentMessage,
+  validateApprovalReply,
+  validateApprovalReplyForPlan,
   type AgentMessage,
   type TaskRequest,
   type TaskResult
@@ -131,6 +134,57 @@ test("TASK_REQUEST payload validation rejects bad references and limits", () => 
   assert.throws(() => validateAgentMessage({ ...validRequest(), limits: "fast" }), /limits/);
 });
 
+const approvalPlan = {
+  id: "plan-1",
+  items: [
+    { id: "one", label: "First action", selectable: true, defaultSelected: true },
+    { id: "two", label: "Second action", selectable: true },
+    { id: "fixed", label: "Always applied", selectable: false }
+  ]
+};
+
+test("TASK_REQUEST carries a validated selectable ApprovalPlan", () => {
+  const request = { ...validRequest(), approvalPlan };
+  assert.deepEqual(validateAgentMessage(request), request);
+  assert.throws(() => validateAgentMessage({ ...request, approvalPlan: { ...approvalPlan, id: "" } }), /approvalPlan/i);
+  assert.throws(() => validateAgentMessage({ ...request, approvalPlan: { items: approvalPlan.items } }), /approvalPlan/i);
+  assert.throws(
+    () => validateAgentMessage({ ...request, approvalPlan: { id: "p", items: [{ id: "one", label: "", selectable: true }] } }),
+    /approvalPlan/i
+  );
+  assert.throws(
+    () => validateAgentMessage({ ...request, approvalPlan: { id: "p", items: [{ id: "x", label: "X", selectable: false, defaultSelected: true }] } }),
+    /approvalPlan/i
+  );
+});
+
+test("ApprovalReply validates its own shape and correlates with an authoritative plan", () => {
+  const reply = { approvalPlanId: "plan-1", selectedActionIds: ["two"] };
+  assert.deepEqual(validateApprovalReply(reply), reply);
+  assert.equal(isApprovalReply(reply), true);
+
+  for (const bad of [
+    { approvalPlanId: "", selectedActionIds: ["two"] },
+    { approvalPlanId: "plan-1", selectedActionIds: ["two", "two"] },
+    { approvalPlanId: "plan-1", selectedActionIds: [3] },
+    { approvalPlanId: "plan-1" },
+    null
+  ]) {
+    assert.equal(isApprovalReply(bad), false);
+    assert.throws(() => validateApprovalReply(bad), /ApprovalReply/i);
+  }
+
+  assert.deepEqual(validateApprovalReplyForPlan(approvalPlan, reply), reply);
+  assert.throws(
+    () => validateApprovalReplyForPlan(approvalPlan, { ...reply, approvalPlanId: "plan-2" }),
+    /does not match the pending plan/i
+  );
+  assert.throws(
+    () => validateApprovalReplyForPlan(approvalPlan, { ...reply, selectedActionIds: ["fixed"] }),
+    /non-selectable/i
+  );
+});
+
 test("PROGRESS payload validation rejects bad status, empty summary, and bad blocker", () => {
   assert.throws(() => validateAgentMessage({ ...validProgress(), status: "DONE" }), /status/);
   assert.throws(() => validateAgentMessage({ ...validProgress(), summary: "" }), /summary/);
@@ -144,6 +198,26 @@ test("PROGRESS payload validation rejects bad status, empty summary, and bad blo
 test("QUESTION payload validation rejects an empty question and bad options", () => {
   assert.throws(() => validateAgentMessage({ ...validQuestion(), question: "" }), /question/);
   assert.throws(() => validateAgentMessage({ ...validQuestion(), options: [""] }), /options/);
+});
+
+test("QUESTION carries an optional confidence, rationale, and approval plan", () => {
+  const question = {
+    ...validQuestion(),
+    confidence: 0.42,
+    rationale: "The refactor touches a shared helper",
+    approvalPlan
+  };
+  assert.deepEqual(validateAgentMessage(question), question);
+  // M1 questions without any of the new fields stay valid.
+  assert.doesNotThrow(() => validateAgentMessage(validQuestion()));
+
+  assert.throws(() => validateAgentMessage({ ...question, confidence: 1.5 }), /confidence/i);
+  assert.throws(() => validateAgentMessage({ ...question, confidence: -0.1 }), /confidence/i);
+  assert.throws(() => validateAgentMessage({ ...question, confidence: Number.NaN }), /confidence/i);
+  assert.throws(() => validateAgentMessage({ ...question, confidence: "high" }), /confidence/i);
+  assert.throws(() => validateAgentMessage({ ...question, rationale: "" }), /rationale/i);
+  assert.throws(() => validateAgentMessage({ ...question, approvalPlan: { ...approvalPlan, items: [] } }), /approvalPlan/i);
+  assert.throws(() => validateAgentMessage({ ...question, approvalPlan: { id: "p" } }), /approvalPlan/i);
 });
 
 test("TASK_RESULT payload validation rejects bad outcome, verification, and failure", () => {

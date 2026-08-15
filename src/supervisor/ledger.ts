@@ -1,4 +1,5 @@
 import { type EventId, type TaskId } from "../domain/ids.js";
+import type { ConfidenceScore } from "../domain/flowchart.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
 
 /** Facts observed so far, used to detect duplicates across rounds. */
@@ -6,7 +7,7 @@ import type { IsoTimestamp } from "../domain/timestamp.js";
 export interface LedgerFact {
   key: string;
   value: string;
-  confidence: "LOW" | "MEDIUM" | "HIGH";
+  confidence: ConfidenceScore;
 }
 
 export interface LedgerProgressEntry {

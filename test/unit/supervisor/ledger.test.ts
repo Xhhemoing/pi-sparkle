@@ -50,7 +50,7 @@ test("a round with a completed task or new evidence counts as progress", () => {
     "new evidence is progress"
   );
   assert.equal(
-    classifyRoundProgress(roundEvent({ newFacts: [{ key: "lang", value: "ts", confidence: "HIGH" }] })),
+    classifyRoundProgress(roundEvent({ newFacts: [{ key: "lang", value: "ts", confidence: 0.9 }] })),
     true,
     "a new non-duplicate fact is progress"
   );
@@ -68,14 +68,26 @@ test("a round with a completed task or new evidence counts as progress", () => {
 
 test("a round with only retries or repeated plans is a stall", () => {
   assert.equal(classifyRoundProgress(roundEvent({})), false, "an empty round is a stall");
-  assert.equal(
-    classifyRoundProgress(roundEvent({ newFacts: [{ key: "lang", value: "ts", confidence: "HIGH" }] })),
-    true
+  const fact = { key: "lang", value: "ts", confidence: 0.9 };
+  const firstRound = roundEvent({ newFacts: [fact] });
+  assert.equal(classifyRoundProgress(firstRound), true, "a new fact is progress");
+
+  // Seed the fact into the ledger, then repeat it: a duplicate is not progress.
+  const seeded = advanceLedgerRound(createLedger("x"), true, 3, { event: firstRound });
+  assert.ok(
+    seeded.facts.some((existing) => existing.key === fact.key && existing.value === fact.value),
+    "the fact is recorded on the ledger"
   );
-  // Same fact again in a later round is a duplicate, hence no progress.
-  const ledger = advanceLedgerRound(createLedger("x"), true, 3);
-  const duplicate = roundEvent({ newFacts: [{ key: "lang", value: "ts", confidence: "HIGH" }] });
-  assert.equal(classifyRoundProgress(duplicate, ledger), true, "ledger facts start empty");
+  assert.equal(
+    classifyRoundProgress(roundEvent({ newFacts: [fact] }), seeded),
+    false,
+    "repeating a recorded fact is a stall"
+  );
+  assert.equal(
+    classifyRoundProgress(roundEvent({ newFacts: [{ ...fact, value: "rust" }] }), seeded),
+    true,
+    "a different value for the same key is still new information"
+  );
 });
 
 test("advanceLedgerRound increments the round and tracks consecutive stalls", () => {
@@ -114,7 +126,7 @@ test("the stall limit blocks the run with the required evidence summary", () => 
 test("progress entries and blockers are recorded on the ledger", () => {
   const event: LedgerRoundEvent = roundEvent({
     completedTasks: [taskId],
-    newFacts: [{ key: "lang", value: "ts", confidence: "HIGH" }],
+    newFacts: [{ key: "lang", value: "ts", confidence: 0.9 }],
     resolvedBlockers: [{ kind: "DEPENDENCY", description: "waiting on b" }]
   });
   const ledger = advanceLedgerRound(createLedger("x"), classifyRoundProgress(event), 3, {

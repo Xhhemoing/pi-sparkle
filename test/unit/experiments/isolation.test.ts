@@ -54,6 +54,13 @@ describe("M6-T2: isolation guard", () => {
     );
   });
 
+  it("rejects writes that escape the output root with ..", () => {
+    assert.throws(
+      () => assertWritablePath(guard(), "/replay/out/../live/workspace/src/main.ts"),
+      /read-only isolation violation|isolated output root/
+    );
+  });
+
   it("treats sibling paths sharing a prefix as distinct", () => {
     const siblingGuard = createIsolationGuard({
       readOnlyRoots: ["/live/workspace"],

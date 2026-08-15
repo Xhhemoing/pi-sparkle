@@ -88,22 +88,22 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
 
 ## M2.5: Flowchart Supervisor + P1/P2 Core (Permanent)
 
-- [ ] T12: Flowchart schema + ModelRouter + Confidence types (Permanent core).
+- [x] T12: Flowchart schema + ModelRouter + Confidence types (Permanent core).
   - Acceptance: modelPolicy, confidenceThreshold, ApprovalPlan with selectable items; ModelRouter emits MODEL_ROUTED; low-confidence forces WAITING_FOR_USER; no M2 regression.
   - Verify: flowchart + router unit tests + typecheck.
   - Depends on: Checkpoint C.
 
-- [ ] T13: FlowchartSupervisor with P1 routing + P2 confidence/approval (Permanent core).
+- [x] T13: FlowchartSupervisor with P1 routing + P2 confidence/approval (Permanent core).
   - Acceptance: parallel branches route via ModelRouter; selective checkbox approval works; confidence propagates; resume restores pending approvals.
   - Verify: integration tests with mixed-model + confidence-gate scenarios.
   - Depends on: T12.
 
-- [ ] T14: Flowchart + ledger + confidence persistence + M2.5 gates (Permanent).
+- [x] T14: Flowchart + ledger + confidence persistence + M2.5 gates (Permanent).
   - Acceptance: non-trivial flowchart (fork + different models + confidence gate + selective join) works; resume restores router + approval state; full gates pass.
   - Verify: full quality gates + resume tests.
   - Depends on: T13.
 
-- [ ] Checkpoint D (M2.5): P1 & P2 are permanent core. Flowchart is canonical orchestration engine.
+- [x] Checkpoint D (M2.5): P1 & P2 are permanent core. Flowchart is canonical orchestration engine.
 
 ## M3: Optional Governance (P3, P5)
 
@@ -121,19 +121,19 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
 
 ## M2.5: Flowchart Supervisor
 
-- [ ] T12: Flowchart schema, validation, and execution semantics.
+- [x] T12: Flowchart schema, validation, and execution semantics.
   - Acceptance: invalid flowcharts rejected; linear flowchart executes; ledger backward compatible.
   - Verify: flowchart unit tests + typecheck.
   - Depends on: Checkpoint C.
 
-- [ ] T13: Flowchart-driven subagent orchestration + parallel execution.
+- [x] T13: Flowchart-driven subagent orchestration + parallel execution.
   - Acceptance: parallel sub-agents leased and joined; conditional edges evaluated from judge output; resume recovers cursor + branches.
   - Verify: integration tests with fork/join scenarios.
   - Depends on: T12.
 
-- [ ] T14: Flowchart + ledger integration, stall handling, and M2.5 acceptance.
+- [x] T14: Flowchart + ledger integration, stall handling, and M2.5 acceptance.
   - Acceptance: non-trivial flowchart (fork→parallel→join) works end-to-end; no regression on M2 tests.
   - Verify: full quality gates + resume tests.
   - Depends on: T13.
 
-- [ ] Checkpoint D (M2.5): Flowchart supervisor becomes the canonical orchestration model for complex sub-agent relationships.
+- [x] Checkpoint D (M2.5): Flowchart supervisor becomes the canonical orchestration model for complex sub-agent relationships.

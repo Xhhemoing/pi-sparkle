@@ -1,14 +1,21 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   MIN_INFERRED_RECURRENCE_DEFAULT,
   clearPreferences,
   configureMinInferredRecurrence,
+  configurePreferencePersistence,
+  deleteObservation,
   findConflicts,
   getObservationsByKey,
   getView,
+  isTombstoned,
   listObservations,
   recordPreference,
+  resetPreferenceStore,
 } from "../../../src/preferences/store.js";
 import {
   compareScopePriority,
@@ -23,7 +30,9 @@ const epA = createEpisodeId();
 const epB = createEpisodeId();
 
 beforeEach(() => {
+  configurePreferencePersistence(undefined);
   clearPreferences();
+  resetPreferenceStore();
   configureMinInferredRecurrence(MIN_INFERRED_RECURRENCE_DEFAULT);
 });
 
@@ -174,5 +183,29 @@ describe("M4-T4: scoped preference observations and materialized views", () => {
     assert.equal(afterCorrection[0]?.key, "format");
     assert.equal(afterCorrection[0]?.incoming.id, corrected.id);
     assert.equal(afterCorrection[0]?.resolution, "override");
+  });
+
+  it("tombstones survive a store reload from disk", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-pref-"));
+    const file = join(dir, "preferences.json");
+    try {
+      configurePreferencePersistence(file);
+      const obs = explicit("user", "u1", "format", "compact");
+      assert.equal(deleteObservation(obs.id), true);
+      assert.equal(isTombstoned(obs.id), true);
+      assert.equal(listObservations().length, 0);
+
+      configurePreferencePersistence(undefined);
+      resetPreferenceStore();
+      assert.equal(isTombstoned(obs.id), false);
+
+      configurePreferencePersistence(file);
+      assert.equal(isTombstoned(obs.id), true);
+      assert.equal(listObservations().length, 0);
+    } finally {
+      configurePreferencePersistence(undefined);
+      resetPreferenceStore();
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => undefined);
+    }
   });
 });

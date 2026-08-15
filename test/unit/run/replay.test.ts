@@ -8,7 +8,7 @@ import {
 } from "../../../src/domain/ids.js";
 import { defaultRunLimits } from "../../../src/domain/limits.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint } from "../../../src/run/replay.js";
+import { eventsLookLikeFlowchartRun, materializeCheckpoint, replayRun, validateCheckpoint } from "../../../src/run/replay.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -122,5 +122,20 @@ test("validateCheckpoint rejects malformed checkpoints", () => {
   assert.throws(
     () => validateCheckpoint({ ...checkpoint, agentOutcomes: [{ agentInstanceId: "bad", outcome: "SUCCESS" }] }),
     /agentOutcomes/
+  );
+});
+
+test("M0 checkpoints without a flowchart field still validate", () => {
+  const checkpoint = materializeCheckpoint(replayRun(happyPathEvents()), parseIsoTimestamp("2026-08-12T10:00:00.000Z"));
+  assert.equal(checkpoint.flowchart, undefined);
+  assert.deepEqual(validateCheckpoint(checkpoint), checkpoint);
+});
+
+test("eventsLookLikeFlowchartRun detects MODEL_ROUTED or flowchart-supervisor actor", () => {
+  assert.equal(eventsLookLikeFlowchartRun(happyPathEvents()), false);
+  assert.equal(eventsLookLikeFlowchartRun([makeEvent("MODEL_ROUTED", {})]), true);
+  assert.equal(
+    eventsLookLikeFlowchartRun([makeEvent("RUN_STARTED", {}, { actor: "flowchart-supervisor" })]),
+    true
   );
 });

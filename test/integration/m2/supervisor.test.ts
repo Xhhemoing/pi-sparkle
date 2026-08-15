@@ -164,3 +164,94 @@ test("repeated no-progress rounds block the run with required evidence", async (
     assert.ok((blocked?.payload as { requiredEvidence: string[] }).requiredEvidence.length > 0);
   });
 });
+
+test("scheduled tasks record PENDING → READY → RUNNING, never PENDING → RUNNING", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new ScriptedSupervisedExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        generateId: sequenceGenerator()
+      },
+      {
+        projectRoot,
+        objective: "Ship the parser",
+        tasks: [task("a")],
+        limits: { maxTasks: 1, maxConcurrentTasks: 1, maxAttemptsPerTask: 3, maxRounds: 10, maxConsecutiveStalls: 3, maxWallTimeMs: 600_000 }
+      }
+    );
+    const outcome = await running.done;
+    assert.equal(outcome.status, "COMPLETED");
+    const statuses = outcome.events
+      .filter((e) => e.type === "TASK_STATUS_CHANGED")
+      .map((e) => (e.payload as { status: string }).status);
+    assert.ok(statuses.includes("READY"), "READY must be recorded before RUNNING");
+    const readyAt = statuses.indexOf("READY");
+    const runningAt = statuses.indexOf("RUNNING");
+    assert.ok(readyAt >= 0 && runningAt > readyAt);
+  });
+});
+
+test("an exhausted failed graph is FAILED, not COMPLETED", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new ScriptedSupervisedExecutor(createTaskId(() => "a")),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        generateId: sequenceGenerator()
+      },
+      {
+        projectRoot,
+        objective: "x",
+        tasks: [task("a")],
+        limits: {
+          maxTasks: 1,
+          maxConcurrentTasks: 1,
+          maxAttemptsPerTask: 1,
+          maxRounds: 10,
+          maxConsecutiveStalls: 10,
+          maxWallTimeMs: 600_000
+        }
+      }
+    );
+    const outcome = await running.done;
+    assert.equal(outcome.status, "FAILED");
+    const types = outcome.events.map((e) => e.type);
+    assert.ok(types.includes("RUN_FAILED"));
+    assert.ok(!types.includes("RUN_COMPLETED"));
+  });
+});
+
+test("leased childRunId matches the child run that actually executes", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new ScriptedSupervisedExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        generateId: sequenceGenerator()
+      },
+      {
+        projectRoot,
+        objective: "x",
+        tasks: [task("a")],
+        limits: { maxTasks: 1, maxConcurrentTasks: 1, maxAttemptsPerTask: 3, maxRounds: 10, maxConsecutiveStalls: 3, maxWallTimeMs: 600_000 }
+      }
+    );
+    const outcome = await running.done;
+    const leased = outcome.events.find((e) => e.type === "TASK_LEASED");
+    const created = outcome.events.find((e) => e.type === "CHILD_RUN_CREATED");
+    assert.ok(leased && created);
+    const leasedId = (leased.payload as { childRunId: string }).childRunId;
+    const createdId = (created.payload as { childRun: { id: string } }).childRun.id;
+    assert.equal(leasedId, createdId);
+  });
+});

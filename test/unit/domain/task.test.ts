@@ -56,3 +56,14 @@ test("a task with an assigned child run validates", () => {
   const withRun = { ...validTask, assignedRunId: "run_01234567-89ab-cdef-0123-456789abcdef" };
   assert.deepEqual(validateTaskNode(withRun), withRun);
 });
+
+test("task confidence is optional and bounded to 0..1", () => {
+  assert.equal(validateTaskNode(validTask).confidence, undefined, "M2 tasks without confidence stay valid");
+  for (const confidence of [0, 0.5, 1]) {
+    const withConfidence = { ...validTask, confidence };
+    assert.deepEqual(validateTaskNode(withConfidence), withConfidence);
+  }
+  for (const bad of [-0.1, 1.1, Number.NaN, Number.POSITIVE_INFINITY, "high", null]) {
+    assert.throws(() => validateTaskNode({ ...validTask, confidence: bad }), /confidence/i);
+  }
+});

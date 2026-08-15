@@ -5,6 +5,7 @@ import {
   assertTransitionTask,
   canTransitionRun,
   canTransitionTask,
+  expandTaskTransition,
   RUN_TRANSITIONS,
   TASK_TRANSITIONS
 } from "../../../src/domain/state.js";
@@ -73,4 +74,14 @@ test("transition tables are closed over their status unions", () => {
 test("assertTransitionRun throws a descriptive error on illegal transitions", () => {
   assert.throws(() => assertTransitionRun("COMPLETED", "RUNNING"), /COMPLETED.*RUNNING/);
   assert.throws(() => assertTransitionTask("FAILED", "READY"), /FAILED.*READY/);
+});
+
+test("expandTaskTransition inserts legal intermediate statuses", () => {
+  assert.deepEqual(expandTaskTransition("PENDING", "READY"), ["READY"]);
+  assert.deepEqual(expandTaskTransition("PENDING", "RUNNING"), ["READY", "RUNNING"]);
+  assert.deepEqual(expandTaskTransition("RUNNING", "FAILED"), ["BLOCKED", "FAILED"]);
+  assert.deepEqual(expandTaskTransition("RUNNING", "READY"), ["BLOCKED", "READY"]);
+  assert.deepEqual(expandTaskTransition("RUNNING", "COMPLETED"), ["COMPLETED"]);
+  assert.deepEqual(expandTaskTransition("PENDING", "PENDING"), []);
+  assert.throws(() => expandTaskTransition("COMPLETED", "RUNNING"), /COMPLETED.*RUNNING/);
 });

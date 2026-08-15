@@ -1,73 +1,267 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { createTaskId } from "../../../src/domain/ids.js";
 import {
-  type Flowchart,
-  type FlowchartNode,
-  type FlowchartEdge,
-  type ModelRouter,
-  type RoutingDecision,
+  DEFAULT_HUMAN_CONFIDENCE,
+  defaultDecisionPolicy,
+  validateApprovalPlan,
+  validateApprovalReplyAgainstPlan,
+  validateApprovalReplyShape,
+  validateApprovalSelection,
+  validateConfidenceScore,
   validateFlowchart,
+  type ApprovalPlan,
+  type Flowchart,
+  type FlowNode
+} from "../../../src/domain/flowchart.js";
+import {
   createModelRouter,
-  routeTask,
-} from "../../../src/supervisor/flowchart.js";
+  effectiveConfidenceThreshold,
+  routeFlowNode,
+  type ModelRouterConfig
+} from "../../../src/supervisor/model-router.js";
 
-import type { TaskId } from "../../../src/domain/ids.js";
+const taskId = (suffix: string) => createTaskId(() => suffix);
 
-test("validateFlowchart rejects cycles", () => {
-  const nodes: FlowchartNode[] = [
-    { id: "n1", taskId: "t1" as TaskId, role: "actor" },
-    { id: "n2", taskId: "t2" as TaskId, role: "critic" },
+function node(id: string, role: FlowNode["role"] = "actor"): FlowNode {
+  return {
+    id,
+    taskId: taskId(id),
+    role,
+    objective: `Complete ${id}`,
+    modelPolicy: { allowedModels: ["small", "large"] },
+    confidenceThreshold: validateConfidenceScore(0.7),
+    approvalRequired: false
+  };
+}
+
+function flowchart(overrides: Partial<Flowchart> = {}): Flowchart {
+  return {
+    id: "flow",
+    nodes: [node("one"), node("two", "critic")],
+    edges: [{ from: "one", to: "two", condition: { type: "success", expected: true } }],
+    ...overrides
+  };
+}
+
+test("flowchart validator accepts all condition operands and a valid join", () => {
+  assert.equal(validateFlowchart(flowchart()).id, "flow");
+  const nodes = [
+    { ...node("start"), parallelGroup: "workers" },
+    { ...node("review", "critic"), parallelGroup: "workers" },
+    {
+      ...node("join", "judge"),
+      joinPolicy: { mode: "all" as const, requiredNodeIds: ["start", "review"] }
+    }
   ];
-  const edges: FlowchartEdge[] = [
-    { from: "n1", to: "n2", condition: "always" },
-    { from: "n2", to: "n1", condition: "always" },
+  const edges: Flowchart["edges"] = [
+    { from: "start", to: "review", condition: { type: "evidence-count", operator: "gte", value: 2 } },
+    { from: "start", to: "join", condition: { type: "confidence", operator: "gte", value: validateConfidenceScore(0.8) } },
+    { from: "review", to: "join", condition: { type: "user-decision", decisionId: "approve", equals: true } }
   ];
-  const fc: Flowchart = { id: "fc1", nodes, edges, joinRules: {} };
-  assert.throws(() => validateFlowchart(fc), /cycle/i);
+  assert.equal(validateFlowchart({ id: "valid", nodes, edges }).id, "valid");
+  assert.doesNotThrow(() => validateFlowchart({
+    id: "custom",
+    nodes: [node("a"), node("b")],
+    edges: [{ from: "a", to: "b", condition: { type: "custom", key: "risk", operator: "eq", value: "low" } }]
+  }));
 });
 
-test("validateFlowchart accepts linear topology", () => {
-  const nodes: FlowchartNode[] = [
-    { id: "n1", taskId: "t1" as TaskId, role: "actor" },
-    { id: "n2", taskId: "t2" as TaskId, role: "critic" },
-  ];
-  const edges: FlowchartEdge[] = [{ from: "n1", to: "n2", condition: "always" }];
-  const fc: Flowchart = { id: "fc2", nodes, edges, joinRules: {} };
-  assert.doesNotThrow(() => validateFlowchart(fc));
+test("decision policy defaults human confidence to 0.7", () => {
+  const policy = defaultDecisionPolicy();
+  assert.equal(policy.minHumanConfidence, 0.7);
+  assert.equal(policy.requiresApproval(validateConfidenceScore(0.69), false), true);
+  assert.equal(policy.requiresApproval(validateConfidenceScore(0.7), false), false);
 });
 
-test("ModelRouter emits MODEL_ROUTED with confidence and approval plan", () => {
-  const router: ModelRouter = createModelRouter({
-    defaultThreshold: 0.75,
-    policyVersion: "p1",
-  });
-
-  const decision: RoutingDecision = routeTask(router, {
-    taskId: "t10" as TaskId,
-    family: "edit",
-    estimatedTokens: 1200,
-  });
-
-  assert.equal(decision.eventType, "MODEL_ROUTED");
-  assert.ok(decision.model);
-  assert.ok(typeof decision.confidence === "number");
-  assert.ok(decision.approvalPlan);
-  assert.ok(Array.isArray(decision.approvalPlan.selectableItems));
+test("flowchart validator rejects invalid identities, policies, edges, joins, confidence, and cycles", () => {
+  const base = flowchart();
+  assert.throws(() => validateFlowchart({ ...base, nodes: [{ ...node("one"), id: "" }] }), /id.*non-empty/i);
+  assert.throws(() => validateFlowchart({ ...base, nodes: [node("same"), node("same")] }), /duplicate node/i);
+  assert.throws(() => validateFlowchart({ ...base, nodes: [{ ...node("one") }, { ...node("two"), taskId: taskId("one") }] }), /duplicate task/i);
+  assert.throws(() => validateFlowchart({ ...base, nodes: [{ ...node("one"), modelPolicy: { allowedModels: [] } }] }), /modelPolicy/i);
+  assert.throws(() => validateFlowchart({ ...base, nodes: [{ ...node("one"), confidenceThreshold: 1.1 }] }), /confidenceThreshold/i);
+  assert.throws(() => validateFlowchart({ ...base, edges: [{ from: "one", to: "missing", condition: { type: "success", expected: true } }] }), /unknown node/i);
+  assert.throws(() => validateFlowchart({ ...base, edges: [{ from: "one", to: "one", condition: { type: "success", expected: true } }] }), /self edge/i);
+  assert.throws(() => validateFlowchart({ ...base, edges: [{ from: "one", to: "two", condition: { type: "confidence", operator: "gte", value: Number.NaN } }] }), /finite/i);
+  assert.throws(() => validateFlowchart({
+    ...base,
+    nodes: [node("one"), { ...node("two"), joinPolicy: { mode: "all", requiredNodeIds: ["missing"] } }]
+  }), /join reference/i);
+  assert.throws(() => validateFlowchart({
+    ...base,
+    edges: [
+      { from: "one", to: "two", condition: { type: "success", expected: true } },
+      { from: "two", to: "one", condition: { type: "success", expected: true } }
+    ]
+  }), /cycle/i);
 });
 
-test("low confidence forces WAITING_FOR_USER when below threshold", () => {
-  const router: ModelRouter = createModelRouter({
-    defaultThreshold: 0.9,
-    policyVersion: "p1",
-  });
+test("flowchart validator rejects duplicate edges between the same nodes", () => {
+  assert.throws(() => validateFlowchart({
+    ...flowchart(),
+    edges: [
+      { from: "one", to: "two", condition: { type: "success", expected: true } },
+      { from: "one", to: "two", condition: { type: "success", expected: false } }
+    ]
+  }), /duplicate edge/i);
+});
 
-  const decision: RoutingDecision = routeTask(router, {
-    taskId: "t11" as TaskId,
-    family: "architecture",
-    estimatedTokens: 8000,
-  });
+const routerConfig: ModelRouterConfig = {
+  policyVersion: "router-v1",
+  models: [
+    { id: "small", roles: ["actor", "critic"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+    { id: "large", roles: ["actor", "critic", "router", "judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 },
+    { id: "judge", roles: ["judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.4, estimatedDurationMs: 3_000 }
+  ]
+};
 
-  assert.equal(decision.statusAfterRoute, "WAITING_FOR_USER");
-  assert.ok(decision.confidence < 0.9);
+test("ModelRouter deterministically routes by role and complexity", () => {
+  const router = createModelRouter(routerConfig);
+  const limits = { remainingCostUsd: 1, remainingTimeMs: 10_000 };
+  const actor = routeFlowNode(router, node("actor"), "LOW", limits);
+  const highActor = routeFlowNode(router, node("high"), "HIGH", limits);
+  const judgeNode = { ...node("judge-node", "judge"), modelPolicy: { allowedModels: ["large", "judge"] } };
+  const judge = routeFlowNode(router, judgeNode, "HIGH", limits);
+
+  assert.equal(actor.model, "small");
+  assert.equal(highActor.model, "large");
+  assert.equal(judge.model, "judge");
+  assert.equal(routeFlowNode(router, judgeNode, "HIGH", limits).model, judge.model);
+  assert.match(judge.justification, /role judge.*HIGH complexity/i);
+  assert.equal(judge.policyVersion, "router-v1");
+});
+
+test("ModelRouter fails closed for unavailable capabilities and cost/time limits", () => {
+  const router = createModelRouter(routerConfig);
+  assert.throws(() => routeFlowNode(router, {
+    ...node("unknown"),
+    modelPolicy: { allowedModels: ["not-configured"] }
+  }, "LOW", { remainingTimeMs: 10_000 }), /unavailable model/i);
+  assert.throws(() => routeFlowNode(router, node("expensive"), "HIGH", {
+    remainingCostUsd: 0.2,
+    remainingTimeMs: 10_000
+  }), /cost and time limits/i);
+  assert.throws(() => routeFlowNode(router, node("slow"), "LOW", {
+    remainingCostUsd: 1,
+    remainingTimeMs: 500
+  }), /cost and time limits/i);
+});
+
+test("ModelRouter rejects catalogs with unknown or duplicate roles", () => {
+  assert.throws(() => createModelRouter({
+    ...routerConfig,
+    models: [{ ...routerConfig.models[0]!, roles: ["actor", "actor"] }]
+  }), /duplicate roles/i);
+  assert.throws(() => createModelRouter({
+    ...routerConfig,
+    models: [{ ...routerConfig.models[0]!, roles: ["planner" as FlowNode["role"]] }]
+  }), /unknown role/i);
+  assert.throws(() => createModelRouter({
+    ...routerConfig,
+    models: [{ ...routerConfig.models[0]!, roles: [] }]
+  }), /must declare roles/i);
+});
+
+test("low confidence or explicit approval produces WAITING_FOR_USER", () => {
+  const router = createModelRouter(routerConfig);
+  const high = routeFlowNode(router, node("high"), "HIGH", {
+    remainingTimeMs: 10_000,
+    minHumanConfidence: validateConfidenceScore(0.7)
+  });
+  const approval = routeFlowNode(router, { ...node("approval"), approvalRequired: true }, "LOW", {
+    remainingTimeMs: 10_000
+  });
+  assert.equal(high.statusAfterRoute, "WAITING_FOR_USER");
+  assert.equal(approval.statusAfterRoute, "WAITING_FOR_USER");
+  assert.equal(high.eventType, "MODEL_ROUTED");
+});
+
+test("the effective threshold is the strictest of every declared threshold", () => {
+  assert.equal(effectiveConfidenceThreshold({}), DEFAULT_HUMAN_CONFIDENCE);
+  // A lax node threshold cannot lower the default floor.
+  assert.equal(effectiveConfidenceThreshold({ nodeThreshold: 0.2 }), DEFAULT_HUMAN_CONFIDENCE);
+  // Any stricter source wins, whichever one it is.
+  assert.equal(effectiveConfidenceThreshold({ nodeThreshold: 0.95, runMinHumanConfidence: 0.8 }), 0.95);
+  assert.equal(effectiveConfidenceThreshold({ nodeThreshold: 0.75, runMinHumanConfidence: 0.9 }), 0.9);
+  assert.equal(
+    effectiveConfidenceThreshold({ nodeThreshold: 0.75, runMinHumanConfidence: 0.8, routerDefaultThreshold: 0.99 }),
+    0.99
+  );
+  assert.throws(() => effectiveConfidenceThreshold({ nodeThreshold: 1.5 }), /confidenceThreshold/i);
+});
+
+test("a lax node threshold cannot override a stricter run limit when routing", () => {
+  const router = createModelRouter({ ...routerConfig, defaultThreshold: 0.5 });
+  const laxNode = { ...node("lax"), confidenceThreshold: validateConfidenceScore(0.1) };
+
+  // LOW complexity scores 0.9, which clears the 0.7 floor.
+  assert.equal(routeFlowNode(router, laxNode, "LOW", { remainingTimeMs: 10_000 }).statusAfterRoute, "RUNNING");
+  // A stricter run-level limit still forces human review.
+  assert.equal(
+    routeFlowNode(router, laxNode, "LOW", {
+      remainingTimeMs: 10_000,
+      minHumanConfidence: validateConfidenceScore(0.95)
+    }).statusAfterRoute,
+    "WAITING_FOR_USER"
+  );
+  // HIGH complexity scores 0.68 and cannot pass the floor even with lax policy.
+  assert.equal(routeFlowNode(router, laxNode, "HIGH", { remainingTimeMs: 10_000 }).statusAfterRoute, "WAITING_FOR_USER");
+});
+
+test("routed approval plans carry a stable non-empty id", () => {
+  const router = createModelRouter(routerConfig);
+  const first = routeFlowNode(router, node("planned"), "LOW", { remainingTimeMs: 10_000 });
+  const second = routeFlowNode(router, node("planned"), "LOW", { remainingTimeMs: 10_000 });
+  assert.equal(first.approvalPlan.id, second.approvalPlan.id);
+  assert.ok(first.approvalPlan.id.trim() !== "");
+  assert.deepEqual(validateApprovalPlan(first.approvalPlan), first.approvalPlan);
+  assert.throws(() => validateApprovalPlan({ ...first.approvalPlan, id: "" }), /id must be a non-empty/i);
+});
+
+const plan: ApprovalPlan = {
+  id: "plan-1",
+  items: [
+    { id: "a", label: "A", selectable: true },
+    { id: "b", label: "B", selectable: true },
+    { id: "fixed", label: "Fixed", selectable: false }
+  ]
+};
+
+test("selective approvals accept a unique subset only", () => {
+  assert.deepEqual(validateApprovalSelection(plan, ["b"]), ["b"]);
+  assert.deepEqual(validateApprovalSelection(plan, ["a", "b"]), ["a", "b"]);
+  assert.deepEqual(validateApprovalSelection(plan, []), []);
+  assert.throws(() => validateApprovalSelection(plan, ["b", "b"]), /unique/i);
+  assert.throws(() => validateApprovalSelection(plan, ["fixed"]), /non-selectable/i);
+  assert.throws(() => validateApprovalSelection(plan, ["missing"]), /unknown/i);
+});
+
+test("reply shape validation is independent of any plan", () => {
+  const reply = { approvalPlanId: "plan-1", selectedActionIds: ["a"] };
+  assert.deepEqual(validateApprovalReplyShape(reply), reply);
+  assert.throws(() => validateApprovalReplyShape({ ...reply, approvalPlanId: "" }), /approvalPlanId/i);
+  assert.throws(() => validateApprovalReplyShape({ ...reply, approvalPlanId: 7 }), /approvalPlanId/i);
+  assert.throws(() => validateApprovalReplyShape({ ...reply, selectedActionIds: "a" }), /must be an array/i);
+  assert.throws(() => validateApprovalReplyShape({ ...reply, selectedActionIds: [""] }), /non-empty/i);
+  assert.throws(() => validateApprovalReplyShape({ ...reply, selectedActionIds: ["a", "a"] }), /unique/i);
+  assert.throws(() => validateApprovalReplyShape(null), /object/i);
+});
+
+test("correlating a reply requires the authoritative plan id and a legal subset", () => {
+  const reply = { approvalPlanId: "plan-1", selectedActionIds: ["b"] };
+  assert.deepEqual(validateApprovalReplyAgainstPlan(plan, reply), reply);
+  assert.throws(
+    () => validateApprovalReplyAgainstPlan(plan, { ...reply, approvalPlanId: "plan-2" }),
+    /does not match the pending plan/i
+  );
+  assert.throws(
+    () => validateApprovalReplyAgainstPlan(plan, { ...reply, selectedActionIds: ["fixed"] }),
+    /non-selectable/i
+  );
+  assert.throws(
+    () => validateApprovalReplyAgainstPlan(plan, { ...reply, selectedActionIds: ["nope"] }),
+    /unknown/i
+  );
 });

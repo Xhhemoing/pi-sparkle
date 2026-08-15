@@ -42,12 +42,16 @@ export function openEpisode(input: OpenEpisodeInput): { episode: ProjectEpisode;
   return { episode, event };
 }
 
-export function attachRun(episode: ProjectEpisode, runId: RunId): { episode: ProjectEpisode; event: RunAttachedEvent } {
+export function attachRun(
+  episode: ProjectEpisode,
+  runId: RunId,
+  runProjectId: ProjectId
+): { episode: ProjectEpisode; event: RunAttachedEvent } {
   if (episode.runIds.includes(runId)) {
     throw new Error("run already attached");
   }
-  if (episode.projectId !== episode.projectId) {
-    // placeholder for cross-project guard (real impl validates via run metadata)
+  if (episode.projectId !== runProjectId) {
+    throw new Error("cannot attach a run from another project");
   }
   const next: ProjectEpisode = {
     ...episode,

@@ -120,3 +120,4 @@ export const parseProjectId = (value: unknown): ProjectId => parseId("ProjectId"
 export const parseAgentProfileId = (value: unknown): AgentProfileId => parseId("AgentProfileId", value);
 export const parseEventId = (value: unknown): EventId => parseId("EventId", value);
 export const parseEpisodeId = (value: unknown): EpisodeId => parseId("EpisodeId", value);
+export const parseMessageId = (value: unknown): MessageId => parseId("MessageId", value);

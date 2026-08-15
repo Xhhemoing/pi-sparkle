@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type {
   PreferenceObservation,
   PreferenceScope,
@@ -8,9 +10,39 @@ import { nowIso } from "../domain/timestamp.js";
 import { createId } from "../domain/ids.js";
 import type { EpisodeId } from "../domain/ids.js";
 
+let persistFile: string | undefined;
+
 const observations: PreferenceObservation[] = [];
 const tombstones = new Set<string>();
 const views = new Map<string, PreferenceView>();
+
+function loadFromDisk(): void {
+  if (persistFile === undefined || !existsSync(persistFile)) return;
+  const raw = JSON.parse(readFileSync(persistFile, "utf8")) as {
+    observations?: PreferenceObservation[];
+    tombstones?: string[];
+  };
+  observations.length = 0;
+  observations.push(...(raw.observations ?? []));
+  tombstones.clear();
+  for (const id of raw.tombstones ?? []) tombstones.add(id);
+  rebuildViews();
+}
+
+function saveToDisk(): void {
+  if (persistFile === undefined) return;
+  mkdirSync(dirname(persistFile), { recursive: true });
+  writeFileSync(
+    persistFile,
+    JSON.stringify({ observations, tombstones: Array.from(tombstones) })
+  );
+}
+
+/** Persist preferences to `filePath` and load any existing snapshot. */
+export function configurePreferencePersistence(filePath: string | undefined): void {
+  persistFile = filePath;
+  if (filePath !== undefined) loadFromDisk();
+}
 
 /** Inferred observations must recur across this many comparable occurrences before becoming durable. */
 export const MIN_INFERRED_RECURRENCE_DEFAULT = 2;
@@ -134,6 +166,7 @@ function applyObservation(obs: PreferenceObservation): PreferenceObservation {
   const computed: PreferenceObservation = { ...obs, recurrenceCount: prior.length + 1 };
   observations.push(computed);
   rebuildViews();
+  saveToDisk();
   return computed;
 }
 
@@ -212,6 +245,7 @@ export function deleteObservation(id: string): boolean {
   tombstones.add(id);
   observations.splice(index, 1);
   rebuildViews();
+  saveToDisk();
   return true;
 }
 
@@ -238,6 +272,7 @@ export function getView(scope: PreferenceScope, scopeKey: string): PreferenceVie
 export function clearPreferences(): void {
   observations.length = 0;
   views.clear();
+  saveToDisk();
 }
 
 /** Full reset including tombstones; used by tests and `pref` maintenance paths. */
@@ -245,4 +280,5 @@ export function resetPreferenceStore(): void {
   observations.length = 0;
   views.clear();
   tombstones.clear();
+  saveToDisk();
 }

@@ -12,8 +12,9 @@ export function decideClosure(episode: ProjectEpisode, _latestRunIds: readonly R
   if (episode.status !== "OPEN") {
     return { canClose: false, reason: "already-closed", requiredEvidence: [] };
   }
-  const hasEvidence = episode.evidenceRefs.length > 0;
-  const missing = hasEvidence || episode.acceptance.length === 0 ? [] : episode.acceptance.map((a) => a.id);
+  const missing = episode.acceptance
+    .filter((criterion) => !episode.evidenceRefs.some((ref) => String(ref).includes(criterion.id)))
+    .map((criterion) => criterion.id);
   if (missing.length > 0) {
     return { canClose: false, reason: "acceptance-incomplete", requiredEvidence: missing };
   }

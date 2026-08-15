@@ -25,11 +25,16 @@ import {
   SUPERVISOR,
   validateAgentMessage,
   type AgentMessage,
+  type ApprovalPlan,
   type ChildRunLimits,
   type TaskRequest,
   type TaskResult
 } from "../../../src/protocol/v1.js";
-import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import {
+  ChildCoordinator,
+  type ChildCoordinatorDeps,
+  type ChildTaskInput
+} from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
 
 interface ManualScheduler {
@@ -179,7 +184,10 @@ class FlakyExecutor implements AgentExecutor {
 
 /** Executor that yields a QUESTION and then waits for the answer promise. */
 class QuestioningExecutor implements AgentExecutor {
-  constructor(private readonly answer: Promise<string>) {}
+  constructor(
+    private readonly answer: Promise<string>,
+    private readonly approvalPlan?: ApprovalPlan
+  ) {}
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     yield {
@@ -194,7 +202,8 @@ class QuestioningExecutor implements AgentExecutor {
         to: SUPERVISOR,
         type: "QUESTION",
         question: "Proceed with the risky refactor?",
-        options: ["Yes", "No"]
+        options: ["Yes", "No"],
+        ...(this.approvalPlan !== undefined ? { approvalPlan: this.approvalPlan } : {})
       })
     };
     await this.answer;
@@ -212,7 +221,7 @@ async function withTempState(run: (stateRoot: string) => Promise<void>) {
   try {
     await run(stateRoot);
   } finally {
-    await rm(stateRoot, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => undefined);
   }
 }
 
@@ -239,6 +248,7 @@ function makeCoordinator(
     schedule?: ManualScheduler["schedule"];
     maxConcurrentTasks?: number;
     generateId?: () => string;
+    onQuestion?: ChildCoordinatorDeps["onQuestion"];
   } = {}
 ): ChildCoordinator {
   return new ChildCoordinator({
@@ -250,7 +260,8 @@ function makeCoordinator(
     maxConcurrentTasks: overrides.maxConcurrentTasks ?? 2,
     now: overrides.now ?? (() => parseIsoTimestamp("2026-08-12T09:00:00.000Z")),
     generateId: overrides.generateId ?? UUID,
-    ...(overrides.schedule !== undefined ? { schedule: overrides.schedule } : {})
+    ...(overrides.schedule !== undefined ? { schedule: overrides.schedule } : {}),
+    ...(overrides.onQuestion !== undefined ? { onQuestion: overrides.onQuestion } : {})
   });
 }
 
@@ -427,13 +438,15 @@ test("a question pauses the child until an explicit answer is supplied", async (
       settled = true;
       return outcome;
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    let questions = coordinator.pendingQuestions;
+    for (let i = 0; i < 100 && questions.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      questions = coordinator.pendingQuestions;
+    }
     assert.equal(settled, false, "child must not settle before the answer");
-
-    const questions = coordinator.pendingQuestions;
     assert.equal(questions.length, 1);
     const questionId = questions[0]!.id;
-    coordinator.answerQuestion(questionId, "Yes");
+    await coordinator.answerQuestion(questionId, "Yes");
     resolveAnswer("Yes");
 
     const outcome = await donePromise;
@@ -444,6 +457,206 @@ test("a question pauses the child until an explicit answer is supplied", async (
     const events = read.events.map((e) => e.type);
     assert.ok(events.includes("RUN_WAITING_FOR_USER"));
     assert.ok(events.includes("USER_ANSWER"));
+  });
+});
+
+test("a selective approval reply is correlated against the coordinator's own pending plan", async () => {
+  await withTempState(async (stateRoot) => {
+    const approvalPlan: ApprovalPlan = {
+      id: "plan-refactor",
+      items: [
+        { id: "rename", label: "Rename the helper", selectable: true, defaultSelected: true },
+        { id: "delete", label: "Delete the legacy path", selectable: true },
+        { id: "context", label: "Read the module", selectable: false }
+      ]
+    };
+    let resolveAnswer!: (text: string) => void;
+    const answerPromise = new Promise<string>((resolve) => {
+      resolveAnswer = resolve;
+    });
+    const coordinator = makeCoordinator(stateRoot, new QuestioningExecutor(answerPromise, approvalPlan));
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits()), new AbortController().signal);
+    const donePromise = handle.done;
+
+    let questions = coordinator.pendingQuestions;
+    for (let i = 0; i < 100 && questions.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      questions = coordinator.pendingQuestions;
+    }
+    const questionId = questions[0]!.id;
+
+    // Free text cannot stand in for an approval decision.
+    await assert.rejects(
+      () => coordinator.answerQuestion(questionId, "Yes"),
+      /requires an approval reply/i
+    );
+    await assert.rejects(
+      () => coordinator.answerQuestion(questionId, "Yes", { approvalPlanId: "other-plan", selectedActionIds: ["rename"] }),
+      /does not match the pending plan/i
+    );
+    await assert.rejects(
+      () => coordinator.answerQuestion(questionId, "Yes", { approvalPlanId: approvalPlan.id, selectedActionIds: ["context"] }),
+      /non-selectable/i
+    );
+    await assert.rejects(
+      () => coordinator.answerQuestion(questionId, "Yes", { approvalPlanId: approvalPlan.id, selectedActionIds: ["rename", "rename"] }),
+      /unique/i
+    );
+
+    await coordinator.answerQuestion(questionId, "Yes", {
+      approvalPlanId: approvalPlan.id,
+      selectedActionIds: ["rename"]
+    });
+    resolveAnswer("Yes");
+    assert.equal((await donePromise).outcome, "SUCCESS");
+
+    const read = await new EventStore(stateRoot, parentRunId).readAll();
+    const waiting = read.events.find((e) => e.type === "RUN_WAITING_FOR_USER");
+    assert.deepEqual(
+      (waiting?.payload as { approvalPlan?: ApprovalPlan }).approvalPlan,
+      approvalPlan,
+      "the authoritative plan is persisted when the run starts waiting"
+    );
+    const answers = read.events.filter((e) => e.type === "USER_ANSWER");
+    assert.equal(answers.length, 1, "rejected replies must not persist an answer");
+    assert.deepEqual((answers[0]!.payload as { approvalReply?: unknown }).approvalReply, {
+      approvalPlanId: approvalPlan.id,
+      selectedActionIds: ["rename"]
+    });
+  });
+});
+
+test("a plain-text answer without any approval reply stays valid", async () => {
+  await withTempState(async (stateRoot) => {
+    const approvalPlan: ApprovalPlan = {
+      id: "plan-plain",
+      items: [{ id: "go", label: "Go", selectable: true }]
+    };
+    let resolveAnswer!: (text: string) => void;
+    const answerPromise = new Promise<string>((resolve) => {
+      resolveAnswer = resolve;
+    });
+    const coordinator = makeCoordinator(stateRoot, new QuestioningExecutor(answerPromise));
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits()), new AbortController().signal);
+    const donePromise = handle.done;
+
+    let questions = coordinator.pendingQuestions;
+    for (let i = 0; i < 100 && questions.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      questions = coordinator.pendingQuestions;
+    }
+    const questionId = questions[0]!.id;
+
+    // A question without a plan cannot accept a selective reply at all.
+    await assert.rejects(
+      () => coordinator.answerQuestion(questionId, "Yes", { approvalPlanId: approvalPlan.id, selectedActionIds: ["go"] }),
+      /no pending approval plan/i
+    );
+
+    await coordinator.answerQuestion(questionId, "Yes");
+    resolveAnswer("Yes");
+    assert.equal((await donePromise).outcome, "SUCCESS");
+
+    const read = await new EventStore(stateRoot, parentRunId).readAll();
+    const answer = read.events.find((e) => e.type === "USER_ANSWER");
+    assert.deepEqual(answer?.payload, { messageId: questionId, answer: "Yes" });
+    const waiting = read.events.find((e) => e.type === "RUN_WAITING_FOR_USER");
+    assert.deepEqual(waiting?.payload, { messageId: questionId });
+  });
+});
+
+test("an onQuestion callback cannot answer an approval question with plain text", async () => {
+  await withTempState(async (stateRoot) => {
+    const approvalPlan: ApprovalPlan = {
+      id: "plan-callback",
+      items: [{ id: "go", label: "Go", selectable: true }]
+    };
+    const coordinator = makeCoordinator(
+      stateRoot,
+      new QuestioningExecutor(Promise.resolve("Yes"), approvalPlan),
+      { onQuestion: () => "Yes" }
+    );
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits({ maxAttempts: 1 })), new AbortController().signal);
+
+    const outcome = await handle.done;
+    assert.equal(outcome.outcome, "FAILURE", "a bypass attempt must fail the attempt, not proceed");
+    assert.match(outcome.summary, /requires an approval reply/i, "the failure is attributed to the approval gate");
+
+    const read = await new EventStore(stateRoot, parentRunId).readAll();
+    assert.equal(
+      read.events.filter((e) => e.type === "USER_ANSWER").length,
+      0,
+      "no answer is persisted when the approval gate rejects the reply"
+    );
+    assert.ok(read.events.some((e) => e.type === "RUN_WAITING_FOR_USER"), "the pause is still recorded");
+  });
+});
+
+test("an onQuestion callback supplies a correlated selective approval reply", async () => {
+  await withTempState(async (stateRoot) => {
+    const approvalPlan: ApprovalPlan = {
+      id: "plan-callback-ok",
+      items: [
+        { id: "go", label: "Go", selectable: true },
+        { id: "extra", label: "Extra", selectable: true }
+      ]
+    };
+    const coordinator = makeCoordinator(
+      stateRoot,
+      new QuestioningExecutor(Promise.resolve("Yes"), approvalPlan),
+      {
+        onQuestion: (question) => ({
+          answer: "Yes",
+          approvalReply: { approvalPlanId: question.approvalPlan!.id, selectedActionIds: ["go"] }
+        })
+      }
+    );
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits()), new AbortController().signal);
+
+    assert.equal((await handle.done).outcome, "SUCCESS");
+
+    const read = await new EventStore(stateRoot, parentRunId).readAll();
+    const answer = read.events.find((e) => e.type === "USER_ANSWER");
+    assert.deepEqual((answer?.payload as { approvalReply?: unknown }).approvalReply, {
+      approvalPlanId: approvalPlan.id,
+      selectedActionIds: ["go"]
+    });
+  });
+});
+
+test("PARTIAL TASK_RESULT persists without crashing AGENT_FINISHED", async () => {
+  await withTempState(async (stateRoot) => {
+    const executor = new ScriptedChildExecutor((request) => [
+      { type: "TEXT_DELTA", text: "secret tool body should not be persisted" },
+      { type: "TOOL_FINISHED", toolCallId: "t1", isError: false, summary: "read 10 secret lines" },
+      { type: "MESSAGE", message: resultMessage(request, "PARTIAL") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits()), new AbortController().signal);
+    const outcome = await handle.done;
+    assert.equal(outcome.outcome, "PARTIAL");
+
+    const childStore = new EventStore(stateRoot, handle.childRunId);
+    const read = await childStore.readAll();
+    const finished = read.events.find((e) => e.type === "AGENT_FINISHED");
+    assert.equal((finished?.payload as { outcome: string }).outcome, "SUCCESS");
+    const summaries = read.events
+      .filter((e) => e.type === "AGENT_EVENT")
+      .map((e) => (e.payload as { summary: string }).summary);
+    assert.ok(summaries.some((summary) => summary.startsWith("text delta (")));
+    assert.ok(!summaries.some((summary) => summary.includes("secret")));
+    assert.ok(summaries.includes("tool finished"));
   });
 });
 

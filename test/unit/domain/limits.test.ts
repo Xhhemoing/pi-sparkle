@@ -19,10 +19,12 @@ test("defaultRunLimits are valid and internally consistent", () => {
   assert.ok(defaults.maxConcurrentTasks <= defaults.maxTasks);
 });
 
-test("valid limits, with and without an optional cost cap, validate", () => {
+test("valid limits, with optional cost and confidence caps, validate", () => {
   assert.deepEqual(validateRunLimits(valid), valid);
   const withCost = { ...valid, maxCostUsd: 0.5 };
   assert.deepEqual(validateRunLimits(withCost), withCost);
+  const withConfidence = { ...valid, minHumanConfidence: 0.7 };
+  assert.deepEqual(validateRunLimits(withConfidence), withConfidence);
   assert.equal(isRunLimits(valid), true);
 });
 
@@ -37,6 +39,9 @@ test("non-positive and inconsistent limits are rejected", () => {
   assert.throws(() => validateRunLimits({ ...valid, maxWallTimeMs: 0 }), /maxWallTimeMs/);
   assert.throws(() => validateRunLimits({ ...valid, maxCostUsd: 0 }), /maxCostUsd/);
   assert.throws(() => validateRunLimits({ ...valid, maxCostUsd: -1 }), /maxCostUsd/);
+  assert.throws(() => validateRunLimits({ ...valid, minHumanConfidence: -0.1 }), /minHumanConfidence/);
+  assert.throws(() => validateRunLimits({ ...valid, minHumanConfidence: 1.1 }), /minHumanConfidence/);
+  assert.throws(() => validateRunLimits({ ...valid, minHumanConfidence: Number.NaN }), /minHumanConfidence/);
   assert.throws(() => validateRunLimits(null), /RunLimits/);
   assert.throws(() => validateRunLimits("limits"), /RunLimits/);
   assert.equal(isRunLimits({ ...valid, maxTasks: 0 }), false);

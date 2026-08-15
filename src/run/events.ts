@@ -21,6 +21,16 @@ import { validateTaskNode } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 import { validateAgentMessage, type AgentMessage } from "../protocol/v1.js";
 import type { ProjectEpisode } from "../domain/episode.js";
+import {
+  isConfidenceScore,
+  validateApprovalPlan,
+  validateApprovalReplyShape,
+  type ApprovalPlan,
+  type ApprovalReply,
+  type ConfidenceScore,
+  type FlowchartNodeRole,
+  type TaskComplexity
+} from "../domain/flowchart.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -45,6 +55,7 @@ export const EVENT_TYPES = [
   "LEDGER_UPDATED",
   "STALL_DETECTED",
   "JUDGE_DECISION",
+  "MODEL_ROUTED",
   "RUN_BLOCKED",
   "EPISODE_OPENED",
   "RUN_ATTACHED",
@@ -109,13 +120,19 @@ export interface TaskRetryPayload {
   reason: string;
 }
 
+/**
+ * The authoritative record of what the user was asked to approve. Replies are
+ * correlated against this plan, never against a plan supplied by the client.
+ */
 export interface RunWaitingForUserPayload {
   messageId: MessageId;
+  approvalPlan?: ApprovalPlan;
 }
 
 export interface UserAnswerPayload {
   messageId: MessageId;
   answer: string;
+  approvalReply?: ApprovalReply;
 }
 
 export interface TaskGraphAcceptedPayload {
@@ -157,6 +174,20 @@ export interface JudgeDecisionPayload {
   verdict: "APPROVED" | "REJECTED" | "NEEDS_USER_DECISION";
   evidenceIds: import("../domain/ids.js").EvidenceId[];
   reason?: string;
+}
+
+export interface ModelRoutedPayload {
+  taskId: TaskId;
+  role: FlowchartNodeRole;
+  complexity: TaskComplexity;
+  model: string;
+  justification: string;
+  confidence: ConfidenceScore;
+  approvalPlan: ApprovalPlan;
+  statusAfterRoute: "RUNNING" | "WAITING_FOR_USER";
+  policyVersion: string;
+  estimatedCostUsd: number;
+  estimatedDurationMs: number;
 }
 
 export interface RunBlockedPayload {
@@ -220,6 +251,7 @@ export type Event =
   | (EventBase & { type: "LEDGER_UPDATED"; payload: LedgerUpdatedPayload })
   | (EventBase & { type: "STALL_DETECTED"; payload: StallDetectedPayload })
   | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
+  | (EventBase & { type: "MODEL_ROUTED"; payload: ModelRoutedPayload })
   | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
   | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
   | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload })
@@ -323,12 +355,33 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
     }
     case "RUN_WAITING_FOR_USER": {
       if (!isMessageId(payload.messageId)) return "payload.messageId must be a valid MessageId";
+      if (payload.approvalPlan !== undefined) {
+        try {
+          validateApprovalPlan(payload.approvalPlan);
+        } catch (error) {
+          return `payload.approvalPlan: ${messageOf(error)}`;
+        }
+      }
       return undefined;
     }
     case "USER_ANSWER": {
       if (!isMessageId(payload.messageId)) return "payload.messageId must be a valid MessageId";
       if (typeof payload.answer !== "string" || payload.answer.trim() === "") {
         return "payload.answer must be a non-empty string";
+      }
+      if ("approvalPlan" in payload) {
+        return "payload must not include approvalPlan; replies reference a plan by id only";
+      }
+      // Only the reply shape can be checked statically. Whether the selection
+      // is a legal subset depends on the plan persisted with
+      // RUN_WAITING_FOR_USER, so callers must correlate it separately with
+      // validateApprovalReplyAgainstPlan.
+      if (payload.approvalReply !== undefined) {
+        try {
+          validateApprovalReplyShape(payload.approvalReply);
+        } catch (error) {
+          return `payload.approvalReply: ${messageOf(error)}`;
+        }
       }
       return undefined;
     }
@@ -401,6 +454,46 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       }
       if (payload.reason !== undefined && (typeof payload.reason !== "string" || payload.reason.trim() === "")) {
         return "payload.reason must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "MODEL_ROUTED": {
+      if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
+      if (!["actor", "critic", "router", "judge", "tool", "human"].includes(String(payload.role))) {
+        return "payload.role must be a known flowchart role";
+      }
+      if (!["LOW", "MEDIUM", "HIGH"].includes(String(payload.complexity))) {
+        return "payload.complexity must be a known task complexity";
+      }
+      if (typeof payload.model !== "string" || payload.model.trim() === "") {
+        return "payload.model must be a non-empty string";
+      }
+      if (typeof payload.justification !== "string" || payload.justification.trim() === "") {
+        return "payload.justification must be a non-empty string";
+      }
+      if (!isConfidenceScore(payload.confidence)) {
+        return "payload.confidence must be a finite number between 0 and 1";
+      }
+      try {
+        validateApprovalPlan(payload.approvalPlan);
+      } catch (error) {
+        return `payload.approvalPlan: ${messageOf(error)}`;
+      }
+      if (!["RUNNING", "WAITING_FOR_USER"].includes(String(payload.statusAfterRoute))) {
+        return "payload.statusAfterRoute must be RUNNING or WAITING_FOR_USER";
+      }
+      if (typeof payload.policyVersion !== "string" || payload.policyVersion.trim() === "") {
+        return "payload.policyVersion must be a non-empty string";
+      }
+      if (typeof payload.estimatedCostUsd !== "number" ||
+          !Number.isFinite(payload.estimatedCostUsd) ||
+          payload.estimatedCostUsd < 0) {
+        return "payload.estimatedCostUsd must be a non-negative finite number";
+      }
+      if (typeof payload.estimatedDurationMs !== "number" ||
+          !Number.isFinite(payload.estimatedDurationMs) ||
+          payload.estimatedDurationMs <= 0) {
+        return "payload.estimatedDurationMs must be a positive finite number";
       }
       return undefined;
     }

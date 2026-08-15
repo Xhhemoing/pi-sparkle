@@ -10,6 +10,7 @@ import {
   createRunId,
   createTaskId,
   isRunId,
+  parseMessageId,
   parseRunId
 } from "../../../src/domain/ids.js";
 
@@ -32,6 +33,11 @@ test("parseRunId accepts a well-formed run id", () => {
   assert.equal(parseRunId(id), id);
   assert.equal(isRunId(id), true);
   assert.equal(isRunId("run_abc"), true);
+});
+
+test("parseMessageId accepts a well-formed message id", () => {
+  const id = createMessageId(UUID);
+  assert.equal(parseMessageId(id), id);
 });
 
 test("parseRunId rejects malformed values", () => {

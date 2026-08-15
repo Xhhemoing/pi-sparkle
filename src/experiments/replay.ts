@@ -1,4 +1,5 @@
 import { DomainValidationError } from "../domain/errors.js";
+import { createIsolationGuard } from "./isolation.js";
 import { manifestHash, stableStringify } from "./manifest.js";
 import type { DatasetManifest } from "./manifest.js";
 import { hash32 } from "../domain/hash.js";
@@ -112,13 +113,13 @@ export function assertIsolatedOutput(
   episodes: readonly FrozenEpisode[],
   outputRoot: string
 ): void {
-  const normalizedOutput = outputRoot.replace(/\/+$/, "");
-  for (const episode of episodes) {
-    const workspace = episode.originalWorkspace.replace(/\/+$/, "");
-    if (normalizedOutput === workspace || normalizedOutput.startsWith(`${workspace}/`)) {
-      throw new DomainValidationError(
-        `replay output ${outputRoot} overlaps original workspace ${episode.originalWorkspace}`
-      );
-    }
+  try {
+    createIsolationGuard({
+      readOnlyRoots: episodes.map((episode) => episode.originalWorkspace),
+      outputRoot
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new DomainValidationError(`output root overlaps original workspace: ${detail}`);
   }
 }

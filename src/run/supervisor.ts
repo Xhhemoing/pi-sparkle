@@ -9,6 +9,7 @@ import {
 import { defaultRunLimits, type RunLimits } from "../domain/limits.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
+import { assertTransitionTask, expandTaskTransition } from "../domain/state.js";
 import type { RunStatus, TaskStatus } from "../domain/status.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
 import type { AgentProfileRegistry } from "../agents/registry.js";
@@ -22,7 +23,14 @@ import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunOutcome } from "./child-coordinator.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint, type RunCheckpoint } from "./replay.js";
+import {
+  checkpointCarriesFlowchart,
+  materializeCheckpoint,
+  replayRun,
+  validateCheckpoint,
+  type RunCheckpoint
+} from "./replay.js";
+import { allDependenciesSatisfied } from "../graph/readiness.js";
 import { applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
 import { decideTopology } from "../routing/topology.js";
 import type { TopologyDecision } from "../routing/topology.js";
@@ -136,7 +144,10 @@ export interface SupervisorContext {
 }
 
 /** Reconstructs supervisor state (graph, statuses, attempts, ledger, leases) from events. */
-export function reconstructSupervisorState(events: readonly Event[]): SupervisorState | undefined {
+export function reconstructSupervisorState(
+  events: readonly Event[],
+  nowMs: () => number = () => Date.now()
+): SupervisorState | undefined {
   let graph: TaskGraph | undefined;
   const statuses = new Map<TaskId, TaskStatus>();
   const attempts = new Map<TaskId, number>();
@@ -184,8 +195,9 @@ export function reconstructSupervisorState(events: readonly Event[]): Supervisor
   if (graph === undefined) return undefined;
   if (ledger === undefined) ledger = createLedger("", 3);
 
-  // Rebuild the lease registry from active leases whose tasks are RUNNING.
-  const leases = new LeaseRegistry(() => Date.now());
+  // Rebuild leases for RUNNING tasks. Resume treats them as orphaned — there
+  // is no live worker — so runSupervisorRounds recovers them immediately.
+  const leases = new LeaseRegistry(nowMs);
   for (const [taskId, lease] of Array.from(leaseEnds)) {
     if (statuses.get(taskId) === "RUNNING") {
       leases.restore({
@@ -211,14 +223,29 @@ export async function runSupervisorRounds(
   let finalReason: string | undefined;
 
   const recordStatus = async (taskId: TaskId, status: TaskStatus, attempt: number): Promise<void> => {
-    statuses.set(taskId, status);
-    attempts.set(taskId, attempt);
-    await append(make("TASK_STATUS_CHANGED", { taskId, status, attempt }, taskId));
+    const from = statuses.get(taskId) ?? "PENDING";
+    const steps = expandTaskTransition(from, status);
+    let current = from;
+    for (const step of steps) {
+      assertTransitionTask(current, step);
+      statuses.set(taskId, step);
+      attempts.set(taskId, attempt);
+      await append(make("TASK_STATUS_CHANGED", { taskId, status: step, attempt }, taskId));
+      current = step;
+    }
   };
 
-  // Recover expired leases first: RUNNING tasks whose lease lapsed become
-  // BLOCKED and retry per attempts (never silently duplicate work).
-  for (const lease of leases.expired()) {
+  let cancelRecorded = false;
+  const recordCancel = async (): Promise<void> => {
+    if (cancelRecorded) return;
+    cancelRecorded = true;
+    finalStatus = "CANCELLED";
+    await append(make("RUN_CANCEL_REQUESTED", {}));
+  };
+
+  // Recover orphaned or expired leases: a reconstructed RUNNING lease has no
+  // live worker, so resume must not wait for wall-clock expiry.
+  for (const lease of leases.list()) {
     const node = graph.byId.get(lease.taskId);
     if (node === undefined) continue;
     const attempt = (attempts.get(lease.taskId) ?? 0) + 1;
@@ -234,27 +261,29 @@ export async function runSupervisorRounds(
   const startRound = ledger.round + 1;
   for (let round = startRound; round <= limits.maxRounds; round += 1) {
     if (controller.signal.aborted) {
-      finalStatus = "CANCELLED";
-      await append(make("RUN_CANCEL_REQUESTED", {}));
+      await recordCancel();
       break;
     }
 
     const ready = planRound(graph, statuses, limits.maxConcurrentTasks, LEASE_MS, leases);
     if (ready.length === 0) {
-      // Nothing schedulable: either everything is terminal or the run stalls.
-      const open = graph.tasks.filter((node) => {
-        const status = statuses.get(node.id);
-        return status === "PENDING" || status === "READY" || status === "RUNNING" || status === "BLOCKED";
+      const lookup = (id: TaskId): TaskStatus => statuses.get(id) ?? "PENDING";
+      const failed = graph.tasks.filter((node) => lookup(node.id) === "FAILED");
+      const canProgress = graph.tasks.some((node) => {
+        const status = lookup(node.id);
+        if (status === "READY" || status === "RUNNING" || status === "BLOCKED") return true;
+        if (status !== "PENDING") return false;
+        return allDependenciesSatisfied(node, lookup);
       });
-      if (open.length === 0) {
+      if (!canProgress) {
+        if (failed.length > 0) {
+          finalStatus = "FAILED";
+          finalReason = "required tasks failed";
+          await append(make("RUN_FAILED", { reason: finalReason }));
+          break;
+        }
         finalStatus = "COMPLETED";
         await append(make("RUN_COMPLETED", {}));
-        break;
-      }
-      if (open.every((node) => statuses.get(node.id) === "FAILED")) {
-        finalStatus = "FAILED";
-        finalReason = "all open tasks failed";
-        await append(make("RUN_FAILED", { reason: finalReason }));
         break;
       }
       // A stalled round: no admissible progress evidence.
@@ -337,14 +366,14 @@ export async function runSupervisorRounds(
           acceptanceCriteria: node.acceptanceCriteria,
           limits: { maxAttempts: node.maxAttempts, timeoutMs: node.timeoutMs, maxWallTimeMs: limits.maxWallTimeMs }
         },
-        controller.signal
+        controller.signal,
+        { childRunId }
       ).done;
 
       leases.release(taskId);
 
       if (controller.signal.aborted) {
-        finalStatus = "CANCELLED";
-        await append(make("RUN_CANCEL_REQUESTED", {}));
+        await recordCancel();
         return;
       }
 
@@ -393,6 +422,7 @@ export async function runSupervisorRounds(
     });
 
     await Promise.all(taskPromises);
+    if (cancelRecorded) break;
 
     const progress = classifyRoundProgress(roundEvent, ledger);
     const advanced = advanceLedgerRound(ledger, progress, limits.maxConsecutiveStalls, {
@@ -482,7 +512,7 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
       graph,
       statuses: new Map(graph.tasks.map((t) => [t.id, t.status])),
       attempts: new Map(graph.tasks.map((t) => [t.id, t.attempt])),
-      leases: new LeaseRegistry(() => Date.now()),
+      leases: new LeaseRegistry(() => Date.parse(now())),
       ledger: createLedger(input.objective, input.limits?.maxConsecutiveStalls ?? 3)
     };
 
@@ -535,12 +565,19 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
       throw new Error(`Run ${runId} not found`);
     }
 
+    const existingCheckpoint = await checkpointStore.read();
+    if (checkpointCarriesFlowchart(existingCheckpoint)) {
+      throw new Error(
+        `Run ${runId} has a flowchart snapshot; refuse M2 DAG resume that would strip it. Use flowchart resume.`
+      );
+    }
+
     const replayed = replayRun(read.events);
     if (!replayed.run) {
       throw new Error(`Run ${runId} has no RUN_CREATED event`);
     }
 
-    const state = reconstructSupervisorState(read.events);
+    const state = reconstructSupervisorState(read.events, () => Date.parse(now()));
     if (!state) {
       throw new Error(`Run ${runId} has no TASK_GRAPH_ACCEPTED event`);
     }

@@ -14,6 +14,15 @@ import {
   type TaskId
 } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
+import {
+  isConfidenceScore,
+  validateApprovalPlan,
+  validateApprovalReplyAgainstPlan,
+  validateApprovalReplyShape,
+  type ApprovalPlan,
+  type ApprovalReply,
+  type ConfidenceScore
+} from "../domain/flowchart.js";
 import type { AcceptanceCriterion } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 
@@ -64,6 +73,7 @@ export interface TaskRequest extends MessageBase {
   inputArtifactIds: ArtifactId[];
   acceptanceCriteria: AcceptanceCriterion[];
   limits: ChildRunLimits;
+  approvalPlan?: ApprovalPlan;
 }
 
 export interface Blocker {
@@ -83,6 +93,9 @@ export interface AgentQuestion extends MessageBase {
   type: "QUESTION";
   question: string;
   options?: string[];
+  confidence?: ConfidenceScore;
+  rationale?: string;
+  approvalPlan?: ApprovalPlan;
 }
 
 export interface VerificationResult {
@@ -106,6 +119,31 @@ export interface TaskResult extends MessageBase {
 }
 
 export type AgentMessage = TaskRequest | ProgressUpdate | AgentQuestion | TaskResult;
+
+export type { ApprovalPlan, ApprovalReply } from "../domain/flowchart.js";
+
+/**
+ * Validates a reply's own shape. Callers holding the authoritative plan must
+ * additionally use {@link validateApprovalReplyForPlan}, because a subset can
+ * only be judged against persisted state.
+ */
+export function validateApprovalReply(value: unknown): ApprovalReply {
+  return validateApprovalReplyShape(value);
+}
+
+export function isApprovalReply(value: unknown): value is ApprovalReply {
+  try {
+    validateApprovalReplyShape(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Correlates a reply with the authoritative plan it claims to answer. */
+export function validateApprovalReplyForPlan(plan: unknown, reply: unknown): ApprovalReply {
+  return validateApprovalReplyAgainstPlan(plan, reply);
+}
 
 function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
@@ -156,6 +194,15 @@ function isFailureClassification(value: unknown): value is FailureClassification
   return true;
 }
 
+function isApprovalPlan(value: unknown): value is ApprovalPlan {
+  try {
+    validateApprovalPlan(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function baseError(value: Record<string, unknown>): string | undefined {
   if (value.protocolVersion !== PROTOCOL_VERSION) return "protocolVersion must be 1";
   if (!isMessageId(value.id)) return "id must be a valid MessageId";
@@ -183,6 +230,9 @@ function messageError(value: unknown): string | undefined {
         return "acceptanceCriteria must be an array of {id, description}";
       }
       if (!isChildRunLimits(value.limits)) return "limits must be valid ChildRunLimits";
+      if (value.approvalPlan !== undefined && !isApprovalPlan(value.approvalPlan)) {
+        return "approvalPlan must be a valid ApprovalPlan";
+      }
       return undefined;
     }
     case "PROGRESS": {
@@ -203,6 +253,15 @@ function messageError(value: unknown): string | undefined {
         if (!value.options.every((option) => typeof option === "string" && option.trim() !== "")) {
           return "options must contain non-empty strings";
         }
+      }
+      if (value.confidence !== undefined && !isConfidenceScore(value.confidence)) {
+        return "confidence must be a finite number between 0 and 1";
+      }
+      if (value.rationale !== undefined && (typeof value.rationale !== "string" || value.rationale.trim() === "")) {
+        return "rationale must be a non-empty string";
+      }
+      if (value.approvalPlan !== undefined && !isApprovalPlan(value.approvalPlan)) {
+        return "approvalPlan must be a valid ApprovalPlan";
       }
       return undefined;
     }

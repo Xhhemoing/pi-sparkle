@@ -8,7 +8,6 @@ import {
   type ThinkingLevel
 } from "@earendil-works/pi-agent-core";
 import {
-  contentText,
   createModels,
   fauxAssistantMessage,
   fauxProvider,
@@ -21,8 +20,9 @@ import {
 } from "@earendil-works/pi-ai";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { hash32 } from "../domain/hash.js";
-import { createInvocationId } from "../domain/ids.js";
+import { createInvocationId, createMessageId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
+import { SUPERVISOR } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 
@@ -58,7 +58,7 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         type: "TOOL_FINISHED",
         toolCallId: event.toolCallId,
         isError: event.isError,
-        summary: contentText(event.result.content) ?? "(no text content)"
+        summary: event.isError ? `tool error: ${event.toolName}` : `tool finished: ${event.toolName}`
       };
     case "turn_end":
       return { type: "TURN_FINISHED" };
@@ -115,7 +115,7 @@ export class PiAgentExecutor implements AgentExecutor {
         const translated = translatePiEvent(event);
         if (translated !== undefined) collected.push(translated);
       });
-      await agent.prompt(request.prompt);
+      await agent.prompt(`Working directory: ${request.workingDirectory}\n\n${request.prompt}`);
       await agent.waitForIdle();
     } catch {
       runFailed = !signal.aborted;
@@ -128,13 +128,32 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     for (const event of collected) yield event;
-    if (signal.aborted) {
-      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
-    } else if (runFailed || agent.state.errorMessage !== undefined) {
-      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
-    } else {
-      yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+    const outcome = signal.aborted
+      ? "CANCELLED"
+      : runFailed || agent.state.errorMessage !== undefined
+        ? "FAILURE"
+        : "SUCCESS";
+    if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
+      yield {
+        type: "MESSAGE",
+        message: {
+          protocolVersion: 1,
+          id: createMessageId(),
+          occurredAt: nowIso(),
+          runId: request.runId,
+          taskId: request.taskId,
+          from: request.agentInstanceId,
+          to: SUPERVISOR,
+          type: "TASK_RESULT",
+          outcome,
+          summary: "pi agent finished",
+          artifactIds: [],
+          evidenceIds: [],
+          verification: { kind: "UNOBSERVED", evidenceIds: [] }
+        }
+      };
     }
+    yield { type: "EXECUTION_FINISHED", outcome };
   }
 
   /**

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 
 /**
@@ -14,26 +15,25 @@ export interface IsolationGuard {
   readonly outputRoot: string;
 }
 
-function normalize(path: string): string {
-  return path.replace(/\/+$/, "");
+function resolvePath(value: string): string {
+  return path.resolve(value);
 }
 
-/** True when `path` equals `root` or lives strictly inside it. */
-function isInside(path: string, root: string): boolean {
-  const p = normalize(path);
-  const r = normalize(root);
-  return p === r || p.startsWith(`${r}/`);
+/** True when `target` equals `root` or lives strictly inside it after resolve. */
+function isInside(target: string, root: string): boolean {
+  const resolvedTarget = resolvePath(target);
+  const resolvedRoot = resolvePath(root);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function createIsolationGuard(input: Omit<IsolationGuard, never>): IsolationGuard {
   const guard: IsolationGuard = input;
-  const output = normalize(guard.outputRoot);
-  if (output === "") {
+  if (guard.outputRoot.trim() === "") {
     throw new DomainValidationError("outputRoot is required");
   }
   for (const root of guard.readOnlyRoots) {
-    const r = normalize(root);
-    if (r === "") {
+    if (root.trim() === "") {
       throw new DomainValidationError("read-only roots must not be empty");
     }
     if (isInside(guard.outputRoot, root)) {
@@ -54,15 +54,15 @@ export function createIsolationGuard(input: Omit<IsolationGuard, never>): Isolat
  * Fail closed when a write would touch the read-only source of truth or land
  * outside the isolated output root.
  */
-export function assertWritablePath(guard: IsolationGuard, path: string): void {
+export function assertWritablePath(guard: IsolationGuard, target: string): void {
   for (const root of guard.readOnlyRoots) {
-    if (isInside(path, root)) {
-      throw new DomainValidationError(`read-only isolation violation: ${path} is inside ${root}`);
+    if (isInside(target, root)) {
+      throw new DomainValidationError(`read-only isolation violation: ${target} is inside ${root}`);
     }
   }
-  if (!isInside(path, guard.outputRoot)) {
+  if (!isInside(target, guard.outputRoot)) {
     throw new DomainValidationError(
-      `evaluation artifact ${path} must live inside the isolated output root ${guard.outputRoot}`
+      `evaluation artifact ${target} must live inside the isolated output root ${guard.outputRoot}`
     );
   }
 }

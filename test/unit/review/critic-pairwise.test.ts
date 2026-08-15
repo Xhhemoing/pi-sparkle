@@ -50,7 +50,7 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
   });
 
   describe("pairwise", () => {
-    it("is blind to presentation order: swapped order flips the reported winner", () => {
+    it("keeps winner relative to candidate identity after an order swap", () => {
       const first = blindPairwiseCompare({
         episodeId,
         aId: "cand-a",
@@ -72,9 +72,10 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
         aComment: "a",
         bComment: "b",
       }, true);
-      assert.equal(swapped.winner, "b");
+      assert.equal(swapped.winner, "a");
       assert.equal(swapped.orderSwapped, true);
-      assert.equal(swapped.aId, "cand-b");
+      assert.equal(swapped.aId, "cand-a");
+      assert.equal(swapped.bId, "cand-b");
     });
 
     it("ties on equal material regardless of position (no position bias)", () => {
@@ -95,7 +96,7 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
     });
 
     it("position-sensitive disagreement becomes uncertainty with dissent preserved", () => {
-      const base = {
+      const first = blindPairwiseCompare({
         episodeId,
         aId: "cand-a",
         bId: "cand-b",
@@ -103,9 +104,17 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
         bScore: 0.5,
         aComment: "a",
         bComment: "b",
-      };
-      const first = blindPairwiseCompare(base);
-      const swapped = blindPairwiseCompare(base, true);
+      });
+      // A position-biased judge scores the first-presented slot higher after swap.
+      const swapped = blindPairwiseCompare({
+        episodeId,
+        aId: "cand-a",
+        bId: "cand-b",
+        aScore: 0.5,
+        bScore: 0.9,
+        aComment: "a",
+        bComment: "b",
+      }, true);
       assert.equal(first.winner, "a");
       assert.equal(swapped.winner, "b");
 

@@ -1,77 +1,122 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  type Flowchart,
-  type FlowchartNode,
-  createModelRouter,
-  validateFlowchart,
-} from "../../../src/supervisor/flowchart.js";
-import {
-  createFlowchartSupervisor,
-} from "../../../src/supervisor/flowchart-supervisor.js";
+import { createMessageId, createTaskId } from "../../../src/domain/ids.js";
+import type { ApprovalPlan } from "../../../src/domain/flowchart.js";
+import { validateEvent } from "../../../src/run/events.js";
+import { makeEvent } from "../../helpers/event-factory.js";
 
-import type { TaskId } from "../../../src/domain/ids.js";
+const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
+const approvalPlan: ApprovalPlan = {
+  id: "plan-apply",
+  items: [
+    { id: "apply-a", label: "Apply A", selectable: true },
+    { id: "apply-b", label: "Apply B", selectable: true },
+    { id: "required", label: "Required context", selectable: false }
+  ]
+};
 
-// Non-trivial flowchart: fork -> two parallel specialists -> selective join on high-confidence
-function makeForkJoinFlowchart(): Flowchart {
-  const nodes: FlowchartNode[] = [
-    { id: "start", taskId: "t0" as TaskId, role: "router" },
-    { id: "actorA", taskId: "tA" as TaskId, role: "actor", modelPreference: "gpt-5.6-terra" },
-    { id: "actorB", taskId: "tB" as TaskId, role: "actor", modelPreference: "claude-3.5" },
-    { id: "join", taskId: "tJ" as TaskId, role: "judge" },
-  ];
-  const edges = [
-    { from: "start", to: "actorA", condition: "always" as const },
-    { from: "start", to: "actorB", condition: "always" as const },
-    { from: "actorA", to: "join", condition: "on-success" as const },
-    { from: "actorB", to: "join", condition: "on-success" as const },
-  ];
-  return {
-    id: "fc-fork-join",
-    nodes,
-    edges,
-    joinRules: {
-      join: { required: ["actorA", "actorB"], policy: "all" as const },
-    },
+test("MODEL_ROUTED is a validated durable event", () => {
+  const payload = {
+    taskId: createTaskId(UUID),
+    role: "actor",
+    complexity: "MEDIUM",
+    model: "configured-model",
+    justification: "Configured model supports actor work and fits remaining limits",
+    confidence: 0.8,
+    approvalPlan,
+    statusAfterRoute: "RUNNING",
+    policyVersion: "router-v1",
+    estimatedCostUsd: 0.2,
+    estimatedDurationMs: 2_000
   };
-}
-
-test("non-trivial flowchart (fork + different models + confidence gate + selective join) works end-to-end; resume restores router + approval state; full gates + resume tests", () => {
-  const fc = makeForkJoinFlowchart();
-  validateFlowchart(fc);
-
-  const router = createModelRouter({ defaultThreshold: 0.75, policyVersion: "p1" });
-  const supervisor = createFlowchartSupervisor({ flowchart: fc, router });
-
-  // Drive the supervisor; when it hits WAITING_FOR_USER we must be able to serialize state,
-  // resume from that state, and continue without losing decisions or approvals.
-  let steps = 0;
-  const maxSteps = 20;
-
-  while (supervisor.state.status !== "COMPLETED" && steps < maxSteps) {
-    supervisor.step();
-    if (supervisor.state.status === "WAITING_FOR_USER") {
-      // simulate serialize + resume
-      const snapshot = JSON.parse(JSON.stringify(supervisor.state));
-      // create a fresh supervisor from snapshot (simulates process restart)
-      const resumed = createFlowchartSupervisor({ flowchart: fc, router });
-      // seed the resumed instance with persisted decisions and pending approvals
-      if (snapshot.pendingApprovals.length > 0) {
-        resumed.applyUserApproval(snapshot.pendingApprovals.slice(0, 1));
-      }
-      resumed.resume();
-      assert.ok(
-        resumed.state.status === "RUNNING" || resumed.state.status === "WAITING_FOR_USER",
-        "resume must restore a valid state"
-      );
-      break;
-    }
-    steps++;
-  }
-
-  assert.ok(
-    supervisor.state.status === "COMPLETED" || supervisor.state.status === "WAITING_FOR_USER",
-    "supervisor must reach a stable terminal or waiting state on non-trivial flowchart"
+  const event = makeEvent("MODEL_ROUTED", payload);
+  assert.deepEqual(validateEvent(event), event);
+  assert.throws(() => validateEvent(makeEvent("MODEL_ROUTED", { ...payload, confidence: Number.NaN })), /confidence/i);
+  assert.throws(() => validateEvent(makeEvent("MODEL_ROUTED", { ...payload, justification: "" })), /justification/i);
+  assert.throws(() => validateEvent(makeEvent("MODEL_ROUTED", { ...payload, statusAfterRoute: "BLOCKED" })), /statusAfterRoute/i);
+  assert.throws(
+    () => validateEvent(makeEvent("MODEL_ROUTED", { ...payload, approvalPlan: { ...approvalPlan, id: "" } })),
+    /approvalPlan/i
   );
+});
+
+test("RUN_WAITING_FOR_USER carries the authoritative approval plan", () => {
+  const messageId = createMessageId(UUID);
+  const withPlan = makeEvent("RUN_WAITING_FOR_USER", { messageId, approvalPlan });
+  assert.deepEqual(validateEvent(withPlan), withPlan);
+
+  // M1 compatibility: waiting without any plan stays valid.
+  const withoutPlan = makeEvent("RUN_WAITING_FOR_USER", { messageId });
+  assert.deepEqual(validateEvent(withoutPlan), withoutPlan);
+
+  assert.throws(
+    () => validateEvent(makeEvent("RUN_WAITING_FOR_USER", { messageId, approvalPlan: { items: approvalPlan.items } })),
+    /approvalPlan.*id/i
+  );
+  assert.throws(
+    () => validateEvent(makeEvent("RUN_WAITING_FOR_USER", { messageId, approvalPlan: { id: "p", items: [] } })),
+    /approvalPlan/i
+  );
+});
+
+test("USER_ANSWER references a plan by id and never carries the plan itself", () => {
+  const messageId = createMessageId(UUID);
+  const payload = {
+    messageId,
+    answer: "Apply the selected actions",
+    approvalReply: { approvalPlanId: approvalPlan.id, selectedActionIds: ["apply-b"] }
+  };
+  assert.deepEqual(validateEvent(makeEvent("USER_ANSWER", payload)).payload, payload);
+
+  // A client-supplied plan is not part of the contract, so it cannot be trusted
+  // to authorize anything: only the referenced id is accepted.
+  const reply = validateEvent(makeEvent("USER_ANSWER", payload)).payload as Record<string, unknown>;
+  assert.equal(reply.approvalPlan, undefined);
+
+  assert.throws(
+    () =>
+      validateEvent(
+        makeEvent("USER_ANSWER", {
+          messageId,
+          answer: "Apply the selected actions",
+          approvalReply: { approvalPlanId: approvalPlan.id, selectedActionIds: ["apply-b"] },
+          approvalPlan
+        })
+      ),
+    /approvalPlan/
+  );
+
+  // Plain M1 answers remain valid.
+  const plain = makeEvent("USER_ANSWER", { messageId, answer: "Yes" });
+  assert.deepEqual(validateEvent(plain), plain);
+});
+
+test("USER_ANSWER static validation rejects malformed and duplicate action ids", () => {
+  const messageId = createMessageId(UUID);
+  const answer = "Apply";
+  const cases: Array<[unknown, RegExp]> = [
+    [{ approvalPlanId: "", selectedActionIds: ["apply-a"] }, /approvalPlanId/i],
+    [{ selectedActionIds: ["apply-a"] }, /approvalPlanId/i],
+    [{ approvalPlanId: "plan-apply", selectedActionIds: "apply-a" }, /must be an array/i],
+    [{ approvalPlanId: "plan-apply", selectedActionIds: [""] }, /non-empty/i],
+    [{ approvalPlanId: "plan-apply", selectedActionIds: ["apply-a", "apply-a"] }, /unique/i],
+    [{ approvalPlanId: "plan-apply" }, /selectedActionIds/i],
+    ["yes", /object/i]
+  ];
+  for (const [approvalReply, pattern] of cases) {
+    assert.throws(() => validateEvent(makeEvent("USER_ANSWER", { messageId, answer, approvalReply })), pattern);
+  }
+});
+
+test("static event validation does not claim to verify the selected subset", () => {
+  // "apply-z" is not in the plan at all, yet static validation accepts it:
+  // deciding subset legality requires the persisted plan, which the event
+  // validator does not have. The correlation validator is what rejects it.
+  const event = makeEvent("USER_ANSWER", {
+    messageId: createMessageId(UUID),
+    answer: "Apply",
+    approvalReply: { approvalPlanId: "plan-apply", selectedActionIds: ["apply-z"] }
+  });
+  assert.deepEqual(validateEvent(event), event);
 });

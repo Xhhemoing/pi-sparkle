@@ -7,12 +7,23 @@ import {
   type EventId,
   type TaskId
 } from "../domain/ids.js";
+import { validateFlowchart, type Flowchart } from "../domain/flowchart.js";
 import { validateProjectSnapshot, type ProjectSnapshot } from "../domain/project.js";
 import { isRecord } from "../domain/record.js";
 import { validateRun, type Run } from "../domain/run.js";
 import { isRunStatus, type RunStatus } from "../domain/status.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 import type { Event } from "./events.js";
+import {
+  snapshotValidationRouter,
+  validateFlowchartRunLimits,
+  validateFlowchartSupervisorSnapshot
+} from "../supervisor/flowchart-snapshot.js";
+import {
+  restoreFlowchartSupervisor,
+  type FlowchartRunLimits,
+  type FlowchartSupervisorSnapshot
+} from "../supervisor/flowchart-supervisor.js";
 
 export const AGENT_OUTCOMES = ["SUCCESS", "FAILURE", "CANCELLED"] as const;
 export type AgentOutcome = (typeof AGENT_OUTCOMES)[number];
@@ -32,6 +43,12 @@ export interface ReconstructedRun {
   anomalies: string[];
 }
 
+export interface FlowchartCheckpointState {
+  definition: Flowchart;
+  snapshot: FlowchartSupervisorSnapshot;
+  limits: FlowchartRunLimits;
+}
+
 export interface RunCheckpoint {
   schemaVersion: 1;
   run?: Run;
@@ -40,6 +57,8 @@ export interface RunCheckpoint {
   agentOutcomes: AgentOutcomeRecord[];
   lastEventId?: EventId;
   updatedAt: IsoTimestamp;
+  /** Present only for flowchart runs. M0/M2 checkpoints omit this field. */
+  flowchart?: FlowchartCheckpointState;
 }
 
 function isAgentOutcome(value: unknown): value is AgentOutcome {
@@ -153,7 +172,21 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
   };
 }
 
-export function materializeCheckpoint(state: ReconstructedRun, updatedAt: IsoTimestamp): RunCheckpoint {
+/** True when a checkpoint already carries a flowchart snapshot that must not be stripped. */
+export function checkpointCarriesFlowchart(value: unknown): boolean {
+  return isRecord(value) && value.flowchart !== undefined;
+}
+
+/** True when the event log is a flowchart run that must not fall back to linear resume. */
+export function eventsLookLikeFlowchartRun(events: readonly Event[]): boolean {
+  return events.some((event) => event.type === "MODEL_ROUTED" || event.actor === "flowchart-supervisor");
+}
+
+export function materializeCheckpoint(
+  state: ReconstructedRun,
+  updatedAt: IsoTimestamp,
+  flowchart?: FlowchartCheckpointState
+): RunCheckpoint {
   return {
     schemaVersion: 1,
     ...(state.run !== undefined ? { run: state.run } : {}),
@@ -161,8 +194,56 @@ export function materializeCheckpoint(state: ReconstructedRun, updatedAt: IsoTim
     status: state.status,
     agentOutcomes: state.agentOutcomes,
     ...(state.lastEventId !== undefined ? { lastEventId: state.lastEventId } : {}),
-    updatedAt
+    updatedAt,
+    ...(flowchart !== undefined ? { flowchart } : {})
   };
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Validates a flowchart checkpoint payload by schema and by restore.
+ * Malformed snapshots fail closed; JSON.parse-only is not sufficient.
+ */
+export function validateFlowchartCheckpointState(value: unknown): FlowchartCheckpointState {
+  if (!isRecord(value)) {
+    throw new DomainValidationError("Invalid RunCheckpoint: flowchart must be an object");
+  }
+  let definition: Flowchart;
+  try {
+    definition = validateFlowchart(value.definition);
+  } catch (error) {
+    throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.definition: ${messageOf(error)}`);
+  }
+  let snapshot: FlowchartSupervisorSnapshot;
+  try {
+    snapshot = validateFlowchartSupervisorSnapshot(value.snapshot);
+  } catch (error) {
+    throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.snapshot: ${messageOf(error)}`);
+  }
+  let limits: FlowchartRunLimits;
+  try {
+    limits = validateFlowchartRunLimits(value.limits);
+  } catch (error) {
+    throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.limits: ${messageOf(error)}`);
+  }
+  try {
+    restoreFlowchartSupervisor(
+      {
+        flowchart: definition,
+        router: snapshotValidationRouter(),
+        limits
+      },
+      snapshot
+    );
+  } catch (error) {
+    throw new DomainValidationError(
+      `Invalid RunCheckpoint: flowchart snapshot is not restorable: ${messageOf(error)}`
+    );
+  }
+  return { definition, snapshot, limits };
 }
 
 export function validateCheckpoint(value: unknown): RunCheckpoint {
@@ -197,6 +278,9 @@ export function validateCheckpoint(value: unknown): RunCheckpoint {
   }
   if (!isIsoTimestamp(value.updatedAt)) {
     throw new DomainValidationError("Invalid RunCheckpoint: updatedAt must be a valid IsoTimestamp");
+  }
+  if (value.flowchart !== undefined) {
+    validateFlowchartCheckpointState(value.flowchart);
   }
   return value as unknown as RunCheckpoint;
 }
