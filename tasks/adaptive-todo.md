@@ -44,7 +44,7 @@ Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [AD
 ## M6: Controlled self-optimization
 
 - [x] M6-T1: Versioned resource and improvement-candidate registry. _(pre-research: delivered while Checkpoint F item 1 stays open)_
-- [ ] M6-T2: Isolated replay and sealed holdout evaluator.
+- [x] M6-T2: Isolated replay and sealed holdout evaluator. _(machinery only — dataset/isolation/holdout modules; the R0-vs-R1 experiment run stays frozen per ADR-005)_
 - [ ] M6-T3: Shadow/canary experiment runner.
 - [ ] M6-T4: Reflective prompt/workflow optimizer.
 - [ ] M6-T5: Approval and compare-and-swap promotion.

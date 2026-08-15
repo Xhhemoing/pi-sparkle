@@ -578,17 +578,17 @@ corepack pnpm run typecheck
 
 **Acceptance:**
 
-- [ ] Train/validation/holdout manifests are immutable and contamination checked.
-- [ ] Original project state, event logs, and active resources are read-only.
-- [ ] Holdout access is audited; a compromised holdout is sealed and replaced, not reused silently.
-- [ ] Holdout splits are rotated on a schedule; the frozen split is preserved for comparability.
-- [ ] Small samples are provisional and cannot justify global promotion.
+- [x] Train/validation/holdout manifests are immutable and contamination checked. _(`src/experiments/dataset.ts`: sealed three-way manifest, hash-verifiable, overlap/unknown/exclusion contamination fails closed)_
+- [x] Original project state, event logs, and active resources are read-only. _(`src/experiments/isolation.ts`: isolation guard rejects writes into read-only roots and outside the isolated output root)_
+- [x] Holdout access is audited; a compromised holdout is sealed and replaced, not reused silently. _(`src/experiments/holdout.ts`: `HoldoutVault` audits every access, seals on compromise, replace requires a sealed predecessor and a fresh open target)_
+- [x] Holdout splits are rotated on a schedule; the frozen split is preserved for comparability. _(`rotateHoldout` folds the old holdout into train and freezes it in `previousHoldout`)_
+- [x] Small samples are provisional and cannot justify global promotion. _(enforced by Checkpoint F-2 claim gating in `validateComparisonReport` — see `test/unit/experiments/comparison-report.test.ts`)_
 
 **Verification:** filesystem isolation, manifest hash, leakage, and holdout-access tests.
 
 **Likely files:** `src/experiments/isolation.ts`, `src/experiments/dataset.ts`, `src/experiments/holdout.ts`, tests.
 
-**Depends on:** M6-T1.
+**Depends on:** M6-T1. _(machinery delivered; the R0-vs-R1 experiment run and improvement claims remain frozen per ADR-005)_
 
 ### M6-T3: Shadow/canary experiment runner
 
