@@ -42,6 +42,7 @@ import {
   parseChildNodeResultsFile,
   parseFlowchartFile
 } from "./flowchart-io.js";
+import { commitsCommand } from "./commits.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
 
@@ -142,6 +143,8 @@ Usage:
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
   pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
+  pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
+  pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
   pi-sparkle help
 
 State root defaults to ~/.pi-sparkle. The default executor is a deterministic
@@ -156,6 +159,9 @@ checkpoint continues resumeFlowchartRun (optional --results and --selected /
 checkpoints. Answer on a flowchart waiting run requires --selected or
 --selected-ids, correlates against the stored approval plan, and resumes;
 plain-text --message/--text remains valid for non-flowchart runs.
+commits preview reads a completed flowchart run's ledger and emits conventional
+commit messages with evidence references; commits apply writes them with git
+commit --allow-empty (optional --sign / --file for an edited JSON proposal).
 `;
 
 /** Parses a --children spec file into validated ChildTaskInput values. */
@@ -850,6 +856,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await answerCommand(rest, io);
       case "pref":
         return await prefCommand(rest, io);
+      case "commits":
+        return await commitsCommand(rest, io);
       case "help":
       case "--help":
       case "-h":
