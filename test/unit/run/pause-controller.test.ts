@@ -37,6 +37,21 @@ test("requestPause writes a token that token() and clearPause round-trip", async
   });
 });
 
+test("requestPause twice replaces the token on Windows", async () => {
+  await withStateRoot(async (stateRoot) => {
+    let current = NOW;
+    const pause = createFilePauseController(stateRoot, () => current);
+    await pause.requestPause(RUN_ID, "first hold");
+    const later = parseIsoTimestamp("2026-08-15T06:01:00.000Z");
+    current = later;
+    const second = await pause.requestPause(RUN_ID, "updated reason");
+    assert.equal(second.paused, true);
+    assert.equal(second.requestedAt, later);
+    assert.equal(second.reason, "updated reason");
+    assert.deepEqual(await pause.token(RUN_ID), second);
+  });
+});
+
 test("malformed pause.json fails closed", async () => {
   await withStateRoot(async (stateRoot) => {
     const pause = createFilePauseController(stateRoot, () => NOW);

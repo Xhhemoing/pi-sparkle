@@ -1,4 +1,3 @@
-import { createAgentProfileRegistry, defaultAgentProfiles, type AgentProfileRegistry } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import {
   createEventId,
@@ -17,12 +16,9 @@ import {
   DEFAULT_HUMAN_CONFIDENCE,
   defaultDecisionPolicy,
   validateApprovalReplyAgainstPlan,
-  validateConfidenceScore,
   type ApprovalReply,
-  type Flowchart,
-  type FlowchartNodeRole
+  type Flowchart
 } from "../domain/flowchart.js";
-import type { AgentExecutor } from "../execution/contract.js";
 import { discoverProject } from "../project/discovery.js";
 import type { ModelRouter, RoutingDecision } from "../supervisor/model-router.js";
 import {
@@ -35,7 +31,6 @@ import {
   type FlowchartSupervisorSnapshot,
   type PendingApproval
 } from "../supervisor/flowchart-supervisor.js";
-import { ChildCoordinator, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
@@ -58,8 +53,6 @@ export interface FlowchartRunDeps {
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
   pause?: PauseController;
-  executor?: AgentExecutor;
-  registry?: AgentProfileRegistry;
 }
 
 export interface FlowchartRunInput {
@@ -69,7 +62,6 @@ export interface FlowchartRunInput {
   limits?: Partial<FlowchartRunLimits> & { maxRounds?: number };
   /** Fake child results keyed by node id; applied when that node is RUNNING. */
   childResults?: Readonly<Record<string, ChildNodeResult>>;
-  childTasks?: readonly ChildTaskInput[];
 }
 
 export interface FlowchartContinuation {
@@ -153,67 +145,6 @@ function applyRunningResults(
   return applied;
 }
 
-const EXECUTABLE_CHILD_ROLES: ReadonlySet<FlowchartNodeRole> = new Set(["actor", "critic", "tool"]);
-
-function toChildNodeResult(outcome: ChildRunOutcome): ChildNodeResult {
-  const mapped =
-    outcome.outcome === "SUCCESS" ? "SUCCESS" : outcome.outcome === "PARTIAL" ? "PARTIAL" : "FAILURE";
-  return {
-    outcome: mapped,
-    confidence: validateConfidenceScore(mapped === "SUCCESS" ? 0.9 : mapped === "PARTIAL" ? 0.6 : 0.2),
-    evidenceIds: outcome.evidenceIds
-  };
-}
-
-function childTaskMap(tasks?: readonly ChildTaskInput[]): Map<TaskId, ChildTaskInput> {
-  return new Map((tasks ?? []).map((task) => [task.taskId, task]));
-}
-
-function createLiveChildCoordinator(
-  deps: FlowchartRunDeps,
-  project: ProjectSnapshot,
-  runId: RunId,
-  now: () => IsoTimestamp,
-  generateId: IdGenerator | undefined,
-  maxConcurrentTasks: number
-): ChildCoordinator | undefined {
-  if (deps.executor === undefined) return undefined;
-  return new ChildCoordinator({
-    stateRoot: deps.stateRoot,
-    executor: deps.executor,
-    parentRunId: runId,
-    project,
-    registry: deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles()),
-    maxConcurrentTasks,
-    now,
-    ...(generateId !== undefined ? { generateId } : {})
-  });
-}
-
-async function executeRunningChildren(ctx: FlowchartLoopContext): Promise<number> {
-  const coordinator = ctx.childCoordinator;
-  if (coordinator === undefined) return 0;
-  const running = ctx.definition.nodes.filter(
-    (node) =>
-      ctx.supervisor.nodeState(node.id) === "RUNNING" && EXECUTABLE_CHILD_ROLES.has(node.role)
-  );
-  if (running.length === 0) return 0;
-  const controller = new AbortController();
-  const jobs = running.flatMap((node) => {
-    const input = ctx.childTasks.get(node.taskId);
-    if (input === undefined) return [];
-    return [{ nodeId: node.id, handle: coordinator.startChildTask(input, controller.signal) }];
-  });
-  if (jobs.length === 0) return 0;
-  const outcomes = await Promise.all(
-    jobs.map(async (job) => ({ nodeId: job.nodeId, outcome: await job.handle.done }))
-  );
-  for (const job of outcomes) {
-    ctx.supervisor.applyChildResult(job.nodeId, toChildNodeResult(job.outcome));
-  }
-  return outcomes.length;
-}
-
 function nodeTaskId(definition: Flowchart, nodeId: string): TaskId {
   const node = definition.nodes.find((entry) => entry.id === nodeId);
   if (node === undefined) throw new DomainValidationError(`unknown flowchart node: ${nodeId}`);
@@ -269,8 +200,6 @@ interface FlowchartLoopContext {
   runId: RunId;
   generateId?: IdGenerator;
   pause?: PauseController;
-  childTasks: Map<TaskId, ChildTaskInput>;
-  childCoordinator?: ChildCoordinator;
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -439,9 +368,7 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
     const pausedAfterLease = await pauseIfRequested(ctx);
     if (pausedAfterLease !== undefined) return pausedAfterLease;
 
-    const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
-    const appliedChildren = await executeRunningChildren(ctx);
-    const applied = appliedResults + appliedChildren;
+    const applied = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
     if (applied > 0) {
       const advanced = ctx.supervisor.advanceRound();
       await persistLedger(ctx);
@@ -538,14 +465,6 @@ export async function startFlowchartRun(
   await append(make("RUN_CREATED", { run }));
   await append(make("RUN_STARTED", {}));
 
-  const childCoordinator = createLiveChildCoordinator(
-    deps,
-    project,
-    runId,
-    now,
-    generateId,
-    resolved.flowchart.maxConcurrentNodes
-  );
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition: input.flowchart,
@@ -559,10 +478,8 @@ export async function startFlowchartRun(
     now,
     project,
     runId,
-    childTasks: childTaskMap(input.childTasks),
     ...(generateId !== undefined ? { generateId } : {}),
-    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
-    ...(childCoordinator !== undefined ? { childCoordinator } : {})
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
   };
   await persistCheckpoint(ctx);
   return runFlowchartLoop(ctx);
@@ -615,14 +532,6 @@ export async function resumeFlowchartRun(
   );
 
   const make = makeEventFactory(runId, now, generateId);
-  const childCoordinator = createLiveChildCoordinator(
-    deps,
-    replayed.project,
-    runId,
-    now,
-    generateId,
-    limits.maxConcurrentNodes
-  );
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition,
@@ -636,10 +545,8 @@ export async function resumeFlowchartRun(
     now,
     project: replayed.project,
     runId,
-    childTasks: new Map(),
     ...(generateId !== undefined ? { generateId } : {}),
-    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
-    ...(childCoordinator !== undefined ? { childCoordinator } : {})
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
   };
 
   if (continuation.unpause === true) {
@@ -743,7 +650,6 @@ async function restoreFlowchartSession(
     now,
     project: replayed.project,
     runId,
-    childTasks: new Map(),
     ...(generateId !== undefined ? { generateId } : {}),
     ...(deps.pause !== undefined ? { pause: deps.pause } : {})
   };
@@ -756,7 +662,12 @@ export async function pauseFlowchartRun(
   reason?: string
 ): Promise<FlowchartRunOutcome> {
   const { ctx, replayed } = await restoreFlowchartSession(deps, runId);
-  if (replayed.status === "COMPLETED" || replayed.status === "FAILED" || replayed.status === "CANCELLED") {
+  if (
+    replayed.status === "COMPLETED" ||
+    replayed.status === "FAILED" ||
+    replayed.status === "CANCELLED" ||
+    replayed.status === "BLOCKED"
+  ) {
     throw new DomainValidationError(`cannot pause a ${replayed.status} run`);
   }
   const pause = deps.pause ?? createFilePauseController(deps.stateRoot, ctx.now);

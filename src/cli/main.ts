@@ -692,8 +692,13 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
     }
     const childResults =
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const pause = createFilePauseController(stateRoot);
+    const token = await pause.token(runId);
+    if (token.paused || replayRun(read.events).status === "PAUSED") {
+      throw new DomainValidationError("run is paused; pass --unpause to continue");
+    }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: createCliModelRouter(), pause: createFilePauseController(stateRoot) },
+      { stateRoot, router: createCliModelRouter(), pause },
       runId,
       flowchartContinuation({
         checkpoint,

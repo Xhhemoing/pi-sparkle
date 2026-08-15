@@ -28,6 +28,7 @@ test("run transitions follow the declared table", () => {
   assert.equal(canTransitionRun("PAUSED", "COMPLETED"), false);
   assert.equal(canTransitionRun("BLOCKED", "RUNNING"), true);
   assert.equal(canTransitionRun("BLOCKED", "CANCELLED"), true);
+  assert.equal(canTransitionRun("BLOCKED", "PAUSED"), false);
   assert.equal(canTransitionRun("COMPLETED", "RUNNING"), false);
   assert.equal(canTransitionRun("FAILED", "COMPLETED"), false);
   assert.equal(canTransitionRun("CANCELLED", "RUNNING"), false);

@@ -128,6 +128,23 @@ test("pause records PAUSE_REQUESTED and inspect/replay show PAUSED", async () =>
   });
 });
 
+test("answer while paused fails closed and does not record USER_ANSWER", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    await main(["pause", "--run", runId, "--state-root", stateRoot], capture().io);
+    const answered = capture();
+    const code = await main(
+      ["answer", "--run", runId, "--selected", "work", "--state-root", stateRoot],
+      answered.io
+    );
+    assert.equal(code, 1);
+    assert.match(answered.err.join(""), /run is paused; pass --unpause to continue/);
+    assert.doesNotMatch(answered.out.join(""), /Recorded answer/);
+    const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    assert.doesNotMatch(eventsText, /USER_ANSWER/);
+  });
+});
+
 test("resume without --unpause exits 1 on a paused flowchart", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const runId = await startWaiting(stateRoot, projectRoot);
@@ -254,5 +271,34 @@ test("pause and inject fail closed on a completed run", async () => {
       1
     );
     assert.match(injected.err.join(""), /COMPLETED|fail/i);
+  });
+});
+
+test("pause fails closed on a BLOCKED flowchart", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const flowchartPath = join(projectRoot, "flow.json");
+    await writeFile(flowchartPath, JSON.stringify(TINY_FLOWCHART), "utf8");
+    const started = capture();
+    const startCode = await main(
+      [
+        "run",
+        "--project",
+        projectRoot,
+        "--objective",
+        "stall",
+        "--flowchart",
+        flowchartPath,
+        "--state-root",
+        stateRoot
+      ],
+      started.io
+    );
+    assert.equal(startCode, 1);
+    assert.match(started.out.join(""), /BLOCKED/);
+    const runId = parseRunIdFromOutput(started.out.join(""));
+
+    const paused = capture();
+    assert.equal(await main(["pause", "--run", runId, "--state-root", stateRoot], paused.io), 1);
+    assert.match(paused.err.join(""), /BLOCKED/);
   });
 });

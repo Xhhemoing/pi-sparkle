@@ -32,7 +32,14 @@ async function writeAtomic(path: string, value: unknown): Promise<void> {
   } finally {
     await handle.close();
   }
-  await rename(tempPath, path);
+  try {
+    await rename(tempPath, path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EEXIST" && code !== "EACCES") throw error;
+    await unlink(path);
+    await rename(tempPath, path);
+  }
 }
 
 function parsePauseToken(raw: string): PauseToken {

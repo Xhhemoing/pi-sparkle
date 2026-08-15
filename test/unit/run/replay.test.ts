@@ -165,4 +165,13 @@ test("unmatched PAUSE_REQUESTED reconstructs PAUSED; PAUSE_CLEARED restores wait
   ]);
   assert.equal(afterTerminal.status, "COMPLETED");
   assert.ok(afterTerminal.anomalies.some((anomaly) => /PAUSE_REQUESTED.*terminal/.test(anomaly)));
+
+  const afterBlocked = replayRun([
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_BLOCKED", { reason: "no progress for too many rounds", requiredEvidence: ["need-x"] }),
+    makeEvent("PAUSE_REQUESTED", {})
+  ]);
+  assert.equal(afterBlocked.status, "BLOCKED");
+  assert.ok(afterBlocked.anomalies.some((anomaly) => /PAUSE_REQUESTED.*terminal/.test(anomaly)));
 });

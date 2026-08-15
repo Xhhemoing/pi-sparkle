@@ -14,6 +14,7 @@ import {
 } from "../../../src/domain/flowchart.js";
 import {
   injectFlowchartRun,
+  pauseFlowchartRun,
   resumeFlowchartRun,
   startFlowchartRun
 } from "../../../src/run/flowchart-run.js";
@@ -196,5 +197,29 @@ test("after clearPause and PAUSE_CLEARED the run continues without rerunning the
     }).length;
     assert.equal(firstRouted, 1, "the first leased node must not be rerun");
     assert.ok(resumed.events.filter((event) => event.type === "MODEL_ROUTED").length >= routedBefore);
+  });
+});
+
+test("pauseFlowchartRun rejects a BLOCKED run", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const blocked = await startFlowchartRun(
+      {
+        stateRoot,
+        router: router(),
+        now: () => parseIsoTimestamp("2026-08-15T06:00:00.000Z"),
+        generateId: sequenceGenerator()
+      },
+      {
+        projectRoot,
+        flowchart: { id: "stall-pause", nodes: [node("hung")], edges: [] },
+        limits: { maxConsecutiveStalls: 2, maxRounds: 8 },
+        childResults: {}
+      }
+    );
+    assert.equal(blocked.status, "BLOCKED");
+    await assert.rejects(
+      () => pauseFlowchartRun({ stateRoot, router: router() }, blocked.runId),
+      /cannot pause a BLOCKED run/
+    );
   });
 });
