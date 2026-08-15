@@ -17,9 +17,15 @@ test("run transitions follow the declared table", () => {
   assert.equal(canTransitionRun("RUNNING", "COMPLETED"), true);
   assert.equal(canTransitionRun("RUNNING", "FAILED"), true);
   assert.equal(canTransitionRun("RUNNING", "CANCELLED"), true);
+  assert.equal(canTransitionRun("RUNNING", "PAUSED"), true);
   assert.equal(canTransitionRun("WAITING_FOR_USER", "RUNNING"), true);
   assert.equal(canTransitionRun("WAITING_FOR_USER", "BLOCKED"), true);
   assert.equal(canTransitionRun("WAITING_FOR_USER", "CANCELLED"), true);
+  assert.equal(canTransitionRun("WAITING_FOR_USER", "PAUSED"), true);
+  assert.equal(canTransitionRun("PAUSED", "RUNNING"), true);
+  assert.equal(canTransitionRun("PAUSED", "WAITING_FOR_USER"), true);
+  assert.equal(canTransitionRun("PAUSED", "CANCELLED"), true);
+  assert.equal(canTransitionRun("PAUSED", "COMPLETED"), false);
   assert.equal(canTransitionRun("BLOCKED", "RUNNING"), true);
   assert.equal(canTransitionRun("BLOCKED", "CANCELLED"), true);
   assert.equal(canTransitionRun("COMPLETED", "RUNNING"), false);
@@ -55,6 +61,7 @@ test("transition tables are closed over their status unions", () => {
     "CANCELLED",
     "COMPLETED",
     "FAILED",
+    "PAUSED",
     "PLANNING",
     "RUNNING",
     "WAITING_FOR_USER"

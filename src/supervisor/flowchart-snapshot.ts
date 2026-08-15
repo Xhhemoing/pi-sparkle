@@ -45,6 +45,7 @@ const FLOW_NODE_STATES: readonly FlowNodeState[] = [
 const FLOWCHART_RUN_STATUSES: readonly FlowchartRunStatus[] = [
   "RUNNING",
   "WAITING_FOR_USER",
+  "PAUSED",
   "COMPLETED",
   "BLOCKED",
   "FAILED"

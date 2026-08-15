@@ -107,17 +107,17 @@ Source: [implementation plan](plan.md) and [architecture specification](../docs/
 
 ## M3: Optional Governance (P3, P5)
 
-- [ ] T15 (Optional): Decision-to-Commit bridge (P3).
+- [x] T15 (Optional): Decision-to-Commit bridge (P3).
   - Acceptance: reads ledger + flowchart decisions, emits conventional commits with evidence links; user can edit/sign; no core supervisor changes.
   - Verify: CLI tool test.
   - Depends on: Checkpoint D.
 
-- [ ] T16 (Optional): PauseController + typed InjectionPoint (P5).
+- [x] T16 (Optional): PauseController + typed InjectionPoint (P5).
   - Acceptance: pause works on long-running flowchart; typed injections (fact/override/skip) validated by DecisionPolicy and recorded; resume continues correctly.
   - Verify: CLI injection tests + resume after pause.
   - Depends on: T15 (or parallel if behind flag).
 
-- [ ] Checkpoint E (M3 optional): Optional governance features available but not required for core M2.5.
+- [x] Checkpoint E (M3 optional): Optional governance features available but not required for core M2.5.
 
 ## M2.5: Flowchart Supervisor
 

@@ -85,6 +85,7 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
   let sawTerminal = false;
   let sawCancel = false;
   let sawWaiting = false;
+  let unmatchedPause = false;
 
   for (const event of events) {
     switch (event.type) {
@@ -140,6 +141,17 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
         sawWaiting = false;
         break;
       }
+      case "PAUSE_REQUESTED": {
+        if (sawTerminal) anomalies.push("PAUSE_REQUESTED after a terminal event");
+        unmatchedPause = true;
+        break;
+      }
+      case "PAUSE_CLEARED": {
+        if (sawTerminal) anomalies.push("PAUSE_CLEARED after a terminal event");
+        unmatchedPause = false;
+        break;
+      }
+      case "INJECTION_REQUESTED":
       case "CHILD_RUN_CREATED":
       case "CHILD_MESSAGE":
       case "TASK_TIMEOUT":
@@ -151,6 +163,11 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
       case "LEDGER_UPDATED":
       case "STALL_DETECTED":
       case "JUDGE_DECISION":
+      case "MODEL_ROUTED":
+      case "EPISODE_OPENED":
+      case "RUN_ATTACHED":
+      case "EPISODE_WAITING":
+      case "EPISODE_CLOSED":
         break;
     }
     lastEventId = event.id;
@@ -158,6 +175,7 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
 
   if (!sawTerminal) {
     if (sawCancel) status = "CANCELLED";
+    else if (unmatchedPause) status = "PAUSED";
     else if (sawWaiting) status = "WAITING_FOR_USER";
     else if (sawStarted) status = "RUNNING";
   }
@@ -170,6 +188,15 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
     ...(lastEventId !== undefined ? { lastEventId } : {}),
     anomalies
   };
+}
+
+export function hasUnmatchedPause(events: readonly Event[]): boolean {
+  let unmatched = false;
+  for (const event of events) {
+    if (event.type === "PAUSE_REQUESTED") unmatched = true;
+    else if (event.type === "PAUSE_CLEARED") unmatched = false;
+  }
+  return unmatched;
 }
 
 /** True when a checkpoint already carries a flowchart snapshot that must not be stripped. */

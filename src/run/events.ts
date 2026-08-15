@@ -31,6 +31,7 @@ import {
   type FlowchartNodeRole,
   type TaskComplexity
 } from "../domain/flowchart.js";
+import { injectionPayloadError } from "./injection.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -57,6 +58,9 @@ export const EVENT_TYPES = [
   "JUDGE_DECISION",
   "MODEL_ROUTED",
   "RUN_BLOCKED",
+  "PAUSE_REQUESTED",
+  "PAUSE_CLEARED",
+  "INJECTION_REQUESTED",
   "EPISODE_OPENED",
   "RUN_ATTACHED",
   "EPISODE_WAITING",
@@ -195,6 +199,19 @@ export interface RunBlockedPayload {
   requiredEvidence: string[];
 }
 
+export interface PauseRequestedPayload {
+  reason?: string;
+}
+
+export interface InjectionRequestedPayload {
+  kind: "fact" | "override" | "skip";
+  actor: string;
+  confidence: number;
+  nodeId?: string;
+  key?: string;
+  value?: string | number | boolean;
+}
+
 export interface EpisodeOpenedPayload {
   episode: ProjectEpisode;
 }
@@ -253,6 +270,9 @@ export type Event =
   | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
   | (EventBase & { type: "MODEL_ROUTED"; payload: ModelRoutedPayload })
   | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
+  | (EventBase & { type: "PAUSE_REQUESTED"; payload: PauseRequestedPayload })
+  | (EventBase & { type: "PAUSE_CLEARED"; payload: EmptyPayload })
+  | (EventBase & { type: "INJECTION_REQUESTED"; payload: InjectionRequestedPayload })
   | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
   | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload })
   | (EventBase & { type: "RUN_ATTACHED"; payload: RunAttachedPayload })
@@ -506,6 +526,18 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       }
       return undefined;
     }
+    case "PAUSE_REQUESTED": {
+      const keys = Object.keys(payload);
+      if (keys.some((key) => key !== "reason")) return "payload may only include reason";
+      if (payload.reason !== undefined && (typeof payload.reason !== "string" || payload.reason.trim() === "")) {
+        return "payload.reason must be a non-empty string";
+      }
+      return undefined;
+    }
+    case "PAUSE_CLEARED":
+      return isEmptyPayload(payload) ? undefined : "payload must be an empty object";
+    case "INJECTION_REQUESTED":
+      return injectionPayloadError(payload);
     case "EPISODE_OPENED": {
       if (payload.episode === undefined || payload.episode === null) return "payload.episode is required";
       const ep = payload.episode as Record<string, unknown>;

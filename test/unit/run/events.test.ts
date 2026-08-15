@@ -85,3 +85,39 @@ test("events with malformed payloads are rejected", () => {
   assert.throws(() => validateEvent(makeEvent("RUN_FAILED", { reason: "" })), /payload/);
   assert.throws(() => validateEvent(makeEvent("RUN_COMPLETED", { extra: 1 })), /payload/);
 });
+
+test("pause and injection events validate fail-closed payloads", () => {
+  assert.deepEqual(validateEvent(makeEvent("PAUSE_REQUESTED", {})), makeEvent("PAUSE_REQUESTED", {}));
+  assert.deepEqual(
+    validateEvent(makeEvent("PAUSE_REQUESTED", { reason: "hold" })),
+    makeEvent("PAUSE_REQUESTED", { reason: "hold" })
+  );
+  assert.deepEqual(validateEvent(makeEvent("PAUSE_CLEARED", {})), makeEvent("PAUSE_CLEARED", {}));
+  const fact = makeEvent("INJECTION_REQUESTED", {
+    kind: "fact",
+    actor: "user",
+    confidence: 0.9,
+    key: "k",
+    value: true
+  });
+  assert.deepEqual(validateEvent(fact), fact);
+  const skip = makeEvent("INJECTION_REQUESTED", { kind: "skip", actor: "user", confidence: 1, nodeId: "later" });
+  assert.deepEqual(validateEvent(skip), skip);
+
+  assert.throws(() => validateEvent(makeEvent("PAUSE_REQUESTED", { reason: "  " })), /reason/);
+  assert.throws(() => validateEvent(makeEvent("PAUSE_CLEARED", { extra: 1 })), /payload/);
+  assert.throws(
+    () =>
+      validateEvent(
+        makeEvent("INJECTION_REQUESTED", { kind: "skip", actor: "user", confidence: 1, nodeId: "later", key: "nope" })
+      ),
+    /key|not valid|mismatch/
+  );
+  assert.throws(
+    () =>
+      validateEvent(
+        makeEvent("INJECTION_REQUESTED", { kind: "eval", actor: "user", confidence: 1 })
+      ),
+    /kind/
+  );
+});

@@ -48,7 +48,7 @@ export type FlowNodeState =
   | "SKIPPED";
 
 /** Overall run status derived from node states, pending approval, and stalls. */
-export type FlowchartRunStatus = "RUNNING" | "WAITING_FOR_USER" | "COMPLETED" | "BLOCKED" | "FAILED";
+export type FlowchartRunStatus = "RUNNING" | "WAITING_FOR_USER" | "PAUSED" | "COMPLETED" | "BLOCKED" | "FAILED";
 
 export type FactValue = string | number | boolean;
 
@@ -168,6 +168,12 @@ export interface ChildNodeProgress {
   readonly facts?: readonly LedgerFact[];
 }
 
+/** Typed injection the coordinator may apply without executing user strings. */
+export type FlowchartInjection =
+  | { readonly kind: "fact"; readonly key: string; readonly value: FactValue; readonly confidence: ConfidenceScore }
+  | { readonly kind: "override"; readonly nodeId: string; readonly confidence: ConfidenceScore }
+  | { readonly kind: "skip"; readonly nodeId: string };
+
 export interface AdvanceRoundResult {
   readonly round: number;
   readonly consecutiveStalls: number;
@@ -187,6 +193,7 @@ export interface FlowchartSupervisor {
   applyProgress(nodeId: string, progress: ChildNodeProgress): void;
   applyUserDecision(decisionId: string, value: string | boolean): void;
   applyApprovalReply(reply: ApprovalReply): readonly string[];
+  applyInjection(injection: FlowchartInjection): void;
   advanceRound(): AdvanceRoundResult;
   snapshot(): FlowchartSupervisorSnapshot;
 }
@@ -858,6 +865,42 @@ class FlowchartSupervisorImpl implements FlowchartSupervisor {
     return selected;
   }
 
+  applyInjection(injection: FlowchartInjection): void {
+    switch (injection.kind) {
+      case "fact": {
+        this.facts.set(injection.key, injection.value);
+        this.roundEvent.newFacts.push({
+          key: injection.key,
+          value: typeof injection.value === "string" ? injection.value : String(injection.value),
+          confidence: injection.confidence
+        });
+        this.propagate();
+        return;
+      }
+      case "override": {
+        const runtime = this.getRuntime(injection.nodeId);
+        if (runtime.state === "FAILED") {
+          throw new DomainValidationError(`cannot override confidence of FAILED node ${injection.nodeId}`);
+        }
+        this.setRuntime(injection.nodeId, { confidence: injection.confidence });
+        return;
+      }
+      case "skip": {
+        const runtime = this.getRuntime(injection.nodeId);
+        if (runtime.state !== "PENDING" && runtime.state !== "READY") {
+          throw new DomainValidationError(
+            `cannot skip node ${injection.nodeId} in state ${runtime.state}`
+          );
+        }
+        this.setRuntime(injection.nodeId, { state: "SKIPPED" });
+        this.roundEvent.userDecision = true;
+        this.propagate();
+        this.assertWaiterInvariant();
+        return;
+      }
+    }
+  }
+
   /**
    * Resolves a `human`/`router` decision gate. The gate performs no child work,
    * so the user's choice is its whole outcome; every unselected successor is
@@ -959,6 +1002,7 @@ export function createFlowchartSupervisor(config: FlowchartSupervisorConfig): Fl
     applyProgress: (nodeId, progress) => impl.applyProgress(nodeId, progress),
     applyUserDecision: (decisionId, value) => impl.applyUserDecision(decisionId, value),
     applyApprovalReply: (reply) => impl.applyApprovalReply(reply),
+    applyInjection: (injection) => impl.applyInjection(injection),
     advanceRound: () => impl.advanceRound(),
     snapshot: () => impl.snapshot()
   };

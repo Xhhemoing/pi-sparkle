@@ -139,3 +139,30 @@ test("eventsLookLikeFlowchartRun detects MODEL_ROUTED or flowchart-supervisor ac
     true
   );
 });
+
+test("unmatched PAUSE_REQUESTED reconstructs PAUSED; PAUSE_CLEARED restores waiting", () => {
+  const started = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_WAITING_FOR_USER", { messageId: "msg_01234567-89ab-cdef-0123-456789abcdef" })
+  ];
+  const paused = replayRun([...started, makeEvent("PAUSE_REQUESTED", { reason: "hold" })]);
+  assert.equal(paused.status, "PAUSED");
+  assert.deepEqual(paused.anomalies, []);
+
+  const cleared = replayRun([
+    ...started,
+    makeEvent("PAUSE_REQUESTED", { reason: "hold" }),
+    makeEvent("PAUSE_CLEARED", {})
+  ]);
+  assert.equal(cleared.status, "WAITING_FOR_USER");
+
+  const afterTerminal = replayRun([
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_COMPLETED", {}),
+    makeEvent("PAUSE_REQUESTED", {})
+  ]);
+  assert.equal(afterTerminal.status, "COMPLETED");
+  assert.ok(afterTerminal.anomalies.some((anomaly) => /PAUSE_REQUESTED.*terminal/.test(anomaly)));
+});

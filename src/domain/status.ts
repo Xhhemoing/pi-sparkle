@@ -2,6 +2,7 @@ export const RUN_STATUSES = [
   "PLANNING",
   "RUNNING",
   "WAITING_FOR_USER",
+  "PAUSED",
   "BLOCKED",
   "COMPLETED",
   "FAILED",

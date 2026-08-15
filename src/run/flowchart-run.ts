@@ -1,3 +1,4 @@
+import { createAgentProfileRegistry, defaultAgentProfiles, type AgentProfileRegistry } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import {
   createEventId,
@@ -13,10 +14,15 @@ import type { Run } from "../domain/run.js";
 import type { RunStatus } from "../domain/status.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
 import {
+  DEFAULT_HUMAN_CONFIDENCE,
+  defaultDecisionPolicy,
   validateApprovalReplyAgainstPlan,
+  validateConfidenceScore,
   type ApprovalReply,
-  type Flowchart
+  type Flowchart,
+  type FlowchartNodeRole
 } from "../domain/flowchart.js";
+import type { AgentExecutor } from "../execution/contract.js";
 import { discoverProject } from "../project/discovery.js";
 import type { ModelRouter, RoutingDecision } from "../supervisor/model-router.js";
 import {
@@ -29,15 +35,20 @@ import {
   type FlowchartSupervisorSnapshot,
   type PendingApproval
 } from "../supervisor/flowchart-supervisor.js";
+import { ChildCoordinator, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
 import type { Event, ModelRoutedPayload } from "./events.js";
+import { injectionEventPayload, validateInjection } from "./injection.js";
+import { createFilePauseController, type PauseController } from "./pause-controller.js";
 import {
+  hasUnmatchedPause,
   materializeCheckpoint,
   replayRun,
   validateCheckpoint,
   type FlowchartCheckpointState,
+  type ReconstructedRun,
   type RunCheckpoint
 } from "./replay.js";
 
@@ -46,6 +57,9 @@ export interface FlowchartRunDeps {
   router: ModelRouter;
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
+  pause?: PauseController;
+  executor?: AgentExecutor;
+  registry?: AgentProfileRegistry;
 }
 
 export interface FlowchartRunInput {
@@ -55,12 +69,14 @@ export interface FlowchartRunInput {
   limits?: Partial<FlowchartRunLimits> & { maxRounds?: number };
   /** Fake child results keyed by node id; applied when that node is RUNNING. */
   childResults?: Readonly<Record<string, ChildNodeResult>>;
+  childTasks?: readonly ChildTaskInput[];
 }
 
 export interface FlowchartContinuation {
   approvalReply?: ApprovalReply;
   answer?: string;
   childResults?: Readonly<Record<string, ChildNodeResult>>;
+  unpause?: boolean;
 }
 
 export interface FlowchartRunOutcome {
@@ -137,6 +153,67 @@ function applyRunningResults(
   return applied;
 }
 
+const EXECUTABLE_CHILD_ROLES: ReadonlySet<FlowchartNodeRole> = new Set(["actor", "critic", "tool"]);
+
+function toChildNodeResult(outcome: ChildRunOutcome): ChildNodeResult {
+  const mapped =
+    outcome.outcome === "SUCCESS" ? "SUCCESS" : outcome.outcome === "PARTIAL" ? "PARTIAL" : "FAILURE";
+  return {
+    outcome: mapped,
+    confidence: validateConfidenceScore(mapped === "SUCCESS" ? 0.9 : mapped === "PARTIAL" ? 0.6 : 0.2),
+    evidenceIds: outcome.evidenceIds
+  };
+}
+
+function childTaskMap(tasks?: readonly ChildTaskInput[]): Map<TaskId, ChildTaskInput> {
+  return new Map((tasks ?? []).map((task) => [task.taskId, task]));
+}
+
+function createLiveChildCoordinator(
+  deps: FlowchartRunDeps,
+  project: ProjectSnapshot,
+  runId: RunId,
+  now: () => IsoTimestamp,
+  generateId: IdGenerator | undefined,
+  maxConcurrentTasks: number
+): ChildCoordinator | undefined {
+  if (deps.executor === undefined) return undefined;
+  return new ChildCoordinator({
+    stateRoot: deps.stateRoot,
+    executor: deps.executor,
+    parentRunId: runId,
+    project,
+    registry: deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles()),
+    maxConcurrentTasks,
+    now,
+    ...(generateId !== undefined ? { generateId } : {})
+  });
+}
+
+async function executeRunningChildren(ctx: FlowchartLoopContext): Promise<number> {
+  const coordinator = ctx.childCoordinator;
+  if (coordinator === undefined) return 0;
+  const running = ctx.definition.nodes.filter(
+    (node) =>
+      ctx.supervisor.nodeState(node.id) === "RUNNING" && EXECUTABLE_CHILD_ROLES.has(node.role)
+  );
+  if (running.length === 0) return 0;
+  const controller = new AbortController();
+  const jobs = running.flatMap((node) => {
+    const input = ctx.childTasks.get(node.taskId);
+    if (input === undefined) return [];
+    return [{ nodeId: node.id, handle: coordinator.startChildTask(input, controller.signal) }];
+  });
+  if (jobs.length === 0) return 0;
+  const outcomes = await Promise.all(
+    jobs.map(async (job) => ({ nodeId: job.nodeId, outcome: await job.handle.done }))
+  );
+  for (const job of outcomes) {
+    ctx.supervisor.applyChildResult(job.nodeId, toChildNodeResult(job.outcome));
+  }
+  return outcomes.length;
+}
+
 function nodeTaskId(definition: Flowchart, nodeId: string): TaskId {
   const node = definition.nodes.find((entry) => entry.id === nodeId);
   if (node === undefined) throw new DomainValidationError(`unknown flowchart node: ${nodeId}`);
@@ -190,6 +267,10 @@ interface FlowchartLoopContext {
   now: () => IsoTimestamp;
   project: ProjectSnapshot;
   runId: RunId;
+  generateId?: IdGenerator;
+  pause?: PauseController;
+  childTasks: Map<TaskId, ChildTaskInput>;
+  childCoordinator?: ChildCoordinator;
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -325,8 +406,24 @@ async function applyApproval(
   ctx.supervisor.applyApprovalReply(correlated);
 }
 
+async function pauseIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome | undefined> {
+  if (ctx.pause === undefined) return undefined;
+  const token = await ctx.pause.token(ctx.runId);
+  if (!token.paused) return undefined;
+  const read = await ctx.eventStore.readAll();
+  if (!hasUnmatchedPause(read.events)) {
+    await ctx.append(
+      ctx.make("PAUSE_REQUESTED", token.reason !== undefined ? { reason: token.reason } : {})
+    );
+  }
+  return finish(ctx);
+}
+
 async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
   for (let round = 1; round <= ctx.maxRounds; round += 1) {
+    const pausedAtStart = await pauseIfRequested(ctx);
+    if (pausedAtStart !== undefined) return pausedAtStart;
+
     const settled = await finishIfSettled(ctx);
     if (settled !== undefined) return settled;
 
@@ -339,7 +436,12 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
     const afterLease = await finishIfSettled(ctx);
     if (afterLease !== undefined) return afterLease;
 
-    const applied = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
+    const pausedAfterLease = await pauseIfRequested(ctx);
+    if (pausedAfterLease !== undefined) return pausedAfterLease;
+
+    const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
+    const appliedChildren = await executeRunningChildren(ctx);
+    const applied = appliedResults + appliedChildren;
     if (applied > 0) {
       const advanced = ctx.supervisor.advanceRound();
       await persistLedger(ctx);
@@ -374,7 +476,8 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
 function makeEventFactory(
   runId: RunId,
   now: () => IsoTimestamp,
-  generateId: IdGenerator | undefined
+  generateId: IdGenerator | undefined,
+  actor = "flowchart-supervisor"
 ): (type: Event["type"], payload: unknown, taskId?: TaskId) => Event {
   return (type, payload, taskId) =>
     ({
@@ -384,7 +487,7 @@ function makeEventFactory(
       runId,
       ...(taskId !== undefined ? { taskId } : {}),
       type,
-      actor: "flowchart-supervisor",
+      actor,
       payload
     }) as Event;
 }
@@ -435,6 +538,14 @@ export async function startFlowchartRun(
   await append(make("RUN_CREATED", { run }));
   await append(make("RUN_STARTED", {}));
 
+  const childCoordinator = createLiveChildCoordinator(
+    deps,
+    project,
+    runId,
+    now,
+    generateId,
+    resolved.flowchart.maxConcurrentNodes
+  );
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition: input.flowchart,
@@ -447,7 +558,11 @@ export async function startFlowchartRun(
     make,
     now,
     project,
-    runId
+    runId,
+    childTasks: childTaskMap(input.childTasks),
+    ...(generateId !== undefined ? { generateId } : {}),
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+    ...(childCoordinator !== undefined ? { childCoordinator } : {})
   };
   await persistCheckpoint(ctx);
   return runFlowchartLoop(ctx);
@@ -500,6 +615,14 @@ export async function resumeFlowchartRun(
   );
 
   const make = makeEventFactory(runId, now, generateId);
+  const childCoordinator = createLiveChildCoordinator(
+    deps,
+    replayed.project,
+    runId,
+    now,
+    generateId,
+    limits.maxConcurrentNodes
+  );
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition,
@@ -512,16 +635,33 @@ export async function resumeFlowchartRun(
     make,
     now,
     project: replayed.project,
-    runId
+    runId,
+    childTasks: new Map(),
+    ...(generateId !== undefined ? { generateId } : {}),
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+    ...(childCoordinator !== undefined ? { childCoordinator } : {})
   };
 
+  if (continuation.unpause === true) {
+    const pause = deps.pause ?? createFilePauseController(deps.stateRoot, now);
+    await pause.clearPause(runId);
+    const latest = await eventStore.readAll();
+    if (hasUnmatchedPause(latest.events)) {
+      await ctx.append(ctx.make("PAUSE_CLEARED", {}));
+    }
+  }
+
+  const latestReplay = replayRun((await eventStore.readAll()).events);
   if (
-    replayed.status === "COMPLETED" ||
-    replayed.status === "FAILED" ||
-    replayed.status === "CANCELLED"
+    latestReplay.status === "COMPLETED" ||
+    latestReplay.status === "FAILED" ||
+    latestReplay.status === "CANCELLED"
   ) {
     return finish(ctx);
   }
+
+  const paused = await pauseIfRequested(ctx);
+  if (paused !== undefined) return paused;
 
   if (continuation.approvalReply !== undefined) {
     await applyApproval(ctx, continuation.approvalReply, continuation.answer);
@@ -539,4 +679,124 @@ export async function resumeFlowchartRun(
   }
 
   return runFlowchartLoop(ctx);
+}
+
+const INJECTABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "PAUSED",
+  "WAITING_FOR_USER",
+  "BLOCKED",
+  "RUNNING"
+]);
+
+async function restoreFlowchartSession(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  results?: Readonly<Record<string, ChildNodeResult>>
+): Promise<{ ctx: FlowchartLoopContext; replayed: ReconstructedRun }> {
+  const now = deps.now ?? nowIso;
+  const generateId = deps.generateId;
+  const eventStore = new EventStore(deps.stateRoot, runId);
+  const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
+  const read = await eventStore.readAll();
+  if (read.events.length === 0) {
+    throw new DomainValidationError(`Run ${runId} not found`);
+  }
+  const replayed = replayRun(read.events);
+  if (replayed.run === undefined) {
+    throw new DomainValidationError(`Run ${runId} has no RUN_CREATED event`);
+  }
+  if (replayed.project === undefined) {
+    throw new DomainValidationError(`Run ${runId} has no PROJECT_DISCOVERED event`);
+  }
+  const raw = await checkpointStore.read();
+  if (raw === undefined) {
+    throw new DomainValidationError(
+      `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
+    );
+  }
+  const checkpoint = validateCheckpoint(raw);
+  if (checkpoint.flowchart === undefined) {
+    throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
+  }
+  const { definition, snapshot, limits } = checkpoint.flowchart;
+  const supervisor = restoreFlowchartSupervisor(
+    {
+      flowchart: definition,
+      router: deps.router,
+      limits,
+      runId,
+      ...(generateId !== undefined ? { generateId } : {}),
+      now
+    },
+    snapshot
+  );
+  const ctx: FlowchartLoopContext = {
+    supervisor,
+    definition,
+    flowchartLimits: limits,
+    maxRounds: replayed.run.limits.maxRounds,
+    results: childResultsMap(results),
+    eventStore,
+    checkpointStore,
+    append: (event) => eventStore.append(event),
+    make: makeEventFactory(runId, now, generateId),
+    now,
+    project: replayed.project,
+    runId,
+    childTasks: new Map(),
+    ...(generateId !== undefined ? { generateId } : {}),
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
+  };
+  return { ctx, replayed };
+}
+
+export async function pauseFlowchartRun(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  reason?: string
+): Promise<FlowchartRunOutcome> {
+  const { ctx, replayed } = await restoreFlowchartSession(deps, runId);
+  if (replayed.status === "COMPLETED" || replayed.status === "FAILED" || replayed.status === "CANCELLED") {
+    throw new DomainValidationError(`cannot pause a ${replayed.status} run`);
+  }
+  const pause = deps.pause ?? createFilePauseController(deps.stateRoot, ctx.now);
+  const token = await pause.requestPause(runId, reason);
+  const read = await ctx.eventStore.readAll();
+  if (!hasUnmatchedPause(read.events)) {
+    await ctx.append(
+      ctx.make("PAUSE_REQUESTED", token.reason !== undefined ? { reason: token.reason } : {})
+    );
+  }
+  return finish(ctx);
+}
+
+export async function injectFlowchartRun(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  request: unknown
+): Promise<FlowchartRunOutcome> {
+  const { ctx, replayed } = await restoreFlowchartSession(deps, runId);
+  if (!INJECTABLE_STATUSES.has(replayed.status)) {
+    throw new DomainValidationError(`cannot inject into a ${replayed.status} run`);
+  }
+  const policy = defaultDecisionPolicy(ctx.flowchartLimits.minHumanConfidence ?? DEFAULT_HUMAN_CONFIDENCE);
+  const injection = validateInjection(request, {
+    policy,
+    nodeState: (nodeId) => {
+      try {
+        return ctx.supervisor.nodeState(nodeId);
+      } catch {
+        return undefined;
+      }
+    }
+  });
+  const injectMake = makeEventFactory(runId, ctx.now, ctx.generateId, injection.actor);
+  await ctx.append(injectMake("INJECTION_REQUESTED", injectionEventPayload(injection)));
+  ctx.supervisor.applyInjection(injection);
+  const advanced = ctx.supervisor.advanceRound();
+  await persistLedger(ctx);
+  if (advanced.blocked) {
+    await persistBlocked(ctx);
+  }
+  return finish(ctx);
 }

@@ -43,6 +43,9 @@ import {
   parseFlowchartFile
 } from "./flowchart-io.js";
 import { commitsCommand } from "./commits.js";
+import { pauseCommand } from "./pause.js";
+import { injectCommand } from "./inject.js";
+import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
 
@@ -139,9 +142,12 @@ Usage:
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
   pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
-  pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--state-root <dir>]
+  pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--unpause] [--state-root <dir>]
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
   pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
+  pi-sparkle pause --run <runId> [--reason <text>] [--state-root]
+  pi-sparkle pause --clear --run <runId> [--state-root]
+  pi-sparkle inject --run <runId> --type fact|override|skip [--key] [--value] [--node] [--confidence] [--actor] [--state-root]
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
@@ -162,6 +168,9 @@ plain-text --message/--text remains valid for non-flowchart runs.
 commits preview reads a completed flowchart run's ledger and emits conventional
 commit messages with evidence references; commits apply writes them with git
 commit --allow-empty (optional --sign / --file for an edited JSON proposal).
+pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clears it
+and continues. inject records a typed fact/override/skip against DecisionPolicy
+without executing user strings.
 `;
 
 /** Parses a --children spec file into validated ChildTaskInput values. */
@@ -232,7 +241,7 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
 }
 
 function flowchartExitCode(status: RunStatus): number {
-  return status === "COMPLETED" || status === "WAITING_FOR_USER" ? 0 : 1;
+  return status === "COMPLETED" || status === "WAITING_FOR_USER" || status === "PAUSED" ? 0 : 1;
 }
 
 function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
@@ -289,6 +298,7 @@ function flowchartContinuation(opts: {
   answer?: string;
   childResults?: FlowchartContinuation["childResults"];
   checkpoint?: RunCheckpoint;
+  unpause?: boolean;
 }): FlowchartContinuation {
   let approvalReply: ApprovalReply | undefined;
   if (opts.selectedActionIds !== undefined) {
@@ -300,7 +310,8 @@ function flowchartContinuation(opts: {
   return {
     ...(approvalReply !== undefined ? { approvalReply } : {}),
     ...(opts.answer !== undefined && opts.answer.trim() !== "" ? { answer: opts.answer } : {}),
-    ...(opts.childResults !== undefined ? { childResults: opts.childResults } : {})
+    ...(opts.childResults !== undefined ? { childResults: opts.childResults } : {}),
+    ...(opts.unpause === true ? { unpause: true } : {})
   };
 }
 
@@ -339,7 +350,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     const childResults =
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
     const outcome = await startFlowchartRun(
-      { stateRoot, router: createCliModelRouter() },
+      { stateRoot, router: createCliModelRouter(), pause: createFilePauseController(stateRoot) },
       {
         projectRoot: values.project,
         flowchart,
@@ -506,7 +517,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       results: { type: "string" },
       selected: { type: "string", multiple: true },
       "selected-ids": { type: "string" },
-      text: { type: "string" }
+      text: { type: "string" },
+      unpause: { type: "boolean", default: false }
     }
   });
   if (values.run === undefined) {
@@ -516,8 +528,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
   const wantsFlowchartFlags =
     values.results !== undefined || selectedActionIds !== undefined || values.text !== undefined;
-  if (values.supervised === true && wantsFlowchartFlags) {
-    io.stderr("resume --supervised does not accept --results, --selected, --selected-ids, or --text\n");
+  if (values.supervised === true && (wantsFlowchartFlags || values.unpause === true)) {
+    io.stderr("resume --supervised does not accept --results, --selected, --selected-ids, --text, or --unpause\n");
     return 1;
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
@@ -567,14 +579,20 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     }
     const childResults =
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const pause = createFilePauseController(stateRoot);
+    const token = await pause.token(runId);
+    if ((token.paused || replayRun(read.events).status === "PAUSED") && values.unpause !== true) {
+      throw new DomainValidationError("run is paused; pass --unpause to continue");
+    }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: createCliModelRouter() },
+      { stateRoot, router: createCliModelRouter(), pause },
       runId,
       flowchartContinuation({
         checkpoint,
         ...(selectedActionIds !== undefined ? { selectedActionIds } : {}),
         ...(values.text !== undefined ? { answer: values.text } : {}),
-        ...(childResults !== undefined ? { childResults } : {})
+        ...(childResults !== undefined ? { childResults } : {}),
+        ...(values.unpause === true ? { unpause: true } : {})
       })
     );
     printFlowchartOutcome(io, outcome, stateRoot);
@@ -586,8 +604,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     }
     return flowchartExitCode(outcome.status);
   }
-  if (wantsFlowchartFlags) {
-    throw new DomainValidationError("resume --results/--selected/--text require a flowchart checkpoint");
+  if (wantsFlowchartFlags || values.unpause === true) {
+    throw new DomainValidationError("resume --results/--selected/--text/--unpause require a flowchart checkpoint");
   }
   const state = replayRun(read.events);
   const checkpoint = validateCheckpoint(materializeCheckpoint(state, nowIso()));
@@ -675,7 +693,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
     const childResults =
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: createCliModelRouter() },
+      { stateRoot, router: createCliModelRouter(), pause: createFilePauseController(stateRoot) },
       runId,
       flowchartContinuation({
         checkpoint,
@@ -858,6 +876,10 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await prefCommand(rest, io);
       case "commits":
         return await commitsCommand(rest, io);
+      case "pause":
+        return await pauseCommand(rest, io);
+      case "inject":
+        return await injectCommand(rest, io);
       case "help":
       case "--help":
       case "-h":
