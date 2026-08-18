@@ -155,16 +155,18 @@ export type PrescoreDimensionId =
 
 export interface DimensionScore {
   readonly id: PrescoreDimensionId;
-  readonly outcome: "PASS" | "FAIL" | "ABSTAIN" | "UNOBSERVED";
+  readonly outcome: "PASS" | "FAIL" | "ABSTAIN" | "UNOBSERVED" | "NOT_APPLICABLE";
   readonly value?: number;
   readonly hardRelated: boolean;
 }
 
 export interface PrescoreResult {
   readonly P: number;
+  readonly quality: number;
+  readonly coverage: number;
   readonly dimensions: readonly DimensionScore[];
   readonly cappedByHardFail: boolean;
-  readonly cappedByUnobserved: boolean;
+  readonly displayPrescore: number;
 }
 
 export type GateKind = "hard" | "soft" | "none";
