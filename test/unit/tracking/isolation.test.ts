@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEmptyContext } from "../../../src/context/index.js";
-import { compileContextPacket } from "../../../src/context/packet.js";
+import { compilePacket } from "../../../src/context/packet.js";
 import { createProjectId, createTaskId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { bindExecutionContext, executionMayNotReadSummary } from "../../../src/tracking/isolation.js";
@@ -33,24 +33,7 @@ const SUMMARY: RollingSummary = {
 
 describe("execution / tracking isolation", () => {
   it("gives execution only the task context packet", () => {
-    const packet = compileContextPacket({
-      taskId: createTaskId(() => "iso0001"),
-      contract: {
-        schemaVersion: 1,
-        objective: "ship the fix",
-        deliverables: [],
-        constraints: [],
-        nonGoals: [],
-        acceptanceCriteria: [],
-        assumptions: [],
-        questions: [],
-        authority: [],
-        sourceRefs: []
-      },
-      index: createEmptyContext(createProjectId(UUID), NOW),
-      tokenBudget: 400,
-      selectorVersion: 1
-    });
+    const packet = compilePacket(createTaskId(() => "iso0001"), createEmptyContext(createProjectId(UUID), NOW), 400);
     const bound = bindExecutionContext(packet, SUMMARY);
     assert.deepEqual(bound, packet);
     assert.equal(executionMayNotReadSummary(bound, SUMMARY), true);
