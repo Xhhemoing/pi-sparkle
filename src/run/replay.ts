@@ -168,6 +168,8 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
       case "RUN_ATTACHED":
       case "EPISODE_WAITING":
       case "EPISODE_CLOSED":
+      case "TRACKING_ASSESSMENT":
+      case "GATE_TRANSITION":
         break;
     }
     lastEventId = event.id;

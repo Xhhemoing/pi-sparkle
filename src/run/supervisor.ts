@@ -2,6 +2,7 @@ import {
   createEventId,
   createRunId,
   createTaskId,
+  type EventId,
   type IdGenerator,
   type RunId,
   type TaskId
@@ -23,6 +24,8 @@ import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunOutcome } from "./child-coordinator.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
+import { applyTrackingGate } from "./gate-apply.js";
+import { hashAssessment, type TrackingAssessment } from "../tracking/types.js";
 import {
   checkpointCarriesFlowchart,
   materializeCheckpoint,
@@ -461,6 +464,42 @@ export async function runSupervisorRounds(
   return { status: finalStatus, ...(finalReason !== undefined ? { reason: finalReason } : {}) };
 }
 
+/** Applies a tracking gate after a settle only when an assessment is supplied. */
+export async function settleSupervisedOutcome(opts: {
+  events: readonly Event[];
+  append: (event: Event) => Promise<void>;
+  nowIso: string;
+  generateEventId: () => EventId;
+  trackingAssessment?: TrackingAssessment;
+  policyVersion?: string;
+  expectedSeq?: number;
+}): Promise<void> {
+  const assessment = opts.trackingAssessment;
+  if (assessment === undefined) return;
+  const applied = applyTrackingGate({
+    events: opts.events,
+    assessment,
+    assessmentHash: hashAssessment(assessment),
+    expectedSeq: opts.expectedSeq ?? nextTrackingSeq(opts.events),
+    policyVersion: opts.policyVersion ?? "track-v1",
+    nowIso: opts.nowIso,
+    generateEventId: opts.generateEventId
+  });
+  for (const event of applied.events.slice(opts.events.length)) {
+    await opts.append(event);
+  }
+}
+
+function nextTrackingSeq(events: readonly Event[]): number {
+  let next = 0;
+  for (const event of events) {
+    if (event.type === "TRACKING_ASSESSMENT" || event.type === "GATE_TRANSITION") {
+      next = Math.max(next, event.payload.seq + 1);
+    }
+  }
+  return next;
+}
+
 /** M2: starts a supervisor run over a validated task graph. */
 export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInput): SupervisedRunHandle {
   const controller = new AbortController();
@@ -535,6 +574,13 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
     const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
     const status = result.status;
 
+    const beforeSettle = await eventStore.readAll();
+    await settleSupervisedOutcome({
+      events: beforeSettle.events,
+      append,
+      nowIso: now(),
+      generateEventId: () => createEventId(generateId)
+    });
     const finalRead = await eventStore.readAll();
     const finalReplayed = replayRun(finalRead.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
@@ -631,6 +677,13 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
     const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
     const status = result.status;
 
+    const beforeSettle = await eventStore.readAll();
+    await settleSupervisedOutcome({
+      events: beforeSettle.events,
+      append,
+      nowIso: now(),
+      generateEventId: () => createEventId(generateId)
+    });
     const finalRead = await eventStore.readAll();
     const finalReplayed = replayRun(finalRead.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));

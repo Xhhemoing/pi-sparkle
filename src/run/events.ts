@@ -32,6 +32,7 @@ import {
   type TaskComplexity
 } from "../domain/flowchart.js";
 import { injectionPayloadError } from "./injection.js";
+import { parseTrackingAssessment, type TrackingAssessment } from "../tracking/types.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -64,7 +65,9 @@ export const EVENT_TYPES = [
   "EPISODE_OPENED",
   "RUN_ATTACHED",
   "EPISODE_WAITING",
-  "EPISODE_CLOSED"
+  "EPISODE_CLOSED",
+  "TRACKING_ASSESSMENT",
+  "GATE_TRANSITION"
 ] as const;
 
 export type M0EventType = (typeof EVENT_TYPES)[number];
@@ -76,6 +79,22 @@ export const AGENT_OUTCOMES = ["SUCCESS", "FAILURE", "CANCELLED"] as const;
 export type AgentOutcome = (typeof AGENT_OUTCOMES)[number];
 
 export type EmptyPayload = Record<string, never>;
+
+export type GateDirective = "none" | "repair_check" | "wait_user" | "queue_analysis";
+
+export type GateRunStatus = "RUNNING" | "WAITING_FOR_USER" | "BLOCKED";
+
+const GATE_DIRECTIVES: readonly GateDirective[] = ["none", "repair_check", "wait_user", "queue_analysis"];
+
+const GATE_RUN_STATUSES: readonly GateRunStatus[] = ["RUNNING", "WAITING_FOR_USER", "BLOCKED"];
+
+export function isGateDirective(value: unknown): value is GateDirective {
+  return typeof value === "string" && (GATE_DIRECTIVES as readonly string[]).includes(value);
+}
+
+export function isGateRunStatus(value: unknown): value is GateRunStatus {
+  return typeof value === "string" && (GATE_RUN_STATUSES as readonly string[]).includes(value);
+}
 
 export interface ProjectDiscoveredPayload {
   project: import("../domain/project.js").ProjectSnapshot;
@@ -235,6 +254,27 @@ export interface EpisodeWaitingPayload {
   requiredEvidence: string[];
 }
 
+export interface TrackingAssessmentPayload {
+  assessment: TrackingAssessment;
+  assessmentHash: string;
+  seq: number;
+}
+
+export interface GateTransitionPayload {
+  transitionId: string;
+  episodeId: string;
+  turnId: string;
+  seq: number;
+  from: GateRunStatus;
+  to: GateRunStatus;
+  reasonCode: string;
+  assessmentHash: string;
+  evidenceRefs: readonly string[];
+  policyVersion: string;
+  idempotencyKey: string;
+  directive: GateDirective;
+}
+
 export interface EventBase {
   id: EventId;
   schemaVersion: 1;
@@ -276,7 +316,9 @@ export type Event =
   | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
   | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload })
   | (EventBase & { type: "RUN_ATTACHED"; payload: RunAttachedPayload })
-  | (EventBase & { type: "EPISODE_WAITING"; payload: EpisodeWaitingPayload });
+  | (EventBase & { type: "EPISODE_WAITING"; payload: EpisodeWaitingPayload })
+  | (EventBase & { type: "TRACKING_ASSESSMENT"; payload: TrackingAssessmentPayload })
+  | (EventBase & { type: "GATE_TRANSITION"; payload: GateTransitionPayload });
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -568,6 +610,62 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       if (!isEpisodeId(payload.episodeId)) return "payload.episodeId must be a valid EpisodeId";
       if (typeof payload.reason !== "string" || payload.reason.trim() === "") return "payload.reason must be a non-empty string";
       if (!Array.isArray(payload.requiredEvidence)) return "payload.requiredEvidence must be an array";
+      return undefined;
+    }
+    case "TRACKING_ASSESSMENT": {
+      if (typeof payload.assessmentHash !== "string" || payload.assessmentHash.trim() === "") {
+        return "payload.assessmentHash must be a non-empty string";
+      }
+      if (typeof payload.seq !== "number" || !Number.isInteger(payload.seq) || payload.seq < 0) {
+        return "payload.seq must be a non-negative integer";
+      }
+      try {
+        parseTrackingAssessment(payload.assessment);
+      } catch (error) {
+        return `payload.assessment: ${messageOf(error)}`;
+      }
+      return undefined;
+    }
+    case "GATE_TRANSITION": {
+      if (typeof payload.transitionId !== "string" || payload.transitionId.trim() === "") {
+        return "payload.transitionId must be a non-empty string";
+      }
+      if (typeof payload.episodeId !== "string" || payload.episodeId.trim() === "") {
+        return "payload.episodeId must be a non-empty string";
+      }
+      if (typeof payload.turnId !== "string" || payload.turnId.trim() === "") {
+        return "payload.turnId must be a non-empty string";
+      }
+      if (typeof payload.seq !== "number" || !Number.isInteger(payload.seq) || payload.seq < 0) {
+        return "payload.seq must be a non-negative integer";
+      }
+      if (!isGateRunStatus(payload.from)) {
+        return "payload.from must be RUNNING, WAITING_FOR_USER, or BLOCKED";
+      }
+      if (!isGateRunStatus(payload.to)) {
+        return "payload.to must be RUNNING, WAITING_FOR_USER, or BLOCKED";
+      }
+      if (typeof payload.reasonCode !== "string" || payload.reasonCode.trim() === "") {
+        return "payload.reasonCode must be a non-empty string";
+      }
+      if (typeof payload.assessmentHash !== "string" || payload.assessmentHash.trim() === "") {
+        return "payload.assessmentHash must be a non-empty string";
+      }
+      if (
+        !Array.isArray(payload.evidenceRefs) ||
+        !payload.evidenceRefs.every((ref) => typeof ref === "string" && ref !== "")
+      ) {
+        return "payload.evidenceRefs must be an array of non-empty strings";
+      }
+      if (typeof payload.policyVersion !== "string" || payload.policyVersion.trim() === "") {
+        return "payload.policyVersion must be a non-empty string";
+      }
+      if (typeof payload.idempotencyKey !== "string" || payload.idempotencyKey.trim() === "") {
+        return "payload.idempotencyKey must be a non-empty string";
+      }
+      if (!isGateDirective(payload.directive)) {
+        return "payload.directive must be a known GateDirective";
+      }
       return undefined;
     }
   }
