@@ -289,6 +289,13 @@ function asUnitScore(value: unknown, label: string): number {
   return value;
 }
 
+function asTenPointMark(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 10) {
+    throw new DomainValidationError(`${label} must be a finite number in [0, 10]`);
+  }
+  return value;
+}
+
 function isPrescoreDimensionId(value: string): value is PrescoreDimensionId {
   return (PRESCORE_DIMENSION_IDS as readonly string[]).includes(value);
 }
@@ -339,7 +346,7 @@ function parseHumanSignal(value: unknown): HumanSignal {
     return {
       kind: "ten-point",
       H: asUnitScore(record.H, "human.H"),
-      mark: asUnitScore(record.mark, "human.mark")
+      mark: asTenPointMark(record.mark, "human.mark")
     };
   }
   if (record.kind === "short-rule") {

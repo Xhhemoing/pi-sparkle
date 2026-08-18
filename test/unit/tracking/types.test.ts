@@ -38,6 +38,24 @@ describe("TrackingAssessment", () => {
     );
   });
 
+  it("accepts a ten-point human signal with mark on [0, 10]", () => {
+    const assessment = parseTrackingAssessment({
+      schemaVersion: 1,
+      episodeId: "ep_a",
+      runId: "run_a",
+      turnId: "trn_1",
+      prescore: 0.8,
+      quality: 1,
+      coverage: 0.8,
+      human: { kind: "ten-point", H: 0.8, mark: 8 },
+      score: 0.8,
+      dimensions: [{ id: "check-coverage", verdict: "PASS", evidenceRefs: ["evd_1"] }],
+      gate: GATE_NONE,
+      evidenceRefs: ["evd_1"]
+    });
+    assert.deepEqual(assessment.human, { kind: "ten-point", H: 0.8, mark: 8 });
+  });
+
   it("hashes equal assessments equally and changes when score changes", () => {
     const raw = {
       schemaVersion: 1,
