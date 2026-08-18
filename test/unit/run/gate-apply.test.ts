@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { applyTrackingGate, executionAuthority } from "../../../src/run/gate-apply.js";
 import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
-import { createEventId, createRunId } from "../../../src/domain/ids.js";
+import { createEventId } from "../../../src/domain/ids.js";
 
 function monotonicEventId() {
   let seq = 0;
