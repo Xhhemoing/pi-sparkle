@@ -131,7 +131,12 @@ export interface RollingSummary {
   readonly omissions: readonly TrackingOmission[];
   readonly failClosed: boolean;
   readonly failClosedReason?: string;
+  readonly prevSummaryHash?: string;
 }
+
+export type SummaryHashInput = Omit<RollingSummary, "prevSummaryHash"> & {
+  readonly prevSummaryHash?: string | undefined;
+};
 
 export interface TrackingWindow {
   readonly previous?: RollingSummary;
@@ -490,6 +495,26 @@ export function hashAssessment(assessment: TrackingAssessment): string {
     runId: assessment.runId,
     score: assessment.score,
     turnId: assessment.turnId
+  };
+  return hash32(JSON.stringify(payload));
+}
+
+export function hashSummary(summary: SummaryHashInput): string {
+  const payload = {
+    anomalyCodes: [...summary.anomalyCodes].sort(),
+    confirmedDecisions: [...summary.confirmedDecisions].sort(),
+    constraintIds: summary.constraints.map((item) => item.id).sort(),
+    omissionKeys: summary.omissions.map((item) => item.key).sort(),
+    operations: summary.operations
+      .map((operation) => ({
+        exitCode: operation.exitCode,
+        hashes: [...operation.hashes].sort(),
+        name: operation.name
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    prevSummaryHash: summary.prevSummaryHash,
+    score: summary.score,
+    unresolvedQuestions: [...summary.unresolvedQuestions].sort()
   };
   return hash32(JSON.stringify(payload));
 }
