@@ -185,13 +185,15 @@ export interface GateDecision {
   readonly openMinors: readonly OpenMinor[];
 }
 
+export type TrustTag = "FACT" | "DERIVED" | "INFERENTIAL" | "UNTRUSTED_TEXT";
+
 export interface AnomalyPacketWindow {
   readonly contextFacts: readonly string[];
   readonly userText?: string;
+  readonly userTextTrust?: TrustTag;
   readonly aiText?: string;
   readonly toolSituations: readonly ToolSituation[];
   readonly toolBodies?: readonly string[];
-  readonly chainOfThought?: string;
 }
 
 export interface AnomalyPacket {
