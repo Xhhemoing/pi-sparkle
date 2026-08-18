@@ -28,6 +28,10 @@ export interface PrescoreInput {
 const SUCCESS_CLAIM = /pass|passed|verified|succeed/i;
 const DIMENSION_WEIGHT = 1;
 
+export function isSuccessClaim(claim: string): boolean {
+  return SUCCESS_CLAIM.test(claim);
+}
+
 export function computePrescore(input: PrescoreInput): PrescoreResult {
   const config = input.config ?? DEFAULT_TRACKING_CONFIG;
   const dimensions: DimensionScore[] = [
@@ -94,7 +98,7 @@ function dimension(
 }
 
 function evidenceOutcome(input: PrescoreInput): DimensionScore["outcome"] {
-  const successClaim = input.claims.some((claim) => SUCCESS_CLAIM.test(claim));
+  const successClaim = input.claims.some(isSuccessClaim);
   const failedTool = input.toolSituations.some((tool) => tool.exitCode !== undefined && tool.exitCode !== 0);
   const observedPass = input.toolSituations.some((tool) => tool.exitCode === 0);
   if (successClaim && (failedTool || (!observedPass && input.completedChecks.length === 0))) {

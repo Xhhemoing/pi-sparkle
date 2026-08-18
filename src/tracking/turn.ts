@@ -7,7 +7,7 @@ import {
   humanScoreValue,
   type HumanScoreInput
 } from "./human-score.js";
-import { computePrescore, type PrescoreInput } from "./prescore.js";
+import { computePrescore, isSuccessClaim, type PrescoreInput } from "./prescore.js";
 import { rollSummary } from "./roller.js";
 import type {
   AnomalyCode,
@@ -99,7 +99,7 @@ export function runTrackingTurn(input: TrackingTurnInput): TrackingTurnResult {
     deterministicFail: input.gateFacts?.deterministicFail ?? false,
     ownershipEscape:
       input.gateFacts?.ownershipEscape ?? input.window.toolSituations.some((tool) => tool.escaped),
-    claimedVerificationWithoutChecks: input.gateFacts?.claimedVerificationWithoutChecks ?? false,
+    claimedVerificationWithoutChecks: derivedClaimedVerificationWithoutChecks(input),
     repeatedNoProgress: input.gateFacts?.repeatedNoProgress ?? input.prescoreInput.stalledTurns >= 2,
     userRejectStop,
     safetyRejected,
@@ -167,6 +167,17 @@ export function runTrackingTurn(input: TrackingTurnInput): TrackingTurnResult {
     ...(packet !== undefined ? { packet } : {}),
     readersInvoked
   };
+}
+
+function derivedClaimedVerificationWithoutChecks(input: TrackingTurnInput): boolean {
+  if (input.gateFacts?.claimedVerificationWithoutChecks !== undefined) {
+    return input.gateFacts.claimedVerificationWithoutChecks;
+  }
+  const required = input.prescoreInput.requiredChecks;
+  const completed = input.prescoreInput.completedChecks;
+  const requiredCheckGap =
+    required.length > 0 && !required.every((id) => completed.includes(id));
+  return input.prescoreInput.claims.some(isSuccessClaim) && requiredCheckGap;
 }
 
 function collectEvidence(window: TrackingWindow): string[] {

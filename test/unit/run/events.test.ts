@@ -7,6 +7,7 @@ import {
 } from "../../../src/domain/ids.js";
 import { defaultRunLimits } from "../../../src/domain/limits.js";
 import { validateEvent } from "../../../src/run/events.js";
+import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -119,5 +120,39 @@ test("pause and injection events validate fail-closed payloads", () => {
         makeEvent("INJECTION_REQUESTED", { kind: "eval", actor: "user", confidence: 1 })
       ),
     /kind/
+  );
+});
+
+test("TRACKING_ASSESSMENT fail-closed when assessmentHash does not match hashAssessment", () => {
+  const assessment = parseTrackingAssessment({
+    schemaVersion: 1,
+    episodeId: "ep_a",
+    runId: "run_a",
+    turnId: "trn_1",
+    prescore: 0.8,
+    quality: 1,
+    coverage: 0.8,
+    human: { kind: "unobserved" },
+    score: 0.8,
+    dimensions: [{ id: "check-coverage", verdict: "PASS", evidenceRefs: ["evd_1"] }],
+    gate: { kind: "none", codes: [], wakeAnalysis: false, expandDetail: false, askUser: false, openMinors: [] },
+    evidenceRefs: ["evd_1"]
+  });
+  const matching = makeEvent("TRACKING_ASSESSMENT", {
+    assessment,
+    assessmentHash: hashAssessment(assessment),
+    seq: 0
+  });
+  assert.deepEqual(validateEvent(matching), matching);
+  assert.throws(
+    () =>
+      validateEvent(
+        makeEvent("TRACKING_ASSESSMENT", {
+          assessment,
+          assessmentHash: "deadbeef-mismatch",
+          seq: 0
+        })
+      ),
+    /assessmentHash|mismatch/
   );
 });

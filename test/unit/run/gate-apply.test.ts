@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { applyTrackingGate, executionAuthority } from "../../../src/run/gate-apply.js";
 import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
 import { createEventId } from "../../../src/domain/ids.js";
+import { makeEvent } from "../../helpers/event-factory.js";
 
 function monotonicEventId() {
   let seq = 0;
@@ -116,6 +118,54 @@ describe("applyTrackingGate", () => {
     assert.equal(events.some((e) => e.type === "GATE_TRANSITION"), true);
     assert.equal(events.some((e) => e.type === "RUN_WAITING_FOR_USER"), true);
     assertUniqueEventIds(events);
+  });
+
+  it("fail-closed on assessmentHash mismatch before idempotency lookup and does not write events", () => {
+    const a = assessment({
+      score: 0.2,
+      prescore: 0.2,
+      gate: {
+        kind: "soft",
+        codes: ["soft-threshold"],
+        wakeAnalysis: true,
+        expandDetail: true,
+        askUser: false,
+        openMinors: []
+      }
+    });
+    const mismatchedHash = "deadbeef-not-the-assessment-hash";
+    const seeded = [
+      makeEvent("GATE_TRANSITION", {
+        transitionId: createEventId(() => "gseed"),
+        episodeId: "ep_a",
+        turnId: "trn_1",
+        seq: 4,
+        from: "RUNNING",
+        to: "BLOCKED",
+        reasonCode: "soft-threshold",
+        assessmentHash: mismatchedHash,
+        evidenceRefs: ["evd_1"],
+        policyVersion: "track-v1",
+        idempotencyKey: `${mismatchedHash}:4`,
+        directive: "queue_analysis"
+      })
+    ];
+    assert.throws(
+      () =>
+        applyTrackingGate({
+          events: seeded,
+          assessment: a,
+          assessmentHash: mismatchedHash,
+          expectedSeq: 4,
+          policyVersion: "track-v1",
+          nowIso: "2026-08-18T00:00:01.000Z",
+          generateEventId: monotonicEventId()
+        }),
+      (error: unknown) =>
+        error instanceof DomainValidationError && /mismatch/i.test(error.message)
+    );
+    assert.equal(seeded.length, 1);
+    assert.equal(seeded[0]?.type, "GATE_TRANSITION");
   });
 
   it("ignores rolling summary text when building execution authority", () => {

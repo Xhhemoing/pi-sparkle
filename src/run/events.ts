@@ -32,7 +32,7 @@ import {
   type TaskComplexity
 } from "../domain/flowchart.js";
 import { injectionPayloadError } from "./injection.js";
-import { parseTrackingAssessment, type TrackingAssessment } from "../tracking/types.js";
+import { hashAssessment, parseTrackingAssessment, type TrackingAssessment } from "../tracking/types.js";
 
 export const EVENT_TYPES = [
   "PROJECT_DISCOVERED",
@@ -620,7 +620,10 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
         return "payload.seq must be a non-negative integer";
       }
       try {
-        parseTrackingAssessment(payload.assessment);
+        const parsed = parseTrackingAssessment(payload.assessment);
+        if (hashAssessment(parsed) !== payload.assessmentHash) {
+          return "payload.assessmentHash mismatch: does not match hashAssessment(assessment)";
+        }
       } catch (error) {
         return `payload.assessment: ${messageOf(error)}`;
       }

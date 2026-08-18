@@ -1,6 +1,7 @@
+import { DomainValidationError } from "../domain/errors.js";
 import { createMessageId, type EventId, type RunId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
-import type { TrackingAssessment } from "../tracking/types.js";
+import { hashAssessment, type TrackingAssessment } from "../tracking/types.js";
 import {
   type Event,
   type GateDirective,
@@ -26,6 +27,11 @@ export function applyTrackingGate(input: {
   readonly nowIso: string;
   readonly generateEventId: () => EventId;
 }): { readonly events: readonly Event[]; readonly result: GateApplyResult } {
+  if (input.assessmentHash !== hashAssessment(input.assessment)) {
+    throw new DomainValidationError(
+      "assessmentHash mismatch: does not match hashAssessment(assessment)"
+    );
+  }
   const idempotencyKey = `${input.assessmentHash}:${input.expectedSeq}`;
   const existing = input.events.find(
     (event): event is Extract<Event, { type: "GATE_TRANSITION" }> =>
