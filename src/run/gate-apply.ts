@@ -1,4 +1,4 @@
-import type { EventId, RunId } from "../domain/ids.js";
+import { createMessageId, type EventId, type RunId } from "../domain/ids.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
 import type { TrackingAssessment } from "../tracking/types.js";
 import {
@@ -99,6 +99,8 @@ export function applyTrackingGate(input: {
   );
 
   if (mapped.directive === "queue_analysis") {
+    // replay/resume treat RUN_BLOCKED as terminal BLOCKED until an explicit unblock;
+    // that is the intended Phase A meaning of queue_analysis.
     next.push(
       validateEvent({
         id: input.generateEventId(),
@@ -110,6 +112,23 @@ export function applyTrackingGate(input: {
         payload: {
           reason: "ANALYSIS_QUEUED",
           requiredEvidence: [...input.assessment.evidenceRefs]
+        }
+      })
+    );
+  }
+
+  if (mapped.directive === "wait_user") {
+    const waitingId = input.generateEventId();
+    next.push(
+      validateEvent({
+        id: waitingId,
+        schemaVersion: 1,
+        occurredAt,
+        runId,
+        type: "RUN_WAITING_FOR_USER",
+        actor: "supervisor",
+        payload: {
+          messageId: createMessageId(() => waitingId.slice("evt_".length))
         }
       })
     );

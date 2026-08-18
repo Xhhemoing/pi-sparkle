@@ -4,6 +4,16 @@ import { applyTrackingGate, executionAuthority } from "../../../src/run/gate-app
 import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
 import { createEventId, createRunId } from "../../../src/domain/ids.js";
 
+function monotonicEventId() {
+  let seq = 0;
+  return () => createEventId(() => `g${++seq}`);
+}
+
+function assertUniqueEventIds(events: readonly { id: string }[]) {
+  const ids = events.map((event) => event.id);
+  assert.equal(new Set(ids).size, ids.length);
+}
+
 function assessment(overrides: Record<string, unknown> = {}) {
   return parseTrackingAssessment({
     schemaVersion: 1,
@@ -32,7 +42,7 @@ describe("applyTrackingGate", () => {
       expectedSeq: 0,
       policyVersion: "track-v1",
       nowIso: "2026-08-18T00:00:00.000Z",
-      generateEventId: () => createEventId(() => "gate1")
+      generateEventId: monotonicEventId()
     });
     assert.equal(result.directive, "none");
     assert.equal(result.runStatus, "RUNNING");
@@ -46,19 +56,22 @@ describe("applyTrackingGate", () => {
       gate: { kind: "soft", codes: ["soft-threshold"], wakeAnalysis: true, expandDetail: true, askUser: false, openMinors: [] }
     });
     const hash = hashAssessment(a);
+    const generateEventId = monotonicEventId();
     const first = applyTrackingGate({
       events: [], assessment: a, assessmentHash: hash, expectedSeq: 1,
       policyVersion: "track-v1", nowIso: "2026-08-18T00:00:00.000Z",
-      generateEventId: () => createEventId(() => "t1")
+      generateEventId
     });
     const second = applyTrackingGate({
       events: first.events, assessment: a, assessmentHash: hash, expectedSeq: 1,
       policyVersion: "track-v1", nowIso: "2026-08-18T00:00:01.000Z",
-      generateEventId: () => createEventId(() => "t2")
+      generateEventId
     });
     assert.equal(first.result.applied, true);
     assert.equal(second.result.applied, false);
     assert.equal(second.events.filter((e) => e.type === "GATE_TRANSITION").length, 1);
+    assertUniqueEventIds(first.events);
+    assertUniqueEventIds(second.events);
   });
 
   it("maps ownership-escape to queue_analysis and records a transition", () => {
@@ -70,11 +83,39 @@ describe("applyTrackingGate", () => {
     const { result, events } = applyTrackingGate({
       events: [], assessment: a, assessmentHash: hashAssessment(a), expectedSeq: 2,
       policyVersion: "track-v1", nowIso: "2026-08-18T00:00:00.000Z",
-      generateEventId: () => createEventId(() => "esc1")
+      generateEventId: monotonicEventId()
     });
     assert.equal(result.directive, "queue_analysis");
     assert.ok(result.runStatus === "BLOCKED" || result.runStatus === "RUNNING");
     assert.equal(events.some((e) => e.type === "GATE_TRANSITION"), true);
+    assertUniqueEventIds(events);
+  });
+
+  it("appends RUN_WAITING_FOR_USER when wait_user fires", () => {
+    const a = assessment({
+      gate: {
+        kind: "hard",
+        codes: ["user-reject-stop"],
+        wakeAnalysis: true,
+        expandDetail: true,
+        askUser: true,
+        openMinors: []
+      }
+    });
+    const { result, events } = applyTrackingGate({
+      events: [],
+      assessment: a,
+      assessmentHash: hashAssessment(a),
+      expectedSeq: 3,
+      policyVersion: "track-v1",
+      nowIso: "2026-08-18T00:00:00.000Z",
+      generateEventId: monotonicEventId()
+    });
+    assert.equal(result.directive, "wait_user");
+    assert.equal(result.runStatus, "WAITING_FOR_USER");
+    assert.equal(events.some((e) => e.type === "GATE_TRANSITION"), true);
+    assert.equal(events.some((e) => e.type === "RUN_WAITING_FOR_USER"), true);
+    assertUniqueEventIds(events);
   });
 
   it("ignores rolling summary text when building execution authority", () => {
