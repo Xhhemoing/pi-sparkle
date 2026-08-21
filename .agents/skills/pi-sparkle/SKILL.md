@@ -56,6 +56,16 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - Underfit risk: generic prompts ignore package-level AGENTS.md
 - No versioning/A-B for prompt variants
 
+## Health Check 2026-08-21 (evidence-based)
+
+- 25 installed skills (23 user + 2 pi-level), 0 with usage frontmatter; bloat threshold (>20) triggered
+- Route logging enabled (marker) in 5 active projects: AIstudy, Deep-student, ai-key-manager, pi-sparkle, 蹭饭图
+- Helper copied next to installed router (`~/.pi/agent/skills/scenario-skill-router/log-skill-route.mjs`) so projects without this package can still log
+- 3 of 4 recorded subagent runs failed (agent `researcher`, exitCode 1, ~360s, no root-cause field captured)
+- usage frontmatter deliberately NOT hand-written: JSONL is the single source of truth (router forbids auto-persisting USED); use `scripts/skill-audit.mjs` for top/never-activated reports
+- New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, prune candidates)
+- Verified: append, kill switch (PI_SKILL_ROUTE_LOG=0), doctor ok/corrupt paths, audit aggregation
+
 ## Routing to References
 
 - references/skill-bloat.md — detection, pruning, usage metrics
