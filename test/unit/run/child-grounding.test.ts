@@ -68,5 +68,5 @@ test("grounding forwards predecessor artifacts and summaries into the child", ()
   assert.deepEqual(grounded.inputArtifactIds, [artifactId]);
   assert.ok(grounded.predecessorNotes?.some((note) => note.includes("found src/parser.ts")));
   assert.ok(grounded.contextPacket?.requiredFacts.includes("smallest change"));
-  assert.ok(grounded.contextPacket?.requiredFacts.includes("found src/parser.ts"));
+  assert.ok(grounded.contextPacket?.requiredFacts.some((fact) => fact.includes("found src/parser.ts")));
 });

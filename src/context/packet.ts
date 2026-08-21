@@ -228,9 +228,11 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
   }
 
   for (const grant of request.contract.authority) {
+    const actions = grant.actions.length > 0 ? grant.actions.join(", ") : "no actions";
+    const expires = grant.expiresAt !== undefined ? ` (expires ${grant.expiresAt})` : "";
     take({
       key: `authority:${grant.scope}`,
-      text: grant.scope,
+      text: `${grant.scope}: ${actions}${expires}`,
       destination: "requiredFacts",
       rank: RANK_MANDATORY,
       preOmit: undefined
@@ -239,9 +241,12 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
 
   for (const question of request.contract.questions) {
     const hasDefault = question.default !== undefined && question.default.trim() !== "";
+    const options =
+      question.options.length > 0 ? ` [options: ${question.options.join(" | ")}]` : "";
+    const defaulted = hasDefault ? ` (default: ${question.default})` : "";
     take({
       key: `question:${question.id}`,
-      text: question.question,
+      text: `${question.question}${options}${defaulted}`,
       destination: "requiredFacts",
       rank: hasDefault ? RANK_DEFAULTED_QUESTION : RANK_MANDATORY,
       preOmit: undefined
@@ -251,7 +256,7 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
   for (const route of request.index.validationRoutes) {
     take({
       key: `validation.route:${route}`,
-      text: route,
+      text: `validation route: ${route}`,
       destination: "requiredFacts",
       rank: RANK_MANDATORY,
       preOmit: undefined
@@ -261,7 +266,7 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
   for (const [index, output] of (request.dependencyOutputs ?? []).entries()) {
     take({
       key: `dependency:${index}:${output}`,
-      text: output,
+      text: `dependency output: ${output}`,
       destination: "requiredFacts",
       rank: RANK_MANDATORY,
       preOmit: undefined
@@ -476,4 +481,43 @@ export function formatPacketForPrompt(packet: ContextPacket): string {
     lines.push("- (no extra project facts in budget)");
   }
   return lines.join("\n");
+}
+
+const STOPWORDS = new Set([
+  "what", "which", "where", "when", "does", "did", "the", "this", "that", "with",
+  "from", "about", "into", "should", "could", "would", "there", "have", "has",
+  "any", "are", "was", "were", "still", "open", "know", "need", "want", "run"
+]);
+
+/**
+ * M3-T5: answer downstream questions from the packet and artifact refs alone,
+ * without loading the parent transcript. Returns grounding lines (required
+ * facts, relevant files, code-map entries) that match the question, best
+ * match first. Deterministic.
+ */
+export function queryPacketGrounding(packet: ContextPacket, question: string): readonly string[] {
+  const tokens = question
+    .toLowerCase()
+    .split(/[^a-z0-9_./-]+/)
+    .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
+  const lines: readonly string[] = [
+    ...packet.requiredFacts,
+    ...packet.relevantFiles.map((file) => `file: ${file}`),
+    ...packet.codeMap.entries.map((entry) => `${entry.path}:${entry.symbol} (${entry.kind})`)
+  ];
+  const scored = lines.map((line) => {
+    const lower = line.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (lower.includes(token) || token.includes(lower)) score += 1;
+    }
+    return { line, score };
+  });
+  return scored
+    .filter((item) => item.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return compareStrings(a.line, b.line);
+    })
+    .map((item) => item.line);
 }
