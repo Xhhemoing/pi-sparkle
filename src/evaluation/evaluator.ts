@@ -2,10 +2,14 @@ import type {
   CriterionScore,
   EvaluationOutcome,
   EvaluationRecord,
+  EvaluationTarget,
   EvaluatorIdentity,
   EvaluatorKind,
   Finding,
+  IndependenceClass,
 } from "./types.js";
+import { INDEPENDENCE_CLASSES } from "./types.js";
+import { DomainValidationError } from "../domain/errors.js";
 import type { Rubric, RubricCriterion } from "../rubric/types.js";
 import { createEventId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
@@ -19,6 +23,8 @@ export interface EvaluationInput {
   readonly rubric: Rubric;
   readonly evidence: Record<string, string>;
   readonly findings?: Finding[];
+  readonly target?: EvaluationTarget;
+  readonly independenceClass?: IndependenceClass;
 }
 
 export interface EvaluationResult {
@@ -27,6 +33,17 @@ export interface EvaluationResult {
 }
 
 export function createEvaluationRecord(input: EvaluationInput): EvaluationRecord {
+  if (input.target !== undefined && input.target.artifactId.trim() === "") {
+    throw new DomainValidationError("evaluation target artifactId must be non-empty");
+  }
+  if (
+    input.independenceClass !== undefined &&
+    !(INDEPENDENCE_CLASSES as readonly string[]).includes(input.independenceClass)
+  ) {
+    throw new DomainValidationError(
+      `unknown independence class: ${String(input.independenceClass)}`,
+    );
+  }
   const scores: CriterionScore[] = input.rubric.criteria.map((criterion) => {
     const hasEvidence = Boolean(input.evidence[criterion.id]);
     let outcome: EvaluationOutcome;
@@ -75,6 +92,8 @@ export function createEvaluationRecord(input: EvaluationInput): EvaluationRecord
     findings: input.findings ?? [],
     overall,
     createdAt: nowIso(),
+    target: input.target,
+    independenceClass: input.independenceClass,
   };
 }
 
