@@ -37,6 +37,7 @@ function router() {
     models: [
       {
         id: "cheap",
+        version: "cheap-v1",
         roles: ["actor", "critic"],
         maxComplexity: "MEDIUM",
         estimatedCostUsd: 0.1,
@@ -125,8 +126,8 @@ test("restoreFlowchartSupervisor rejects pendingApproval unless that node is WAI
   const waitingRouter = createModelRouter({
     policyVersion: "router-v1",
     models: [
-      { id: "cheap", roles: ["actor"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
-      { id: "premium", roles: ["router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
+      { id: "cheap", version: "cheap-v1", roles: ["actor"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+      { id: "premium", version: "premium-v1", roles: ["router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
     ]
   });
   const sv = createFlowchartSupervisor({ flowchart: fc, router: waitingRouter });
@@ -260,8 +261,8 @@ test("validateFlowchartSupervisorSnapshot rejects pendingApproval without a wait
   const waitingRouter = createModelRouter({
     policyVersion: "router-v1",
     models: [
-      { id: "cheap", roles: ["actor"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
-      { id: "premium", roles: ["router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
+      { id: "cheap", version: "cheap-v1", roles: ["actor"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+      { id: "premium", version: "premium-v1", roles: ["router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
     ]
   });
   const sv = createFlowchartSupervisor({ flowchart: fc, router: waitingRouter });

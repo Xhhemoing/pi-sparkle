@@ -12,16 +12,25 @@ import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
 import type { RunStatus } from "../domain/status.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
+import type { RequirementContract } from "../domain/contract.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { AgentProfileRegistry } from "../agents/registry.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import type { AgentExecutor } from "../execution/contract.js";
+import { buildProjectContextIndex } from "../context/index.js";
 import { discoverProject } from "../project/discovery.js";
 import type { AgentQuestion } from "../protocol/v1.js";
+import { createClusterHost, type ClusterHost } from "../cluster/host.js";
+import { isAgentRole } from "../domain/roles.js";
+import type { TaskAssignment } from "../routing/assign.js";
 import { CheckpointStore } from "./checkpoint-store.js";
-import { ChildCoordinator, type ChildTaskInput } from "./child-coordinator.js";
+import { ChildCoordinator, type ChildRunHandle, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
+import { groundChildTask } from "./child-grounding.js";
 import { EventStore } from "./event-store.js";
-import { type AgentEventKind, type Event, type M0EventType } from "./events.js";
+import { type AgentEventKind, type Event, type M0EventType, type ModelRoutedPayload, routingContextFields } from "./events.js";
+import { assertCoverageAllowsStart } from "../requirement/coverage.js";
+import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
+import { applyChildThreeLine } from "./child-tracking.js";
 import { materializeCheckpoint, replayRun, validateCheckpoint, type RunCheckpoint } from "./replay.js";
 
 const SUMMARY_LIMIT = 500;
@@ -32,12 +41,15 @@ export interface CoordinatorDeps {
   registry?: AgentProfileRegistry;
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
+  /** Enable peer mailbox and bounded spawn (implied by `--track`). */
+  cluster?: boolean;
 }
 
 export interface StartRunInput {
   projectRoot: string;
   objective: string;
   limits?: RunLimits;
+  contract?: RequirementContract;
 }
 
 /** M1: a parent run that leases child tasks to executors. */
@@ -46,6 +58,9 @@ export interface ParentRunInput {
   objective: string;
   children: ChildTaskInput[];
   limits?: RunLimits;
+  contract?: RequirementContract;
+  assignments?: readonly TaskAssignment[];
+  resolvedQuestionIds?: readonly string[];
 }
 
 export interface RunOutcome {
@@ -108,6 +123,16 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
 
     await append(make("PROJECT_DISCOVERED", { project }));
     await append(make("RUN_CREATED", { run }));
+    await bindEpisodeToRun({
+      stateRoot: deps.stateRoot,
+      runId,
+      projectId: project.id,
+      objective: input.objective,
+      ...(input.contract !== undefined ? { contract: input.contract } : {}),
+      append,
+      make: (type, payload) => make(type, payload),
+      ...(generateId !== undefined ? { generateId } : {})
+    });
     await append(make("RUN_STARTED", {}));
     await append(make("AGENT_STARTED", { agentInstanceId, taskId: rootTaskId }, rootTaskId));
 
@@ -167,6 +192,14 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
       await append(make("RUN_CANCEL_REQUESTED", {}));
     }
 
+    const beforeSettle = await eventStore.readAll();
+    await settleBoundEpisode({
+      stateRoot: deps.stateRoot,
+      events: beforeSettle.events,
+      status: replayRun(beforeSettle.events).status,
+      append,
+      make: (type, payload) => make(type, payload)
+    });
     const read = await eventStore.readAll();
     const state = replayRun(read.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
@@ -189,6 +222,18 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
  * CANCELLED when the parent is cancelled.
  */
 export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): RunningRun {
+  if (input.contract !== undefined) {
+    assertCoverageAllowsStart(
+      input.contract,
+      input.children.map((child) => ({
+        id: child.taskId,
+        acceptanceCriteria: child.acceptanceCriteria
+      })),
+      input.resolvedQuestionIds !== undefined
+        ? { resolvedQuestionIds: input.resolvedQuestionIds }
+        : undefined
+    );
+  }
   const controller = new AbortController();
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
@@ -205,6 +250,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    const index = buildProjectContextIndex(project);
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
@@ -235,7 +281,23 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
 
     await append(make("PROJECT_DISCOVERED", { project }));
     await append(make("RUN_CREATED", { run }));
+    await bindEpisodeToRun({
+      stateRoot: deps.stateRoot,
+      runId,
+      projectId: project.id,
+      objective: input.objective,
+      ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : {}),
+      append,
+      make: (type, payload) => make(type, payload),
+      ...(generateId !== undefined ? { generateId } : {})
+    });
     await append(make("RUN_STARTED", {}));
+
+    if (input.assignments !== undefined) {
+      for (const assignment of input.assignments) {
+        await append(make("MODEL_ROUTED", toModelRoutedPayload(assignment), assignment.taskId));
+      }
+    }
 
     let cancelWritten = false;
     const writeCancel = async (): Promise<void> => {
@@ -252,7 +314,31 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       releaseQuestionHang = resolve;
     });
 
-    const childCoordinator = new ChildCoordinator({
+    const handles: ChildRunHandle[] = [];
+    let childCoordinator!: ChildCoordinator;
+    let clusterHost: ClusterHost | undefined;
+    let launchChild!: (child: ChildTaskInput) => void;
+    if (deps.cluster === true) {
+      clusterHost = createClusterHost({
+        registry,
+        maxTasks: (input.limits ?? defaultRunLimits()).maxTasks,
+        ...(generateId !== undefined ? { generateId } : {}),
+        onSpawn: (spawned) => {
+          if (!isAgentRole(spawned.role)) return;
+          launchChild({
+            taskId: spawned.taskId,
+            role: spawned.role,
+            objective: spawned.objective,
+            profile: registry.resolve(spawned.role),
+            inputArtifactIds: [],
+            acceptanceCriteria: [],
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+          });
+        }
+      });
+    }
+
+    childCoordinator = new ChildCoordinator({
       stateRoot: deps.stateRoot,
       executor: deps.executor,
       parentRunId: runId,
@@ -261,6 +347,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       maxConcurrentTasks: (input.limits ?? defaultRunLimits()).maxConcurrentTasks,
       now,
       ...(generateId !== undefined ? { generateId } : {}),
+      ...(clusterHost !== undefined ? { cluster: clusterHost } : {}),
       onQuestion: async (question) => {
         // Persist WAITING_FOR_USER via the child's QUESTION path. Never
         // auto-answer with "" — hang until the parent has recorded the pause,
@@ -271,33 +358,130 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       }
     });
 
-    const handles = input.children.map((child) =>
-      childCoordinator.startChildTask(child, controller.signal)
-    );
+    const remaining = [...input.children];
+    const launched = new Map<TaskId, ChildTaskInput>();
+    const finished = new Map<TaskId, ChildRunOutcome>();
+    launchChild = (child: ChildTaskInput): void => {
+      launched.set(child.taskId, child);
+      const depIds = child.dependsOn ?? [];
+      const predecessors = depIds.flatMap((id) => {
+        const outcome = finished.get(id);
+        return outcome === undefined
+          ? []
+          : [
+              {
+                taskId: outcome.taskId,
+                summary: outcome.summary,
+                artifactIds: outcome.artifactIds
+              }
+            ];
+      });
+      handles.push(
+        childCoordinator.startChildTask(
+          groundChildTask({
+            child,
+            predecessors,
+            index,
+            ...(input.contract !== undefined ? { contract: input.contract } : {})
+          }),
+          controller.signal
+        )
+      );
+    };
+    const startReady = (): void => {
+      for (const child of [...remaining]) {
+        const deps = child.dependsOn ?? [];
+        const depFailed = deps.some((id) => {
+          const outcome = finished.get(id);
+          return (
+            outcome !== undefined &&
+            (outcome.outcome === "FAILURE" || outcome.outcome === "TIMEOUT" || outcome.outcome === "CANCELLED")
+          );
+        });
+        if (depFailed) {
+          remaining.splice(remaining.indexOf(child), 1);
+          continue;
+        }
+        const ready = deps.every((id) => {
+          const outcome = finished.get(id);
+          return outcome?.outcome === "SUCCESS" || outcome?.outcome === "PARTIAL";
+        });
+        if (!ready) continue;
+        remaining.splice(remaining.indexOf(child), 1);
+        launchChild(child);
+      }
+    };
+    startReady();
 
-    let status: RunStatus;
+    let status: RunStatus = "RUNNING";
     let failureReason: string | undefined;
+    let trackingBlocked = false;
 
     try {
-      const allChildren = Promise.all(handles.map((handle) => handle.done));
-      const raced = await Promise.race([
-        allChildren.then((outcomes) => ({ kind: "settled" as const, outcomes })),
-        questionPromise.then((q) => ({ kind: "question" as const, question: q }))
-      ]);
-      if (raced.kind === "question") {
-        status = "WAITING_FOR_USER";
+      let waiting = false;
+      while (!waiting && !trackingBlocked) {
+        const active = handles.filter((handle) => !finished.has(handle.taskId));
+        if (active.length === 0) {
+          startReady();
+          const stillActive = handles.filter((handle) => !finished.has(handle.taskId));
+          if (stillActive.length === 0) break;
+          continue;
+        }
+        const raced = await Promise.race([
+          Promise.race(
+            active.map((handle) => handle.done.then((childOutcome) => ({ kind: "child" as const, childOutcome })))
+          ),
+          questionPromise.then((question) => ({ kind: "question" as const, question }))
+        ]);
+        if (raced.kind === "question") {
+          waiting = true;
+          status = "WAITING_FOR_USER";
+          break;
+        }
+        finished.set(raced.childOutcome.taskId, raced.childOutcome);
+        const spec = launched.get(raced.childOutcome.taskId);
+        const current = await eventStore.readAll();
+        const gated = applyChildThreeLine({
+          events: current.events,
+          child: raced.childOutcome,
+          nowIso: now(),
+          generateEventId: () => createEventId(generateId),
+          ...(spec !== undefined ? { spec } : {}),
+          ...(input.contract !== undefined ? { contract: input.contract } : {})
+        });
+        for (const event of gated.events.slice(current.events.length)) {
+          await append(event);
+        }
+        if (gated.result.directive === "wait_user") {
+          waiting = true;
+          status = "WAITING_FOR_USER";
+          break;
+        }
+        if (gated.result.directive === "queue_analysis") {
+          trackingBlocked = true;
+          status = "BLOCKED";
+          break;
+        }
+        startReady();
+      }
+      if (waiting) {
+        // RUN_WAITING_FOR_USER already recorded on the question or gate path.
+      } else if (trackingBlocked) {
+        status = "BLOCKED";
       } else {
-        const failures = raced.outcomes.filter(
+        const outcomes = [...finished.values()];
+        const failures = outcomes.filter(
           (childOutcome) => childOutcome.outcome === "FAILURE" || childOutcome.outcome === "TIMEOUT"
         );
         if (controller.signal.aborted) {
           status = "CANCELLED";
           await writeCancel();
-        } else if (failures.length > 0) {
+        } else if (failures.length > 0 || remaining.length > 0) {
           status = "FAILED";
-          failureReason = failures
-            .map((childOutcome) => `${childOutcome.taskId}: ${childOutcome.summary}`)
-            .join("; ");
+          failureReason =
+            failures.length > 0
+              ? failures.map((childOutcome) => `${childOutcome.taskId}: ${childOutcome.summary}`).join("; ")
+              : `unstarted children: ${remaining.map((child) => child.taskId).join(", ")}`;
           await append(make("RUN_FAILED", { reason: failureReason }));
         } else {
           status = "COMPLETED";
@@ -313,6 +497,14 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       await Promise.allSettled(handles.map((handle) => handle.done));
     }
 
+    const beforeSettle = await eventStore.readAll();
+    await settleBoundEpisode({
+      stateRoot: deps.stateRoot,
+      events: beforeSettle.events,
+      status,
+      append,
+      make: (type, payload) => make(type, payload)
+    });
     const read = await eventStore.readAll();
     const state = replayRun(read.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
@@ -326,4 +518,22 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     cancel: () => controller.abort()
   };
   return running;
+}
+
+function toModelRoutedPayload(assignment: TaskAssignment): ModelRoutedPayload {
+  const decision = assignment.decision;
+  return {
+    taskId: decision.taskId,
+    role: decision.role,
+    complexity: decision.complexity,
+    model: decision.model,
+    justification: decision.justification,
+    confidence: decision.confidence,
+    approvalPlan: decision.approvalPlan,
+    statusAfterRoute: decision.statusAfterRoute,
+    policyVersion: decision.policyVersion,
+    estimatedCostUsd: decision.estimatedCostUsd,
+    estimatedDurationMs: decision.estimatedDurationMs,
+    ...routingContextFields(decision)
+  };
 }

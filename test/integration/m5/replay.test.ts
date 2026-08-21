@@ -8,6 +8,7 @@ import {
 import type { DatasetManifest } from "../../../src/experiments/manifest.js";
 import {
   replayPolicy,
+  replayCacheKey,
 } from "../../../src/experiments/replay.js";
 import type { FrozenEpisode, RoutingPolicy } from "../../../src/experiments/replay.js";
 import {
@@ -158,6 +159,25 @@ describe("M5-T3: replay harness", () => {
     assert.throws(
       () => replayPolicy(m, [episode("h1")], UNIFORM_POLICY, "/replay/out"),
       /missing episode/
+    );
+  });
+
+  it("does not reuse a replay hash across candidate hashes", () => {
+    const m = manifest();
+    const episodes = m.episodeHashes.map(episode);
+    const cache = { environmentVersion: "env-1", evaluatorVersion: "ev-1" };
+    const a = replayPolicy(m, episodes, UNIFORM_POLICY, "/replay/out", {
+      candidateHash: "aaa",
+      ...cache
+    });
+    const b = replayPolicy(m, episodes, UNIFORM_POLICY, "/replay/out", {
+      candidateHash: "bbb",
+      ...cache
+    });
+    assert.notEqual(a.rerunHash, b.rerunHash);
+    assert.notEqual(
+      replayCacheKey({ runId: "run_a", candidateHash: "aaa", environmentVersion: "env-1", evaluatorVersion: "ev-1" }),
+      replayCacheKey({ runId: "run_a", candidateHash: "bbb", environmentVersion: "env-1", evaluatorVersion: "ev-1" })
     );
   });
 });

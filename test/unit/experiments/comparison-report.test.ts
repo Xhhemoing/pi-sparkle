@@ -234,4 +234,39 @@ describe("Checkpoint F-2: paired comparison report", () => {
     });
     assert.equal(validation.valid, true);
   });
+
+  it("rejects improve when mean cost is fine but the cost CI upper bound exceeds the cap", () => {
+    const records: PairedEvaluationRecord[] = [
+      { episodeHash: "h1", taskFamily: "bugfix", baselineUtility: 0.3, candidateUtility: 0.7, baselineCostUsd: 1, candidateCostUsd: 0.5 },
+      { episodeHash: "h2", taskFamily: "bugfix", baselineUtility: 0.3, candidateUtility: 0.7, baselineCostUsd: 1, candidateCostUsd: 0.5 },
+      { episodeHash: "h3", taskFamily: "bugfix", baselineUtility: 0.3, candidateUtility: 0.7, baselineCostUsd: 1, candidateCostUsd: 0.5 },
+      { episodeHash: "h4", taskFamily: "docs", baselineUtility: 0.3, candidateUtility: 0.7, baselineCostUsd: 1, candidateCostUsd: 0.5 },
+      { episodeHash: "h5", taskFamily: "docs", baselineUtility: 0.3, candidateUtility: 0.7, baselineCostUsd: 1, candidateCostUsd: 2.5 }
+    ];
+    const meanCandUtil = 0.7;
+    const meanBaseCost = 1;
+    const meanCandCost = (0.5 * 4 + 2.5) / 5;
+    const evalCard = createEvaluationCard({
+      ...CARD_BASE,
+      baseline: { utility: 0.3, costUsd: meanBaseCost, uncertainty: 0.02 },
+      candidate: { utility: meanCandUtil, costUsd: meanCandCost, uncertainty: 0.03 }
+    });
+    const report = computeComparisonReport(records, evalCard, ["adaptive is better"]);
+    assert.ok((report.costDelta.mean ?? 0) <= 0);
+    assert.ok((report.costDelta.confidenceInterval?.upper ?? 0) > 0);
+    const v = validateComparisonReport(report);
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some((r) => /cost/i.test(r)));
+  });
+
+  it("simulation evidence cannot close production Checkpoint F", () => {
+    const report = computeComparisonReport(
+      improvingRecords(),
+      card(),
+      ["candidate improves quality"],
+      { ...DEFAULT_COMPARISON_REPORT_CONFIG, evidenceClass: "simulation" }
+    );
+    assert.equal(report.evidenceClass, "simulation");
+    assert.equal(report.canCloseProductionCheckpointF, false);
+  });
 });

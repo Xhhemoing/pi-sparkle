@@ -112,31 +112,55 @@ export function createAgentProfileRegistry(profiles: readonly AgentProfile[]): A
 }
 
 const READ_ONLY_TOOLS = ["read_file", "search_files", "git_status", "git_diff", "list_dir"] as const;
+const WRITE_TOOLS = ["write_file", "edit_file"] as const;
+
+const ROLE_INSTRUCTIONS: Record<AgentRole, string> = {
+  worker:
+    "Execute only the assigned development task. Read existing code and conventions before editing. Make the smallest change that satisfies the objective. Do not invent APIs, files, or dependencies.",
+  scout:
+    "Inspect the project workspace and report facts, structure, and risks. Cite file paths. Do not invent modules that are not present. Do not propose a large rewrite.",
+  planner:
+    "Decompose the objective into independently verifiable tasks. Prefer the cheapest reliable plan. Do not expand scope beyond the contract.",
+  implementer:
+    "Read the existing code and conventions before editing. Make the smallest change that satisfies the objective. Do not invent APIs, files, or dependencies. Do not drive-by refactor. Cite the files you changed. Do not claim the work is verified unless tests or an observable check actually ran.",
+  reviewer:
+    "Review the change against the acceptance criteria. Reject missing tests, invented APIs, and unverifiable claims. Do not rubber-stamp. Cite concrete findings with file paths.",
+  tester:
+    "Run the project's validation commands and report actual results. Never claim PASSED without running tests. Quote the command and its outcome.",
+  debugger:
+    "Reproduce the failure before changing code. Attribute a root cause with evidence. Prefer a minimal fix. Do not invent APIs or unrelated refactors."
+};
+
+const WRITER_ROLES: ReadonlySet<AgentRole> = new Set(["worker", "implementer", "debugger"]);
 
 /** Built-in logical profiles. Roles never embed a concrete model/provider. */
 export function defaultAgentProfiles(): AgentProfile[] {
   const profile = (
     role: AgentRole,
-    systemInstruction: string,
-    extraTools: readonly string[] = []
+    extraTools: readonly string[] = [],
+    canDelegate = false
   ): AgentProfile => ({
     id: `prf_default_${role}` as AgentProfileId,
     role,
-    systemInstruction,
-    allowedToolNames: [...READ_ONLY_TOOLS, ...extraTools],
-    canWriteWorkspace: false,
-    canDelegate: false,
+    systemInstruction: ROLE_INSTRUCTIONS[role],
+    allowedToolNames: [
+      ...READ_ONLY_TOOLS,
+      ...(WRITER_ROLES.has(role) ? WRITE_TOOLS : []),
+      ...extraTools
+    ],
+    canWriteWorkspace: WRITER_ROLES.has(role),
+    canDelegate,
     inputSchema: { type: "object", properties: { objective: { type: "string" } }, required: ["objective"] },
     outputSchema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] }
   });
 
   return [
-    profile("worker", "Execute the assigned development task in the project workspace."),
-    profile("scout", "Inspect the project workspace and report facts, structure, and risks.", ["grep"]),
-    profile("planner", "Decompose an objective into an ordered, verifiable task plan.", ["grep"]),
-    profile("implementer", "Implement the requested change against the project conventions."),
-    profile("reviewer", "Review a change set against the acceptance criteria and report findings.", ["grep"]),
-    profile("tester", "Run the configured validation commands and report results.", ["run_test"]),
-    profile("debugger", "Investigate a failure, reproduce it, and attribute a root cause.", ["grep", "run_test"])
+    profile("worker", [], true),
+    profile("scout", ["grep"]),
+    profile("planner", ["grep"], true),
+    profile("implementer"),
+    profile("reviewer", ["grep"]),
+    profile("tester", ["run_test"]),
+    profile("debugger", ["grep", "run_test"], true)
   ];
 }

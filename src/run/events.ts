@@ -1,4 +1,4 @@
-import { DomainValidationError } from "../domain/errors.js";
+import { DomainValidationError, type RoutingRefusal } from "../domain/errors.js";
 import {
   isAgentInstanceId,
   isEventId,
@@ -31,6 +31,7 @@ import {
   type FlowchartNodeRole,
   type TaskComplexity
 } from "../domain/flowchart.js";
+import { isAgentRole, type AgentRole } from "../domain/roles.js";
 import { injectionPayloadError } from "./injection.js";
 import { hashAssessment, parseTrackingAssessment, type TrackingAssessment } from "../tracking/types.js";
 
@@ -141,6 +142,9 @@ export interface TaskRetryPayload {
   childRunId: RunId;
   attempt: number;
   reason: string;
+  previousModel?: string;
+  nextModel?: string;
+  nextModelVersion?: string;
 }
 
 /**
@@ -205,12 +209,22 @@ export interface ModelRoutedPayload {
   complexity: TaskComplexity;
   model: string;
   justification: string;
+  /** Cold-start lookup score. Not a calibrated probability. */
   confidence: ConfidenceScore;
+  coldStartRoutingScore?: ConfidenceScore;
   approvalPlan: ApprovalPlan;
   statusAfterRoute: "RUNNING" | "WAITING_FOR_USER";
   policyVersion: string;
   estimatedCostUsd: number;
   estimatedDurationMs: number;
+  family: string;
+  featureVersion: string;
+  modelVersion: string;
+  highRisk: boolean;
+  eligibleModels: readonly string[];
+  rejections: readonly RoutingRefusal[];
+  behaviorDistribution: Readonly<Record<string, number>>;
+  agentRole?: AgentRole;
 }
 
 export interface RunBlockedPayload {
@@ -324,6 +338,73 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isRoutingRefusal(value: unknown): value is RoutingRefusal {
+  return (
+    isRecord(value) &&
+    typeof value.modelId === "string" &&
+    value.modelId.trim() !== "" &&
+    typeof value.constraint === "string" &&
+    value.constraint.trim() !== "" &&
+    typeof value.detail === "string"
+  );
+}
+
+function isBehaviorDistribution(
+  value: unknown,
+  eligible: readonly string[],
+  selected: string
+): value is Readonly<Record<string, number>> {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== eligible.length) return false;
+  const eligibleSet = new Set(eligible);
+  let selectedMass = 0;
+  for (const key of keys) {
+    if (!eligibleSet.has(key)) return false;
+    const p = value[key];
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return false;
+    if (key === selected) selectedMass = p;
+    else if (p !== 0) return false;
+  }
+  return selectedMass === 1 && eligibleSet.has(selected);
+}
+
+export function routingContextFields(source: {
+  readonly family: string;
+  readonly featureVersion: string;
+  readonly modelVersion: string;
+  readonly highRisk: boolean;
+  readonly eligibleModels: readonly string[];
+  readonly rejections: readonly RoutingRefusal[];
+  readonly behaviorDistribution: Readonly<Record<string, number>>;
+  readonly agentRole?: AgentRole | undefined;
+  readonly coldStartRoutingScore?: ConfidenceScore | undefined;
+}): Pick<
+  ModelRoutedPayload,
+  | "family"
+  | "featureVersion"
+  | "modelVersion"
+  | "highRisk"
+  | "eligibleModels"
+  | "rejections"
+  | "behaviorDistribution"
+> &
+  Partial<Pick<ModelRoutedPayload, "agentRole" | "coldStartRoutingScore">> {
+  return {
+    family: source.family,
+    featureVersion: source.featureVersion,
+    modelVersion: source.modelVersion,
+    highRisk: source.highRisk,
+    eligibleModels: source.eligibleModels,
+    rejections: source.rejections,
+    behaviorDistribution: source.behaviorDistribution,
+    ...(source.agentRole !== undefined ? { agentRole: source.agentRole } : {}),
+    ...(source.coldStartRoutingScore !== undefined
+      ? { coldStartRoutingScore: source.coldStartRoutingScore }
+      : {})
+  };
+}
+
 function isEmptyPayload(payload: Record<string, unknown>): boolean {
   return Object.keys(payload).length === 0;
 }
@@ -412,6 +493,12 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       }
       if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
         return "payload.reason must be a non-empty string";
+      }
+      for (const key of ["previousModel", "nextModel", "nextModelVersion"] as const) {
+        const value = payload[key];
+        if (value !== undefined && (typeof value !== "string" || value.trim() === "")) {
+          return `payload.${key} must be a non-empty string when present`;
+        }
       }
       return undefined;
     }
@@ -556,6 +643,34 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
           !Number.isFinite(payload.estimatedDurationMs) ||
           payload.estimatedDurationMs <= 0) {
         return "payload.estimatedDurationMs must be a positive finite number";
+      }
+      if (typeof payload.family !== "string" || payload.family.trim() === "") {
+        return "payload.family must be a non-empty string";
+      }
+      if (typeof payload.featureVersion !== "string" || payload.featureVersion.trim() === "") {
+        return "payload.featureVersion must be a non-empty string";
+      }
+      if (typeof payload.modelVersion !== "string" || payload.modelVersion.trim() === "") {
+        return "payload.modelVersion must be a non-empty string";
+      }
+      if (typeof payload.highRisk !== "boolean") {
+        return "payload.highRisk must be a boolean";
+      }
+      if (!Array.isArray(payload.eligibleModels) ||
+          !payload.eligibleModels.every((id) => typeof id === "string" && id.trim() !== "")) {
+        return "payload.eligibleModels must be an array of non-empty strings";
+      }
+      if (!Array.isArray(payload.rejections) || !payload.rejections.every(isRoutingRefusal)) {
+        return "payload.rejections must be an array of { modelId, constraint, detail }";
+      }
+      if (!isBehaviorDistribution(payload.behaviorDistribution, payload.eligibleModels, payload.model)) {
+        return "payload.behaviorDistribution must be a one-hot map over eligibleModels";
+      }
+      if (payload.agentRole !== undefined && !isAgentRole(payload.agentRole)) {
+        return "payload.agentRole must be a known agent role";
+      }
+      if (payload.coldStartRoutingScore !== undefined && !isConfidenceScore(payload.coldStartRoutingScore)) {
+        return "payload.coldStartRoutingScore must be a finite number between 0 and 1";
       }
       return undefined;
     }

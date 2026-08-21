@@ -18,9 +18,13 @@ import type { Run } from "../domain/run.js";
 import type { AcceptanceCriterion } from "../domain/task.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
 import type { AgentProfile, AgentProfileRegistry } from "../agents/registry.js";
+import type { ContextPacket } from "../context/packet.js";
 import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
+import { formatChildPrompt } from "./child-prompt.js";
+import { tryParseModelRef } from "../config/model-ref.js";
 import {
   assertAtMostOneTerminal,
+  SUPERVISOR,
   validateAgentMessage,
   validateApprovalReplyForPlan,
   type AgentMessage,
@@ -30,8 +34,16 @@ import {
   type TaskRequest,
   type TaskResult
 } from "../protocol/v1.js";
+import { isAgentRole } from "../domain/roles.js";
+import type { ClusterHost } from "../cluster/host.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
+import { classifyTaskFailure } from "../routing/failure-class.js";
+import {
+  decideLiveCascade,
+  evidenceFromTaskResult,
+  type LiveCascadePlan
+} from "../routing/live-cascade.js";
 
 export interface ChildCoordinatorDeps {
   stateRoot: string;
@@ -49,6 +61,8 @@ export interface ChildCoordinatorDeps {
    * be answered with an explicit {@link QuestionResponse} approvalReply.
    */
   onQuestion?: (question: AgentQuestion) => Promise<QuestionResponse> | QuestionResponse;
+  /** Optional agent-cluster session for peer mail and spawn. */
+  cluster?: ClusterHost;
 }
 
 /** A plain answer, or an answer plus the selective approval decision. */
@@ -62,6 +76,16 @@ export interface ChildTaskInput {
   inputArtifactIds: ArtifactId[];
   acceptanceCriteria: AcceptanceCriterion[];
   limits: ChildRunLimits;
+  /** Optional predecessor task ids; used when compiling `--children` into a flowchart. */
+  dependsOn?: readonly TaskId[];
+  /** Model id assigned by smart routing for this child. */
+  assignedModel?: string;
+  /** First-attempt cascade: escalate only on deterministic model FAIL. */
+  cascade?: LiveCascadePlan;
+  /** Bounded repo facts compiled at launch; omitted items stay inspectable. */
+  contextPacket?: ContextPacket;
+  /** Predecessor task summaries so later children do not re-invent findings. */
+  predecessorNotes?: readonly string[];
 }
 
 export type ChildOutcome = "SUCCESS" | "PARTIAL" | "FAILURE" | "CANCELLED" | "TIMEOUT";
@@ -141,6 +165,7 @@ export class ChildCoordinator {
   private readonly onQuestion:
     | ((question: AgentQuestion) => Promise<QuestionResponse> | QuestionResponse)
     | undefined;
+  private readonly cluster: ClusterHost | undefined;
   private readonly childStores = new Map<RunId, EventStore>();
 
   /** Active attempt controller per child run, for external cancellation. */
@@ -162,6 +187,7 @@ export class ChildCoordinator {
     );
     this.parentStore = new EventStore(deps.stateRoot, deps.parentRunId);
     this.onQuestion = deps.onQuestion === undefined ? undefined : deps.onQuestion;
+    this.cluster = deps.cluster;
   }
 
   get pendingQuestions(): readonly AgentQuestion[] {
@@ -314,10 +340,13 @@ export class ChildCoordinator {
     let terminalResult: TaskResult | undefined;
     let outcome: ChildOutcome = "FAILURE";
     let summary = "child execution ended without a terminal result";
+    let assignedModel = input.assignedModel;
 
     for (let attempt = 1; attempt <= input.limits.maxAttempts; attempt += 1) {
       attempts = attempt;
-      const attemptResult = await this.runAttempt(input, childRunId, parentSignal, attempt);
+      const attemptInput =
+        assignedModel === undefined ? input : { ...input, assignedModel };
+      const attemptResult = await this.runAttempt(attemptInput, childRunId, parentSignal, attempt);
       messages.push(...attemptResult.messages);
 
       if (parentSignal.aborted) {
@@ -350,6 +379,28 @@ export class ChildCoordinator {
 
       const terminal = attemptResult.terminalMessage;
       if (terminal !== undefined) {
+        const cascaded = this.maybeCascadeRetry({
+          input,
+          assignedModel,
+          terminal,
+          attempt
+        });
+        if (cascaded !== undefined) {
+          assignedModel = cascaded.nextModelId;
+          await this.appendParentEvent(
+            "TASK_RETRY",
+            {
+              childRunId,
+              attempt,
+              reason: cascaded.reason,
+              previousModel: cascaded.previousModelId,
+              nextModel: cascaded.nextModelId,
+              ...(cascaded.nextVersion !== undefined ? { nextModelVersion: cascaded.nextVersion } : {})
+            },
+            input.taskId
+          );
+          continue;
+        }
         terminalResult = terminal;
         outcome = terminal.outcome === "CANCELLED" ? "CANCELLED" : terminal.outcome;
         summary = terminal.summary;
@@ -404,6 +455,38 @@ export class ChildCoordinator {
     };
   }
 
+  private maybeCascadeRetry(input: {
+    readonly input: ChildTaskInput;
+    readonly assignedModel: string | undefined;
+    readonly terminal: TaskResult;
+    readonly attempt: number;
+  }): { previousModelId: string; nextModelId: string; nextVersion?: string; reason: string } | undefined {
+    const plan = input.input.cascade;
+    const previousModelId = input.assignedModel;
+    if (plan === undefined || previousModelId === undefined) return undefined;
+    if (input.attempt >= input.input.limits.maxAttempts) return undefined;
+    const evidence = evidenceFromTaskResult(input.terminal);
+    const failureClass = classifyTaskFailure({
+      outcome: input.terminal.outcome,
+      verificationKind: input.terminal.verification.kind,
+      summary: input.terminal.summary,
+      ...(input.terminal.failure !== undefined ? { failure: input.terminal.failure } : {})
+    });
+    const decision = decideLiveCascade({
+      plan,
+      previousModelId,
+      evidence,
+      ...(failureClass !== undefined ? { failureClass } : {})
+    });
+    if (decision.action !== "escalate") return undefined;
+    return {
+      previousModelId,
+      nextModelId: decision.nextModelId,
+      reason: decision.reason,
+      ...(decision.nextVersion !== undefined ? { nextVersion: decision.nextVersion } : {})
+    };
+  }
+
   private async runAttempt(
     input: ChildTaskInput,
     childRunId: RunId,
@@ -411,16 +494,24 @@ export class ChildCoordinator {
     _attempt: number
   ): Promise<AttemptResult> {
     const childAgentId = createAgentInstanceId(this.generateId);
+    if (this.cluster !== undefined && isAgentRole(input.role)) {
+      this.cluster.register(childAgentId, input.role, input.taskId);
+    }
     const attemptController = new AbortController();
     this.attemptControllers.set(childRunId, attemptController);
     const signal = AbortSignal.any([parentSignal, attemptController.signal]);
 
+    const assigned = input.assignedModel;
+    const assignedRef = assigned === undefined ? undefined : tryParseModelRef(assigned);
     const request = {
       runId: childRunId,
       taskId: input.taskId,
       agentInstanceId: childAgentId,
-      prompt: input.objective,
-      workingDirectory: this.project.rootPath
+      prompt: this.buildChildPrompt(input, childAgentId),
+      workingDirectory: this.project.rootPath,
+      ...(assigned !== undefined ? { modelId: assignedRef?.modelId ?? assigned } : {}),
+      ...(assignedRef !== undefined ? { providerId: assignedRef.providerId } : {}),
+      ...(this.cluster !== undefined ? { cluster: this.cluster.viewFor(childAgentId) } : {})
     };
 
     const taskRequest = this.buildTaskRequest(input, childRunId, childAgentId);
@@ -560,6 +651,18 @@ export class ChildCoordinator {
         seen.push(message);
         await this.appendParentEvent("CHILD_MESSAGE", { message }, taskId);
 
+        if (message.type === "PEER_MESSAGE") {
+          if (this.cluster === undefined) {
+            throw new DomainValidationError("PEER_MESSAGE requires a cluster session");
+          }
+          this.cluster.send({
+            from: message.from,
+            body: message.body,
+            ...(message.to !== SUPERVISOR ? { to: message.to } : {}),
+            ...(message.addressRole !== undefined ? { addressRole: message.addressRole } : {})
+          });
+          return undefined;
+        }
         if (message.type === "QUESTION") {
           this.pendingQuestionsList.push(message);
           const answered = new Promise<void>((resolve) => {
@@ -605,5 +708,31 @@ export class ChildCoordinator {
       case "EXECUTION_FINISHED":
         return undefined;
     }
+  }
+
+  private buildChildPrompt(input: ChildTaskInput, agentId: AgentInstanceId): string {
+    const session = this.cluster;
+    const cluster =
+      session === undefined
+        ? {}
+        : {
+            peersLine: (() => {
+              const peers = session.peers().filter((peer) => peer.agentId !== agentId);
+              return peers.length === 0
+                ? "(none)"
+                : peers.map((peer) => `${peer.role}:${peer.agentId}`).join(", ");
+            })(),
+            inbox: session.inbox(agentId)
+          };
+    return formatChildPrompt({
+      role: input.role,
+      objective: input.objective,
+      profile: input.profile,
+      ...(input.assignedModel !== undefined ? { assignedModel: input.assignedModel } : {}),
+      ...cluster,
+      ...(input.contextPacket !== undefined ? { packet: input.contextPacket } : {}),
+      ...(input.predecessorNotes !== undefined ? { predecessorNotes: input.predecessorNotes } : {}),
+      acceptanceCriteria: input.acceptanceCriteria
+    });
   }
 }

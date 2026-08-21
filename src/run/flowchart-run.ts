@@ -1,5 +1,6 @@
 import { DomainValidationError } from "../domain/errors.js";
 import {
+  createAgentInstanceId,
   createEventId,
   createRunId,
   createTaskId,
@@ -10,17 +11,46 @@ import {
 import { defaultRunLimits } from "../domain/limits.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
+import { isAgentRole, type AgentRole } from "../domain/roles.js";
 import type { RunStatus } from "../domain/status.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
+import type { RequirementContract } from "../domain/contract.js";
+import { createAgentProfileRegistry, defaultAgentProfiles, type AgentProfileRegistry } from "../agents/registry.js";
+import { buildProjectContextIndex, type ProjectContextIndex } from "../context/index.js";
+import { createClusterHost, type ClusterHost } from "../cluster/host.js";
+import { assertCoverageAllowsStart } from "../requirement/coverage.js";
+import type { TaskAssignment } from "../routing/assign.js";
+import {
+  ChildCoordinator,
+  type ChildRunHandle,
+  type ChildRunOutcome,
+  type ChildTaskInput
+} from "./child-coordinator.js";
+import { groundChildTask } from "./child-grounding.js";
+import { applyChildThreeLine } from "./child-tracking.js";
+import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import {
   DEFAULT_HUMAN_CONFIDENCE,
   defaultDecisionPolicy,
   validateApprovalReplyAgainstPlan,
   type ApprovalReply,
-  type Flowchart
+  type Flowchart,
+  type FlowNode
 } from "../domain/flowchart.js";
+import {
+  applyLearnedRouting,
+  loadLearnedRouting,
+  type LearnedRoutingPolicy
+} from "../learning/learned-routing.js";
 import { discoverProject } from "../project/discovery.js";
+import { analyzeTask } from "../routing/analyze-task.js";
 import type { ModelRouter, RoutingDecision } from "../supervisor/model-router.js";
+import type { AgentExecutor } from "../execution/contract.js";
+import {
+  childNodeResultFromChildOutcome,
+  executeFlowchartNode,
+  formatFlowchartNodePrompt
+} from "./flowchart-executor.js";
 import {
   createFlowchartSupervisor,
   restoreFlowchartSupervisor,
@@ -34,7 +64,7 @@ import {
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
-import type { Event, ModelRoutedPayload } from "./events.js";
+import { routingContextFields, type Event, type ModelRoutedPayload } from "./events.js";
 import { injectionEventPayload, validateInjection } from "./injection.js";
 import { createFilePauseController, type PauseController } from "./pause-controller.js";
 import {
@@ -53,6 +83,11 @@ export interface FlowchartRunDeps {
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
   pause?: PauseController;
+  /** When set, RUNNING nodes without a --results entry are executed. */
+  executor?: AgentExecutor;
+  registry?: AgentProfileRegistry;
+  /** Enable mailbox + bounded spawn when executing childTasks. */
+  cluster?: boolean;
 }
 
 export interface FlowchartRunInput {
@@ -62,6 +97,11 @@ export interface FlowchartRunInput {
   limits?: Partial<FlowchartRunLimits> & { maxRounds?: number };
   /** Fake child results keyed by node id; applied when that node is RUNNING. */
   childResults?: Readonly<Record<string, ChildNodeResult>>;
+  /** When set, leased nodes run through ChildCoordinator instead of the thin executor. */
+  childTasks?: readonly ChildTaskInput[];
+  contract?: RequirementContract;
+  assignments?: readonly TaskAssignment[];
+  resolvedQuestionIds?: readonly string[];
 }
 
 export interface FlowchartContinuation {
@@ -107,7 +147,8 @@ function toModelRoutedPayload(decision: RoutingDecision): ModelRoutedPayload {
     statusAfterRoute: decision.statusAfterRoute,
     policyVersion: decision.policyVersion,
     estimatedCostUsd: decision.estimatedCostUsd,
-    estimatedDurationMs: decision.estimatedDurationMs
+    estimatedDurationMs: decision.estimatedDurationMs,
+    ...routingContextFields(decision)
   };
 }
 
@@ -128,6 +169,107 @@ function childResultsMap(results?: Readonly<Record<string, ChildNodeResult>>): M
   return new Map(Object.entries(results ?? {}));
 }
 
+function childTaskMap(tasks: readonly ChildTaskInput[] | undefined): Map<TaskId, ChildTaskInput> {
+  const map = new Map<TaskId, ChildTaskInput>();
+  for (const task of tasks ?? []) map.set(task.taskId, task);
+  return map;
+}
+
+function childTasksFromDefinition(
+  definition: Flowchart,
+  registry: AgentProfileRegistry
+): ChildTaskInput[] {
+  const tasks: ChildTaskInput[] = [];
+  for (const node of definition.nodes) {
+    const role = mappedAgentRole(node.role);
+    if (role === undefined) continue;
+    tasks.push({
+      taskId: node.taskId,
+      role,
+      objective: node.objective,
+      profile: registry.resolve(role),
+      inputArtifactIds: [],
+      acceptanceCriteria: [],
+      limits: { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+    });
+  }
+  return tasks;
+}
+
+function attachChildRuntime(input: {
+  readonly stateRoot: string;
+  readonly executor: AgentExecutor;
+  readonly runId: RunId;
+  readonly project: ProjectSnapshot;
+  readonly registry: AgentProfileRegistry;
+  readonly cluster: boolean;
+  readonly generateId?: IdGenerator;
+  readonly now: () => IsoTimestamp;
+  readonly abort: AbortController;
+}): {
+  childCoordinator: ChildCoordinator;
+  spawnHandles: ChildRunHandle[];
+  index: ProjectContextIndex;
+} {
+  const spawnHandles: ChildRunHandle[] = [];
+  let childCoordinator!: ChildCoordinator;
+  let clusterHost: ClusterHost | undefined;
+  if (input.cluster) {
+    clusterHost = createClusterHost({
+      registry: input.registry,
+      maxTasks: defaultRunLimits().maxTasks,
+      ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
+      onSpawn: (spawned) => {
+        if (!isAgentRole(spawned.role)) return;
+        spawnHandles.push(
+          childCoordinator.startChildTask(
+            {
+              taskId: spawned.taskId,
+              role: spawned.role,
+              objective: spawned.objective,
+              profile: input.registry.resolve(spawned.role),
+              inputArtifactIds: [],
+              acceptanceCriteria: [],
+              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+            },
+            input.abort.signal
+          )
+        );
+      }
+    });
+  }
+  childCoordinator = new ChildCoordinator({
+    stateRoot: input.stateRoot,
+    executor: input.executor,
+    parentRunId: input.runId,
+    project: input.project,
+    registry: input.registry,
+    maxConcurrentTasks: defaultRunLimits().maxConcurrentTasks,
+    now: input.now,
+    ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
+    ...(clusterHost !== undefined ? { cluster: clusterHost } : {})
+  });
+  return {
+    childCoordinator,
+    spawnHandles,
+    index: buildProjectContextIndex(input.project)
+  };
+}
+
+async function drainSpawnedChildren(
+  handles: ChildRunHandle[],
+  finished: Map<TaskId, ChildRunOutcome>,
+  from: number
+): Promise<void> {
+  let start = from;
+  while (start < handles.length) {
+    const batch = handles.slice(start);
+    start = handles.length;
+    const outcomes = await Promise.all(batch.map((handle) => handle.done));
+    for (const outcome of outcomes) finished.set(outcome.taskId, outcome);
+  }
+}
+
 function applyRunningResults(
   supervisor: FlowchartSupervisor,
   definition: Flowchart,
@@ -140,6 +282,87 @@ function applyRunningResults(
     if (result === undefined) continue;
     supervisor.applyChildResult(node.id, result);
     results.delete(node.id);
+    applied += 1;
+  }
+  return applied;
+}
+
+async function executeClusteredNode(
+  ctx: FlowchartLoopContext,
+  node: FlowNode,
+  spec: ChildTaskInput
+): Promise<void> {
+  const coordinator = ctx.childCoordinator;
+  const index = ctx.index;
+  if (coordinator === undefined || index === undefined) {
+    throw new DomainValidationError("clustered flowchart node is missing child coordinator");
+  }
+  const model = ctx.supervisor.nodeRuntime(node.id).model ?? spec.assignedModel;
+  const depIds = spec.dependsOn ?? [];
+  const predecessors = depIds.flatMap((id) => {
+    const outcome = ctx.finishedChildren.get(id);
+    return outcome === undefined
+      ? []
+      : [{ taskId: outcome.taskId, summary: outcome.summary, artifactIds: outcome.artifactIds }];
+  });
+  const grounded = groundChildTask({
+    child: model !== undefined ? { ...spec, assignedModel: model } : spec,
+    predecessors,
+    index,
+    ...(ctx.contract !== undefined ? { contract: ctx.contract } : {})
+  });
+  const spawnedBefore = ctx.spawnHandles.length;
+  const handle = coordinator.startChildTask(grounded, ctx.abort.signal);
+  const outcome = await handle.done;
+  ctx.finishedChildren.set(outcome.taskId, outcome);
+  await drainSpawnedChildren(ctx.spawnHandles, ctx.finishedChildren, spawnedBefore);
+  const current = await ctx.eventStore.readAll();
+  const gated = applyChildThreeLine({
+    events: current.events,
+    child: outcome,
+    spec,
+    nowIso: ctx.now(),
+    generateEventId: () => createEventId(ctx.generateId),
+    ...(ctx.contract !== undefined ? { contract: ctx.contract } : {})
+  });
+  for (const event of gated.events.slice(current.events.length)) {
+    await ctx.append(event);
+  }
+  ctx.supervisor.applyChildResult(node.id, childNodeResultFromChildOutcome(outcome));
+}
+
+async function executeRemainingRunningNodes(ctx: FlowchartLoopContext): Promise<number> {
+  let applied = 0;
+  for (const node of ctx.definition.nodes) {
+    if (ctx.supervisor.nodeState(node.id) !== "RUNNING") continue;
+    const spec = ctx.childByTaskId.get(node.taskId);
+    if (spec !== undefined && ctx.childCoordinator !== undefined) {
+      await executeClusteredNode(ctx, node, spec);
+      applied += 1;
+      continue;
+    }
+    if (ctx.executor === undefined) continue;
+    const agentInstanceId = createAgentInstanceId(ctx.generateId);
+    await ctx.append(ctx.make("AGENT_STARTED", { agentInstanceId, taskId: node.taskId }, node.taskId));
+    const model = ctx.supervisor.nodeRuntime(node.id).model;
+    let result;
+    try {
+      result = await executeFlowchartNode({
+        executor: ctx.executor,
+        runId: ctx.runId,
+        taskId: node.taskId,
+        prompt: formatFlowchartNodePrompt(node, model),
+        workingDirectory: ctx.project.rootPath,
+        agentInstanceId,
+        ...(model !== undefined ? { modelId: model } : {}),
+        ...(ctx.generateId !== undefined ? { generateId: ctx.generateId } : {})
+      });
+    } catch {
+      result = { outcome: "FAILURE" as const };
+    }
+    const agentOutcome = result.outcome === "FAILURE" ? "FAILURE" : "SUCCESS";
+    await ctx.append(ctx.make("AGENT_FINISHED", { agentInstanceId, outcome: agentOutcome }, node.taskId));
+    ctx.supervisor.applyChildResult(node.id, result);
     applied += 1;
   }
   return applied;
@@ -200,6 +423,15 @@ interface FlowchartLoopContext {
   runId: RunId;
   generateId?: IdGenerator;
   pause?: PauseController;
+  executor?: AgentExecutor;
+  stateRoot: string;
+  abort: AbortController;
+  childByTaskId: Map<TaskId, ChildTaskInput>;
+  finishedChildren: Map<TaskId, ChildRunOutcome>;
+  spawnHandles: ChildRunHandle[];
+  childCoordinator?: ChildCoordinator;
+  index?: ProjectContextIndex;
+  contract?: RequirementContract;
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -291,6 +523,14 @@ async function persistFailed(ctx: FlowchartLoopContext, reason: string): Promise
 
 async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
   const checkpoint = await persistCheckpoint(ctx);
+  const beforeSettle = await ctx.eventStore.readAll();
+  await settleBoundEpisode({
+    stateRoot: ctx.stateRoot,
+    events: beforeSettle.events,
+    status: replayRun(beforeSettle.events).status,
+    append: ctx.append,
+    make: (type, payload) => ctx.make(type, payload)
+  });
   const read = await ctx.eventStore.readAll();
   const replayed = replayRun(read.events);
   const pendingApproval = ctx.supervisor.pendingApproval;
@@ -368,7 +608,9 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
     const pausedAfterLease = await pauseIfRequested(ctx);
     if (pausedAfterLease !== undefined) return pausedAfterLease;
 
-    const applied = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
+    const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
+    const appliedExecutor = await executeRemainingRunningNodes(ctx);
+    const applied = appliedResults + appliedExecutor;
     if (applied > 0) {
       const advanced = ctx.supervisor.advanceRound();
       await persistLedger(ctx);
@@ -419,6 +661,58 @@ function makeEventFactory(
     }) as Event;
 }
 
+function mappedAgentRole(role: FlowNode["role"]): AgentRole | undefined {
+  if (isAgentRole(role)) return role;
+  if (role === "critic") return "reviewer";
+  if (role === "actor") return "implementer";
+  return undefined;
+}
+
+function familyForFlowNode(node: FlowNode): string {
+  const mapped = mappedAgentRole(node.role);
+  if (mapped !== undefined) return analyzeTask(node.objective, mapped).family;
+  return node.role;
+}
+
+function applyLearnedToNode(node: FlowNode, learned: LearnedRoutingPolicy): FlowNode {
+  const family = familyForFlowNode(node);
+  const originalPreferred = node.modelPolicy.preferredModel;
+  const seedPreferred = originalPreferred ?? node.modelPolicy.allowedModels[0]!;
+  const applied = applyLearnedRouting(
+    family,
+    node.modelPolicy.allowedModels,
+    seedPreferred,
+    learned
+  );
+  const prefer = learned.prefer.find((entry) => entry.family === family)?.modelId;
+  const preferApplied = prefer !== undefined && applied.allowedModels.includes(prefer);
+  const modelPolicy =
+    preferApplied || originalPreferred !== undefined
+      ? { allowedModels: applied.allowedModels, preferredModel: applied.preferredModel }
+      : { allowedModels: applied.allowedModels };
+  return { ...node, modelPolicy };
+}
+
+function applyLearnedToFlowchart(
+  flowchart: Flowchart,
+  learned: LearnedRoutingPolicy | undefined
+): Flowchart {
+  if (learned === undefined) return flowchart;
+  return {
+    ...flowchart,
+    nodes: flowchart.nodes.map((node) => applyLearnedToNode(node, learned))
+  };
+}
+
+async function flowchartForSupervisor(
+  stateRoot: string,
+  projectRoot: string,
+  flowchart: Flowchart
+): Promise<Flowchart> {
+  const learned = await loadLearnedRouting(stateRoot, projectRoot);
+  return applyLearnedToFlowchart(flowchart, learned);
+}
+
 export async function startFlowchartRun(
   deps: FlowchartRunDeps,
   input: FlowchartRunInput
@@ -450,7 +744,7 @@ export async function startFlowchartRun(
   };
 
   const supervisor = createFlowchartSupervisor({
-    flowchart: input.flowchart,
+    flowchart: await flowchartForSupervisor(deps.stateRoot, project.rootPath, input.flowchart),
     router: deps.router,
     limits: resolved.flowchart,
     ...(input.objective !== undefined ? { objective: input.objective } : {}),
@@ -461,9 +755,62 @@ export async function startFlowchartRun(
 
   const make = makeEventFactory(runId, now, generateId);
   const append = (event: Event) => eventStore.append(event);
+  if (input.contract !== undefined && input.childTasks !== undefined) {
+    assertCoverageAllowsStart(
+      input.contract,
+      input.childTasks.map((child) => ({
+        id: child.taskId,
+        acceptanceCriteria: child.acceptanceCriteria
+      })),
+      input.resolvedQuestionIds !== undefined ? { resolvedQuestionIds: input.resolvedQuestionIds } : undefined
+    );
+  }
+  if ((input.childTasks?.length ?? 0) > 0 && deps.executor === undefined) {
+    throw new DomainValidationError("flowchart childTasks require an executor");
+  }
   await append(make("PROJECT_DISCOVERED", { project }));
   await append(make("RUN_CREATED", { run }));
+  await bindEpisodeToRun({
+    stateRoot: deps.stateRoot,
+    runId,
+    projectId: project.id,
+    objective: input.objective ?? input.flowchart.id,
+    append,
+    make: (type, payload) => make(type, payload),
+    ...(generateId !== undefined ? { generateId } : {}),
+    ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : { skipContract: true })
+  });
   await append(make("RUN_STARTED", {}));
+  if (input.assignments !== undefined) {
+    for (const assignment of input.assignments) {
+      await append(make("MODEL_ROUTED", toModelRoutedPayload(assignment.decision), assignment.taskId));
+    }
+  }
+
+  const abort = new AbortController();
+  const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
+  const plannedChildren = input.childTasks ?? [];
+  const childByTaskId = childTaskMap(plannedChildren);
+  const finishedChildren = new Map<TaskId, ChildRunOutcome>();
+  let spawnHandles: ChildRunHandle[] = [];
+  let childCoordinator: ChildCoordinator | undefined;
+  let index: ProjectContextIndex | undefined;
+  if (deps.executor !== undefined && plannedChildren.length > 0) {
+    const attached = attachChildRuntime({
+      stateRoot: deps.stateRoot,
+      executor: deps.executor,
+      runId,
+      project,
+      registry,
+      cluster: deps.cluster !== false,
+      now,
+      abort,
+      ...(generateId !== undefined ? { generateId } : {})
+    });
+    childCoordinator = attached.childCoordinator;
+    index = attached.index;
+    spawnHandles = attached.spawnHandles;
+  }
 
   const ctx: FlowchartLoopContext = {
     supervisor,
@@ -478,8 +825,17 @@ export async function startFlowchartRun(
     now,
     project,
     runId,
+    stateRoot: deps.stateRoot,
+    abort,
+    childByTaskId,
+    finishedChildren,
+    spawnHandles,
     ...(generateId !== undefined ? { generateId } : {}),
-    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+    ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
+    ...(childCoordinator !== undefined ? { childCoordinator } : {}),
+    ...(index !== undefined ? { index } : {}),
+    ...(input.contract !== undefined ? { contract: input.contract } : {})
   };
   await persistCheckpoint(ctx);
   return runFlowchartLoop(ctx);
@@ -521,7 +877,7 @@ export async function resumeFlowchartRun(
   const { definition, snapshot, limits } = checkpoint.flowchart;
   const supervisor = restoreFlowchartSupervisor(
     {
-      flowchart: definition,
+      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
       router: deps.router,
       limits,
       runId,
@@ -532,6 +888,30 @@ export async function resumeFlowchartRun(
   );
 
   const make = makeEventFactory(runId, now, generateId);
+  const abort = new AbortController();
+  const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
+  const rebuilt = deps.executor !== undefined ? childTasksFromDefinition(definition, registry) : [];
+  const childByTaskId = childTaskMap(rebuilt);
+  const finishedChildren = new Map<TaskId, ChildRunOutcome>();
+  let spawnHandles: ChildRunHandle[] = [];
+  let childCoordinator: ChildCoordinator | undefined;
+  let index: ProjectContextIndex | undefined;
+  if (deps.executor !== undefined && rebuilt.length > 0) {
+    const attached = attachChildRuntime({
+      stateRoot: deps.stateRoot,
+      executor: deps.executor,
+      runId,
+      project: replayed.project,
+      registry,
+      cluster: deps.cluster !== false,
+      now,
+      abort,
+      ...(generateId !== undefined ? { generateId } : {})
+    });
+    childCoordinator = attached.childCoordinator;
+    index = attached.index;
+    spawnHandles = attached.spawnHandles;
+  }
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition,
@@ -545,8 +925,16 @@ export async function resumeFlowchartRun(
     now,
     project: replayed.project,
     runId,
+    stateRoot: deps.stateRoot,
+    abort,
+    childByTaskId,
+    finishedChildren,
+    spawnHandles,
     ...(generateId !== undefined ? { generateId } : {}),
-    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+    ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
+    ...(childCoordinator !== undefined ? { childCoordinator } : {}),
+    ...(index !== undefined ? { index } : {})
   };
 
   if (continuation.unpause === true) {
@@ -574,7 +962,9 @@ export async function resumeFlowchartRun(
     await applyApproval(ctx, continuation.approvalReply, continuation.answer);
   }
 
-  const applied = applyRunningResults(ctx.supervisor, definition, ctx.results);
+  const appliedResults = applyRunningResults(ctx.supervisor, definition, ctx.results);
+  const appliedExecutor = await executeRemainingRunningNodes(ctx);
+  const applied = appliedResults + appliedExecutor;
   if (continuation.approvalReply !== undefined || applied > 0) {
     const advanced = ctx.supervisor.advanceRound();
     await persistLedger(ctx);
@@ -628,7 +1018,7 @@ async function restoreFlowchartSession(
   const { definition, snapshot, limits } = checkpoint.flowchart;
   const supervisor = restoreFlowchartSupervisor(
     {
-      flowchart: definition,
+      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
       router: deps.router,
       limits,
       runId,

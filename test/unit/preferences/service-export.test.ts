@@ -71,10 +71,32 @@ describe("M4-T5: preference inspect/correct/export/delete workflow", () => {
   it("dataset export strips the evidence episode id (non-sensitive provenance)", () => {
     recordExplicitPreference("user", "u1", "format", "compact", epA);
     const data = exportForDataset("user");
-    const parsed = JSON.parse(data) as Array<Record<string, unknown>>;
-    assert.equal(parsed.length, 1);
-    assert.ok(!("evidenceEpisodeId" in (parsed[0] ?? {})));
-    assert.equal(parsed[0]?.scopeKey, "u1");
+    const parsed = JSON.parse(data) as {
+      version: number;
+      observations: Array<Record<string, unknown>>;
+      tombstones: string[];
+    };
+    assert.equal(parsed.version, 1);
+    assert.equal(parsed.observations.length, 1);
+    assert.ok(!("evidenceEpisodeId" in (parsed.observations[0] ?? {})));
+    assert.equal(parsed.observations[0]?.scopeKey, "u1");
+    assert.deepEqual(parsed.tombstones, []);
+  });
+
+  it("dataset export drops tombstoned payloads and always lists tombstone ids", () => {
+    const kept = recordExplicitPreference("user", "u1", "format", "compact", epA);
+    const gone = recordExplicitPreference("user", "u1", "theme", "dark", epA);
+    assert.equal(deletePreference(gone.id), true);
+    const parsed = JSON.parse(exportForDataset("user")) as {
+      observations: Array<{ key: string }>;
+      tombstones: string[];
+    };
+    assert.deepEqual(
+      parsed.observations.map((o) => o.key),
+      ["format"]
+    );
+    assert.ok(parsed.tombstones.includes(gone.id));
+    assert.equal(parsed.tombstones.includes(kept.id), false);
   });
 
   it("delete creates a tombstone, removes the observation, and rebuilds the view", () => {

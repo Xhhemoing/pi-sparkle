@@ -137,7 +137,7 @@ export function decideTopology(request: TopologyRequest): TopologyDecision {
   if (ev.approve) {
     return baseDecision(
       desired,
-      `additional agents have positive expected value (${ev.evUsd.toFixed(3)} USD)`,
+      `additional agents have positive expected value (${ev.evUsd.toFixed(3)} USD); uncalibrated`,
       cost,
       ev.evUsd
     );
@@ -145,7 +145,7 @@ export function decideTopology(request: TopologyRequest): TopologyDecision {
 
   return baseDecision(
     "single",
-    `additional agents rejected: ${ev.affordable ? "expected value not positive" : "remaining budget insufficient"} (ev ${ev.evUsd.toFixed(3)} USD)`,
+    `additional agents rejected: ${ev.affordable ? "expected value not positive" : "remaining budget insufficient"} (ev ${ev.evUsd.toFixed(3)} USD); uncalibrated`,
     ZERO_COST,
     ev.evUsd
   );

@@ -55,9 +55,13 @@ function eligibleCandidates(
 }
 
 /**
- * Deterministic R0: filter on hard constraints, rank by estimated cost, and
+ * Adaptive-library R0: filter on hard constraints, rank by estimated cost, and
  * fail closed when nothing is eligible. High-risk requests only ever consider
  * models explicitly approved for high-risk work.
+ *
+ * Live flowchart execution does not import this module. The public orchestrator
+ * uses `createModelRouter`, which is the R0-equivalent cheapest-eligible catalog
+ * policy plus a static `preferredModel` override. R1 and bandit stay shadow-only.
  */
 export function routeR0(
   config: R0Config,

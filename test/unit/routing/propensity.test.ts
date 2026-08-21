@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   computeOverlapDiagnostics,
+  isFabricatedPositiveSupport,
   validateCounterfactualReport,
 } from "../../../src/routing/propensity.js";
 import type {
@@ -9,11 +10,12 @@ import type {
   PropensityLogEntry,
 } from "../../../src/routing/propensity.js";
 
-function log(propensity: number): PropensityLogEntry {
+function log(behaviorProbability: number, targetProbability: number): PropensityLogEntry {
   return {
     episodeHash: "h1",
     modelId: "m",
-    propensity,
+    behaviorProbability,
+    targetProbability,
     observedUtility: undefined,
     costUsd: 0,
     guardrailBreach: false,
@@ -26,27 +28,33 @@ function report(overrides: Partial<CounterfactualReport> = {}): CounterfactualRe
     candidate: "r1",
     baseline: "r0",
     claims: [],
-    diagnostics: computeOverlapDiagnostics([log(0.5), log(0.5), log(0.5), log(0.5)]),
+    diagnostics: computeOverlapDiagnostics([log(0.5, 0.5), log(0.5, 0.5), log(0.5, 0.5), log(0.5, 0.5)]),
     ...overrides,
   };
 }
 
 describe("M5-T3: propensity ledger", () => {
-  it("reports support/overlap and effective sample size before comparison", () => {
-    const diagnostics = computeOverlapDiagnostics([log(0.5), log(0.5), log(0.5), log(0.5)]);
+  it("computes ESS from importance weights, not raw propensity squares", () => {
+    const diagnostics = computeOverlapDiagnostics([log(0.5, 0.5), log(0.5, 0.5), log(0.5, 0.5), log(0.5, 0.5)]);
     assert.equal(diagnostics.supportOk, true);
-    assert.equal(diagnostics.minPropensity, 0.5);
-    assert.equal(diagnostics.maxPropensity, 0.5);
+    assert.equal(diagnostics.estimatorId, "snips");
     assert.equal(diagnostics.effectiveSampleSize, 4);
   });
 
-  it("a zero propensity breaks support", () => {
-    const diagnostics = computeOverlapDiagnostics([log(1), log(0)]);
+  it("one-hot live overlap fails when the target puts mass on an unselected arm", () => {
+    const diagnostics = computeOverlapDiagnostics([log(1, 0), log(0, 1)]);
     assert.equal(diagnostics.supportOk, false);
+    assert.equal(diagnostics.invalidReason, "INVALID_ESTIMATE");
+  });
+
+  it("one-hot live with matching target is valid support", () => {
+    const diagnostics = computeOverlapDiagnostics([log(1, 1), log(0, 0)]);
+    assert.equal(diagnostics.supportOk, true);
+    assert.equal(diagnostics.minPropensity, 0);
   });
 
   it("propensities above 1 are invalid", () => {
-    const diagnostics = computeOverlapDiagnostics([log(1.5)]);
+    const diagnostics = computeOverlapDiagnostics([log(1.5, 1.5)]);
     assert.equal(diagnostics.supportOk, false);
   });
 
@@ -56,12 +64,17 @@ describe("M5-T3: propensity ledger", () => {
     assert.equal(diagnostics.totalActions, 0);
   });
 
+  it("rejects fabricated strictly-positive support for a deterministic policy", () => {
+    const logs = [log(0.5, 0.5), log(0.5, 0.5)];
+    assert.equal(isFabricatedPositiveSupport(logs), true);
+  });
+
   it("effective sample size never exceeds the action count", () => {
     const diagnostics = computeOverlapDiagnostics([
-      log(0.1),
-      log(0.9),
-      log(0.25),
-      log(0.75),
+      log(0.1, 0.1),
+      log(0.9, 0.9),
+      log(0.25, 0.25),
+      log(0.75, 0.75),
     ]);
     assert.ok(diagnostics.effectiveSampleSize > 0);
     assert.ok(diagnostics.effectiveSampleSize <= diagnostics.totalActions);
@@ -75,7 +88,7 @@ describe("M5-T3: propensity ledger", () => {
 
   it("rejects reports whose propensity support failed", () => {
     const validation = validateCounterfactualReport(
-      report({ diagnostics: computeOverlapDiagnostics([log(1), log(0)]) })
+      report({ diagnostics: computeOverlapDiagnostics([log(1, 0), log(0, 1)]) })
     );
     assert.equal(validation.valid, false);
     assert.ok(validation.reasons.some((r) => /support\/overlap/.test(r)));
@@ -83,7 +96,7 @@ describe("M5-T3: propensity ledger", () => {
 
   it("rejects reports with insufficient effective sample size", () => {
     const validation = validateCounterfactualReport(
-      report({ diagnostics: computeOverlapDiagnostics([log(1)]) })
+      report({ diagnostics: computeOverlapDiagnostics([log(1, 1)]) })
     );
     assert.equal(validation.valid, false);
     assert.ok(validation.reasons.some((r) => /effective sample size/.test(r)));
@@ -92,7 +105,7 @@ describe("M5-T3: propensity ledger", () => {
   it("rejects counterfactual regret claims without valid diagnostics", () => {
     const unsupported = report({
       claims: ["candidate achieves 30% lower regret than baseline"],
-      diagnostics: computeOverlapDiagnostics([log(1), log(0)]),
+      diagnostics: computeOverlapDiagnostics([log(1, 0), log(0, 1)]),
     });
     const validation = validateCounterfactualReport(unsupported);
     assert.equal(validation.valid, false);

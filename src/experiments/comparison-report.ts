@@ -44,6 +44,8 @@ export interface TaskFamilyBreakdown {
   readonly costDeltaMean: number;
 }
 
+export type EvidenceClass = "simulation" | "production";
+
 export interface ComparisonReport {
   readonly reportVersion: 1;
   /** The versioned evaluation card the comparison was declared against. */
@@ -58,6 +60,12 @@ export interface ComparisonReport {
   /** One row per task family present in the records, first-seen order. */
   readonly familyBreakdown: readonly TaskFamilyBreakdown[];
   readonly claims: readonly string[];
+  readonly evidenceClass: EvidenceClass;
+  /**
+   * True only for production paired evidence that meets the F-PROD item 1
+   * CI gates. Simulation reports are always false.
+   */
+  readonly canCloseProductionCheckpointF: boolean;
 }
 
 export interface ComparisonReportConfig {
@@ -69,12 +77,14 @@ export interface ComparisonReportConfig {
    */
   readonly maxCostIncreaseUsd: number;
   readonly supportedReportVersion: number;
+  readonly evidenceClass: EvidenceClass;
 }
 
 export const DEFAULT_COMPARISON_REPORT_CONFIG: ComparisonReportConfig = {
   minPairedSamples: 5,
   maxCostIncreaseUsd: 0,
   supportedReportVersion: 1,
+  evidenceClass: "production"
 };
 
 export interface ComparisonReportValidation {
@@ -203,6 +213,16 @@ export function computeComparisonReport(
     });
   }
 
+  const utilityDelta = pairedDeltaSummary(utilityDeltas, config.minPairedSamples);
+  const costDelta = pairedDeltaSummary(costDeltas, config.minPairedSamples);
+  const evidenceClass = config.evidenceClass;
+  const canCloseProductionCheckpointF = productionCheckpointFOpen(
+    utilityDelta,
+    costDelta,
+    evidenceClass,
+    config.maxCostIncreaseUsd
+  );
+
   return {
     reportVersion: 1,
     evaluationCard,
@@ -211,11 +231,28 @@ export function computeComparisonReport(
       baseline: records.length,
       candidate: records.length,
     },
-    utilityDelta: pairedDeltaSummary(utilityDeltas, config.minPairedSamples),
-    costDelta: pairedDeltaSummary(costDeltas, config.minPairedSamples),
+    utilityDelta,
+    costDelta,
     familyBreakdown,
     claims,
+    evidenceClass,
+    canCloseProductionCheckpointF,
   };
+}
+
+function productionCheckpointFOpen(
+  utilityDelta: PairedDeltaSummary,
+  costDelta: PairedDeltaSummary,
+  evidenceClass: EvidenceClass,
+  maxCostIncreaseUsd: number
+): boolean {
+  if (evidenceClass !== "production") return false;
+  if (utilityDelta.provisional || costDelta.provisional) return false;
+  const utilityCi = utilityDelta.confidenceInterval;
+  const costCi = costDelta.confidenceInterval;
+  if (utilityCi === undefined || utilityCi.lower <= 0) return false;
+  if (costCi === undefined || costCi.upper > maxCostIncreaseUsd) return false;
+  return true;
 }
 
 /**
@@ -257,6 +294,9 @@ export function validateComparisonReport(
   }
 
   const hasImprovementClaim = report.claims.some((claim) => IMPROVEMENT_PATTERN.test(claim));
+  if (report.canCloseProductionCheckpointF && report.evidenceClass !== "production") {
+    reasons.push("simulation cannot close production Checkpoint F");
+  }
   if (hasImprovementClaim) {
     if (report.utilityDelta.provisional || report.costDelta.provisional) {
       reasons.push(

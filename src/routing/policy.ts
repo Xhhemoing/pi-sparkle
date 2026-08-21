@@ -1,3 +1,4 @@
+import type { FlowchartNodeRole, TaskComplexity } from "../domain/flowchart.js";
 import type { ModelDescriptor } from "./capability-registry.js";
 import {
   estimateCostUsd,
@@ -6,6 +7,7 @@ import {
   satisfiesPrivacy,
 } from "./capability-registry.js";
 import type { PrivacyClass } from "./capability-registry.js";
+import { toModelDescriptor, type CatalogModel } from "./catalog-model.js";
 
 export interface RouteRequest {
   readonly taskFamily: string;
@@ -16,6 +18,9 @@ export interface RouteRequest {
   readonly budgetUsd: number;
   readonly deadlineMs: number;
   readonly highRisk: boolean;
+  /** Used when token sizes are 0 so live static catalog costs still gate. */
+  readonly fixedCostUsd?: number | undefined;
+  readonly fixedLatencyMs?: number | undefined;
 }
 
 export interface ConstraintFailure {
@@ -50,7 +55,10 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
     failures.push({
       modelId: model.modelId,
       constraint: "privacy-class",
-      detail: `${model.privacyClass} cannot serve ${request.privacyRequired}`,
+      detail:
+        model.privacyClass === undefined
+          ? `undeclared privacy class cannot serve ${request.privacyRequired}`
+          : `${model.privacyClass} cannot serve ${request.privacyRequired}`,
     });
   }
 
@@ -65,7 +73,7 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
     }
   }
 
-  if (model.contextWindow < request.contextNeeded) {
+  if (model.contextWindow !== undefined && model.contextWindow < request.contextNeeded) {
     failures.push({
       modelId: model.modelId,
       constraint: "context-window",
@@ -73,7 +81,7 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
     });
   }
 
-  if (model.maxOutputTokens < request.outputNeeded) {
+  if (model.maxOutputTokens !== undefined && model.maxOutputTokens < request.outputNeeded) {
     failures.push({
       modelId: model.modelId,
       constraint: "max-output",
@@ -81,7 +89,10 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
     });
   }
 
-  const cost = estimateCostUsd(model, request.contextNeeded, request.outputNeeded);
+  const useTokens = request.contextNeeded > 0 || request.outputNeeded > 0;
+  const cost = useTokens
+    ? estimateCostUsd(model, request.contextNeeded, request.outputNeeded)
+    : (request.fixedCostUsd ?? estimateCostUsd(model, request.contextNeeded, request.outputNeeded));
   if (cost > request.budgetUsd) {
     failures.push({
       modelId: model.modelId,
@@ -90,7 +101,9 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
     });
   }
 
-  const latency = estimateLatencyMs(model, request.outputNeeded);
+  const latency = useTokens
+    ? estimateLatencyMs(model, request.outputNeeded)
+    : (request.fixedLatencyMs ?? estimateLatencyMs(model, request.outputNeeded));
   if (latency > request.deadlineMs) {
     failures.push({
       modelId: model.modelId,
@@ -108,4 +121,48 @@ export function evaluateCandidate(model: ModelDescriptor, request: RouteRequest)
   }
 
   return { modelId: model.modelId, eligible: failures.length === 0, failures };
+}
+
+const COMPLEXITY_RANK: Record<TaskComplexity, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2
+};
+
+export interface LiveRouteRequest extends RouteRequest {
+  readonly role: FlowchartNodeRole;
+  readonly complexity: TaskComplexity;
+}
+
+/** Live + library hard filter: flowchart role/complexity then evaluateCandidate. */
+export function evaluateLiveCandidate(model: CatalogModel, request: LiveRouteRequest): CandidateCheck {
+  const failures: ConstraintFailure[] = [];
+  if (!model.roles.includes(request.role)) {
+    failures.push({
+      modelId: model.id,
+      constraint: "role",
+      detail: `role ${request.role} not declared`
+    });
+  }
+  if (COMPLEXITY_RANK[model.maxComplexity] < COMPLEXITY_RANK[request.complexity]) {
+    failures.push({
+      modelId: model.id,
+      constraint: "complexity",
+      detail: `maxComplexity ${model.maxComplexity} < ${request.complexity}`
+    });
+  }
+  const rest = evaluateCandidate(toModelDescriptor(model), {
+    taskFamily: request.taskFamily,
+    privacyRequired: request.privacyRequired,
+    requiredCapabilities: request.requiredCapabilities,
+    contextNeeded: request.contextNeeded,
+    outputNeeded: request.outputNeeded,
+    budgetUsd: request.budgetUsd,
+    deadlineMs: request.deadlineMs,
+    highRisk: request.highRisk,
+    ...(request.fixedCostUsd !== undefined ? { fixedCostUsd: request.fixedCostUsd } : {}),
+    ...(request.fixedLatencyMs !== undefined ? { fixedLatencyMs: request.fixedLatencyMs } : {})
+  });
+  const merged = [...failures, ...rest.failures];
+  return { modelId: model.id, eligible: merged.length === 0, failures: merged };
 }

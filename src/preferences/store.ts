@@ -275,10 +275,14 @@ export function clearPreferences(): void {
   saveToDisk();
 }
 
-/** Full reset including tombstones; used by tests and `pref` maintenance paths. */
+/**
+ * Full in-memory reset including tombstones. Does not rewrite the on-disk
+ * snapshot: a process restart is `resetPreferenceStore()` (or `clearAll()`)
+ * followed by `configurePreferencePersistence(path)`, which reloads
+ * observations and tombstones from disk.
+ */
 export function resetPreferenceStore(): void {
   observations.length = 0;
   views.clear();
   tombstones.clear();
-  saveToDisk();
 }

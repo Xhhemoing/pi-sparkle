@@ -220,4 +220,25 @@ describe("M6-T1: resource registry", () => {
     ]);
     assert.doesNotThrow(() => assertAcyclicLineage("x", (id) => acyclic.get(id)));
   });
+
+  it("rejects a candidate that names two resource kinds", () => {
+    const reg = registry();
+    const scope = identity().scope;
+    const parent = reg.registerBaseline({
+      identity: { kind: "prompt", name: "x", scope },
+      content: "v1",
+      author: AUTHOR
+    });
+    assert.throws(
+      () =>
+        reg.createCandidate({
+          identity: { kind: "prompt", name: "x", scope },
+          content: JSON.stringify({ kinds: ["prompt", "routing-policy"], text: "nope" }),
+          parentVersionId: parent.versionId,
+          author: AUTHOR,
+          evaluationPlan: PLAN
+        }),
+      /one resource|single resource|boundary/i
+    );
+  });
 });

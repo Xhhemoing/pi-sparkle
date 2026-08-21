@@ -4,6 +4,7 @@ import { isCandidateId, isResourceVersionId } from "../domain/ids.js";
 import type { CandidateId, ResourceVersionId } from "../domain/ids.js";
 import { isIsoTimestamp } from "../domain/timestamp.js";
 import type { IsoTimestamp } from "../domain/timestamp.js";
+import { isRecord } from "../domain/record.js";
 import type { AuthorIdentity, ResourceIdentity, ResourceKind } from "./resource.js";
 import { RESOURCE_KINDS, isNonAutoPromotableKind } from "./resource.js";
 
@@ -138,4 +139,29 @@ export function assertAcyclicLineage(
 /** Compute the content hash a candidate must carry. */
 export function hashCandidateContent(content: string): string {
   return hash32(content);
+}
+
+export function assertSingleResourceBoundary(identity: ResourceIdentity, content: string): void {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return;
+  }
+  if (!isRecord(parsed)) return;
+  if (Array.isArray(parsed.kinds)) {
+    const named = parsed.kinds.filter((kind): kind is string => typeof kind === "string");
+    const unique = new Set(named);
+    if (unique.size > 1 || (named[0] !== undefined && named[0] !== identity.kind)) {
+      throw new DomainValidationError("candidate must declare a single resource boundary");
+    }
+  }
+  if ("targetResource" in parsed && "extraKind" in parsed) {
+    throw new DomainValidationError("candidate must declare a single resource boundary");
+  }
+  if (typeof parsed.extraKind === "string" && parsed.extraKind !== identity.kind) {
+    throw new DomainValidationError("candidate must declare a single resource boundary");
+  }
 }

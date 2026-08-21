@@ -1,57 +1,41 @@
-# Adaptive Agent Work Loop Checklist
+# Adaptive remainder checklist
 
-Source: [adaptive specification](../docs/specs/adaptive-agent-work-loop.md), [ADR-004](../docs/decisions/0004-controlled-adaptation.md), and [implementation plan](adaptive-plan.md).
+Source: [adaptive-plan.md](adaptive-plan.md). Archived snapshot: [archive/adaptive-todo-pre-archive.md](archive/adaptive-todo-pre-archive.md).
+
+Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims**. They are open again until the remaining acceptance in the plan is met.
 
 ## Preconditions
 
-- [ ] M0-M2 Checkpoint C passes.
-- [ ] Adaptive specification is approved.
-- [ ] ADR-004 is accepted.
-- [ ] Six implementation defaults are approved or revised.
+- [ ] M0–M2 Checkpoint C local suite (re-verified 2026-08-17; real-provider smoke still opt-in).
+- [ ] Adaptive specification approved.
+- [ ] ADR-004 accepted.
+- [ ] Six implementation defaults approved or revised.
 - [ ] P0 privacy/storage/authority preflight passes.
 
-## M3: Episode observability
+## M3 gaps (Checkpoint D cannot close until these land)
 
-- [ ] M3-T1: ProjectEpisode lifecycle and append-only event schemas.
-- [ ] M3-T2: Requirement contract and coverage matrix.
-- [ ] M3-T3: Normalize sources, extract requirements, and critique the contract.
-- [ ] M3-T4: Build a versioned ProjectContextIndex.
-- [ ] M3-T5: Bounded context-packet compiler and fidelity checks.
-- [ ] M3-T6: Structured feedback/evaluation and redaction boundary.
-- [ ] M3-T7: Deterministic episode closure and inspection CLI.
-- [ ] M3-T8: Task taxonomy and model invocation telemetry.
-- [ ] Checkpoint D: replayable, inspectable, privacy-bounded episode foundation.
+- [ ] M3-T1 remaining: duplicate open/attach/terminal fail-closed on the episode reducer; truncated JSONL recovery test; dangling cross-stream refs; integration `episode-store` test; multi-run attach in one episode.
+- [ ] M3-T2 remaining: every deliverable/constraint sourced or assumed; non-placeholder precedence; coverage gate wired so a graph cannot start while mandatory criteria are uncovered; critic cannot mutate the contract.
+- [ ] M3-T4 remaining: instruction ownership (including nested rules); architecture/risks not empty stubs; incremental refresh; integration project-index test.
+- [ ] M3-T5 remaining: mandatory authority/unresolved questions/dependency outputs cannot be omitted under an adequate budget; downstream questions answerable without parent transcript; integration packet test.
+- [ ] M3-T6 remaining: evaluation identifies target artifact/version and independence class; integration redaction test. Preference dataset export now lists tombstone ids and omits payloads (`exportForDataset`).
+- [ ] M3-T8 remaining: pricing/catalog version separate from usage; retry/cache/timeout/cancel attribution; taxonomy version does not rewrite history; integration pi-telemetry test.
+- [ ] Checkpoint D: assemble the whole-checkpoint scenarios in the plan (not only module tests).
 
-## M4: Review and preference learning
+## M4 leftover
 
-- [x] M4-T1: Rubric registry and evaluator interface.
-- [x] M4-T2: Project, code, and delivery evaluator adapters.
-- [x] M4-T3: Independent actor/critic and blind pairwise review.
-- [x] M4-T4: Scoped preference observations and materialized views.
-- [x] M4-T5: Preference inspect/correct/export/delete workflow.
-- [x] M4-T6: Repeated-pattern detector with negative controls.
-- [x] Checkpoint E: traceable feedback reuse and bias-controlled review.
+- [ ] M4-T6: explicit severe safety events labeled as one-off readiness findings (recurrence + other negative controls already tested).
 
-## M5: Adaptive routing and model clusters
+## M5 leftover (frozen on live loop)
 
-- [x] M5-T1: Capability registry and deterministic R0 router.
-- [x] M5-T2: Bayesian task-family outcome estimates.
-- [x] M5-T3: Router replay harness and propensity ledger.
-- [x] M5-T4: Contextual bandit in shadow mode.
-- [x] M5-T5: Execution-topology router. _(router delivered; per-round recording of topology decisions is deferred to Checkpoint F — see adaptive-plan.md)_
-- [ ] Checkpoint F: statistically valid held-out cost-quality improvement with zero policy violations. _(3/4 items: CI/raw-count/task-family reporting + frozen-input reproduction + invocation recording are done and test-verified; the sealed held-out experiment still needs an approved cost-quality target and a dataset source)_
+- [ ] M5-T5: record topology decision and aggregation cost **in the run loop** (`planTaskTopology` is defined but must stay unused until Checkpoint F).
 
-## M6: Controlled self-optimization
+## Checkpoints F / G claims
 
-- [x] M6-T1: Versioned resource and improvement-candidate registry. _(pre-research: delivered while Checkpoint F item 1 stays open)_
-- [x] M6-T2: Isolated replay and sealed holdout evaluator. _(machinery only — dataset/isolation/holdout modules; the R0-vs-R1 experiment run stays frozen per ADR-005)_
-- [ ] M6-T3: Shadow/canary experiment runner.
-- [ ] M6-T4: Reflective prompt/workflow optimizer.
-- [ ] M6-T5: Approval and compare-and-swap promotion.
-- [ ] M6-T6: Drift monitor, rollback, and retirement.
-- [ ] Checkpoint G: outcome-supported promotion and automatic guardrail rollback.
+- [ ] Checkpoint F item 1: sealed held-out cost-quality vs R0 (ADR-005).
+- [ ] Checkpoint G `Outcome-supported` (requires F). Machinery ladder is archived as Exercised only.
 
 ## Optional M7
 
-- [ ] Review whether consented, high-quality data justifies external SFT/preference/RL integration.
-- [ ] Keep training infrastructure outside the TypeScript runtime behind a stable export/import contract.
+- [ ] External SFT/preference/RL review.
+- [ ] Training stays outside this runtime.

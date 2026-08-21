@@ -34,10 +34,26 @@ test("a single unrelated evidence ref does not close every criterion", () => {
   assert.ok(decision.requiredEvidence.includes("ac-tests"));
 });
 
-test("each criterion must have a matching evidence ref", () => {
+test("each criterion must have validated passing evidence", () => {
+  const privacyEvidence = createEvidenceId(() => "privacy-pass");
+  const testsEvidence = createEvidenceId(() => "tests-pass");
   const decision = decideClosure(
     episode({
-      evidenceRefs: [createEvidenceId(() => "ac-privacy"), createEvidenceId(() => "ac-tests")]
+      evidenceRefs: [privacyEvidence, testsEvidence],
+      acceptanceEvidence: [
+        {
+          criterionId: "ac-privacy",
+          evidenceId: privacyEvidence,
+          result: "PASSED",
+          sourceRef: "check:redaction"
+        },
+        {
+          criterionId: "ac-tests",
+          evidenceId: testsEvidence,
+          result: "PASSED",
+          sourceRef: "check:vitest"
+        }
+      ]
     }),
     []
   );

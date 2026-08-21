@@ -9,11 +9,29 @@ export interface ClosureDecision {
 }
 
 export function decideClosure(episode: ProjectEpisode, _latestRunIds: readonly RunId[]): ClosureDecision {
-  if (episode.status !== "OPEN") {
+  if (episode.status !== "OPEN" && episode.status !== "WAITING_FOR_USER") {
     return { canClose: false, reason: "already-closed", requiredEvidence: [] };
   }
+  const acceptanceEvidence = (
+    episode as ProjectEpisode & {
+      readonly acceptanceEvidence?: readonly {
+        readonly criterionId: string;
+        readonly evidenceId: string;
+        readonly result: "PASSED" | "FAILED" | "UNOBSERVED";
+      }[];
+    }
+  ).acceptanceEvidence;
   const missing = episode.acceptance
-    .filter((criterion) => !episode.evidenceRefs.some((ref) => String(ref).includes(criterion.id)))
+    .filter((criterion) => {
+      const structuredMatch = acceptanceEvidence?.some(
+        (evidence) =>
+          evidence.criterionId === criterion.id &&
+          evidence.result === "PASSED" &&
+          episode.evidenceRefs.includes(evidence.evidenceId as ProjectEpisode["evidenceRefs"][number])
+      );
+      const legacyMatch = episode.evidenceRefs.some((ref) => String(ref) === `evd_${criterion.id}`);
+      return structuredMatch !== true && !legacyMatch;
+    })
     .map((criterion) => criterion.id);
   if (missing.length > 0) {
     return { canClose: false, reason: "acceptance-incomplete", requiredEvidence: missing };

@@ -1,6 +1,6 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,6 +10,7 @@ import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
 import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createCliModelRouter } from "../../../src/cli/model-catalog.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 
 const REPO_ROOT = process.cwd();
 
@@ -58,7 +59,12 @@ test("run with the fake executor prints a human summary and persists the run", a
     const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
     const checkpointFile = join(stateRoot, "runs", runId, "checkpoint.json");
     const eventsText = await readFile(eventsFile, "utf8");
-    assert.equal(eventsText.trim().split("\n").length, 9);
+    const eventLines = eventsText.trim().split("\n");
+    assert.equal(eventLines.length, 12);
+    const eventTypes = eventLines.map((line) => (JSON.parse(line) as { type: string }).type);
+    assert.ok(eventTypes.includes("EPISODE_OPENED"));
+    assert.ok(eventTypes.includes("RUN_ATTACHED"));
+    assert.ok(eventTypes.includes("EPISODE_CLOSED"));
     const checkpoint = JSON.parse(await readFile(checkpointFile, "utf8"));
     assert.equal(checkpoint.status, "COMPLETED");
   });
@@ -70,6 +76,10 @@ test("run rejects missing required arguments", async () => {
     const code = await main(["run", "--project", projectRoot, "--state-root", stateRoot], io);
     assert.equal(code, 1);
     assert.match(err.join(""), /--objective/);
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.equal(parsed?.command, "run");
+    assert.equal(parsed?.stage, "parse-args");
+    assert.ok((parsed?.next ?? "").includes("--objective"));
     assert.deepEqual(out, []);
   });
 });
@@ -86,6 +96,34 @@ test("run rejects an unknown executor", async () => {
   });
 });
 
+test("inspect warns on a crash-truncated final event line and still replays complete events", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runIo = capture();
+    await main(["run", "--project", projectRoot, "--objective", "x", "--state-root", stateRoot], runIo.io);
+    const runId = runIo.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1];
+    assert.ok(runId);
+    await appendFile(
+      join(stateRoot, "runs", runId, "events.jsonl"),
+      '{"id":"evt_truncated","schemaVersion":1,"type":"RUN_ST'
+    );
+
+    const human = capture();
+    const code = await main(["inspect", "--run", runId, "--state-root", stateRoot], human.io);
+    assert.equal(code, 0);
+    assert.match(human.out.join(""), /COMPLETED/);
+    assert.match(human.err.join(""), /truncated event log at line/);
+
+    const json = capture();
+    const jsonCode = await main(["inspect", "--run", runId, "--state-root", stateRoot, "--json"], json.io);
+    assert.equal(jsonCode, 0);
+    assert.match(json.err.join(""), /truncated event log at line/);
+    for (const line of json.out.join("").trim().split("\n")) {
+      const parsed = JSON.parse(line) as { id?: unknown; type?: unknown };
+      assert.ok(parsed.id && parsed.type);
+    }
+  });
+});
+
 test("inspect prints the status and --json emits one JSON event per line", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const runIo = capture();
@@ -97,12 +135,13 @@ test("inspect prints the status and --json emits one JSON event per line", async
     const code = await main(["inspect", "--run", runId, "--state-root", stateRoot], human.io);
     assert.equal(code, 0);
     assert.match(human.out.join(""), /COMPLETED/);
+    assert.match(human.out.join(""), /episode: ep_/);
 
     const json = capture();
     const jsonCode = await main(["inspect", "--run", runId, "--state-root", stateRoot, "--json"], json.io);
     assert.equal(jsonCode, 0);
     const lines = json.out.join("").trim().split("\n");
-    assert.equal(lines.length, 9);
+    assert.equal(lines.length, 12);
     for (const line of lines) {
       const parsed = JSON.parse(line);
       assert.ok(parsed.id && parsed.type);
@@ -110,9 +149,75 @@ test("inspect prints the status and --json emits one JSON event per line", async
   });
 });
 
+test("inspect --episode prints the bound snapshot", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runIo = capture();
+    await main(["run", "--project", projectRoot, "--objective", "x", "--state-root", stateRoot], runIo.io);
+    const runId = runIo.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1];
+    assert.ok(runId);
+
+    const runInspect = capture();
+    await main(["inspect", "--run", runId, "--state-root", stateRoot], runInspect.io);
+    const episodeId = runInspect.out.join("").match(/episode: (ep_[A-Za-z0-9_-]+)/)?.[1];
+    assert.ok(episodeId);
+
+    const human = capture();
+    const code = await main(["inspect", "--episode", episodeId, "--state-root", stateRoot], human.io);
+    assert.equal(code, 0);
+    assert.match(human.out.join(""), new RegExp(`Episode ${episodeId}: COMPLETED`));
+    assert.match(human.out.join(""), new RegExp(`runs: ${runId}`));
+    assert.deepEqual(human.err, []);
+
+    const json = capture();
+    const jsonCode = await main(
+      ["inspect", "--episode", episodeId, "--state-root", stateRoot, "--json"],
+      json.io
+    );
+    assert.equal(jsonCode, 0);
+    const snapshot = JSON.parse(json.out.join("").trim()) as { id: string; status: string; runIds: string[] };
+    assert.equal(snapshot.id, episodeId);
+    assert.equal(snapshot.status, "COMPLETED");
+    assert.deepEqual(snapshot.runIds, [runId]);
+  });
+});
+
+test("inspect rejects --run and --episode together", async () => {
+  const { io, err } = capture();
+  const code = await main(
+    [
+      "inspect",
+      "--run",
+      "run_01234567-89ab-cdef-0123-456789abcdef",
+      "--episode",
+      "ep_01234567-89ab-cdef-0123-456789abcdef",
+      "--state-root",
+      "/tmp/pi-sparkle-nonexistent"
+    ],
+    io
+  );
+  assert.equal(code, 1);
+  assert.match(err.join(""), /either --run or --episode/);
+});
+
 test("inspect reports a missing run", async () => {
   const { io, err } = capture();
   const code = await main(["inspect", "--run", "run_01234567-89ab-cdef-0123-456789abcdef", "--state-root", "/tmp/pi-sparkle-nonexistent"], io);
+  assert.equal(code, 1);
+  assert.match(err.join(""), /not found/);
+});
+
+test("inspect reports a missing episode", async () => {
+  const { io, err } = capture();
+  const code = await main(
+    [
+      "inspect",
+      "--episode",
+      "ep_01234567-89ab-cdef-0123-456789abcdef",
+      "--state-root",
+      "/tmp/pi-sparkle-nonexistent"
+    ],
+    io
+  );
   assert.equal(code, 1);
   assert.match(err.join(""), /not found/);
 });
@@ -242,6 +347,17 @@ test("unknown commands exit with an error", async () => {
   const code = await main(["frobnicate"], io);
   assert.equal(code, 1);
   assert.match(err.join(""), /Unknown command/);
+  const parsed = parseCliErrorJson(err.join(""));
+  assert.equal(parsed?.command, "pi-sparkle");
+  assert.match(parsed?.next ?? "", /help/);
+});
+
+test("the CLI entrypoint prints the package version", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "src/cli/main.ts", "--version"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8"
+  });
+  assert.equal(output, "0.1.0\n");
 });
 
 test("the CLI entrypoint spawns end-to-end", () => {
@@ -251,7 +367,10 @@ test("the CLI entrypoint spawns end-to-end", () => {
   });
   assert.match(output, /pi-sparkle/);
   assert.match(output, /run|inspect|resume|answer/);
+  assert.match(output, /doctor/);
   assert.match(output, /--flowchart/);
+  assert.match(output, /inspect --episode/);
+  assert.match(output, /adapt status/);
   assert.match(output, /startFlowchartRun|flowchart JSON|flowchart waiting/i);
 });
 
@@ -330,11 +449,29 @@ test("run --flowchart is incompatible with --children", async () => {
   });
 });
 
-test("run --flowchart is incompatible with --executor", async () => {
+test("run --flowchart --executor fake completes without --results", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const flowchartPath = join(projectRoot, "flow.json");
-    await writeFile(flowchartPath, JSON.stringify(WAITING_FLOWCHART), "utf8");
-    const { io, err } = capture();
+    await writeFile(
+      flowchartPath,
+      JSON.stringify({
+        id: "cli-exec",
+        nodes: [
+          {
+            id: "only",
+            taskId: "tsk_only",
+            role: "actor",
+            objective: "Do the work",
+            modelPolicy: { allowedModels: ["cheap"] },
+            confidenceThreshold: 0.7,
+            approvalRequired: false
+          }
+        ],
+        edges: []
+      }),
+      "utf8"
+    );
+    const { io, out, err } = capture();
     const code = await main(
       [
         "run",
@@ -351,8 +488,10 @@ test("run --flowchart is incompatible with --executor", async () => {
       ],
       io
     );
-    assert.equal(code, 1);
-    assert.match(err.join(""), /incompatible with --executor/);
+    assert.equal(err.join(""), "");
+    assert.equal(code, 0);
+    assert.match(out.join(""), /COMPLETED/);
+    assert.match(out.join(""), /only=COMPLETED/);
   });
 });
 

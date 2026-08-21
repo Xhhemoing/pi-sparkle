@@ -2,10 +2,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { parseRunId } from "../domain/ids.js";
-import { createCliModelRouter } from "./model-catalog.js";
+import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { injectFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import { parseFactValue } from "../run/injection.js";
+import { CLI_EXIT, cliFail } from "./errors.js";
 
 export interface InjectIo {
   stdout(text: string): void;
@@ -31,20 +32,39 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
     }
   });
   if (values.run === undefined || values.type === undefined) {
-    io.stderr("inject requires --run <runId> and --type fact|override|skip\n");
-    return 1;
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: "inject requires --run <runId> and --type fact|override|skip",
+      next: "pass --run <runId> and --type fact|override|skip"
+    });
   }
   if (values.type === "fact" && (values.key === undefined || values.value === undefined)) {
-    io.stderr("inject --type fact requires --key and --value\n");
-    return 1;
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: "inject --type fact requires --key and --value",
+      next: "pass --key and --value",
+      runId: values.run
+    });
   }
   if ((values.type === "override" || values.type === "skip") && values.node === undefined) {
-    io.stderr(`inject --type ${values.type} requires --node <id>\n`);
-    return 1;
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: `inject --type ${values.type} requires --node <id>`,
+      next: "pass --node <id>",
+      runId: values.run
+    });
   }
   if (values.type === "override" && values.confidence === undefined) {
-    io.stderr("inject --type override requires --confidence <0-1>\n");
-    return 1;
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: "inject --type override requires --confidence <0-1>",
+      next: "pass --confidence <0-1>",
+      runId: values.run
+    });
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);
@@ -61,7 +81,7 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
         : { confidence: 1 })
   };
   const outcome = await injectFlowchartRun(
-    { stateRoot, router: createCliModelRouter(), pause: createFilePauseController(stateRoot) },
+    { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause: createFilePauseController(stateRoot) },
     runId,
     request
   );
@@ -78,5 +98,5 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
   );
   io.stdout(`  facts: ${facts === "" ? "(none)" : facts}\n`);
   io.stdout(`  nodes: ${nodes}\n`);
-  return 0;
+  return CLI_EXIT.ok;
 }

@@ -4,6 +4,8 @@
 
 Proposed for review. This specification extends, but does not replace, the approved M0-M2 runtime architecture. M0-M2 remain the execution foundation; the capabilities below begin after Checkpoint C unless an explicitly bounded observability slice is pulled forward.
 
+The M3–M6 headings in this document name the **adaptive library plane**. They are not a continuation of the runtime CLI milestones (M0–M2.5). Live execution uses flowchart + R0-equivalent `ModelRouter`; R1/bandit/topology stay shadow or parked until Checkpoint F.
+
 ## Objective
 
 Build a native, evidence-driven improvement loop for `pi-sparkle` that can:

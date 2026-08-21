@@ -5,6 +5,13 @@ coverage/
 .env.*
 !.env.example
 .pi-sparkle/
+.pi/
 .codebase-memory/
 *.log
 .DS_Store
+
+# local/generated working artifacts
+graphify-out/
+.learnings/
+dataset/*
+!dataset/public-priors/

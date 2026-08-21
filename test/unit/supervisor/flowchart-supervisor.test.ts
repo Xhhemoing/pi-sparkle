@@ -19,8 +19,8 @@ import {
 const routerConfig: ModelRouterConfig = {
   policyVersion: "router-v1",
   models: [
-    { id: "cheap", roles: ["actor", "critic"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
-    { id: "premium", roles: ["actor", "critic", "judge", "router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
+    { id: "cheap", version: "cheap-v1", roles: ["actor", "critic"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+    { id: "premium", version: "premium-v1", roles: ["actor", "critic", "judge", "router"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
   ]
 };
 
@@ -396,10 +396,10 @@ test("a snapshot restores active routes for a running node", () => {
   assert.deepEqual(restored.leaseReadyNodes().map((l) => l.nodeId), ["b"]);
 });
 
-test("a low-confidence work node returns to RUNNING after route approval, then needs a child result", () => {
+test("an approvalRequired work node returns to RUNNING after route approval, then needs a child result", () => {
   const fc: Flowchart = {
     id: "route-approval",
-    nodes: [node("actor", { threshold: 0.95, models: ["cheap"] }), node("next", { models: ["cheap"] })],
+    nodes: [node("actor", { approvalRequired: true, models: ["cheap"] }), node("next", { models: ["cheap"] })],
     edges: [successEdge("actor", "next")]
   };
   const sv = makeSupervisor(fc);

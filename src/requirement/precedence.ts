@@ -8,22 +8,52 @@ export interface Conflict {
   readonly resolvedBy?: string;
 }
 
-export function detectConflicts(contract: RequirementContract): Conflict[] {
-  const conflicts: Conflict[] = [];
-  const checks = contract.acceptanceCriteria.map((c) => c.observableCheck.toLowerCase());
-
-  if (checks.some((c) => c.includes("fast") || c.includes("< 10ms")) &&
-      checks.some((c) => c.includes("slow") || c.includes("> 1000ms"))) {
-    conflicts.push({
-      ids: contract.acceptanceCriteria.map((c) => c.id),
-      description: "contradictory-latency"
-    });
-  }
-  return conflicts;
+function isFastCheck(check: string): boolean {
+  const lower = check.toLowerCase();
+  return lower.includes("fast") || lower.includes("< 10ms");
 }
 
-export function applyPrecedence(contract: RequirementContract, _rule: PrecedenceRule): RequirementContract {
-  // Placeholder: precedence is recorded but does not mutate the contract in M3.
-  // Real resolution happens at user decision gate (M4+).
-  return contract;
+function isSlowCheck(check: string): boolean {
+  const lower = check.toLowerCase();
+  return lower.includes("slow") || lower.includes("> 1000ms");
+}
+
+export function detectConflicts(contract: RequirementContract): Conflict[] {
+  const fast = contract.acceptanceCriteria.filter((criterion) => isFastCheck(criterion.observableCheck));
+  const slow = contract.acceptanceCriteria.filter((criterion) => isSlowCheck(criterion.observableCheck));
+  if (fast.length === 0 || slow.length === 0) return [];
+  return [
+    {
+      ids: [...fast, ...slow].map((criterion) => criterion.id),
+      description: "contradictory-latency"
+    }
+  ];
+}
+
+export function applyPrecedence(contract: RequirementContract, rule: PrecedenceRule): RequirementContract {
+  const conflicts = detectConflicts(contract);
+  if (conflicts.length === 0) return contract;
+
+  const drop = new Set<string>();
+  const assumptions = [...contract.assumptions];
+  for (const conflict of conflicts) {
+    const ordered = contract.acceptanceCriteria.filter((criterion) => conflict.ids.includes(criterion.id));
+    const winner = rule === "user-first" ? ordered[0] : ordered.at(-1);
+    if (winner === undefined) continue;
+    for (const criterion of ordered) {
+      if (criterion.id === winner.id) continue;
+      drop.add(criterion.id);
+      assumptions.push({
+        id: `a-superseded-${criterion.id}`,
+        statement: `Dropped by ${rule}: ${criterion.description}`,
+        source: "precedence"
+      });
+    }
+  }
+
+  return {
+    ...contract,
+    acceptanceCriteria: contract.acceptanceCriteria.filter((criterion) => !drop.has(criterion.id)),
+    assumptions
+  };
 }

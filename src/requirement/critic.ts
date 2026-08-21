@@ -5,6 +5,7 @@ export interface ContractCritique {
   untestable: string[];
   scopeCreep: string[];
   missingSources: string[];
+  omissions: string[];
   score: number; // 0-100
 }
 
@@ -13,6 +14,7 @@ export function critiqueContract(contract: RequirementContract): ContractCritiqu
   const untestable: string[] = [];
   const scopeCreep: string[] = [];
   const missingSources: string[] = [];
+  const omissions: string[] = [];
 
   const checks = contract.acceptanceCriteria.map((c) => c.observableCheck.toLowerCase());
 
@@ -32,5 +34,5 @@ export function critiqueContract(contract: RequirementContract): ContractCritiqu
   if (contract.sourceRefs.length === 0) missingSources.push("no-sources");
 
   const score = 100 - (contradictions.length * 15 + untestable.length * 10 + scopeCreep.length * 15 + missingSources.length * 20);
-  return { contradictions, untestable, scopeCreep, missingSources, score: Math.max(0, score) };
+  return { contradictions, untestable, scopeCreep, missingSources, omissions, score: Math.max(0, score) };
 }

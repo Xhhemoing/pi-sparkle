@@ -1,5 +1,6 @@
 import type { AgentInstanceId, RunId, TaskId } from "../domain/ids.js";
 import type { AgentMessage } from "../protocol/v1.js";
+import type { ClusterSessionView } from "../cluster/host.js";
 
 export interface AgentExecutionRequest {
   runId: RunId;
@@ -7,6 +8,11 @@ export interface AgentExecutionRequest {
   agentInstanceId: AgentInstanceId;
   prompt: string;
   workingDirectory: string;
+  /** Routed model for this attempt. Executors that support multi-model honor it. */
+  modelId?: string;
+  providerId?: string;
+  /** Live cluster session for spawn / send / inbox. Optional. */
+  cluster?: ClusterSessionView;
 }
 
 export type ExecutionEvent =

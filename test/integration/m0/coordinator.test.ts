@@ -42,13 +42,16 @@ test("a successful run records the full event sequence and a valid checkpoint", 
       [
         "PROJECT_DISCOVERED",
         "RUN_CREATED",
+        "EPISODE_OPENED",
+        "RUN_ATTACHED",
         "RUN_STARTED",
         "AGENT_STARTED",
         "AGENT_EVENT",
         "AGENT_EVENT",
         "AGENT_EVENT",
         "AGENT_FINISHED",
-        "RUN_COMPLETED"
+        "RUN_COMPLETED",
+        "EPISODE_CLOSED"
       ]
     );
     const agentFinished = outcome.events.find((event) => event.type === "AGENT_FINISHED");
@@ -72,7 +75,7 @@ test("an explicit agent failure produces a FAILED run with the failure reason", 
     const executor = new FakeExecutor([{ type: "EXECUTION_FINISHED", outcome: "FAILURE" }]);
     const outcome = await (await startRun(deps(stateRoot, executor), { projectRoot, objective: "x" })).done;
     assert.equal(outcome.status, "FAILED");
-    assert.equal(outcome.events.at(-1)?.type, "RUN_FAILED");
+    assert.equal(outcome.events.at(-1)?.type, "EPISODE_CLOSED");
     const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
     assert.equal((failed?.payload as { reason: string }).reason, "agent reported failure");
   });
@@ -112,7 +115,8 @@ test("cancellation propagates to the executor and settles the run as CANCELLED",
     const outcome = await running.done;
     assert.equal(executor.sawAbort, true);
     assert.equal(outcome.status, "CANCELLED");
-    assert.equal(outcome.events.at(-1)?.type, "RUN_CANCEL_REQUESTED");
+    assert.equal(outcome.events.at(-1)?.type, "EPISODE_CLOSED");
+    assert.ok(outcome.events.some((event) => event.type === "RUN_CANCEL_REQUESTED"));
   });
 });
 

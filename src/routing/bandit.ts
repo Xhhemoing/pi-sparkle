@@ -70,8 +70,8 @@ export interface ArmChoice {
 }
 
 /**
- * Epsilon-greedy selection with UCB-style deterministic tie-breaks.
- * High-risk tasks never explore — the exploration counter stays at zero.
+ * Epsilon-greedy selection with deterministic mean-reward tie-breaks.
+ * This is not UCB. High-risk tasks never explore — the exploration counter stays at zero.
  */
 export function selectArm(
   state: BanditState,

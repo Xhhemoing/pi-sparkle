@@ -23,12 +23,19 @@ import {
   type ApprovalReply,
   type ConfidenceScore
 } from "../domain/flowchart.js";
+import { isAgentRole, type AgentRole } from "../domain/roles.js";
 import type { AcceptanceCriterion } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 
 export const PROTOCOL_VERSION = 1;
 
-export const MESSAGE_TYPES = ["TASK_REQUEST", "PROGRESS", "QUESTION", "TASK_RESULT"] as const;
+export const MESSAGE_TYPES = [
+  "TASK_REQUEST",
+  "PROGRESS",
+  "QUESTION",
+  "PEER_MESSAGE",
+  "TASK_RESULT"
+] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
 export const PROGRESS_STATUSES = ["STARTED", "WORKING", "WAITING", "BLOCKED"] as const;
@@ -118,7 +125,16 @@ export interface TaskResult extends MessageBase {
   failure?: FailureClassification;
 }
 
-export type AgentMessage = TaskRequest | ProgressUpdate | AgentQuestion | TaskResult;
+/** Peer-to-peer cluster message. Role-cast uses to=SUPERVISOR plus addressRole. */
+export interface PeerMessage extends MessageBase {
+  type: "PEER_MESSAGE";
+  body: string;
+  addressRole?: AgentRole;
+  inReplyTo?: MessageId;
+  topic?: string;
+}
+
+export type AgentMessage = TaskRequest | ProgressUpdate | AgentQuestion | PeerMessage | TaskResult;
 
 export type { ApprovalPlan, ApprovalReply } from "../domain/flowchart.js";
 
@@ -277,6 +293,19 @@ function messageError(value: unknown): string | undefined {
       if (!isVerificationResult(value.verification)) return "verification must be a valid VerificationResult";
       if (value.failure !== undefined && !isFailureClassification(value.failure)) {
         return "failure must be a valid FailureClassification";
+      }
+      return undefined;
+    }
+    case "PEER_MESSAGE": {
+      if (typeof value.body !== "string" || value.body.trim() === "") return "body must be a non-empty string";
+      if (value.addressRole !== undefined && !isAgentRole(value.addressRole)) {
+        return "addressRole must be a known AgentRole";
+      }
+      if (value.inReplyTo !== undefined && !isMessageId(value.inReplyTo)) {
+        return "inReplyTo must be a valid MessageId";
+      }
+      if (value.topic !== undefined && (typeof value.topic !== "string" || value.topic.trim() === "")) {
+        return "topic must be a non-empty string";
       }
       return undefined;
     }

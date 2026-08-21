@@ -24,7 +24,9 @@ import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunOutcome } from "./child-coordinator.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
-import { applyTrackingGate } from "./gate-apply.js";
+import { assertCoverageAllowsStart } from "../requirement/coverage.js";
+import { applyTrackingGate, nextTrackingSeq } from "./gate-apply.js";
+import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import { hashAssessment, type TrackingAssessment } from "../tracking/types.js";
 import {
   checkpointCarriesFlowchart,
@@ -89,6 +91,8 @@ export interface SupervisedRunInput {
   objective: string;
   tasks: import("../domain/task.js").TaskNode[];
   limits?: RunLimits;
+  contract?: import("../domain/contract.js").RequirementContract;
+  resolvedQuestionIds?: readonly string[];
 }
 
 export interface SupervisedRunOutcome {
@@ -490,18 +494,20 @@ export async function settleSupervisedOutcome(opts: {
   }
 }
 
-function nextTrackingSeq(events: readonly Event[]): number {
-  let next = 0;
-  for (const event of events) {
-    if (event.type === "TRACKING_ASSESSMENT" || event.type === "GATE_TRANSITION") {
-      next = Math.max(next, event.payload.seq + 1);
-    }
-  }
-  return next;
-}
-
 /** M2: starts a supervisor run over a validated task graph. */
 export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInput): SupervisedRunHandle {
+  if (input.contract !== undefined) {
+    assertCoverageAllowsStart(
+      input.contract,
+      input.tasks.map((task) => ({
+        id: task.id,
+        acceptanceCriteria: task.acceptanceCriteria
+      })),
+      input.resolvedQuestionIds !== undefined
+        ? { resolvedQuestionIds: input.resolvedQuestionIds }
+        : undefined
+    );
+  }
   const controller = new AbortController();
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
@@ -544,6 +550,16 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
 
     await append(make("PROJECT_DISCOVERED", { project }));
     await append(make("RUN_CREATED", { run }));
+    await bindEpisodeToRun({
+      stateRoot: deps.stateRoot,
+      runId,
+      projectId: project.id,
+      objective: input.objective,
+      ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : {}),
+      append,
+      make: (type, payload) => make(type, payload),
+      ...(generateId !== undefined ? { generateId } : {})
+    });
     await append(make("RUN_STARTED", {}));
     await append(make("TASK_GRAPH_ACCEPTED", { tasks: graph.tasks }));
 
@@ -575,6 +591,13 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
     const status = result.status;
 
     const beforeSettle = await eventStore.readAll();
+    await settleBoundEpisode({
+      stateRoot: deps.stateRoot,
+      events: beforeSettle.events,
+      status,
+      append,
+      make: (type, payload) => make(type, payload)
+    });
     await settleSupervisedOutcome({
       events: beforeSettle.events,
       append,
@@ -678,6 +701,13 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
     const status = result.status;
 
     const beforeSettle = await eventStore.readAll();
+    await settleBoundEpisode({
+      stateRoot: deps.stateRoot,
+      events: beforeSettle.events,
+      status,
+      append,
+      make: (type, payload) => make(type, payload)
+    });
     await settleSupervisedOutcome({
       events: beforeSettle.events,
       append,

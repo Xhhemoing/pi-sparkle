@@ -16,6 +16,9 @@ import {
 import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
+import type { AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
+import { PASSED_NODE_CONFIDENCE } from "../../../src/run/flowchart-executor.js";
 
 function sequenceGenerator(): () => string {
   let n = 0;
@@ -25,8 +28,8 @@ function sequenceGenerator(): () => string {
 const routerConfig = {
   policyVersion: "router-v1",
   models: [
-    { id: "cheap", roles: ["actor", "critic"] as const, maxComplexity: "MEDIUM" as const, estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
-    { id: "premium", roles: ["actor", "critic", "judge", "router"] as const, maxComplexity: "HIGH" as const, estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
+    { id: "cheap", version: "cheap-v1", roles: ["actor", "critic"] as const, maxComplexity: "MEDIUM" as const, estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+    { id: "premium", version: "premium-v1", roles: ["actor", "critic", "judge", "router"] as const, maxComplexity: "HIGH" as const, estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 }
   ]
 };
 
@@ -368,5 +371,59 @@ test("two 0.5-cost nodes under remainingCostUsd 0.6 fail closed after the first 
     assert.equal(typeof remaining, "number");
     assert.ok((remaining as number) < 0.5);
     assert.equal(outcome.snapshot.remainingCostUsd, remaining);
+  });
+});
+
+class FailingExecutor implements AgentExecutor {
+  async *execute(): AsyncIterable<ExecutionEvent> {
+    yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+  }
+}
+
+test("an executor completes a one-node flowchart without childResults", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor: new ProtocolChildExecutor() },
+      {
+        projectRoot,
+        flowchart: { id: "executor-only", nodes: [node("only")], edges: [] },
+        objective: "Ship via executor"
+      }
+    );
+    assert.equal(outcome.status, "COMPLETED");
+    assert.equal(outcome.snapshot.nodes["only"]?.state, "COMPLETED");
+    assert.equal(outcome.snapshot.nodes["only"]?.confidence, PASSED_NODE_CONFIDENCE);
+    assert.ok(outcome.events.some((event) => event.type === "AGENT_STARTED"));
+    assert.ok(outcome.events.some((event) => event.type === "AGENT_FINISHED"));
+  });
+});
+
+test("explicit childResults win over a failing executor", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor: new FailingExecutor() },
+      {
+        projectRoot,
+        flowchart: { id: "results-win", nodes: [node("only")], edges: [] },
+        childResults: { only: fakeResult(0.91, "evd_override") }
+      }
+    );
+    assert.equal(outcome.status, "COMPLETED");
+    assert.equal(outcome.snapshot.nodes["only"]?.state, "COMPLETED");
+    assert.equal(outcome.snapshot.nodes["only"]?.confidence, 0.91);
+  });
+});
+
+test("a failing executor without results fails the node", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor: new FailingExecutor() },
+      {
+        projectRoot,
+        flowchart: { id: "executor-fail", nodes: [node("only")], edges: [] }
+      }
+    );
+    assert.equal(outcome.status, "FAILED");
+    assert.equal(outcome.snapshot.nodes["only"]?.state, "FAILED");
   });
 });

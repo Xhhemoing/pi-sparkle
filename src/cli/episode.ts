@@ -1,0 +1,137 @@
+import { parseArgs } from "node:util";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { parseEpisodeId } from "../domain/ids.js";
+import { decideClosure } from "../episode/closure.js";
+import { closeEpisode, waitForUser } from "../episode/manager.js";
+import { EpisodeEventStore } from "../episode/store.js";
+import { EpisodeStore } from "../run/episode-store.js";
+import { withExclusiveFileLock } from "../persist/file-lock.js";
+import type { CliIo } from "./main.js";
+import { CLI_EXIT, cliFail } from "./errors.js";
+
+const USAGE = `Usage:
+  pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
+  pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--outcome <id>] [--state-root <dir>]
+`;
+
+const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "ABANDONED"] as const;
+type TerminalStatus = (typeof TERMINAL_STATUSES)[number];
+
+function isTerminalStatus(value: string): value is TerminalStatus {
+  return (TERMINAL_STATUSES as readonly string[]).includes(value);
+}
+
+export async function episodeCommand(args: string[], io: CliIo): Promise<number> {
+  const [subcommand, ...rest] = args;
+  const { values } = parseArgs({
+    args: rest,
+    options: {
+      episode: { type: "string" },
+      status: { type: "string" },
+      outcome: { type: "string" },
+      "state-root": { type: "string" },
+      json: { type: "boolean", default: false }
+    }
+  });
+  const stateRoot = values["state-root"] ?? join(homedir(), ".pi-sparkle");
+  if (subcommand === "help" || subcommand === "--help" || subcommand === "-h" || subcommand === undefined) {
+    io.stdout(USAGE);
+    return subcommand === undefined ? CLI_EXIT.error : CLI_EXIT.ok;
+  }
+  if (values.episode === undefined) {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: "episode command requires --episode <epId>",
+      next: "pass --episode <epId>"
+    });
+  }
+  const episodeId = parseEpisodeId(values.episode);
+
+  if (subcommand === "events") {
+    const read = await new EpisodeEventStore(stateRoot, episodeId).readAll();
+    if (read.events.length === 0) {
+      return cliFail(io, {
+        command: "episode",
+        stage: "lookup",
+        message: `Episode ${episodeId} has no events under ${stateRoot}`,
+        next: "inspect --run first to get a bound episode id"
+      });
+    }
+    if (values.json) {
+      for (const event of read.events) io.stdout(`${JSON.stringify(event)}\n`);
+    } else {
+      for (const event of read.events) io.stdout(`${event.type}\n`);
+    }
+    return CLI_EXIT.ok;
+  }
+
+  if (subcommand !== "close") {
+    io.stderr(USAGE);
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `Unknown episode command: ${subcommand}`,
+      next: "use episode events or episode close"
+    });
+  }
+  const status = values.status;
+  if (status === undefined || !isTerminalStatus(status)) {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: "episode close requires --status COMPLETED, FAILED, or ABANDONED",
+      next: "pass --status COMPLETED, FAILED, or ABANDONED"
+    });
+  }
+
+  return await withExclusiveFileLock(
+    join(stateRoot, "episodes", `${episodeId}.lock`),
+    async () => {
+      const snapshots = new EpisodeStore(stateRoot, episodeId);
+      const latest = (await snapshots.readAll()).episodes.at(-1);
+      if (latest === undefined) {
+        return cliFail(io, {
+          command: "episode",
+          stage: "lookup",
+          message: `Episode ${episodeId} not found under ${stateRoot}`,
+          next: "inspect --run to find a bound episode id"
+        });
+      }
+      const events = new EpisodeEventStore(stateRoot, episodeId);
+      if (status === "COMPLETED") {
+        const decision = decideClosure(latest, latest.runIds);
+        if (!decision.canClose) {
+          if (decision.reason === "acceptance-incomplete" && latest.status !== "WAITING_FOR_USER") {
+            const waiting = waitForUser(latest, decision.reason, decision.requiredEvidence);
+            await snapshots.append(waiting.episode);
+            await events.append(waiting.event);
+          }
+          io.stderr(
+            `${decision.reason}${decision.requiredEvidence.length > 0 ? `: ${decision.requiredEvidence.join(", ")}` : ""}\n`
+          );
+          return cliFail(io, {
+            command: "episode",
+            stage: "close",
+            message: decision.reason,
+            next: "satisfy required evidence or close as FAILED/ABANDONED"
+          });
+        }
+      } else if (latest.status !== "OPEN" && latest.status !== "WAITING_FOR_USER") {
+        return cliFail(io, {
+          command: "episode",
+          stage: "close",
+          message: "already-closed",
+          next: "inspect --episode to see the terminal status"
+        });
+      }
+
+      const closed = closeEpisode(latest, status, values.outcome);
+      await snapshots.append(closed.episode);
+      await events.append(closed.event);
+      io.stdout(`Episode ${episodeId}: ${closed.episode.status}\n`);
+      return 0;
+    }
+  );
+}

@@ -48,7 +48,36 @@ describe("applyTrackingGate", () => {
     });
     assert.equal(result.directive, "none");
     assert.equal(result.runStatus, "RUNNING");
+    assert.equal(result.applied, true);
+    assert.equal(events.some((e) => e.type === "TRACKING_ASSESSMENT"), true);
     assert.equal(events.some((e) => e.type === "GATE_TRANSITION"), false);
+  });
+
+  it("records a none-gate assessment only once for the same hash and seq", () => {
+    const a = assessment({ human: { kind: "unobserved" }, score: 0.9, prescore: 0.9 });
+    const hash = hashAssessment(a);
+    const generateEventId = monotonicEventId();
+    const first = applyTrackingGate({
+      events: [],
+      assessment: a,
+      assessmentHash: hash,
+      expectedSeq: 0,
+      policyVersion: "track-v1",
+      nowIso: "2026-08-18T00:00:00.000Z",
+      generateEventId
+    });
+    const second = applyTrackingGate({
+      events: first.events,
+      assessment: a,
+      assessmentHash: hash,
+      expectedSeq: 0,
+      policyVersion: "track-v1",
+      nowIso: "2026-08-18T00:00:01.000Z",
+      generateEventId
+    });
+    assert.equal(first.result.applied, true);
+    assert.equal(second.result.applied, false);
+    assert.equal(second.events.filter((event) => event.type === "TRACKING_ASSESSMENT").length, 1);
   });
 
   it("applies the same assessmentHash+seq only once", () => {

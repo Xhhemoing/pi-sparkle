@@ -6,14 +6,16 @@ export type FeedbackKind = "human" | "peer" | "judge" | "deterministic";
 export interface FeedbackRecord {
   readonly id: string;
   readonly episodeId: EpisodeId;
-  readonly runId?: RunId;
-  readonly taskId?: TaskId;
+  readonly runId?: RunId | undefined;
+  readonly taskId?: TaskId | undefined;
   readonly kind: FeedbackKind;
   readonly rubricVersion: string;
   readonly score: number; // 0-100
   readonly evidenceRefs: readonly EvidenceId[];
   readonly redacted: boolean;
   readonly createdAt: IsoTimestamp;
+  readonly body?: string | undefined;
+  readonly summary?: string | undefined;
 }
 
 export interface EvaluationResult {

@@ -89,8 +89,17 @@ function validResult(): Record<string, unknown> {
   };
 }
 
-test("all four protocol v1 message types validate with conforming fixtures", () => {
-  for (const message of [validRequest(), validProgress(), validQuestion(), validResult()]) {
+function validPeer(): Record<string, unknown> {
+  return {
+    ...base({ to: "SUPERVISOR" }),
+    type: "PEER_MESSAGE",
+    body: "found three candidate files",
+    addressRole: "implementer"
+  };
+}
+
+test("all protocol v1 message types validate with conforming fixtures", () => {
+  for (const message of [validRequest(), validProgress(), validQuestion(), validPeer(), validResult()]) {
     assert.deepEqual(validateAgentMessage(message), message);
     assert.equal(isAgentMessage(message), true);
   }
@@ -102,6 +111,7 @@ test("only TASK_RESULT is a terminal message", () => {
   assert.equal(isTerminalMessage(request), false);
   assert.equal(isTerminalMessage(validateAgentMessage(validProgress())), false);
   assert.equal(isTerminalMessage(validateAgentMessage(validQuestion())), false);
+  assert.equal(isTerminalMessage(validateAgentMessage(validPeer())), false);
   assert.equal(isTerminalMessage(result), true);
 });
 

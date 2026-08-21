@@ -111,11 +111,29 @@ test("flowchart validator rejects duplicate edges between the same nodes", () =>
 const routerConfig: ModelRouterConfig = {
   policyVersion: "router-v1",
   models: [
-    { id: "small", roles: ["actor", "critic"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
-    { id: "large", roles: ["actor", "critic", "router", "judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 },
-    { id: "judge", roles: ["judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.4, estimatedDurationMs: 3_000 }
+    { id: "small", version: "small-v1", roles: ["actor", "critic"], maxComplexity: "MEDIUM", estimatedCostUsd: 0.1, estimatedDurationMs: 1_000 },
+    { id: "large", version: "large-v1", roles: ["actor", "critic", "router", "judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.5, estimatedDurationMs: 4_000 },
+    { id: "judge", version: "judge-v1", roles: ["judge"], maxComplexity: "HIGH", estimatedCostUsd: 0.4, estimatedDurationMs: 3_000 }
   ]
 };
+
+test("ModelRouter is R0-equivalent cheapest eligible with a static preferred override", () => {
+  const router = createModelRouter(routerConfig);
+  const limits = { remainingTimeMs: 10_000 };
+  const cheapest = routeFlowNode(router, node("cheap"), "LOW", limits);
+  const preferred = routeFlowNode(
+    router,
+    {
+      ...node("pref"),
+      modelPolicy: { allowedModels: ["small", "large"], preferredModel: "large" }
+    },
+    "LOW",
+    limits
+  );
+  assert.equal(cheapest.model, "small");
+  assert.equal(preferred.model, "large");
+  assert.equal(preferred.statusAfterRoute, "RUNNING");
+});
 
 test("ModelRouter deterministically routes by role and complexity", () => {
   const router = createModelRouter(routerConfig);
@@ -164,7 +182,7 @@ test("ModelRouter rejects catalogs with unknown or duplicate roles", () => {
   }), /must declare roles/i);
 });
 
-test("low confidence or explicit approval produces WAITING_FOR_USER", () => {
+test("low confidence lookup does not gate approval; only approvalRequired does", () => {
   const router = createModelRouter(routerConfig);
   const high = routeFlowNode(router, node("high"), "HIGH", {
     remainingTimeMs: 10_000,
@@ -173,7 +191,8 @@ test("low confidence or explicit approval produces WAITING_FOR_USER", () => {
   const approval = routeFlowNode(router, { ...node("approval"), approvalRequired: true }, "LOW", {
     remainingTimeMs: 10_000
   });
-  assert.equal(high.statusAfterRoute, "WAITING_FOR_USER");
+  assert.equal(high.statusAfterRoute, "RUNNING");
+  assert.equal(high.coldStartRoutingScore, 0.68);
   assert.equal(approval.statusAfterRoute, "WAITING_FOR_USER");
   assert.equal(high.eventType, "MODEL_ROUTED");
 });
@@ -196,18 +215,16 @@ test("a lax node threshold cannot override a stricter run limit when routing", (
   const router = createModelRouter({ ...routerConfig, defaultThreshold: 0.5 });
   const laxNode = { ...node("lax"), confidenceThreshold: validateConfidenceScore(0.1) };
 
-  // LOW complexity scores 0.9, which clears the 0.7 floor.
+  // Lookup score is not an approval gate.
   assert.equal(routeFlowNode(router, laxNode, "LOW", { remainingTimeMs: 10_000 }).statusAfterRoute, "RUNNING");
-  // A stricter run-level limit still forces human review.
   assert.equal(
     routeFlowNode(router, laxNode, "LOW", {
       remainingTimeMs: 10_000,
       minHumanConfidence: validateConfidenceScore(0.95)
     }).statusAfterRoute,
-    "WAITING_FOR_USER"
+    "RUNNING"
   );
-  // HIGH complexity scores 0.68 and cannot pass the floor even with lax policy.
-  assert.equal(routeFlowNode(router, laxNode, "HIGH", { remainingTimeMs: 10_000 }).statusAfterRoute, "WAITING_FOR_USER");
+  assert.equal(routeFlowNode(router, laxNode, "HIGH", { remainingTimeMs: 10_000 }).statusAfterRoute, "RUNNING");
 });
 
 test("routed approval plans carry a stable non-empty id", () => {

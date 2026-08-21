@@ -1,5 +1,5 @@
 import type { PreferenceScope } from "./types.js";
-import { listObservations, listTombstones } from "./store.js";
+import { isTombstoned, listObservations, listTombstones } from "./store.js";
 
 export interface ExportOptions {
   readonly includeTombstones?: boolean;
@@ -42,7 +42,7 @@ export function exportAuthorizedPreferences(
 }
 
 export function exportForDataset(scope?: PreferenceScope): string {
-  const obs = listObservations(scope);
+  const obs = listObservations(scope).filter((o) => !isTombstoned(o.id));
   const safe = obs.map((o) => ({
     scope: o.scope,
     scopeKey: o.scopeKey,
@@ -51,5 +51,15 @@ export function exportForDataset(scope?: PreferenceScope): string {
     weight: o.weight,
     createdAt: o.createdAt,
   }));
-  return JSON.stringify(safe, null, 2);
+  return JSON.stringify(
+    {
+      version: 1,
+      observations: safe,
+      // Tombstone ids always propagate so downstream datasets can drop deleted
+      // source payloads. The payloads themselves are never exported.
+      tombstones: listTombstones(),
+    },
+    null,
+    2
+  );
 }

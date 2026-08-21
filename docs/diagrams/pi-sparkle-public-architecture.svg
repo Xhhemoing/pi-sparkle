@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1200" viewBox="0 0 1920 1200" role="img" aria-labelledby="title desc">
   <title id="title">pi-sparkle 核心工作流程与受控改进架构</title>
-  <desc id="desc">突出展示从需求、规划、执行到验收的核心主线，并在下方缩小展示基于证据的受控改进流程。</desc>
+  <desc id="desc">突出展示从需求、规划、执行到验收的核心主线（run / --children / --flowchart / --track 四条入口），并在下方缩小展示提案优先的受控改进流程。</desc>
   <defs>
     <marker id="arrow-main" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0 0L10 5L0 10Z" fill="#24323B"/>
@@ -34,7 +34,7 @@
 
   <!-- Header -->
   <text id="title-text" x="70" y="82" class="title">pi-sparkle：从需求到可靠交付</text>
-  <text x="72" y="123" class="subtitle">一条主线完成项目；只有被证据证明、由你批准的改进，才进入下一轮</text>
+  <text x="72" y="123" class="subtitle">四条 CLI 入口互不编译；在线 R0，影子 R1；只有你批准的路由候选才进入下一轮</text>
   <g transform="translate(1620 55)">
     <rect width="230" height="46" rx="6" fill="#24323B"/>
     <text x="115" y="30" text-anchor="middle" class="stage white">核心流程 · 架构总览</text>
@@ -97,8 +97,8 @@
     <g transform="translate(462 570)">
       <circle cx="17" cy="17" r="17" fill="#DCEFE8"/>
       <text x="17" y="23" text-anchor="middle" class="stage" fill="#1F6E58">3</text>
-      <text x="48" y="23" class="item">选择方式</text>
-      <text x="230" y="23" class="small">单模型 · 搭档 · 团队</text>
+      <text x="48" y="23" class="item">选择引擎</text>
+      <text x="230" y="23" class="small">run · children · flowchart · track</text>
     </g>
     <rect x="462" y="625" width="426" height="32" rx="5" fill="#EDF6F2"/>
     <text x="675" y="647" text-anchor="middle" class="small" fill="#1F6E58">每项任务只携带刚好够用的上下文</text>
@@ -155,7 +155,7 @@
     <rect x="70" y="735" width="1780" height="315" rx="8" fill="#F1F4F1" stroke="#D3DAD5" stroke-width="2"/>
     <rect x="70" y="735" width="8" height="315" fill="#7A9188"/>
     <text x="102" y="779" class="section">次级流程 · 受控改进</text>
-    <text x="305" y="779" class="small">不修改正在运行的任务；候选先验证，再由你批准</text>
+    <text x="305" y="779" class="small">不修改正在运行的任务；auto-loop 只提案，adapt promote --approve 才 CAS</text>
 
     <path d="M220 793V807" class="rework"/>
     <text x="238" y="804" class="micro" fill="#A94F3D">来自验收与交付</text>
@@ -171,7 +171,7 @@
     <g transform="translate(465 820)">
       <text x="0" y="0" class="stage" fill="#1F6E58">候选改进</text>
       <text x="0" y="39" class="item">只生成新版本候选</text>
-      <text x="0" y="66" class="small">路由 · 任务模板 · 提示 · 偏好</text>
+      <text x="0" y="66" class="small">现网只提案 routing-policy 候选</text>
       <text x="0" y="91" class="small">保留版本、依据与适用范围</text>
     </g>
     <path d="M755 900H833" class="feedback"/>

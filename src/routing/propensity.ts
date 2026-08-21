@@ -1,11 +1,17 @@
+export type EstimatorId = "paired" | "ips" | "snips" | "dr";
+
 export interface PropensityLogEntry {
   readonly episodeHash: string;
   readonly modelId: string;
-  /** Probability the policy assigned to this action — required for every eligible action. */
-  readonly propensity: number;
+  /** Behavior policy μ(a). Deterministic live: 1 for selected, 0 for other eligible. */
+  readonly behaviorProbability: number;
+  /** Target policy π(a). */
+  readonly targetProbability: number;
   readonly observedUtility: number | undefined;
   readonly costUsd: number;
   readonly guardrailBreach: boolean;
+  /** @deprecated Use behaviorProbability. Kept for old call sites during migration. */
+  readonly propensity?: number;
 }
 
 export interface OverlapDiagnostics {
@@ -13,12 +19,32 @@ export interface OverlapDiagnostics {
   readonly eligibleActions: number;
   readonly minPropensity: number;
   readonly maxPropensity: number;
-  /** Every eligible action must carry a propensity strictly inside (0, 1]. */
+  /**
+   * True when every target-positive action has μ > 0, probabilities are in
+   * [0, 1], and no fabricated strictly-positive μ was required.
+   */
   readonly supportOk: boolean;
   readonly effectiveSampleSize: number;
+  readonly estimatorId: EstimatorId;
+  readonly invalidReason?: "INVALID_ESTIMATE" | undefined;
 }
 
-export function computeOverlapDiagnostics(logs: readonly PropensityLogEntry[]): OverlapDiagnostics {
+function behaviorMu(entry: PropensityLogEntry): number {
+  return entry.behaviorProbability;
+}
+
+function targetPi(entry: PropensityLogEntry): number {
+  return entry.targetProbability;
+}
+
+/**
+ * Overlap: π(a) > 0 implies μ(a) > 0. ESS uses importance weights w = π/μ
+ * on the μ > 0 support (SNIPS-style). Raw propensity squares are not ESS.
+ */
+export function computeOverlapDiagnostics(
+  logs: readonly PropensityLogEntry[],
+  estimatorId: EstimatorId = "snips"
+): OverlapDiagnostics {
   if (logs.length === 0) {
     return {
       totalActions: 0,
@@ -27,20 +53,27 @@ export function computeOverlapDiagnostics(logs: readonly PropensityLogEntry[]): 
       maxPropensity: 0,
       supportOk: false,
       effectiveSampleSize: 0,
+      estimatorId,
+      invalidReason: "INVALID_ESTIMATE"
     };
   }
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-  let sum = 0;
-  let sumSquares = 0;
+  let overlapOk = true;
+  const weights: number[] = [];
   for (const log of logs) {
-    min = Math.min(min, log.propensity);
-    max = Math.max(max, log.propensity);
-    sum += log.propensity;
-    sumSquares += log.propensity * log.propensity;
+    const mu = behaviorMu(log);
+    const pi = targetPi(log);
+    min = Math.min(min, mu);
+    max = Math.max(max, mu);
+    if (mu < 0 || mu > 1 || pi < 0 || pi > 1) overlapOk = false;
+    if (pi > 0 && mu <= 0) overlapOk = false;
+    if (mu > 0) weights.push(pi / mu);
   }
-  const supportOk = min > 0 && max <= 1;
+  const sum = weights.reduce((acc, w) => acc + w, 0);
+  const sumSquares = weights.reduce((acc, w) => acc + w * w, 0);
   const effectiveSampleSize = sumSquares > 0 ? (sum * sum) / sumSquares : 0;
+  const supportOk = overlapOk;
   return {
     totalActions: logs.length,
     eligibleActions: logs.length,
@@ -48,6 +81,8 @@ export function computeOverlapDiagnostics(logs: readonly PropensityLogEntry[]): 
     maxPropensity: max,
     supportOk,
     effectiveSampleSize,
+    estimatorId,
+    ...(supportOk ? {} : { invalidReason: "INVALID_ESTIMATE" as const })
   };
 }
 
@@ -57,6 +92,7 @@ export interface CounterfactualReport {
   readonly baseline: string;
   readonly claims: readonly string[];
   readonly diagnostics: OverlapDiagnostics;
+  readonly estimatorId?: EstimatorId;
 }
 
 export interface ReportValidation {
@@ -71,16 +107,11 @@ export interface ReportValidationConfig {
 
 export const DEFAULT_REPORT_VALIDATION: ReportValidationConfig = {
   minEffectiveSampleSize: 2,
-  supportedReportVersion: 1,
+  supportedReportVersion: 1
 };
 
 const REGRET_PATTERN = /regret/i;
 
-/**
- * Counterfactual comparisons are only admissible with valid propensity
- * support/overlap and a minimum effective sample size. Regret claims without
- * those diagnostics are rejected outright.
- */
 export function validateCounterfactualReport(
   report: CounterfactualReport,
   config: ReportValidationConfig = DEFAULT_REPORT_VALIDATION
@@ -89,7 +120,7 @@ export function validateCounterfactualReport(
   if (report.reportVersion !== config.supportedReportVersion) {
     reasons.push(`unsupported report version: ${report.reportVersion}`);
   }
-  if (!report.diagnostics.supportOk) {
+  if (!report.diagnostics.supportOk || report.diagnostics.invalidReason === "INVALID_ESTIMATE") {
     reasons.push("counterfactual comparison unsupported: propensity support/overlap failed");
   }
   if (report.diagnostics.effectiveSampleSize < config.minEffectiveSampleSize) {
@@ -102,4 +133,12 @@ export function validateCounterfactualReport(
     reasons.push("regret claim rejected: comparison diagnostics are not valid");
   }
   return { valid: reasons.length === 0, reasons };
+}
+
+/** Reject logs that set every eligible μ in (0, 1] to fake overlap for a one-hot policy. */
+export function isFabricatedPositiveSupport(logs: readonly PropensityLogEntry[]): boolean {
+  if (logs.length < 2) return false;
+  const allStrictlyPositive = logs.every((row) => behaviorMu(row) > 0 && behaviorMu(row) <= 1);
+  const notOneHot = !logs.some((row) => behaviorMu(row) === 1) || logs.filter((row) => behaviorMu(row) === 1).length !== 1;
+  return allStrictlyPositive && notOneHot;
 }

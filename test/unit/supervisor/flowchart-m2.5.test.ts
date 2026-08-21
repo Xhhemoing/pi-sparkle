@@ -28,7 +28,14 @@ test("MODEL_ROUTED is a validated durable event", () => {
     statusAfterRoute: "RUNNING",
     policyVersion: "router-v1",
     estimatedCostUsd: 0.2,
-    estimatedDurationMs: 2_000
+    estimatedDurationMs: 2_000,
+    family: "edit",
+    featureVersion: "flowchart-v1",
+    modelVersion: "configured-model-v1",
+    highRisk: false,
+    eligibleModels: ["configured-model"],
+    rejections: [],
+    behaviorDistribution: { "configured-model": 1 }
   };
   const event = makeEvent("MODEL_ROUTED", payload);
   assert.deepEqual(validateEvent(event), event);

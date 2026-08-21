@@ -32,6 +32,10 @@ export interface CommandResult {
   readonly cwd: string;
   /** Revision the result was produced against; a mismatch marks the result stale. */
   readonly revision?: string | undefined;
+  /** Declared execution environment policy; omit when none was recorded. */
+  readonly environmentPolicy?: string | undefined;
+  /** Change set the result was produced against; a mismatch marks the result stale. */
+  readonly changeSet?: readonly string[] | undefined;
 }
 
 export interface DiffScope {

@@ -2,7 +2,27 @@
 
 ## Status
 
-Proposed. This document defines the approved design target for implementation planning. It does not imply that M0-M2 are implemented.
+Implemented as the **runtime spine** under Developer Preview. This document is
+the design target that M0–M2.5 were built against. It does **not** mean the
+CLI is production-ready.
+
+See [status-matrix.md](../status-matrix.md) for Present / Wired / Exercised /
+Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
+`--children` are Wired and Exercised. Real providers and adaptive outcomes are
+not.
+
+## Milestone names
+
+This document's **M0–M2** are the runtime execution spine (CLI, events, children, DAG/flowchart supervisor). The adaptive work-loop spec's **M3–M6** are the adaptive library plane (episode review, R0/R1 routing, preferences, promotion). They are not later stages of the same CLI product line.
+
+Runtime **M2.5** is flowchart-as-public-orchestrator (`--flowchart`). `--children`
+remains the parent coordinator in the CLI; `compileChildrenToFlowchart` is a
+library helper and is not the live `--children` path. `--flowchart` may take
+`--executor fake|pi` to run leased nodes; `--results` remains the explicit
+override. Topology, R1, and bandit must not attach to the live run loop until
+Checkpoint F. Web UI remains last.
+`pi-sparkle doctor` exists as a developer-preview diagnostic; it is not a
+production capability until its output contract is frozen.
 
 ## Objective
 

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "pps_fixture_v1",
+  "createdAt": "2026-08-19T00:00:00.000Z",
+  "qualityBar": 0.55,
+  "scores": [
+    {
+      "sourceId": "aider-polyglot",
+      "modelAliases": ["cheap"],
+      "raw": 0.4,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://aider.chat/docs/leaderboards/"
+    },
+    {
+      "sourceId": "aider-polyglot",
+      "modelAliases": ["premium"],
+      "raw": 0.88,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://aider.chat/docs/leaderboards/"
+    },
+    {
+      "sourceId": "swe-bench-verified-mini",
+      "modelAliases": ["cheap"],
+      "raw": 0.31,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://www.swebench.com/verified"
+    },
+    {
+      "sourceId": "swe-bench-verified-mini",
+      "modelAliases": ["premium"],
+      "raw": 0.74,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://www.swebench.com/verified"
+    },
+    {
+      "sourceId": "terminal-bench-2.1-fixed-harness",
+      "modelAliases": ["cheap"],
+      "raw": 0.5,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://www.tbench.ai/leaderboard/terminal-bench/2.1"
+    },
+    {
+      "sourceId": "terminal-bench-2.1-fixed-harness",
+      "modelAliases": ["premium"],
+      "raw": 0.8,
+      "unit": "pass_rate",
+      "fetchedAt": "2026-08-19T00:00:00.000Z",
+      "sourceUrl": "https://www.tbench.ai/leaderboard/terminal-bench/2.1"
+    }
+  ]
+}

@@ -165,6 +165,7 @@ describe("M5-T5: supervisor integration", () => {
       remainingTimeMs: 3_600_000,
     });
     assert.equal(decision.topology, "specialists");
+    assert.match(decision.reason, /uncalibrated/);
     assert.equal(decision.aggregationRecorded, true);
   });
 

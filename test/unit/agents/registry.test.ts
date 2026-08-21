@@ -97,3 +97,15 @@ test("a registry built from custom profiles validates and resolves them", () => 
   const registry = createAgentProfileRegistry([custom]);
   assert.equal(registry.resolve("planner").systemInstruction, custom.systemInstruction);
 });
+
+test("writers may edit the workspace; scouts and reviewers stay read-only", () => {
+  const registry = createAgentProfileRegistry(defaultAgentProfiles());
+  assert.equal(registry.resolve("implementer").canWriteWorkspace, true);
+  assert.equal(registry.resolve("worker").canWriteWorkspace, true);
+  assert.equal(registry.resolve("debugger").canWriteWorkspace, true);
+  assert.equal(registry.resolve("scout").canWriteWorkspace, false);
+  assert.equal(registry.resolve("reviewer").canWriteWorkspace, false);
+  assert.equal(registry.resolve("tester").canWriteWorkspace, false);
+  assert.match(registry.resolve("implementer").systemInstruction, /smallest change/i);
+  assert.match(registry.resolve("reviewer").systemInstruction, /rubber-stamp/i);
+});

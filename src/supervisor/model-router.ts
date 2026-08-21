@@ -1,8 +1,6 @@
-import { DomainValidationError } from "../domain/errors.js";
+import { DomainValidationError, RoutingRefusalError, type RoutingRefusal } from "../domain/errors.js";
 import {
   DEFAULT_HUMAN_CONFIDENCE,
-  defaultDecisionPolicy,
-  validateConfidenceScore,
   type ApprovalPlan,
   type ConfidenceScore,
   type FlowNode,
@@ -11,17 +9,17 @@ import {
   type TaskComplexity
 } from "../domain/flowchart.js";
 import type { TaskId } from "../domain/ids.js";
+import type { AgentRole } from "../domain/roles.js";
+import type { PrivacyClass } from "../routing/capability-registry.js";
+import { catalogModel, oneHotDistribution, type CatalogModel, type CatalogModelInput } from "../routing/catalog-model.js";
+import { FLOWCHART_FEATURE_VERSION } from "../routing/feature-version.js";
+import { evaluateLiveCandidate } from "../routing/policy.js";
 
-export interface RoutableModel {
-  readonly id: string;
-  readonly roles: readonly FlowchartNodeRole[];
-  readonly maxComplexity: TaskComplexity;
-  readonly estimatedCostUsd: number;
-  readonly estimatedDurationMs: number;
-}
+/** Live catalog entry. Alias of the unified CatalogModel. */
+export type RoutableModel = CatalogModel;
 
 export interface ModelRouterConfig {
-  readonly models: readonly RoutableModel[];
+  readonly models: readonly CatalogModelInput[];
   readonly policyVersion: string;
   readonly defaultThreshold?: ConfidenceScore;
 }
@@ -38,7 +36,17 @@ export interface RouteTaskInput {
   readonly complexity: TaskComplexity;
   readonly modelPolicy: ModelPolicy;
   readonly confidenceThreshold?: ConfidenceScore;
+  /** Flowchart / contract human gate. Independent of high-risk whitelist. */
   readonly approvalRequired?: boolean;
+  /** Hard-filters to approvedForHighRisk models when true. */
+  readonly highRisk?: boolean;
+  readonly family?: string;
+  readonly featureVersion?: string;
+  readonly agentRole?: AgentRole;
+  readonly requiredCapabilities?: readonly string[];
+  readonly privacyRequired?: PrivacyClass;
+  readonly contextNeeded?: number;
+  readonly outputNeeded?: number;
   readonly limits: RoutingLimits;
 }
 
@@ -51,24 +59,34 @@ export interface RoutingDecision {
   readonly complexity: TaskComplexity;
   readonly model: string;
   readonly justification: string;
+  /** Event-compat alias of coldStartRoutingScore. Not a calibrated probability. */
   readonly confidence: ConfidenceScore;
+  readonly coldStartRoutingScore: ConfidenceScore;
   readonly approvalPlan: ApprovalPlan;
   readonly statusAfterRoute: RoutingStatusAfter;
   readonly policyVersion: string;
   readonly estimatedCostUsd: number;
   readonly estimatedDurationMs: number;
+  readonly family: string;
+  readonly featureVersion: string;
+  readonly modelVersion: string;
+  readonly highRisk: boolean;
+  readonly eligibleModels: readonly string[];
+  readonly rejections: readonly RoutingRefusal[];
+  readonly behaviorDistribution: Readonly<Record<string, number>>;
+  readonly agentRole?: AgentRole | undefined;
+  readonly preferredConstraint?: string | undefined;
 }
 
 export interface ModelRouter {
-  readonly config: ModelRouterConfig;
+  readonly config: ModelRouterConfig & { readonly models: readonly CatalogModel[] };
+  /**
+   * Live static routing. Hard filter is evaluateLiveCandidate (same matrix as
+   * library R0). Ranking is preferred constraint then cheapest eligible.
+   * Adaptive R1/bandit routers must stay in shadow experiments, not this path.
+   */
   route(input: RouteTaskInput): RoutingDecision;
 }
-
-const COMPLEXITY_RANK: Record<TaskComplexity, number> = {
-  LOW: 0,
-  MEDIUM: 1,
-  HIGH: 2
-};
 
 const ROLES: readonly FlowchartNodeRole[] = ["actor", "critic", "router", "judge", "tool", "human"];
 
@@ -84,30 +102,38 @@ export function effectiveConfidenceThreshold(
   },
   floor: ConfidenceScore = DEFAULT_HUMAN_CONFIDENCE
 ): ConfidenceScore {
-  validateConfidenceScore(floor, "confidence floor");
+  validateScore(floor, "confidence floor");
   const candidates = [floor];
   if (thresholds.nodeThreshold !== undefined) {
-    candidates.push(validateConfidenceScore(thresholds.nodeThreshold, "confidenceThreshold"));
+    candidates.push(validateScore(thresholds.nodeThreshold, "confidenceThreshold"));
   }
   if (thresholds.runMinHumanConfidence !== undefined) {
-    candidates.push(validateConfidenceScore(thresholds.runMinHumanConfidence, "minHumanConfidence"));
+    candidates.push(validateScore(thresholds.runMinHumanConfidence, "minHumanConfidence"));
   }
   if (thresholds.routerDefaultThreshold !== undefined) {
-    candidates.push(validateConfidenceScore(thresholds.routerDefaultThreshold, "defaultThreshold"));
+    candidates.push(validateScore(thresholds.routerDefaultThreshold, "defaultThreshold"));
   }
-  return Math.max(...candidates);
+  return Math.max(...candidates) as ConfidenceScore;
 }
 
-function validateConfig(config: ModelRouterConfig): void {
+function validateScore(value: number, label: string): ConfidenceScore {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new DomainValidationError(`${label} must be a finite number between 0 and 1`);
+  }
+  return value as ConfidenceScore;
+}
+
+function validateConfig(config: ModelRouterConfig): readonly CatalogModel[] {
   if (typeof config.policyVersion !== "string" || config.policyVersion.trim() === "") {
     throw new DomainValidationError("ModelRouter policyVersion must be non-empty");
   }
   if (!Array.isArray(config.models) || config.models.length === 0) {
     throw new DomainValidationError("ModelRouter requires an explicit non-empty model catalog");
   }
+  const models = config.models.map((model) => catalogModel(model));
   const ids = new Set<string>();
-  for (const model of config.models) {
-    if (typeof model.id !== "string" || model.id.trim() === "" || ids.has(model.id)) {
+  for (const model of models) {
+    if (ids.has(model.id)) {
       throw new DomainValidationError("ModelRouter model ids must be unique and non-empty");
     }
     ids.add(model.id);
@@ -117,23 +143,15 @@ function validateConfig(config: ModelRouterConfig): void {
     if (new Set(model.roles).size !== model.roles.length) {
       throw new DomainValidationError(`ModelRouter model ${model.id} declares duplicate roles`);
     }
-    const unknownRole = (model.roles as readonly FlowchartNodeRole[]).find((role) => !ROLES.includes(role));
+    const unknownRole = model.roles.find((role) => !ROLES.includes(role));
     if (unknownRole !== undefined) {
       throw new DomainValidationError(`ModelRouter model ${model.id} declares unknown role: ${String(unknownRole)}`);
     }
-    if (!(model.maxComplexity in COMPLEXITY_RANK)) {
-      throw new DomainValidationError(`ModelRouter model ${model.id} has invalid maxComplexity`);
-    }
-    if (!Number.isFinite(model.estimatedCostUsd) || model.estimatedCostUsd < 0) {
-      throw new DomainValidationError(`ModelRouter model ${model.id} has invalid estimatedCostUsd`);
-    }
-    if (!Number.isFinite(model.estimatedDurationMs) || model.estimatedDurationMs <= 0) {
-      throw new DomainValidationError(`ModelRouter model ${model.id} has invalid estimatedDurationMs`);
-    }
   }
   if (config.defaultThreshold !== undefined) {
-    validateConfidenceScore(config.defaultThreshold, "ModelRouter defaultThreshold");
+    validateScore(config.defaultThreshold, "ModelRouter defaultThreshold");
   }
+  return models;
 }
 
 function validateInput(input: RouteTaskInput): void {
@@ -145,7 +163,9 @@ function validateInput(input: RouteTaskInput): void {
       !input.modelPolicy.allowedModels.includes(input.modelPolicy.preferredModel)) {
     throw new DomainValidationError("Route preferredModel must be in allowedModels");
   }
-  if (!(input.complexity in COMPLEXITY_RANK)) throw new DomainValidationError("Route complexity is invalid");
+  if (!["LOW", "MEDIUM", "HIGH"].includes(input.complexity)) {
+    throw new DomainValidationError("Route complexity is invalid");
+  }
   if (!Number.isFinite(input.limits.remainingTimeMs) || input.limits.remainingTimeMs < 0) {
     throw new DomainValidationError("remainingTimeMs must be a non-negative finite number");
   }
@@ -153,18 +173,19 @@ function validateInput(input: RouteTaskInput): void {
       (!Number.isFinite(input.limits.remainingCostUsd) || input.limits.remainingCostUsd < 0)) {
     throw new DomainValidationError("remainingCostUsd must be a non-negative finite number");
   }
-  if (input.confidenceThreshold !== undefined) validateConfidenceScore(input.confidenceThreshold);
+  if (input.confidenceThreshold !== undefined) validateScore(input.confidenceThreshold, "confidenceThreshold");
   if (input.limits.minHumanConfidence !== undefined) {
-    validateConfidenceScore(input.limits.minHumanConfidence, "minHumanConfidence");
+    validateScore(input.limits.minHumanConfidence, "minHumanConfidence");
   }
 }
 
-function routeConfidence(complexity: TaskComplexity, preferred: boolean): ConfidenceScore {
+/** Cold-start lookup. Not a calibrated probability and not an approval gate. */
+export function coldStartRoutingScore(complexity: TaskComplexity, preferred: boolean): ConfidenceScore {
   const base = complexity === "LOW" ? 0.9 : complexity === "MEDIUM" ? 0.8 : 0.68;
   return Math.min(1, base + (preferred ? 0.04 : 0)) as ConfidenceScore;
 }
 
-function makeApprovalPlan(taskId: TaskId, model: RoutableModel): ApprovalPlan {
+function makeApprovalPlan(taskId: TaskId, model: CatalogModel): ApprovalPlan {
   return {
     id: `approval:${taskId}:${model.id}`,
     items: [
@@ -175,64 +196,83 @@ function makeApprovalPlan(taskId: TaskId, model: RoutableModel): ApprovalPlan {
 }
 
 export function createModelRouter(config: ModelRouterConfig): ModelRouter {
-  validateConfig(config);
+  const models = validateConfig(config);
   return {
-    config,
+    config: { ...config, models },
     route(input): RoutingDecision {
       validateInput(input);
-      const catalogIds = new Set(config.models.map((model) => model.id));
+      const catalogIds = new Set(models.map((model) => model.id));
       const unknownPolicyModel = input.modelPolicy.allowedModels.find((id) => !catalogIds.has(id));
       if (unknownPolicyModel !== undefined) {
         throw new DomainValidationError(`Model policy references unavailable model: ${unknownPolicyModel}`);
       }
 
-      const roleAndComplexity = config.models.filter((model) =>
-        input.modelPolicy.allowedModels.includes(model.id) &&
-        model.roles.includes(input.role) &&
-        COMPLEXITY_RANK[model.maxComplexity] >= COMPLEXITY_RANK[input.complexity]
-      );
-      if (roleAndComplexity.length === 0) {
-        throw new DomainValidationError(`No allowed model satisfies role ${input.role} and complexity ${input.complexity}`);
+      const highRisk = input.highRisk === true;
+      const family = input.family ?? "unknown";
+      const featureVersion = input.featureVersion ?? FLOWCHART_FEATURE_VERSION;
+      const privacyRequired = input.privacyRequired ?? "cloud-general";
+      const requiredCapabilities = input.requiredCapabilities ?? ["tool-use"];
+      const contextNeeded = input.contextNeeded ?? 0;
+      const outputNeeded = input.outputNeeded ?? 0;
+      const budgetUsd = input.limits.remainingCostUsd ?? Number.POSITIVE_INFINITY;
+      const inPolicy = models.filter((model) => input.modelPolicy.allowedModels.includes(model.id));
+      const refusals: RoutingRefusal[] = [];
+      const eligible: CatalogModel[] = [];
+
+      for (const model of inPolicy) {
+        const check = evaluateLiveCandidate(model, {
+          role: input.role,
+          complexity: input.complexity,
+          taskFamily: family,
+          privacyRequired,
+          requiredCapabilities,
+          contextNeeded,
+          outputNeeded,
+          budgetUsd,
+          deadlineMs: input.limits.remainingTimeMs,
+          highRisk,
+          fixedCostUsd: model.estimatedCostUsd,
+          fixedLatencyMs: model.estimatedDurationMs
+        });
+        if (check.eligible) {
+          eligible.push(model);
+        } else {
+          refusals.push(...check.failures);
+        }
       }
 
-      const withinLimits = roleAndComplexity.filter((model) =>
-        model.estimatedDurationMs <= input.limits.remainingTimeMs &&
-        (input.limits.remainingCostUsd === undefined || model.estimatedCostUsd <= input.limits.remainingCostUsd)
-      );
-      if (withinLimits.length === 0) {
-        throw new DomainValidationError("No allowed model fits the remaining cost and time limits");
+      if (eligible.length === 0) {
+        const message = highRisk && refusals.some((row) => row.constraint === "high-risk-approval")
+          ? "No allowed model is approved for high-risk tasks"
+          : refusals.some((row) => row.constraint === "budget" || row.constraint === "deadline")
+            ? "No allowed model fits the remaining cost and time limits"
+            : `No allowed model satisfies role ${input.role} and complexity ${input.complexity}`;
+        throw new RoutingRefusalError(message, refusals);
       }
 
       const preferredModel = input.modelPolicy.preferredModel;
-      const selected = [...withinLimits].sort((left, right) => {
+      const selected = [...eligible].sort((left, right) => {
         const preferredDifference =
           Number(right.id === preferredModel) - Number(left.id === preferredModel);
         if (preferredDifference !== 0) return preferredDifference;
-        const complexityDifference =
-          COMPLEXITY_RANK[left.maxComplexity] - COMPLEXITY_RANK[right.maxComplexity];
-        if (complexityDifference !== 0) return complexityDifference;
         const costDifference = left.estimatedCostUsd - right.estimatedCostUsd;
         if (costDifference !== 0) return costDifference;
         return left.id.localeCompare(right.id);
       })[0]!;
 
-      const confidence = routeConfidence(input.complexity, selected.id === preferredModel);
-      const threshold = effectiveConfidenceThreshold({
-        ...(input.confidenceThreshold !== undefined ? { nodeThreshold: input.confidenceThreshold } : {}),
-        ...(input.limits.minHumanConfidence !== undefined
-          ? { runMinHumanConfidence: input.limits.minHumanConfidence }
-          : {}),
-        ...(config.defaultThreshold !== undefined ? { routerDefaultThreshold: config.defaultThreshold } : {})
-      });
-      const decisionPolicy = defaultDecisionPolicy(threshold);
+      const preferred = selected.id === preferredModel;
+      const score = coldStartRoutingScore(input.complexity, preferred);
       const approvalRequired = input.approvalRequired ?? false;
-      const statusAfterRoute = decisionPolicy.requiresApproval(confidence, approvalRequired)
-        ? "WAITING_FOR_USER"
-        : "RUNNING";
+      const statusAfterRoute: RoutingStatusAfter = approvalRequired ? "WAITING_FOR_USER" : "RUNNING";
+      const preferredNote = preferred
+        ? `; preferred constraint ${preferredModel}`
+        : "";
       const justification =
         `${selected.id} is allowed for role ${input.role} and ${input.complexity} complexity; ` +
-        `estimated cost ${selected.estimatedCostUsd} USD and duration ${selected.estimatedDurationMs} ms fit remaining limits`;
+        `estimated cost ${selected.estimatedCostUsd} USD and duration ${selected.estimatedDurationMs} ms fit remaining limits` +
+        preferredNote;
 
+      const eligibleModels = eligible.map((model) => model.id);
       return {
         eventType: "MODEL_ROUTED",
         taskId: input.taskId,
@@ -240,12 +280,22 @@ export function createModelRouter(config: ModelRouterConfig): ModelRouter {
         complexity: input.complexity,
         model: selected.id,
         justification,
-        confidence,
+        confidence: score,
+        coldStartRoutingScore: score,
         approvalPlan: makeApprovalPlan(input.taskId, selected),
         statusAfterRoute,
         policyVersion: config.policyVersion,
         estimatedCostUsd: selected.estimatedCostUsd,
-        estimatedDurationMs: selected.estimatedDurationMs
+        estimatedDurationMs: selected.estimatedDurationMs,
+        family,
+        featureVersion,
+        modelVersion: selected.version,
+        highRisk,
+        eligibleModels,
+        rejections: refusals,
+        behaviorDistribution: oneHotDistribution(eligibleModels, selected.id),
+        ...(input.agentRole !== undefined ? { agentRole: input.agentRole } : {}),
+        ...(preferred && preferredModel !== undefined ? { preferredConstraint: preferredModel } : {})
       };
     }
   };
@@ -268,6 +318,8 @@ export function routeFlowNode(
     modelPolicy: node.modelPolicy,
     confidenceThreshold: node.confidenceThreshold,
     approvalRequired: node.approvalRequired,
+    family: "unknown",
+    featureVersion: FLOWCHART_FEATURE_VERSION,
     limits
   });
 }

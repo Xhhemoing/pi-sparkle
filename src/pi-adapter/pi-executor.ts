@@ -16,15 +16,19 @@ import {
   type Context,
   type FauxProviderHandle,
   type Model,
+  type MutableModels,
   type SimpleStreamOptions
 } from "@earendil-works/pi-ai";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
+import type { ModelRef } from "../config/model-ref.js";
+import { tryParseModelRef } from "../config/model-ref.js";
 import { hash32 } from "../domain/hash.js";
 import { createInvocationId, createMessageId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { SUPERVISOR } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
+import { createClusterTools } from "./cluster-tools.js";
 
 export interface PiExecutorOptions {
   providerId: string;
@@ -33,6 +37,10 @@ export interface PiExecutorOptions {
   thinkingLevel?: ThinkingLevel;
   tools?: AgentTool<any>[];
   apiKey?: string;
+  /** Injected Models collection. Tests and the configured factory pass this. */
+  models?: MutableModels;
+  /** cheap/premium (and similar) aliases to a concrete provider/model pair. */
+  aliases?: Readonly<Record<string, ModelRef>>;
   /** Provider-pinned model version, recorded with each invocation when known. */
   modelVersion?: string;
   /**
@@ -68,10 +76,15 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
 }
 
 export class PiAgentExecutor implements AgentExecutor {
-  private readonly models = createModels();
+  private readonly models: MutableModels;
   private readonly faux?: FauxProviderHandle;
 
   constructor(private readonly options: PiExecutorOptions) {
+    if (options.models !== undefined) {
+      this.models = options.models;
+      return;
+    }
+    this.models = createModels();
     if (options.providerId === "faux") {
       this.faux = fauxProvider();
       this.models.setProvider(this.faux.provider);
@@ -79,32 +92,58 @@ export class PiAgentExecutor implements AgentExecutor {
     }
   }
 
-  private resolveModel(): Model<Api> | undefined {
-    if (this.options.providerId === "faux") {
-      return this.faux?.getModel();
+  private resolveIdentity(request: AgentExecutionRequest): ModelRef {
+    const rawModel = request.modelId ?? this.options.modelId;
+    const alias = this.options.aliases?.[rawModel];
+    if (alias !== undefined) return alias;
+    const parsed = tryParseModelRef(rawModel);
+    if (parsed !== undefined) {
+      return {
+        providerId: request.providerId ?? parsed.providerId,
+        modelId: parsed.modelId
+      };
     }
-    return this.models.getModel(this.options.providerId, this.options.modelId);
+    return {
+      providerId: request.providerId ?? this.options.providerId,
+      modelId: rawModel
+    };
+  }
+
+  private resolveModel(request: AgentExecutionRequest): { identity: ModelRef; model: Model<Api> } | undefined {
+    const identity = this.resolveIdentity(request);
+    if (this.faux !== undefined && identity.providerId === "faux") {
+      const model = this.faux.getModel();
+      return model === undefined ? undefined : { identity, model };
+    }
+    const model = this.models.getModel(identity.providerId, identity.modelId);
+    return model === undefined ? undefined : { identity, model };
   }
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
-    const model = this.resolveModel();
-    if (model === undefined) {
+    const resolved = this.resolveModel(request);
+    if (resolved === undefined) {
       yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
       return;
     }
+    const { identity, model } = resolved;
 
     const startedAtMs = Date.now();
     const collected: ExecutionEvent[] = [];
+    const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
     const agent = new Agent({
       initialState: {
         systemPrompt: this.options.systemPrompt ?? "",
         model,
         thinkingLevel: this.options.thinkingLevel ?? "off",
-        tools: this.options.tools ?? []
+        tools: [...(this.options.tools ?? []), ...clusterTools]
       },
       streamFn: (streamModel: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream =>
-        this.models.streamSimple(streamModel, context, options),
-      ...(this.options.apiKey !== undefined ? { getApiKey: () => this.options.apiKey } : {})
+        this.models.streamSimple(streamModel, context, {
+          ...options,
+          ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
+            ? { apiKey: this.options.apiKey }
+            : {})
+        })
     });
 
     let runFailed = false;
@@ -124,7 +163,7 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     if (this.options.onInvocation !== undefined) {
-      this.options.onInvocation(recordInvocation(this.buildInvocation(request, collected, startedAtMs)));
+      this.options.onInvocation(recordInvocation(this.buildInvocation(request, identity, collected, startedAtMs)));
     }
 
     for (const event of collected) yield event;
@@ -164,6 +203,7 @@ export class PiAgentExecutor implements AgentExecutor {
    */
   private buildInvocation(
     request: AgentExecutionRequest,
+    identity: ModelRef,
     collected: readonly ExecutionEvent[],
     startedAtMs: number
   ): ModelInvocation {
@@ -184,7 +224,7 @@ export class PiAgentExecutor implements AgentExecutor {
     }
     const toolNames = (this.options.tools ?? []).map((tool) => tool.name).sort();
     const parameterHash = hash32(
-      `${this.options.providerId}|${this.options.modelId}|${this.options.thinkingLevel ?? "off"}|${toolNames.join(",")}|${this.options.systemPrompt ?? ""}`
+      `${identity.providerId}|${identity.modelId}|${this.options.thinkingLevel ?? "off"}|${toolNames.join(",")}|${this.options.systemPrompt ?? ""}`
     );
     return {
       id: createInvocationId(),
@@ -192,8 +232,8 @@ export class PiAgentExecutor implements AgentExecutor {
       runId: request.runId,
       agentInstanceId: request.agentInstanceId,
       config: {
-        provider: this.options.providerId,
-        model: this.options.modelId,
+        provider: identity.providerId,
+        model: identity.modelId,
         modelVersion: this.options.modelVersion,
         parameterHash,
       },

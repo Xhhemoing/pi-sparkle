@@ -3,21 +3,29 @@
   "version": "0.1.0",
   "private": true,
   "description": "Project-development multi-agent runtime built on Pi",
+  "keywords": ["pi-package"],
   "type": "module",
+  "bin": {
+    "pi-sparkle": "dist/cli/main.js"
+  },
+  "files": ["dist", "README.md", "LICENSE", ".agents/skills", "prompts"],
+  "pi": {
+    "skills": [".agents/skills"],
+    "prompts": ["./prompts"]
+  },
   "engines": {
     "node": ">=22.19.0"
   },
   "packageManager": "pnpm@10.17.1",
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
-  },
   "scripts": {
     "dev": "tsx src/cli/main.ts",
     "cli": "tsx src/cli/main.ts",
+    "pi-sparkle": "node dist/cli/main.js",
     "test": "tsx --test",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "gate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.1",

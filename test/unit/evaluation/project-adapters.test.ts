@@ -92,6 +92,69 @@ describe("M4-T2: project/code/delivery evaluator adapters", () => {
       assert.ok(declaration.timeoutMs > 0);
       assert.equal(declaration.inputContract, "CommandResult");
     });
+
+    it("attributes environmentPolicy on pass and fail, or unavailable when absent", async () => {
+      const adapter = createCheckAdapter();
+      const missing = await adapter.evaluate(context, commandResult());
+      assert.equal(missing.outcome, "PASS");
+      assert.equal(missing.metadata?.environmentPolicy, "unavailable");
+      assert.equal(missing.metadata?.exitCode, 0);
+      assert.equal(typeof missing.metadata?.artifactHash, "string");
+      assert.equal(missing.metadata?.cwd, "/work/proj");
+      assert.equal(missing.metadata?.workingDirectory, "/work/proj");
+      assert.equal(missing.metadata?.revision, "rev-1");
+
+      const present = await adapter.evaluate(
+        context,
+        commandResult({ environmentPolicy: "ci-isolated" })
+      );
+      assert.equal(present.outcome, "PASS");
+      assert.equal(present.metadata?.environmentPolicy, "ci-isolated");
+
+      const failed = await adapter.evaluate(
+        context,
+        commandResult({ exitCode: 1, stderr: "boom", environmentPolicy: "ci-isolated" })
+      );
+      assert.equal(failed.outcome, "FAIL");
+      assert.equal(failed.metadata?.environmentPolicy, "ci-isolated");
+      assert.equal(failed.metadata?.exitCode, 1);
+      assert.equal(typeof failed.metadata?.artifactHash, "string");
+    });
+
+    it("attributes the affected change set from the result or the episode context", async () => {
+      const adapter = createCheckAdapter();
+      const fromContext = await adapter.evaluate(context, commandResult());
+      assert.equal(fromContext.outcome, "PASS");
+      assert.deepEqual(fromContext.metadata?.changeSet, ["src/feature.ts"]);
+
+      const fromResult = await adapter.evaluate(
+        context,
+        commandResult({ changeSet: ["src/feature.ts"] })
+      );
+      assert.equal(fromResult.outcome, "PASS");
+      assert.deepEqual(fromResult.metadata?.changeSet, ["src/feature.ts"]);
+
+      const twoFileContext = { ...context, changeSet: ["a.ts", "b.ts"] };
+      const reordered = await adapter.evaluate(
+        twoFileContext,
+        commandResult({ changeSet: ["b.ts", "a.ts"] })
+      );
+      assert.equal(reordered.outcome, "PASS");
+    });
+
+    it("fails when the result change set does not match the episode (set inequality)", async () => {
+      const adapter = createCheckAdapter();
+      const result = await adapter.evaluate(
+        context,
+        commandResult({ changeSet: ["src/other.ts"] })
+      );
+      assert.equal(result.outcome, "FAIL");
+      assert.match(result.reason ?? "", /stale result for change set/);
+      assert.equal(typeof result.metadata?.artifactHash, "string");
+      assert.deepEqual(result.metadata?.changeSet, ["src/other.ts"]);
+      assert.equal(result.metadata?.environmentPolicy, "unavailable");
+      assert.equal(result.metadata?.revision, "rev-1");
+    });
   });
 
   describe("DiffAdapter", () => {

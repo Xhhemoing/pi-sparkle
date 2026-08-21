@@ -20,9 +20,12 @@ export async function readJsonFile(path: string, label: string): Promise<unknown
   }
 }
 
-export async function parseFlowchartFile(path: string): Promise<Flowchart> {
+export async function parseFlowchartFile(
+  path: string,
+  catalogIds?: readonly string[]
+): Promise<Flowchart> {
   const flowchart = validateFlowchart(await readJsonFile(path, "flowchart spec"));
-  assertFlowchartModelsInCatalog(flowchart);
+  assertFlowchartModelsInCatalog(flowchart, catalogIds);
   return flowchart;
 }
 

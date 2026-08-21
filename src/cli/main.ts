@@ -1,17 +1,21 @@
+#!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
-import { PiAgentExecutor } from "../pi-adapter/pi-executor.js";
+import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
+import { loadProvidersConfig } from "../config/providers-config.js";
+import { parseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
-import { startParentRun, startRun } from "../run/coordinator.js";
+import { startRun } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
 import type { Event } from "../run/events.js";
@@ -23,6 +27,10 @@ import {
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
 import { inspectRun } from "../run/inspection.js";
+import { episodeIdFromEvents } from "../run/episode-bind.js";
+import { EpisodeStore } from "../run/episode-store.js";
+import { adaptCommand } from "./adapt.js";
+import { episodeCommand } from "./episode.js";
 import {
   checkpointCarriesFlowchart,
   eventsLookLikeFlowchartRun,
@@ -36,7 +44,18 @@ import { configurePreferencePersistence, correctPreference, deletePreference, in
 import { exportAuthorizedPreferences } from "../preferences/export.js";
 import { getMaterializedView } from "../preferences/materialize.js";
 import type { PreferenceScope } from "../preferences/types.js";
-import { createCliModelRouter } from "./model-catalog.js";
+import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-catalog.js";
+import { createModelRouter } from "../supervisor/model-router.js";
+import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
+import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
+import { compileChildrenToFlowchart } from "../graph/compile-children.js";
+import { assignTasks } from "../routing/assign.js";
+import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
+import { type PublicPriorSnapshot } from "../routing/public-prior.js";
+import { loadPublicPriorSnapshot } from "../routing/public-prior-store.js";
+import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import { runAutoAdaptLoop } from "../learning/auto-loop.js";
+import { startTrackedRun } from "../track/loop.js";
 import {
   collectSelectedActionIds,
   parseChildNodeResultsFile,
@@ -45,6 +64,10 @@ import {
 import { commitsCommand } from "./commits.js";
 import { pauseCommand } from "./pause.js";
 import { injectCommand } from "./inject.js";
+import { authCommand } from "./auth.js";
+import { modelsCommand } from "./models.js";
+import { doctorCommand } from "./doctor.js";
+import { CLI_EXIT, cliFail } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
@@ -97,10 +120,11 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
-function createExecutor(
+async function createExecutor(
   kind: string,
+  stateRoot: string,
   hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void }
-): AgentExecutor {
+): Promise<AgentExecutor> {
   if (kind === "fake") {
     return new FakeExecutor([
       { type: "TEXT_DELTA", text: "fake worker: objective received" },
@@ -113,34 +137,75 @@ function createExecutor(
     return new ChildFakeExecutor();
   }
   if (kind === "pi") {
-    const providerId = process.env.PI_PROVIDER;
-    const modelId = process.env.PI_MODEL;
-    if (!providerId || !modelId) {
+    const config = await loadProvidersConfig(stateRoot);
+    const envProvider = process.env.PI_PROVIDER;
+    const envModel = process.env.PI_MODEL;
+    const primary = config.primary !== undefined ? parseModelRef(config.primary) : undefined;
+    const providerId = envProvider ?? primary?.providerId;
+    const modelId = envModel ?? primary?.modelId;
+    if (providerId === undefined || modelId === undefined) {
       throw new DomainValidationError(
-        "--executor pi requires PI_PROVIDER and PI_MODEL environment variables (and PI_API_KEY for most providers)"
+        "--executor pi requires an enabled primary model (pi-sparkle models set-default) or PI_PROVIDER and PI_MODEL"
       );
     }
     const requestedLevel = process.env.PI_THINKING_LEVEL ?? "off";
     if (!(THINKING_LEVELS as readonly string[]).includes(requestedLevel)) {
       throw new DomainValidationError(`PI_THINKING_LEVEL must be one of ${THINKING_LEVELS.join(", ")}`);
     }
-    return new PiAgentExecutor({
+    const fast = config.fast !== undefined ? parseModelRef(config.fast) : undefined;
+    const envRef = envProvider !== undefined && envModel !== undefined
+      ? { providerId: envProvider, modelId: envModel }
+      : undefined;
+    const premiumAlias = primary ?? envRef;
+    const cheapAlias = fast ?? premiumAlias;
+    return await createConfiguredPiExecutor({
+      stateRoot,
       providerId,
       modelId,
-      ...(process.env.PI_API_KEY !== undefined ? { apiKey: process.env.PI_API_KEY } : {}),
       thinkingLevel: requestedLevel as (typeof THINKING_LEVELS)[number],
+      customProviders: config.customProviders,
+      ...(process.env.PI_API_KEY !== undefined ? { apiKey: process.env.PI_API_KEY } : {}),
+      ...(cheapAlias !== undefined || premiumAlias !== undefined
+        ? {
+            aliases: {
+              ...(cheapAlias !== undefined ? { cheap: cheapAlias } : {}),
+              ...(premiumAlias !== undefined ? { premium: premiumAlias } : {})
+            }
+          }
+        : {}),
       ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {})
     });
   }
   throw new DomainValidationError(`Unknown executor "${kind}": expected "fake" or "pi"`);
 }
 
-const USAGE = `pi-sparkle — project-development multi-agent runtime
+/** Flowchart --executor fake must emit TASK_RESULT, same as --children. */
+function flowchartExecutorKind(kind: string): string {
+  return kind === "fake" ? "fake-children" : kind;
+}
+
+function packageVersion(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const raw = readFileSync(join(here, "../../package.json"), "utf8");
+  const parsed = JSON.parse(raw) as { version?: unknown };
+  if (typeof parsed.version !== "string" || parsed.version.trim() === "") {
+    throw new Error("package.json version is missing");
+  }
+  return parsed.version;
+}
+
+const USAGE = `pi-sparkle — project-development multi-agent runtime (developer preview)
 
 Usage:
-  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>]
-  pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--state-root <dir>]
+  pi-sparkle --version
+  pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>]
+  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
+  pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
+  pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
+  pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
+  pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
+  pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
   pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
   pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--unpause] [--state-root <dir>]
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
@@ -148,29 +213,63 @@ Usage:
   pi-sparkle pause --run <runId> [--reason <text>] [--state-root]
   pi-sparkle pause --clear --run <runId> [--state-root]
   pi-sparkle inject --run <runId> --type fact|override|skip [--key] [--value] [--node] [--confidence] [--actor] [--state-root]
+  pi-sparkle auth status|login|logout [--state-root <dir>] ...
+  pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
+  pi-sparkle adapt status [--state-root <dir>]
+  pi-sparkle adapt learn --run <runId> [--state-root <dir>]
+  pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
+  pi-sparkle adapt promote
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
   pi-sparkle help
 
 State root defaults to ~/.pi-sparkle. The default executor is a deterministic
-fake; pass --executor pi and set PI_PROVIDER/PI_MODEL/PI_API_KEY to run a real
-Pi agent. --children runs the parent as a coordinator over the child tasks in
+fake. --children without --executor pi uses the child fake executor so the
+README example completes locally. Pass --executor pi after pi-sparkle models
+set-default (and/or PI_PROVIDER/PI_MODEL). doctor is a developer-preview
+preflight (Node, pnpm, state-root, providers, Pi dispatch contract); it is not a production
+capability until this output contract is frozen. Per-provider env keys (OPENAI_API_KEY, ...) and
+pi-sparkle auth login replace a single PI_API_KEY; PI_API_KEY remains a
+compatibility override for the default provider only. --children runs the
+parent as a coordinator over the child tasks in
 the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
+--track clarifies the objective (using recorded habits), sends it through a
+primary-owned split (planner on --primary-model, then scout → implement →
+review → test), compiles that plan into the flowchart supervisor, grounds each
+child with a bounded context packet and predecessor artifacts, assigns catalog
+models, and executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4 per parent).
+predecessor artifacts, assigns other catalog models from --primary-model
+(default premium / PI_MODEL) plus an optional cheaper --fast-model, executes
+with peer mail, scores three-line tracking on child TASK_RESULT facts when
+verification is PASSED or FAILED, then runs the automatic adaptation loop
+(collect feedback, diagnose model/project issues, propose a routing-policy
+candidate; never CAS-promotes. SPARKLE_AUTO_ADAPT=0 still collects). --public-prior loads a hashed frozen
+snapshot for covered families; a missing file or hash failure prints one stderr
+line and keeps today's no-prior path unless --require-public-prior.
 --flowchart starts a flowchart run (startFlowchartRun) from a JSON spec. It is
-incompatible with --children and --executor. Optional --results maps nodeId to a fake
-ChildNodeResult for the default fake proof path. Resume of a flowchart
-checkpoint continues resumeFlowchartRun (optional --results and --selected /
---selected-ids). --supervised still uses M2 DAG resume and refuses flowchart
-checkpoints. Answer on a flowchart waiting run requires --selected or
---selected-ids, correlates against the stored approval plan, and resumes;
-plain-text --message/--text remains valid for non-flowchart runs.
+incompatible with --children and --track. Optional --results maps nodeId to a fake
+ChildNodeResult and wins over --executor for those nodes. Optional --executor
+fake|pi runs remaining RUNNING nodes (--executor fake uses the protocol child
+fake, same as --children). Without --results or --executor, leased nodes stall.
+Resume of a flowchart checkpoint continues resumeFlowchartRun (optional --results,
+--executor, and --selected / --selected-ids). --supervised still uses M2 DAG
+resume and refuses flowchart checkpoints. Answer on a flowchart waiting run
+requires --selected or --selected-ids, correlates against the stored approval
+plan, and resumes; plain-text --message/--text remains valid for non-flowchart
+runs.
 commits preview reads a completed flowchart run's ledger and emits conventional
 commit messages with evidence references; commits apply writes them with git
 commit --allow-empty (optional --sign / --file for an edited JSON proposal).
 pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clears it
 and continues. inject records a typed fact/override/skip against DecisionPolicy
 without executing user strings.
+inspect --episode prints the latest bound episode snapshot (inspect --run also
+prints the episode id when a run is attached). episode close/events provide the
+acceptance-gated closure and event views. adapt collects user and subagent
+feedback automatically after --track/--children; routing-policy candidates stay
+proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
+rollback remain available on the CLI.
 `;
 
 /** Parses a --children spec file into validated ChildTaskInput values. */
@@ -224,6 +323,9 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
       : [];
     const limits = task.limits as Record<string, unknown> | undefined;
     const profile = registry.resolve(task.role);
+    const dependsOn = Array.isArray(task.dependsOn)
+      ? task.dependsOn.map((id) => parseTaskId(id))
+      : undefined;
     return {
       taskId,
       role: task.role,
@@ -235,13 +337,104 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
         maxAttempts: typeof limits?.maxAttempts === "number" ? limits.maxAttempts : 1,
         timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : 60_000,
         maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000
-      }
+      },
+      ...(dependsOn !== undefined ? { dependsOn } : {})
     };
   });
 }
 
+async function smartChildPlan(
+  children: ChildTaskInput[],
+  primaryModelId: string,
+  fastModelId: string,
+  stateRoot: string,
+  learned?: LearnedRoutingPolicy,
+  prior?: PublicPriorSnapshot
+): Promise<{ children: ChildTaskInput[]; assignments: ReturnType<typeof assignTasks> }> {
+  const catalog = await calibrateCatalogFromState(
+    await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
+    stateRoot
+  );
+  const assignable = children.flatMap((child) =>
+    isAgentRole(child.role)
+      ? [{ taskId: child.taskId, role: child.role, objective: child.objective }]
+      : []
+  );
+  const assignments = assignTasks({
+    tasks: assignable,
+    catalog,
+    ...(learned !== undefined ? { learned } : {}),
+    ...(prior !== undefined ? { prior } : {})
+  });
+  const routed = children.map((child) => {
+    const assignment = assignments.find((item) => item.taskId === child.taskId);
+    if (assignment === undefined) return child;
+    return {
+      ...child,
+      assignedModel: assignment.decision.model,
+      cascade: liveCascadePlanFromAssignment(assignment, catalog)
+    };
+  });
+  return { children: routed, assignments };
+}
+
+/** Hashed CLI load: fail-soft on DomainValidationError / missing file unless required. */
+async function loadOptionalPublicPrior(
+  path: string | undefined,
+  require: boolean,
+  io: CliIo
+): Promise<{ snapshot: PublicPriorSnapshot; hash: string } | undefined> {
+  if (path === undefined) return undefined;
+  try {
+    return await loadPublicPriorSnapshot(path);
+  } catch (error) {
+    const missing =
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT";
+    if (!(error instanceof DomainValidationError) && !missing) {
+      throw error;
+    }
+    if (require) {
+      if (error instanceof DomainValidationError) throw error;
+      throw new DomainValidationError(`public prior file is unreadable: ${path}`);
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    io.stderr(`warning: public prior not applied: ${message}\n`);
+    return undefined;
+  }
+}
+
 function flowchartExitCode(status: RunStatus): number {
-  return status === "COMPLETED" || status === "WAITING_FOR_USER" || status === "PAUSED" ? 0 : 1;
+  return status === "COMPLETED" || status === "WAITING_FOR_USER" || status === "PAUSED" ? CLI_EXIT.ok : CLI_EXIT.error;
+}
+
+function reportFailedRun(
+  io: CliIo,
+  command: string,
+  stage: string,
+  runId: RunId,
+  stateRoot: string,
+  reason: string
+): number {
+  io.stderr(`  reason: ${reason}\n`);
+  return cliFail(io, {
+    command,
+    stage,
+    message: `run failed: ${reason}`,
+    next: `pnpm cli inspect --run ${runId} --state-root ${stateRoot}`,
+    runId
+  });
+}
+
+function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string): number {
+  return cliFail(io, {
+    command,
+    stage: "lookup",
+    message: `Run ${runId} not found under ${stateRoot}`,
+    next: `check --state-root and pnpm cli inspect --run ${runId}`,
+    runId
+  });
 }
 
 function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
@@ -325,36 +518,74 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       executor: { type: "string" },
       children: { type: "string" },
       flowchart: { type: "string" },
-      results: { type: "string" }
+      results: { type: "string" },
+      track: { type: "boolean", default: false },
+      "primary-model": { type: "string" },
+      "fast-model": { type: "string" },
+      "assume-defaults": { type: "boolean", default: false },
+      answers: { type: "string" },
+      "public-prior": { type: "string" },
+      "require-public-prior": { type: "boolean", default: false }
     }
   });
-  if (values.project === undefined || values.objective === undefined) {
-    io.stderr("run requires --project <path> and --objective <text>\n");
-    return 1;
+  const projectRoot = values.project;
+  const objective = values.objective;
+  if (typeof projectRoot !== "string" || typeof objective !== "string") {
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message: "run requires --project <path> and --objective <text>",
+      next: "pass both --project <path> and --objective <text>"
+    });
   }
   if (values.flowchart !== undefined && values.children !== undefined) {
-    io.stderr("run --flowchart is incompatible with --children\n");
-    return 1;
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message: "run --flowchart is incompatible with --children",
+      next: "use --flowchart or --children, not both"
+    });
   }
-  if (values.flowchart !== undefined && values.executor !== undefined) {
-    io.stderr("run --flowchart is incompatible with --executor\n");
-    return 1;
+  if (values.flowchart !== undefined && values.track === true) {
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message: "run --flowchart is incompatible with --track",
+      next: "use --flowchart or --track, not both"
+    });
   }
   if (values.results !== undefined && values.flowchart === undefined) {
-    io.stderr("run --results requires --flowchart\n");
-    return 1;
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message: "run --results requires --flowchart",
+      next: "pass --flowchart <file.json> with --results"
+    });
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.flowchart !== undefined) {
-    const flowchart = await parseFlowchartFile(values.flowchart);
+    const liveCatalog = await buildLiveCatalogConfig(stateRoot);
+    const flowchart = await parseFlowchartFile(
+      values.flowchart,
+      liveCatalog.models.map((model) => model.id)
+    );
     const childResults =
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
+    const executor =
+      values.executor !== undefined
+        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot)
+        : undefined;
     const outcome = await startFlowchartRun(
-      { stateRoot, router: createCliModelRouter(), pause: createFilePauseController(stateRoot) },
       {
-        projectRoot: values.project,
+        stateRoot,
+        router: await createCalibratedCliModelRouter(stateRoot),
+        pause: createFilePauseController(stateRoot),
+        ...(executor !== undefined ? { executor } : {})
+      },
+      {
+        projectRoot,
         flowchart,
-        objective: values.objective,
+        objective,
         ...(childResults !== undefined ? { childResults } : {})
       }
     );
@@ -363,39 +594,160 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
-      io.stderr(`  reason: ${reason}\n`);
+      return reportFailedRun(io, "run", "flowchart", outcome.runId, stateRoot, reason);
     }
     return flowchartExitCode(outcome.status);
   }
   const executorKind =
     values.children !== undefined && (values.executor ?? "fake") === "fake"
       ? "fake-children"
+      : values.track === true && (values.executor ?? "fake") === "fake"
+        ? "fake-children"
       : (values.executor ?? "fake");
-  const executor = createExecutor(executorKind, {
+  const executor = await createExecutor(executorKind, stateRoot, {
     onInvocation: (invocation) => {
       void appendFile(join(stateRoot, "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
     }
   });
-  const running =
-    values.children !== undefined
-      ? startParentRun(
-          { stateRoot, executor },
-          {
-            projectRoot: values.project,
-            objective: values.objective,
-            children: await parseChildSpec(values.children)
-          }
-        )
-      : startRun(
-          { stateRoot, executor },
-          { projectRoot: values.project, objective: values.objective }
+  bindPreferenceStore(stateRoot);
+  const providers = await loadProvidersConfig(stateRoot);
+  const envCatalogId =
+    process.env.PI_PROVIDER !== undefined && process.env.PI_MODEL !== undefined
+      ? formatModelRef(process.env.PI_PROVIDER, process.env.PI_MODEL)
+      : undefined;
+  const primaryModelId =
+    values["primary-model"] ??
+    providers.primary ??
+    envCatalogId ??
+    (executorKind === "pi" ? process.env.PI_MODEL : undefined) ??
+    DEFAULT_PRIMARY_MODEL_ID;
+  const fastModelId =
+    values["fast-model"] ?? process.env.PI_FAST_MODEL ?? providers.fast ?? DEFAULT_FAST_MODEL_ID;
+  const loadedPrior = await loadOptionalPublicPrior(
+    values["public-prior"],
+    values["require-public-prior"] === true,
+    io
+  );
+  const publicPrior = loadedPrior?.snapshot;
+
+  if (values.track === true) {
+    if (values.children !== undefined) {
+      return cliFail(io, {
+        command: "run",
+        stage: "parse-args",
+        message: "run --track is incompatible with --children (track generates the cluster plan)",
+        next: "omit --children when using --track"
+      });
+    }
+    let answers: Record<string, string> | undefined;
+    if (values.answers !== undefined) {
+      const raw = JSON.parse(await readFile(values.answers, "utf8")) as unknown;
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new DomainValidationError("answers file must be a JSON object of question id to answer");
+      }
+      answers = Object.fromEntries(
+        Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, String(value)])
+      );
+    }
+    const outcome = await startTrackedRun({
+      projectRoot,
+      objective,
+      stateRoot,
+      executor,
+      primaryModelId,
+      fastModelId,
+      assumeDefaults: values["assume-defaults"] === true,
+      ...(answers !== undefined ? { answers } : {}),
+      ...(publicPrior !== undefined ? { prior: publicPrior } : {})
+    });
+    io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
+    io.stdout(`  project: ${outcome.project.rootPath}\n`);
+    if (outcome.questions.length > 0) {
+      io.stdout("  clarifying questions:\n");
+      for (const question of outcome.questions) {
+        io.stdout(`    ${question.id}: ${question.question}\n`);
+      }
+      io.stdout("  re-run with --assume-defaults or --answers <file.json>\n");
+    }
+    if (outcome.assignments.length > 0) {
+      io.stdout(`  routing (primary=${primaryModelId}, fast=${fastModelId}):\n`);
+      if (loadedPrior !== undefined) {
+        io.stdout(`  public prior: ${loadedPrior.snapshot.snapshotId} hash=${loadedPrior.hash}\n`);
+      }
+      for (const assignment of outcome.assignments) {
+        io.stdout(
+          `    ${assignment.taskId} (${assignment.role}, ${assignment.analysis.complexity}) -> ${assignment.decision.model}\n`
         );
-  const outcome = await running.done;
-  io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
-  io.stdout(`  project: ${outcome.project.rootPath}\n`);
-  io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
-  io.stdout(`  checkpoint: ${join(stateRoot, "runs", outcome.runId, "checkpoint.json")}\n`);
-  if (values.children !== undefined) {
+      }
+    }
+    if (outcome.learn !== undefined) {
+      io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
+    }
+    io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
+    return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
+  }
+
+  const childrenSpec = values.children;
+  const learned = await loadLearnedRouting(stateRoot, projectRoot);
+  let childAssignments: ReturnType<typeof assignTasks> = [];
+  if (childrenSpec !== undefined) {
+    const planned = await smartChildPlan(
+      await parseChildSpec(childrenSpec),
+      primaryModelId,
+      fastModelId,
+      stateRoot,
+      learned,
+      publicPrior
+    );
+    childAssignments = planned.assignments;
+    if (planned.assignments.length > 0) {
+      io.stdout(`  routing (primary=${primaryModelId}, fast=${fastModelId}):\n`);
+      for (const assignment of planned.assignments) {
+        io.stdout(
+          `    ${assignment.taskId} (${assignment.role}, ${assignment.analysis.complexity}) -> ${assignment.decision.model}\n`
+        );
+      }
+    }
+    const catalog = await calibrateCatalogFromState(
+      await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
+      stateRoot
+    );
+    const catalogIds = catalog.models.map((model) => model.id);
+    const preferredFast = catalogIds.includes(fastModelId) ? fastModelId : catalogIds[0]!;
+    const flowchart = compileChildrenToFlowchart(
+      planned.children.flatMap((child) => {
+        if (!isAgentRole(child.role)) return [];
+        return [
+          {
+            taskId: child.taskId,
+            role: child.role,
+            objective: child.objective,
+            ...(child.dependsOn !== undefined ? { dependsOn: child.dependsOn } : {}),
+            allowedModels: catalogIds,
+            ...(child.assignedModel !== undefined ? { preferredModel: child.assignedModel } : {})
+          }
+        ];
+      }),
+      { flowchartId: "children", allowedModels: catalogIds, preferredModel: preferredFast }
+    );
+    const outcome = await startFlowchartRun(
+      {
+        stateRoot,
+        router: createModelRouter(catalog),
+        executor,
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        cluster: true,
+        pause: createFilePauseController(stateRoot)
+      },
+      {
+        projectRoot,
+        flowchart,
+        objective,
+        childTasks: planned.children,
+        assignments: planned.assignments
+      }
+    );
+    printFlowchartOutcome(io, outcome, stateRoot);
     const inspection = await inspectRun(stateRoot, outcome.runId);
     io.stdout(`  children: ${inspection.children.length}\n`);
     for (const child of inspection.children) {
@@ -411,14 +763,92 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         }
       }
     }
+    const episodeId = episodeIdFromEvents(outcome.events);
+    try {
+      const adapt = await runAutoAdaptLoop({
+        stateRoot,
+        projectRoot,
+        projectId: outcome.project.id,
+        primaryModelId,
+        events: outcome.events,
+        assignments: childAssignments,
+        ...(episodeId !== undefined ? { episodeId } : {})
+      });
+      io.stdout(
+        `  adapt: ${adapt.reason}${adapt.promoted ? " (promoted)" : ""}${adapt.candidateId !== undefined ? ` (${adapt.candidateId})` : ""}\n`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      io.stderr(`  adapt skipped: ${message}\n`);
+    }
+    if (outcome.status === "FAILED") {
+      const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
+      const reason =
+        failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
+      return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
+    }
+    return flowchartExitCode(outcome.status);
   }
+  const running = startRun({ stateRoot, executor }, { projectRoot, objective });
+  const outcome = await running.done;
+  io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
+  io.stdout(`  project: ${outcome.project.rootPath}\n`);
+  io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
+  io.stdout(`  checkpoint: ${join(stateRoot, "runs", outcome.runId, "checkpoint.json")}\n`);
   if (outcome.status === "FAILED") {
     const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
     const reason = failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
-    io.stderr(`  reason: ${reason}\n`);
-    return 1;
+    return reportFailedRun(io, "run", "execute", outcome.runId, stateRoot, reason);
   }
-  return outcome.status === "COMPLETED" ? 0 : 1;
+  return outcome.status === "COMPLETED" ? CLI_EXIT.ok : CLI_EXIT.error;
+}
+
+function warnTruncatedJsonl(
+  io: CliIo,
+  recovery: { incompleteLine?: string; lineNumber?: number },
+  label: string
+): void {
+  if (recovery.incompleteLine === undefined) return;
+  const at = recovery.lineNumber !== undefined ? ` at line ${recovery.lineNumber}` : "";
+  io.stderr(`warning: ignored truncated ${label}${at}\n`);
+}
+
+async function inspectEpisode(stateRoot: string, rawId: string, json: boolean, io: CliIo): Promise<number> {
+  const episodeId = parseEpisodeId(rawId);
+  const store = new EpisodeStore(stateRoot, episodeId);
+  const read = await store.readAll();
+  const snapshot = read.episodes.at(-1);
+  if (snapshot === undefined) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "lookup",
+      message: `Episode ${episodeId} not found under ${stateRoot}`,
+      next: "pass a bound --episode id from inspect --run"
+    });
+  }
+  warnTruncatedJsonl(io, read.recovery, "episode log");
+  if (json) {
+    io.stdout(`${JSON.stringify(snapshot)}\n`);
+    return 0;
+  }
+  io.stdout(`Episode ${snapshot.id}: ${snapshot.status}\n`);
+  io.stdout(`  project: ${snapshot.projectId}\n`);
+  io.stdout(`  objective: ${snapshot.objective}\n`);
+  io.stdout(`  runs: ${snapshot.runIds.length === 0 ? "(none)" : snapshot.runIds.join(", ")}\n`);
+  io.stdout(`  started: ${snapshot.startedAt}\n`);
+  if (snapshot.closedAt !== undefined) {
+    io.stdout(`  closed: ${snapshot.closedAt}\n`);
+  }
+  if (snapshot.acceptance.length > 0) {
+    io.stdout(`  acceptance: ${snapshot.acceptance.map((item) => item.id).join(", ")}\n`);
+  }
+  if (snapshot.evidenceRefs.length > 0) {
+    io.stdout(`  evidence: ${snapshot.evidenceRefs.join(", ")}\n`);
+  }
+  if (snapshot.outcomeId !== undefined) {
+    io.stdout(`  outcome: ${snapshot.outcomeId}\n`);
+  }
+  return 0;
 }
 
 async function inspectCommand(args: string[], io: CliIo): Promise<number> {
@@ -426,22 +856,38 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     args,
     options: {
       run: { type: "string" },
+      episode: { type: "string" },
       "state-root": { type: "string" },
       json: { type: "boolean", default: false }
     }
   });
-  if (values.run === undefined) {
-    io.stderr("inspect requires --run <runId>\n");
-    return 1;
+  if (values.run !== undefined && values.episode !== undefined) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect accepts either --run or --episode, not both",
+      next: "pass only --run or only --episode"
+    });
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  if (values.episode !== undefined) {
+    return inspectEpisode(stateRoot, values.episode, values.json === true, io);
+  }
+  if (values.run === undefined) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect requires --run <runId> or --episode <epId>",
+      next: "pass --run <runId> or --episode <epId>"
+    });
+  }
   const runId = parseRunId(values.run);
   const store = new EventStore(stateRoot, runId);
   const read = await store.readAll();
   if (read.events.length === 0) {
-    io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
-    return 1;
+    return missingRun(io, "inspect", runId, stateRoot);
   }
+  warnTruncatedJsonl(io, read.recovery, "event log");
   if (values.json) {
     for (const event of read.events) {
       io.stdout(`${JSON.stringify(event)}\n`);
@@ -452,6 +898,10 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   io.stdout(`Run ${runId}: ${state.status} (${read.events.length} events)\n`);
   if (state.run !== undefined) {
     io.stdout(`  project: ${state.run.projectId}\n`);
+  }
+  const boundEpisodeId = episodeIdFromEvents(read.events);
+  if (boundEpisodeId !== undefined) {
+    io.stdout(`  episode: ${boundEpisodeId}\n`);
   }
   const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
   if (checkpoint?.flowchart !== undefined) {
@@ -522,23 +972,30 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     }
   });
   if (values.run === undefined) {
-    io.stderr("resume requires --run <runId>\n");
-    return 1;
+    return cliFail(io, {
+      command: "resume",
+      stage: "parse-args",
+      message: "resume requires --run <runId>",
+      next: "pass --run <runId> from a prior run or inspect"
+    });
   }
   const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
   const wantsFlowchartFlags =
     values.results !== undefined || selectedActionIds !== undefined || values.text !== undefined;
   if (values.supervised === true && (wantsFlowchartFlags || values.unpause === true)) {
-    io.stderr("resume --supervised does not accept --results, --selected, --selected-ids, --text, or --unpause\n");
-    return 1;
+    return cliFail(io, {
+      command: "resume",
+      stage: "parse-args",
+      message: "resume --supervised does not accept --results, --selected, --selected-ids, --text, or --unpause",
+      next: "omit flowchart flags when using --supervised"
+    });
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);
   const eventStore = new EventStore(stateRoot, runId);
   const read = await eventStore.readAll();
   if (read.events.length === 0) {
-    io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
-    return 1;
+    return missingRun(io, "resume", runId, stateRoot);
   }
   const checkpointStore = new CheckpointStore(stateRoot, runId);
   const existing = await checkpointStore.read();
@@ -548,7 +1005,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     const running = resumeSupervisedRun(
       {
         stateRoot,
-        executor: createExecutor(executorKind),
+        executor: await createExecutor(executorKind, stateRoot),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
       runId
@@ -560,10 +1017,9 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     if (outcome.status === "FAILED") {
       const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
       const reason = failed !== undefined ? failed.payload.reason : "unknown";
-      io.stderr(`  reason: ${reason}\n`);
-      return 1;
+      return reportFailedRun(io, "resume", "supervised", runId, stateRoot, String(reason));
     }
-    return outcome.status === "COMPLETED" ? 0 : 1;
+    return outcome.status === "COMPLETED" ? CLI_EXIT.ok : CLI_EXIT.error;
   }
   if (checkpointCarriesFlowchart(existing)) {
     const checkpoint = validateCheckpoint(existing);
@@ -584,8 +1040,17 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     if ((token.paused || replayRun(read.events).status === "PAUSED") && values.unpause !== true) {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
+    const executor =
+      values.executor !== undefined
+        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot)
+        : undefined;
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: createCliModelRouter(), pause },
+      {
+        stateRoot,
+        router: await createCalibratedCliModelRouter(stateRoot),
+        pause,
+        ...(executor !== undefined ? { executor } : {})
+      },
       runId,
       flowchartContinuation({
         checkpoint,
@@ -600,7 +1065,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
-      io.stderr(`  reason: ${reason}\n`);
+      return reportFailedRun(io, "resume", "flowchart", outcome.runId, stateRoot, reason);
     }
     return flowchartExitCode(outcome.status);
   }
@@ -655,8 +1120,12 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
     }
   });
   if (values.run === undefined) {
-    io.stderr("answer requires --run <runId>\n");
-    return 1;
+    return cliFail(io, {
+      command: "answer",
+      stage: "parse-args",
+      message: "answer requires --run <runId>",
+      next: "pass --run <runId> for the waiting run"
+    });
   }
   const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
@@ -664,8 +1133,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   const store = new EventStore(stateRoot, runId);
   const read = await store.readAll();
   if (read.events.length === 0) {
-    io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
-    return 1;
+    return missingRun(io, "answer", runId, stateRoot);
   }
   const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
   requireDurableFlowchartCheckpoint(runId, read.events, checkpoint);
@@ -677,10 +1145,13 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       );
     }
     if (selectedActionIds === undefined) {
-      io.stderr(
-        "answer on a flowchart waiting run requires --selected <id> (repeatable) or --selected-ids <csv>\n"
-      );
-      return 1;
+      return cliFail(io, {
+        command: "answer",
+        stage: "parse-args",
+        message: "answer on a flowchart waiting run requires --selected <id> (repeatable) or --selected-ids <csv>",
+        next: "pass --selected <id> from the pending approval plan",
+        runId
+      });
     }
     if (values.message !== undefined) {
       const messageId = parseMessageId(values.message);
@@ -698,7 +1169,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: createCliModelRouter(), pause },
+      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause },
       runId,
       flowchartContinuation({
         checkpoint,
@@ -713,13 +1184,18 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
-      io.stderr(`  reason: ${reason}\n`);
+      return reportFailedRun(io, "answer", "flowchart", outcome.runId, stateRoot, reason);
     }
     return flowchartExitCode(outcome.status);
   }
   if (values.message === undefined || values.text === undefined) {
-    io.stderr("answer requires --run <runId> --message <msgId> --text <answer>\n");
-    return 1;
+    return cliFail(io, {
+      command: "answer",
+      stage: "parse-args",
+      message: "answer requires --run <runId> --message <msgId> --text <answer>",
+      next: "pass --message <msgId> and --text <answer> for a non-flowchart question",
+      runId
+    });
   }
   if (selectedActionIds !== undefined || values.results !== undefined) {
     throw new DomainValidationError("answer --selected/--results require a flowchart checkpoint");
@@ -877,14 +1353,29 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await resumeCommand(rest, io);
       case "answer":
         return await answerCommand(rest, io);
+      case "auth":
+        return await authCommand(rest, io);
+      case "models":
+        return await modelsCommand(rest, io);
       case "pref":
         return await prefCommand(rest, io);
+      case "adapt":
+        return await adaptCommand(rest, io);
+      case "episode":
+        return await episodeCommand(rest, io);
       case "commits":
         return await commitsCommand(rest, io);
       case "pause":
         return await pauseCommand(rest, io);
       case "inject":
         return await injectCommand(rest, io);
+      case "doctor":
+        return await doctorCommand(rest, io);
+      case "version":
+      case "--version":
+      case "-V":
+        io.stdout(`${packageVersion()}\n`);
+        return 0;
       case "help":
       case "--help":
       case "-h":
@@ -894,13 +1385,21 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         io.stdout(USAGE);
         return 0;
       default:
-        io.stderr(`Unknown command: ${command}\n`);
         io.stderr(USAGE);
-        return 1;
+        return cliFail(io, {
+          command: "pi-sparkle",
+          stage: "parse-args",
+          message: `Unknown command: ${command}`,
+          next: "run pi-sparkle help"
+        });
     }
   } catch (error) {
-    io.stderr(`error: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
+    return cliFail(io, {
+      command: command ?? "pi-sparkle",
+      stage: error instanceof DomainValidationError ? "validation" : "execute",
+      message: error instanceof Error ? error.message : String(error),
+      next: "fix the reported error, then retry; use pi-sparkle doctor for preflight"
+    });
   }
 }
 

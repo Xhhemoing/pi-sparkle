@@ -1,4 +1,5 @@
 import { DomainValidationError } from "../domain/errors.js";
+import { catalogModel } from "../routing/catalog-model.js";
 import {
   isConfidenceScore,
   validateApprovalPlan,
@@ -171,7 +172,52 @@ function validateRoutingDecision(value: unknown, index: number): RoutingDecision
   if (typeof value.estimatedDurationMs !== "number" || !Number.isFinite(value.estimatedDurationMs) || value.estimatedDurationMs <= 0) {
     throw snapshotError(`decisions[${index}].estimatedDurationMs must be a positive finite number`);
   }
+  if (!isNonEmptyString(value.family)) throw snapshotError(`decisions[${index}].family must be a non-empty string`);
+  if (!isNonEmptyString(value.featureVersion)) {
+    throw snapshotError(`decisions[${index}].featureVersion must be a non-empty string`);
+  }
+  if (!isNonEmptyString(value.modelVersion)) {
+    throw snapshotError(`decisions[${index}].modelVersion must be a non-empty string`);
+  }
+  if (typeof value.highRisk !== "boolean") throw snapshotError(`decisions[${index}].highRisk must be a boolean`);
+  if (!Array.isArray(value.eligibleModels) || !value.eligibleModels.every((id) => isNonEmptyString(id))) {
+    throw snapshotError(`decisions[${index}].eligibleModels must be an array of non-empty strings`);
+  }
+  if (!Array.isArray(value.rejections) || !value.rejections.every(isRoutingRefusal)) {
+    throw snapshotError(`decisions[${index}].rejections must be an array of refusals`);
+  }
+  if (!isOneHotDistribution(value.behaviorDistribution, value.eligibleModels, value.model)) {
+    throw snapshotError(`decisions[${index}].behaviorDistribution must be one-hot over eligibleModels`);
+  }
+  if (value.coldStartRoutingScore !== undefined && !isConfidenceScore(value.coldStartRoutingScore)) {
+    throw snapshotError(`decisions[${index}].coldStartRoutingScore must be a finite number between 0 and 1`);
+  }
   return value as unknown as RoutingDecision;
+}
+
+function isRoutingRefusal(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.modelId) &&
+    isNonEmptyString(value.constraint) &&
+    typeof value.detail === "string"
+  );
+}
+
+function isOneHotDistribution(value: unknown, eligible: readonly unknown[], selected: unknown): boolean {
+  if (!isRecord(value) || typeof selected !== "string") return false;
+  const keys = Object.keys(value);
+  if (!Array.isArray(eligible) || keys.length !== eligible.length) return false;
+  const eligibleSet = new Set(eligible.filter((id): id is string => typeof id === "string"));
+  let selectedMass = 0;
+  for (const key of keys) {
+    if (!eligibleSet.has(key)) return false;
+    const p = value[key];
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return false;
+    if (key === selected) selectedMass = p;
+    else if (p !== 0) return false;
+  }
+  return selectedMass === 1 && eligibleSet.has(selected);
 }
 
 function validateLedgerFact(value: unknown, label: string): LedgerFact {
@@ -444,13 +490,14 @@ export function snapshotValidationRouter(): import("./model-router.js").ModelRou
     config: {
       policyVersion: "snapshot-validation",
       models: [
-        {
+        catalogModel({
           id: "validation-stub",
+          version: "validation-stub-v1",
           roles: ROLES,
           maxComplexity: "HIGH",
           estimatedCostUsd: 0,
           estimatedDurationMs: 1
-        }
+        })
       ]
     },
     route(): RoutingDecision {

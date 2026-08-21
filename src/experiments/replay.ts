@@ -36,6 +36,21 @@ export interface ReplayAction {
   }[];
 }
 
+export interface ReplayCacheIdentity {
+  readonly candidateHash: string;
+  readonly environmentVersion: string;
+  readonly evaluatorVersion: string;
+}
+
+export function replayCacheKey(input: {
+  readonly runId: string;
+  readonly candidateHash: string;
+  readonly environmentVersion: string;
+  readonly evaluatorVersion: string;
+}): string {
+  return hash32(stableStringify(input));
+}
+
 export interface ReplayResult {
   readonly manifestHash: string;
   /** Hash over the manifest and every action — byte-stable for a frozen rerun. */
@@ -66,7 +81,8 @@ export function replayPolicy(
   manifest: DatasetManifest,
   episodes: readonly FrozenEpisode[],
   policy: RoutingPolicy,
-  outputRoot: string
+  outputRoot: string,
+  cache?: ReplayCacheIdentity
 ): ReplayResult {
   assertIsolatedOutput(episodes, outputRoot);
 
@@ -99,7 +115,11 @@ export function replayPolicy(
     actions.push({ episodeHash: hash, modelId: selected, propensity, eligible, propensities });
   }
 
-  const rerunHash = `rr_${stableStringify({ actions, manifestHash: manifestHash(manifest) })}`;
+  const rerunHash = `rr_${stableStringify({
+    actions,
+    manifestHash: manifestHash(manifest),
+    ...(cache !== undefined ? { cache } : {})
+  })}`;
   return {
     manifestHash: manifestHash(manifest),
     rerunHash: hash32(rerunHash),

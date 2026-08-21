@@ -72,3 +72,9 @@ Only `Outcome-supported` candidates may be claimed as demonstrated improvement.
 ## Follow-up
 
 The detailed contracts, workflow, milestones, and acceptance scenarios are defined in [the adaptive agent work-loop specification](../specs/adaptive-agent-work-loop.md). This ADR remains Proposed until that specification and its default authority policy are approved.
+
+| Gate | Owner | Inputs | Exit | Verify |
+|---|---|---|---|---|
+| Accept or revise this ADR | product + privacy | spec + status matrix | Status becomes Accepted or a superseding ADR | `docs/decisions/0004-controlled-adaptation.md` |
+| Six defaults | product | spec “Decision required before implementation” | Written into an accepted spec revision | `docs/specs/adaptive-agent-work-loop.md` |
+| P0 record rules | runtime | `src/privacy/record-classes.ts` | Independent review, no blocker | `pnpm test -- test/unit/privacy/record-classes.test.ts` |

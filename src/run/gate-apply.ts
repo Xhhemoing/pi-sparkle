@@ -48,16 +48,25 @@ export function applyTrackingGate(input: {
       }
     };
   }
-
-  const mapped = mapGateDirective(input.assessment);
-  const from = currentGateStatus(input.events);
-  if (mapped.directive === "none") {
+  const existingAssessment = input.events.find(
+    (event): event is Extract<Event, { type: "TRACKING_ASSESSMENT" }> =>
+      event.type === "TRACKING_ASSESSMENT" &&
+      event.payload.seq === input.expectedSeq &&
+      event.payload.assessmentHash === input.assessmentHash
+  );
+  if (existingAssessment !== undefined) {
     return {
       events: input.events,
-      result: { applied: false, directive: "none", runStatus: from }
+      result: {
+        applied: false,
+        directive: mapGateDirective(input.assessment).directive,
+        runStatus: currentGateStatus(input.events)
+      }
     };
   }
 
+  const mapped = mapGateDirective(input.assessment);
+  const from = currentGateStatus(input.events);
   const runId = input.assessment.runId as RunId;
   const occurredAt = input.nowIso as IsoTimestamp;
   const next = [...input.events];
@@ -77,6 +86,13 @@ export function applyTrackingGate(input: {
       }
     })
   );
+
+  if (mapped.directive === "none") {
+    return {
+      events: next,
+      result: { applied: true, directive: "none", runStatus: from }
+    };
+  }
 
   const transitionId = input.generateEventId();
   next.push(
@@ -207,4 +223,14 @@ function mapGateDirective(assessment: TrackingAssessment): {
     runStatus: "WAITING_FOR_USER",
     reasonCode: "FAIL_CLOSED"
   };
+}
+
+export function nextTrackingSeq(events: readonly Event[]): number {
+  let next = 0;
+  for (const event of events) {
+    if (event.type === "TRACKING_ASSESSMENT" || event.type === "GATE_TRANSITION") {
+      next = Math.max(next, event.payload.seq + 1);
+    }
+  }
+  return next;
 }

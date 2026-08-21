@@ -12,6 +12,13 @@ export interface AcceptanceCriterion {
   readonly observableCheck: string;
 }
 
+export interface AcceptanceEvidence {
+  readonly criterionId: string;
+  readonly evidenceId: EvidenceId;
+  readonly result: "PASSED" | "FAILED";
+  readonly sourceRef: string;
+}
+
 export interface ProjectEpisode {
   readonly id: EpisodeId;
   readonly projectId: ProjectId;
@@ -23,6 +30,7 @@ export interface ProjectEpisode {
   readonly status: EpisodeStatus;
   readonly acceptance: readonly AcceptanceCriterion[];
   readonly evidenceRefs: readonly EvidenceId[];
+  readonly acceptanceEvidence?: readonly AcceptanceEvidence[] | undefined;
   readonly outcomeId?: string | undefined;
 }
 
@@ -47,6 +55,7 @@ export function validateEpisode(input: unknown): ProjectEpisode {
     status,
     acceptance,
     evidenceRefs,
+    acceptanceEvidence,
     outcomeId
   } = input as Record<string, unknown>;
 
@@ -82,6 +91,20 @@ export function validateEpisode(input: unknown): ProjectEpisode {
   if (!Array.isArray(evidenceRefs) || !evidenceRefs.every((e) => typeof e === "string" && e.startsWith("evd_"))) {
     throw new DomainValidationError("Episode.evidenceRefs must be an array of EvidenceId strings");
   }
+  if (
+    acceptanceEvidence !== undefined &&
+    (!Array.isArray(acceptanceEvidence) || acceptanceEvidence.some((entry) =>
+      !isRecord(entry) ||
+      typeof entry.criterionId !== "string" ||
+      typeof entry.evidenceId !== "string" ||
+      !entry.evidenceId.startsWith("evd_") ||
+      (entry.result !== "PASSED" && entry.result !== "FAILED") ||
+      typeof entry.sourceRef !== "string" ||
+      entry.sourceRef.trim() === ""
+    ))
+  ) {
+    throw new DomainValidationError("Episode.acceptanceEvidence must contain validated criterion evidence");
+  }
   if (outcomeId !== undefined && typeof outcomeId !== "string") {
     throw new DomainValidationError("Episode.outcomeId must be a string when present");
   }
@@ -97,6 +120,7 @@ export function validateEpisode(input: unknown): ProjectEpisode {
     status,
     acceptance: acceptance as readonly AcceptanceCriterion[],
     evidenceRefs: evidenceRefs as readonly EvidenceId[],
+    acceptanceEvidence: acceptanceEvidence as readonly AcceptanceEvidence[] | undefined,
     outcomeId: outcomeId as string | undefined
   };
 }

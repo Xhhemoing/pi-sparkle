@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createCriticObservation } from "../../../src/review/critic.js";
-import { blindPairwiseCompare } from "../../../src/review/pairwise.js";
+import { blindPairwiseCompare, runBlindPairwisePair } from "../../../src/review/pairwise.js";
 import { reconcileReviews } from "../../../src/review/reconcile.js";
 import { createRubric } from "../../../src/rubric/types.js";
 import type { RubricCriterion } from "../../../src/rubric/types.js";
@@ -129,6 +129,50 @@ describe("M4-T3: independent critic and blind pairwise review", () => {
       assert.equal(result.consensus, "tie");
       assert.equal(result.dissent.length, 0);
       assert.equal(result.dissentCount, 0);
+    });
+
+    it("draws a stable initial order from rng and always repeats with swapped presentation", () => {
+      const input = {
+        episodeId,
+        aId: "cand-a",
+        bId: "cand-b",
+        aScore: 0.9,
+        bScore: 0.5,
+        aComment: "a",
+        bComment: "b",
+      };
+      const ab = runBlindPairwisePair(input, () => 0);
+      const ba = runBlindPairwisePair(input, () => 0.9);
+
+      assert.equal(ab.initialOrder, "ab");
+      assert.equal(ba.initialOrder, "ba");
+      assert.equal(ab.first.orderSwapped, false);
+      assert.equal(ab.swapped.orderSwapped, true);
+      assert.equal(ba.first.orderSwapped, false);
+      assert.equal(ba.swapped.orderSwapped, true);
+      assert.notEqual(ab.first.id, ab.swapped.id);
+      assert.equal(ab.reconciliation.consensus, "a");
+      assert.equal(ba.reconciliation.consensus, "a");
+    });
+
+    it("position-biased slot scores disagree across presentations and become uncertain", () => {
+      const result = runBlindPairwisePair(
+        {
+          episodeId,
+          aId: "cand-a",
+          bId: "cand-b",
+          aScore: 0.9,
+          bScore: 0.5,
+          aComment: "a",
+          bComment: "b",
+        },
+        () => 0,
+        { bindScoresToSlots: true }
+      );
+      assert.equal(result.first.winner, "a");
+      assert.equal(result.swapped.winner, "b");
+      assert.equal(result.reconciliation.consensus, "uncertain");
+      assert.equal(result.reconciliation.dissentCount, 2);
     });
   });
 

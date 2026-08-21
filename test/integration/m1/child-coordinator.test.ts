@@ -705,3 +705,99 @@ test("malformed messages from the child are rejected by the coordinator", async 
     assert.match(outcome.summary, /message|invalid/i);
   });
 });
+
+class ModelFailThenPassExecutor implements AgentExecutor {
+  readonly models: string[] = [];
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    this.models.push(request.modelId ?? "");
+    if (this.models.length === 1) {
+      yield {
+        type: "MESSAGE",
+        message: {
+          ...resultMessage(request, "FAILURE"),
+          summary: "golden fixture mismatch",
+          failure: { category: "MODEL_ERROR", detail: "quality" }
+        }
+      };
+      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+      return;
+    }
+    yield { type: "MESSAGE", message: resultMessage(request, "SUCCESS") };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+}
+
+test("deterministic model FAIL escalates assignedModel on the retry", async () => {
+  await withTempState(async (stateRoot) => {
+    const executor = new ModelFailThenPassExecutor();
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(
+      {
+        ...childInput(taskId, childLimits({ maxAttempts: 2 })),
+        assignedModel: "cheap",
+        cascade: {
+          highRisk: false,
+          tiers: [
+            { modelId: "cheap", version: "cheap-v1" },
+            { modelId: "premium", version: "premium-v1" }
+          ]
+        }
+      },
+      new AbortController().signal
+    );
+    const outcome = await handle.done;
+    assert.equal(outcome.outcome, "SUCCESS");
+    assert.equal(outcome.attempts, 2);
+    assert.deepEqual(executor.models, ["cheap", "premium"]);
+    const store = new EventStore(stateRoot, parentRunId);
+    const read = await store.readAll();
+    const retry = read.events.find((event) => event.type === "TASK_RETRY");
+    assert.ok(retry);
+    assert.equal(retry?.type, "TASK_RETRY");
+    if (retry?.type === "TASK_RETRY") {
+      assert.match(retry.payload.reason, /cascade/);
+      assert.equal(retry.payload.previousModel, "cheap");
+      assert.equal(retry.payload.nextModel, "premium");
+    }
+  });
+});
+
+test("tool FAIL does not escalate even when cascade tiers exist", async () => {
+  await withTempState(async (stateRoot) => {
+    const models: string[] = [];
+    const executor = new ScriptedChildExecutor((request) => {
+      models.push(request.modelId ?? "");
+      return [
+        { type: "MESSAGE", message: resultMessage(request, "FAILURE") },
+        { type: "EXECUTION_FINISHED", outcome: "FAILURE" }
+      ];
+    });
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+    const handle = coordinator.startChildTask(
+      {
+        ...childInput(taskId, childLimits({ maxAttempts: 2 })),
+        assignedModel: "cheap",
+        cascade: {
+          highRisk: false,
+          tiers: [
+            { modelId: "cheap", version: "cheap-v1" },
+            { modelId: "premium", version: "premium-v1" }
+          ]
+        }
+      },
+      new AbortController().signal
+    );
+    const outcome = await handle.done;
+    assert.equal(outcome.outcome, "FAILURE");
+    assert.equal(outcome.attempts, 1);
+    assert.deepEqual(models, ["cheap"]);
+  });
+});
