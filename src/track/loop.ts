@@ -135,7 +135,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
           taskId: child.taskId,
           role: child.role,
           objective: child.objective,
-          dependsOn: child.dependsOn,
+          ...(child.dependsOn !== undefined ? { dependsOn: child.dependsOn } : {}),
           allowedModels: catalogIds,
           ...(child.assignedModel !== undefined ? { preferredModel: child.assignedModel } : {})
         }

@@ -689,7 +689,6 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
 
   const childrenSpec = values.children;
   const learned = await loadLearnedRouting(stateRoot, projectRoot);
-  let childAssignments: ReturnType<typeof assignTasks> = [];
   if (childrenSpec !== undefined) {
     const planned = await smartChildPlan(
       await parseChildSpec(childrenSpec),
@@ -699,7 +698,6 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       learned,
       publicPrior
     );
-    childAssignments = planned.assignments;
     if (planned.assignments.length > 0) {
       io.stdout(`  routing (primary=${primaryModelId}, fast=${fastModelId}):\n`);
       for (const assignment of planned.assignments) {
@@ -771,7 +769,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         projectId: outcome.project.id,
         primaryModelId,
         events: outcome.events,
-        assignments: childAssignments,
+        assignments: planned.assignments,
         ...(episodeId !== undefined ? { episodeId } : {})
       });
       io.stdout(

@@ -1040,6 +1040,11 @@ async function restoreFlowchartSession(
     now,
     project: replayed.project,
     runId,
+    stateRoot: deps.stateRoot,
+    abort: new AbortController(),
+    childByTaskId: childTaskMap([]),
+    finishedChildren: new Map<TaskId, ChildRunOutcome>(),
+    spawnHandles: [],
     ...(generateId !== undefined ? { generateId } : {}),
     ...(deps.pause !== undefined ? { pause: deps.pause } : {})
   };

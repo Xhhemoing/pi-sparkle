@@ -31,12 +31,16 @@ test("pi-sparkle skill frontmatter and referenced files are complete", () => {
   const text = readFileSync(skillPath, "utf8");
   const fence = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   assert.ok(fence, "SKILL.md must have YAML frontmatter");
-  const name = fence[1].match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const description = fence[1].match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  const fenceBody = fence[1];
+  assert.ok(fenceBody, "SKILL.md frontmatter must have a body");
+  const name = fenceBody.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  const description = fenceBody.match(/^description:\s*(.+)$/m)?.[1]?.trim();
   assert.equal(name, "pi-sparkle");
   assert.ok(description && description.length > 0 && description.length <= 1024);
   assert.match(name ?? "", /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-  const refs = [...text.matchAll(/references\/([a-z0-9-]+\.md)/g)].map((match) => match[1]);
+  const refs = [...text.matchAll(/references\/([a-z0-9-]+\.md)/g)]
+    .map((match) => match[1])
+    .filter((ref): ref is string => ref !== undefined);
   assert.ok(refs.length >= 6);
   for (const file of new Set(refs)) {
     assert.equal(existsSync(join(skillDir, "references", file)), true, file);
