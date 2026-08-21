@@ -51,6 +51,16 @@ export interface CodeMapView {
  * to `ProjectSnapshot.rootPath`), then lexicographic by normalized path.
  * Nested instruction files therefore lose to root-level ones.
  */
+export interface InstructionOwner {
+  readonly path: string;
+  /** "root" for files directly under the project root, "nested" otherwise. */
+  readonly owner: "root" | "nested";
+  /** Directory whose rules this file owns: "." for root-level files. */
+  readonly scope: string;
+  /** 1-based rank in the same order as `instructionPrecedence`. */
+  readonly precedence: number;
+}
+
 export interface ProjectContextIndex {
   readonly projectId: ProjectId;
   readonly episodeId?: EpisodeId | undefined;
@@ -63,6 +73,7 @@ export interface ProjectContextIndex {
   readonly schemaVersion: 1;
   readonly facts: readonly ContextFact[];
   readonly instructionPrecedence: readonly string[];
+  readonly instructionOwnership: readonly InstructionOwner[];
   readonly validationRoutes: readonly string[];
   readonly generatedHints: readonly string[];
   readonly dirtyUnrelated: readonly string[];
@@ -95,6 +106,7 @@ export function createEmptyContext(projectId: ProjectId, ts: IsoTimestamp): Proj
     schemaVersion: 1,
     facts: [],
     instructionPrecedence: [],
+    instructionOwnership: [],
     validationRoutes: [],
     generatedHints: [],
     dirtyUnrelated: [],
@@ -123,6 +135,16 @@ export function buildProjectContextIndex(
   const instructionPrecedence = [...snapshot.instructionFiles]
     .map((file) => file.path)
     .sort((a, b) => compareInstructionPaths(snapshot.rootPath, a, b));
+  const instructionOwnership = resolveInstructionOwnership(snapshot.rootPath, instructionPrecedence);
+
+  const architecture = snapshot.facts
+    .filter((fact) => fact.key.startsWith("architecture."))
+    .sort((a, b) => compareStrings(a.key, b.key))
+    .map((fact) => fact.value);
+  const risks = snapshot.facts
+    .filter((fact) => fact.key.startsWith("risk."))
+    .sort((a, b) => compareStrings(a.key, b.key))
+    .map((fact) => fact.value);
 
   const validationRoutes = snapshot.commands.map((command) => command.name);
   const codeMap = compileCodeMap(
@@ -173,13 +195,14 @@ export function buildProjectContextIndex(
     projectId: snapshot.id,
     lastUpdated: options.now ?? snapshot.discoveredAt,
     manifests,
-    architecture: [],
+    architecture,
     tests,
-    risks: [],
+    risks,
     priorEpisodes: [],
     schemaVersion: 1,
     facts,
     instructionPrecedence,
+    instructionOwnership,
     validationRoutes,
     generatedHints,
     dirtyUnrelated,
@@ -359,4 +382,37 @@ function isUnderGenerated(dirty: string, generated: string, rootPath: string): b
   const dirtyRel = relativeToRoot(rootPath, dirty);
   const generatedRel = relativeToRoot(rootPath, generated);
   return isPathInside(dirtyRel, generatedRel);
+}
+
+function resolveInstructionOwnership(rootPath: string, orderedPaths: readonly string[]): InstructionOwner[] {
+  return orderedPaths.map((path, position) => {
+    const relative = relativeToRoot(rootPath, path);
+    const segments = relative.split("/").filter((segment) => segment.length > 0);
+    const owner: InstructionOwner["owner"] = segments.length <= 1 ? "root" : "nested";
+    const scope = segments.length <= 1 ? "." : segments.slice(0, -1).join("/");
+    return { path, owner, scope, precedence: position + 1 };
+  });
+}
+
+/**
+ * Incremental refresh: rebuild derived views from the frozen project inputs
+ * while carrying accumulated state (`priorEpisodes`) forward and marking
+ * facts stale when their source hash differs from the prior index.
+ * Deterministic: same prior + same inputs produce deep-equal output.
+ */
+export function refreshProjectContextIndex(
+  prior: ProjectContextIndex,
+  snapshot: ProjectSnapshot,
+  options: BuildProjectContextIndexOptions = {}
+): ProjectContextIndex {
+  const rebuilt = buildProjectContextIndex(snapshot, options);
+  const priorHashes = new Map(prior.facts.map((fact) => [fact.key, fact.sourceHash]));
+  const facts = rebuilt.facts.map((fact) => {
+    const before = priorHashes.get(fact.key);
+    if (before !== undefined && before !== fact.sourceHash && fact.freshness === "fresh") {
+      return { ...fact, freshness: "stale" as const };
+    }
+    return fact;
+  });
+  return { ...rebuilt, facts, priorEpisodes: [...prior.priorEpisodes] };
 }

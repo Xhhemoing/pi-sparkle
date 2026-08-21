@@ -3,11 +3,12 @@ import { test } from "node:test";
 import {
   buildProjectContextIndex,
   createEmptyContext,
+  refreshProjectContextIndex,
   type ProjectContextIndex
 } from "../../../src/context/index.js";
 import { compileContextPacket } from "../../../src/context/packet.js";
 import type { ProjectSnapshot } from "../../../src/domain/project.js";
-import { createProjectId, createTaskId } from "../../../src/domain/ids.js";
+import { createProjectId, createTaskId, createEpisodeId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import type { RequirementContract } from "../../../src/domain/contract.js";
 
@@ -231,6 +232,7 @@ test("createEmptyContext fills additive fields for compatibility", () => {
     schemaVersion: 1,
     facts: [],
     instructionPrecedence: [],
+    instructionOwnership: [],
     validationRoutes: [],
     generatedHints: [],
     dirtyUnrelated: [],
@@ -243,4 +245,81 @@ test("createEmptyContext fills additive fields for compatibility", () => {
     }
   };
   assert.deepEqual(empty, expected);
+});
+
+test("instruction ownership models root and nested owners with precedence", () => {
+  const index = buildProjectContextIndex(
+    snapshot({
+      instructionFiles: [
+        { path: "/tmp/demo/packages/nested/AGENTS.md" },
+        { path: "/tmp/demo/AGENTS.md" },
+        { path: "/tmp/demo/packages/AGENTS.md" }
+      ]
+    })
+  );
+  assert.deepEqual(index.instructionOwnership, [
+    { path: "/tmp/demo/AGENTS.md", owner: "root", scope: ".", precedence: 1 },
+    { path: "/tmp/demo/packages/AGENTS.md", owner: "nested", scope: "packages", precedence: 2 },
+    {
+      path: "/tmp/demo/packages/nested/AGENTS.md",
+      owner: "nested",
+      scope: "packages/nested",
+      precedence: 3
+    }
+  ]);
+});
+
+test("architecture and risk facts land in the index instead of empty stubs", () => {
+  const index = buildProjectContextIndex(
+    snapshot({
+      facts: [
+        { key: "risk.migration", value: "users table migration pending", confidence: "HIGH" },
+        { key: "architecture.boundary", value: "src/domain must not import src/cli", confidence: "HIGH" },
+        { key: "architecture.public-api", value: "src/index.ts re-exports", confidence: "MEDIUM" },
+        { key: "unrelated.key", value: "ignored", confidence: "LOW" }
+      ]
+    })
+  );
+  assert.deepEqual(index.architecture, [
+    "src/domain must not import src/cli",
+    "src/index.ts re-exports"
+  ]);
+  assert.deepEqual(index.risks, ["users table migration pending"]);
+});
+
+test("refresh carries prior episodes and marks changed facts stale", () => {
+  const episode = createEpisodeId(UUID);
+  const prior = buildProjectContextIndex(
+    snapshot({
+      facts: [{ key: "arch.note", value: "v1 boundary", confidence: "HIGH" }],
+      manifests: [{ path: "/tmp/demo/package.json" }]
+    }),
+    { now: NOW }
+  );
+  const withEpisodes: ProjectContextIndex = { ...prior, priorEpisodes: [episode] };
+  const refreshed = refreshProjectContextIndex(
+    withEpisodes,
+    snapshot({
+      discoveredAt: parseIsoTimestamp("2026-08-13T09:00:00.000Z"),
+      facts: [{ key: "arch.note", value: "v2 boundary", confidence: "HIGH" }],
+      manifests: [{ path: "/tmp/demo/package.json" }]
+    }),
+    { now: parseIsoTimestamp("2026-08-13T09:00:00.000Z") }
+  );
+  const fact = refreshed.facts.find((entry) => entry.key === "arch.note");
+  assert.equal(fact?.freshness, "stale");
+  assert.equal(refreshed.lastUpdated, "2026-08-13T09:00:00.000Z");
+  assert.deepEqual(refreshed.priorEpisodes, [episode]);
+});
+
+test("refresh is deterministic from frozen inputs and keeps unchanged facts fresh", () => {
+  const snap = snapshot({
+    facts: [{ key: "arch.note", value: "same", confidence: "HIGH" }]
+  });
+  const prior = buildProjectContextIndex(snap, { now: NOW });
+  const first = refreshProjectContextIndex(prior, snap, { now: NOW });
+  const second = refreshProjectContextIndex(prior, snap, { now: NOW });
+  assert.deepEqual(first, second);
+  const fact = first.facts.find((entry) => entry.key === "arch.note");
+  assert.equal(fact?.freshness, "fresh");
 });
