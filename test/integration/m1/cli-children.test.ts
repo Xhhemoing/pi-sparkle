@@ -7,6 +7,7 @@ import { main, type CliIo } from "../../../src/cli/main.js";
 import { inspectRun } from "../../../src/run/inspection.js";
 import { parseRunId } from "../../../src/domain/ids.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -21,21 +22,13 @@ function capture(): { io: CliIo; out: string[]; err: string[] } {
   };
 }
 
-const ISOLATED_ENV_KEYS = ["PI_PROVIDER", "PI_MODEL", "PI_FAST_MODEL"] as const;
-
 async function withRoots(run: (stateRoot: string, projectRoot: string) => Promise<void>) {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-m1-state-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-m1-proj-"));
-  const savedEnv = ISOLATED_ENV_KEYS.map((key) => ({ key, value: process.env[key] }));
-  for (const { key } of savedEnv) delete process.env[key];
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
-    await run(stateRoot, projectRoot);
+    await withIsolatedPiEnv(() => run(stateRoot, projectRoot));
   } finally {
-    for (const { key, value } of savedEnv) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
   }

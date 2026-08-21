@@ -11,6 +11,7 @@ import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
 import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createCliModelRouter } from "../../../src/cli/model-catalog.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 const REPO_ROOT = process.cwd();
 
@@ -32,7 +33,7 @@ async function withRoots(run: (stateRoot: string, projectRoot: string) => Promis
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-proj-"));
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
-    await run(stateRoot, projectRoot);
+    await withIsolatedPiEnv(() => run(stateRoot, projectRoot));
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });

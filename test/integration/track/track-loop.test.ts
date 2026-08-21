@@ -7,6 +7,7 @@ import { main, type CliIo } from "../../../src/cli/main.js";
 import type { AgentExecutor } from "../../../src/execution/contract.js";
 import { startTrackedRun } from "../../../src/track/loop.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -171,18 +172,20 @@ test("cli --track without assume-defaults asks clarifying questions for a vague 
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     const { io, out } = capture();
-    const code = await main(
-      [
-        "run",
-        "--track",
-        "--project",
-        projectRoot,
-        "--objective",
-        "do it",
-        "--state-root",
-        stateRoot
-      ],
-      io
+    const code = await withIsolatedPiEnv(() =>
+      main(
+        [
+          "run",
+          "--track",
+          "--project",
+          projectRoot,
+          "--objective",
+          "do it",
+          "--state-root",
+          stateRoot
+        ],
+        io
+      )
     );
     assert.equal(code, 0);
     assert.match(out.join(""), /WAITING_FOR_USER/);

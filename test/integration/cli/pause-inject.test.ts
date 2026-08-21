@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -74,7 +75,7 @@ async function withRoots(run: (stateRoot: string, projectRoot: string) => Promis
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-pause-cli-proj-"));
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
-    await run(stateRoot, projectRoot);
+    await withIsolatedPiEnv(() => run(stateRoot, projectRoot));
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
