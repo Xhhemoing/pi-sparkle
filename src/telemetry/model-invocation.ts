@@ -19,6 +19,26 @@ export interface InvocationConfig {
   readonly parameterHash: string;
 }
 
+export type InvocationCallOutcome = "ok" | "timeout" | "cancelled" | "error";
+
+export const INVOCATION_CALL_OUTCOMES: readonly InvocationCallOutcome[] = [
+  "ok",
+  "timeout",
+  "cancelled",
+  "error"
+];
+
+/**
+ * Pricing snapshot recorded separately from provider-reported usage. The
+ * catalog version identifies the price table used for any derived cost;
+ * usage (tokensIn/tokensOut) is what the provider reported.
+ */
+export interface InvocationPricing {
+  readonly catalogVersion: string;
+  readonly inputUsdPerMTok?: number | undefined;
+  readonly outputUsdPerMTok?: number | undefined;
+}
+
 export interface ModelInvocation {
   readonly id: InvocationId;
   readonly taskId: TaskId;
@@ -32,6 +52,14 @@ export interface ModelInvocation {
   readonly tokensOut: number | undefined;
   readonly latencyMs: number;
   readonly occurredAt: IsoTimestamp;
+  /** 1-based attempt number; > 1 marks a retry of the same logical call. */
+  readonly attempt?: number | undefined;
+  /** True when the response was served from a provider cache. */
+  readonly cacheHit?: boolean | undefined;
+  /** Terminal call disposition for attribution. */
+  readonly callOutcome?: InvocationCallOutcome | undefined;
+  /** Price table used for derived cost; never merged into usage fields. */
+  readonly pricing?: InvocationPricing | undefined;
 }
 
 const HASH_PATTERN = /^[0-9a-f]{1,8}$/;
@@ -83,6 +111,31 @@ export function invocationError(inv: ModelInvocation): string | undefined {
   }
   if (!isIsoTimestamp(inv.occurredAt)) {
     return "occurredAt must be an ISO timestamp";
+  }
+  if (inv.attempt !== undefined && (!Number.isInteger(inv.attempt) || inv.attempt < 1)) {
+    return "attempt must be an integer >= 1 when present";
+  }
+  if (inv.cacheHit !== undefined && typeof inv.cacheHit !== "boolean") {
+    return "cacheHit must be a boolean when present";
+  }
+  if (
+    inv.callOutcome !== undefined &&
+    !INVOCATION_CALL_OUTCOMES.includes(inv.callOutcome)
+  ) {
+    return `invalid callOutcome: ${String(inv.callOutcome)}`;
+  }
+  if (inv.pricing !== undefined) {
+    if (typeof inv.pricing.catalogVersion !== "string" || inv.pricing.catalogVersion.trim() === "") {
+      return "pricing.catalogVersion is required when pricing is present";
+    }
+    for (const [name, value] of [
+      ["inputUsdPerMTok", inv.pricing.inputUsdPerMTok],
+      ["outputUsdPerMTok", inv.pricing.outputUsdPerMTok]
+    ] as const) {
+      if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+        return `pricing.${name} must be a non-negative finite number when present`;
+      }
+    }
   }
   return undefined;
 }

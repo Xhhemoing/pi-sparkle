@@ -130,3 +130,47 @@ describe("Checkpoint F-4: model invocation recording", () => {
     assert.equal(variance.allPairedIdentical, false, "no pairing must never claim identical replay");
   });
 });
+
+it("pricing catalog version is recorded separately from provider-reported usage", () => {
+  const inv = invocation({
+    tokensIn: 120,
+    tokensOut: 80,
+    pricing: {
+      catalogVersion: "catalog-2026-09",
+      inputUsdPerMTok: 0.15,
+      outputUsdPerMTok: 0.6
+    }
+  });
+  assert.equal(invocationError(inv), undefined);
+  assert.equal(inv.pricing?.catalogVersion, "catalog-2026-09");
+  assert.equal(inv.pricing?.catalogVersion.includes("120"), false);
+});
+
+it("retries, cache hits, timeouts, and cancellations are attributable", () => {
+  const retry = invocation({ attempt: 2, callOutcome: "ok" });
+  const cacheHit = invocation({ attempt: 1, cacheHit: true, callOutcome: "ok" });
+  const timeout = invocation({ attempt: 1, callOutcome: "timeout" });
+  const cancelled = invocation({ attempt: 1, callOutcome: "cancelled" });
+  for (const inv of [retry, cacheHit, timeout, cancelled]) {
+    assert.equal(invocationError(inv), undefined);
+  }
+  assert.equal(retry.attempt, 2);
+  assert.equal(cacheHit.cacheHit, true);
+  assert.equal(timeout.callOutcome, "timeout");
+  assert.equal(cancelled.callOutcome, "cancelled");
+});
+
+it("invalid attribution fields fail closed", () => {
+  assert.match(invocationError(invocation({ attempt: 0 })) ?? "", /attempt/);
+  assert.match(invocationError(invocation({ attempt: 1.5 })) ?? "", /attempt/);
+  assert.match(invocationError(invocation({ callOutcome: "dropped" as never })) ?? "", /callOutcome/);
+  assert.match(invocationError(invocation({ cacheHit: "yes" as never })) ?? "", /cacheHit/);
+  assert.match(
+    invocationError(invocation({ pricing: { catalogVersion: "" } })) ?? "",
+    /catalogVersion/
+  );
+  assert.match(
+    invocationError(invocation({ pricing: { catalogVersion: "c", inputUsdPerMTok: -1 } })) ?? "",
+    /inputUsdPerMTok/
+  );
+});
