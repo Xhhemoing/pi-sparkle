@@ -14,7 +14,7 @@ Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims*
 
 ## M3 gaps (Checkpoint D cannot close until these land)
 
-- [ ] M3-T1 remaining: duplicate open/attach/terminal fail-closed on the episode reducer; truncated JSONL recovery test; dangling cross-stream refs; integration `episode-store` test; multi-run attach in one episode.
+- [x] M3-T1 remaining: duplicate open/attach/terminal fail-closed on the episode reducer; truncated JSONL recovery test; dangling cross-stream refs; integration `episode-store` test; multi-run attach in one episode. (Closed 2026-08-21: reducer marks sticky `failClosed` + reason instead of silently applying/dropping; tests in `test/unit/episode/manager.test.ts` and `test/integration/m3/episode-reducer-store.test.ts`.)
 - [ ] M3-T2 remaining: every deliverable/constraint sourced or assumed; non-placeholder precedence; coverage gate wired so a graph cannot start while mandatory criteria are uncovered; critic cannot mutate the contract.
 - [ ] M3-T4 remaining: instruction ownership (including nested rules); architecture/risks not empty stubs; incremental refresh; integration project-index test.
 - [ ] M3-T5 remaining: mandatory authority/unresolved questions/dependency outputs cannot be omitted under an adequate budget; downstream questions answerable without parent transcript; integration packet test.

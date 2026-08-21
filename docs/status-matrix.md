@@ -20,7 +20,7 @@ Definitions (ADR-004):
 | `compileChildrenToFlowchart` | yes | no | library tests | no | CLI `--children` does **not** compile into `--flowchart`. |
 | `--flowchart` supervisor | yes | yes | yes | no | Public orchestrator. Incompatible with `--children` / `--track`. Optional `--executor fake\|pi` runs RUNNING nodes; `--results` still overrides. |
 | Event log + checkpoint + resume | yes | yes | yes | no | Truncated JSONL tail recovered; corrupt middle line fails closed. |
-| Episode bind / `inspect --episode` | yes | yes | yes | no | Multi-run attach and some fail-closed reducer cases still open. |
+| Episode bind / `inspect --episode` | yes | yes | yes | no | Reducer is fail-closed on duplicate open/attach, terminal replay, and dangling cross-stream refs. |
 | Coverage gate | yes | `--track` / parent start | unit + integration | no | Skip-contracts and answered questions still start. |
 | Real Pi executor | yes | `--executor pi` | opt-in `PI_SMOKE=1` | no | Needs Node `>=22.19.0`, credentials, models, network. |
 | `doctor` | yes | yes | unit tests | no | Developer-preview preflight. Output contract is not frozen. |

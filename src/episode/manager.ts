@@ -20,7 +20,12 @@ export interface OpenEpisodeInput {
 export interface EpisodeState {
   readonly episode: ProjectEpisode | null;
   readonly events: readonly EpisodeEvent[];
+  /** Sticky: true once the log contained an event that had to be rejected. */
+  readonly failClosed: boolean;
+  readonly failClosedReason?: string;
 }
+
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["COMPLETED", "FAILED", "ABANDONED"]);
 
 export function openEpisode(input: OpenEpisodeInput): { episode: ProjectEpisode; event: EpisodeOpenedEvent } {
   const episode: ProjectEpisode = {
@@ -107,38 +112,96 @@ export function closeEpisode(
 export function reduceEpisodeEvents(events: readonly EpisodeEvent[]): EpisodeState {
   let episode: ProjectEpisode | null = null;
   const out: EpisodeEvent[] = [];
+  let failClosed = false;
+  let failClosedReason: string | undefined;
+  const markFailed = (reason: string): void => {
+    if (!failClosed) {
+      failClosed = true;
+      failClosedReason = reason;
+    }
+  };
   for (const e of events) {
-    out.push(e);
     switch (e.type) {
-      case "EPISODE_OPENED":
+      case "EPISODE_OPENED": {
+        if (episode !== null) {
+          markFailed(`duplicate EPISODE_OPENED for episode ${e.episode.id}; log rejected`);
+          break;
+        }
         episode = { ...e.episode };
+        out.push(e);
         break;
-      case "RUN_ATTACHED":
-        if (episode && episode.id === e.episodeId) {
-          const current: ProjectEpisode = episode;
-          if (!current.runIds.includes(e.runId)) {
-            episode = { ...current, runIds: [...current.runIds, e.runId] };
-          }
+      }
+      case "RUN_ATTACHED": {
+        if (episode === null) {
+          markFailed(
+            `RUN_ATTACHED for episode ${e.episodeId} before EPISODE_OPENED; dangling cross-stream ref`,
+          );
+          break;
         }
-        break;
-      case "EPISODE_WAITING":
-        if (episode && episode.id === e.episodeId) {
-          const current: ProjectEpisode = episode;
-          episode = { ...current, status: "WAITING_FOR_USER" as const };
+        if (episode.id !== e.episodeId) {
+          markFailed(
+            `RUN_ATTACHED references another episode (${e.episodeId}); dangling cross-stream ref`,
+          );
+          break;
         }
-        break;
-      case "EPISODE_CLOSED":
-        if (episode && episode.id === e.episodeId) {
-          const current: ProjectEpisode = episode;
-          episode = {
-            ...current,
-            status: e.status,
-            closedAt: e.closedAt,
-            outcomeId: e.outcomeId,
-          };
+        if (TERMINAL_STATUSES.has(episode.status)) {
+          markFailed(`RUN_ATTACHED after terminal status ${episode.status} for episode ${episode.id}`);
+          break;
         }
+        if (episode.runIds.includes(e.runId)) {
+          markFailed(`duplicate RUN_ATTACHED for run ${e.runId} on episode ${episode.id}`);
+          break;
+        }
+        const current: ProjectEpisode = episode;
+        episode = { ...current, runIds: [...current.runIds, e.runId] };
+        out.push(e);
         break;
+      }
+      case "EPISODE_WAITING": {
+        if (episode === null || episode.id !== e.episodeId) {
+          markFailed(
+            `EPISODE_WAITING references ${episode === null ? "an unopened" : "another"} episode (${e.episodeId}); dangling cross-stream ref`,
+          );
+          break;
+        }
+        if (TERMINAL_STATUSES.has(episode.status)) {
+          markFailed(`EPISODE_WAITING after terminal status ${episode.status} for episode ${episode.id}`);
+          break;
+        }
+        const current: ProjectEpisode = episode;
+        episode = { ...current, status: "WAITING_FOR_USER" as const };
+        out.push(e);
+        break;
+      }
+      case "EPISODE_CLOSED": {
+        if (episode === null || episode.id !== e.episodeId) {
+          markFailed(
+            `EPISODE_CLOSED references ${episode === null ? "an unopened" : "another"} episode (${e.episodeId}); dangling cross-stream ref`,
+          );
+          break;
+        }
+        if (TERMINAL_STATUSES.has(episode.status)) {
+          markFailed(
+            `duplicate EPISODE_CLOSED after terminal status ${episode.status} for episode ${episode.id}`,
+          );
+          break;
+        }
+        const current: ProjectEpisode = episode;
+        episode = {
+          ...current,
+          status: e.status,
+          closedAt: e.closedAt,
+          outcomeId: e.outcomeId,
+        };
+        out.push(e);
+        break;
+      }
     }
   }
-  return { episode, events: out };
+  return {
+    episode,
+    events: out,
+    failClosed,
+    ...(failClosedReason !== undefined ? { failClosedReason } : {}),
+  };
 }
