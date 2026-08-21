@@ -113,6 +113,41 @@ describe("M4-T6: repeated-pattern detector with negative controls", () => {
     assert.equal(single.confidence, 2 / 3);
   });
 
+  it("a single severe safety event surfaces as a one-off readiness finding", () => {
+    const single = sig("execution", { severeSafety: true, failure: "secret-leak" });
+    const patterns = detectRepeatedPatterns([single]);
+    assert.equal(patterns.length, 1);
+    assert.equal(patterns[0]?.count, 1);
+    assert.equal(patterns[0]?.oneOffReadiness, true);
+    assert.equal(patterns[0]?.negativeControl, false);
+    assert.equal(patterns[0]?.kind, "execution");
+  });
+
+  it("a single ordinary event still does not surface without recurrence", () => {
+    const single = sig("execution", { failure: "timeout" });
+    assert.deepEqual(detectRepeatedPatterns([single]), []);
+  });
+
+  it("repeated severe safety events stay recurring patterns, not one-offs", () => {
+    const a = sig("execution", { severeSafety: true, failure: "secret-leak" });
+    const b = sig("execution", { severeSafety: true, failure: "secret-leak" });
+    const patterns = detectRepeatedPatterns([a, b]);
+    assert.equal(patterns.length, 1);
+    assert.equal(patterns[0]?.count, 2);
+    assert.equal(patterns[0]?.oneOffReadiness, false);
+  });
+
+  it("a severe safety one-off is not suppressed by a benign-cause marker", () => {
+    const single = sig("delivery", {
+      severeSafety: true,
+      unrelated: true,
+      failure: "credential-exposed"
+    });
+    const patterns = detectRepeatedPatterns([single]);
+    assert.equal(patterns.length, 1);
+    assert.equal(patterns[0]?.oneOffReadiness, true);
+  });
+
   it("produces an explicit no-candidate result instead of filler patterns", () => {
     const noCandidates = detectRepeatedPatterns([]);
     assert.deepEqual(noCandidates, []);

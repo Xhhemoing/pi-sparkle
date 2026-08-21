@@ -24,7 +24,7 @@ Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims*
 
 ## M4 leftover
 
-- [ ] M4-T6: explicit severe safety events labeled as one-off readiness findings (recurrence + other negative controls already tested).
+- [x] M4-T6: explicit severe safety events labeled as one-off readiness findings (recurrence + other negative controls already tested). (Closed 2026-08-21: `SEVERE_SAFETY_FEATURE` + `isSevereSafetySignature` in `src/learning/patterns.ts`; single severe events surface as `oneOffReadiness` patterns even below the recurrence floor and win over benign-cause markers; repeated severe events stay recurring patterns.)
 
 ## M5 leftover (frozen on live loop)
 

@@ -8,6 +8,19 @@ export interface Pattern {
   readonly avgSimilarity: number;
   readonly negativeControl: boolean;
   readonly boundary: string;
+  /**
+   * True for a single (count = 1) explicit severe safety event: surfaced as a
+   * one-off readiness finding instead of being dropped by the default
+   * two-episode recurrence rule.
+   */
+  readonly oneOffReadiness: boolean;
+}
+
+/** Feature key that marks an explicit severe safety event on a signature. */
+export const SEVERE_SAFETY_FEATURE = "severeSafety";
+
+export function isSevereSafetySignature(sig: EpisodeSignature): boolean {
+  return sig.features[SEVERE_SAFETY_FEATURE] === true;
 }
 
 export interface PatternDetectorOptions {
@@ -35,7 +48,9 @@ export function detectRepeatedPatterns(
   const patterns: Pattern[] = [];
 
   byKind.forEach((sigs, kind) => {
-    if (sigs.length < minCount) return;
+    // Kinds below the recurrence floor are skipped unless they carry an
+    // explicit severe safety event, which must surface as a one-off finding.
+    if (sigs.length < minCount && !sigs.some(isSevereSafetySignature)) return;
 
     const clusters = clusterSignatures(sigs, minSim);
     clusters.forEach((cluster, idx) => {
@@ -51,7 +66,25 @@ export function detectRepeatedPatterns(
           // demotes the pattern so it cannot surface as an improvement.
           negativeControl: findNegativeControlMarker(cluster) !== undefined,
           boundary: kind,
+          oneOffReadiness: false,
         });
+        return;
+      }
+      // M4-T6: a single explicit severe safety event must not be silently
+      // dropped by the recurrence rule — it surfaces as a one-off readiness
+      // finding, and an explicit severe marker wins over benign-cause labels.
+      for (const sig of cluster) {
+        if (isSevereSafetySignature(sig)) {
+          patterns.push({
+            key: `${kind}:one-off:${sig.hash}`,
+            kind,
+            count: 1,
+            avgSimilarity: 1,
+            negativeControl: false,
+            boundary: kind,
+            oneOffReadiness: true,
+          });
+        }
       }
     });
   });
