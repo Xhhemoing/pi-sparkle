@@ -83,6 +83,7 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
         });
       }
       const targets = namedTargets(objective);
+      const objectiveRefs = input.sources.map((source) => source.ref);
       const contract = validateRequirementContract({
         schemaVersion: 1,
         objective,
@@ -90,41 +91,54 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
           {
             id: "d-change",
             description: vague ? "Change set matching the clarified objective" : `Deliver ${objective}`,
-            artifactKind: "diff"
+            artifactKind: "diff",
+            sourceRefs: objectiveRefs
           },
           ...targets.map((path, index) => ({
             id: `d-file-${index + 1}`,
             description: path,
-            artifactKind: "file"
+            artifactKind: "file",
+            sourceRefs: objectiveRefs
           }))
         ],
         constraints: [
-          SMALLEST_CHANGE,
-          ...(wantsTests ? [{ id: "c-tests", description: "Tests must stay green", enforceable: true }] : [])
+          { ...SMALLEST_CHANGE, assumptionIds: ["a-defaults"] },
+          ...(wantsTests
+            ? [{ id: "c-tests", description: "Tests must stay green", enforceable: true, sourceRefs: objectiveRefs }]
+            : [])
         ],
         nonGoals: DEFAULT_NON_GOALS,
         acceptanceCriteria: [
           {
             id: "ac-objective",
             description: "The stated objective is addressed",
-            observableCheck: "run.status is COMPLETED and child TASK_RESULT summaries cover the objective"
+            observableCheck: "run.status is COMPLETED and child TASK_RESULT summaries cover the objective",
+            sourceRefs: objectiveRefs
           },
           ...(wantsTests
             ? [
                 {
                   id: "ac-tests",
                   description: "Tests ran",
-                  observableCheck: "tester child TASK_RESULT verification is PASSED"
+                  observableCheck: "tester child TASK_RESULT verification is PASSED",
+                  sourceRefs: objectiveRefs
                 }
               ]
             : [])
         ],
-        assumptions: vague
-          ? [{ id: "a-vague", statement: "Objective is underspecified until the user answers", source: "heuristic" }]
-          : [],
+        assumptions: [
+          {
+            id: "a-defaults",
+            statement: "The smallest-change constraint is a heuristic default pending user confirmation",
+            source: "heuristic-default"
+          },
+          ...(vague
+            ? [{ id: "a-vague", statement: "Objective is underspecified until the user answers", source: "heuristic" }]
+            : [])
+        ],
         questions,
         authority: [],
-        sourceRefs: input.sources.map((source) => source.ref)
+        sourceRefs: objectiveRefs
       });
       const confidence = vague ? 0.55 : wantsReview ? 0.86 : 0.8;
       return {

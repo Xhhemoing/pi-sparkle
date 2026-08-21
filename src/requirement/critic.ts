@@ -1,4 +1,5 @@
 import type { RequirementContract } from "../domain/contract.js";
+import { findUnsourcedItems } from "./provenance.js";
 
 export interface ContractCritique {
   contradictions: string[];
@@ -32,6 +33,11 @@ export function critiqueContract(contract: RequirementContract): ContractCritiqu
 
   if (contract.deliverables.length > 20) scopeCreep.push("too-many-deliverables");
   if (contract.sourceRefs.length === 0) missingSources.push("no-sources");
+
+  const unsourced = findUnsourcedItems(contract);
+  for (const id of unsourced.deliverables) missingSources.push(`deliverable:${id}`);
+  for (const id of unsourced.constraints) missingSources.push(`constraint:${id}`);
+  for (const id of unsourced.acceptanceCriteria) missingSources.push(`criterion:${id}`);
 
   const score = 100 - (contradictions.length * 15 + untestable.length * 10 + scopeCreep.length * 15 + missingSources.length * 20);
   return { contradictions, untestable, scopeCreep, missingSources, omissions, score: Math.max(0, score) };

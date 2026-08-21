@@ -6,18 +6,26 @@ export interface Deliverable {
   readonly id: string;
   readonly description: string;
   readonly artifactKind: string;
+  /** Where this deliverable came from; every item must be sourced or assumed (M3-T2). */
+  readonly sourceRefs?: readonly SourceRef[];
+  /** Assumption ids (must resolve in contract.assumptions) covering this item. */
+  readonly assumptionIds?: readonly string[];
 }
 
 export interface Constraint {
   readonly id: string;
   readonly description: string;
   readonly enforceable: boolean;
+  readonly sourceRefs?: readonly SourceRef[];
+  readonly assumptionIds?: readonly string[];
 }
 
 export interface AcceptanceCriterion {
   readonly id: string;
   readonly description: string;
   readonly observableCheck: string;
+  readonly sourceRefs?: readonly SourceRef[];
+  readonly assumptionIds?: readonly string[];
 }
 
 export interface Assumption {
@@ -85,6 +93,23 @@ export function validateRequirementContract(input: unknown): RequirementContract
   if (!Array.isArray(questions)) throw new DomainValidationError("questions must be array");
   if (!Array.isArray(authority)) throw new DomainValidationError("authority must be array");
   if (!Array.isArray(sourceRefs)) throw new DomainValidationError("sourceRefs must be array");
+
+  const provenanceFields = [
+    ...deliverables,
+    ...constraints,
+    ...acceptanceCriteria
+  ] as Array<{ sourceRefs?: unknown; assumptionIds?: unknown }>;
+  for (const item of provenanceFields) {
+    if (item.sourceRefs !== undefined && !Array.isArray(item.sourceRefs)) {
+      throw new DomainValidationError("item sourceRefs must be array when present");
+    }
+    if (
+      item.assumptionIds !== undefined &&
+      (!Array.isArray(item.assumptionIds) || item.assumptionIds.some((id) => typeof id !== "string"))
+    ) {
+      throw new DomainValidationError("item assumptionIds must be an array of strings when present");
+    }
+  }
 
   return {
     schemaVersion: 1,
