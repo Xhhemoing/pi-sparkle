@@ -71,9 +71,16 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, prune candidates)
 - Verified 2026-08-21 after `pi install E:/Project/pi-sparkle`: package skill
   discoverable globally (outside the project), `/sparkle` template expands via
-  `--prompt-template`, end-to-end audit run succeeded; duplicate/alias skills
-  observed in user trees (e.g. `jailbreak-engineering` aliasing `llm-security`)
-  are user-level assets outside this repo — prune candidates, not package bugs.
+  `--prompt-template`, end-to-end audit run succeeded.
+- Pruned 2026-08-21: `~/.pi/agent/skills/jailbreak-engineering/` (self-declared
+  pure routing alias for `llm-security`) moved to
+  `~/.pi/agent/skills-backup/2026-08-21/`; installed count 80 → 79, verified by
+  script and by live session probe. Audit correction: `malware-triage` is NOT a
+  duplicate — the `malware-analysis` name it references was never installed.
+  Remaining flagged overlaps need an owner preference call, not evidence-based
+  pruning: `reverse-flow` vs `reverse-engineering` (both comprehensive RE
+  workflows), `browser` (CDP) vs `browser-automation` (Playwright),
+  `understand` vs `graphify`, `scenario-skill-router` vs `using-superpowers`.
 - Verified: append, kill switch (PI_SKILL_ROUTE_LOG=0), doctor ok/corrupt paths, audit aggregation
 
 ## Routing to References
