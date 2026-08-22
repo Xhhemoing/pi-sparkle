@@ -47,6 +47,50 @@ export function installedSkills() {
   return [...names].sort();
 }
 
+const ALIAS_PATTERNS = [
+  /路由别名[一-鿿\s]*[—-]?[一-鿿\s]*由\s*([a-z0-9-]+)/i,
+  /alias\s+(?:for|of)\s+[`']?([a-z0-9-]+)/i,
+  /([a-z0-9-]+)\s+的\s*canonical\s*名/i,
+  /canonical\s+name\s+of\s+[`']?([a-z0-9-]+)/i,
+];
+
+/**
+ * Scan installed skill descriptions for self-declared aliases ("this skill is
+ * just an alias for X"). A candidate is confirmed only when the referenced
+ * target actually exists — otherwise the "alias" IS the only implementation.
+ */
+export function detectAliasCandidates(installed) {
+  const known = new Set(installed);
+  const roots = [join(homedir(), ".agents", "skills"), join(homedir(), ".pi", "agent", "skills")];
+  const out = [];
+  for (const name of installed) {
+    let description = "";
+    for (const root of roots) {
+      const file = join(root, name, "SKILL.md");
+      if (!existsSync(file)) continue;
+      const head = readFileSync(file, "utf8").slice(0, 2000);
+      const match = head.match(/^description:\s*["'`]?([^\n]+)/m);
+      if (match) description = match[1];
+      break;
+    }
+    for (const pattern of ALIAS_PATTERNS) {
+      const m = description.match(pattern);
+      if (m === undefined || m === null || m[1] === undefined) continue;
+      const target = m[1].toLowerCase();
+      if (target === name.toLowerCase()) break;
+      out.push({
+        skill: name,
+        claimsAliasTo: target,
+        targetExists: known.has(target),
+        // Confirmed prune candidate: pure alias AND the real thing exists.
+        prunable: known.has(target),
+      });
+      break;
+    }
+  }
+  return out;
+}
+
 export function audit(projects) {
   const activated = new Map();
   const skipped = new Map();
@@ -54,6 +98,7 @@ export function audit(projects) {
   let corrupt = 0;
   const perProject = [];
   const loggingProjects = [];
+  const projectAffinity = new Map();
   for (const project of projects) {
     const logPath = join(project, ".pi", "logs", "skill-routes.jsonl");
     // Route logging is opt-in per project: a marker file enables it unless
@@ -71,8 +116,10 @@ export function audit(projects) {
           const rec = JSON.parse(line);
           records += 1;
           if (!loggingEnabled) continue;
+          if (!projectAffinity.has(project)) projectAffinity.set(project, new Set());
           for (const name of rec.activated ?? []) {
             activated.set(name, (activated.get(name) ?? 0) + 1);
+            projectAffinity.get(project).add(name);
           }
           for (const name of rec.skipped ?? []) {
             skipped.set(name, (skipped.get(name) ?? 0) + 1);
@@ -105,6 +152,14 @@ export function audit(projects) {
     topActivated: Object.fromEntries(top),
     topSkipped: Object.fromEntries(topSkipped),
     neverActivated,
+    aliasCandidates: detectAliasCandidates(installed),
+    // Scenario affinity: which skills activate in which project. Evidence for
+    // scenario-scoped management instead of one flat global pile.
+    scenarioAffinity: Object.fromEntries(
+      [...projectAffinity.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([project, skills]) => [project, [...skills].sort()]),
+    ),
     ...(loggingProjects.length === 0
       ? {
           warning:
