@@ -6,7 +6,7 @@ Do not begin claiming `Outcome-supported` until Checkpoint F item 1 is closed. D
 
 ## P0: Freeze privacy, storage, and authority
 
-**Blocked on:** ADR-004 still Proposed; six defaults in the spec still require human approval.
+**Blocked on:** independent privacy review only. ADR-004 was accepted and the six defaults approved unchanged on 2026-08-21 (see `docs/reports/2026-08-21-gates-readiness.md`).
 
 **Acceptance:**
 

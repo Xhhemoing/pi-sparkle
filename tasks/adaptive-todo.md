@@ -7,9 +7,9 @@ Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims*
 ## Preconditions
 
 - [ ] M0–M2 Checkpoint C local suite (re-verified 2026-08-17; real-provider smoke still opt-in).
-- [ ] Adaptive specification approved.
-- [ ] ADR-004 accepted.
-- [ ] Six implementation defaults approved or revised.
+- [x] Adaptive specification approved (2026-08-21; six defaults ratified unchanged).
+- [x] ADR-004 accepted (2026-08-21).
+- [x] Six implementation defaults approved, unchanged (2026-08-21).
 - [ ] P0 privacy/storage/authority preflight passes.
 
 ## M3 gaps (Checkpoint D cannot close until these land)
@@ -20,7 +20,7 @@ Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims*
 - [x] M3-T5 remaining: mandatory authority/unresolved questions/dependency outputs cannot be omitted under an adequate budget; downstream questions answerable without parent transcript; integration packet test. (Closed 2026-08-21: authority grants keep actions/expiry, unresolved questions keep options, validation routes and dependency outputs carry semantic prefixes in `src/context/packet.ts`; `queryPacketGrounding` answers questions from packet grounding alone; fixture `test/integration/m3/packet-fidelity.test.ts`.)
 - [x] M3-T6 remaining: evaluation identifies target artifact/version and independence class; integration redaction test. Preference dataset export now lists tombstone ids and omits payloads (`exportForDataset`). (Closed 2026-08-21: `EvaluationTarget` + `IndependenceClass` (`paired` / `independent` / `same-author`) on `EvaluationRecord`, validated in `createEvaluationRecord`; redaction chain fixture `test/integration/m3/redaction.test.ts` — secret strip, oversized reference-only, tombstone-to-dataset-export, authorized export omits tombstones unless `includeTombstones`.)
 - [x] M3-T8 remaining: pricing/catalog version separate from usage; retry/cache/timeout/cancel attribution; taxonomy version does not rewrite history; integration pi-telemetry test. (Closed 2026-08-21: `InvocationPricing.catalogVersion` kept out of usage fields, `attempt` / `cacheHit` / `callOutcome` attribution validated in `src/telemetry/model-invocation.ts`; `TAXONOMY_VERSION` + pure `stampTaxonomyVersion` + non-defaulting `recordedTaxonomyVersion` in `src/task/taxonomy.ts`; fixture `test/integration/m3/pi-telemetry.test.ts`.)
-- [x] Checkpoint D scenarios assembled 2026-08-21: `test/integration/m3/checkpoint-d.test.ts` covers all seven automatable whole-checkpoint scenarios (multi-run episode replay; source-attributed contract + independent critique catching seeded contradiction and omission; index precedence/routes/risks/dirty-ownership; coverage + evaluator provenance + model usage inspectable; packet preserves critical facts with bounded omissions and no parent transcript; missing outcomes stay Unobserved; adversarial redaction). M0–M2 suites remain green via `pnpm gate`. Formal Checkpoint D closure stays with the adaptive owner per the policy-gates table; decision package in `docs/reports/2026-08-21-gates-readiness.md`.
+- [x] Checkpoint D scenarios assembled 2026-08-21: `test/integration/m3/checkpoint-d.test.ts` covers all seven automatable whole-checkpoint scenarios (multi-run episode replay; source-attributed contract + independent critique catching seeded contradiction and omission; index precedence/routes/risks/dirty-ownership; coverage + evaluator provenance + model usage inspectable; packet preserves critical facts with bounded omissions and no parent transcript; missing outcomes stay Unobserved; adversarial redaction). M0–M2 suites remain green via `pnpm gate`. Checkpoint D closed by the adaptive owner on 2026-08-21 (decision package: `docs/reports/2026-08-21-gates-readiness.md`).
 
 ## M4 leftover
 

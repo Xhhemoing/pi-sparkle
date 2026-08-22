@@ -4,9 +4,9 @@ Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-20
 
 ## Human / policy gates (block claims, not local fake tests)
 
-- [ ] Accept or revise ADR-004 (still Proposed) and the six adaptive defaults. Owner/exit: [status-matrix.md](../docs/status-matrix.md).
+- [x] ADR-004 accepted and the six adaptive defaults approved, unchanged (2026-08-21). Exit recorded in [status-matrix.md](../docs/status-matrix.md).
 - [ ] Close P0: dictionary exists at [data-dictionary.md](../docs/data-dictionary.md); independent privacy review has no blocker.
-- [ ] Accept or reject ADR-006 before any `extensions/pi-sparkle/` Pi import.
+- [x] ADR-006 decided (2026-08-21): keep Proposed; no `extensions/pi-sparkle/` Pi import until revisited.
 - [x] Cost-quality target resolved: ADR-005 Accepted (2026-08-19) locks the paired CI gates and six decisions.
 - [ ] Holdout data source remains open as F6 work inside the F-PROD line; do not start F-PROD before P0 + provider smoke. See [gates readiness](../docs/reports/2026-08-21-gates-readiness.md).
 

@@ -841,7 +841,8 @@ Every local benefit claim remains subject to the experiment and
 
 ## Decision required before implementation
 
-Approve or revise these defaults:
+**Approved by the owner on 2026-08-21, unchanged.** These six defaults were
+already enforced by shipped, tested code; approval ratifies them:
 
 1. M0-M2 remains the priority; M3 begins only after Checkpoint C.
 2. Self-optimization initially proposes candidates but requires user approval to promote them.

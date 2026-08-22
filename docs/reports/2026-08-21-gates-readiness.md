@@ -5,6 +5,18 @@ Decision package for the human-owned gates in
 `d7ab292` (suite: 1110 tests, gate green). Nothing here closes a gate;
 it makes each decision a single review.
 
+## Outcomes (decided 2026-08-21)
+
+- **ADR-004: Accepted.** Owner ratified the runtime/adaptation separation
+  after reviewing the shipped guardrails.
+- **Six adaptive defaults: Approved, unchanged.** Ratified as already-
+  enforced behavior.
+- **ADR-006: Kept Proposed.** No `extensions/pi-sparkle/` import until
+  revisited after the F line.
+- **Checkpoint D: Closed.** Whole-checkpoint scenarios verified.
+- **P0 privacy: still open** — independent review remains outstanding.
+- **Checkpoint F-PROD: still blocked** on P0 + provider smoke + F0–F7.
+
 ## Gate states at a glance
 
 | Gate | Status | Decision needed |

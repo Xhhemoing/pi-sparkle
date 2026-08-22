@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Accepted (2026-08-21). Owner ratified the separation after verifying that
+the proposal-first guardrails (CAS promotion requiring independent review
+provenance, shadow-only R1/bandit/topology) are implemented and tested.
 
 ## Date
 
