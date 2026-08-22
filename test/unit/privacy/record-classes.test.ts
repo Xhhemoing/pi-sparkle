@@ -17,6 +17,7 @@ const REQUIRED_IDS = [
   "catalog-observed",
   "candidate",
   "experiment",
+  "learned-routing-policy",
   "run-pause",
   "track-questions",
   "routing-eval-report",
@@ -53,22 +54,40 @@ test("completeness: every known durable state-root path is covered by a class", 
   // src/ against the state root (2026-08-22 P0 pre-review). If a new durable
   // path is added, extend this list AND the dictionary together.
   const knownPaths = [
-    "runs/<runId>/events.jsonl", // run-event
-    "runs/<runId>/checkpoint.json", // run-checkpoint
-    "runs/<runId>/pause.json", // run-pause
-    "runs/<runId>/track-questions.json", // track-questions
-    "episodes/<episodeId>/events.jsonl", // episode
-    "feedback/records.jsonl", // feedback
-    "preferences.json", // preference
-    "invocations.jsonl", // model-invocation
-    "routing/catalog-observed.json", // catalog-observed
+    "runtime/runs/<runId>/events.jsonl", // run-event
+    "runtime/runs/<runId>/checkpoint.json", // run-checkpoint
+    "runtime/runs/<runId>/pause.json", // run-pause
+    "runtime/runs/<runId>/track-questions.json", // track-questions
+    "runtime/episodes/<episodeId>.jsonl", // episode (project-episode log)
+    "adaptation/feedback/records.jsonl", // feedback
+    "adaptation/feedback/tombstones.json", // feedback tombstones
+    "adaptation/preferences.json", // preference
+    "runtime/invocations.jsonl", // model-invocation
+    "runtime/routing/catalog-observed.json", // catalog-observed
     "adaptation/registry.json", // candidate
     "adaptation/evals/<candidateId>.<cacheKey>.json", // routing-eval-report
-    "learning/projects/<stableProjectKey>/bandit.json", // learning-bandit
-    "providers.json", // providers-config
-    "auth.json" // auth-credential
+    "adaptation/learning/projects/<stableProjectKey>/routing.json", // learned-routing-policy
+    "adaptation/learning/projects/<stableProjectKey>/bandit.json", // learning-bandit
+    "runtime/providers.json", // providers-config
+    "runtime/auth.json" // auth-credential
   ];
-  const covered = new Set(DURABLE_RECORD_CLASSES.map((entry) => entry.path));
+  // A class path may list variant file shapes parenthetically (e.g. the
+  // feedback log plus its tombstone sidecar); every listed shape counts as
+  // covered.
+  const covered = new Set<string>();
+  for (const entry of DURABLE_RECORD_CLASSES) {
+    const main = entry.path.replace(/ \([^)]*\)/g, "");
+    covered.add(main);
+    const dir = main.slice(0, main.lastIndexOf("/"));
+    for (const m of entry.path.matchAll(/\(([^)]*)\)/g)) {
+      const group = m[1] ?? "";
+      for (const part of group.split(/\bor\b|,/)) {
+        const candidate = part.trim().replace(/^\+\s*/, "");
+        if (candidate === "") continue;
+        covered.add(candidate.includes("/") ? candidate : `${dir}/${candidate}`);
+      }
+    }
+  }
   for (const path of knownPaths) {
     assert.ok(covered.has(path), `durable path not covered by the dictionary: ${path}`);
   }
@@ -87,4 +106,22 @@ test("run-scoped siblings of sensitive events share their sensitivity class", ()
   assert.equal(pause?.deletion, "delete-files");
   assert.equal(questions?.deletion, "delete-files");
   assert.ok(questions?.sensitiveFields.some((f) => f.includes("objective")));
+});
+
+test("P0 Q1: every concrete path lives under its owner's plane directory", () => {
+  const PLANE_BY_OWNER: Record<string, string> = { runtime: "runtime/", adaptation: "adaptation/" };
+  const VIRTUAL_PATHS = new Set([
+    "referenced from TASK_RESULT.artifactIds (not a blob store)",
+    "in-memory / fixture plans (no live assignment store)",
+    "derived export (exportForDataset / exportAuthorizedPreferences)"
+  ]);
+  for (const entry of DURABLE_RECORD_CLASSES) {
+    if (VIRTUAL_PATHS.has(entry.path)) continue;
+    const prefix = PLANE_BY_OWNER[entry.owner];
+    assert.ok(prefix, `unknown owner: ${entry.owner}`);
+    assert.ok(
+      entry.path.startsWith(prefix),
+      `${entry.id} (${entry.owner}) must live under ${prefix}, got ${entry.path}`
+    );
+  }
 });

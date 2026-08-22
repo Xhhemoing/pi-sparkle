@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { parseProjectId } from "../domain/ids.js";
 import { hash32 } from "../domain/hash.js";
@@ -44,7 +45,7 @@ export function routingPolicyIdentity(projectRoot: string): ResourceIdentity {
 }
 
 export function learnedRoutingPath(stateRoot: string, projectRoot: string): string {
-  return join(stateRoot, "learning", "projects", stableProjectKey(projectRoot), "routing.json");
+  return join(adaptationRoot(stateRoot), "learning", "projects", stableProjectKey(projectRoot), "routing.json");
 }
 
 export function parseLearnedRoutingPolicy(content: string): LearnedRoutingPolicy {

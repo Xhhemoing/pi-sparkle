@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type { ModelRouterConfig } from "../supervisor/model-router.js";
 import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";
 import { catalogModel, type CatalogModel } from "./catalog-model.js";
@@ -87,7 +88,7 @@ export function calibrateCatalogConfig(
 export async function loadInvocationsFromStateRoot(stateRoot: string): Promise<ModelInvocation[]> {
   let raw: string;
   try {
-    raw = await readFile(join(stateRoot, INVOCATIONS_LOG), "utf8");
+    raw = await readFile(join(runtimeRoot(stateRoot), INVOCATIONS_LOG), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;

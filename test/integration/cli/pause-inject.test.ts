@@ -120,9 +120,9 @@ test("pause records PAUSE_REQUESTED and inspect/replay show PAUSED", async () =>
     assert.equal(inspectCode, 0);
     assert.match(inspected.out.join(""), /PAUSED/);
 
-    const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     assert.match(eventsText, /PAUSE_REQUESTED/);
-    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8")) as {
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8")) as {
       status: string;
     };
     assert.equal(checkpoint.status, "PAUSED");
@@ -141,7 +141,7 @@ test("answer while paused fails closed and does not record USER_ANSWER", async (
     assert.equal(code, 1);
     assert.match(answered.err.join(""), /run is paused; pass --unpause to continue/);
     assert.doesNotMatch(answered.out.join(""), /Recorded answer/);
-    const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     assert.doesNotMatch(eventsText, /USER_ANSWER/);
   });
 });
@@ -201,7 +201,7 @@ test("inject fact then resume --unpause --selected continues with the fact in th
     );
     assert.equal(resumeCode, 0);
     assert.match(resumed.out.join(""), /COMPLETED/);
-    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8")) as {
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8")) as {
       flowchart: { snapshot: { facts: Record<string, unknown> } };
     };
     assert.equal(checkpoint.flowchart.snapshot.facts.k, "v");
@@ -217,7 +217,7 @@ test("inject skip on a PENDING successor and unknown --type fail closed as requi
       skipped.io
     );
     assert.equal(skipCode, 0);
-    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8")) as {
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8")) as {
       flowchart: { snapshot: { nodes: Record<string, { state: string }> } };
     };
     assert.equal(checkpoint.flowchart.snapshot.nodes.work?.state, "SKIPPED");

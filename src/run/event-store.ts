@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
@@ -24,7 +25,7 @@ export class EventStore {
     private readonly stateRoot: string,
     private readonly runId: RunId
   ) {
-    this.eventsPath = join(stateRoot, "runs", runId, "events.jsonl");
+    this.eventsPath = join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl");
   }
 
   append(event: Event): Promise<void> {

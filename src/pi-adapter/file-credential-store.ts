@@ -1,5 +1,6 @@
 import { chmod, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type {
   AuthOperationOptions,
   Credential,
@@ -11,7 +12,7 @@ import { isRecord } from "../domain/record.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 
 export function authStorePath(stateRoot: string): string {
-  return join(stateRoot, "auth.json");
+  return join(runtimeRoot(stateRoot), "auth.json");
 }
 
 /**

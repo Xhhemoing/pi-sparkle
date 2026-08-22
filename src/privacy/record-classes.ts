@@ -40,7 +40,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "run-event",
     owner: "runtime",
-    path: "runs/<runId>/events.jsonl",
+    path: "runtime/runs/<runId>/events.jsonl",
     retention: "run-scoped",
     sensitiveFields: ["prompt", "tool payloads", "model output text"],
     redaction: "event bodies are append-only; do not copy into optimization datasets",
@@ -52,7 +52,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "run-checkpoint",
     owner: "runtime",
-    path: "runs/<runId>/checkpoint.json",
+    path: "runtime/runs/<runId>/checkpoint.json",
     retention: "run-scoped",
     sensitiveFields: ["flowchart snapshot", "pending answers"],
     redaction: "checkpoint is operational state, not a learning corpus",
@@ -64,13 +64,14 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "episode",
     owner: "runtime",
-    path: "episodes/<episodeId>/events.jsonl",
+    path: "runtime/episodes/<episodeId>.jsonl",
     retention: "episode-scoped",
     sensitiveFields: ["objective", "acceptance text"],
     redaction: "export only ids, status, and evidence references",
     deletion: "delete-files",
     deletionPropagatesTo: ["feedback"],
     migrationVersion: 1,
+    // variant file shape runtime/episodes/<id>.events.jsonl shares this class
     recovery: "duplicate open/attach/terminal must fail closed on the reducer"
   },
   {
@@ -88,7 +89,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "feedback",
     owner: "adaptation",
-    path: "feedback/records.jsonl",
+    path: "adaptation/feedback/records.jsonl (+ tombstones.json)",
     retention: "until-deleted",
     sensitiveFields: ["body"],
     redaction: "redactFeedback strips secrets, PII when enabled, and oversized bodies",
@@ -100,7 +101,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "preference",
     owner: "adaptation",
-    path: "preferences.json",
+    path: "adaptation/preferences.json",
     retention: "until-deleted",
     sensitiveFields: ["value", "evidenceEpisodeId"],
     redaction: "bound via configurePreferencePersistence; dataset export strips evidenceEpisodeId and includes tombstone ids",
@@ -124,7 +125,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "model-invocation",
     owner: "runtime",
-    path: "invocations.jsonl",
+    path: "runtime/invocations.jsonl",
     retention: "run-scoped",
     sensitiveFields: ["none stored — prompt/response bodies are hashed only"],
     redaction: "tokensIn/tokensOut unavailable stay undefined, never 0",
@@ -136,7 +137,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "catalog-observed",
     owner: "runtime",
-    path: "routing/catalog-observed.json",
+    path: "runtime/routing/catalog-observed.json",
     retention: "until-deleted",
     sensitiveFields: [],
     redaction: "aggregates only; missing usage is skipped, never treated as zero",
@@ -172,7 +173,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "run-pause",
     owner: "runtime",
-    path: "runs/<runId>/pause.json",
+    path: "runtime/runs/<runId>/pause.json",
     retention: "run-scoped",
     sensitiveFields: ["reason (user free text)"],
     redaction: "operational pause state; never copied into optimization datasets",
@@ -184,7 +185,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "track-questions",
     owner: "runtime",
-    path: "runs/<runId>/track-questions.json",
+    path: "runtime/runs/<runId>/track-questions.json",
     retention: "run-scoped",
     sensitiveFields: ["objective", "acceptance text"],
     redaction: "same sensitivity class as episode events; export only ids and references",
@@ -206,9 +207,21 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     recovery: "report is reproducible from the frozen dataset + registry via the cacheKey"
   },
   {
+    id: "learned-routing-policy",
+    owner: "adaptation",
+    path: "adaptation/learning/projects/<stableProjectKey>/routing.json",
+    retention: "until-deleted",
+    sensitiveFields: [],
+    redaction: "model ids and avoid-list patterns only; no task text, no bodies",
+    deletion: "delete-files",
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "missing file loads as absent policy; live routing falls back to R0"
+  },
+  {
     id: "learning-bandit",
     owner: "adaptation",
-    path: "learning/projects/<stableProjectKey>/bandit.json",
+    path: "adaptation/learning/projects/<stableProjectKey>/bandit.json",
     retention: "until-deleted",
     sensitiveFields: [],
     redaction: "PASS/FAIL reward aggregates per model only; no task text, no bodies",
@@ -220,7 +233,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "providers-config",
     owner: "runtime",
-    path: "providers.json",
+    path: "runtime/providers.json",
     retention: "until-deleted",
     sensitiveFields: ["must not contain api keys"],
     redaction: "enableModel writes provider/model ids only",
@@ -232,7 +245,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "auth-credential",
     owner: "runtime",
-    path: "auth.json",
+    path: "runtime/auth.json",
     retention: "until-deleted",
     sensitiveFields: ["api_key", "oauth tokens"],
     redaction: "auth status never prints secrets",

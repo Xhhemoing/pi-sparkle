@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { adaptationRoot } from "../privacy/state-layout.js";
 import { createBanditState, recordReward, type BanditState } from "../routing/bandit.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { stableProjectKey } from "./learned-routing.js";
 import type { ObservedSignal } from "./signals.js";
 
 function banditPath(stateRoot: string, projectRoot: string): string {
-  return join(stateRoot, "learning", "projects", stableProjectKey(projectRoot), "bandit.json");
+  return join(adaptationRoot(stateRoot), "learning", "projects", stableProjectKey(projectRoot), "bandit.json");
 }
 
 async function readBanditFile(path: string): Promise<BanditState | undefined> {

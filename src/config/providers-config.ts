@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import { parseModelRef } from "./model-ref.js";
@@ -33,7 +34,7 @@ export interface ProvidersConfig {
 }
 
 export function providersConfigPath(stateRoot: string): string {
-  return join(stateRoot, PROVIDERS_CONFIG_FILE);
+  return join(runtimeRoot(stateRoot), PROVIDERS_CONFIG_FILE);
 }
 
 export function emptyProvidersConfig(): ProvidersConfig {

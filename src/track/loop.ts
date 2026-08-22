@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import {
   createEventId,
@@ -249,9 +250,9 @@ async function waitForClarification(
   await append(make("RUN_STARTED", {}));
   const messageId = createMessageId(generateId);
   await append(make("RUN_WAITING_FOR_USER", { messageId }));
-  await mkdir(join(input.stateRoot, "runs", runId), { recursive: true });
+  await mkdir(join(runtimeRoot(input.stateRoot), "runs", runId), { recursive: true });
   await writeFile(
-    join(input.stateRoot, "runs", runId, "track-questions.json"),
+    join(runtimeRoot(input.stateRoot), "runs", runId, "track-questions.json"),
     JSON.stringify({ questions, objective: input.objective, contract }, null, 2),
     "utf8"
   );

@@ -187,7 +187,7 @@ describe("M4-T4: scoped preference observations and materialized views", () => {
 
   it("tombstones survive a store reload from disk", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-pref-"));
-    const file = join(dir, "preferences.json");
+    const file = join(dir, "adaptation", "preferences.json");
     try {
       configurePreferencePersistence(file);
       const obs = explicit("user", "u1", "format", "compact");

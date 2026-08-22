@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -61,7 +61,8 @@ test("persisted invocations keep retry, cache, timeout, cancel, and pricing attr
       // malformed line must be skipped, not fail the load
       invocation({ tokensIn: -5 }) as unknown as ModelInvocation
     ];
-    const log = join(stateRoot, "invocations.jsonl");
+    const log = join(stateRoot, "runtime", "invocations.jsonl");
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
     for (const record of records) {
       await appendFile(log, `${JSON.stringify(record)}\n`);
     }

@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type { RunId } from "../domain/ids.js";
 
 export class CheckpointStore {
@@ -9,7 +10,7 @@ export class CheckpointStore {
     private readonly stateRoot: string,
     private readonly runId: RunId
   ) {
-    this.checkpointPath = join(stateRoot, "runs", runId, "checkpoint.json");
+    this.checkpointPath = join(runtimeRoot(stateRoot), "runs", runId, "checkpoint.json");
   }
 
   async write(checkpoint: unknown): Promise<void> {

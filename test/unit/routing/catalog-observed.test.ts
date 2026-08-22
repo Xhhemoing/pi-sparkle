@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile  } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -227,8 +227,9 @@ test("buildCatalogObservedFromStateRoot reads invocations.jsonl and skips a miss
   try {
     const missing = await buildCatalogObservedFromStateRoot(stateRoot);
     assert.deepEqual(missing.versions, {});
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
     await writeFile(
-      join(stateRoot, "invocations.jsonl"),
+      join(stateRoot, "runtime", "invocations.jsonl"),
       `${JSON.stringify(invocation({ tokensIn: 10, tokensOut: 20, latencyMs: 30 }))}\n`,
       "utf8"
     );

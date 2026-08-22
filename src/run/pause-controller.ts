@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
@@ -18,7 +19,7 @@ export interface PauseController {
 }
 
 function pausePath(stateRoot: string, runId: RunId): string {
-  return join(stateRoot, "runs", runId, "pause.json");
+  return join(runtimeRoot(stateRoot), "runs", runId, "pause.json");
 }
 
 async function writeAtomic(path: string, value: unknown): Promise<void> {

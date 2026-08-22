@@ -47,21 +47,21 @@ test("auth login --key stores a credential that status lists without the secret"
     assert.match(text, /api_key|stored/);
     assert.equal(text.includes("sk-test-secret-value"), false);
 
-    const raw = await readFile(join(stateRoot, "auth.json"), "utf8");
+    const raw = await readFile(join(stateRoot, "runtime", "auth.json"), "utf8");
     assert.match(raw, /sk-test-secret-value/);
   });
 });
 
 test("auth logout removes the stored credential", async () => {
   await withStateRoot(async (stateRoot) => {
-    await new FileCredentialStore(join(stateRoot, "auth.json")).modify("openai", async () => ({
+    await new FileCredentialStore(join(stateRoot, "runtime", "auth.json")).modify("openai", async () => ({
       type: "api_key",
       key: "sk-gone"
     }));
     const { io, err } = capture();
     const code = await main(["auth", "logout", "openai", "--state-root", stateRoot], io);
     assert.equal(code, 0, err.join(""));
-    assert.equal(await new FileCredentialStore(join(stateRoot, "auth.json")).read("openai"), undefined);
+    assert.equal(await new FileCredentialStore(join(stateRoot, "runtime", "auth.json")).read("openai"), undefined);
   });
 });
 

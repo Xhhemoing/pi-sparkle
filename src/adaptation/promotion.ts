@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
+import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isCandidateId, isProjectId, isResourceVersionId } from "../domain/ids.js";
 import type { CandidateId, ResourceVersionId } from "../domain/ids.js";
@@ -291,7 +292,7 @@ export class PromotionService {
 }
 
 export function adaptationRegistryPath(stateRoot: string): string {
-  return join(stateRoot, "adaptation", "registry.json");
+  return join(adaptationRoot(stateRoot), "registry.json");
 }
 
 export async function loadAdaptationRegistry(

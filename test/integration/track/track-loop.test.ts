@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile  } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -126,8 +126,9 @@ test("tracked routing writes calibrated catalog cost from invocations.jsonl into
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-cal-proj-"));
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
     await writeFile(
-      join(stateRoot, "invocations.jsonl"),
+      join(stateRoot, "runtime", "invocations.jsonl"),
       `${JSON.stringify({
         id: "inv_cal1",
         taskId: "tsk_prior",

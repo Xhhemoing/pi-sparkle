@@ -16,7 +16,7 @@ async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
 
 test("list returns provider metadata without secrets", async () => {
   await withDir(async (dir) => {
-    const path = join(dir, "auth.json");
+    const path = join(dir, "runtime", "auth.json");
     const store = new FileCredentialStore(path);
     await store.modify("openai", async () => ({ type: "api_key", key: "sk-secret-do-not-list" }));
     const listed = await store.list();
@@ -29,7 +29,7 @@ test("list returns provider metadata without secrets", async () => {
 
 test("read returns the stored credential and missing file is empty", async () => {
   await withDir(async (dir) => {
-    const store = new FileCredentialStore(join(dir, "auth.json"));
+    const store = new FileCredentialStore(join(dir, "runtime", "auth.json"));
     assert.equal(await store.read("openai"), undefined);
     assert.deepEqual(await store.list(), []);
     await store.modify("openai", async () => ({ type: "api_key", key: "sk-one" }));

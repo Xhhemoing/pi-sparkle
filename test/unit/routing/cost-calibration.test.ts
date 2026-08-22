@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile  } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -105,8 +105,9 @@ test("loadInvocationsFromStateRoot skips a missing file and malformed or incompl
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-inv-log-"));
   try {
     assert.deepEqual(await loadInvocationsFromStateRoot(stateRoot), []);
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
     await writeFile(
-      join(stateRoot, "invocations.jsonl"),
+      join(stateRoot, "runtime", "invocations.jsonl"),
       `${JSON.stringify(invocation())}\n{not json\n${JSON.stringify(invocation({ tokensIn: undefined, tokensOut: undefined }))}\n`,
       "utf8"
     );

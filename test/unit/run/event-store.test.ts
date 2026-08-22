@@ -60,7 +60,7 @@ test("reading a missing log yields no events and no recovery entry", async () =>
 test("a crash-truncated final line is reported as recovery evidence", async () => {
   await withStore(async (store, stateRoot, runId) => {
     await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));
-    const eventsPath = join(stateRoot, "runs", runId, "events.jsonl");
+    const eventsPath = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const { appendFile } = await import("node:fs/promises");
     await appendFile(eventsPath, '{"id":"evt_truncated","schemaVersion":1,"type":"RUN_ST');
     const read = await store.readAll();
@@ -73,7 +73,7 @@ test("a crash-truncated final line is reported as recovery evidence", async () =
 test("a corrupt non-final line is treated as log corruption", async () => {
   await withStore(async (store, stateRoot, runId) => {
     await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));
-    const eventsPath = join(stateRoot, "runs", runId, "events.jsonl");
+    const eventsPath = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const { appendFile } = await import("node:fs/promises");
     await appendFile(eventsPath, "NOT JSON\n");
     await appendFile(eventsPath, JSON.stringify(makeEvent("RUN_STARTED", {})) + "\n");

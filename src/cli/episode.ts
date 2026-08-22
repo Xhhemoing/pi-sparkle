@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { parseEpisodeId } from "../domain/ids.js";
 import { decideClosure } from "../episode/closure.js";
 import { closeEpisode, waitForUser } from "../episode/manager.js";
@@ -87,7 +88,7 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
   }
 
   return await withExclusiveFileLock(
-    join(stateRoot, "episodes", `${episodeId}.lock`),
+    join(runtimeRoot(stateRoot), "episodes", `${episodeId}.lock`),
     async () => {
       const snapshots = new EpisodeStore(stateRoot, episodeId);
       const latest = (await snapshots.readAll()).episodes.at(-1);

@@ -97,3 +97,40 @@ grep -rn "writeFile\|appendFile" src/ --include="*.ts"   # re-run the completene
 
 Sign-off = answering Q1–Q5 with "no blocker" (or listing blockers), recorded
 in `tasks/todo.md` and `docs/status-matrix.md` (P0 row → Exit column).
+
+## 7. Review verdict and remediation (2026-08-22)
+
+Independent review verdict: **CONDITIONAL** — Q3 (retention horizon), Q4
+(migration deferral), Q5 (local-only scope) passed with no blocker; Q1 and Q2
+were blockers. Both blockers are now implemented:
+
+### Q1 — plane isolation (BLOCKER → implemented)
+
+- State root split: `<root>/runtime/` and `<root>/adaptation/`
+  (`src/privacy/state-layout.ts`). All durable path constructors route through
+  the plane helpers; the dictionary table carries the prefixed paths.
+- Boundary rule enforced by `test/unit/privacy/plane-boundary.test.ts`:
+  adaptation modules may not import runtime modules outside an explicit,
+  justified allowlist (currently only the type-only event shapes and the
+  sanctioned PASS/FAIL derived-signal reader in `learning/from-episode.ts`).
+- Adaptation→runtime data flow stays limited to `redactFeedback` /
+  `exportForDataset` / derived text-free signals.
+- Layout is a preview breaking change; no auto-migration (per Q4).
+
+### Q2 — deletion tooling and cascade (BLOCKER → implemented)
+
+- New CLI command: `pi-sparkle delete --run <id>` and
+  `pi-sparkle delete --episode <id>` (`src/cli/main.ts`,
+  engine in `src/privacy/deletion.ts`).
+- Episode deletion cascades per `deletionPropagatesTo`: bound feedback records
+  get their free-text body stripped and their ids persisted to
+  `adaptation/feedback/tombstones.json`; `readFeedback` filters tombstones at
+  the first layer so a lingering payload can never reload.
+- Fail-closed CLI contract: exactly one of `--run` / `--episode`; unknown id
+  exits 1 instead of reporting success; engine delete is idempotent.
+- Integration coverage: `test/integration/cli/delete.test.ts` (episode shapes
+  removed, cascade strips only the bound feedback, unrelated payloads intact,
+  run subtree removal, fail-closed exits).
+
+P0 remains open until the reviewer re-verifies §6 commands against this
+remediation and records the final sign-off.

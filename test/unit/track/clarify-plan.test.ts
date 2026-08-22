@@ -59,7 +59,7 @@ test("an explicit implement objective plans scout, implement, review and optiona
 test("a recorded require-tests habit skips the tests question", async () => {
   const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-habits-"));
   try {
-    configurePreferencePersistence(join(dir, "preferences.json"));
+    configurePreferencePersistence(join(dir, "adaptation", "preferences.json"));
     recordExplicitPreference("project", "proj-c", "require-tests", true, createEpisodeId());
     const result = await clarifyObjective({
       objective: "Implement the parser module",

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
 import type { EpisodeEvent } from "./events.js";
@@ -18,7 +19,7 @@ export class EpisodeEventStore {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly stateRoot: string, private readonly episodeId: EpisodeId) {
-    this.path = join(stateRoot, "episodes", `${episodeId}.events.jsonl`);
+    this.path = join(runtimeRoot(stateRoot), "episodes", `${episodeId}.events.jsonl`);
   }
 
   append(event: EpisodeEvent): Promise<void> {

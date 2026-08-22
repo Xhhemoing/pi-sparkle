@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { loadInvocationsFromStateRoot } from "./cost-calibration.js";
 
@@ -27,7 +28,7 @@ interface VersionBuckets {
 }
 
 export function catalogObservedPath(stateRoot: string): string {
-  return join(stateRoot, "routing", "catalog-observed.json");
+  return join(runtimeRoot(stateRoot), "routing", "catalog-observed.json");
 }
 
 export function emptyObservedStats(modelVersion: string): ObservedVersionStats {

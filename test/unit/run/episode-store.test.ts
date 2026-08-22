@@ -61,7 +61,7 @@ test("reading a missing episode log yields no episodes", async () => {
 test("a crash-truncated final line is reported as recovery evidence", async () => {
   await withStore(async (store, stateRoot, episodeId) => {
     await store.append(makeEpisode());
-    await appendFile(join(stateRoot, "episodes", `${episodeId}.jsonl`), '{"id":"ep_truncated","status":"OP');
+    await appendFile(join(stateRoot, "runtime", "episodes", `${episodeId}.jsonl`), '{"id":"ep_truncated","status":"OP');
     const read = await store.readAll();
     assert.equal(read.episodes.length, 1);
     assert.equal(read.recovery.incompleteLine, '{"id":"ep_truncated","status":"OP');

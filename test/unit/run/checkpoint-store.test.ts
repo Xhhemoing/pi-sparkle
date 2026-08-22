@@ -23,10 +23,10 @@ test("checkpoints write, read, and overwrite atomically", async () => {
     await store.write(second);
     assert.deepEqual(await store.read(), second);
 
-    const checkpointPath = join(stateRoot, "runs", runId, "checkpoint.json");
+    const checkpointPath = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
     const onDisk = JSON.parse(await readFile(checkpointPath, "utf8"));
     assert.deepEqual(onDisk, second);
-    const leftover = join(stateRoot, "runs", runId, "checkpoint.json.tmp");
+    const leftover = join(stateRoot, "runtime", "runs", runId, "checkpoint.json.tmp");
     await assert.rejects(() => readFile(leftover), { code: "ENOENT" });
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
@@ -40,7 +40,7 @@ test("a corrupt checkpoint surfaces a parse error to the caller", async () => {
     const store = new CheckpointStore(stateRoot, runId);
     await store.write({ ok: true });
     const { writeFile } = await import("node:fs/promises");
-    await writeFile(join(stateRoot, "runs", runId, "checkpoint.json"), "{broken", "utf8");
+    await writeFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "{broken", "utf8");
     await assert.rejects(() => store.read(), SyntaxError);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });

@@ -57,8 +57,8 @@ test("run with the fake executor prints a human summary and persists the run", a
     const match = text.match(/Run (run_[A-Za-z0-9_-]+):/);
     const runId = match?.[1];
     assert.ok(runId);
-    const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
-    const checkpointFile = join(stateRoot, "runs", runId, "checkpoint.json");
+    const eventsFile = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+    const checkpointFile = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
     const eventsText = await readFile(eventsFile, "utf8");
     const eventLines = eventsText.trim().split("\n");
     assert.equal(eventLines.length, 12);
@@ -104,7 +104,7 @@ test("inspect warns on a crash-truncated final event line and still replays comp
     const runId = runIo.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1];
     assert.ok(runId);
     await appendFile(
-      join(stateRoot, "runs", runId, "events.jsonl"),
+      join(stateRoot, "runtime", "runs", runId, "events.jsonl"),
       '{"id":"evt_truncated","schemaVersion":1,"type":"RUN_ST'
     );
 
@@ -229,7 +229,7 @@ test("resume rebuilds a deleted checkpoint from the event log", async () => {
     await main(["run", "--project", projectRoot, "--objective", "x", "--state-root", stateRoot], runIo.io);
     const runId = runIo.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1];
     assert.ok(runId);
-    const checkpointFile = join(stateRoot, "runs", runId, "checkpoint.json");
+    const checkpointFile = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
     await rm(checkpointFile);
 
     const resumeIo = capture();
@@ -280,8 +280,8 @@ test("unsupervised resume continues a flowchart checkpoint without stripping it"
       }
     );
     assert.ok(outcome.checkpoint.flowchart);
-    const checkpointFile = join(stateRoot, "runs", outcome.runId, "checkpoint.json");
-    const routedBefore = (await readFile(join(stateRoot, "runs", outcome.runId, "events.jsonl"), "utf8"))
+    const checkpointFile = join(stateRoot, "runtime", "runs", outcome.runId, "checkpoint.json");
+    const routedBefore = (await readFile(join(stateRoot, "runtime", "runs", outcome.runId, "events.jsonl"), "utf8"))
       .trim()
       .split("\n")
       .filter((line) => line.includes("MODEL_ROUTED")).length;
@@ -293,7 +293,7 @@ test("unsupervised resume continues a flowchart checkpoint without stripping it"
     assert.match(resumeIo.out.join(""), /COMPLETED/);
     const checkpoint = JSON.parse(await readFile(checkpointFile, "utf8"));
     assert.ok(checkpoint.flowchart, "flowchart checkpoint must be preserved");
-    const routedAfter = (await readFile(join(stateRoot, "runs", outcome.runId, "events.jsonl"), "utf8"))
+    const routedAfter = (await readFile(join(stateRoot, "runtime", "runs", outcome.runId, "events.jsonl"), "utf8"))
       .trim()
       .split("\n")
       .filter((line) => line.includes("MODEL_ROUTED")).length;
@@ -315,7 +315,7 @@ test("answer appends USER_ANSWER to an existing run", async () => {
     );
     assert.equal(code, 0);
     assert.match(ans.out.join(""), /Recorded answer/);
-    const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     assert.match(eventsText, /USER_ANSWER/);
     assert.match(eventsText, /ship it/);
   });
@@ -411,7 +411,7 @@ function parseRunIdFromOutput(text: string): string {
 }
 
 async function countRouted(stateRoot: string, runId: string): Promise<number> {
-  const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+  const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
   return eventsText
     .trim()
     .split("\n")
@@ -541,7 +541,7 @@ test("run --flowchart with a FAILURE child result exits 1 and emits RUN_FAILED",
     assert.match(out.join(""), /FAILED/);
     assert.match(err.join(""), /reason:/);
     const runId = parseRunIdFromOutput(out.join(""));
-    const eventsText = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     assert.match(eventsText, /RUN_FAILED/);
     assert.doesNotMatch(eventsText, /RUN_COMPLETED/);
   });
@@ -625,14 +625,14 @@ test("flowchart run waits, inspect/resume/answer continue, completed nodes are n
     assert.equal(await countRouted(stateRoot, runId), routedAtWait);
 
     const rejectedPlain = capture();
-    const eventsBefore = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const eventsBefore = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     const rejectCode = await main(
       ["answer", "--run", runId, "--message", "msg_01234567-89ab-cdef-0123-456789abcdef", "--text", "ship it", "--state-root", stateRoot],
       rejectedPlain.io
     );
     assert.equal(rejectCode, 1);
     assert.match(rejectedPlain.err.join(""), /--selected/);
-    assert.equal(await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8"), eventsBefore);
+    assert.equal(await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8"), eventsBefore);
 
     const answered = capture();
     const answerCode = await main(
@@ -731,8 +731,8 @@ test("resume and answer refuse a flowchart event log without a durable flowchart
       started.io
     );
     const runId = parseRunIdFromOutput(started.out.join(""));
-    const checkpointFile = join(stateRoot, "runs", runId, "checkpoint.json");
-    const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
+    const checkpointFile = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
+    const eventsFile = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const eventsBefore = await readFile(eventsFile, "utf8");
     await rm(checkpointFile);
 
@@ -785,8 +785,8 @@ test("resume refuses a checkpoint that dropped its flowchart field", async () =>
       started.io
     );
     const runId = parseRunIdFromOutput(started.out.join(""));
-    const checkpointFile = join(stateRoot, "runs", runId, "checkpoint.json");
-    const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
+    const checkpointFile = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
+    const eventsFile = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const eventsBefore = await readFile(eventsFile, "utf8");
     const stripped = JSON.parse(await readFile(checkpointFile, "utf8")) as { flowchart?: unknown };
     delete stripped.flowchart;
@@ -822,7 +822,7 @@ test("unknown --selected id is rejected on a waiting flowchart", async () => {
       started.io
     );
     const runId = parseRunIdFromOutput(started.out.join(""));
-    const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
+    const eventsFile = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const eventsBefore = await readFile(eventsFile, "utf8");
 
     const resumed = capture();
@@ -865,7 +865,7 @@ test("resume --text without --selected on a waiting flowchart is rejected", asyn
       started.io
     );
     const runId = parseRunIdFromOutput(started.out.join(""));
-    const eventsFile = join(stateRoot, "runs", runId, "events.jsonl");
+    const eventsFile = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
     const eventsBefore = await readFile(eventsFile, "utf8");
     const resumed = capture();
     const code = await main(
@@ -876,7 +876,7 @@ test("resume --text without --selected on a waiting flowchart is rejected", asyn
     assert.match(resumed.err.join(""), /--text on a waiting flowchart requires --selected/);
     assert.equal(await readFile(eventsFile, "utf8"), eventsBefore);
     assert.match(
-      JSON.stringify(JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8"))),
+      JSON.stringify(JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8"))),
       /WAITING_FOR_USER/
     );
   });

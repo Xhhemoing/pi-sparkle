@@ -42,7 +42,7 @@ test("auth login/status/logout round-trips without ever printing the secret", as
     const login = capture();
     assert.equal(await authCommand(["login", "openai", "--key", secret, ...root], login.io), 0);
 
-    const stored = JSON.parse(await readFile(join(stateRoot, "auth.json"), "utf8"));
+    const stored = JSON.parse(await readFile(join(stateRoot, "runtime", "auth.json"), "utf8"));
     assert.ok(JSON.stringify(stored).includes("openai"));
 
     const status = capture();

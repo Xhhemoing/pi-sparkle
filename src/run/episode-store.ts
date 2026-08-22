@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { validateEpisode, type ProjectEpisode } from "../domain/episode.js";
@@ -21,7 +22,7 @@ export class EpisodeStore {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(private readonly stateRoot: string, private readonly episodeId: EpisodeId) {
-    this.episodesPath = join(stateRoot, "episodes", `${episodeId}.jsonl`);
+    this.episodesPath = join(runtimeRoot(stateRoot), "episodes", `${episodeId}.jsonl`);
   }
 
   append(episode: ProjectEpisode): Promise<void> {

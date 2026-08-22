@@ -203,7 +203,7 @@ test("resume fails closed when the checkpoint is missing", async () => {
       childResults: specialistResults
     });
     assert.equal(first.status, "WAITING_FOR_USER");
-    await rm(join(stateRoot, "runs", first.runId, "checkpoint.json"));
+    await rm(join(stateRoot, "runtime", "runs", first.runId, "checkpoint.json"));
     await assert.rejects(
       () => resumeFlowchartRun(deps(stateRoot), first.runId),
       /no durable checkpoint|refusing to invent/
@@ -224,7 +224,7 @@ test("resume fails closed on a malformed flowchart snapshot", async () => {
     const flowchart = raw.flowchart as { snapshot: { nodes: Record<string, { confidence?: number }> } };
     flowchart.snapshot.nodes["selector"] = { ...flowchart.snapshot.nodes["selector"], confidence: 4 };
     await writeFile(
-      join(stateRoot, "runs", first.runId, "checkpoint.json"),
+      join(stateRoot, "runtime", "runs", first.runId, "checkpoint.json"),
       `${JSON.stringify(raw, null, 2)}\n`,
       "utf8"
     );

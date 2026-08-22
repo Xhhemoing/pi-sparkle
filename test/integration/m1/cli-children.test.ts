@@ -260,12 +260,12 @@ test("checkpoint and event files are written for the parent and children", async
       runIo.io
     );
     const runId = requireCompletedRunId(runIo.out, runIo.err);
-    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8"));
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8"));
     assert.equal(checkpoint.status, "COMPLETED");
 
     const inspection = await inspectRun(stateRoot, runId);
     for (const child of inspection.children) {
-      const events = await readFile(join(stateRoot, "runs", child.childRunId, "events.jsonl"), "utf8");
+      const events = await readFile(join(stateRoot, "runtime", "runs", child.childRunId, "events.jsonl"), "utf8");
       assert.match(events, /RUN_CREATED/);
       assert.match(events, /AGENT_FINISHED/);
     }
@@ -291,9 +291,9 @@ test("fake children e2e: run, inspect, checkpoint, TASK_REQUEST/RESULT, and repl
     assert.match(inspectIo.out.join(""), /tsk_parse/);
     assert.match(inspectIo.out.join(""), /tsk_test/);
 
-    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runs", runId, "checkpoint.json"), "utf8"));
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8"));
     assert.equal(checkpoint.status, "COMPLETED");
-    const parentEvents = await readFile(join(stateRoot, "runs", runId, "events.jsonl"), "utf8");
+    const parentEvents = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
     assert.match(parentEvents, /RUN_CREATED/);
     assert.match(parentEvents, /RUN_COMPLETED/);
 

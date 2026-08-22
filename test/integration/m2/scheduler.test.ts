@@ -254,7 +254,7 @@ test("a child run directory is created for every leased task", async () => {
     const graph = validateTaskGraph([task("a")]);
     const { statuses, parentRunId } = await runGraph(stateRoot, graph, new SuccessChildExecutor(), 1);
     assert.equal(statuses.get(createTaskId(() => "a")), "COMPLETED");
-    const runDirs = await (await import("node:fs/promises")).readdir(join(stateRoot, "runs"));
+    const runDirs = await (await import("node:fs/promises")).readdir(join(stateRoot, "runtime", "runs"));
     // One parent run directory plus one child run directory.
     assert.equal(runDirs.length, 2);
     const childDir = runDirs.find((dir) => dir !== parentRunId);

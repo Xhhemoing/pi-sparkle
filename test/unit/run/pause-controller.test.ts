@@ -55,7 +55,7 @@ test("requestPause twice replaces the token on Windows", async () => {
 test("malformed pause.json fails closed", async () => {
   await withStateRoot(async (stateRoot) => {
     const pause = createFilePauseController(stateRoot, () => NOW);
-    const dir = join(stateRoot, "runs", RUN_ID);
+    const dir = join(stateRoot, "runtime", "runs", RUN_ID);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "pause.json"), "{not-json", "utf8");
     await assert.rejects(() => pause.token(RUN_ID), /pause\.json|malformed|Invalid/);

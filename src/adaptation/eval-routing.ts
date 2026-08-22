@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
 import { isAgentRole, type AgentRole } from "../domain/roles.js";
@@ -158,7 +159,7 @@ export async function evalRoutingPolicy(request: RoutingEvalRequest): Promise<Ro
   const baselinePolicy = parseRoutingPolicyContent(baselineContent);
 
   const dataset = await loadRoutingEvalDataset(request.datasetDir);
-  const outputRoot = join(request.stateRoot, "adaptation", "evals");
+  const outputRoot = join(adaptationRoot(request.stateRoot), "evals");
   assertReplayIsolated(dataset, request.datasetDir, outputRoot);
 
   const catalog = catalogFromPrimary({ primaryModelId: baselinePolicy.primaryModelId });

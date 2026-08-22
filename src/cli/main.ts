@@ -2,6 +2,8 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
+import { deleteRunRecords, deleteEpisodeRecords } from "../privacy/deletion.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
@@ -216,6 +218,7 @@ Usage:
   pi-sparkle auth status|login|logout [--state-root <dir>] ...
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
+  pi-sparkle delete --run <runId> | --episode <epId> [--state-root <dir>]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
@@ -440,8 +443,8 @@ function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string)
 function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
-  io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
-  io.stdout(`  checkpoint: ${join(stateRoot, "runs", outcome.runId, "checkpoint.json")}\n`);
+  io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
+  io.stdout(`  checkpoint: ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "checkpoint.json")}\n`);
   const nodes = Object.entries(outcome.snapshot.nodes)
     .map(([id, node]) => `${id}=${node.state}`)
     .join(" ");
@@ -606,7 +609,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       : (values.executor ?? "fake");
   const executor = await createExecutor(executorKind, stateRoot, {
     onInvocation: (invocation) => {
-      void appendFile(join(stateRoot, "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
+      void appendFile(join(runtimeRoot(stateRoot), "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
     }
   });
   bindPreferenceStore(stateRoot);
@@ -683,7 +686,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     if (outcome.learn !== undefined) {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
-    io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
+    io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
   }
 
@@ -791,8 +794,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   const outcome = await running.done;
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
-  io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", outcome.runId, "events.jsonl")}\n`);
-  io.stdout(`  checkpoint: ${join(stateRoot, "runs", outcome.runId, "checkpoint.json")}\n`);
+  io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
+  io.stdout(`  checkpoint: ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "checkpoint.json")}\n`);
   if (outcome.status === "FAILED") {
     const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
     const reason = failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
@@ -1010,8 +1013,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     );
     const outcome = await running.done;
     io.stdout(`Run ${runId}: resumed (${outcome.status})\n`);
-    io.stdout(`  events: ${outcome.events.length} -> ${join(stateRoot, "runs", runId, "events.jsonl")}\n`);
-    io.stdout(`  checkpoint: ${join(stateRoot, "runs", runId, "checkpoint.json")}\n`);
+    io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl")}\n`);
+    io.stdout(`  checkpoint: ${join(runtimeRoot(stateRoot), "runs", runId, "checkpoint.json")}\n`);
     if (outcome.status === "FAILED") {
       const failed = outcome.events.find((event) => event.type === "RUN_FAILED");
       const reason = failed !== undefined ? failed.payload.reason : "unknown";
@@ -1101,7 +1104,7 @@ Usage:
 `;
 
 function bindPreferenceStore(stateRoot: string): void {
-  configurePreferencePersistence(join(stateRoot, "preferences.json"));
+  configurePreferencePersistence(join(adaptationRoot(stateRoot), "preferences.json"));
 }
 
 async function answerCommand(args: string[], io: CliIo): Promise<number> {
@@ -1339,6 +1342,48 @@ async function prefCommand(args: string[], io: CliIo): Promise<number> {
   }
 }
 
+const DELETE_USAGE = `Usage:
+  pi-sparkle delete --run <runId> [--state-root <dir>]
+  pi-sparkle delete --episode <epId> [--state-root <dir>]
+
+Deletes the target's runtime records. Deleting an episode also cascades into
+the adaptation plane: feedback bound to that episode is tombstoned and its
+free-text body is stripped (see docs/data-dictionary.md). Exactly one of
+--run / --episode must be given.
+`;
+
+export async function deleteCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      run: { type: "string" },
+      episode: { type: "string" },
+      "state-root": { type: "string" }
+    }
+  });
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const targetCount = [values.run !== undefined, values.episode !== undefined].filter(Boolean).length;
+  if (targetCount !== 1) {
+    io.stderr("delete requires exactly one of --run <runId> or --episode <epId>\n");
+    io.stderr(DELETE_USAGE);
+    return 1;
+  }
+  const result =
+    values.run !== undefined
+      ? await deleteRunRecords(stateRoot, parseRunId(values.run))
+      : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string));
+  if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
+    io.stderr(`${result.target}: nothing found under ${stateRoot}; refusing to report success\n`);
+    return 1;
+  }
+  for (const path of result.removedPaths) {
+    io.stdout(`removed: ${path}\n`);
+  }
+  for (const id of result.cascadedFeedbackTombstones) {
+    io.stdout(`tombstoned feedback: ${id}\n`);
+  }
+  return 0;
+}
 export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
   const [command, ...rest] = argv;
   try {
@@ -1361,6 +1406,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await adaptCommand(rest, io);
       case "episode":
         return await episodeCommand(rest, io);
+      case "delete":
+        return await deleteCommand(rest, io);
       case "commits":
         return await commitsCommand(rest, io);
       case "pause":
