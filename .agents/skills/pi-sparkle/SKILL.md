@@ -56,14 +56,24 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - Underfit risk: generic prompts ignore package-level AGENTS.md
 - No versioning/A-B for prompt variants
 
-## Health Check 2026-08-21 (evidence-based)
+## Health Check 2026-08-21 (evidence-based; refreshed after install verification)
 
-- 25 installed skills (23 user + 2 pi-level), 0 with usage frontmatter; bloat threshold (>20) triggered
-- Route logging enabled (marker) in 5 active projects: AIstudy, Deep-student, ai-key-manager, pi-sparkle, 蹭饭图
+- 80 installed skills (all trees); bloat threshold (>20) breached ~4x. Skill
+  counts are volatile point-in-time readings — always re-run
+  `scripts/skill-audit.mjs` for the live number instead of trusting this line.
+- Route logging enabled (marker) in 5 active projects: AIstudy, Deep-student,
+  ai-key-manager, pi-sparkle, 蹭饭图. `skill-audit.mjs` now classifies per-project
+  logging state and **withholds** `neverActivated`/`topActivated` when no scanned
+  project has logging on — absence of logs is not evidence of non-use.
 - Helper copied next to installed router (`~/.pi/agent/skills/scenario-skill-router/log-skill-route.mjs`) so projects without this package can still log
 - 3 of 4 recorded subagent runs failed (agent `researcher`, exitCode 1, ~360s, no root-cause field captured)
 - usage frontmatter deliberately NOT hand-written: JSONL is the single source of truth (router forbids auto-persisting USED); use `scripts/skill-audit.mjs` for top/never-activated reports
 - New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, prune candidates)
+- Verified 2026-08-21 after `pi install E:/Project/pi-sparkle`: package skill
+  discoverable globally (outside the project), `/sparkle` template expands via
+  `--prompt-template`, end-to-end audit run succeeded; duplicate/alias skills
+  observed in user trees (e.g. `jailbreak-engineering` aliasing `llm-security`)
+  are user-level assets outside this repo — prune candidates, not package bugs.
 - Verified: append, kill switch (PI_SKILL_ROUTE_LOG=0), doctor ok/corrupt paths, audit aggregation
 
 ## Routing to References

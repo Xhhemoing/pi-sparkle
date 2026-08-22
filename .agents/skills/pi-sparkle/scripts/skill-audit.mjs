@@ -53,8 +53,15 @@ export function audit(projects) {
   let records = 0;
   let corrupt = 0;
   const perProject = [];
+  const loggingProjects = [];
   for (const project of projects) {
     const logPath = join(project, ".pi", "logs", "skill-routes.jsonl");
+    // Route logging is opt-in per project: a marker file enables it unless
+    // the kill-switch env var turns it off. Projects without the marker are
+    // "not logging" — their empty logs must never be read as usage evidence.
+    const marker = existsSync(join(project, ".pi", "logs", "skill-route-log.enabled"));
+    const envOff = (process.env.PI_SKILL_ROUTE_LOG ?? "").trim().toLowerCase() === "0";
+    const loggingEnabled = marker && !envOff;
     let lines = 0;
     if (existsSync(logPath)) {
       for (const line of readFileSync(logPath, "utf8").split("\n")) {
@@ -63,6 +70,7 @@ export function audit(projects) {
         try {
           const rec = JSON.parse(line);
           records += 1;
+          if (!loggingEnabled) continue;
           for (const name of rec.activated ?? []) {
             activated.set(name, (activated.get(name) ?? 0) + 1);
           }
@@ -74,20 +82,35 @@ export function audit(projects) {
         }
       }
     }
-    perProject.push({ project, lines });
+    if (loggingEnabled) loggingProjects.push(project);
+    perProject.push({ project, lines, loggingEnabled });
   }
   const installed = installedSkills();
-  const neverActivated = installed.filter((n) => !activated.has(n));
+  // "Never activated" is only meaningful across logging-enabled projects.
+  // With zero logging projects there is no usage signal at all — say so
+  // instead of listing every skill as never-activated.
+  const neverActivated =
+    loggingProjects.length > 0
+      ? installed.filter((n) => !activated.has(n))
+      : [];
   const top = [...activated.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   const topSkipped = [...skipped.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
   return {
     projectsScanned: perProject,
+    loggingProjectCount: loggingProjects.length,
+    usageSignalAvailable: loggingProjects.length > 0,
     totalRecords: records,
     corruptRecords: corrupt,
     installedSkillCount: installed.length,
     topActivated: Object.fromEntries(top),
     topSkipped: Object.fromEntries(topSkipped),
-    neverActivated
+    neverActivated,
+    ...(loggingProjects.length === 0
+      ? {
+          warning:
+            "no project has route logging enabled; neverActivated/topActivated are withheld because absence of logs is not evidence of non-use",
+        }
+      : {}),
   };
 }
 
