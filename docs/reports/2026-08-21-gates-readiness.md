@@ -69,7 +69,10 @@ direction call.
 ### P0 privacy
 
 Inputs verified 2026-08-21: [data-dictionary.md](../data-dictionary.md)
-lists all 13 durable record classes sourced from
+lists all durable record classes sourced from
+`DURABLE_RECORD_CLASSES` (13 as of this report's snapshot; a 2026-08-22
+completeness audit added four more — see
+[the P0 review package](2026-08-22-p0-privacy-review-package.md));
 `DURABLE_RECORD_CLASSES`; `pnpm test -- test/unit/privacy/record-classes.test.ts`
 is green (2/2). Remaining input is the independent review itself — outside
 agent scope by definition.

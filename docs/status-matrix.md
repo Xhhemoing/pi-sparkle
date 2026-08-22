@@ -52,7 +52,7 @@ Decision packages with per-gate evidence: [2026-08-21 gates readiness](reports/2
 | ADR-004 | product + privacy | this matrix, adaptive spec | Accepted 2026-08-21 | Status line in `docs/decisions/0004-controlled-adaptation.md` is Accepted |
 | Six adaptive defaults | product | spec § Decision required | Approved 2026-08-21, unchanged | `docs/specs/adaptive-agent-work-loop.md` § Decision required |
 | ADR-006 | product | extension proposal | Decided 2026-08-21: keep Proposed; no `extensions/pi-sparkle/` import until revisited | Status line in `docs/decisions/0006-pi-extension-reverse-adapter.md` |
-| P0 privacy dictionary | runtime + privacy | `src/privacy/record-classes.ts` | Independent review has no blocker | `pnpm test -- test/unit/privacy/record-classes.test.ts` |
+| P0 privacy dictionary | runtime + privacy | `src/privacy/record-classes.ts` (17 classes; completeness-audited 2026-08-22, see [review package](reports/2026-08-22-p0-privacy-review-package.md)) | Independent review has no blocker | `pnpm test -- test/unit/privacy/record-classes.test.ts` |
 | Checkpoint D | adaptive | remaining M3 leftovers | Closed 2026-08-21: whole-checkpoint scenarios pass (`test/integration/m3/checkpoint-d.test.ts`), M3 leftovers closed | `tasks/adaptive-todo.md` |
 | Checkpoint F-PROD | routing | sealed holdout, paired utility CI | 95% utility-delta LCB > 0 and cost-delta UCB ≤ 0 | ADR-005; do not start before P0 + Provider smoke |
 | Checkpoint G Outcome-supported | routing | F-PROD | Held-out benefit without guardrail regression | Forbidden until F |
