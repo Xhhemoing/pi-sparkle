@@ -45,6 +45,8 @@ Definitions (ADR-004):
 
 ## Policy gates (human)
 
+Decision packages with per-gate evidence: [2026-08-21 gates readiness](reports/2026-08-21-gates-readiness.md).
+
 | Item | Owner | Inputs | Exit | Verify |
 |---|---|---|---|---|
 | ADR-004 | product + privacy | this matrix, adaptive spec | Accepted or revised | Status line in `docs/decisions/0004-controlled-adaptation.md` is not Proposed |

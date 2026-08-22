@@ -30,5 +30,8 @@ Rules:
 - Missing provider usage is `undefined`, never `0`.
 - Preference dataset export always lists tombstone ids and never the deleted
   payloads (`exportForDataset`).
-- Cross-stream references, multi-run episode attach, and tombstone propagation
-  into every derived view are not all closed. See `tasks/adaptive-todo.md`.
+- Closed 2026-08-21 (M3-T1/M3-T6): cross-stream references and multi-run
+  attach fail closed in the episode reducer; tombstone propagation covers
+  dataset exports (`exportForDataset`) and authorized exports, and
+  materialized views exclude tombstoned ids. See
+  `test/integration/m3/redaction.test.ts`.

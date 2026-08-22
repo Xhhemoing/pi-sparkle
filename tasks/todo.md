@@ -7,7 +7,8 @@ Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-20
 - [ ] Accept or revise ADR-004 (still Proposed) and the six adaptive defaults. Owner/exit: [status-matrix.md](../docs/status-matrix.md).
 - [ ] Close P0: dictionary exists at [data-dictionary.md](../docs/data-dictionary.md); independent privacy review has no blocker.
 - [ ] Accept or reject ADR-006 before any `extensions/pi-sparkle/` Pi import.
-- [ ] Resolve ADR-005 cost-quality target and holdout data source (Checkpoint F item 1). Do not start F-PROD before P0 + provider smoke.
+- [x] Cost-quality target resolved: ADR-005 Accepted (2026-08-19) locks the paired CI gates and six decisions.
+- [ ] Holdout data source remains open as F6 work inside the F-PROD line; do not start F-PROD before P0 + provider smoke. See [gates readiness](../docs/reports/2026-08-21-gates-readiness.md).
 
 ## Three-line program (2026-08-18 final)
 
