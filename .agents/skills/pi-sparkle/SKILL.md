@@ -68,7 +68,7 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - Helper copied next to installed router (`~/.pi/agent/skills/scenario-skill-router/log-skill-route.mjs`) so projects without this package can still log
 - 3 of 4 recorded subagent runs failed (agent `researcher`, exitCode 1, ~360s, no root-cause field captured)
 - usage frontmatter deliberately NOT hand-written: JSONL is the single source of truth (router forbids auto-persisting USED); use `scripts/skill-audit.mjs` for top/never-activated reports
-- New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, prune candidates)
+- New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, alias detection, scenario affinity), `scripts/skill-prune.mjs` (evidence-gated pruning: dry-run lists confirmed aliases only; `--apply <skill>` moves ONE confirmed alias to skills-backup/<date>/ and refuses everything else)
 - Verified 2026-08-21 after `pi install E:/Project/pi-sparkle`: package skill
   discoverable globally (outside the project), `/sparkle` template expands via
   `--prompt-template`, end-to-end audit run succeeded.

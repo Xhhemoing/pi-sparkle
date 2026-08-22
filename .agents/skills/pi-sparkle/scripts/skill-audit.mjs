@@ -59,9 +59,11 @@ const ALIAS_PATTERNS = [
  * just an alias for X"). A candidate is confirmed only when the referenced
  * target actually exists — otherwise the "alias" IS the only implementation.
  */
-export function detectAliasCandidates(installed) {
+export function detectAliasCandidates(
+  installed,
+  roots = [join(homedir(), ".agents", "skills"), join(homedir(), ".pi", "agent", "skills")],
+) {
   const known = new Set(installed);
-  const roots = [join(homedir(), ".agents", "skills"), join(homedir(), ".pi", "agent", "skills")];
   const out = [];
   for (const name of installed) {
     let description = "";
