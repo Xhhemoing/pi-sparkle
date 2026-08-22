@@ -14,24 +14,35 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
+const DEFAULT_SKILL_ROOTS = () => [
+  join(homedir(), ".agents", "skills"),
+  join(homedir(), ".pi", "agent", "skills"),
+];
+
 function parseArgs(argv) {
   const projects = [];
+  let skillsRoots;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--projects" && argv[i + 1]) {
       for (const p of argv[i + 1].split(",")) {
         if (p.trim()) projects.push(resolve(p.trim()));
       }
       i += 1;
+    } else if (argv[i] === "--skills-roots" && argv[i + 1]) {
+      skillsRoots = argv[i + 1]
+        .split(",")
+        .map((entry) => resolve(entry.trim()))
+        .filter((entry) => entry !== "");
+      i += 1;
     } else if (!argv[i].startsWith("--")) {
       projects.push(resolve(argv[i]));
     }
   }
   if (projects.length === 0) projects.push(process.cwd());
-  return { projects };
+  return { projects, skillsRoots };
 }
 
-export function installedSkills() {
-  const roots = [join(homedir(), ".agents", "skills"), join(homedir(), ".pi", "agent", "skills")];
+export function installedSkills(roots = DEFAULT_SKILL_ROOTS()) {
   const names = new Set();
   for (const root of roots) {
     if (!existsSync(root)) continue;
@@ -61,7 +72,7 @@ const ALIAS_PATTERNS = [
  */
 export function detectAliasCandidates(
   installed,
-  roots = [join(homedir(), ".agents", "skills"), join(homedir(), ".pi", "agent", "skills")],
+  roots = DEFAULT_SKILL_ROOTS(),
 ) {
   const known = new Set(installed);
   const out = [];
@@ -93,7 +104,7 @@ export function detectAliasCandidates(
   return out;
 }
 
-export function audit(projects) {
+export function audit(projects, skillRoots) {
   const activated = new Map();
   const skipped = new Map();
   let records = 0;
@@ -134,7 +145,7 @@ export function audit(projects) {
     if (loggingEnabled) loggingProjects.push(project);
     perProject.push({ project, lines, loggingEnabled });
   }
-  const installed = installedSkills();
+  const installed = installedSkills(skillRoots);
   // "Never activated" is only meaningful across logging-enabled projects.
   // With zero logging projects there is no usage signal at all — say so
   // instead of listing every skill as never-activated.
@@ -154,7 +165,7 @@ export function audit(projects) {
     topActivated: Object.fromEntries(top),
     topSkipped: Object.fromEntries(topSkipped),
     neverActivated,
-    aliasCandidates: detectAliasCandidates(installed),
+    aliasCandidates: detectAliasCandidates(installed, skillRoots),
     // Scope recommendations: evidence for WHERE a skill should live so each
     // session only discovers what its context needs.
     //   multi-project activation -> keep global
@@ -209,8 +220,8 @@ export function audit(projects) {
 }
 
 function run(argv) {
-  const { projects } = parseArgs(argv);
-  const report = audit(projects);
+  const { projects, skillsRoots } = parseArgs(argv);
+  const report = audit(projects, skillsRoots);
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report.corruptRecords > 0 ? 1 : 0;
 }

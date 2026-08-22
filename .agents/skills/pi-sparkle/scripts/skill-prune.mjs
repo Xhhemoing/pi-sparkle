@@ -14,6 +14,7 @@
  *   node skill-prune.mjs --apply <skill>       move ONE confirmed skill to
  *                                              ~/.pi/agent/skills-backup/<date>/
  *   node skill-prune.mjs --roots "<dir>,<dir>" override skill roots (testing)
+ *   node skill-prune.mjs --backup-root <dir>   override backup root (testing)
  */
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -23,6 +24,7 @@ import { detectAliasCandidates } from "./skill-audit.mjs";
 function parseArgs(argv) {
   let apply;
   let roots;
+  let backupRoot;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--apply" && argv[i + 1] && !argv[i + 1].startsWith("--")) {
       apply = argv[i + 1];
@@ -30,9 +32,12 @@ function parseArgs(argv) {
     } else if (argv[i] === "--roots" && argv[i + 1]) {
       roots = argv[i + 1].split(",").map((entry) => resolve(entry.trim()));
       i += 1;
+    } else if (argv[i] === "--backup-root" && argv[i + 1]) {
+      backupRoot = resolve(argv[i + 1]);
+      i += 1;
     }
   }
-  return { apply, roots };
+  return { apply, roots, backupRoot };
 }
 
 /** Locate which root holds a skill (honors overridden roots for testing). */
@@ -45,7 +50,7 @@ function locateSkill(roots, name) {
 }
 
 export function prunePlan(argv, now = new Date()) {
-  const { apply, roots: rootOverride } = parseArgs(argv);
+  const { apply, roots: rootOverride, backupRoot: backupRootOverride } = parseArgs(argv);
   const roots = rootOverride ?? [
     join(homedir(), ".agents", "skills"),
     join(homedir(), ".pi", "agent", "skills"),
@@ -79,7 +84,9 @@ export function prunePlan(argv, now = new Date()) {
       };
     }
     const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const backupRoot = join(homedir(), ".pi", "agent", "skills-backup", stamp);
+    const backupBase =
+      backupRootOverride ?? join(homedir(), ".pi", "agent", "skills-backup");
+    const backupRoot = join(backupBase, stamp);
     mkdirSync(backupRoot, { recursive: true });
     const destination = join(backupRoot, apply);
     renameSync(sourceDir, destination);
@@ -92,7 +99,9 @@ export function prunePlan(argv, now = new Date()) {
 function run(argv) {
   const report = prunePlan(argv);
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  return 0;
+  // A refused --apply is a fail-closed outcome: surface it to callers via a
+  // non-zero exit instead of looking like a successful dry-run.
+  return report.refused !== undefined ? 1 : 0;
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]).toLowerCase().endsWith("skill-prune.mjs");
