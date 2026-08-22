@@ -155,6 +155,43 @@ export function audit(projects) {
     topSkipped: Object.fromEntries(topSkipped),
     neverActivated,
     aliasCandidates: detectAliasCandidates(installed),
+    // Scope recommendations: evidence for WHERE a skill should live so each
+    // session only discovers what its context needs.
+    //   multi-project activation -> keep global
+    //   single-project activity -> move into that project's .agents/skills/
+    //   no activation evidence -> listed for review (never auto-moved)
+    scopeRecommendations: (() => {
+      if (loggingProjects.length === 0) return { available: false };
+      const projectsBySkill = new Map();
+      for (const [project, skills] of projectAffinity) {
+        for (const name of skills) {
+          if (!projectsBySkill.has(name)) projectsBySkill.set(name, new Set());
+          projectsBySkill.get(name).add(project);
+        }
+      }
+      const keepGlobal = [];
+      const singleProject = [];
+      for (const name of installed) {
+        const projects = projectsBySkill.get(name);
+        if (projects === undefined || projects.size === 0) continue;
+        if (projects.size >= 2) {
+          keepGlobal.push({ skill: name, activeIn: projects.size });
+        } else {
+          singleProject.push({ skill: name, project: [...projects][0] });
+        }
+      }
+      const activatedNames = new Set(projectsBySkill.keys());
+      const noEvidence = installed.filter((name) => !activatedNames.has(name));
+      return {
+        available: true,
+        keepGlobal,
+        moveToProject: singleProject,
+        noActivationEvidence: noEvidence,
+        note:
+          "moving a single-project skill into <project>/.agents/skills/ removes it " +
+          "from discovery everywhere else; review items need human judgment",
+      };
+    })(),
     // Scenario affinity: which skills activate in which project. Evidence for
     // scenario-scoped management instead of one flat global pile.
     scenarioAffinity: Object.fromEntries(
