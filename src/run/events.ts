@@ -163,6 +163,13 @@ export function isAnswerSource(value: unknown): value is AnswerSource {
   return typeof value === "string" && (ANSWER_SOURCES as readonly string[]).includes(value);
 }
 
+/** Flag-sourced gate consents. Absent/legacy answers do not count. */
+export function countAssumeDefaultsAutoApprovals(events: readonly Event[]): number {
+  return events.filter(
+    (event) => event.type === "USER_ANSWER" && event.payload.answeredBy === "assume-defaults-auto"
+  ).length;
+}
+
 export interface UserAnswerPayload {
   messageId: MessageId;
   answer: string;

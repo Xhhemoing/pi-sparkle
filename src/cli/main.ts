@@ -20,7 +20,7 @@ import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../ex
 import { startRun } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
-import type { Event } from "../run/events.js";
+import { countAssumeDefaultsAutoApprovals, type Event } from "../run/events.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
@@ -459,6 +459,15 @@ function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoo
       `  pending approval ${pending.plan.id}: ${pending.plan.items.map((item) => item.id).join(", ")}\n`
     );
   }
+  printAssumeDefaultsAutoClears(io, outcome.events);
+}
+
+function printAssumeDefaultsAutoClears(io: CliIo, events: readonly Event[]): void {
+  const autoCleared = countAssumeDefaultsAutoApprovals(events);
+  if (autoCleared === 0) return;
+  io.stdout(
+    `  ${autoCleared} high-risk approval gate(s) were auto-cleared by --assume-defaults\n`
+  );
 }
 
 async function readValidatedCheckpoint(stateRoot: string, runId: RunId): Promise<RunCheckpoint | undefined> {
@@ -700,6 +709,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     if (outcome.learn !== undefined) {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
+    printAssumeDefaultsAutoClears(io, outcome.events);
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
   }

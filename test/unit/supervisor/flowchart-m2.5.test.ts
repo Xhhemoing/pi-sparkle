@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { createMessageId, createTaskId } from "../../../src/domain/ids.js";
 import type { ApprovalPlan } from "../../../src/domain/flowchart.js";
-import { validateEvent } from "../../../src/run/events.js";
+import { countAssumeDefaultsAutoApprovals, validateEvent } from "../../../src/run/events.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -119,6 +119,25 @@ test("USER_ANSWER answeredBy accepts user, assume-defaults-auto, and legacy abse
     () => validateEvent(makeEvent("USER_ANSWER", { ...base, answeredBy: "operator" })),
     /answeredBy/
   );
+});
+
+test("countAssumeDefaultsAutoApprovals ignores legacy and user answers", () => {
+  const messageId = createMessageId(UUID);
+  const events = [
+    makeEvent("USER_ANSWER", { messageId, answer: "legacy" }),
+    makeEvent("USER_ANSWER", { messageId, answer: "human", answeredBy: "user" }),
+    makeEvent("USER_ANSWER", {
+      messageId,
+      answer: "Selected route:premium",
+      answeredBy: "assume-defaults-auto"
+    }),
+    makeEvent("USER_ANSWER", {
+      messageId,
+      answer: "Selected route:premium",
+      answeredBy: "assume-defaults-auto"
+    })
+  ];
+  assert.equal(countAssumeDefaultsAutoApprovals(events), 2);
 });
 
 test("USER_ANSWER static validation rejects malformed and duplicate action ids", () => {

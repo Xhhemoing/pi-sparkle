@@ -225,6 +225,39 @@ test("high-risk track arms the human gate then assume-defaults auto-selects it",
   }
 });
 
+test("cli --track --assume-defaults names auto-cleared high-risk gates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-gate-cli-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-gate-cli-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const { io, out } = capture();
+    const code = await withIsolatedPiEnv(() =>
+      main(
+        [
+          "run",
+          "--track",
+          "--assume-defaults",
+          "--executor",
+          "fake",
+          "--project",
+          projectRoot,
+          "--objective",
+          "Deploy payment credentials to production",
+          "--state-root",
+          stateRoot
+        ],
+        io
+      )
+    );
+    assert.equal(code, 0);
+    assert.match(out.join(""), /COMPLETED/);
+    assert.match(out.join(""), /4 high-risk approval gate\(s\) were auto-cleared by --assume-defaults/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("cli --track without assume-defaults asks clarifying questions for a vague objective", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-cli-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-cli-proj-"));
