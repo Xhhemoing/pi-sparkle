@@ -1223,7 +1223,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
     runId,
     type: "USER_ANSWER",
     actor: "cli",
-    payload: { messageId, answer: values.text }
+    payload: { messageId, answer: values.text, answeredBy: "user" }
   } as Event);
   io.stdout(`Recorded answer for ${messageId} on ${runId}\n`);
   return 0;

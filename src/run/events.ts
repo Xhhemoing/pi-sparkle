@@ -156,10 +156,22 @@ export interface RunWaitingForUserPayload {
   approvalPlan?: ApprovalPlan;
 }
 
+export const ANSWER_SOURCES = ["user", "assume-defaults-auto"] as const;
+export type AnswerSource = (typeof ANSWER_SOURCES)[number];
+
+export function isAnswerSource(value: unknown): value is AnswerSource {
+  return typeof value === "string" && (ANSWER_SOURCES as readonly string[]).includes(value);
+}
+
 export interface UserAnswerPayload {
   messageId: MessageId;
   answer: string;
   approvalReply?: ApprovalReply;
+  /**
+   * Who satisfied the gate. Absent on pre-increment logs (legacy; do not
+   * fail closed). `assume-defaults-auto` is flag-sourced consent, not a human.
+   */
+  answeredBy?: AnswerSource;
 }
 
 export interface TaskGraphAcceptedPayload {
@@ -531,6 +543,9 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
         } catch (error) {
           return `payload.approvalReply: ${messageOf(error)}`;
         }
+      }
+      if (payload.answeredBy !== undefined && !isAnswerSource(payload.answeredBy)) {
+        return "payload.answeredBy must be user or assume-defaults-auto when present";
       }
       return undefined;
     }

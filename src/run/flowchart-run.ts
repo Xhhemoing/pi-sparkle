@@ -64,7 +64,7 @@ import {
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
-import { routingContextFields, type Event, type ModelRoutedPayload } from "./events.js";
+import { routingContextFields, type AnswerSource, type Event, type ModelRoutedPayload } from "./events.js";
 import { injectionEventPayload, validateInjection } from "./injection.js";
 import { createFilePauseController, type PauseController } from "./pause-controller.js";
 import {
@@ -556,7 +556,8 @@ async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
 async function applyApproval(
   ctx: FlowchartLoopContext,
   reply: ApprovalReply,
-  answer?: string
+  answer?: string,
+  answeredBy: AnswerSource = "user"
 ): Promise<void> {
   const pending = ctx.supervisor.pendingApproval;
   if (pending === undefined) {
@@ -576,7 +577,12 @@ async function applyApproval(
   await ctx.append(
     ctx.make(
       "USER_ANSWER",
-      { messageId: pending.question.id, answer: text, approvalReply: correlated },
+      {
+        messageId: pending.question.id,
+        answer: text,
+        approvalReply: correlated,
+        answeredBy
+      },
       nodeTaskId(ctx.definition, pending.nodeId)
     )
   );
@@ -618,10 +624,15 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
           .map((item) => item.id) ?? [];
       if (pending !== undefined && selectedActionIds.length > 0) {
         await persistWaiting(ctx);
-        await applyApproval(ctx, {
-          approvalPlanId: pending.plan.id,
-          selectedActionIds
-        });
+        await applyApproval(
+          ctx,
+          {
+            approvalPlanId: pending.plan.id,
+            selectedActionIds
+          },
+          undefined,
+          "assume-defaults-auto"
+        );
         await persistCheckpoint(ctx);
       }
     }

@@ -213,6 +213,12 @@ test("high-risk track arms the human gate then assume-defaults auto-selects it",
     );
     assert.ok(implementer, "compiled implementer role must survive flowchart routing");
     assert.ok(reviewer, "compiled reviewer role must survive flowchart routing");
+    const consents = outcome.events.filter((event) => event.type === "USER_ANSWER");
+    assert.equal(consents.length, 4);
+    for (const event of consents) {
+      if (event.type !== "USER_ANSWER") continue;
+      assert.equal(event.payload.answeredBy, "assume-defaults-auto");
+    }
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });

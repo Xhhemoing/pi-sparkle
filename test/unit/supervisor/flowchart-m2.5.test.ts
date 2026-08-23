@@ -99,6 +99,28 @@ test("USER_ANSWER references a plan by id and never carries the plan itself", ()
   assert.deepEqual(validateEvent(plain), plain);
 });
 
+test("USER_ANSWER answeredBy accepts user, assume-defaults-auto, and legacy absence", () => {
+  const messageId = createMessageId(UUID);
+  const base = {
+    messageId,
+    answer: "Selected route:premium",
+    approvalReply: { approvalPlanId: approvalPlan.id, selectedActionIds: ["apply-b"] }
+  };
+  assert.deepEqual(
+    validateEvent(makeEvent("USER_ANSWER", { ...base, answeredBy: "user" })).payload,
+    { ...base, answeredBy: "user" }
+  );
+  assert.deepEqual(
+    validateEvent(makeEvent("USER_ANSWER", { ...base, answeredBy: "assume-defaults-auto" })).payload,
+    { ...base, answeredBy: "assume-defaults-auto" }
+  );
+  assert.deepEqual(validateEvent(makeEvent("USER_ANSWER", base)).payload, base);
+  assert.throws(
+    () => validateEvent(makeEvent("USER_ANSWER", { ...base, answeredBy: "operator" })),
+    /answeredBy/
+  );
+});
+
 test("USER_ANSWER static validation rejects malformed and duplicate action ids", () => {
   const messageId = createMessageId(UUID);
   const answer = "Apply";

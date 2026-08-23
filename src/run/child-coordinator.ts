@@ -231,7 +231,12 @@ export class ChildCoordinator {
     if (question !== undefined) {
       await this.appendParentEvent(
         "USER_ANSWER",
-        { messageId, answer, ...(approvalReply !== undefined ? { approvalReply } : {}) },
+        {
+          messageId,
+          answer,
+          answeredBy: "user",
+          ...(approvalReply !== undefined ? { approvalReply } : {})
+        },
         question.taskId
       );
     }

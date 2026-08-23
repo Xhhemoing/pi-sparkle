@@ -32,12 +32,11 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 - **Action:** Independent sim + CLI measurement on `e06eee6`; adversarial attribution probes; live-import closure; one usability fix.
 - **Result:** `pnpm gate` 1183 / 1182 / 0 / 1. Live routing changes models. Vision/local-only fail-closed. F-SIM utility delta identically 0 by construction. High-risk approval not armed on flowchart-v2. `TEST_RE` family pollution. Refusal text now names privacy/capability (`8a36554`). Report: `docs/reports/2026-08-23-algorithm-measurement.md`. HEAD `b83f6cb`.
 
-## Phase 2 — strategy (in progress)
+## Phase 2 — strategy (closed)
 
-- **Actor:** [Decide keep deepen or replace](0e744a30-1f6c-4e85-8973-3ee04b104887) slug `claude-fable-5-thinking-xhigh` — earlier launch; not visible in this environment.
-- **Relaunch:** [Phase 2 algorithm strategy](98dfd022-f81d-435a-a927-865cc5320066) slug `claude-fable-5-thinking-xhigh` (cloud Task, this turn).
-- **Action:** keep / deepen / replace against plan purpose + Phase-1 data.
-- **Result:** pending (`docs/reports/2026-08-23-algorithm-strategy.md` not yet on this tree). Parent must not write that verdict.
+- **Actor:** [Phase 2 algorithm strategy](98dfd022-f81d-435a-a927-865cc5320066) slug `claude-fable-5-thinking-xhigh`. Earlier launch `0e744a30-1f6c-4e85-8973-3ee04b104887` was not visible in this environment.
+- **Action:** keep / deepen / replace against plan purpose + Phase-1 data; re-measured at `69274ec`.
+- **Result:** `docs/reports/2026-08-23-algorithm-strategy.md` @ `fa73631`. **Keep** routing selector, cluster, and adaptation. **Deepen** only gate-consent provenance. **Replace** nowhere. F-SIM stays identically-observed. Stage 2 (`--approve-high-risk`) needs owner sign-off; no live R1. Parent cross-validates: verdict matches Phase-1 opus numbers and the `69274ec` CLI re-run.
 
 ## Phase 3 — parent polish (partial) — `cursor-grok-4.6`
 
@@ -54,4 +53,8 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
     - Local-only, 0.712s, exit 1, no run: `privacy class` named for cheap and premium.
     - Screenshot, 0.721s, exit 0, `run_601dc867-…`, 35 events, all premium, flowchart-v4, cheap rejected `capability`.
   - ManagePullRequest create failed (`must be a collaborator`). Branch: `cursor/algorithm-eval-measure-9035`.
-  - Strategy recommendation still owned by fable (`98dfd022-f81d-435a-a927-865cc5320066`).
+
+## Phase 3b — Stage 1 consent provenance — `cursor-grok-4.6`
+
+- **Action:** Implement fable's Stage 1 only (no behavior change, no `flowchart-v5`). `USER_ANSWER.answeredBy` is `assume-defaults-auto` when `autoSelectDefaultApprovals` applies a gate, `user` on resume/`answer`/child-coordinator replies, and absent on pre-increment logs (legacy, accepted).
+- **Result:** pending targeted tests + `pnpm gate` this turn. Stage 2 not shipped (owner decision).
