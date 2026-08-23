@@ -38,8 +38,11 @@ test("PiAgentExecutor records config + response hash through the onInvocation si
       "parameter hash must reproduce from the frozen executor configuration"
     );
     assert.match(record.responseHash, /^[0-9a-f]{1,8}$/);
-    assert.equal(record.tokensIn, undefined, "faux provider reports no usage — unavailable, not zero");
-    assert.equal(record.tokensOut, undefined);
+    // Usage extraction (2026-08-22): the faux provider reports real counts,
+    // and they must now flow into the invocation record.
+    assert.equal(typeof record.tokensIn, "number", "tokensIn must be captured when reported");
+    assert.ok((record.tokensIn ?? 0) > 0);
+    assert.equal(typeof record.tokensOut, "number");
     assert.ok(record.latencyMs >= 0);
     assert.ok(record.occurredAt.length > 0);
   } finally {

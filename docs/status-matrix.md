@@ -17,7 +17,7 @@ Definitions (ADR-004):
 |---|---|---|---|---|---|
 | Fake executor `run` / `inspect` / `resume` | yes | yes | yes | no | Default local path. Quality gate: `pnpm gate`. |
 | `--children` parent coordinator | yes | yes | yes | no | Fake child executor when `--executor` is omitted or `fake`. Not the flowchart engine. |
-| `compileChildrenToFlowchart` | yes | no | library tests | no | CLI `--children` does **not** compile into `--flowchart`. |
+| `compileChildrenToFlowchart` | yes | yes | library tests | no | Wired at the CLI children path and the track loop (corrected 2026-08-22; was stale). Real-provider coverage of this path is still open. |
 | `--flowchart` supervisor | yes | yes | yes | no | Public orchestrator. Incompatible with `--children` / `--track`. Optional `--executor fake\|pi` runs RUNNING nodes; `--results` still overrides. |
 | Event log + checkpoint + resume | yes | yes | yes | no | Truncated JSONL tail recovered; corrupt middle line fails closed. |
 | Episode bind / `inspect --episode` | yes | yes | yes | no | Reducer is fail-closed on duplicate open/attach, terminal replay, and dangling cross-stream refs. |

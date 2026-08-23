@@ -68,8 +68,29 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         isError: event.isError,
         summary: event.isError ? `tool error: ${event.toolName}` : `tool finished: ${event.toolName}`
       };
-    case "turn_end":
-      return { type: "TURN_FINISHED" };
+    case "turn_end": {
+      // Usage flows on the assistant message; without it cost telemetry is
+      // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
+      const message = event.message as { role?: string; usage?: { input?: number; output?: number } };
+      const usage = message.role === "assistant" ? message.usage : undefined;
+      const rawInput = typeof usage?.input === "number" ? usage.input : undefined;
+      const rawOutput = typeof usage?.output === "number" ? usage.output : undefined;
+      // All-zero usage is what error payloads and stub providers report;
+      // recording it would fabricate cost data ("undefined, never zero").
+      const allZero = rawInput === 0 && (rawOutput === undefined || rawOutput === 0);
+      const inputTokens = allZero ? undefined : rawInput;
+      const outputTokens = allZero ? undefined : rawOutput;
+      if (inputTokens === undefined && outputTokens === undefined) {
+        return { type: "TURN_FINISHED" };
+      }
+      return {
+        type: "TURN_FINISHED",
+        usage: {
+          ...(inputTokens !== undefined ? { inputTokens } : {}),
+          ...(outputTokens !== undefined ? { outputTokens } : {})
+        }
+      };
+    }
     default:
       return undefined;
   }
