@@ -40,7 +40,7 @@ export function premiumCatalogModel(): CatalogModel {
     outputCostPerMTok: 3,
     privacyClass: "cloud-general",
     approvedForHighRisk: true,
-    capabilities: ["tool-use"]
+    capabilities: ["tool-use", "vision"]
   });
 }
 
@@ -100,6 +100,6 @@ function modelFor(id: string, tier: "fast" | "primary"): CatalogModel {
     estimatedDurationMs: 6_000,
     privacyClass: "cloud-general",
     approvedForHighRisk: true,
-    capabilities: ["tool-use"]
+    capabilities: ["tool-use", "vision"]
   });
 }

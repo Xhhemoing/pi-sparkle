@@ -62,7 +62,8 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
   const family = familyOf(text, role);
   const highRisk = options.contractRisk !== undefined ? options.contractRisk : HIGH_RISK_RE.test(text);
   const long = text.length >= 180 || (text.match(/\n/g) ?? []).length >= 3;
-  const complexity = complexityOf({ role, family, highRisk, long });
+  const deepReasoning = REASONING_RE.test(text);
+  const complexity = complexityOf({ role, family, highRisk, long, deepReasoning });
   const preferPrimary =
     highRisk ||
     complexity === "HIGH" ||
@@ -96,21 +97,40 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
   };
 }
 
+/**
+ * Only physical capability boundaries become hard requirements. `vision` is
+ * one: a text-only model cannot read a screenshot, so refusing is correct.
+ * Keyword-flagged "reasoning" is a quality gradient, not an incapability —
+ * it escalates complexity (and therefore the model tier) instead of hard-
+ * filtering the catalog. Contract-supplied capabilities still pass through
+ * untouched via AnalyzeTaskOptions.requiredCapabilities.
+ */
 function capabilitiesOf(text: string): readonly string[] {
   const capabilities = ["tool-use"];
   if (VISION_RE.test(text)) capabilities.push("vision");
-  if (REASONING_RE.test(text)) capabilities.push("reasoning");
   return capabilities;
 }
 
+/**
+ * Family is the R1 data-isolation key. Role outranks keywords for roles with
+ * an intrinsic family, so a shared run objective cannot relabel the reviewer
+ * or tester (all children usually see the same objective text). Generic edit
+ * roles specialize by text; review/refactor outrank test so "refactor X and
+ * add a unit test" counts as refactor work, not test work. This mapping
+ * agrees with the learning plane's familyFromRole fallback.
+ */
 function familyOf(text: string, role: AgentRole): TaskFamily {
   if (HIGH_RISK_RE.test(text) && /\b(deploy|production|prod\b)\b/i.test(text)) return "deploy";
-  if (PLAN_RE.test(text) || role === "planner") return "plan";
-  if (RESEARCH_RE.test(text) || role === "scout") return "research";
-  if (TEST_RE.test(text) || role === "tester") return "test";
-  if (REVIEW_RE.test(text) || role === "reviewer") return "review";
+  if (role === "planner") return "plan";
+  if (role === "scout") return "research";
+  if (role === "tester") return "test";
+  if (role === "reviewer") return "review";
+  if (PLAN_RE.test(text)) return "plan";
+  if (RESEARCH_RE.test(text)) return "research";
+  if (REVIEW_RE.test(text)) return "review";
   if (REFACTOR_RE.test(text)) return "refactor";
-  if (IMPLEMENT_RE.test(text) || role === "implementer" || role === "worker") return "edit";
+  if (TEST_RE.test(text)) return "test";
+  if (IMPLEMENT_RE.test(text)) return "edit";
   return ROLE_FAMILY[role] ?? "unknown";
 }
 
@@ -119,8 +139,10 @@ function complexityOf(input: {
   readonly family: TaskFamily;
   readonly highRisk: boolean;
   readonly long: boolean;
+  readonly deepReasoning: boolean;
 }): TaskComplexity {
   if (input.highRisk || input.family === "deploy") return "HIGH";
+  if (input.deepReasoning) return "HIGH";
   if (input.long) return "MEDIUM";
   if (input.role === "scout" || input.role === "tester") return "LOW";
   if (input.role === "planner" || input.role === "debugger" || input.role === "reviewer") return "MEDIUM";

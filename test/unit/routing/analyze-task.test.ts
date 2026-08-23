@@ -38,6 +38,20 @@ test("screenshot work requires vision; docker image does not", () => {
   assert.deepEqual([...docker.requiredCapabilities], ["tool-use"]);
 });
 
+test("role outranks a shared objective so reviewer is not labelled test", () => {
+  const objective = "Refactor the billing helper and add a unit test";
+  assert.equal(analyzeTask(objective, "implementer").family, "refactor");
+  assert.equal(analyzeTask(objective, "reviewer").family, "review");
+  assert.equal(analyzeTask(objective, "tester").family, "test");
+  assert.equal(analyzeTask(objective, "planner").family, "plan");
+});
+
+test("keyword reasoning escalates complexity instead of adding a capability", () => {
+  const analysis = analyzeTask("Prove the cache invariant and write a formal verification note", "implementer");
+  assert.equal(analysis.complexity, "HIGH");
+  assert.ok(!analysis.requiredCapabilities.includes("reasoning"));
+});
+
 test("local-only wording raises a local privacy requirement", () => {
   const local = analyzeTask("Refactor the billing module; this must stay local", "implementer");
   assert.equal(local.privacyRequired, "local");

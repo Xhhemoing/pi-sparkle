@@ -109,6 +109,22 @@ test("a single primary catalog routes every task to that model", () => {
   assert.equal(assignments[0]?.decision.model, "gpt-x");
 });
 
+test("screenshot work routes to the vision-capable primary instead of refusing", () => {
+  const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+  const assignments = assignTasks({
+    catalog,
+    tasks: [
+      {
+        taskId: parseTaskId("tsk_ui"),
+        role: "implementer",
+        objective: "Look at this screenshot and fix the padding"
+      }
+    ]
+  });
+  assert.equal(assignments[0]?.decision.model, "premium");
+  assert.ok(assignments[0]?.analysis.requiredCapabilities.includes("vision"));
+});
+
 test("local-only work refuses a cloud-general catalog", () => {
   const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
   assert.throws(
