@@ -15,13 +15,20 @@ export interface ModelProjectIssue {
 const ACTIONABLE_MEAN = 0.45;
 const ACTIONABLE_SAMPLES = 5;
 
-/** Group taskSuccess observations by (project, model). Other columns stay out of routing quality. */
+/**
+ * Group taskSuccess observations by (project, model). Other columns stay out
+ * of routing quality. Only informative PASS/FAIL rows count, and a FAIL only
+ * counts against the model when the failure is attributed to the model —
+ * contract/tool/environment/run failures must never feed an avoid proposal.
+ */
 export function diagnoseModelProjectIssues(signals: readonly ObservedSignal[]): ModelProjectIssue[] {
   const groups = new Map<string, ObservedSignal[]>();
   for (const signal of signals) {
     if (signal.criterion !== "taskSuccess") continue;
     if (signal.source === "user" || signal.kind === "human") continue;
     if (signal.kind !== "deterministic") continue;
+    if (signal.outcomeKind !== "PASS" && signal.outcomeKind !== "FAIL") continue;
+    if (signal.outcomeKind === "FAIL" && signal.failureClass !== "model") continue;
     if (signal.modelId === undefined || signal.modelId.trim() === "") continue;
     const key = `${signal.projectId}::${signal.modelId}`;
     const list = groups.get(key) ?? [];

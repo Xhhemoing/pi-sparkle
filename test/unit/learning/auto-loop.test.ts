@@ -70,6 +70,35 @@ test("five deterministic taskSuccess failures propose avoid without promoting", 
   }
 });
 
+test("non-model failures never become avoid candidates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-env-"));
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    const environmentFailures = failingN(projectId, episodeId, "cheap", 5).map((row) => ({
+      ...row,
+      failureClass: "environment" as const
+    }));
+    const result = await runAutoAdaptLoop({
+      stateRoot,
+      projectRoot: "/tmp/proj-env",
+      projectId,
+      primaryModelId: "premium",
+      episodeId,
+      extraSignals: environmentFailures,
+      autoPromote: true
+    });
+    assert.equal(result.created, false, "environment failures must not propose avoid");
+    assert.equal(result.promoted, false);
+    assert.ok(!result.issues.some((issue) => issue.modelId === "cheap" && issue.actionable));
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("forged taskSuccess extraSignals fail closed", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-forge-"));
   try {
@@ -192,6 +221,7 @@ function failingPair(
       score: 15,
       criterion: "taskSuccess",
       outcomeKind: "FAIL",
+      failureClass: "model",
       boundary: "execution",
       summary: "TASK_RESULT FAILURE",
       episodeId,
@@ -208,6 +238,7 @@ function failingPair(
       score: 15,
       criterion: "taskSuccess",
       outcomeKind: "FAIL",
+      failureClass: "model",
       boundary: "execution",
       summary: "TASK_RESULT FAILURE",
       episodeId,
