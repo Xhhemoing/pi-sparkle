@@ -43,5 +43,15 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 
 - **Action (earlier):** Deepen live `analyzeTask` without replacing R0. Role-first family; review/refactor outrank test; reasoning raises complexity not a hard capability; premium catalog declares `vision`. Bump `assign-v4` / `flowchart-v3`.
 - **Result (earlier):** Ordinary `--track` families `plan/research/refactor/review/test` on assign-v4. Screenshot `--track` completes on premium. Residuals at that HEAD: tester collapsed to implementer on flowchart; high-risk gate unarmed; F-SIM utility ≡ 0.
-- **Action (this turn):** Persist `FlowNode.agentRole`; `routeFlowNode` uses `resolvedAgentRole` and arms `approvalRequired || analysis.highRisk`; `--assume-defaults` records the wait then auto-selects default approval items; F-SIM reports `observedUtilityOnBothArms` + selection disagreement without inventing counterfactual utility. Bump `flowchart-v4`.
-- **Result:** tests pending this turn; strategy still owned by fable.
+- **Action (this turn):** Persist `FlowNode.agentRole`; `routeFlowNode` uses `resolvedAgentRole` and arms `approvalRequired || analysis.highRisk`; `--assume-defaults` records the wait then auto-selects default approval items; F-SIM reports `observedUtilityOnBothArms` + selection disagreement without inventing counterfactual utility. Bump `flowchart-v4`. Commit `69274ec`.
+- **Result (verified `cursor-grok-4.6`):**
+  - Targeted suites + typecheck + lint green before/with the commit.
+  - `pnpm gate`: **1189 / 1188 / 0 / 1** (skip = `PI_SMOKE=1`).
+  - Simulation-holdout + adaptive-loop + cluster files: **17/17**.
+  - CLI `--track --assume-defaults --executor fake` (isolated `/tmp` project):
+    - Ordinary refactor+test, 0.760s, exit 0, `run_ef7fee06-…`, 41 events. Families `plan/research/refactor/review/test` on **both** assign-v4 and **flowchart-v4** (tester no longer collapses). planner→premium, others cheap.
+    - Deploy credentials, 0.746s, exit 0, `run_e5909ad5-…`, 43 events. All premium, `highRisk=true`, cheap rejected `complexity` + `high-risk-approval`. Flowchart-v4 events are `WAITING_FOR_USER`. **4** `RUN_WAITING_FOR_USER` + **4** `USER_ANSWER` then COMPLETED (gate armed; assume-defaults auto-selects).
+    - Local-only, 0.712s, exit 1, no run: `privacy class` named for cheap and premium.
+    - Screenshot, 0.721s, exit 0, `run_601dc867-…`, 35 events, all premium, flowchart-v4, cheap rejected `capability`.
+  - ManagePullRequest create failed (`must be a collaborator`). Branch: `cursor/algorithm-eval-measure-9035`.
+  - Strategy recommendation still owned by fable (`98dfd022-f81d-435a-a927-865cc5320066`).
