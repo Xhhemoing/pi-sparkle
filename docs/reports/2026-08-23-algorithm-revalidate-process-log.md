@@ -28,3 +28,15 @@ Prior cycle artifacts (do not substitute for this goal’s required slugs):
 - **Action:** Ran the algorithm file suites and four fake-executor `--track --assume-defaults` CLI scenarios on `acf034d`.
 - **Result:** Suites **82/82**. Ordinary `run_05a90ea5-…` 41 events, families isolated on flowchart-v4. Deploy `run_79ff5412-…` 43 events, gate armed, 4× `answeredBy: assume-defaults-auto`. Local-only exit 1 names privacy. Screenshot `run_e5c2a56a-…` 35 events all premium. Details: `docs/reports/2026-08-23-algorithm-revalidate-measurement-parent.md`.
 - **Cloud Phase-1:** still running ([Phase 1 measure algorithms](eb1979af-f16e-4ed0-a3d4-00357ad246a7)). Fable not started.
+
+## Phase 1b — cloud measurement — `claude-opus-5-thinking-high-fast`
+
+- **Actor:** [Phase 1 measure algorithms](eb1979af-f16e-4ed0-a3d4-00357ad246a7)
+- **Action:** Independent sim + CLI + adversarial probes on `acf034d` / `af244ca`; one measurement-harness fix.
+- **Result:** `docs/reports/2026-08-23-algorithm-revalidate-measurement.md` @ `012cc69`. Gate after fix **1191 / 1190 / 0 / 1**. F-SIM honesty fields now forwarded from `runSimulationHoldout` (`8d98522`). Parent numbers agree where they overlap. No keep/deepen/replace written (correct).
+
+## Phase 2 — strategy (launched)
+
+- **Actor:** slug `claude-fable-5-thinking-xhigh` (cloud Task, this turn).
+- **Action:** keep / deepen / replace from opus + parent data and ADR-004 / routing final plan.
+- **Result:** pending.
