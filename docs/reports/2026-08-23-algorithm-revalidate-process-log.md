@@ -40,3 +40,8 @@ Prior cycle artifacts (do not substitute for this goal’s required slugs):
 - **Actor:** [Phase 2 keep deepen replace](5748aebb-c904-40a8-8c75-91faf8df6177) slug `claude-fable-5-thinking-xhigh`.
 - **Action:** keep / deepen / replace from opus + parent data and ADR-004 / routing final plan.
 - **Result:** `docs/reports/2026-08-23-algorithm-revalidate-strategy.md` @ `4ee3ed0`. Verdicts: routing **keep** (deepen feature inputs A2/A6/A4 via owner proposals), cluster **keep**, adaptation **keep** (deepen attribution). Single named increment shipped as `bb54866`: extraSignals prose can exculpate but never inculpate — the A5 prose-fallback to `failureClass: model` now degrades to "not attributable", so a prose-only FAIL cannot move a posterior. Gate after: **1194 / 1193 / 0 / 1**. F-SIM stays identically-observed (no counterfactual ADR). High-risk gate stays armed; Stage 2 `--approve-high-risk` remains owner-gated, not reversed. No new live selector; no R1/bandit/topology in live; simulation ≠ F-PROD.
+
+## Phase 3 — parent cross-validate + polish — `cursor-grok-4.6`
+
+- **Action:** Re-read `parseObservedSignal` and the A5 tests; they match the fable spec (prose `model` fallback → missing class; 429/tool/contract still land; `classifyTaskFailure` itself untouched). Shipped fable successor (c) A3: CLI run summary names how many high-risk gates `--assume-defaults` auto-cleared. Did **not** ship A2/A4/A6/`--approve-high-risk` (owner-gated per strategy).
+- **Result:** A5 unit/bandit/auto-loop **26/26**. Track + CLI A3 tests **6/6**. `pnpm gate` @ `865fd30`: **1196 / 1195 / 0 / 1**. Live path remains R0 + flowchart; Stage 2 still owner-gated.
