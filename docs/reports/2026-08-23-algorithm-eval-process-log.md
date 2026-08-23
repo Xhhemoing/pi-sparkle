@@ -57,4 +57,8 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 ## Phase 3b — Stage 1 consent provenance — `cursor-grok-4.6`
 
 - **Action:** Implement fable's Stage 1 only (no behavior change, no `flowchart-v5`). `USER_ANSWER.answeredBy` is `assume-defaults-auto` when `autoSelectDefaultApprovals` applies a gate, `user` on resume/`answer`/child-coordinator replies, and absent on pre-increment logs (legacy, accepted).
-- **Result:** pending targeted tests + `pnpm gate` this turn. Stage 2 not shipped (owner decision).
+- **Result (verified `cursor-grok-4.6` @ `6dd5a8a`):**
+  - `pnpm gate`: **1190 / 1189 / 0 / 1**.
+  - Deploy CLI `run_fb671634-…`: 43 events, 4 waits, 4 `USER_ANSWER` all `answeredBy: assume-defaults-auto`, COMPLETED.
+  - Legacy `USER_ANSWER` without `answeredBy` still validates and replays.
+  - Stage 2 (`--approve-high-risk`, `flowchart-v5`) not shipped — owner decision per fable.
