@@ -29,7 +29,7 @@ Definitions (ADR-004):
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |
 |---|---|---|---|---|---|
-| R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. Flowchart `routeFlowNode` now runs `analyzeTask` (high-risk / vision / local-only). Listed catalog models declare `privacyClass`. |
+| R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. Flowchart `routeFlowNode` now runs `analyzeTask` (high-risk / vision / local-only). Listed catalog models declare `privacyClass`. Refusals name the constraint that actually bound them. Open (measured 2026-08-23): high-risk raises the model tier but **not** the human gate, because `compileChildrenToFlowchart` hardcodes `approvalRequired: false`; and `analyzeTask` can require `vision`/`reasoning` that no catalog model declares. See [measurement report](reports/2026-08-23-algorithm-measurement.md). |
 | Public prior snapshot | yes | `--public-prior` | yes | no | Hashed frozen file only; no HTTP leaderboard fetch. |
 | R1 / bandit / topology | yes | **shadow / offline only** | module tests | no | Must not import into live execution until F-PROD. |
 | Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. Bandit/avoid consume model-attributed taskSuccess only (a FAIL needs `failureClass: model`); `failureClass` is derived, never accepted from extraSignals; 429/transport and TASK_TIMEOUT stay out of the posterior. |
@@ -40,7 +40,7 @@ Definitions (ADR-004):
 | Evaluation identity + independence | yes | `createEvaluationRecord` | unit + integration | no | Records carry target artifact/version and independence class; missing outcomes stay Unobserved, never fabricated. |
 | Telemetry attribution | yes | `invocations.jsonl` round-trip | unit + integration (`pi-telemetry`) | no | Pricing catalog version separate from usage; retry/cache/timeout/cancel attributable; taxonomy versioning never rewrites history. |
 | Severe safety one-offs | yes | pattern detector | unit (`patterns.test.ts`) | no | Single explicit severe safety events surface as one-off readiness findings below the recurrence floor. |
-| Checkpoint F-SIM | machinery | experiments | simulation tests | no | Must not close F-PROD. |
+| Checkpoint F-SIM | machinery | experiments | simulation tests | no | Must not close F-PROD. Measured 2026-08-23: `baselineUtility === candidateUtility` in `r1-shadow-report.ts`, so the paired utility delta is identically zero for every dataset. F-SIM can measure selection divergence and cost delta only — it can never satisfy the decision-1 utility LCB. |
 | Checkpoint F-PROD | no | no | no | no | Sealed holdout still open (ADR-005). |
 
 ## Policy gates (human)
