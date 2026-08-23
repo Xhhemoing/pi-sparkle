@@ -297,6 +297,92 @@ test("live flowchart routing applies analyzeTask high-risk and capability filter
   );
 });
 
+test("a refusal message names the constraint that actually bound it", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cloud",
+        version: "cloud-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000,
+        privacyClass: "cloud-general",
+        capabilities: ["tool-use"]
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const localOnly = { ...node("local"), modelPolicy: { allowedModels: ["cloud"] } };
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...localOnly, objective: "Refactor billing; this must stay local" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) =>
+      error instanceof RoutingRefusalError &&
+      /privacy class/i.test(error.message) &&
+      /cloud-general cannot serve local/i.test(error.message)
+  );
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...localOnly, objective: "Look at this screenshot and fix the padding" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) =>
+      error instanceof RoutingRefusalError &&
+      /required capability/i.test(error.message) &&
+      /vision/i.test(error.message)
+  );
+});
+
+test("high-risk and cost/time refusal wordings stay stable for their callers", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000,
+        privacyClass: "cloud-general",
+        capabilities: ["tool-use"],
+        approvedForHighRisk: false
+      }
+    ]
+  });
+  const onlyCheap = { ...node("only"), modelPolicy: { allowedModels: ["cheap"] } };
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...onlyCheap, objective: "Deploy payment credentials to production" },
+        "LOW",
+        { remainingTimeMs: 10_000 }
+      ),
+    /No allowed model is approved for high-risk tasks/
+  );
+
+  // The flowchart supervisor matches this phrase to fail one node instead of
+  // the whole run, so it must not drift.
+  assert.throws(
+    () => routeFlowNode(router, onlyCheap, "LOW", { remainingCostUsd: 0.1, remainingTimeMs: 10_000 }),
+    /No allowed model fits the remaining cost and time limits/
+  );
+});
+
 const plan: ApprovalPlan = {
   id: "plan-1",
   items: [

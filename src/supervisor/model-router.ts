@@ -187,6 +187,52 @@ export function coldStartRoutingScore(complexity: TaskComplexity, preferred: boo
   return Math.min(1, base + (preferred ? 0.04 : 0)) as ConfidenceScore;
 }
 
+const CONSTRAINT_LABELS: Readonly<Record<string, string>> = {
+  "provider-policy": "provider policy",
+  "privacy-class": "privacy class",
+  capability: "required capability",
+  "context-window": "context window",
+  "max-output": "max output tokens",
+  role: "role",
+  complexity: "complexity"
+};
+
+/**
+ * Name the constraints that actually bound the refusal. The rejection matrix
+ * always carried them, but the caller only ever sees `message`, so a privacy
+ * or capability refusal used to be reported as a role/complexity mismatch.
+ * The high-risk and budget/deadline wordings are load-bearing: the flowchart
+ * supervisor matches the cost/time phrase to fail a node instead of the run.
+ */
+function refusalMessage(
+  role: FlowchartNodeRole,
+  complexity: TaskComplexity,
+  highRisk: boolean,
+  refusals: readonly RoutingRefusal[]
+): string {
+  const constraints = [...new Set(refusals.map((row) => row.constraint))];
+  if (highRisk && constraints.includes("high-risk-approval")) {
+    return "No allowed model is approved for high-risk tasks";
+  }
+  if (constraints.includes("budget") || constraints.includes("deadline")) {
+    return "No allowed model fits the remaining cost and time limits";
+  }
+  const named = constraints.filter((row) => row !== "role" && row !== "complexity");
+  if (named.length === 0) {
+    return `No allowed model satisfies role ${role} and complexity ${complexity}`;
+  }
+  const detail = named
+    .map((constraint) => {
+      const rows = refusals
+        .filter((row) => row.constraint === constraint)
+        .map((row) => `${row.modelId}: ${row.detail}`)
+        .join("; ");
+      return `${CONSTRAINT_LABELS[constraint] ?? constraint} (${rows})`;
+    })
+    .join(", ");
+  return `No allowed model satisfies ${detail}`;
+}
+
 function makeApprovalPlan(taskId: TaskId, model: CatalogModel): ApprovalPlan {
   return {
     id: `approval:${taskId}:${model.id}`,
@@ -244,12 +290,10 @@ export function createModelRouter(config: ModelRouterConfig): ModelRouter {
       }
 
       if (eligible.length === 0) {
-        const message = highRisk && refusals.some((row) => row.constraint === "high-risk-approval")
-          ? "No allowed model is approved for high-risk tasks"
-          : refusals.some((row) => row.constraint === "budget" || row.constraint === "deadline")
-            ? "No allowed model fits the remaining cost and time limits"
-            : `No allowed model satisfies role ${input.role} and complexity ${input.complexity}`;
-        throw new RoutingRefusalError(message, refusals);
+        throw new RoutingRefusalError(
+          refusalMessage(input.role, input.complexity, highRisk, refusals),
+          refusals
+        );
       }
 
       const preferredModel = input.modelPolicy.preferredModel;
