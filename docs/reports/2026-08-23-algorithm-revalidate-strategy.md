@@ -267,6 +267,26 @@ The increment is done when all of the following hold:
   increment produces **no** Outcome-supported claim, touches **no** F checkpoint, and does
   not change what any live run routes, prints, or refuses.
 
+**Shipped and verified in this cycle** as `bb54866`
+(`fix(learning): extraSignals prose can exculpate but never inculpate the model`):
+
+- Every criterion above holds. `git diff --name-only` for the commit is exactly
+  `src/learning/signals.ts` plus three test files under `test/unit/learning/` — zero diff
+  in `src/routing/` (including `failure-class.ts` and `feature-version.ts`) and
+  `src/supervisor/`, so refusal strings and both feature versions are untouched by
+  construction, not by review.
+- The two auto-loop threshold tests that previously injected prose-only FAILs through
+  `extraSignals` — which was itself an instance of the A5 hole — now inject through the
+  events path, where `FAILED` runtime verification legitimately derives `model`. Their
+  thresholds (n = 2 diagnostic-only, n = 5 proposes without promoting) are unchanged.
+- Three new tests pin the invariant at each level: `parseObservedSignal` (prose-only FAIL
+  → no `failureClass`; 429/tool/contract prose still exculpates; forge still throws),
+  `updateProjectBandit` (the opus probe inverted: arm stays `pulls = 1`, mean 1.00), and
+  `runAutoAdaptLoop` (five prose-only extraSignals FAILs propose nothing).
+- Gates after the change: `pnpm gate` exit 0 — **1194 tests / 1193 pass / 0 fail / 1
+  skip** (+3 over the `8d98522` baseline, all three the new pins); `pnpm typecheck` and
+  `pnpm lint` clean.
+
 ---
 
 ## 8. 中文总结

@@ -35,8 +35,8 @@ Prior cycle artifacts (do not substitute for this goal’s required slugs):
 - **Action:** Independent sim + CLI + adversarial probes on `acf034d` / `af244ca`; one measurement-harness fix.
 - **Result:** `docs/reports/2026-08-23-algorithm-revalidate-measurement.md` @ `012cc69`. Gate after fix **1191 / 1190 / 0 / 1**. F-SIM honesty fields now forwarded from `runSimulationHoldout` (`8d98522`). Parent numbers agree where they overlap. No keep/deepen/replace written (correct).
 
-## Phase 2 — strategy (launched)
+## Phase 2 — strategy — `claude-fable-5-thinking-xhigh`
 
 - **Actor:** [Phase 2 keep deepen replace](5748aebb-c904-40a8-8c75-91faf8df6177) slug `claude-fable-5-thinking-xhigh`.
 - **Action:** keep / deepen / replace from opus + parent data and ADR-004 / routing final plan.
-- **Result:** pending.
+- **Result:** `docs/reports/2026-08-23-algorithm-revalidate-strategy.md` @ `4ee3ed0`. Verdicts: routing **keep** (deepen feature inputs A2/A6/A4 via owner proposals), cluster **keep**, adaptation **keep** (deepen attribution). Single named increment shipped as `bb54866`: extraSignals prose can exculpate but never inculpate — the A5 prose-fallback to `failureClass: model` now degrades to "not attributable", so a prose-only FAIL cannot move a posterior. Gate after: **1194 / 1193 / 0 / 1**. F-SIM stays identically-observed (no counterfactual ADR). High-risk gate stays armed; Stage 2 `--approve-high-risk` remains owner-gated, not reversed. No new live selector; no R1/bandit/topology in live; simulation ≠ F-PROD.
