@@ -2,6 +2,7 @@ import { createProvider, envApiKeyAuth, type Model, type MutableModels } from "@
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CustomProviderConfig } from "../config/providers-config.js";
+import { loadProvidersConfig } from "../config/providers-config.js";
 import type { ModelRef } from "../config/model-ref.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
@@ -36,9 +37,14 @@ export async function createConfiguredPiExecutor(input: {
   readonly systemPrompt?: string;
   readonly onInvocation?: (invocation: ModelInvocation) => void;
 }): Promise<PiAgentExecutor> {
+  // Omitted customProviders means "load the state root's providers.json";
+  // callers may still pass an explicit list (tests, embedded setups).
+  const customProviders =
+    input.customProviders ??
+    (await loadProvidersConfig(input.stateRoot)).customProviders;
   const { models } = await createPiRuntime({
     stateRoot: input.stateRoot,
-    ...(input.customProviders !== undefined ? { customProviders: input.customProviders } : {})
+    customProviders
   });
   return new PiAgentExecutor({
     providerId: input.providerId,
@@ -59,7 +65,7 @@ function buildCustomProvider(config: CustomProviderConfig) {
     api: "openai-completions",
     provider: config.id,
     baseUrl: config.baseUrl,
-    reasoning: false,
+    reasoning: model.reasoning ?? false,
     input: ["text"],
     cost: {
       input: model.inputCostPerMTok ?? 0,
@@ -71,7 +77,7 @@ function buildCustomProvider(config: CustomProviderConfig) {
     maxTokens: model.maxTokens ?? 4096,
     compat: {
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false
+      ...(model.compat !== undefined ? (model.compat as Record<string, never>) : {})
     }
   }));
   const envVar = config.envVar;

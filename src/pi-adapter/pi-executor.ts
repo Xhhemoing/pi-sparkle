@@ -98,10 +98,16 @@ export class PiAgentExecutor implements AgentExecutor {
     if (alias !== undefined) return alias;
     const parsed = tryParseModelRef(rawModel);
     if (parsed !== undefined) {
-      return {
-        providerId: request.providerId ?? parsed.providerId,
-        modelId: parsed.modelId
-      };
+      // Model ids may contain slashes themselves (e.g. openrouter
+      // "stealth/ox-alpha"). A "prefix/model" string is treated as a catalog
+      // ref only when its prefix matches the authoritative provider;
+      // otherwise the executor's own provider wins and the string stays whole.
+      const explicitProvider = request.providerId ?? this.options.providerId;
+      if (explicitProvider === undefined) return parsed;
+      if (parsed.providerId === explicitProvider) {
+        return { providerId: explicitProvider, modelId: parsed.modelId };
+      }
+      return { providerId: explicitProvider, modelId: rawModel };
     }
     return {
       providerId: request.providerId ?? this.options.providerId,

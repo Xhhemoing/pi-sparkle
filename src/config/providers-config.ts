@@ -15,6 +15,14 @@ export interface CustomProviderModel {
   readonly maxTokens?: number;
   readonly inputCostPerMTok?: number;
   readonly outputCostPerMTok?: number;
+  /** Reasoning-capable model: thinking levels map to provider reasoning params. */
+  readonly reasoning?: boolean | undefined;
+  /**
+   * OpenAI-completions compat overrides (e.g. supportsReasoningEffort,
+   * thinkingFormat). Passed through to pi-ai verbatim; required for
+   * endpoints with mandatory reasoning such as stealth/ox-alpha.
+   */
+  readonly compat?: Record<string, unknown> | undefined;
 }
 
 export interface CustomProviderConfig {
@@ -163,7 +171,9 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
         ...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
         ...(typeof model.maxTokens === "number" ? { maxTokens: model.maxTokens } : {}),
         ...(typeof model.inputCostPerMTok === "number" ? { inputCostPerMTok: model.inputCostPerMTok } : {}),
-        ...(typeof model.outputCostPerMTok === "number" ? { outputCostPerMTok: model.outputCostPerMTok } : {})
+        ...(typeof model.outputCostPerMTok === "number" ? { outputCostPerMTok: model.outputCostPerMTok } : {}),
+        ...(model.reasoning === true ? { reasoning: true } : {}),
+        ...(isRecord(model.compat) ? { compat: model.compat } : {})
       };
     });
     return {
