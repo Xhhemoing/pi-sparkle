@@ -34,6 +34,20 @@ export interface ClusterSpawnRequest {
   readonly objective: string;
 }
 
+/** Where a registering agent sits in the spawn tree. */
+export interface ClusterAgentOrigin {
+  /** Spawn-tree depth. Root tasks are 0; spawned children carry parent + 1. */
+  readonly depth?: number;
+  readonly parentAgentId?: AgentInstanceId;
+}
+
+/**
+ * complete — the agent's task is over; undrained mail is consumed with it.
+ * handoff — a successor attempt is expected; undrained mail returns to the
+ * agent's role queue so the successor (same role) can claim it.
+ */
+export type ClusterDeregisterDisposition = "complete" | "handoff";
+
 export interface ClusterSessionView {
   send(input: { body: string; to?: AgentInstanceId; addressRole?: AgentRole }): ClusterMail;
   inbox(): readonly ClusterMail[];
@@ -42,7 +56,9 @@ export interface ClusterSessionView {
 }
 
 export interface ClusterHost {
-  register(agentId: AgentInstanceId, role: AgentRole, taskId: TaskId, parentAgentId?: AgentInstanceId): void;
+  register(agentId: AgentInstanceId, role: AgentRole, taskId: TaskId, origin?: ClusterAgentOrigin): void;
+  /** Removes a finished attempt's agent. Unknown ids are a no-op so run teardown never crashes. */
+  deregister(agentId: AgentInstanceId, disposition: ClusterDeregisterDisposition): void;
   viewFor(agentId: AgentInstanceId): ClusterSessionView;
   send(input: ClusterSendInput): ClusterMail;
   inbox(agentId: AgentInstanceId): readonly ClusterMail[];
@@ -55,6 +71,9 @@ export interface ClusterSpawnedTask {
   readonly taskId: TaskId;
   readonly role: AgentRole;
   readonly objective: string;
+  /** Spawn-tree depth of the spawned child (spawner depth + 1). */
+  readonly depth: number;
+  readonly parentAgentId: AgentInstanceId;
 }
 
 export interface ClusterHostOptions {
@@ -82,17 +101,39 @@ export function createClusterHost(options: ClusterHostOptions): ClusterHost {
   const host: ClusterHost = {
     mailbox: () => mailbox,
     peers: () => [...directory.values()],
-    register(agentId, role, taskId, parentAgentId) {
-      const parent = parentAgentId !== undefined ? directory.get(parentAgentId) : undefined;
-      const depth = parent === undefined ? 0 : parent.depth + 1;
+    register(agentId, role, taskId, origin) {
+      if (directory.has(agentId)) {
+        throw new DomainValidationError(`cluster agent already registered: ${agentId}`);
+      }
+      // Explicit depth wins: the spawning parent may have finished (and been
+      // deregistered) before this child starts, so a directory lookup alone
+      // would silently reset the spawn-tree depth to 0.
+      const parent =
+        origin?.parentAgentId !== undefined ? directory.get(origin.parentAgentId) : undefined;
+      const depth = origin?.depth ?? (parent === undefined ? 0 : parent.depth + 1);
+      if (!Number.isInteger(depth) || depth < 0) {
+        throw new DomainValidationError(`cluster agent depth is invalid: ${String(depth)}`);
+      }
       directory.set(agentId, {
         agentId,
         role,
         taskId,
         depth,
-        ...(parentAgentId !== undefined ? { parentAgentId } : {})
+        ...(origin?.parentAgentId !== undefined ? { parentAgentId: origin.parentAgentId } : {})
       });
       mailbox.claimRole(role, agentId);
+    },
+    deregister(agentId, disposition) {
+      const entry = directory.get(agentId);
+      if (entry === undefined) return;
+      directory.delete(agentId);
+      const undelivered = mailbox.drain(agentId);
+      if (disposition !== "handoff") return;
+      for (const mail of undelivered) {
+        if (mail.from === agentId) continue;
+        const { to: _to, ...rest } = mail;
+        mailbox.enqueue({ ...rest, addressRole: entry.role });
+      }
     },
     inbox(agentId) {
       return mailbox.inbox(agentId);
@@ -178,7 +219,13 @@ export function createClusterHost(options: ClusterHostOptions): ClusterHost {
       }
       const taskId = createTaskId(generateId);
       spawnsByParent.set(input.parentAgentId, used + 1);
-      options.onSpawn({ taskId, role: childRole, objective: input.objective.trim() });
+      options.onSpawn({
+        taskId,
+        role: childRole,
+        objective: input.objective.trim(),
+        depth: parent.depth + 1,
+        parentAgentId: input.parentAgentId
+      });
       return { taskId };
     },
     viewFor(agentId) {

@@ -332,7 +332,11 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
             profile: registry.resolve(spawned.role),
             inputArtifactIds: [],
             acceptanceCriteria: [],
-            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 },
+            // Spawn-tree depth is fixed at spawn time; the spawning agent may
+            // deregister before this child registers.
+            clusterDepth: spawned.depth,
+            clusterParentAgentId: spawned.parentAgentId
           });
         }
       });
