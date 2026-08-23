@@ -29,10 +29,10 @@ Definitions (ADR-004):
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |
 |---|---|---|---|---|---|
-| R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. |
+| R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. Flowchart `routeFlowNode` now runs `analyzeTask` (high-risk / vision / local-only). Listed catalog models declare `privacyClass`. |
 | Public prior snapshot | yes | `--public-prior` | yes | no | Hashed frozen file only; no HTTP leaderboard fetch. |
 | R1 / bandit / topology | yes | **shadow / offline only** | module tests | no | Must not import into live execution until F-PROD. |
-| Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. Bandit/avoid consume model-attributed taskSuccess only (a FAIL needs `failureClass: model`); cascade retries rebind outcomes to the escalated model. |
+| Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. Bandit/avoid consume model-attributed taskSuccess only (a FAIL needs `failureClass: model`); `failureClass` is derived, never accepted from extraSignals; 429/transport and TASK_TIMEOUT stay out of the posterior. |
 | Promotion CAS + rollback | yes | CLI | unit tests | no | Proposal-first. |
 | Preferences + tombstones | yes | `pref` CLI | yes | no | Dataset export lists tombstone ids and drops payloads; authorized export omits tombstones unless `includeTombstones` (integration redaction chain). |
 | Requirement provenance + critic | yes | extraction + critique path | unit + integration (`checkpoint-d`) | no | Every deliverable/constraint/criterion sourced or assumed; critic reports omissions and is immutability-tested; never mutates the accepted contract. |

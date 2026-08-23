@@ -51,6 +51,14 @@ export function flowchartRoleForAgentRole(role: AgentRole): FlowchartNodeRole {
   return role === "reviewer" ? "critic" : "actor";
 }
 
+/** Inverse used by live flowchart routing so analyzeTask sees a real AgentRole. */
+export function agentRoleForFlowchartRole(role: FlowchartNodeRole): AgentRole {
+  if (role === "critic" || role === "judge") return "reviewer";
+  if (role === "router") return "planner";
+  if (role === "tool") return "tester";
+  return "implementer";
+}
+
 function nodeIdOf(taskId: TaskId): string {
   return taskId;
 }

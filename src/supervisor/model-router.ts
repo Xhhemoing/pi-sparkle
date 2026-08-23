@@ -13,7 +13,9 @@ import type { AgentRole } from "../domain/roles.js";
 import type { PrivacyClass } from "../routing/capability-registry.js";
 import { catalogModel, oneHotDistribution, type CatalogModel, type CatalogModelInput } from "../routing/catalog-model.js";
 import { FLOWCHART_FEATURE_VERSION } from "../routing/feature-version.js";
+import { analyzeTask } from "../routing/analyze-task.js";
 import { evaluateLiveCandidate } from "../routing/policy.js";
+import { agentRoleForFlowchartRole } from "../graph/compile-children.js";
 
 /** Live catalog entry. Alias of the unified CatalogModel. */
 export type RoutableModel = CatalogModel;
@@ -305,21 +307,38 @@ export function routeTask(router: ModelRouter, input: RouteTaskInput): RoutingDe
   return router.route(input);
 }
 
+function maxComplexity(left: TaskComplexity, right: TaskComplexity): TaskComplexity {
+  const rank: Record<TaskComplexity, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+  return rank[left] >= rank[right] ? left : right;
+}
+
+/**
+ * Live flowchart route. Runs analyzeTask so high-risk, privacy, and
+ * capability keywords actually filter the catalog — family is no longer
+ * hardcoded as "unknown".
+ */
 export function routeFlowNode(
   router: ModelRouter,
   node: FlowNode,
   complexity: TaskComplexity,
   limits: RoutingLimits
 ): RoutingDecision {
+  const analysis = analyzeTask(node.objective, agentRoleForFlowchartRole(node.role));
   return router.route({
     taskId: node.taskId,
     role: node.role,
-    complexity,
+    complexity: maxComplexity(complexity, analysis.complexity),
     modelPolicy: node.modelPolicy,
     confidenceThreshold: node.confidenceThreshold,
     approvalRequired: node.approvalRequired,
-    family: "unknown",
+    highRisk: analysis.highRisk,
+    family: analysis.family,
     featureVersion: FLOWCHART_FEATURE_VERSION,
+    agentRole: agentRoleForFlowchartRole(node.role),
+    requiredCapabilities: analysis.requiredCapabilities,
+    privacyRequired: analysis.privacyRequired,
+    ...(analysis.contextTokens !== undefined ? { contextNeeded: analysis.contextTokens } : {}),
+    ...(analysis.outputTokens !== undefined ? { outputNeeded: analysis.outputTokens } : {}),
     limits
   });
 }

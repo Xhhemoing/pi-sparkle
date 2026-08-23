@@ -2,6 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import {
   validateApprovalReplyAgainstPlan,
   validateFlowchart,
+  routeFlowNode,
   type ApprovalItem,
   type ApprovalPlan,
   type ApprovalReply,
@@ -681,15 +682,7 @@ class FlowchartSupervisorImpl implements FlowchartSupervisor {
 
       let decision: RoutingDecision;
       try {
-        decision = this.router.route({
-          taskId: node.taskId,
-          role: node.role,
-          complexity: this.complexityOf(node),
-          modelPolicy: node.modelPolicy,
-          confidenceThreshold: node.confidenceThreshold,
-          approvalRequired: node.approvalRequired,
-          limits: this.routingLimits()
-        });
+        decision = routeFlowNode(this.router, node, this.complexityOf(node), this.routingLimits());
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (/fits the remaining cost and time limits/i.test(message)) {

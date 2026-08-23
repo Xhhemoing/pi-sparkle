@@ -21,6 +21,8 @@ import {
   routeFlowNode,
   type ModelRouterConfig
 } from "../../../src/supervisor/model-router.js";
+import { RoutingRefusalError } from "../../../src/domain/errors.js";
+import { FLOWCHART_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 
 const taskId = (suffix: string) => createTaskId(() => suffix);
 
@@ -235,6 +237,64 @@ test("routed approval plans carry a stable non-empty id", () => {
   assert.ok(first.approvalPlan.id.trim() !== "");
   assert.deepEqual(validateApprovalPlan(first.approvalPlan), first.approvalPlan);
   assert.throws(() => validateApprovalPlan({ ...first.approvalPlan, id: "" }), /id must be a non-empty/i);
+});
+
+test("live flowchart routing applies analyzeTask high-risk and capability filters", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "small",
+        version: "small-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000,
+        approvedForHighRisk: false,
+        capabilities: ["tool-use"]
+      },
+      {
+        id: "large",
+        version: "large-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000,
+        approvedForHighRisk: true,
+        capabilities: ["tool-use", "vision"]
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const deploy = routeFlowNode(
+    router,
+    { ...node("prod"), objective: "Deploy payment credentials to production" },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(deploy.model, "large");
+  assert.equal(deploy.highRisk, true);
+  assert.equal(deploy.family, "deploy");
+  assert.equal(deploy.featureVersion, FLOWCHART_FEATURE_VERSION);
+
+  const vision = routeFlowNode(
+    router,
+    { ...node("ui"), objective: "Look at this screenshot and fix the padding" },
+    "LOW",
+    limits
+  );
+  assert.equal(vision.model, "large");
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...node("local"), objective: "Refactor billing; this must stay local" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) => error instanceof RoutingRefusalError
+  );
 });
 
 const plan: ApprovalPlan = {

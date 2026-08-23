@@ -41,6 +41,7 @@ test("enabled models join the live catalog and alias cheap/premium", async () =>
     assert.ok(ids.includes("premium"));
     const cheap = catalog.models.find((model) => model.id === "cheap");
     assert.equal(cheap?.providerId, "openai");
+    assert.equal(cheap?.privacyClass, "cloud-general");
     assert.ok((cheap?.inputCostPerMTok ?? 0) >= 0);
   });
 });

@@ -3,6 +3,22 @@ import { DomainValidationError } from "../domain/errors.js";
 export type PrivacyClass = "local" | "cloud-approved" | "cloud-general";
 export const PRIVACY_ORDER: readonly PrivacyClass[] = ["local", "cloud-approved", "cloud-general"] as const;
 
+/** Providers that never leave the machine. Everything else is cloud-general. */
+const LOCAL_PROVIDER_IDS = new Set(["ollama", "lmstudio", "llamacpp", "llama.cpp", "local"]);
+
+/**
+ * Infer a catalog privacy class from a provider id. Listed models must
+ * carry a declared class so live eligibility is not silently undeclared.
+ * Unknown / remote providers are `cloud-general`, not `cloud-approved`.
+ */
+export function inferPrivacyClass(providerId: string): PrivacyClass {
+  const normalized = providerId.trim().toLowerCase();
+  if (LOCAL_PROVIDER_IDS.has(normalized) || normalized.startsWith("local-")) {
+    return "local";
+  }
+  return "cloud-general";
+}
+
 export type ProviderPolicy = "approved" | "forbidden";
 
 export interface ModelDescriptor {

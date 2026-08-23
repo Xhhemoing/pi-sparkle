@@ -22,6 +22,7 @@ export function cheapCatalogModel(): CatalogModel {
     estimatedDurationMs: 1_000,
     inputCostPerMTok: 0.1,
     outputCostPerMTok: 0.3,
+    privacyClass: "cloud-general",
     approvedForHighRisk: false
   });
 }
@@ -37,6 +38,7 @@ export function premiumCatalogModel(): CatalogModel {
     estimatedDurationMs: 4_000,
     inputCostPerMTok: 1,
     outputCostPerMTok: 3,
+    privacyClass: "cloud-general",
     approvedForHighRisk: true,
     capabilities: ["tool-use"]
   });
@@ -84,6 +86,7 @@ function modelFor(id: string, tier: "fast" | "primary"): CatalogModel {
       maxComplexity: "MEDIUM",
       estimatedCostUsd: 0.15,
       estimatedDurationMs: 1_500,
+      privacyClass: "cloud-general",
       approvedForHighRisk: false
     });
   }
@@ -95,6 +98,7 @@ function modelFor(id: string, tier: "fast" | "primary"): CatalogModel {
     maxComplexity: "HIGH",
     estimatedCostUsd: 1,
     estimatedDurationMs: 6_000,
+    privacyClass: "cloud-general",
     approvedForHighRisk: true,
     capabilities: ["tool-use"]
   });

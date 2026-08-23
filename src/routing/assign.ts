@@ -97,6 +97,7 @@ export function assignOne(
     featureVersion: ASSIGN_FEATURE_VERSION,
     agentRole: task.role,
     requiredCapabilities: analysis.requiredCapabilities,
+    privacyRequired: analysis.privacyRequired,
     ...(analysis.contextTokens !== undefined ? { contextNeeded: analysis.contextTokens } : {}),
     ...(analysis.outputTokens !== undefined ? { outputNeeded: analysis.outputTokens } : {}),
     limits

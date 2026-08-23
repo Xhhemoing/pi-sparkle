@@ -1,6 +1,7 @@
 import type { AgentRole } from "../domain/roles.js";
 import type { TaskComplexity } from "../domain/flowchart.js";
 import type { TaskFamily } from "../task/taxonomy.js";
+import type { PrivacyClass } from "./capability-registry.js";
 
 export interface TaskAnalysis {
   readonly family: TaskFamily;
@@ -9,6 +10,7 @@ export interface TaskAnalysis {
   readonly requiredCapabilities: readonly string[];
   readonly preferPrimary: boolean;
   readonly reason: string;
+  readonly privacyRequired: PrivacyClass;
   readonly contextTokens?: number | undefined;
   readonly outputTokens?: number | undefined;
   readonly hasTests?: boolean | undefined;
@@ -23,6 +25,7 @@ export interface AnalyzeTaskOptions {
   readonly requiredCapabilities?: readonly string[] | undefined;
   readonly hasTests?: boolean | undefined;
   readonly ownershipRestricted?: boolean | undefined;
+  readonly privacyRequired?: PrivacyClass | undefined;
 }
 
 const HIGH_RISK_RE =
@@ -33,6 +36,12 @@ const PLAN_RE = /\b(plan|decompos|roadmap|break down|design)\b/i;
 const RESEARCH_RE = /\b(survey|research|investigat|scout|explor|compar)\b/i;
 const REFACTOR_RE = /\b(refactor|cleanup|rename|extract)\b/i;
 const IMPLEMENT_RE = /\b(implement|add |fix |integrate|migrate|write |build )\b/i;
+const VISION_RE =
+  /\b(screenshots?|ui mockups?|截图|图片|(?:png|jpe?g|gif|webp)(?:\s+files?)?|image files?|attached images?|look at (?:this |the )?(?:image|screenshot))\b/i;
+const REASONING_RE =
+  /\b(prove|proof|formal (?:verif|reason)|multi-step reason|theorem|invariants?)\b/i;
+const LOCAL_ONLY_RE =
+  /\b(on[- ]prem|air[- ]gapped|local[- ]only|must stay local|do not (?:send|upload) to (?:the )?cloud)\b/i;
 
 const ROLE_FAMILY: Record<AgentRole, TaskFamily> = {
   worker: "edit",
@@ -60,12 +69,16 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
     role === "planner" ||
     role === "debugger" ||
     family === "deploy";
-  const requiredCapabilities = options.requiredCapabilities ?? ["tool-use"];
+  const requiredCapabilities = options.requiredCapabilities ?? capabilitiesOf(text);
+  const privacyRequired =
+    options.privacyRequired ??
+    (options.ownershipRestricted === true || LOCAL_ONLY_RE.test(text) ? "local" : "cloud-general");
   const reason = [
     `role ${role}`,
     `family ${family}`,
     `${complexity} complexity`,
     highRisk ? "high-risk" : "standard-risk",
+    `privacy ${privacyRequired}`,
     preferPrimary ? "prefer primary model" : "prefer cheapest eligible"
   ].join("; ");
   return {
@@ -74,12 +87,20 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
     highRisk,
     requiredCapabilities,
     preferPrimary,
+    privacyRequired,
     reason,
     ...(options.contextTokens !== undefined ? { contextTokens: options.contextTokens } : {}),
     ...(options.outputTokens !== undefined ? { outputTokens: options.outputTokens } : {}),
     ...(options.hasTests !== undefined ? { hasTests: options.hasTests } : {}),
     ...(options.ownershipRestricted !== undefined ? { ownershipRestricted: options.ownershipRestricted } : {})
   };
+}
+
+function capabilitiesOf(text: string): readonly string[] {
+  const capabilities = ["tool-use"];
+  if (VISION_RE.test(text)) capabilities.push("vision");
+  if (REASONING_RE.test(text)) capabilities.push("reasoning");
+  return capabilities;
 }
 
 function familyOf(text: string, role: AgentRole): TaskFamily {

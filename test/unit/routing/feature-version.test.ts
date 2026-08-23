@@ -9,8 +9,10 @@ import type { OutcomeObservation } from "../../../src/routing/outcomes.js";
 import type { RouteRequest } from "../../../src/routing/policy.js";
 
 test("ASSIGN_FEATURE_VERSION is the live isolation key and documents bump reasons", () => {
-  assert.equal(ASSIGN_FEATURE_VERSION, "assign-v2");
+  assert.equal(ASSIGN_FEATURE_VERSION, "assign-v3");
   assert.ok(FEATURE_VERSION_REASONS.includes("contract-risk-flag-overrides-keywords"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("capability-keywords-vision-reasoning"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-live-uses-analyzeTask"));
 });
 
 test("contract-risk flag overrides keyword heuristics", () => {

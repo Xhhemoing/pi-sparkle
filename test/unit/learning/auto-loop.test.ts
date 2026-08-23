@@ -77,9 +77,9 @@ test("non-model failures never become avoid candidates", async () => {
   try {
     const projectId = createProjectId();
     const episodeId = createEpisodeId();
-    const environmentFailures = failingN(projectId, episodeId, "cheap", 5).map((row) => ({
+    const environmentFailures = failingN(projectId, episodeId, "cheap", 5).map((row, index) => ({
       ...row,
-      failureClass: "environment" as const
+      summary: `EACCES: permission denied writing /tmp/out-${index}`
     }));
     const result = await runAutoAdaptLoop({
       stateRoot,
@@ -130,6 +130,44 @@ test("forged taskSuccess extraSignals fail closed", async () => {
           ]
         }),
       /forge criterion taskSuccess/
+    );
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("forged failureClass extraSignals fail closed", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-fc-"));
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    await assert.rejects(
+      () =>
+        runAutoAdaptLoop({
+          stateRoot,
+          projectRoot: "/tmp/proj-fc",
+          projectId,
+          primaryModelId: "premium",
+          extraSignals: [
+            {
+              source: "subagent",
+              kind: "deterministic",
+              projectId,
+              modelId: "cheap",
+              family: "edit",
+              score: 15,
+              criterion: "taskSuccess",
+              outcomeKind: "FAIL",
+              failureClass: "environment",
+              boundary: "execution",
+              summary: "tests failed",
+              episodeId,
+              evidenceIds: [],
+              createdAt: nowIso()
+            }
+          ]
+        }),
+      /forge failureClass/
     );
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
@@ -221,7 +259,6 @@ function failingPair(
       score: 15,
       criterion: "taskSuccess",
       outcomeKind: "FAIL",
-      failureClass: "model",
       boundary: "execution",
       summary: "TASK_RESULT FAILURE",
       episodeId,
@@ -238,7 +275,6 @@ function failingPair(
       score: 15,
       criterion: "taskSuccess",
       outcomeKind: "FAIL",
-      failureClass: "model",
       boundary: "execution",
       summary: "TASK_RESULT FAILURE",
       episodeId,

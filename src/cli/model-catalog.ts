@@ -13,6 +13,7 @@ import {
   premiumCatalogModel
 } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
+import { inferPrivacyClass } from "../routing/capability-registry.js";
 import { createModelRouter, type ModelRouter, type ModelRouterConfig } from "../supervisor/model-router.js";
 
 export function defaultCliModelRouterConfig(): ModelRouterConfig {
@@ -111,6 +112,7 @@ function routableFromListed(listed: SparkleListedModel, primary: boolean): Catal
     contextWindow: listed.contextWindow,
     maxOutputTokens: listed.maxOutputTokens,
     capabilities: listed.capabilities,
+    privacyClass: inferPrivacyClass(listed.providerId),
     approvedForHighRisk: primary
   });
 }

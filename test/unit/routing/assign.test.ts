@@ -108,3 +108,21 @@ test("a single primary catalog routes every task to that model", () => {
   });
   assert.equal(assignments[0]?.decision.model, "gpt-x");
 });
+
+test("local-only work refuses a cloud-general catalog", () => {
+  const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+  assert.throws(
+    () =>
+      assignTasks({
+        catalog,
+        tasks: [
+          {
+            taskId: parseTaskId("tsk_local"),
+            role: "implementer",
+            objective: "Refactor billing; this must stay local"
+          }
+        ]
+      }),
+    /No allowed model|privacy/i
+  );
+});

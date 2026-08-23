@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
   collectSignalsFromEvents,
   collectSignalsFromSubagentRun,
+  parseObservedSignal,
   scoreTaskResult,
   scoreUserAnswer
 } from "../../../src/learning/signals.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import {
   createEpisodeId,
   createEventId,
@@ -99,7 +101,7 @@ test("a deterministic FAIL carries its failure attribution", () => {
     makeEvent(runId, "CHILD_MESSAGE", {
       message: taskResult(runId, taskId, "msg_env", {
         outcome: "FAILURE",
-        summary: "spawn failed: permission denied",
+        summary: "spawn failed: tool crashed",
         verification: { kind: "FAILED", evidenceIds: ["evd_env"] },
         failure: { category: "TOOL_ERROR", detail: "spawn failed" }
       })
@@ -201,6 +203,67 @@ test("Pi subagent runs contribute model-attributed feedback and drop thinking tr
   assert.ok((signals[0]?.score ?? 100) < 40);
   assert.doesNotMatch(signals[0]?.summary ?? "", /SECRET_CHAIN/);
   assert.notEqual(signals[0]?.criterion, "taskSuccess");
+});
+
+test("extraSignals cannot forge failureClass; 429 summaries derive environment", () => {
+  const projectId = createProjectId();
+  assert.throws(
+    () =>
+      parseObservedSignal({
+        source: "subagent",
+        kind: "deterministic",
+        projectId,
+        score: 15,
+        criterion: "taskSuccess",
+        outcomeKind: "FAIL",
+        failureClass: "environment",
+        boundary: "execution",
+        summary: "tests failed",
+        createdAt: nowIso(),
+        evidenceIds: []
+      }),
+    (error: unknown) => error instanceof DomainValidationError && /forge failureClass/.test(error.message)
+  );
+  const derived = parseObservedSignal({
+    source: "subagent",
+    kind: "deterministic",
+    projectId,
+    score: 15,
+    criterion: "taskSuccess",
+    outcomeKind: "FAIL",
+    boundary: "execution",
+    summary: "upstream 429 rate limited",
+    createdAt: nowIso(),
+    evidenceIds: []
+  });
+  assert.equal(derived.failureClass, "environment");
+});
+
+test("TASK_TIMEOUT attributes a later FAILED result as run, not model", () => {
+  const projectId = createProjectId();
+  const runId = createRunId();
+  const taskId = parseTaskId("tsk_to1");
+  const timeoutEvent = {
+    ...makeEvent(runId, "TASK_TIMEOUT", { childRunId: runId, attempt: 1 }),
+    taskId
+  } as Event;
+  const events: Event[] = [
+    makeEvent(runId, "PROJECT_DISCOVERED", {
+      project: { id: projectId, rootPath: "E:/proj", discoveredAt: nowIso(), instructionFiles: [], manifests: [], commands: [], facts: [] }
+    }),
+    routedEvent(runId, taskId, "cheap", "cheap-v1"),
+    timeoutEvent,
+    makeEvent(runId, "CHILD_MESSAGE", {
+      message: taskResult(runId, taskId, "msg_to", {
+        outcome: "FAILURE",
+        summary: "output did not match the golden fixture",
+        verification: { kind: "FAILED", evidenceIds: ["evd_to"] }
+      })
+    })
+  ];
+  const fail = collectSignalsFromEvents(events, { episodeId: createEpisodeId() })
+    .find((signal) => signal.criterion === "taskSuccess");
+  assert.equal(fail?.failureClass, "run");
 });
 
 function makeEvent(runId: ReturnType<typeof createRunId>, type: Event["type"], payload: unknown): Event {

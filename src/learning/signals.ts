@@ -15,8 +15,6 @@ import {
 
 export type SignalSource = "user" | "subagent" | "deterministic";
 
-const FAILURE_CLASSES: readonly FailureClass[] = ["model", "contract", "tool", "environment", "run"];
-
 export interface ObservedSignal {
   readonly source: SignalSource;
   readonly kind: FeedbackKind;
@@ -99,11 +97,17 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
   if (value.criterion === "taskSuccess" && (value.source === "user" || value.kind === "human")) {
     throw new DomainValidationError("extraSignals cannot forge criterion taskSuccess");
   }
-  if (value.failureClass !== undefined &&
-      (typeof value.failureClass !== "string" ||
-        !(FAILURE_CLASSES as readonly string[]).includes(value.failureClass))) {
-    throw new DomainValidationError("observed signal failureClass is invalid");
+  if (value.failureClass !== undefined) {
+    throw new DomainValidationError("extraSignals cannot forge failureClass");
   }
+  const derivedFailureClass =
+    value.outcomeKind === "FAIL"
+      ? classifyTaskFailure({
+          outcome: "FAILURE",
+          verificationKind: "FAILED",
+          summary: typeof value.summary === "string" ? value.summary : ""
+        })
+      : undefined;
   return baseSignal({
     source: value.source,
     kind: value.kind as ObservedSignal["kind"],
@@ -121,9 +125,7 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
     ...(typeof value.outcomeKind === "string"
       ? { outcomeKind: value.outcomeKind as ObservedSignal["outcomeKind"] }
       : {}),
-    ...(typeof value.failureClass === "string"
-      ? { failureClass: value.failureClass as FailureClass }
-      : {}),
+    ...(derivedFailureClass !== undefined ? { failureClass: derivedFailureClass } : {}),
     ...(typeof value.episodeId === "string" ? { episodeId: value.episodeId as EpisodeId } : {}),
     ...(typeof value.runId === "string" ? { runId: value.runId as RunId } : {}),
     ...(typeof value.taskId === "string" ? { taskId: value.taskId as TaskId } : {}),
@@ -154,6 +156,7 @@ export function collectSignalsFromEvents(
   const roleByTask = new Map<string, string>();
   const familyByTask = new Map<string, string>();
   const featureVersionByTask = new Map<string, string>();
+  const timedOutTasks = new Set<string>();
   const signals: ObservedSignal[] = [];
   const createdAt = nowIso();
 
@@ -179,6 +182,9 @@ export function collectSignalsFromEvents(
         featureVersionByTask.set(event.payload.taskId, event.payload.featureVersion);
       }
     }
+    if (event.type === "TASK_TIMEOUT" && event.taskId !== undefined) {
+      timedOutTasks.add(event.taskId);
+    }
     if (event.type === "TASK_RETRY" && event.taskId !== undefined) {
       const nextModel = event.payload.nextModel;
       if (nextModel !== undefined && nextModel.trim() !== "" && modelByTask.has(event.taskId)) {
@@ -202,6 +208,7 @@ export function collectSignalsFromEvents(
         roleByTask,
         familyByTask,
         featureVersionByTask,
+        timedOutTasks,
         episodeId: context.episodeId,
         createdAt
       });
@@ -325,6 +332,7 @@ function signalFromAgentMessage(
     roleByTask: ReadonlyMap<string, string>;
     familyByTask: ReadonlyMap<string, string>;
     featureVersionByTask: ReadonlyMap<string, string>;
+    timedOutTasks: ReadonlySet<string>;
     episodeId?: EpisodeId | undefined;
     createdAt: IsoTimestamp;
   }
@@ -350,6 +358,7 @@ function signalFromAgentMessage(
             outcome: message.outcome,
             verificationKind: message.verification.kind,
             summary: message.summary,
+            timedOut: ctx.timedOutTasks.has(message.taskId),
             ...(message.failure !== undefined ? { failure: message.failure } : {})
           })
         : undefined;

@@ -200,6 +200,10 @@ export class PiAgentExecutor implements AgentExecutor {
         ? "FAILURE"
         : "SUCCESS";
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
+      const errorMessage =
+        typeof agent.state.errorMessage === "string" && agent.state.errorMessage.trim() !== ""
+          ? agent.state.errorMessage.trim()
+          : undefined;
       yield {
         type: "MESSAGE",
         message: {
@@ -212,10 +216,13 @@ export class PiAgentExecutor implements AgentExecutor {
           to: SUPERVISOR,
           type: "TASK_RESULT",
           outcome,
-          summary: "pi agent finished",
+          summary: errorMessage !== undefined ? `pi agent failed: ${errorMessage}` : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
-          verification: { kind: "UNOBSERVED", evidenceIds: [] }
+          verification:
+            outcome === "FAILURE" && errorMessage !== undefined
+              ? { kind: "FAILED", evidenceIds: [] }
+              : { kind: "UNOBSERVED", evidenceIds: [] }
         }
       };
     }

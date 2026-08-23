@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { RoutingRefusalError } from "../../../src/domain/errors.js";
 import { parseTaskId } from "../../../src/domain/ids.js";
 import { assignTasks } from "../../../src/routing/assign.js";
+import { inferPrivacyClass } from "../../../src/routing/capability-registry.js";
 import type { CatalogModelInput } from "../../../src/routing/catalog-model.js";
 import { createModelRouter, type RouteTaskInput } from "../../../src/supervisor/model-router.js";
 
@@ -195,4 +196,11 @@ test("task requiredCapabilities must be declared on the model", () => {
       return true;
     }
   );
+});
+
+test("inferPrivacyClass treats local providers as local and others as cloud-general", () => {
+  assert.equal(inferPrivacyClass("ollama"), "local");
+  assert.equal(inferPrivacyClass("local-llama"), "local");
+  assert.equal(inferPrivacyClass("openai"), "cloud-general");
+  assert.equal(inferPrivacyClass("anthropic"), "cloud-general");
 });
