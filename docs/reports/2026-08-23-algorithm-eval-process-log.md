@@ -28,4 +28,12 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 
 ### 1b. Cloud measurement — `claude-opus-5-thinking-high-fast`
 
-Pending.
+- **Actor:** [Measure algorithm sim and real tests](4ff74c4c-8d6b-4033-9e5b-30c2106475e8)
+- **Action:** Independent sim + CLI measurement on `e06eee6`; adversarial attribution probes; live-import closure; one usability fix.
+- **Result:** `pnpm gate` 1183 / 1182 / 0 / 1. Live routing changes models. Vision/local-only fail-closed. F-SIM utility delta identically 0 by construction. High-risk approval not armed on flowchart-v2. `TEST_RE` family pollution. Refusal text now names privacy/capability (`8a36554`). Report: `docs/reports/2026-08-23-algorithm-measurement.md`. HEAD `b83f6cb`.
+
+## Phase 2 — strategy (in progress)
+
+- **Actor:** `claude-fable-5-thinking-xhigh` (cloud, launched after 1b)
+- **Action:** keep / deepen / replace against plan purpose + Phase-1 data.
+- **Result:** pending.
