@@ -123,3 +123,25 @@ describe("M5-T3: propensity ledger", () => {
     assert.ok(validation.reasons.some((r) => /unsupported report version/.test(r)));
   });
 });
+
+it("returns INVALID_ESTIMATE when overlap or ESS is missing (spec case 20)", () => {
+  const report = {
+    reportVersion: 1,
+    candidate: "r1",
+    baseline: "r0",
+    claims: ["adaptive is better"],
+    diagnostics: {
+      totalActions: 2,
+      eligibleActions: 2,
+      minPropensity: 0,
+      maxPropensity: 1,
+      supportOk: false,
+      effectiveSampleSize: 0.4,
+      estimatorId: "snips" as const
+    }
+  };
+  const v = validateCounterfactualReport(report);
+  assert.equal(v.valid, false);
+  assert.equal(v.status, "INVALID_ESTIMATE");
+  assert.ok(v.reasons.some((r) => /overlap|support|effective sample/i.test(r)));
+});

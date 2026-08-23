@@ -97,6 +97,8 @@ export interface CounterfactualReport {
 
 export interface ReportValidation {
   readonly valid: boolean;
+  /** Phase C Task 5: explicit status so a missing overlap/ESS is machine-visible. */
+  readonly status: "ok" | "INVALID_ESTIMATE";
   readonly reasons: readonly string[];
 }
 
@@ -132,7 +134,17 @@ export function validateCounterfactualReport(
   if (hasRegretClaim && reasons.length > 0) {
     reasons.push("regret claim rejected: comparison diagnostics are not valid");
   }
-  return { valid: reasons.length === 0, reasons };
+  // Phase C Task 5: missing overlap/ESS support is an INVALID_ESTIMATE, not
+  // merely "not proven" — the status makes that machine-visible.
+  const missingSupport =
+    !report.diagnostics.supportOk ||
+    report.diagnostics.invalidReason === "INVALID_ESTIMATE" ||
+    report.diagnostics.effectiveSampleSize < config.minEffectiveSampleSize;
+  return {
+    valid: reasons.length === 0,
+    status: missingSupport ? "INVALID_ESTIMATE" : "ok",
+    reasons
+  };
 }
 
 /** Reject logs that set every eligible μ in (0, 1] to fake overlap for a one-hot policy. */

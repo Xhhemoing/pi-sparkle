@@ -19,6 +19,15 @@ R0 and R1 library machinery exists. Live routing stays R0-equivalent until this
 checkpoint closes on **production** evidence. Simulation cannot impersonate that
 close.
 
+## Protocol (2026-08-18 three-line final)
+
+Simulation, replay, and offline attribution reports are `evidenceClass: simulation`
+or `replay`. They do **not** equal production improvement and must not be
+written as Outcome-supported. Checkpoint F item 1 stays open until the
+cost-quality target (Q1) and holdout data source (Q2) are answered.
+Primary endpoint for any later claim is pre-registered `taskSuccess`
+(or an explicit multi-objective utility), never tracking `score`.
+Cost comparisons use the CI **upper bound**, not the mean.
 ## Decision
 
 1. **Primary gate (F-PROD item 1).** Paired utility-delta 95% CI **lower bound
