@@ -137,3 +137,20 @@ were blockers. Both blockers are now implemented:
 
 P0 remains open until the reviewer re-verifies §6 commands against this
 remediation and records the final sign-off.
+
+## 8. Live state-root verification (2026-08-22)
+
+The owner's real state root (`~/.pi-sparkle/`) was audited and drilled:
+
+- **Layout**: 47 durable files, all under `runtime/` (runs, episodes,
+  invocations, providers, auth). Zero root-level strays, zero legacy flat
+  paths. `adaptation/` created on first adaptation write.
+- **Write-path isolation drill**: feedback written through `appendFeedback`
+  landed in `adaptation/feedback/records.jsonl`; nothing leaked into
+  `runtime/`. The redaction pipe stripped a seeded secret at write time.
+- **Cascade drill**: `deleteEpisodeRecords` tombstoned the bound feedback id
+  into `adaptation/feedback/tombstones.json`; the record became invisible to
+  `readFeedback` (first-layer filter) while remaining listed as a tombstone.
+- **Boundary suite**: record-classes + plane-boundary + redaction + delete
+  tests 12/12 green; doctor reports the state root healthy.
+
