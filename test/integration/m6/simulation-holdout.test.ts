@@ -329,6 +329,23 @@ describe("paired simulation holdout runner", () => {
     assert.equal(result.protocol.minPairedSamples, 5);
   });
 
+  it("surfaces why the utility delta is zero and how often the arms disagree", () => {
+    const train = trainFollowingMid();
+    const evalSet = holdoutOppositeLabels(15, 15);
+    const result = holdout({ train, holdout: evalSet });
+
+    // A zero utility delta here is structural, not a measured tie. The flag
+    // must reach the caller alongside the delta, or F-SIM output reads as
+    // "no difference" when it is really "no counterfactual outcome".
+    assert.equal(result.observedUtilityOnBothArms, true);
+    assert.equal(result.comparison.utilityDelta.mean, 0);
+
+    const disagreements = result.pairs.filter((pair) => pair.r0ModelId !== pair.r1ModelId).length;
+    assert.equal(result.selectionDisagreementCount, disagreements);
+    assert.equal(result.selectionDisagreementRate, disagreements / result.pairs.length);
+    assert.ok(disagreements > 0, "train posterior should move R1 off the R0 choice");
+  });
+
   it("marks evidenceClass simulation and cannot close production Checkpoint F", () => {
     const result = holdout({
       train: trainFollowingMid(),

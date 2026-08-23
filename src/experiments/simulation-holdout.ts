@@ -67,6 +67,15 @@ export interface SimulationHoldoutResult {
   readonly comparison: ComparisonReport;
   readonly pairs: readonly R1ShadowPair[];
   readonly protocol: SimulationHoldoutProtocol;
+  /**
+   * Forwarded from the shadow report so a caller reading only this result can
+   * still see why `comparison.utilityDelta` is identically zero: both arms are
+   * scored with the same observed PASS/FAIL, and no counterfactual outcome is
+   * modelled. Without these, F-SIM output looks like a measured tie.
+   */
+  readonly observedUtilityOnBothArms: true;
+  readonly selectionDisagreementCount: number;
+  readonly selectionDisagreementRate: number;
   readonly opeAppendix?: SimulationHoldoutOpeAppendix;
   readonly holdoutAudit?: readonly HoldoutAccessEntry[];
 }
@@ -96,6 +105,9 @@ export function runSimulationHoldout(input: SimulationHoldoutInput): SimulationH
   const result: SimulationHoldoutResult = {
     comparison: shadow.comparison,
     pairs: shadow.pairs,
+    observedUtilityOnBothArms: shadow.observedUtilityOnBothArms,
+    selectionDisagreementCount: shadow.selectionDisagreementCount,
+    selectionDisagreementRate: shadow.selectionDisagreementRate,
     protocol: {
       design: "paired",
       evidenceClass: "simulation",
