@@ -563,7 +563,7 @@ test("a plain-text answer without any approval reply stays valid", async () => {
 
     const read = await new EventStore(stateRoot, parentRunId).readAll();
     const answer = read.events.find((e) => e.type === "USER_ANSWER");
-    assert.deepEqual(answer?.payload, { messageId: questionId, answer: "Yes" });
+    assert.deepEqual(answer?.payload, { messageId: questionId, answer: "Yes", answeredBy: "user" });
     const waiting = read.events.find((e) => e.type === "RUN_WAITING_FOR_USER");
     assert.deepEqual(waiting?.payload, { messageId: questionId });
   });
