@@ -354,7 +354,6 @@ export class ChildCoordinator {
       // slot and undrained mail so the successor (same role) inherits them.
       if (lastAgentId !== undefined) {
         this.cluster?.deregister(lastAgentId, "handoff");
-        lastAgentId = undefined;
       }
       const attemptInput =
         assignedModel === undefined ? input : { ...input, assignedModel };

@@ -32,7 +32,7 @@ Definitions (ADR-004):
 | R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. |
 | Public prior snapshot | yes | `--public-prior` | yes | no | Hashed frozen file only; no HTTP leaderboard fetch. |
 | R1 / bandit / topology | yes | **shadow / offline only** | module tests | no | Must not import into live execution until F-PROD. |
-| Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. |
+| Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. Bandit/avoid consume model-attributed taskSuccess only (a FAIL needs `failureClass: model`); cascade retries rebind outcomes to the escalated model. |
 | Promotion CAS + rollback | yes | CLI | unit tests | no | Proposal-first. |
 | Preferences + tombstones | yes | `pref` CLI | yes | no | Dataset export lists tombstone ids and drops payloads; authorized export omits tombstones unless `includeTombstones` (integration redaction chain). |
 | Requirement provenance + critic | yes | extraction + critique path | unit + integration (`checkpoint-d`) | no | Every deliverable/constraint/criterion sourced or assumed; critic reports omissions and is immutability-tested; never mutates the accepted contract. |
