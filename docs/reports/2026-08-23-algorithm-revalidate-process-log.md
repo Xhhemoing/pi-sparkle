@@ -37,6 +37,6 @@ Prior cycle artifacts (do not substitute for this goal’s required slugs):
 
 ## Phase 2 — strategy (launched)
 
-- **Actor:** slug `claude-fable-5-thinking-xhigh` (cloud Task, this turn).
+- **Actor:** [Phase 2 keep deepen replace](5748aebb-c904-40a8-8c75-91faf8df6177) slug `claude-fable-5-thinking-xhigh`.
 - **Action:** keep / deepen / replace from opus + parent data and ADR-004 / routing final plan.
 - **Result:** pending.
