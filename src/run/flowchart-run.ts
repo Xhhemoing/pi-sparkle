@@ -102,6 +102,13 @@ export interface FlowchartRunInput {
   contract?: RequirementContract;
   assignments?: readonly TaskAssignment[];
   resolvedQuestionIds?: readonly string[];
+  /**
+   * When true, a WAITING_FOR_USER route/branch gate is recorded then
+   * auto-answered with the plan's defaultSelected items. Used by
+   * `--assume-defaults` so unattended track still completes after the
+   * high-risk human gate is armed. Clarify ≠ this flag.
+   */
+  autoSelectDefaultApprovals?: boolean;
 }
 
 export interface FlowchartContinuation {
@@ -181,7 +188,7 @@ function childTasksFromDefinition(
 ): ChildTaskInput[] {
   const tasks: ChildTaskInput[] = [];
   for (const node of definition.nodes) {
-    const role = mappedAgentRole(node.role);
+    const role = node.agentRole ?? mappedAgentRole(node.role);
     if (role === undefined) continue;
     tasks.push({
       taskId: node.taskId,
@@ -432,6 +439,7 @@ interface FlowchartLoopContext {
   childCoordinator?: ChildCoordinator;
   index?: ProjectContextIndex;
   contract?: RequirementContract;
+  autoSelectDefaultApprovals?: boolean;
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -602,6 +610,22 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
     }
     if (leases.length > 0) await persistCheckpoint(ctx);
 
+    if (ctx.autoSelectDefaultApprovals === true && ctx.supervisor.status === "WAITING_FOR_USER") {
+      const pending = ctx.supervisor.pendingApproval;
+      const selectedActionIds =
+        pending?.plan.items
+          .filter((item) => item.selectable && item.defaultSelected === true)
+          .map((item) => item.id) ?? [];
+      if (pending !== undefined && selectedActionIds.length > 0) {
+        await persistWaiting(ctx);
+        await applyApproval(ctx, {
+          approvalPlanId: pending.plan.id,
+          selectedActionIds
+        });
+        await persistCheckpoint(ctx);
+      }
+    }
+
     const afterLease = await finishIfSettled(ctx);
     if (afterLease !== undefined) return afterLease;
 
@@ -669,7 +693,7 @@ function mappedAgentRole(role: FlowNode["role"]): AgentRole | undefined {
 }
 
 function familyForFlowNode(node: FlowNode): string {
-  const mapped = mappedAgentRole(node.role);
+  const mapped = node.agentRole ?? mappedAgentRole(node.role);
   if (mapped !== undefined) return analyzeTask(node.objective, mapped).family;
   return node.role;
 }
@@ -835,7 +859,8 @@ export async function startFlowchartRun(
     ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
     ...(index !== undefined ? { index } : {}),
-    ...(input.contract !== undefined ? { contract: input.contract } : {})
+    ...(input.contract !== undefined ? { contract: input.contract } : {}),
+    ...(input.autoSelectDefaultApprovals === true ? { autoSelectDefaultApprovals: true } : {})
   };
   await persistCheckpoint(ctx);
   return runFlowchartLoop(ctx);

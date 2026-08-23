@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { analyzeTask } from "../../../src/routing/analyze-task.js";
-import { ASSIGN_FEATURE_VERSION, FEATURE_VERSION_REASONS } from "../../../src/routing/feature-version.js";
+import {
+  ASSIGN_FEATURE_VERSION,
+  FEATURE_VERSION_REASONS,
+  FLOWCHART_FEATURE_VERSION
+} from "../../../src/routing/feature-version.js";
 import { routeR1 } from "../../../src/routing/r1.js";
 import { routeR0 } from "../../../src/routing/r0.js";
 import type { ModelDescriptor } from "../../../src/routing/capability-registry.js";
@@ -10,9 +14,12 @@ import type { RouteRequest } from "../../../src/routing/policy.js";
 
 test("ASSIGN_FEATURE_VERSION is the live isolation key and documents bump reasons", () => {
   assert.equal(ASSIGN_FEATURE_VERSION, "assign-v4");
+  assert.equal(FLOWCHART_FEATURE_VERSION, "flowchart-v4");
   assert.ok(FEATURE_VERSION_REASONS.includes("contract-risk-flag-overrides-keywords"));
   assert.ok(FEATURE_VERSION_REASONS.includes("role-outranks-keywords-for-family"));
   assert.ok(FEATURE_VERSION_REASONS.includes("review-refactor-outrank-test"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-persists-agent-role"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-high-risk-arms-human-gate"));
 });
 
 test("contract-risk flag overrides keyword heuristics", () => {

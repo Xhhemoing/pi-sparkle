@@ -58,6 +58,14 @@ export interface R1ShadowPair {
 export interface R1ShadowReport {
   readonly comparison: ComparisonReport;
   readonly pairs: readonly R1ShadowPair[];
+  /**
+   * Honest F-SIM fact: both arms reuse the same observed PASS/FAIL, so
+   * paired utility delta is identically zero. Selection disagreement is
+   * the informative simulation metric.
+   */
+  readonly observedUtilityOnBothArms: true;
+  readonly selectionDisagreementCount: number;
+  readonly selectionDisagreementRate: number;
 }
 
 /**
@@ -129,9 +137,16 @@ export function buildR1ShadowReport(input: R1ShadowReportInput): R1ShadowReport 
     );
   }
 
+  const selectionDisagreementCount = pairs.filter(
+    (pair) => pair.r0ModelId !== pair.r1ModelId
+  ).length;
+
   return {
     comparison: gatedComparison(records, sanitizeClaims(input.claims)),
     pairs,
+    observedUtilityOnBothArms: true,
+    selectionDisagreementCount,
+    selectionDisagreementRate: selectionDisagreementCount / pairs.length,
   };
 }
 

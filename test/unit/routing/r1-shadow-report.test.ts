@@ -232,6 +232,9 @@ describe("offline R1 shadow report", () => {
     assert.ok(midCost > cheapCost);
 
     const result = buildR1ShadowReport(reportInput(episodes, observations));
+    assert.equal(result.observedUtilityOnBothArms, true);
+    assert.equal(result.selectionDisagreementCount, 2);
+    assert.equal(result.selectionDisagreementRate, 1);
     assert.equal(result.comparison.rawCounts.episodes, 2);
     assert.equal(result.comparison.utilityDelta.mean, 0);
     assert.equal(result.comparison.evaluationCard.baseline.utility, 0.5);

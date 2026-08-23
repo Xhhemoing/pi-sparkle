@@ -276,6 +276,7 @@ test("live flowchart routing applies analyzeTask high-risk and capability filter
   assert.equal(deploy.highRisk, true);
   assert.equal(deploy.family, "deploy");
   assert.equal(deploy.featureVersion, FLOWCHART_FEATURE_VERSION);
+  assert.equal(deploy.statusAfterRoute, "WAITING_FOR_USER");
 
   const vision = routeFlowNode(
     router,
@@ -284,6 +285,21 @@ test("live flowchart routing applies analyzeTask high-risk and capability filter
     limits
   );
   assert.equal(vision.model, "large");
+  assert.equal(vision.statusAfterRoute, "RUNNING");
+
+  const tester = routeFlowNode(
+    router,
+    {
+      ...node("qa"),
+      agentRole: "tester",
+      objective: "Refactor the billing helper and add a unit test"
+    },
+    "LOW",
+    limits
+  );
+  assert.equal(tester.agentRole, "tester");
+  assert.equal(tester.family, "test");
+  assert.equal(tester.statusAfterRoute, "RUNNING");
 
   assert.throws(
     () =>

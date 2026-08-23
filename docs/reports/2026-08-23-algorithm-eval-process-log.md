@@ -34,11 +34,14 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 
 ## Phase 2 — strategy (in progress)
 
-- **Actor:** [Decide keep deepen or replace](0e744a30-1f6c-4e85-8973-3ee04b104887) slug `claude-fable-5-thinking-xhigh`
+- **Actor:** [Decide keep deepen or replace](0e744a30-1f6c-4e85-8973-3ee04b104887) slug `claude-fable-5-thinking-xhigh` — earlier launch; not visible in this environment.
+- **Relaunch:** [Phase 2 algorithm strategy](98dfd022-f81d-435a-a927-865cc5320066) slug `claude-fable-5-thinking-xhigh` (cloud Task, this turn).
 - **Action:** keep / deepen / replace against plan purpose + Phase-1 data.
-- **Result:** pending (no `algorithm-strategy.md` on remote yet).
+- **Result:** pending (`docs/reports/2026-08-23-algorithm-strategy.md` not yet on this tree). Parent must not write that verdict.
 
 ## Phase 3 — parent polish (partial) — `cursor-grok-4.6`
 
-- **Action:** Deepen live `analyzeTask` without replacing R0. Role-first family; review/refactor outrank test; reasoning raises complexity not a hard capability; premium catalog declares `vision`. Bump `assign-v4` / `flowchart-v3`.
-- **Result:** Unit tests 36/36 on the touched suites. CLI re-run: ordinary `--track` families are now `plan/research/refactor/review/test` (assign-v4). Screenshot `--track` now completes, all routed to premium. Residual: flowchart-v3 still maps tester→actor→implementer, so the last flowchart event is `refactor` not `test`. High-risk approval gate still unarmed. F-SIM utility still identically 0. Strategy recommendation still owned by fable.
+- **Action (earlier):** Deepen live `analyzeTask` without replacing R0. Role-first family; review/refactor outrank test; reasoning raises complexity not a hard capability; premium catalog declares `vision`. Bump `assign-v4` / `flowchart-v3`.
+- **Result (earlier):** Ordinary `--track` families `plan/research/refactor/review/test` on assign-v4. Screenshot `--track` completes on premium. Residuals at that HEAD: tester collapsed to implementer on flowchart; high-risk gate unarmed; F-SIM utility ≡ 0.
+- **Action (this turn):** Persist `FlowNode.agentRole`; `routeFlowNode` uses `resolvedAgentRole` and arms `approvalRequired || analysis.highRisk`; `--assume-defaults` records the wait then auto-selects default approval items; F-SIM reports `observedUtilityOnBothArms` + selection disagreement without inventing counterfactual utility. Bump `flowchart-v4`.
+- **Result:** tests pending this turn; strategy still owned by fable.

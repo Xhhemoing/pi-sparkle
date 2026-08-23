@@ -131,6 +131,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   const flowchart = compileChildrenToFlowchart(
     children.flatMap((child) => {
       if (!isAgentRole(child.role)) return [];
+      const assignment = assignments.find((item) => item.taskId === child.taskId);
       return [
         {
           taskId: child.taskId,
@@ -138,7 +139,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
           objective: child.objective,
           ...(child.dependsOn !== undefined ? { dependsOn: child.dependsOn } : {}),
           allowedModels: catalogIds,
-          ...(child.assignedModel !== undefined ? { preferredModel: child.assignedModel } : {})
+          ...(child.assignedModel !== undefined ? { preferredModel: child.assignedModel } : {}),
+          ...(assignment?.analysis.highRisk === true ? { approvalRequired: true } : {})
         }
       ];
     }),
@@ -165,7 +167,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       childTasks: children,
       contract,
       assignments,
-      resolvedQuestionIds
+      resolvedQuestionIds,
+      ...(input.assumeDefaults === true ? { autoSelectDefaultApprovals: true } : {})
     }
   );
   const episodeId = episodeIdFromEvents(outcome.events);

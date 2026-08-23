@@ -15,7 +15,7 @@ import { catalogModel, oneHotDistribution, type CatalogModel, type CatalogModelI
 import { FLOWCHART_FEATURE_VERSION } from "../routing/feature-version.js";
 import { analyzeTask } from "../routing/analyze-task.js";
 import { evaluateLiveCandidate } from "../routing/policy.js";
-import { agentRoleForFlowchartRole } from "../graph/compile-children.js";
+import { resolvedAgentRole } from "../graph/compile-children.js";
 
 /** Live catalog entry. Alias of the unified CatalogModel. */
 export type RoutableModel = CatalogModel;
@@ -367,18 +367,19 @@ export function routeFlowNode(
   complexity: TaskComplexity,
   limits: RoutingLimits
 ): RoutingDecision {
-  const analysis = analyzeTask(node.objective, agentRoleForFlowchartRole(node.role));
+  const agentRole = resolvedAgentRole(node);
+  const analysis = analyzeTask(node.objective, agentRole);
   return router.route({
     taskId: node.taskId,
     role: node.role,
     complexity: maxComplexity(complexity, analysis.complexity),
     modelPolicy: node.modelPolicy,
     confidenceThreshold: node.confidenceThreshold,
-    approvalRequired: node.approvalRequired,
+    approvalRequired: node.approvalRequired || analysis.highRisk,
     highRisk: analysis.highRisk,
     family: analysis.family,
     featureVersion: FLOWCHART_FEATURE_VERSION,
-    agentRole: agentRoleForFlowchartRole(node.role),
+    agentRole,
     requiredCapabilities: analysis.requiredCapabilities,
     privacyRequired: analysis.privacyRequired,
     ...(analysis.contextTokens !== undefined ? { contextNeeded: analysis.contextTokens } : {}),

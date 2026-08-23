@@ -21,6 +21,8 @@ export interface CompilableChild {
   readonly dependsOn?: readonly TaskId[];
   readonly preferredModel?: string;
   readonly allowedModels?: readonly string[];
+  /** When set, becomes FlowNode.approvalRequired. High-risk assign analysis should pass true. */
+  readonly approvalRequired?: boolean;
 }
 
 export interface CompileChildrenOptions {
@@ -57,6 +59,18 @@ export function agentRoleForFlowchartRole(role: FlowchartNodeRole): AgentRole {
   if (role === "router") return "planner";
   if (role === "tool") return "tester";
   return "implementer";
+}
+
+/**
+ * Prefer the compile-time AgentRole when the flowchart still has it.
+ * Tester/planner must not collapse to implementer just because the node
+ * role is `actor`.
+ */
+export function resolvedAgentRole(node: {
+  readonly role: FlowchartNodeRole;
+  readonly agentRole?: AgentRole;
+}): AgentRole {
+  return node.agentRole ?? agentRoleForFlowchartRole(node.role);
 }
 
 function nodeIdOf(taskId: TaskId): string {
@@ -136,7 +150,8 @@ export function compileChildrenToFlowchart(
       objective: child.objective,
       modelPolicy: { allowedModels: nodeAllowed, preferredModel: nodePreferred },
       confidenceThreshold,
-      approvalRequired: false,
+      approvalRequired: child.approvalRequired === true,
+      agentRole: child.role,
       ...(isRoot && rootCount > 1 ? { parallelGroup: "children" } : {}),
       ...(deps.length >= 2
         ? { joinPolicy: { mode: "all" as const, requiredNodeIds: deps.map(nodeIdOf) } }
