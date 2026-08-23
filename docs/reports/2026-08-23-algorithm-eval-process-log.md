@@ -34,6 +34,11 @@ and adaptation algorithms. This is **not** an Outcome-supported claim.
 
 ## Phase 2 — strategy (in progress)
 
-- **Actor:** `claude-fable-5-thinking-xhigh` (cloud, launched after 1b)
+- **Actor:** [Decide keep deepen or replace](0e744a30-1f6c-4e85-8973-3ee04b104887) slug `claude-fable-5-thinking-xhigh`
 - **Action:** keep / deepen / replace against plan purpose + Phase-1 data.
-- **Result:** pending.
+- **Result:** pending (no `algorithm-strategy.md` on remote yet).
+
+## Phase 3 — parent polish (partial) — `cursor-grok-4.6`
+
+- **Action:** Deepen live `analyzeTask` without replacing R0. Role-first family; review/refactor outrank test; reasoning raises complexity not a hard capability; premium catalog declares `vision`. Bump `assign-v4` / `flowchart-v3`.
+- **Result:** Unit tests 36/36 on the touched suites. CLI re-run: ordinary `--track` families are now `plan/research/refactor/review/test` (assign-v4). Screenshot `--track` now completes, all routed to premium. Residual: flowchart-v3 still maps tester→actor→implementer, so the last flowchart event is `refactor` not `test`. High-risk approval gate still unarmed. F-SIM utility still identically 0. Strategy recommendation still owned by fable.
