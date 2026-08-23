@@ -100,7 +100,12 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
   if (value.failureClass !== undefined) {
     throw new DomainValidationError("extraSignals cannot forge failureClass");
   }
-  const derivedFailureClass =
+  // The only evidence in this path is caller-authored prose, so it may
+  // exculpate the model (recognised 429/tool/contract hints) but never
+  // inculpate it: classifyTaskFailure's `model` fallback is reserved for
+  // runtime-observed failures, and here it degrades to "not attributable"
+  // so a prose-only FAIL can never lower a posterior (ADR-004).
+  const proseDerivedFailureClass =
     value.outcomeKind === "FAIL"
       ? classifyTaskFailure({
           outcome: "FAILURE",
@@ -108,6 +113,8 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
           summary: typeof value.summary === "string" ? value.summary : ""
         })
       : undefined;
+  const derivedFailureClass =
+    proseDerivedFailureClass === "model" ? undefined : proseDerivedFailureClass;
   return baseSignal({
     source: value.source,
     kind: value.kind as ObservedSignal["kind"],

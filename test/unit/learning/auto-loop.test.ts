@@ -9,7 +9,15 @@ import { assignTasks } from "../../../src/routing/assign.js";
 import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
 import { loadLearnedRouting } from "../../../src/learning/learned-routing.js";
 import { loadAdaptationRegistry } from "../../../src/adaptation/promotion.js";
-import { createEpisodeId, createProjectId, parseTaskId, type CandidateId } from "../../../src/domain/ids.js";
+import type { Event } from "../../../src/run/events.js";
+import {
+  createEpisodeId,
+  createEventId,
+  createProjectId,
+  createRunId,
+  parseTaskId,
+  type CandidateId
+} from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 
 test("n=2 taskSuccess failures are diagnostic only and do not write avoid", async () => {
@@ -25,7 +33,7 @@ test("n=2 taskSuccess failures are diagnostic only and do not write avoid", asyn
       projectId,
       primaryModelId: "premium",
       episodeId,
-      extraSignals: failingPair(projectId, episodeId, "cheap"),
+      events: failingEvents("cheap", 2),
       autoPromote: true
     });
     assert.equal(result.promoted, false);
@@ -51,7 +59,7 @@ test("five deterministic taskSuccess failures propose avoid without promoting", 
       projectId,
       primaryModelId: "premium",
       episodeId,
-      extraSignals: failingN(projectId, episodeId, "cheap", 5),
+      events: failingEvents("cheap", 5),
       autoPromote: true
     });
     assert.equal(result.promoted, false);
@@ -64,6 +72,35 @@ test("five deterministic taskSuccess failures propose avoid without promoting", 
     assert.equal(registry.getActiveVersion(candidate!.identity)?.versionId, candidate!.parentVersionId);
     const learned = await loadLearnedRouting(stateRoot, "/tmp/proj-five");
     assert.deepEqual(learned?.avoid, []);
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("prose-only extraSignals failures never become avoid candidates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-prose-"));
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    // Same shape as the events-path failures above, but arriving as
+    // caller-authored extraSignals: with no runtime evidence behind them the
+    // derived failureClass must stay unattributed, so even five of them may
+    // not lower a posterior or propose avoid (ADR-004).
+    const result = await runAutoAdaptLoop({
+      stateRoot,
+      projectRoot: "/tmp/proj-prose",
+      projectId,
+      primaryModelId: "premium",
+      episodeId,
+      extraSignals: failingN(projectId, episodeId, "cheap", 5),
+      autoPromote: true
+    });
+    assert.equal(result.created, false, "prose-only failures must not propose avoid");
+    assert.equal(result.promoted, false);
+    assert.ok(!result.issues.some((issue) => issue.modelId === "cheap" && issue.actionable));
   } finally {
     restoreEnv("SPARKLE_AUTO_ADAPT", previous);
     await rm(stateRoot, { recursive: true, force: true });
@@ -295,6 +332,73 @@ function failingN(
     evidenceIds: [`evd_fail_${index}`],
     summary: `TASK_RESULT FAILURE ${index}`
   }));
+}
+
+/**
+ * Model-attributed failures through the honest channel: MODEL_ROUTED binds the
+ * model, and a TASK_RESULT with FAILED runtime verification derives
+ * failureClass "model". extraSignals prose can no longer produce these.
+ */
+function failingEvents(modelId: string, n: number): Event[] {
+  const runId = createRunId();
+  const events: Event[] = [];
+  for (let index = 0; index < n; index += 1) {
+    const taskId = parseTaskId(`tsk_fail${index}`);
+    events.push(
+      makeEvent(runId, "MODEL_ROUTED", {
+        taskId,
+        role: "implementer",
+        complexity: "MEDIUM",
+        model: modelId,
+        justification: "cheapest eligible",
+        confidence: 0.9,
+        approvalPlan: { id: `ap_${index}`, actions: [{ id: "go", label: "go" }], defaultActionIds: ["go"] },
+        statusAfterRoute: "RUNNING",
+        policyVersion: "v1",
+        estimatedCostUsd: 0.01,
+        estimatedDurationMs: 1000,
+        family: "edit",
+        featureVersion: "assign-v4",
+        modelVersion: `${modelId}-v1`,
+        highRisk: false,
+        eligibleModels: [modelId],
+        rejections: [],
+        behaviorDistribution: { [modelId]: 1 }
+      })
+    );
+    events.push(
+      makeEvent(runId, "CHILD_MESSAGE", {
+        message: {
+          protocolVersion: 1,
+          id: `msg_fail_${index}`,
+          occurredAt: nowIso(),
+          runId,
+          taskId,
+          from: "agt_child",
+          to: "SUPERVISOR",
+          type: "TASK_RESULT",
+          outcome: "FAILURE",
+          summary: `TASK_RESULT FAILURE ${index}`,
+          artifactIds: [],
+          evidenceIds: [`evd_fail_${index}`],
+          verification: { kind: "FAILED", evidenceIds: [`evd_fail_${index}`] }
+        }
+      })
+    );
+  }
+  return events;
+}
+
+function makeEvent(runId: ReturnType<typeof createRunId>, type: Event["type"], payload: unknown): Event {
+  return {
+    id: createEventId(),
+    schemaVersion: 1,
+    occurredAt: nowIso(),
+    runId,
+    type,
+    actor: "coordinator",
+    payload
+  } as Event;
 }
 
 function restoreEnv(name: string, previous: string | undefined): void {

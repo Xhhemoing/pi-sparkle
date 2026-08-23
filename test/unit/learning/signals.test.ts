@@ -239,6 +239,37 @@ test("extraSignals cannot forge failureClass; 429 summaries derive environment",
   assert.equal(derived.failureClass, "environment");
 });
 
+test("extraSignals prose can exculpate but never inculpate the model", () => {
+  const projectId = createProjectId();
+  const parse = (summary: string, outcomeKind: "PASS" | "FAIL" = "FAIL") =>
+    parseObservedSignal({
+      source: "subagent",
+      kind: "deterministic",
+      projectId,
+      score: outcomeKind === "PASS" ? 90 : 15,
+      criterion: "taskSuccess",
+      outcomeKind,
+      boundary: "execution",
+      summary,
+      createdAt: nowIso(),
+      evidenceIds: [],
+      modelId: "premium"
+    });
+
+  // An unrecognised FAIL used to fall back to `model` and lower a posterior;
+  // prose is testimony, not attribution, so it must stay unattributable.
+  assert.equal(parse("it produced nonsense").failureClass, undefined);
+  assert.equal(parse("output was completely wrong").failureClass, undefined);
+
+  // Recognised exculpatory evidence in the prose still lands.
+  assert.equal(parse("acceptance criteria were not specified").failureClass, "contract");
+  assert.equal(parse("tool error: command failed").failureClass, "tool");
+  assert.equal(parse("socket hang up talking upstream").failureClass, "environment");
+
+  // PASS derives nothing, as before.
+  assert.equal(parse("all good", "PASS").failureClass, undefined);
+});
+
 test("TASK_TIMEOUT attributes a later FAILED result as run, not model", () => {
   const projectId = createProjectId();
   const runId = createRunId();
