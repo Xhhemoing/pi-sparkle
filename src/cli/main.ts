@@ -12,7 +12,7 @@ import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
-import { parseModelRef, formatModelRef } from "../config/model-ref.js";
+import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
@@ -125,7 +125,9 @@ function defaultStateRoot(): string {
 async function createExecutor(
   kind: string,
   stateRoot: string,
-  hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void }
+  hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void },
+  /** Explicit --primary-model wins over ambient env vars and providers.json. */
+  modelOverride?: { readonly providerId: string; readonly modelId: string }
 ): Promise<AgentExecutor> {
   if (kind === "fake") {
     return new FakeExecutor([
@@ -143,8 +145,9 @@ async function createExecutor(
     const envProvider = process.env.PI_PROVIDER;
     const envModel = process.env.PI_MODEL;
     const primary = config.primary !== undefined ? parseModelRef(config.primary) : undefined;
-    const providerId = envProvider ?? primary?.providerId;
-    const modelId = envModel ?? primary?.modelId;
+    // Precedence: explicit --primary-model flag > env vars > providers.json.
+    const providerId = modelOverride?.providerId ?? envProvider ?? primary?.providerId;
+    const modelId = modelOverride?.modelId ?? envModel ?? primary?.modelId;
     if (providerId === undefined || modelId === undefined) {
       throw new DomainValidationError(
         "--executor pi requires an enabled primary model (pi-sparkle models set-default) or PI_PROVIDER and PI_MODEL"
@@ -158,7 +161,8 @@ async function createExecutor(
     const envRef = envProvider !== undefined && envModel !== undefined
       ? { providerId: envProvider, modelId: envModel }
       : undefined;
-    const premiumAlias = primary ?? envRef;
+    const effectiveRef = modelOverride ?? envRef;
+    const premiumAlias = primary && modelOverride === undefined ? primary : (effectiveRef ?? primary);
     const cheapAlias = fast ?? premiumAlias;
     return await createConfiguredPiExecutor({
       stateRoot,
@@ -607,13 +611,23 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       : values.track === true && (values.executor ?? "fake") === "fake"
         ? "fake-children"
       : (values.executor ?? "fake");
-  const executor = await createExecutor(executorKind, stateRoot, {
-    onInvocation: (invocation) => {
-      void appendFile(join(runtimeRoot(stateRoot), "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
-    }
-  });
-  bindPreferenceStore(stateRoot);
   const providers = await loadProvidersConfig(stateRoot);
+  // An explicit --primary-model that names a concrete provider/model pair
+  // pins the executor to that channel. Alias values (premium/cheap) are not
+  // touched here — they resolve downstream against the routing catalog.
+  const flaggedPrimary =
+    values["primary-model"] !== undefined ? tryParseModelRef(values["primary-model"]) : undefined;
+  const executor = await createExecutor(
+    executorKind,
+    stateRoot,
+    {
+      onInvocation: (invocation) => {
+        void appendFile(join(runtimeRoot(stateRoot), "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
+      }
+    },
+    flaggedPrimary
+  );
+  bindPreferenceStore(stateRoot);
   const envCatalogId =
     process.env.PI_PROVIDER !== undefined && process.env.PI_MODEL !== undefined
       ? formatModelRef(process.env.PI_PROVIDER, process.env.PI_MODEL)
