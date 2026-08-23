@@ -91,9 +91,12 @@ every known durable path to a class, so a new path cannot ship unclassified.
 ## 6. How to verify independently
 
 ```bash
-pnpm test -- test/unit/privacy/ test/integration/m3/redaction.test.ts
+pnpm tsx --test test/unit/privacy/record-classes.test.ts test/unit/privacy/plane-boundary.test.ts test/integration/m3/redaction.test.ts
 grep -rn "writeFile\|appendFile" src/ --include="*.ts"   # re-run the completeness audit
 ```
+
+Verified 2026-08-22: privacy + redaction suites 8/8 green against the Q1/Q2
+remediation (commit of same date). Final sign-off stays with the reviewer.
 
 Sign-off = answering Q1–Q5 with "no blocker" (or listing blockers), recorded
 in `tasks/todo.md` and `docs/status-matrix.md` (P0 row → Exit column).

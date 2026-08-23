@@ -6,9 +6,11 @@ Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-20
 
 - [x] ADR-004 accepted and the six adaptive defaults approved, unchanged (2026-08-21). Exit recorded in [status-matrix.md](../docs/status-matrix.md).
 - [ ] Close P0: independent review returned **CONDITIONAL** (2026-08-22): Q3/Q4/Q5 pass; Q1 (plane isolation) and Q2 (delete tooling + cascade) were blockers — both remediated same day (see review package §7). Remaining: reviewer re-verification of the remediation, then sign-off. Package: [2026-08-22-p0-privacy-review-package.md](../docs/reports/2026-08-22-p0-privacy-review-package.md).
+  - 2026-08-22 re-verification: privacy/redaction suites 8/8 green against the remediation (technical check done; §6 command fixed to explicit file args). Awaiting owner sign-off to close.
 - [x] ADR-006 decided (2026-08-21): keep Proposed; no `extensions/pi-sparkle/` Pi import until revisited.
 - [x] Cost-quality target resolved: ADR-005 Accepted (2026-08-19) locks the paired CI gates and six decisions.
 - [ ] Holdout data source remains open as F6 work inside the F-PROD line; do not start F-PROD before P0 + provider smoke. See [gates readiness](../docs/reports/2026-08-21-gates-readiness.md).
+  - 2026-08-22 provider smoke check: PI_PROVIDER/PI_MODEL set, but no PI_API_KEY and no stored credential — smoke blocked on a key.
 
 ## Three-line program (2026-08-18 final)
 
