@@ -1,12 +1,9 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  getModel,
   hasCapability,
-  listModels,
-  registerModel,
-  resetModelRegistry,
   satisfiesPrivacy,
+  validateModelDescriptor,
 } from "../../../src/routing/capability-registry.js";
 import type { ModelDescriptor } from "../../../src/routing/capability-registry.js";
 import { evaluateCandidate } from "../../../src/routing/policy.js";
@@ -92,23 +89,16 @@ const TINY_CONTEXT = model({
 
 const ALL = [CHEAP_LOCAL, MID_CLOUD, BIG_GENERAL, FORBIDDEN, TINY_CONTEXT];
 
-beforeEach(() => {
-  resetModelRegistry();
-  for (const m of ALL) registerModel(m);
-});
-
-describe("M5-T1: capability registry", () => {
-  it("registers, lists, and retrieves models", () => {
-    assert.equal(listModels().length, 5);
-    assert.equal(getModel("mid-cloud")?.providerId, "acme");
-    assert.equal(getModel("missing"), undefined);
-  });
-
-  it("rejects duplicate registration and non-positive token limits", () => {
-    assert.throws(() => registerModel(CHEAP_LOCAL), /already registered/);
+describe("M5-T1: capability catalog (explicit models[], no mutable registry)", () => {
+  it("descriptor validation rejects missing version and non-positive token limits", () => {
+    assert.equal(validateModelDescriptor(MID_CLOUD), MID_CLOUD);
     assert.throws(
-      () => registerModel(model({ modelId: "bad", contextWindow: 0 })),
+      () => validateModelDescriptor(model({ modelId: "bad", contextWindow: 0 })),
       /non-positive/
+    );
+    assert.throws(
+      () => validateModelDescriptor(model({ modelId: "no-version", version: "" })),
+      /must declare version/
     );
   });
 
@@ -125,6 +115,13 @@ describe("M5-T1: capability registry", () => {
     assert.equal(satisfiesPrivacy(MID_CLOUD, "local"), false);
     assert.equal(satisfiesPrivacy(BIG_GENERAL, "cloud-approved"), false);
     assert.equal(satisfiesPrivacy(BIG_GENERAL, "cloud-general"), true);
+  });
+
+  it("undeclared privacy class fails closed for local and cloud-approved data", () => {
+    const undeclared = model({ modelId: "undeclared", privacyClass: undefined });
+    assert.equal(satisfiesPrivacy(undeclared, "local"), false);
+    assert.equal(satisfiesPrivacy(undeclared, "cloud-approved"), false);
+    assert.equal(satisfiesPrivacy(undeclared, "cloud-general"), true);
   });
 });
 
@@ -273,8 +270,7 @@ describe("M5-T1: R0 router", () => {
     assert.match(after.reason, /cascade disabled/);
   });
 
-  it("an empty registry fails closed with a recorded refusal", () => {
-    resetModelRegistry();
+  it("an empty catalog fails closed with a recorded refusal", () => {
     const decision = routeR0(config, [], request());
     assert.equal(decision.selection, undefined);
     assert.equal(decision.candidates.length, 0);

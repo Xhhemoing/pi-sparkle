@@ -25,11 +25,17 @@ export interface ModelDescriptor {
   readonly approvedForHighRisk?: boolean | undefined;
 }
 
-let models = new Map<string, ModelDescriptor>();
-
-export function registerModel(desc: ModelDescriptor): void {
-  if (models.has(desc.modelId)) {
-    throw new DomainValidationError(`model already registered: ${desc.modelId}`);
+/**
+ * Pure descriptor validation. There is no module-level model registry:
+ * live routing and library R0 both receive explicit `models[]` so tests and
+ * production share exactly one catalog source (routing final plan F1).
+ */
+export function validateModelDescriptor(desc: ModelDescriptor): ModelDescriptor {
+  if (desc.modelId.trim() === "") {
+    throw new DomainValidationError("model descriptor requires a modelId");
+  }
+  if (desc.version.trim() === "") {
+    throw new DomainValidationError(`model ${desc.modelId} must declare version`);
   }
   if (
     (desc.contextWindow !== undefined && desc.contextWindow <= 0) ||
@@ -37,20 +43,7 @@ export function registerModel(desc: ModelDescriptor): void {
   ) {
     throw new DomainValidationError(`model ${desc.modelId} has non-positive token limits`);
   }
-  models = new Map(models);
-  models.set(desc.modelId, desc);
-}
-
-export function getModel(modelId: string): ModelDescriptor | undefined {
-  return models.get(modelId);
-}
-
-export function listModels(): ModelDescriptor[] {
-  return Array.from(models.values());
-}
-
-export function resetModelRegistry(): void {
-  models = new Map();
+  return desc;
 }
 
 /** Only explicitly declared capabilities count — an unknown name is never "supported". */
@@ -66,12 +59,13 @@ export function privacyRank(model: ModelDescriptor): number {
 /**
  * A model satisfies a required privacy class when it is at least as strict.
  * `local` can serve `cloud-approved` needs; `cloud-general` cannot serve `local`.
- * Undeclared privacy skips the filter except for `local` — never pretend an
- * unknown class can serve local data.
+ * Undeclared privacy fails closed for everything stricter than the most
+ * permissive class — never pretend an unknown provider status can serve
+ * local or approved-cloud-only data.
  */
 export function satisfiesPrivacy(model: ModelDescriptor, required: PrivacyClass): boolean {
   if (model.privacyClass === undefined) {
-    return required !== "local";
+    return required === "cloud-general";
   }
   return privacyRank(model) <= PRIVACY_ORDER.indexOf(required);
 }

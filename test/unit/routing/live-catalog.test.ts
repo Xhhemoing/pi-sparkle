@@ -163,14 +163,23 @@ test("undeclared model privacy cannot serve local", () => {
   );
 });
 
-test("undeclared model privacy skips the privacy-class filter for cloud-approved", () => {
+test("undeclared model privacy fails closed for cloud-approved data", () => {
   const router = createModelRouter({
     policyVersion: "router-v1",
     models: [actorModel("plain")]
   });
-  const decision = router.route(routeInput(["plain"], { privacyRequired: "cloud-approved" }));
-  assert.equal(decision.model, "plain");
-  assert.ok(!decision.rejections.some((row) => row.constraint === "privacy-class"));
+  assert.throws(
+    () => router.route(routeInput(["plain"], { privacyRequired: "cloud-approved" })),
+    (error: unknown) => {
+      assert.ok(error instanceof RoutingRefusalError);
+      assert.ok(error.refusals.some((row) => row.constraint === "privacy-class"));
+      return true;
+    }
+  );
+  // The most permissive class is still served without a declaration.
+  const general = router.route(routeInput(["plain"], { privacyRequired: "cloud-general" }));
+  assert.equal(general.model, "plain");
+  assert.ok(!general.rejections.some((row) => row.constraint === "privacy-class"));
 });
 
 test("task requiredCapabilities must be declared on the model", () => {
