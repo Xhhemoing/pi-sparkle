@@ -299,7 +299,9 @@ test("oversized arrays complete with DomainValidationError discipline", () => {
   const evidenceId = createEvidenceId(UUID);
   const oversizedEvidenceIds = Array.from({ length: 10_000 }, () => evidenceId);
   const oversizedProgress = { ...validProgress(), evidenceIds: oversizedEvidenceIds };
-  assert.equal(validateAgentMessage(oversizedProgress).evidenceIds.length, oversizedEvidenceIds.length);
+  const validatedProgress = validateAgentMessage(oversizedProgress);
+  assert.ok(validatedProgress.type === "PROGRESS");
+  assert.equal(validatedProgress.evidenceIds.length, oversizedEvidenceIds.length);
 
   assert.throws(
     () => validateAgentMessage({ ...oversizedProgress, evidenceIds: [...oversizedEvidenceIds, null] }),
