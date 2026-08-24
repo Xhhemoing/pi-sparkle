@@ -532,3 +532,5 @@
 | S11-A-1 | from-child apply 守卫常量折叠（引理 D：入口收窄后 shouldApplyThreeLine 恒真） | 等价但 13.9–15.0ns/子结果；e2e 符号翻转；防御纵深。非 S10-A-1（内部删除，非平行门控分派） |
 | S11-A-2 | gate-apply none 路径死 from/currentGateStatus 扫描 | 65.9–67.1ns/gate；落地需收窄公开 GateApplyResult（S1-F-6/S8-A-3 族） |
 | S11-B-1 | route() 内融合 partitionLiveCandidates 硬过滤与 selectLiveModel 最小扫描 | 等价；M=2 +19–48µs/批低于 S4-B-4 噪声；M=7 符号翻转；M=10 符号稳定负优化 −100~−225µs |
+| S11-D-1 | rollback identityEquals 守卫消除（键编码单射性） | 校验域可证死，内存面管道注入键碰撞 fail-open；上界 5.3–9.3ns/op。非 S9-D-3 |
+| S11-D-2 | load 链 parse→restore 单遍融合 | 上界 72–74µs/load；落地撞 X1-2/X0-4。非 S1-D-5 |
