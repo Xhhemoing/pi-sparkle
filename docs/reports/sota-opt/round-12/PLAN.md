@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–11 已对各区做过十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S11-* 条目以及已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2（含 R9-I / R10-E / R10-F / R10-H / R10-I / R10-J / R11-C / R11-E / R11-F / R11-H / R11-I / R11-J / R12-A / R12-E / R12-F / R12-G / R12-H / R12-I 的空枚举收口与已合入的 S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–11 已对各区做过十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S11-* 条目以及已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2（含 R9-I / R10-E / R10-F / R10-H / R10-I / R10-J / R11-C / R11-E / R11-F / R11-H / R11-I / R11-J / R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J 的空枚举收口与已合入的 S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R12-A … R12-J），报告写入 `docs/reports/sota-opt/round-12/`。
 
-状态：第 4 波收尾；A–I 已合入（A/E/F/G/H/I 空枚举；B 铸 S12-B-1..2；C 铸 S12-C-1；D 铸 S12-D-1..2，均淘汰）；J 运行中。第 13 轮已开，见 [round-13/PLAN.md](../round-13/PLAN.md)。
+状态：10 / 10 完成已合入（S12-B-1..2 / S12-C-1 / S12-D-1..2 淘汰；R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J 无新排除 ID）。第 13 轮进行中，见 [round-13/PLAN.md](../round-13/PLAN.md)。
 
 C 切片已合入：S12-C-1（solveSymmetric 消元嵌套序交换 FORM，逐位但稳定 ~3.6× 负优化；嵌套序×布局空间由 S4-C-2 + S5-C-1..4 + 本条封闭）。生产中位复核 658–663 ms/报告。不要重开 S12-C-1 / S10-C-1..3 / RID/CNT / CMB restack。必须站在 S7-C 之上。噪声带 ±35 ms；贴带不越带。r1c–r7c 回归门 8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193。最后生产改动仍为 `183df9b`。
 
@@ -28,4 +28,4 @@ H 切片已合入：空枚举，未铸 S12-H-*。热层默认复核 8.5–8.9 µ
 
 I 切片已合入：空枚举，未铸 S12-I-*。custom−builtin 本轮复核 children +51.3/+29.1、track +58.7/+24.1 ms（22.14/22.22）。S8-I-1 重开审计完备：0.84.1 的 7 exports 全部逐项特征化（root `.` 与 `./compat` 均重于 `providers/all` 且无 MODELS）；`models.generated` 三种 specifier 仍不可达。自制 union / 磁盘快照 / memo 三重围栏维持。基线 `8dee7fb` 空 diff 再确认。
 
-J 切片 = **29 文件**：`src/cluster/` 3 + `src/privacy/` 3 + `src/preferences/` 7 + `src/episode/` 5 + `src/persist/` 2 + `src/track/` 4 + `src/context/` 2 + `src/feedback/` 3。必须站在已落地 J1 之上。不要重开 S1-J-1..7 / S2-J-1..11 / S3-J-1..6 / S4-J-1..6 / S5-J-1..6 / S6-J-1..6 / S7-J-1..6 / S8-J-1..2 / S9-J-1..4。R10-J 与 R11-J 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希 / 增量读镜像。删除级联 fail-closed 两读顺序 + 串行两写（S5-J-3 / S6-J-1）钉死。S8-J-2 jsonl 单句柄合并符号不稳。R11-J 两处未点名微观（commands 双扫、役播 `role === undefined`）是换名拒绝，勿补铸。J1 仿真 2468 项须保持绿。基线 `fb41417` 预期空 diff。
+J 切片已合入：空枚举，未铸 S12-J-*。I/O 地板复核：saveToDisk 149.7–271.6µs（50 档）/ 429.5–543.7µs（500 档）；jsonl fsync=false 61.1–71.2µs / true 209.5–321.0µs；级联 match 672.9–797.7µs / no-match 275.8–288.2µs；index 40.8–41.3µs；plan CPU 1.10–2.73µs。J1 sim 2468 项绿（2718.1×）。三处从未点名微观（spawn 双 trim、claimRole byRole 重取重存、packet omissions 双遍）是换名拒绝，不铸 ID。R11-J 两处无名微观未补铸。S5-J-3 / S6-J-1 / S8-J-2 / J1 原样。基线 `fb41417` 空 diff 再确认。
