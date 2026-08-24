@@ -61,6 +61,38 @@ function requireCanaryBlock(plan: ExperimentPlan): {
   return plan.canary;
 }
 
+/**
+ * Resolve the reversed membership re-validation (S6-F-1) for the pending
+ * (deduplicated) assignment hashes: scan the population — whose full content
+ * validateExperimentPlan just re-validated — counting hits, and stop once
+ * every pending hash is matched. Population entries are unique, so counting
+ * hits decides membership exactly. On any miss, replay the exact
+ * per-assignment probe so the first offender is named with the production
+ * message.
+ */
+function resolveCanaryPendingMembership(
+  serialized: CanaryState,
+  pending: ReadonlySet<string>
+): void {
+  const target = pending.size;
+  if (target === 0) {
+    return;
+  }
+  let found = 0;
+  for (const hash of serialized.plan.population) {
+    if (pending.has(hash)) {
+      found += 1;
+      if (found === target) {
+        return;
+      }
+    }
+  }
+  const population = new Set(serialized.plan.population);
+  for (const assignment of serialized.assignments) {
+    requirePopulationMember(population, assignment.episodeHash);
+  }
+}
+
 function restoreCanaryState(serialized: CanaryState, expected: ExperimentPlan): CanaryState {
   if (typeof serialized !== "object" || serialized === null) {
     throw new DomainValidationError("canary state is required");
@@ -90,21 +122,33 @@ function restoreCanaryState(serialized: CanaryState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
-  // Reversed membership re-validation (see restoreShadowState): index the
-  // assignment hashes, scan the fully re-validated population with an early
-  // exit, and reconstruct the exact production first-fault on failure. In
-  // canary order the hash check precedes the membership probe, which precedes
-  // the action/exposure checks, so the hash is collected right after the hash
-  // check and structural faults are captured for the same first-fault race.
+  // Reversed membership re-validation (S6-F-1, see restoreShadowState) with
+  // an aligned-prefix fast path (S7-F-1). An assignment hash that is
+  // string-equal to the population entry at the SAME index is thereby a
+  // unique non-empty string and a member of the frozen population (the
+  // population content was just re-validated by validateExperimentPlan
+  // above), so the aligned prefix needs no trim probe and no hash-table work.
+  // In canary order the hash check leads the per-assignment body, so the
+  // alignment compare reads the same property first and the action/exposure
+  // checks (and exposure accumulation) proceed unchanged for aligned entries.
+  // The first misalignment falls back to the pending-Set scheme for the
+  // remaining suffix — prefix membership is already proven — and a
+  // misalignment at index 0 re-runs the plain landed loop so fully unaligned
+  // inputs pay only one extra compare instead of a per-iteration tax.
+  // Structural faults are captured, not thrown, because a membership fault at
+  // an earlier index must still win the first-fault race; the failure path
+  // replays the exact per-assignment probe to name the first offender with
+  // the same message. The fail-closed Ω(P + A) content re-read is unchanged.
+  const assignments = serialized.assignments;
+  const population = serialized.plan.population;
   let derivedExposure = 0;
   let structuralFault: DomainValidationError | undefined;
-  const pending = new Set<string>();
-  for (const assignment of serialized.assignments) {
-    if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
-      structuralFault = new DomainValidationError("episodeHash is required");
+  let index = 0;
+  for (; index < assignments.length; index++) {
+    const assignment = assignments[index] as CanaryAssignment;
+    if (assignment.episodeHash !== population[index]) {
       break;
     }
-    pending.add(assignment.episodeHash);
     if (assignment.action !== "baseline" && assignment.action !== "candidate") {
       structuralFault = new DomainValidationError("invalid canary action");
       break;
@@ -117,23 +161,53 @@ function restoreCanaryState(serialized: CanaryState, expected: ExperimentPlan): 
       break;
     }
   }
-  const target = pending.size;
-  if (target > 0) {
-    let found = 0;
-    for (const hash of serialized.plan.population) {
-      if (pending.has(hash)) {
-        found += 1;
-        if (found === target) {
+  if (structuralFault === undefined && index < assignments.length) {
+    const pending = new Set<string>();
+    if (index === 0) {
+      // Fully unaligned head: the plain reversed scheme, verbatim.
+      for (const assignment of assignments) {
+        if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+          structuralFault = new DomainValidationError("episodeHash is required");
+          break;
+        }
+        pending.add(assignment.episodeHash);
+        if (assignment.action !== "baseline" && assignment.action !== "candidate") {
+          structuralFault = new DomainValidationError("invalid canary action");
+          break;
+        }
+        if (assignment.action === "candidate") {
+          derivedExposure += 1;
+        }
+        if (!Number.isInteger(assignment.exposureCount) || assignment.exposureCount < 0) {
+          structuralFault = new DomainValidationError("assignment exposureCount must be an integer >= 0");
+          break;
+        }
+      }
+    } else {
+      // Aligned prefix ended at `index`: nothing of that assignment has been
+      // checked yet (alignment leads the body), so the landed per-assignment
+      // sequence resumes exactly there.
+      for (let i = index; i < assignments.length; i++) {
+        const assignment = assignments[i] as CanaryAssignment;
+        if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+          structuralFault = new DomainValidationError("episodeHash is required");
+          break;
+        }
+        pending.add(assignment.episodeHash);
+        if (assignment.action !== "baseline" && assignment.action !== "candidate") {
+          structuralFault = new DomainValidationError("invalid canary action");
+          break;
+        }
+        if (assignment.action === "candidate") {
+          derivedExposure += 1;
+        }
+        if (!Number.isInteger(assignment.exposureCount) || assignment.exposureCount < 0) {
+          structuralFault = new DomainValidationError("assignment exposureCount must be an integer >= 0");
           break;
         }
       }
     }
-    if (found !== target) {
-      const population = new Set(serialized.plan.population);
-      for (const assignment of serialized.assignments) {
-        requirePopulationMember(population, assignment.episodeHash);
-      }
-    }
+    resolveCanaryPendingMembership(serialized, pending);
   }
   if (structuralFault !== undefined) {
     throw structuralFault;
