@@ -122,3 +122,12 @@
 | S1-C-8 | propensity 三遍改单遍计数 | 常数遍数噪声 |
 | S1-C-9 | bandit/shadow 微观分配 | arms 个位数 |
 | S1-C-10 | r1 微观常数 / request spread 省略 | M≤10 或对象身份改变 |
+| S1-G-1 | EventStore/EpisodeStore readAll 增量缓存 | 跨进程磁盘事实源 + fail-closed 读校验 |
+| S1-G-2 | persistLedger 全量 snapshot 改轻量访问器 | 需扩公开接口 + 噪声 |
+| S1-G-3 | EVENT_TYPES includes→Set | 占 validateEvent 1–1.5% |
+| S1-G-4 | validateFlowchart join 邻接 Set | live 面几十节点 |
+| S1-G-5 | snapshot 聚合 clone | 实测负优化 |
+| S1-G-6 | coordinator splice/filter Set 化 | 个位~十位 |
+| S1-G-7 | nodeTaskId find→Map | 仅审批路径，N 几十 |
+| S1-G-8 | ConcurrencyGate/LeaseRegistry 指针化 | X4-6 同类 |
+| S1-G-9 | setRuntime 原地变异 | 别名安全边界 |
