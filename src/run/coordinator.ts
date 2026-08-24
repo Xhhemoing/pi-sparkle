@@ -27,10 +27,11 @@ import {
 } from "../cluster/host.js";
 import { AGENT_ROLES, isAgentRole, type AgentRole } from "../domain/roles.js";
 import type { TaskAssignment } from "../routing/assign.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunHandle, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
 import { groundChildTask } from "./child-grounding.js";
-import { EventStore } from "./event-store.js";
+import { EventStore, runLockPath } from "./event-store.js";
 import { type AgentEventKind, type Event, type M0EventType, type ModelRoutedPayload, routingContextFields } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
@@ -47,6 +48,62 @@ export interface CoordinatorDeps {
   generateId?: IdGenerator;
   /** Enable peer mailbox and bounded spawn (implied by `--track`). */
   cluster?: boolean;
+  /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
+  runLock?: FileLockOptions;
+}
+
+/**
+ * Holds the run's cooperative lock (`runLockPath`) for one whole run: taken
+ * before the run's first record and released by the same teardown that settles
+ * it, whether the run finishes, pauses, or dies with an error.
+ *
+ * ## What it buys
+ *
+ * `delete --run` takes the same lock across its removal, so a delete aimed at
+ * a live run now **waits** for the run instead of racing it. Before this, the
+ * delete found the lock free between two of the run's own writes, removed the
+ * subtree, watched the run's next append put it back, and threw
+ * `RunRecordsSurvivedError` — correct, but only after it had already destroyed
+ * part of a live run's records. Waiting means the two outcomes are now a clean
+ * delete (the run ended inside the delete's bounded wait) or a `LOCK_TIMEOUT`
+ * that removed nothing at all. Both are honest; neither damages a live run.
+ *
+ * The cost is one acquisition per *run*, not per write. The two per-step
+ * writers (`EventStore.append`, `CheckpointStore.write`) stay lock-free and
+ * their decision pins stay green: locking those measured +22.5% / +17.5%
+ * end-to-end, where this measures inside the 5% bar (see the slot report's
+ * bench).
+ *
+ * ## What it costs, stated rather than discovered
+ *
+ * While a run holds this lock, every other writer that takes it waits:
+ *
+ * - `delete --run` — the point of the change.
+ * - `requestPause`, i.e. `pi-sparkle pause --run` from another process. A
+ *   pause aimed at a live run now fails closed with `LOCK_TIMEOUT` instead of
+ *   writing `pause.json` and then settling the run's episode and checkpoint
+ *   from underneath the process that is still driving it. `doctor` names the
+ *   holder (age + recorded PID) and the run's state; the remedy for a run you
+ *   own is to stop its process.
+ * - A run killed by SIGKILL leaves the lock behind, because locks are never
+ *   stolen (`withExclusiveFileLock`). Delete, pause and track-question writes
+ *   for that run then fail closed until an operator removes the file, which
+ *   `doctor` inventories with the guidance for doing so. Accepted with parent
+ *   sign-off: a stale lock is a visible, diagnosable stop, where the failure
+ *   it replaces was a partially deleted live run.
+ *
+ * Not wrapped, deliberately: `pauseFlowchartRun` (its own `requestPause` takes
+ * this lock — the lock is not reentrant, so wrapping it would deadlock against
+ * itself) and `injectFlowchartRun` (a side channel documented as usable
+ * against a run another process is driving).
+ */
+export function withRunLifecycleLock<T>(
+  stateRoot: string,
+  runId: RunId,
+  body: () => Promise<T>,
+  options: FileLockOptions = {}
+): Promise<T> {
+  return withExclusiveFileLock(runLockPath(stateRoot, runId), body, options);
 }
 
 export interface StartRunInput {
@@ -141,11 +198,19 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
   const generateId = deps.generateId;
   const runId = createRunId(generateId);
 
+  // Same acquisition as the parent run below: `run --objective` reaches this
+  // embedder, so a delete aimed at one of its runs must wait for it too.
+  // Discovery stays outside it — a run refused there has written nothing, and
+  // the lock would create `runtime/runs/` for a run that never started.
   const done = (async (): Promise<RunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runM0Run(project), deps.runLock);
+  })();
+
+  async function runM0Run(project: ProjectSnapshot): Promise<RunOutcome> {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
@@ -259,7 +324,7 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
     await checkpointStore.write(checkpoint);
     return { runId, status: state.status, events: read.events, checkpoint, project };
-  })();
+  }
 
   const running: RunningRun = {
     runId,
@@ -299,11 +364,19 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     resolveQuestion = resolve;
   });
 
+  // Every record this run writes happens under the run's cooperative lock, so
+  // a concurrent `delete --run` waits for the run rather than removing its
+  // records mid-flight. Discovery stays outside, so a run that never starts
+  // leaves nothing behind — including the lock's own parent directory.
   const done = (async (): Promise<RunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runParentRun(project), deps.runLock);
+  })();
+
+  async function runParentRun(project: ProjectSnapshot): Promise<RunOutcome> {
     const index = buildProjectContextIndex(project);
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
@@ -571,7 +644,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       project,
       ...(clusterHost !== undefined ? { clusterMail: summarizeClusterMail(clusterHost) } : {})
     };
-  })();
+  }
 
   const running: RunningRun = {
     runId,

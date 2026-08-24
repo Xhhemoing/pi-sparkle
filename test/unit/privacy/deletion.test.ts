@@ -19,6 +19,11 @@ import {
 } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import {
+  validateConfidenceScore,
+  type Flowchart,
+  type FlowNode
+} from "../../../src/domain/flowchart.js";
+import {
   appendFeedback,
   feedbackLogLockPath,
   feedbackLogPath,
@@ -63,6 +68,9 @@ import type { ModelInvocation } from "../../../src/telemetry/model-invocation.js
 import { EventStore } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
 import { EpisodeStore } from "../../../src/run/episode-store.js";
+import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
+import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 
 let uuidCounter = 0;
 const UUID = (): string => `abcdef01-2345-6789-abcd-${String(uuidCounter++).padStart(12, "0")}`;
@@ -1157,6 +1165,168 @@ test("a live run's own writers cannot make a delete report a removal it lost", a
       }
       await rm(runDir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The two outcomes a `delete --run` aimed at a *live* run can now have, and
+ * the one it can no longer have.
+ *
+ * The run lifecycle holds `runLockPath` for the whole run
+ * (`withRunLifecycleLock`), so the delete waits at the lock instead of walking
+ * into the run's records. Before that acquisition it took the free lock
+ * between two of the run's own writes, removed the subtree, watched the next
+ * append put it back, and threw `RunRecordsSurvivedError` — fail-closed, but
+ * only after destroying part of a live run. The two cases below are what
+ * replaced it: the run ends inside the bounded wait and the delete is clean,
+ * or the wait runs out and the delete removes nothing at all.
+ */
+function deletionFlowchart(): Flowchart {
+  const only: FlowNode = {
+    id: "only",
+    taskId: createTaskId(() => "only"),
+    role: "actor",
+    objective: "Do only",
+    modelPolicy: { allowedModels: ["cheap"] },
+    confidenceThreshold: validateConfidenceScore(0.7),
+    approvalRequired: false
+  };
+  return { id: "deletion-live-run", nodes: [only], edges: [] };
+}
+
+function deletionRouter(): ModelRouter {
+  return createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor", "critic"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      }
+    ]
+  });
+}
+
+/** A pause controller that never pauses but runs `probe` on the first poll. */
+function onFirstPoll(probe: (runId: RunId) => Promise<void>): PauseController {
+  let probed = false;
+  return {
+    async requestPause(): Promise<PauseToken> {
+      return { paused: false };
+    },
+    async clearPause(): Promise<void> {},
+    async token(runId: RunId): Promise<PauseToken> {
+      if (!probed) {
+        probed = true;
+        await probe(runId);
+      }
+      return { paused: false };
+    }
+  };
+}
+
+async function withProjectRoot(run: (projectRoot: string) => Promise<void>): Promise<void> {
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-proj-"));
+  try {
+    await run(projectRoot);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+test("a delete aimed at a live run waits for it, then removes it cleanly", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withProjectRoot(async (projectRoot) => {
+      let pending: Promise<{ removedPaths: readonly string[] }> | undefined;
+      let runDir: string | undefined;
+
+      const outcome = await startFlowchartRun(
+        {
+          stateRoot,
+          router: deletionRouter(),
+          now: () => parseIsoTimestamp("2026-08-24T09:00:00.000Z"),
+          generateId: UUID,
+          pause: onFirstPoll(async (runId) => {
+            runDir = join(stateRoot, "runtime", "runs", runId);
+            pending = deleteRunRecords(stateRoot, runId);
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            assert.equal(
+              existsSync(join(runDir, "events.jsonl")),
+              true,
+              "a delete must not remove a live run's records out from under it"
+            );
+          })
+        },
+        {
+          projectRoot,
+          flowchart: deletionFlowchart(),
+          childResults: {
+            only: { outcome: "SUCCESS", confidence: validateConfidenceScore(0.9), evidenceIds: ["evd_only"] }
+          }
+        }
+      );
+
+      assert.equal(outcome.status, "COMPLETED", "the run finished undamaged");
+      assert.ok(pending !== undefined && runDir !== undefined);
+      assert.deepEqual(
+        (await pending).removedPaths,
+        [runDir],
+        "the delete that waited reports a removal, not a survivor"
+      );
+      assert.equal(existsSync(runDir), false);
+      await verifyRunRecordsRemoved(stateRoot, outcome.runId);
+    });
+  });
+});
+
+test("a delete that cannot outwait a live run fails closed with the records intact", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withProjectRoot(async (projectRoot) => {
+      let refused: unknown;
+      let survivingLog: string | undefined;
+
+      const outcome = await startFlowchartRun(
+        {
+          stateRoot,
+          router: deletionRouter(),
+          now: () => parseIsoTimestamp("2026-08-24T09:00:00.000Z"),
+          generateId: UUID,
+          pause: onFirstPoll(async (runId) => {
+            refused = await deleteRunRecords(stateRoot, runId, { timeoutMs: 40, retryMs: 5 }).then(
+              (result) => result,
+              (error: unknown) => error
+            );
+            survivingLog = await readFile(
+              join(stateRoot, "runtime", "runs", runId, "events.jsonl"),
+              "utf8"
+            );
+          })
+        },
+        {
+          projectRoot,
+          flowchart: deletionFlowchart(),
+          childResults: {
+            only: { outcome: "SUCCESS", confidence: validateConfidenceScore(0.9), evidenceIds: ["evd_only"] }
+          }
+        }
+      );
+
+      assert.ok(refused instanceof DomainValidationError, "the delete must reject, not return");
+      assert.equal((refused as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+      assert.ok(
+        !(refused instanceof RunRecordsSurvivedError),
+        "a live run is a wait that ran out, not a resurrection"
+      );
+      assert.match(survivingLog ?? "", /RUN_STARTED/, "the refused delete removed nothing");
+      assert.equal(outcome.status, "COMPLETED");
+
+      // Once the run has released the lock, the same delete is clean.
+      const after = await deleteRunRecords(stateRoot, outcome.runId);
+      assert.deepEqual(after.removedPaths, [join(stateRoot, "runtime", "runs", outcome.runId)]);
+    });
   });
 });
 

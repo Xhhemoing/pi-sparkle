@@ -29,7 +29,10 @@ import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
 import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
-import { createEventId } from "../../../src/domain/ids.js";
+import { createEventId, createTaskId } from "../../../src/domain/ids.js";
+import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
+import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { createModelRouter } from "../../../src/supervisor/model-router.js";
 
 // Distinct ids per call: each fixture episode/feedback must be unique.
 let uuidCounter = 0;
@@ -298,10 +301,11 @@ test("delete --run removes the whole runtime run subtree", async () => {
 
 /**
  * `delete --run` prints "removed: <runDir>" only for a removal it verified.
- * Nothing on the run plane locks against a live writer, so the second half of
- * this test is the operator-visible consequence the CLI now has to live with:
- * an executor that outlives the delete recreates the run directory on its
- * next append, and the remedy is to stop it and delete again.
+ * The run lifecycle takes the run lock, but a bare `EventStore` driven from
+ * outside any lifecycle does not, so the second half of this test is the
+ * operator-visible consequence that remains: an appender that outlives the
+ * delete recreates the run directory on its next append, and the remedy is to
+ * stop it and delete again.
  */
 test("delete --run proves the subtree is gone, and re-deletes a run that wrote again", async () => {
   await withStateRoot(async (stateRoot) => {
@@ -380,6 +384,93 @@ test("delete --run waits for whoever holds the run lock, then reports the remova
       "a completed delete leaves no run lock behind"
     );
     assert.doesNotMatch(io.out.join(""), /\.lock/, "the lock is not a record the delete removed");
+  });
+});
+
+/**
+ * The same wait, driven by a real run rather than a hand-held lock: the run
+ * lifecycle holds the run lock (`withRunLifecycleLock`), so `delete --run`
+ * issued while the run is live blocks at the lock and then removes the records
+ * once the run has settled. What the operator no longer sees is the old
+ * outcome — a delete that removed part of a live run's subtree and then
+ * refused with `RUN_RECORDS_SURVIVED`.
+ */
+test("delete --run issued against a live run waits for the run, then removes it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-delete-proj-"));
+    try {
+      const io = capture();
+      let pending: Promise<number> | undefined;
+      let runDir: string | undefined;
+      let probed = false;
+
+      const outcome = await startFlowchartRun(
+        {
+          stateRoot,
+          router: createModelRouter({
+            policyVersion: "router-v1",
+            models: [
+              {
+                id: "cheap",
+                version: "cheap-v1",
+                roles: ["actor", "critic"],
+                maxComplexity: "MEDIUM",
+                estimatedCostUsd: 0.1,
+                estimatedDurationMs: 1_000
+              }
+            ]
+          }),
+          now: () => parseIsoTimestamp("2026-08-24T09:00:00.000Z"),
+          generateId: UUID,
+          pause: {
+            async requestPause() {
+              return { paused: false };
+            },
+            async clearPause() {},
+            async token(runId: RunId) {
+              if (!probed) {
+                probed = true;
+                runDir = join(stateRoot, "runtime", "runs", runId);
+                pending = deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
+                await new Promise((resolve) => setTimeout(resolve, 80));
+                assert.equal(existsSync(runDir), true, "a live run's records are not removed under it");
+              }
+              return { paused: false };
+            }
+          }
+        },
+        {
+          projectRoot,
+          flowchart: {
+            id: "delete-live-run",
+            nodes: [
+              {
+                id: "only",
+                taskId: createTaskId(() => "only"),
+                role: "actor",
+                objective: "Do only",
+                modelPolicy: { allowedModels: ["cheap"] },
+                confidenceThreshold: validateConfidenceScore(0.7),
+                approvalRequired: false
+              }
+            ],
+            edges: []
+          },
+          childResults: {
+            only: { outcome: "SUCCESS", confidence: validateConfidenceScore(0.9), evidenceIds: ["evd_only"] }
+          }
+        }
+      );
+
+      assert.equal(outcome.status, "COMPLETED", "the delete did not damage the run it raced");
+      assert.ok(pending !== undefined && runDir !== undefined);
+      assert.equal(await pending, 0, io.err.join(""));
+      assert.match(io.out.join(""), new RegExp(`removed: .*${outcome.runId}`));
+      assert.equal(existsSync(runDir), false);
+      await verifyRunRecordsRemoved(stateRoot, outcome.runId);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
   });
 });
 

@@ -647,6 +647,20 @@ test("a crash while a run is blocked records no terminal and keeps the block res
   });
 });
 
+/**
+ * The crash terminal this plane records now comes from the shared module
+ * (`run/crash-terminal.ts`), not from a private copy: the three planes had
+ * deliberately identical copies, and a fourth fork is how they would drift.
+ * The behavioural pins above are unchanged by the swap — same in-flight-only
+ * rule, same `run crashed: ` prefix — which is what makes it safe to assert
+ * the source shape here.
+ */
+test("the flowchart plane records its crash terminal through the shared helper", async () => {
+  const source = await readFile(new URL("../../../src/run/flowchart-run.ts", import.meta.url), "utf8");
+  assert.match(source, /import \{ recordCrashTerminal \} from "\.\/crash-terminal\.js";/);
+  assert.doesNotMatch(source, /function recordCrashTerminal/, "no private copy survives the swap");
+  assert.doesNotMatch(source, /function crashReason/, "nor the reason formatter it used");
+});
 
 /**
  * R4-4 pinned that a node still in flight at crash time is re-executed on

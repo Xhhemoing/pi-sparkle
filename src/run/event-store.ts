@@ -13,10 +13,11 @@ const TERMINAL_EVENT_TYPES = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL
  * It sits *beside* the run directory, never inside it: `delete --run` removes
  * the subtree while holding this lock, and a lock file inside the subtree
  * would be removed out from under its own holder. Every holder uses this exact
- * path — `requestPause`, the track loop's questions write, and
- * `deleteRunRecords` — because rebuilding the template anywhere else would put
- * the two sides on different files, the failure `episodeLockPath` exists to
- * prevent on the episode plane.
+ * path — the run lifecycles (`withRunLifecycleLock`, held for a whole run),
+ * `requestPause`, the track loop's questions write, and `deleteRunRecords` —
+ * because rebuilding the template anywhere else would put the two sides on
+ * different files, the failure `episodeLockPath` exists to prevent on the
+ * episode plane.
  *
  * The run plane's two per-step writers (`EventStore.append` below and
  * `CheckpointStore.write`) deliberately do *not* take it; each says why, with
@@ -67,7 +68,8 @@ export interface EventLogRead {
  * What that leaves open, precisely. `appendJsonlLine` recreates a missing
  * directory (ENOENT → `mkdir` → retry), so an append landing inside a
  * concurrent `delete --run` can still put the run subtree back, and this store
- * will not wait for the delete. What it cannot do is make the delete *lie*:
+ * will not wait for the delete — the *run* waits for it, one acquisition
+ * higher up (see below). What it cannot do is make the delete *lie*:
  * the removal is verified under the lock and re-verified after it, so a
  * resurrected directory fails the delete with `RunRecordsSurvivedError`
  * instead of being reported as removed. Measured against an adversarial
@@ -78,11 +80,13 @@ export interface EventLogRead {
  * is convenience, not privacy.
  *
  * The cheap way to buy that convenience is one acquisition per *run* rather
- * than per append, taken by the run lifecycle (`coordinator.ts` /
- * `flowchart-run.ts`) and released at teardown. Those are other modules'
- * files, and it trades the hot-path cost for "a delete waits for a live run,
- * and a killed run leaves a lock an operator must clear" — a posture decision,
- * not a refactor.
+ * than per append, and that is what the run lifecycles now do:
+ * `withRunLifecycleLock` (`coordinator.ts`) wraps `startFlowchartRun`,
+ * `resumeFlowchartRun` and `startParentRun`, so a `delete --run` waits for a
+ * live run instead of racing its appends. This store is unchanged by that —
+ * the acquisition is above it, not in it — and the posture it trades for ("a
+ * pause aimed at a live run waits too, and a killed run leaves a lock an
+ * operator must clear") is stated on the helper.
  */
 export class EventStore {
   private readonly eventsPath: string;

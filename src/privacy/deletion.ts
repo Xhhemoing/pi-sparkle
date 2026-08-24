@@ -192,7 +192,7 @@ function runRecordsSurvived(
       ? `${runDir} was removed and is on disk again (${listed})`
       : `${runDir} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) and is still on disk (${listed})`;
   return new RunRecordsSurvivedError(
-    `run:${runId}: ${what}; refusing to report the delete as successful. A run delete removes the subtree while holding the run's cooperative lock (${lockPath}), so these records were written by one of the writers that does not take it — the run's event appender or its checkpoint writer, i.e. a live run. Stop or cancel the run before deleting it again.`,
+    `run:${runId}: ${what}; refusing to report the delete as successful. A run delete removes the subtree while holding the run's cooperative lock (${lockPath}), and the CLI-reachable run lifecycles hold that same lock for as long as they run — so a delete aimed at a live run waits for it, and only times out. These records were therefore written by a writer that does not take the lock: the run's event appender or its checkpoint writer, driven either by an embedder that does not take the lifecycle lock or by a write that landed after the delete's final verification. Stop or cancel the run before deleting it again.`,
     runDir,
     survivors,
     cause
@@ -258,8 +258,9 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * Which writers take the lock is a measured decision, not a full set: the two
  * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
  * because acquiring per append or per checkpoint costs +22.5% / +17.5% on an
- * end-to-end run. `requestPause` and the track-questions write do. Each
- * exclusion is argued where it is made.
+ * end-to-end run. `requestPause`, the track-questions write, and the run
+ * lifecycles themselves (`withRunLifecycleLock`, one acquisition held for a
+ * whole run) do. Each exclusion is argued where it is made.
  *
  * The verification stays as belt-and-braces (`verifyRunRecordsRemoved`), and
  * it runs twice: once inside the lock, and once after it is released. The lock
@@ -278,10 +279,15 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * a raw `mkdir` + append): every one of the 120 deletes failed closed, and
  * none reported success with records on disk. The same probes against the
  * previous code reported success over records that were already back 5, 2, 0
- * and 5 times out of 30. What the lock does not buy here is a *clean* delete
- * against a live run — that needs the per-step writers to take it too, which
- * costs +22.5% / +17.5% end-to-end (see each writer). Against a live run this
- * delete refuses; against a stopped one it removes and returns.
+ * and 5 times out of 30.
+ *
+ * Those probes drive the run's writers directly, with nothing holding the
+ * lifecycle lock — which is what a live run *does* hold. Against a real live
+ * run the delete no longer reaches the removal at all: it waits, and then
+ * either removes cleanly (the run ended inside the bounded wait) or fails with
+ * `LOCK_TIMEOUT` having touched nothing. The refusal it replaces happened
+ * *after* `rm` had already run, so a delete racing a live run used to destroy
+ * part of that run's records on its way to failing closed.
  *
  * The one limit that cannot be closed from here: a write that lands after the
  * final verification is a new fact, not a resurrection — the same posture the

@@ -28,7 +28,8 @@ import {
 } from "./child-coordinator.js";
 import { groundChildTask } from "./child-grounding.js";
 import { applyChildThreeLine } from "./child-tracking.js";
-import { summarizeClusterMail, type ClusterMailReport } from "./coordinator.js";
+import { summarizeClusterMail, withRunLifecycleLock, type ClusterMailReport } from "./coordinator.js";
+import { recordCrashTerminal } from "./crash-terminal.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import {
   DEFAULT_HUMAN_CONFIDENCE,
@@ -65,6 +66,7 @@ import {
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
+import type { FileLockOptions } from "../persist/file-lock.js";
 import { routingContextFields, type Event, type ModelRoutedPayload } from "./events.js";
 import { injectionEventPayload, validateInjection } from "./injection.js";
 import { createFilePauseController, type PauseController } from "./pause-controller.js";
@@ -89,6 +91,8 @@ export interface FlowchartRunDeps {
   registry?: AgentProfileRegistry;
   /** Enable mailbox + bounded spawn when executing childTasks. */
   cluster?: boolean;
+  /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
+  runLock?: FileLockOptions;
 }
 
 export interface FlowchartRunInput {
@@ -713,39 +717,6 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
   return finish(ctx);
 }
 
-const CRASH_REASON_LIMIT = 500;
-
-/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
-function crashReason(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)).trim();
-  const detail = message === "" ? "unknown error" : message;
-  const bounded = detail.length <= CRASH_REASON_LIMIT ? detail : `${detail.slice(0, CRASH_REASON_LIMIT)}…`;
-  return `run crashed: ${bounded}`;
-}
-
-/**
- * Records the terminal event for a run that died by an escaping error, so
- * replay sees a failure instead of a log that just stops. Two deliberate
- * limits:
- *
- * - Only a log still reading as in flight gets one. A run already recorded as
- *   paused, waiting, blocked, cancelled or finished has an honest status of its
- *   own, and a crash while tearing that down must neither duplicate the
- *   terminal event nor bury a state its operator can still resume.
- * - Every failure here is swallowed. This runs while the run is already
- *   unwinding, and the error on its way out is the one worth reporting.
- */
-async function recordCrashTerminal(ctx: FlowchartLoopContext, error: unknown): Promise<void> {
-  try {
-    const read = await ctx.eventStore.readAll();
-    const status = replayRun(read.events).status;
-    if (status !== "PLANNING" && status !== "RUNNING") return;
-    await ctx.append(ctx.make("RUN_FAILED", { reason: crashReason(error) }));
-  } catch {
-    // Best effort: an append that cannot land must not mask the original error.
-  }
-}
-
 /**
  * The log states a crash leaves resumable. Each one is an answer the operator
  * still owes the run, so {@link recordCrashTerminal} deliberately records no
@@ -884,11 +855,54 @@ export async function startFlowchartRun(
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
   const runId = createRunId(generateId);
+  // Everything that can refuse the run before it has written anything stays
+  // outside the lock: a refused start must leave the state root untouched, and
+  // acquiring the lock would create `runtime/runs/` for a run that never
+  // happened.
   const resolved = resolveLimits(input.limits);
+  if (input.contract !== undefined && input.childTasks !== undefined) {
+    assertCoverageAllowsStart(
+      input.contract,
+      input.childTasks.map((child) => ({
+        id: child.taskId,
+        acceptanceCriteria: child.acceptanceCriteria
+      })),
+      input.resolvedQuestionIds !== undefined ? { resolvedQuestionIds: input.resolvedQuestionIds } : undefined
+    );
+  }
+  if ((input.childTasks?.length ?? 0) > 0 && deps.executor === undefined) {
+    throw new DomainValidationError("flowchart childTasks require an executor");
+  }
   const project = await discoverProject(input.projectRoot, {
     now,
     ...(generateId !== undefined ? { generateId } : {})
   });
+  // From here the run writes records, so it holds the run lock until teardown
+  // has finished: a `delete --run` waits for it rather than removing its
+  // subtree mid-flight. The trade that buys, and the writers it blocks, are
+  // stated on the helper.
+  return withRunLifecycleLock(
+    deps.stateRoot,
+    runId,
+    () => startLockedFlowchartRun(deps, input, { runId, now, generateId, resolved, project }),
+    deps.runLock
+  );
+}
+
+interface StartedRunPreflight {
+  readonly runId: RunId;
+  readonly now: () => IsoTimestamp;
+  readonly generateId: IdGenerator | undefined;
+  readonly resolved: { flowchart: FlowchartRunLimits; maxRounds: number };
+  readonly project: ProjectSnapshot;
+}
+
+async function startLockedFlowchartRun(
+  deps: FlowchartRunDeps,
+  input: FlowchartRunInput,
+  preflight: StartedRunPreflight
+): Promise<FlowchartRunOutcome> {
+  const { runId, now, generateId, resolved, project } = preflight;
   const eventStore = new EventStore(deps.stateRoot, runId);
   const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
   const rootTaskId = createTaskId(generateId);
@@ -919,19 +933,6 @@ export async function startFlowchartRun(
 
   const make = makeEventFactory(runId, now, generateId);
   const append = (event: Event) => eventStore.append(event);
-  if (input.contract !== undefined && input.childTasks !== undefined) {
-    assertCoverageAllowsStart(
-      input.contract,
-      input.childTasks.map((child) => ({
-        id: child.taskId,
-        acceptanceCriteria: child.acceptanceCriteria
-      })),
-      input.resolvedQuestionIds !== undefined ? { resolvedQuestionIds: input.resolvedQuestionIds } : undefined
-    );
-  }
-  if ((input.childTasks?.length ?? 0) > 0 && deps.executor === undefined) {
-    throw new DomainValidationError("flowchart childTasks require an executor");
-  }
   await append(make("PROJECT_DISCOVERED", { project }));
   await append(make("RUN_CREATED", { run }));
   await bindEpisodeToRun({
@@ -1012,6 +1013,22 @@ export async function resumeFlowchartRun(
   deps: FlowchartRunDeps,
   runId: RunId,
   continuation: FlowchartContinuation = {}
+): Promise<FlowchartRunOutcome> {
+  // Same acquisition as a fresh start, and it also serializes a resume against
+  // the run it is resuming: two processes cannot drive one run's records at
+  // once, and neither can drive them while a delete holds the lock.
+  return withRunLifecycleLock(
+    deps.stateRoot,
+    runId,
+    () => resumeLockedFlowchartRun(deps, runId, continuation),
+    deps.runLock
+  );
+}
+
+async function resumeLockedFlowchartRun(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  continuation: FlowchartContinuation
 ): Promise<FlowchartRunOutcome> {
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
