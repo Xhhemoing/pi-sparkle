@@ -53,7 +53,7 @@ export class EventStore {
   async readAll(): Promise<EventLogRead> {
     const { values, recovery } = await readJsonlObjects(
       this.eventsPath,
-      (lineNumber) => new Error(`Corrupt event log line ${lineNumber}`)
+      (lineNumber) => new DomainValidationError(`Corrupt event log line ${lineNumber}`)
     );
     return {
       events: values.map((value) => validateEvent(value)),
