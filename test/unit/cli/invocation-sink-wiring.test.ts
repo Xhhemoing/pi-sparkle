@@ -94,6 +94,22 @@ function functionBody(normalized: string, header: string): string {
   return normalized.slice(start, end);
 }
 
+/**
+ * Same span as `functionBody`, cut out of the raw source. `normalizeSource`
+ * replaces characters one for one, so offsets found in the normalized text
+ * address the same characters in the original — which is what lets the parse
+ * options below be matched by their real (unblanked) flag names.
+ */
+function rawFunctionBody(source: string, header: string): string {
+  const normalized = normalizeSource(source);
+  assert.equal(normalized.length, source.length, "normalizeSource must preserve offsets");
+  const start = normalized.indexOf(header);
+  assert.ok(start >= 0, `${header} must still exist in src/cli/main.ts`);
+  const end = normalized.indexOf("\n}\n", start);
+  assert.ok(end > start, `could not find the end of ${header}`);
+  return source.slice(start, end);
+}
+
 /** Argument text of the call whose `(` sits at `openParen`. */
 function callArguments(body: string, openParen: number, what: string): string {
   let depth = 0;
@@ -173,6 +189,61 @@ test("no createExecutor call anywhere in main.ts is built without an invocation 
 });
 
 /**
+ * Companion pin for the same two call sites, one field over.
+ *
+ * `resumeCommand` used to accept neither `--primary-model` nor `--thinking`, so
+ * a run started on `--primary-model X --thinking high` resumed on whatever the
+ * ambient defaults resolved to. Executor configuration is not recorded
+ * anywhere (no event payload carries it, and `materializeCheckpoint` derives
+ * the checkpoint from the replayed log), so the flags have to be re-accepted
+ * and forwarded here. Like the sink, the effect is invisible to an offline
+ * test — only `--executor pi` reads either value — so the wiring is what gets
+ * pinned, and the mutants below keep the pin from passing vacuously. The
+ * disclosure that goes with it is behavioural, and lives in
+ * `test/unit/cli/resume-executor-config.test.ts`.
+ */
+function assertResumeExecutorConfigWiring(source: string): void {
+  const raw = rawFunctionBody(source, "async function resumeCommand(");
+  assert.match(
+    raw,
+    /"primary-model":\s*\{\s*type:\s*"string"\s*\}/,
+    "resume's parseArgs must accept --primary-model"
+  );
+  assert.match(
+    raw,
+    /\bthinking:\s*\{\s*type:\s*"string"\s*\}/,
+    "resume's parseArgs must accept --thinking"
+  );
+  const body = functionBody(normalizeSource(source), "async function resumeCommand(");
+  assert.match(
+    body,
+    /const\s+thinkingLevel\s*=\s*resolveThinkingLevel\(\s*values\.thinking\s*\)/,
+    "resume must resolve --thinking the same way run does"
+  );
+  assert.match(
+    body,
+    /const\s+modelOverride\s*=[^;]*tryParseModelRef\(/,
+    "resume must parse --primary-model into a model ref the same way run does"
+  );
+  for (const args of executorCallSites(body, "a createExecutor call in resumeCommand")) {
+    assert.match(
+      args,
+      /\bmodelOverride\b/,
+      `resumeCommand rebuilds an executor without the requested model: ${args}`
+    );
+    assert.match(
+      args,
+      /\bthinkingLevel\b/,
+      `resumeCommand rebuilds an executor without the requested thinking level: ${args}`
+    );
+  }
+}
+
+test("both createExecutor call sites in resumeCommand carry the requested executor config", () => {
+  assertResumeExecutorConfigWiring(MAIN_SOURCE);
+});
+
+/**
  * Mutation check: each edit below is a way the wiring could realistically
  * regress, and the pin has to reject every one of them. A pin that passes on
  * these would be decoration.
@@ -224,6 +295,48 @@ for (const mutant of MUTANTS) {
     assert.throws(
       () => {
         assertResumeSinkWiring(mutant.source());
+      },
+      assert.AssertionError,
+      `mutant "${mutant.name}" slipped past the pin`
+    );
+  });
+}
+
+const CONFIG_MUTANTS: readonly { readonly name: string; readonly source: () => string }[] = [
+  {
+    name: "the supervised call site drops the requested config",
+    source: () => mutateResume("}, modelOverride, thinkingLevel),", "}),")
+  },
+  {
+    name: "the flowchart call site drops the requested config",
+    source: () =>
+      mutateResume("          }, modelOverride, thinkingLevel)\n", "          })\n")
+  },
+  {
+    name: "the model override is parsed and then dropped on the way to the executor",
+    source: () =>
+      mutateResume("}, modelOverride, thinkingLevel),", "}, undefined, thinkingLevel),")
+  },
+  {
+    name: "resume stops accepting --primary-model",
+    source: () => mutateResume('      "primary-model": { type: "string" },\n', "")
+  },
+  {
+    name: "resume stops accepting --thinking",
+    source: () => mutateResume('      thinking: { type: "string" },\n', "")
+  },
+  {
+    name: "the thinking flag is accepted but never resolved",
+    source: () =>
+      mutateResume("resolveThinkingLevel(values.thinking)", "resolveThinkingLevel(undefined)")
+  }
+];
+
+for (const mutant of CONFIG_MUTANTS) {
+  test(`the resume config pin fails when ${mutant.name}`, () => {
+    assert.throws(
+      () => {
+        assertResumeExecutorConfigWiring(mutant.source());
       },
       assert.AssertionError,
       `mutant "${mutant.name}" slipped past the pin`

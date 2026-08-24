@@ -243,7 +243,7 @@ Usage:
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
-  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
+  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi] [--primary-model <id>] [--thinking <level>]
   pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--unpause] [--state-root <dir>]
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
   pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
@@ -297,7 +297,10 @@ ChildNodeResult and wins over --executor for those nodes. Optional --executor
 fake|pi runs remaining RUNNING nodes (--executor fake uses the protocol child
 fake, same as --children). Without --results or --executor, leased nodes stall.
 Resume of a flowchart checkpoint continues resumeFlowchartRun (optional --results,
---executor, and --selected / --selected-ids). --supervised still uses M2 DAG
+--executor, and --selected / --selected-ids). A run's executor configuration is
+not recorded, so resume takes --primary-model / --thinking again for the
+executor it rebuilds and prints one stderr line saying what it built (including
+when it fell back to defaults). --supervised still uses M2 DAG
 resume and refuses flowchart checkpoints. Answer on a flowchart waiting run
 requires --selected or --selected-ids, correlates against the stored approval
 plan, and resumes; plain-text --message/--text remains valid for non-flowchart
@@ -1078,6 +1081,56 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
+/**
+ * Says what a resumed executor was actually built from.
+ *
+ * Nothing records the `--primary-model`/`--thinking` a run started with: no
+ * event payload carries executor configuration, and `materializeCheckpoint`
+ * derives `checkpoint.json` from the replayed log, so a field written there
+ * would not survive the next rebuild. Resume therefore takes the flags again
+ * (see `resumeCommand`) and discloses which configuration it built — including
+ * the silent fallback to ambient defaults, which is the case that made a run
+ * started on `--primary-model X --thinking high` continue on neither.
+ *
+ * `kind` is the executor resume is about to build, or undefined when it builds
+ * none (a plain checkpoint rebuild, or a flowchart resume without --executor).
+ */
+export function describeResumeExecutorConfig(input: {
+  readonly kind: string | undefined;
+  readonly primaryModelFlag: string | undefined;
+  readonly modelOverride: { readonly providerId: string; readonly modelId: string } | undefined;
+  readonly thinkingFlag: string | undefined;
+  readonly thinkingLevel: CliThinkingLevel;
+}): string | undefined {
+  const flagged = input.primaryModelFlag !== undefined || input.thinkingFlag !== undefined;
+  if (input.kind === undefined) {
+    return flagged
+      ? "warning: resume ignored --primary-model/--thinking: this resume rebuilds no executor (pass --executor to rebuild one)"
+      : undefined;
+  }
+  if (input.kind !== "pi") {
+    return flagged
+      ? `warning: resume ignored --primary-model/--thinking: they configure --executor pi, and this resume builds the ${input.kind} executor`
+      : undefined;
+  }
+  const model =
+    input.primaryModelFlag === undefined
+      ? "the default primary model"
+      : input.modelOverride === undefined
+        ? `primary model ${input.primaryModelFlag} (not a provider/model pair, so the default channel still applies)`
+        : `primary model ${input.modelOverride.providerId}/${input.modelOverride.modelId}`;
+  if (!flagged) {
+    return (
+      `warning: resume rebuilt the pi executor on defaults (${model}, thinking ${input.thinkingLevel}); ` +
+      "the run's own --primary-model/--thinking are not recorded, so pass them again if it did not start on defaults"
+    );
+  }
+  return (
+    `note: resume rebuilt the pi executor with ${model} and thinking ${input.thinkingLevel}; ` +
+    "the run's own executor configuration is not recorded, so this is what you asked for now, not what it started with"
+  );
+}
+
 async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -1086,6 +1139,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       "state-root": { type: "string" },
       supervised: { type: "boolean", default: false },
       executor: { type: "string" },
+      "primary-model": { type: "string" },
+      thinking: { type: "string" },
       results: { type: "string" },
       selected: { type: "string", multiple: true },
       "selected-ids": { type: "string" },
@@ -1101,6 +1156,14 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --run <runId> from a prior run or inspect"
     });
   }
+  if (values.thinking !== undefined && !isThinkingLevel(values.thinking)) {
+    return cliFail(io, {
+      command: "resume",
+      stage: "parse-args",
+      message: `--thinking must be one of ${THINKING_LEVELS.join(", ")}`,
+      next: `pass --thinking ${THINKING_LEVELS.join("|")}`
+    });
+  }
   const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
   const wantsFlowchartFlags =
     values.results !== undefined || selectedActionIds !== undefined || values.text !== undefined;
@@ -1112,6 +1175,21 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       next: "omit flowchart flags when using --supervised"
     });
   }
+  // Same resolution `runCommand` uses, so a resumed executor can be given the
+  // configuration the run started with instead of silently taking defaults.
+  const thinkingLevel = resolveThinkingLevel(values.thinking);
+  const modelOverride =
+    values["primary-model"] !== undefined ? tryParseModelRef(values["primary-model"]) : undefined;
+  const discloseExecutorConfig = (kind: string | undefined): void => {
+    const notice = describeResumeExecutorConfig({
+      kind,
+      primaryModelFlag: values["primary-model"],
+      modelOverride,
+      thinkingFlag: values.thinking,
+      thinkingLevel
+    });
+    if (notice !== undefined) io.stderr(`${notice}\n`);
+  };
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   // Same telemetry sink `runCommand` builds: a resumed run makes real model
   // calls, so without this its invocations never reach `invocations.jsonl` and
@@ -1133,6 +1211,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   requireDurableFlowchartCheckpoint(runId, read.events, existing);
   if (values.supervised === true) {
     const executorKind = values.executor ?? "fake-children";
+    discloseExecutorConfig(executorKind);
     const running = resumeSupervisedRun(
       {
         stateRoot,
@@ -1140,7 +1219,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
           onInvocation: (invocation) => {
             void invocationSink(invocation);
           }
-        }),
+        }, modelOverride, thinkingLevel),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
       runId
@@ -1175,13 +1254,16 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     if ((token.paused || replayRun(read.events).status === "PAUSED") && values.unpause !== true) {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
+    discloseExecutorConfig(
+      values.executor !== undefined ? flowchartExecutorKind(values.executor) : undefined
+    );
     const executor =
       values.executor !== undefined
         ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
             onInvocation: (invocation) => {
               void invocationSink(invocation);
             }
-          })
+          }, modelOverride, thinkingLevel)
         : undefined;
     const outcome = await resumeFlowchartRun(
       {
@@ -1211,6 +1293,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   if (wantsFlowchartFlags || values.unpause === true) {
     throw new DomainValidationError("resume --results/--selected/--text/--unpause require a flowchart checkpoint");
   }
+  discloseExecutorConfig(undefined);
   const state = replayRun(read.events);
   const checkpoint = validateCheckpoint(materializeCheckpoint(state, nowIso()));
   await checkpointStore.write(checkpoint);
