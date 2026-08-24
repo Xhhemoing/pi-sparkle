@@ -452,3 +452,9 @@
 | S7-I-2 | run 路径 preferences.json 同步水合优化 | 0.22–1.07ms@≤1000 观测 + store 切片外 |
 | S7-I-3 | run 路径配置读取 Promise.all 并行 | µs 级 + 双故障竞态族（S2-J-10/S4-J-2/S7-G-5） |
 | S7-I-4 | per-provider 表推广到 models/auth 一次性命令 | 一次性 CLI 类 + 凭据面 |
+| S7-J-1 | packet pickCanonical 拷贝+排序取首换 first-on-tie min-scan | 等价但 0.02–0.04ms/run |
+| S7-J-2 | packet requiredFacts/relevantFiles 双 filter+map 融合 | 408–443ns/编译；S4-J-4 同族 |
+| S7-J-3 | closure legacyMatch 模板字面量提出 .some 回调 | 419–445ns/闭合判定 |
+| S7-J-4 | rebuildViews 冗余 Map.set 条件化 | 8.8–10.5µs 被 saveToDisk 地板吞没 |
+| S7-J-5 | redaction 无文本时跳过 needles 预处理 | 稀有形态 1.37–1.40µs + I/O 支配 |
+| S7-J-6 | saveToDisk mkdir 缓存化 | 自愈语义收窄（外部删目录后 ENOENT）；1.08µs |
