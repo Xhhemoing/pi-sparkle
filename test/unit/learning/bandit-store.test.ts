@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { createProjectId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import {
+  BANDIT_STATE_UNREADABLE_CODE,
+  BanditStateUnreadableError,
   loadProjectBandit,
   updateProjectBandit
 } from "../../../src/learning/bandit-store.js";
@@ -89,33 +92,156 @@ test("creates, updates, and loads project state only from the adaptation plane",
   });
 });
 
-test("corrupt or structurally invalid bandit JSON fails closed", async () => {
+test("a project with no bandit yet is absent; ENOENT is the one silent path", async () => {
+  await withTempDir(async (stateRoot) => {
+    assert.equal(await loadProjectBandit(stateRoot, join(stateRoot, "never-run")), undefined);
+  });
+});
+
+test("a torn bandit file fails closed instead of reading as no bandit", async () => {
+  await withTempDir(async (stateRoot) => {
+    const projectRoot = join(stateRoot, "project");
+    const learned = await updateProjectBandit(stateRoot, projectRoot, [
+      taskSuccess("model-a", "PASS"),
+      taskSuccess("model-a", "FAIL"),
+      taskSuccess("model-b", "PASS")
+    ]);
+    const path = expectedBanditPath(stateRoot, projectRoot);
+    const torn = `${JSON.stringify(learned, null, 2)}\n`.slice(0, 42);
+    await writeFile(path, torn, "utf8");
+
+    await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
+      assert.ok(error instanceof BanditStateUnreadableError);
+      assert.ok(error instanceof DomainValidationError);
+      assert.equal(error.code, BANDIT_STATE_UNREADABLE_CODE);
+      assert.equal(error.name, "BanditStateUnreadableError");
+      assert.equal(error.path, path);
+      assert.ok(error.cause instanceof SyntaxError);
+      assert.match(error.message, /not valid JSON/);
+      assert.match(error.message, /cannot be recomputed from any log/);
+      return true;
+    });
+
+    // The update refuses for the same reason, before writing: the damaged bytes are still
+    // there to repair, where the pre-atomic store would have published a fresh state over
+    // them and lost the learned pulls for good.
+    await assert.rejects(
+      updateProjectBandit(stateRoot, projectRoot, [taskSuccess("model-b", "PASS")]),
+      (error: unknown) => {
+        assert.ok(error instanceof BanditStateUnreadableError);
+        assert.equal(error.code, BANDIT_STATE_UNREADABLE_CODE);
+        return true;
+      }
+    );
+    assert.equal(await readFile(path, "utf8"), torn);
+    await assert.rejects(access(`${path}.lock`), { code: "ENOENT" });
+  });
+});
+
+test("an empty bandit file is damage, not a project that has never learned", async () => {
   await withTempDir(async (stateRoot) => {
     const projectRoot = join(stateRoot, "project");
     const path = expectedBanditPath(stateRoot, projectRoot);
     await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "", "utf8");
 
-    await writeFile(path, '{"arms":', "utf8");
-    assert.equal(await loadProjectBandit(stateRoot, projectRoot), undefined);
+    await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
+      assert.ok(error instanceof BanditStateUnreadableError);
+      assert.match(error.message, /the file is empty/);
+      return true;
+    });
+  });
+});
 
+test("every damaged bandit shape is refused by name, and none of them resets the file", async () => {
+  const core = {
+    arms: ["model-a"],
+    pulls: { "model-a": 4 },
+    rewardSum: { "model-a": 3 },
+    explorationsUsed: 0,
+    highRiskExplorations: 0
+  };
+  const damaged: readonly (readonly [unknown, RegExp])[] = [
+    [[], /top level is not a JSON object/],
+    [null, /top level is not a JSON object/],
+    [{ ...core, arms: "model-a" }, /arms is not an array/],
+    [{ ...core, arms: ["model-a", " "] }, /arms holds an entry that is not a non-empty arm id/],
+    [{ ...core, arms: ["model-a", "model-a"] }, /arms holds duplicate ids/],
+    [{ ...core, explorationsUsed: -1 }, /explorationsUsed is not a non-negative integer/],
+    [{ ...core, highRiskExplorations: 1.5 }, /highRiskExplorations is not a non-negative integer/],
+    [{ ...core, pulls: [] }, /pulls is not a JSON object/],
+    [{ arms: core.arms, pulls: core.pulls, explorationsUsed: 0, highRiskExplorations: 0 }, /rewardSum is not a JSON object/],
+    [{ ...core, pulls: { "model-a": 4, "model-z": 1 } }, /a counter names model-z, which is not in arms/],
+    [{ ...core, pulls: {} }, /pulls\.model-a is not a non-negative integer/],
+    [{ ...core, rewardSum: { "model-a": "3" } }, /rewardSum\.model-a is not a finite non-negative number/],
+    [{ ...core, rewardSum: { "model-a": 5 } }, /rewardSum\.model-a exceeds its pull count/]
+  ];
+
+  await withTempDir(async (stateRoot) => {
+    for (const [index, entry] of damaged.entries()) {
+      const [document, expected] = entry;
+      const projectRoot = join(stateRoot, `project-${index}`);
+      const path = expectedBanditPath(stateRoot, projectRoot);
+      const bytes = `${JSON.stringify(document, null, 2)}\n`;
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, bytes, "utf8");
+
+      await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
+        assert.ok(error instanceof BanditStateUnreadableError, `case ${index}`);
+        assert.match(error.message, expected, `case ${index}`);
+        return true;
+      });
+      await assert.rejects(
+        updateProjectBandit(stateRoot, projectRoot, [taskSuccess("model-b", "PASS")]),
+        { code: BANDIT_STATE_UNREADABLE_CODE },
+        `case ${index} must refuse the update too`
+      );
+      assert.equal(await readFile(path, "utf8"), bytes, `case ${index} must survive untouched`);
+    }
+  });
+});
+
+test("unknown keys from a newer writer are version skew: the learned core survives", async () => {
+  await withTempDir(async (stateRoot) => {
+    const projectRoot = join(stateRoot, "project");
+    const path = expectedBanditPath(stateRoot, projectRoot);
+    await mkdir(dirname(path), { recursive: true });
+    const core = {
+      arms: ["model-a"],
+      pulls: { "model-a": 7 },
+      rewardSum: { "model-a": 5 },
+      explorationsUsed: 3,
+      highRiskExplorations: 0
+    };
     await writeFile(
       path,
-      JSON.stringify({
-        arms: "model-a",
-        pulls: { "model-a": 100 },
-        rewardSum: { "model-a": 100 },
-        explorationsUsed: 0,
-        highRiskExplorations: 0
-      }),
+      `${JSON.stringify({ ...core, schemaVersion: 2, decayHalfLifeRuns: 30 }, null, 2)}\n`,
       "utf8"
     );
-    assert.equal(await loadProjectBandit(stateRoot, projectRoot), undefined);
 
-    const recovered = await updateProjectBandit(stateRoot, projectRoot, [
-      taskSuccess("model-b", "PASS")
+    // Half one: the document loads, and the unknown keys are dropped at the read boundary.
+    assert.deepEqual(await loadProjectBandit(stateRoot, projectRoot), core);
+
+    // Half two: the update keeps the learned counters instead of restarting from zero, and
+    // republishes without the keys it never understood — the documented, accepted loss.
+    const updated = await updateProjectBandit(stateRoot, projectRoot, [
+      taskSuccess("model-a", "PASS")
     ]);
-    assert.deepEqual(recovered.arms, ["model-b"]);
-    assert.deepEqual(await loadProjectBandit(stateRoot, projectRoot), recovered);
+    assert.deepEqual(updated, {
+      arms: ["model-a"],
+      pulls: { "model-a": 8 },
+      rewardSum: { "model-a": 6 },
+      explorationsUsed: 3,
+      highRiskExplorations: 0
+    });
+    const republished: unknown = JSON.parse(await readFile(path, "utf8"));
+    assert.deepEqual(Object.keys(republished as Record<string, unknown>).sort(), [
+      "arms",
+      "explorationsUsed",
+      "highRiskExplorations",
+      "pulls",
+      "rewardSum"
+    ]);
   });
 });
 
