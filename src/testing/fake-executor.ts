@@ -10,9 +10,12 @@ import { SUPERVISOR } from "../protocol/v1.js";
  * no-op that looks like it worked.
  */
 export class FakeExecutor implements AgentExecutor {
+  readonly requests: AgentExecutionRequest[] = [];
+
   constructor(private readonly steps: readonly ExecutionEvent[]) {}
 
-  async *execute(_request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.requests.push(request);
     if (signal.aborted) {
       yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
       return;

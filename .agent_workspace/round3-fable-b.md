@@ -1,67 +1,103 @@
-# Round 3 report — R3-fable-B (overlay + README alignment)
-
 MODEL_SLUG: claude-fable-5-thinking-xhigh
 
-Date: 2026-08-24. Branch `cursor/pi-adapt-aux-features-e1e3` (worked in place per orchestrator instructions; no commit — parent handles git).
+# Round 3 report — R3-fable-B (kernel-reuse overlay: ADR-001 gate + claim refresh)
 
-## What changed
+Date: 2026-08-24. Branch `cursor/pi-kernel-reuse-e1e3`. No `src/` writes, no
+commit (parent commits). One file edited plus this report.
 
-### 1. Overlay flipped from "planned" to "landed" (critical fix)
+## Files changed
 
-- `.agents/skills/pi-sparkle/SKILL.md` — knob 3 of the "Thinking level — three
-  knobs" list no longer says `run --thinking <level>` "does NOT exist". It now
-  states the flag is landed and listed in the `pi-sparkle help` USAGE, with
-  precedence flag > `PI_THINKING_LEVEL` > `off`, per-run only and never
-  persisted — explicitly contrasted with the TUI `/thinking` selector (knob 1),
-  which is session-scoped and saved with Ctrl+S. No claim of TUI persistence
-  was added.
-- `.agents/skills/pi-sparkle/references/pi-version-adapt.md` — checklist item 5
-  updated the same way; the bump-time instruction is now "confirm the USAGE
-  still lists the flag" instead of "cite it only after it lands".
+- `.agents/skills/pi-sparkle/references/kernel-reuse.md` — four edits, no
+  new reference files, SKILL.md untouched:
+  1. **Item 1 gate is now import-specifier, not raw substring.** The
+     merge gate reads
+     `rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/
+     --glob '!src/pi-adapter/**'` — the exact pattern
+     `docs/kernel-reuse.md` already uses, taken verbatim so the two
+     gates cannot drift. Rationale is stated inline: ADR-001 confines
+     *imports*, and `src/pi-compat/check.ts` legitimately names both
+     packages in plain string literals to read the pins; the old
+     substring grep flagged those six lines as breaches, and a gate that
+     cries wolf gets ignored.
+  2. **Item 2 gains a second dated per-layer snapshot: the cost
+     ceiling.** `startRun` forwards `RunLimits.maxCostUsd` on the
+     execution request; `startParentRun` hands it to the child builder,
+     which applies the tighter of the per-task and run-level caps;
+     the contract carries `AgentExecutionRequest.maxCostUsd`; the
+     adapter's `CostGate` arms only when cap *and* catalog prices both
+     exist and installs Pi's `shouldStopAfterTurn` only when armed —
+     unpriced models leave the run visibly uncapped via `onCostGate`,
+     never priced with invented USD.
+  3. **Item 6 documents the cost-stop vs steer ordering collision** (the
+     brief's "known collision"): Pi consults `shouldStopAfterTurn`
+     *before* draining the steering queue, so text steered during the
+     ceiling-crossing turn is dropped with the attempt; reordering would
+     need a Pi fork; the loss is auditable through the already-persisted
+     `STEER_INJECTED` event plus the "stopped at the cost ceiling"
+     `TASK_RESULT`. Wording mirrors the adapter's own comment at
+     `src/pi-adapter/pi-executor.ts` so the overlay never outruns the
+     source of truth.
+  4. **Verification footer** uses the same import-specifier gate and the
+     claim-gate grep now includes `maxCostUsd`.
+- `.agent_workspace/round3-fable-b.md` — this report (replaces the
+  aux-features-loop report previously at this path, per ownership
+  convention; that content is preserved in git history).
 
-Both claims were verified against `src/cli/main.ts` before editing (not from
-the brief alone): `resolveThinkingLevel(flag, env)` resolves flag ?? env ??
-"off", the run USAGE lines list `[--thinking <level>]`, and the help text says
-the flag "sets the reasoning effort for this run only and wins over
-PI_THINKING_LEVEL … never persists". A repo-wide grep of
-`.agents/skills/pi-sparkle/` confirms no other stale "planned" claim remains.
+## Evidence — final re-grep immediately before this report
 
-### 2. README (Commands / thinking / probe rows only)
+- **Gate correctness, both directions.** Ungated, the import-specifier
+  pattern hits all 11 real imports (static `from "..."`, the dynamic
+  `await import("@earendil-works/pi-ai/providers/all")` in
+  `src/pi-adapter/runtime.ts`), every one inside `src/pi-adapter/`.
+  Gated with `--glob '!src/pi-adapter/**'` it returns nothing (exit 1).
+  The old substring form returned six false positives, all
+  `src/pi-compat/check.ts` pin-reading strings.
+- **Cost cap — wired end to end, which is *newer than the brief*.** The
+  brief said "Coordinator does not yet pass maxCostUsd"; that is now
+  stale. Current grep: `src/run/coordinator.ts:250` (`startRun` request
+  spread), `:455` (`startParentRun` → `ChildCoordinator` dep);
+  `src/run/child-coordinator.ts:334-339` (`costCapFor` = min of per-task
+  and run-level caps), `:357` (child `Run.limits`), `:542` (child
+  execution request). This landed *between two of my greps minutes
+  apart* — the first `maxCostUsd` grep of this session showed no
+  `src/run/` hits; a `Read` moments later showed line 250 populated.
+  Another Round 3 agent was wiring target 1 concurrently. The overlay
+  records the incident as the sharpest instance yet of its own
+  re-grep-before-claiming rule.
+- **Steer — all three layers still wired.** Facade
+  `src/pi-adapter/kernel.ts:183`, contract `src/execution/contract.ts:53`,
+  `PiAgentExecutor.steerText` (`src/pi-adapter/pi-executor.ts:427` — the
+  line number moved from 420 to 427 during this session; the overlay
+  cites paths, not line numbers, so it is robust to this drift),
+  product `RunningRun.steer` via `SteerChannel` in
+  `src/run/coordinator.ts`, both `startRun` and `startParentRun`.
+- **Ordering caveat source.** `src/pi-adapter/pi-executor.ts:294-299`
+  comment: hook consulted before the steering drain, reorder needs a Pi
+  fork, auditable via STEER_INJECTED + TASK_RESULT. Item 6's new text is
+  a restatement of exactly that.
+- **Pin unchanged.** `package.json:48-49` both `0.84.3`.
+- `rg -n "test.skip" test/` → no matches; the steer-inflight skip the
+  brief flagged is gone (fixed by its owner, not me — that file showed
+  as modified by a concurrent agent).
 
-- The provider-setup section's thinking line now reads: `PI_THINKING_LEVEL`
-  with the full level list **including `max`**, plus the `--thinking <level>`
-  per-run override on `run` (wins over the env var, never persists) and the
-  Google `xhigh`/`max` silent-clamp warning (documented warning only, per the
-  Round 3 target — no provider clamp change).
-- The Commands-table `run` row now lists `--thinking` among the flags.
-- `pnpm pi:probe` row: **already present** in the Commands table (adapter-only
-  ADR-001 / `GoogleThinkingLevel` probe) — no change needed.
+## Invariants kept
 
-## Explicitly not done (by design)
+- 1–2 reference cap: one existing reference edited; no new reference
+  files, no new cross-reference obligations; SKILL.md routing row and
+  Activation Rule untouched.
+- ADR-001/ADR-006 framing intact — the gate got *stricter about what it
+  claims* (imports) while still catching every real import form
+  (`from`, `import(`, `require(`).
+- Thinking text never in logs (item 4 untouched); steer text remains
+  documented as loggable with its actor.
+- No `src/`, `docs/`, `test/`, `package.json`, or `prompts/` writes; no
+  commit.
 
-- No second skill added; nested-discovery demo data stays in
-  `test/fixtures/pi-0843-skills/`, and both SKILL.md and the reference still
-  forbid parking demo skills under `.agents/skills/`.
-- 1–2 reference-cap language untouched (SKILL.md routing section, Activation
-  Rule, and the cap note in pi-version-adapt.md all intact).
-- ADR-006 overlay-not-extension language untouched (frontmatter
-  `compatibility`, "Still no extension" bullet, prompt rules).
-- `prompts/sparkle.md` inspected — it carries no planned/landed claim about
-  `--thinking`, so it was left unchanged.
-- No `src/` edits, no git commit, no README rewrite beyond the three scoped
-  spots.
+## Leftovers for other owners
 
-## Cross-checks against "do not regress"
-
-- Pin prose unchanged (0.84.3 matching pair; SKILL.md still says read
-  `package.json` / run the shipped commands, never trust prose).
-- pi-compat flag names in SKILL.md already correct (offline default,
-  `--online` opt-in) — matches the USAGE in `src/cli/main.ts`.
-- Probe remains adapter-source-only in all docs I touched.
-
-## Files touched
-
-- `.agents/skills/pi-sparkle/SKILL.md` (knob 3 only)
-- `.agents/skills/pi-sparkle/references/pi-version-adapt.md` (item 5 only)
-- `README.md` (thinking line + `run` Commands row only)
-- `.agent_workspace/round3-fable-b.md` (this report)
+1. `docs/kernel-reuse.md` has no cost-cap capability row yet (its table
+   covers streaming/abort/steer). The doc owner should add one; the
+   overlay's item 2 snapshot has the per-layer evidence ready to lift.
+2. If the workspace moves again before the parent commits (it moved
+   twice during this session), re-run the overlay's three verification
+   greps — every claim above is a 2026-08-24 snapshot.

@@ -290,6 +290,13 @@ export class PiAgentExecutor implements AgentExecutor {
         }),
       // Only installed when the gate can actually price this model; an
       // unpriced run must not carry a predicate that can never fire.
+      //
+      // Ordering to know about: the loop consults this hook *before* it drains
+      // the steering queue, so text steered during the turn that crosses the
+      // ceiling is dropped with the rest of the attempt rather than delivered.
+      // Reordering it would need a Pi fork. What makes the loss auditable is
+      // the pair of records already written: a STEER_INJECTED event, and a
+      // TASK_RESULT saying the run stopped at the cost ceiling.
       gate.armed ? { stopAfterTurn: () => gate.requestStopIfExceeded() } : {}
     );
 

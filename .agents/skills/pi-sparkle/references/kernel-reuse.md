@@ -19,10 +19,15 @@ the runtime never takes a dependency on `pi-coding-agent`.
    `src/pi-adapter/` rather than reaching around it. Gate before merging:
 
    ```
-   rg -n "@earendil-works" src/ --glob '!src/pi-adapter/**'
+   rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob '!src/pi-adapter/**'
    ```
 
-   must return nothing.
+   must return nothing. The gate matches import specifiers, not the raw
+   `@earendil-works` substring: ADR-001 confines *imports*, and
+   `src/pi-compat/check.ts` legitimately names both packages in plain
+   string literals to read the pins. A substring grep flags those as
+   breaches, and a gate that cries wolf gets ignored. This is the same
+   pattern `docs/kernel-reuse.md` uses — keep the two in lockstep.
 
 2. **Verify wiring before claiming it — per layer.** A capability climbs
    several layers, and each needs its own grep-plus-test evidence: Pi's
@@ -49,6 +54,22 @@ the runtime never takes a dependency on `pi-coding-agent`.
      `steer` adds a conversational turn the model itself sees.
      `test/integration/m0/steer.test.ts` exercises delivery, actor
      logging, and the refusal paths.
+
+   Second capability, same discipline — the cost ceiling, verified
+   2026-08-24: `startRun` forwards `RunLimits.maxCostUsd` on the
+   execution request and `startParentRun` hands it to the child builder,
+   which applies the tighter of the per-task and run-level caps
+   (`src/run/coordinator.ts`, `src/run/child-coordinator.ts`); the
+   contract carries `AgentExecutionRequest.maxCostUsd`
+   (`src/execution/contract.ts`); the adapter's `CostGate`
+   (`src/pi-adapter/cost-gate.ts`) arms only when the cap *and* catalog
+   prices both exist, and installs Pi's `shouldStopAfterTurn` only when
+   armed — an unpriced model means the gate reports itself disarmed via
+   `onCostGate` and the run continues visibly uncapped, never priced
+   with invented USD. `test/integration/pi-adapter/cost-stop.test.ts`
+   exercises the stop. The product wiring landed *between two greps
+   minutes apart* while this snapshot was written — the sharpest version
+   yet of the caution below.
 
    The claim history is the caution: on this same date the grep went from
    zero matches (the facade was a target, not a fact) to facade-only to
@@ -96,6 +117,18 @@ the runtime never takes a dependency on `pi-coding-agent`.
    optional on the facade; treat it as advisory continuity, not a
    durability guarantee.
 
+   The cost ceiling (item 2) is a second drop path: Pi consults the
+   `shouldStopAfterTurn` hook *before* draining the steering queue
+   (pi-agent-core 0.84.3 loop order), so text steered during the turn
+   that crosses the ceiling is dropped with the attempt — reordering
+   would need a Pi fork. The loss is auditable, not silent: read
+   `STEER_INJECTED` as accepted into the queue, not seen by the model;
+   on a cost-stopped run it sits beside the gate's "stopped" record and
+   a `TASK_RESULT` saying the run stopped at its ceiling, and nothing
+   claims the model saw the text. Full mechanism and the declined
+   reorder: `docs/kernel-reuse.md`, "A cost stop outranks a queued
+   steer".
+
 ## Anti-patterns
 
 - Importing Pi types into feature code "just for the event union" — that
@@ -111,8 +144,9 @@ the runtime never takes a dependency on `pi-coding-agent`.
 ## Verification before reporting
 
 ```
-rg -n "@earendil-works" src/ --glob '!src/pi-adapter/**'   # must be empty
-rg -n "SparkleKernel|steerText|followUpText" src/           # claim gate
+rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob '!src/pi-adapter/**'
+                                                            # imports only; must be empty
+rg -n "SparkleKernel|steerText|followUpText|maxCostUsd" src/  # claim gate
 rg -n "0\.84\.3" package.json                               # pin unchanged
 ```
 

@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { defaultRunLimits } from "../../../src/domain/limits.js";
 import type { AgentExecutor } from "../../../src/execution/contract.js";
 import { GatedExecutor, FakeExecutor } from "../../../src/testing/fake-executor.js";
 import { startRun, type CoordinatorDeps } from "../../../src/run/coordinator.js";
@@ -67,6 +68,38 @@ test("a successful run records the full event sequence and a valid checkpoint", 
     const replayed = replayRun(outcome.events);
     assert.equal(replayed.status, "COMPLETED");
     assert.deepEqual(replayed.agentOutcomes, outcome.checkpoint.agentOutcomes);
+  });
+});
+
+test("the coordinator forwards a configured max cost to the executor request", async () => {
+  await withTempRoot(async (stateRoot, projectRoot) => {
+    const executor = new FakeExecutor([{ type: "EXECUTION_FINISHED", outcome: "SUCCESS" }]);
+    const running = startRun(deps(stateRoot, executor), {
+      projectRoot,
+      objective: "Audit the project",
+      limits: { ...defaultRunLimits(), maxCostUsd: 0.75 }
+    });
+
+    await running.done;
+
+    assert.equal(executor.requests.length, 1);
+    assert.equal(executor.requests[0]?.maxCostUsd, 0.75);
+  });
+});
+
+test("the coordinator leaves max cost unset when run limits omit it", async () => {
+  await withTempRoot(async (stateRoot, projectRoot) => {
+    const executor = new FakeExecutor([{ type: "EXECUTION_FINISHED", outcome: "SUCCESS" }]);
+    const running = startRun(deps(stateRoot, executor), {
+      projectRoot,
+      objective: "Audit the project",
+      limits: defaultRunLimits()
+    });
+
+    await running.done;
+
+    assert.equal(executor.requests.length, 1);
+    assert.equal(executor.requests[0]?.maxCostUsd, undefined);
   });
 });
 

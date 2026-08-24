@@ -62,17 +62,17 @@ P0 leftover: inject→steer still unwired. P1: shouldStopAfterTurn / maxCostUsd 
 
 Live `RunningRun.steer` + adapter cost gate (cap not forwarded from coordinator yet). Brief: `.agent_workspace/R2-KERNEL-BRIEF.md`.
 
-### Round 3 — in progress (SOTA close-out)
+### Round 3 — complete (2026-08-24)
 
-Read `.agent_workspace/R2-KERNEL-BRIEF.md`. No commit.
+All 6 delivered. `RunLimits.maxCostUsd` now reaches `AgentExecutionRequest` on parent and child paths (tighter of run-level and per-task caps). Live steer is covered through a real kernel; Pi still consults the cost stop before draining the steer queue, and that drop is documented rather than forked. Overlay ADR-001 gate is import-specifier form.
 
-| Agent | Model | Owns | Must not touch |
-|---|---|---|---|
-| R3-fable-A | `claude-fable-5-thinking-xhigh` | docs: cost-stop vs steer order; coordinator maxCostUsd wiring called out; `.agent_workspace/round3-fable-a.md` | `src/` except you must not |
-| R3-fable-B | `claude-fable-5-thinking-xhigh` | overlay ADR-001 import-specifier grep; per-layer claims after R3 wiring, `.agent_workspace/round3-fable-b.md` | `src/` |
-| R3-opus-A | `claude-opus-5-thinking-high-fast` | pass `run.limits.maxCostUsd` into execute() parent+child, `.agent_workspace/round3-opus-a.md` | overlay |
-| R3-opus-B | `claude-opus-5-thinking-high-fast` | unskip `steer-inflight.test.ts`; document or safely handle cost-stop dropping steer; `.agent_workspace/round3-opus-b.md` | `src/pi-adapter/cost-gate.ts` arithmetic |
-| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | tests that coordinator forwards maxCostUsd; `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
-| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | run `pnpm gate` and fix test/lint in owned test files; `.agent_workspace/round3-gpt-b.md` | `src/pi-adapter/kernel.ts` API shape |
+| Agent | Model | Outcome |
+|---|---|---|
+| R3-fable-A | `claude-fable-5-thinking-xhigh` | Docs: cost-stop outranks queued steer; coordinator forwarding recorded |
+| R3-fable-B | `claude-fable-5-thinking-xhigh` | Overlay grep = import specifiers; cost-cap and steer claims re-grepped |
+| R3-opus-A | `claude-opus-5-thinking-high-fast` | Forward `maxCostUsd` parent + child + supervisor |
+| R3-opus-B | `claude-opus-5-thinking-high-fast` | Replaced skip with kernel-backed inflight steer tests; comment at stop hook |
+| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | Coordinator/child tests for set and unset caps |
+| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `pnpm gate` during the round (re-run by parent after commit) |
 
-Read `.agent_workspace/R2-KERNEL-BRIEF.md`. No commit.
+Leftovers (out of this 3-round epic): CLI verb for live steer; `followUpText`/`reset`/`sessionId` still facade-only; no `onCostGate` wiring from CLI; cap is per-`execute()`, not a run-total accumulator.

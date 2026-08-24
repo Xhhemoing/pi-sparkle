@@ -345,6 +345,7 @@ export async function runSupervisorRounds(
       project: ctx.project,
       registry: deps.registry,
       maxConcurrentTasks: limits.maxConcurrentTasks,
+      ...(limits.maxCostUsd !== undefined ? { maxCostUsd: limits.maxCostUsd } : {}),
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });

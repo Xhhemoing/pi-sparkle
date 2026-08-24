@@ -1,29 +1,27 @@
+MODEL_SLUG: gpt-5.6-sol-xhigh-fast
+
 # Round 3 — R3-gpt-A
 
 ## Changes
 
-- Kept the Pi 0.84.3 discovery example exclusively under
-  `test/fixtures/pi-0843-skills/`.
-- Extended `test/unit/pi-compat/skill-discovery-0843.test.ts` to assert:
-  - the nested `SKILL.md` has non-empty skill frontmatter with the expected
-    `name` and `description`;
-  - grouping `README.md` and `AGENTS.md` do not declare frontmatter;
-  - no `SKILL.md` under `.agents/skills/` copies the fixture skill.
-- Added `test/unit/pi-compat/probe-scripts.test.ts` with a local fake registry:
-  - `--offline` and `PI_COMPAT_OFFLINE=1` make zero registry requests;
-  - `--strict` exits 1 when fake latest versions are ahead of the pinned
-    versions.
-- Reviewed both probe scripts. Their behavior already satisfies these edge
-  cases, so no script implementation change was needed.
+- `src/testing/fake-executor.ts` now captures every `AgentExecutionRequest` in
+  `FakeExecutor.requests`.
+- `test/integration/m0/coordinator.test.ts` covers a root coordinator request
+  with `RunLimits.maxCostUsd` set and with the limit unset.
+- `test/integration/m1/child-coordinator.test.ts` covers a child execution
+  request with `ChildRunLimits.maxCostUsd` set and with the limit unset.
+- The unset assertions pass with `undefined`, allowing either an omitted
+  property or an explicitly undefined optional property.
 
 ## Verification
 
-- `pnpm exec tsx --test test/unit/pi-compat/skill-discovery-0843.test.ts test/unit/pi-compat/probe-scripts.test.ts`
-  — 5 passed, 0 failed.
-- `pnpm exec eslint test/unit/pi-compat/skill-discovery-0843.test.ts test/unit/pi-compat/probe-scripts.test.ts`
+- `pnpm test -- test/integration/m0/coordinator.test.ts test/integration/m1/child-coordinator.test.ts`
+  — passed: 25 tests, 0 failures. The configured root and child requests
+  receive `0.75` and `0.25`, respectively; both unset cases receive
+  `undefined`.
+- `pnpm exec eslint src/testing/fake-executor.ts test/integration/m0/coordinator.test.ts test/integration/m1/child-coordinator.test.ts`
   — passed.
 - `pnpm typecheck` — passed.
-- `git diff --check -- test/fixtures/pi-0843-skills test/unit/pi-compat/skill-discovery-0843.test.ts test/unit/pi-compat/probe-scripts.test.ts`
-  — passed.
+- `git diff --check` for the three implementation/test files — passed.
 
-No commit was created.
+No `src/cli/main.ts` change was made. No commit was created.

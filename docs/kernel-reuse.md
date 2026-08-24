@@ -52,6 +52,7 @@ kernel exposes it.
 | Bounded provider retry with a fresh `Agent` per attempt | wired | `runWithRetry` + `src/pi-adapter/provider-retry.ts` | `test/unit/pi-adapter/executor-retry.test.ts`, `provider-retry.test.ts` |
 | `prompt`, `abort`, `waitForIdle` via the facade | wired | executor drives `SparkleKernel.fromFactory(...)` | `test/unit/pi-adapter/kernel.test.ts` |
 | Live steering: `RunningRun.steer(text, { actor? })` → `AgentExecutor.steerText?` → facade `steerText` | wired (landed mid-round 2026-08-24) | `src/execution/contract.ts` (optional `steerText?` — absence means "steering unsupported", callers fail rather than drop); `SteerChannel` in `src/run/coordinator.ts`, returned by both `startRun` and `startParentRun`; `PiAgentExecutor.steerText` targets the single in-flight kernel and refuses when zero or several runs are live; each accepted steer persists as a `STEER_INJECTED` event carrying the text with the steering principal as event actor | `test/integration/pi-adapter/steer-blocked-tool.test.ts` (steer during a blocked tool reaches the next model call), `test/integration/m0/steer.test.ts` (actor + text in the event log; write settles before the run does), `test/unit/pi-adapter/steer-inflight.test.ts` |
+| Spend ceiling: `RunLimits.maxCostUsd` → `AgentExecutionRequest.maxCostUsd` → `CostGate` as the loop's stop-after-turn hook | wired (landed mid-Round-3 2026-08-24) | `startRun` forwards `run.limits.maxCostUsd` on the root request and `startParentRun` hands it to `ChildCoordinator`, whose `costCapFor` gives each child the tighter of the per-task and run-level caps (`src/run/coordinator.ts`, `src/run/child-coordinator.ts`; the supervisor loop forwards the same limit). `PiAgentExecutor.buildCostGate` arms the gate only when a cap **and** catalog prices both exist; an unpriced or invalid cap is reported through `onCostGate` and then ignored — never priced by guesswork (`src/pi-adapter/cost-gate.ts`). A stop is also re-checked between retry attempts so a failing task cannot buy attempts past its budget | `test/unit/pi-adapter/cost-gate.test.ts`, `cost-gate-ledger.test.ts`, `test/integration/pi-adapter/cost-stop.test.ts` (gate math + stop); `test/integration/m0/coordinator.test.ts`, `test/integration/m1/child-coordinator.test.ts` (forwarding, set and unset) |
 | `followUpText`, `reset`, `sessionId` on the facade | **exposed, not product-wired** | `SparkleKernel` only; no caller outside `src/pi-adapter/**` | `rg -n "followUpText" src/` shows `kernel.ts` only |
 
 Live steer is deliberately distinct from the `pi-sparkle inject` CLI verb:
@@ -97,6 +98,32 @@ Still open after P0: a CLI verb for live steer; `followUpText` / `reset` /
 `test/unit/pi-adapter/steer-inflight.test.ts` is now stale — its coverage
 lives in `test/integration/m0/steer.test.ts` and the skip should be removed.
 
+### Round 3 status (2026-08-24, R3-fable-A)
+
+Round 2 left two loose ends and one hazard; all three moved this round, again
+mid-round in a shared tree (each claim below was re-verified after the
+landing, not promised before it):
+
+- **`maxCostUsd` now flows end to end.** Round 2 shipped the cost gate with
+  the coordinator not yet forwarding the cap — live runs were uncapped. That
+  gap closed mid-Round-3: both coordinator paths forward
+  `run.limits.maxCostUsd` (see the table row above), and the forwarding is
+  tested in both directions — a configured cap reaches the executor request,
+  an omitted cap arrives as absent rather than as a default this layer
+  invented.
+  The claim gate is `rg -n "maxCostUsd" src/run/coordinator.ts` (two hits:
+  the root request spread and the `ChildCoordinator` dep). This grep was
+  empty at the start of Round 3 and non-empty an iteration later; as with
+  the Round 2 steer landing, re-grep before repeating the claim.
+- **The `steer-inflight` skip is gone.** The placeholder was replaced (not
+  merely un-skipped) with kernel-backed tests that drive `RunningRun.steer`
+  through a real `SparkleKernel` into an agent's steering queue, plus a
+  refused-steer case proving delivery-before-logging from the failing side.
+  `rg -n "test.skip" test/` returns nothing.
+- **Cost stop vs. steer ordering is now documented** rather than reordered —
+  see "A cost stop outranks a queued steer" under the semantics list below
+  for the mechanism, the audit trail, and why the reorder was declined.
+
 ## Semantics extenders must respect
 
 These are properties of the current adapter, not suggestions.
@@ -107,6 +134,26 @@ These are properties of the current adapter, not suggestions.
   record. A steering feature must tolerate a retry restarting from the
   original prompt — either re-arm queued messages after retry or document the
   drop.
+- **A cost stop outranks a queued steer.** Pi's loop consults
+  `shouldStopAfterTurn` immediately after a turn settles and exits the loop
+  when it answers true; the steering queue is drained only after that check
+  declines, and the follow-up queue only after the loop would otherwise end
+  (verified in `@earendil-works/pi-agent-core` 0.84.3, `dist/agent-loop.js`:
+  the stop check returns from the loop before the `getSteeringMessages`
+  poll that follows it). So text accepted by `steerText` during the turn
+  that crosses the cost ceiling stays in the discarded `Agent`'s queue and
+  is never delivered. Know what the log means here: `STEER_INJECTED` records
+  acceptance into the queue, not delivery to the model. A dropped steer is
+  therefore not silent in the record — the `STEER_INJECTED` event and the
+  cost gate's "stopped" outcome sit side by side, showing the operator
+  steered and the ceiling answered first; nothing claims the model saw the
+  text. Reordering the drain inside the loop would need a Pi fork, and the
+  no-fork alternative — holding the stop open while a steer is queued —
+  would buy that steer another priced turn past the cap, under-enforcing
+  the budget exactly when someone intervenes, so the drop is documented
+  rather than reordered. (A refinement that stays honest — `steerText`
+  refusing once the gate's stop has latched, turning a late silent drop
+  into a visible refusal — is a candidate for a future round, not landed.)
 - **Subscribe listeners are synchronous fire-and-forget.** Pi awaits listener
   promises as part of run settlement, so an async listener that waits on a
   slow consumer deadlocks `waitForIdle`. `SparkleKernel.subscribe` therefore

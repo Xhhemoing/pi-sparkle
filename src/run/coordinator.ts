@@ -243,7 +243,11 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
           taskId: rootTaskId,
           agentInstanceId,
           prompt: input.objective,
-          workingDirectory: project.rootPath
+          workingDirectory: project.rootPath,
+          // Only forwarded when the run actually named a ceiling. An absent
+          // cap must reach the executor as absent, not as a number this layer
+          // picked, so an unbudgeted run stays visibly unbudgeted.
+          ...(run.limits.maxCostUsd !== undefined ? { maxCostUsd: run.limits.maxCostUsd } : {})
         },
         controller.signal
       )) {
@@ -448,6 +452,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       project,
       registry,
       maxConcurrentTasks: (input.limits ?? defaultRunLimits()).maxConcurrentTasks,
+      ...(run.limits.maxCostUsd !== undefined ? { maxCostUsd: run.limits.maxCostUsd } : {}),
       now,
       ...(generateId !== undefined ? { generateId } : {}),
       ...(clusterHost !== undefined ? { cluster: clusterHost } : {}),
