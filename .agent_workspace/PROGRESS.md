@@ -162,3 +162,11 @@ Accepted for preview: fail-closed persistence, transitive live-isolation, docume
 - Plane-boundary comment vs value-import of model-router through eval-routing (no FS leak)
 - Real-provider `--children`/`--track` coverage still smoke-only
 
+## Post-loop merge with `origin/main` (2026-08-24)
+
+`main` moved from `4a59949` to `2155743` (Pi 0.84.3 pin, `pi-compat` CLI, `run --thinking`, doctor `pi-packages`/`pi-compat` checks). This branch absorbed that work with conflict resolution:
+
+- Keep directory-expanding `scripts/run-tests.mjs` **and** `pi-compat` / `pi:latest` / `pi:probe` scripts
+- Doctor JSON contract + `legacy-layout` **and** `pi-packages` / `pi-compat` checks
+- `--thinking` on `run` **and** `migrate-legacy` / residual-delete disclosure
+- Adapter exports both `SparkleThinkingLevel` and retry types

@@ -31,6 +31,21 @@ Definitions (ADR-004):
 | `doctor` | yes | yes | unit tests | no | Developer-preview preflight. `--json` emits frozen `DoctorJsonReport` (`preview`, `liveAdaptive: false`, `checks[]`, `next[]`). Prose remains the default. Informational `legacy-layout` check never fails the preflight. |
 | Retention bounds | no | no | sizing probe only (`scripts/retention-probe.mjs`, 2026-08-24 R3) | no | Retention of `runtime/invocations.jsonl` and `runtime/episodes/` is unbounded (accepted Q3 position). The probe measures on-disk growth and reports `unbounded: true` without failing — it is a diagnostic, not a gate. Bounding (age- or size-based, delete-cascade-consistent) is an open policy decision. |
 
+## Pi compatibility line (pin + auxiliary tooling)
+
+Everything below is developer preview and, like the rest of this matrix, not
+Outcome-supported. Flag spellings match the CLI USAGE in `src/cli/main.ts`.
+No Pi extension is registered (ADR-006 stays Proposed): `package.json#pi`
+declares only `skills` and `prompts`, and `@earendil-works/pi-coding-agent`
+is not a dependency.
+
+| Capability | Present | Wired | Exercised | Outcome-supported | Notes |
+|---|---|---|---|---|---|
+| Pi pin 0.84.3 | yes | `src/pi-adapter/` only (ADR-001) | typecheck + adapter tests + `test/unit/pi-boundary.test.ts` specifier tripwire | no | Exact matching pair `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`, no ranges. `pi-coding-agent` is not a dependency. Bump playbook: [how-to-adapt-to-pi](how-to-adapt-to-pi.md). |
+| `pi-compat` CLI | yes | `pi-sparkle pi-compat [--json] [--offline]`; online opt-in via `pi-sparkle pi-compat --online [--json]`; script alias `pnpm pi-compat` | unit tests (`test/unit/cli/pi-compat.test.ts`, `test/unit/pi-compat/`) + local runs | no | Offline default; online fails closed to `status=unknown`, exit 0. Exit 1 only on adapter-contract breakage. Legacy-identifier probe reads adapter sources only, never docs. Sibling probes: `pnpm pi:probe`, `pnpm pi:latest`. |
+| doctor `pi-packages` / `pi-compat` checks | yes | appended `doctor` checks | unit tests (`test/unit/cli/doctor.test.ts`) + local run | no | `pi-packages` prints the pinned pair; `pi-compat` always uses the offline report (no network). Inherits doctor's unfrozen output contract. |
+| `run --thinking <level>` | yes | all three `run` forms (plain, `--track`, `--flowchart`) | `test/unit/cli/thinking-flag.test.ts`; clamp characterization in `test/unit/pi-adapter/thinking-clamp.test.ts` | no | Levels `off\|minimal\|low\|medium\|high\|xhigh\|max`; flag > `PI_THINKING_LEVEL` > `off`; per-run, never persisted (headless counterpart of Pi's session-scoped TUI `/thinking`). Google models silently clamp `xhigh`/`max` — provider behavior, not rewritten by the CLI. |
+
 ## Adaptive library line (M3–M6)
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |

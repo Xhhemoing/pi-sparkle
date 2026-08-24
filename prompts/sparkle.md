@@ -1,6 +1,6 @@
 ---
 description: Audit Pi harness health with the pi-sparkle diagnostic skill.
-argument-hint: "[focus: bloat | evidence | drift | prompts]"
+argument-hint: "[focus: bloat | evidence | drift | prompts | pi-bump]"
 ---
 
 Use the `pi-sparkle` skill for this request. Read
@@ -12,6 +12,9 @@ Rules:
 - Load at most 1–2 references from that skill. Do not ingest every file.
 - Stay evidence-based. Do not invent usage counts, route outcomes, or "used"
   skill telemetry.
+- Pull Pi version and pin facts from live commands (`pi-sparkle pi-compat`,
+  `pi-sparkle doctor`, `node scripts/pi-latest-check.mjs`), never from
+  remembered prose.
 - Propose the smallest durable fix. Do not add a Pi extension (ADR-006 is
   still Proposed).
 - This overlay is diagnostic only. It does not auto-promote routing policy,

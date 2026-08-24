@@ -78,7 +78,7 @@ pnpm cli run \
 
 `pi-sparkle auth login openai --key sk-...` writes `~/.pi-sparkle/auth.json` (stored credentials win over env). `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` still work as a compatibility override for the default provider.
 
-Optional: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh`).
+Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`), or `--thinking <level>` on `run`, which wins over the env var for that run only and never persists. Google models silently clamp `xhigh`/`max`.
 
 ### Parent + children
 
@@ -135,7 +135,7 @@ pnpm cli run \
 | Command | Description |
 |---------|-------------|
 | `pnpm cli version` | Print `0.1.0` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
-| `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--state-root`) |
+| `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
 | `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, and evidence. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
@@ -153,8 +153,12 @@ pnpm cli run \
 | `pnpm cli adapt learn --run <runId>` | Propose a routing-policy candidate from MODEL_ROUTED events |
 | `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` collects and diagnoses only — no bandit update, no proposal) |
 | `pnpm cli adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]` | The **only** promotion path (CAS: `--expected` must name the active version). All five flags are required — promote refuses without explicit approval and persisted independent-review provenance. Nothing in the runtime promotes on its own |
-| `pnpm cli doctor [--project <path>] [--json]` | Developer-preview preflight (Node, pnpm, state-root, providers, legacy layout). `--json` emits the frozen additive-only `DoctorJsonReport` (`preview: true`, `liveAdaptive: false`). Not a production capability |
+| `pnpm cli doctor [--project <path>] [--json]` | Developer-preview preflight (Node, pnpm, state-root, providers, legacy layout, plus `pi-packages` / `pi-compat`). `--json` emits the frozen additive-only `DoctorJsonReport` (`preview: true`, `liveAdaptive: false`). Not a production capability |
 | `pnpm cli migrate-legacy [--apply]` | Copy pre-plane flat state into `runtime/` + `adaptation/`. Dry run by default; `--apply` copies — never moves, deletes, or overwrites |
+| `pnpm cli pi-compat [--json] [--offline]` | Offline-first report of the pinned Pi packages against the adapter contract; `--online` adds npm dist-tags and fails closed. Exit 1 only on a broken adapter contract |
+| `pnpm pi-compat [--json] [--online]` | Shorthand for `pnpm cli pi-compat` |
+| `pnpm pi:latest [--json] [--offline] [--strict]` | Compare the pinned Pi packages against the npm `latest` dist-tags |
+| `pnpm pi:probe` | Probe `src/pi-adapter` for the ADR-001 boundary and the legacy `GoogleThinkingLevel` symbol |
 | `pnpm test` | Run the full test suite. `pnpm test -- test/unit/<area>` runs one directory (expanded to its `*.test.ts` files); a single file path also works |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
 | `pnpm prerelease` | `pnpm gate` plus `pnpm security:probe` (static secret/boundary probes) — run before tagging a preview build |

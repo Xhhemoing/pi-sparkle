@@ -33,17 +33,20 @@
     "dev": "tsx src/cli/main.ts",
     "cli": "tsx src/cli/main.ts",
     "pi-sparkle": "node dist/cli/main.js",
+    "pi-compat": "tsx src/cli/main.ts pi-compat",
+    "pi:latest": "node scripts/pi-latest-check.mjs",
+    "pi:probe": "node scripts/pi-compat-probe.mjs",
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "gate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "security:probe": "node scripts/security-probe.mjs",
-    "prerelease": "pnpm gate && pnpm security:probe"
+    "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.1",
-    "@earendil-works/pi-ai": "0.84.1"
+    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

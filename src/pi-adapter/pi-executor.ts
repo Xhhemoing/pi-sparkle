@@ -39,11 +39,26 @@ import {
   type RetryOptions
 } from "./provider-retry.js";
 
+/**
+ * Thinking levels this runtime accepts, owned here rather than re-exported from
+ * Pi so callers never depend on a Pi type (ADR-001). Assignability to Pi's own
+ * ThinkingLevel is checked where the Agent is built; a narrowed Pi union fails
+ * there, at the boundary, rather than in callers.
+ */
+export type SparkleThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
 export interface PiExecutorOptions {
   providerId: string;
   modelId: string;
   systemPrompt?: string;
-  thinkingLevel?: ThinkingLevel;
+  thinkingLevel?: SparkleThinkingLevel;
   tools?: AgentTool<any>[];
   apiKey?: string;
   /** Injected Models collection. Tests and the configured factory pass this. */
@@ -199,11 +214,12 @@ export class PiAgentExecutor implements AgentExecutor {
   ): Promise<AttemptRun> {
     const events: ExecutionEvent[] = [];
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
+    const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
     const agent = new Agent({
       initialState: {
         systemPrompt: this.options.systemPrompt ?? "",
         model,
-        thinkingLevel: this.options.thinkingLevel ?? "off",
+        thinkingLevel,
         tools: [...(this.options.tools ?? []), ...clusterTools]
       },
       streamFn: (streamModel: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream =>

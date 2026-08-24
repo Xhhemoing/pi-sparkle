@@ -1,4 +1,9 @@
-export { PiAgentExecutor, translatePiEvent, type PiExecutorOptions } from "./pi-executor.js";
+export {
+  PiAgentExecutor,
+  translatePiEvent,
+  type PiExecutorOptions,
+  type SparkleThinkingLevel
+} from "./pi-executor.js";
 export {
   DEFAULT_RETRY_POLICY,
   callOutcomeForFailure,
