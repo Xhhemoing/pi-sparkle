@@ -23,7 +23,7 @@ import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { formatChildPrompt } from "./child-prompt.js";
 import { tryParseModelRef } from "../config/model-ref.js";
 import {
-  assertAtMostOneTerminal,
+  isTerminalMessage,
   SUPERVISOR,
   validateAgentMessage,
   validateApprovalReplyForPlan,
@@ -75,6 +75,13 @@ export interface ChildTaskInput {
   profile: AgentProfile;
   inputArtifactIds: ArtifactId[];
   acceptanceCriteria: AcceptanceCriterion[];
+  /**
+   * Per-child budget. The coordinator enforces `maxAttempts` (the retry
+   * ladder), `timeoutMs` (per attempt), and `maxWallTimeMs` (one deadline for
+   * the whole child run). It does **not** enforce `maxCostUsd`: no spend is
+   * observable here, so that field is a declaration only — see the disclosure
+   * on {@link ChildRunLimits}.
+   */
   limits: ChildRunLimits;
   /** Optional predecessor task ids; used when compiling `--children` into a flowchart. */
   dependsOn?: readonly TaskId[];
@@ -150,6 +157,30 @@ class ConcurrencyGate {
     this.active -= 1;
     const next = this.waiters.shift();
     if (next !== undefined) next();
+  }
+}
+
+/**
+ * Accumulates one attempt's validated messages and enforces the at-most-one
+ * terminal invariant incrementally. Each message is validated once by the
+ * caller and checked against a flag here, so a transcript of n messages costs
+ * O(n) validations instead of re-validating the whole prefix per message.
+ */
+class AttemptTranscript {
+  readonly messages: AgentMessage[] = [];
+  private sawTerminal = false;
+
+  /** Appends a validated message, rejecting a second terminal TASK_RESULT. */
+  accept(message: AgentMessage): void {
+    if (isTerminalMessage(message)) {
+      if (this.sawTerminal) {
+        // Wording pinned against protocol/v1's assertAtMostOneTerminal by
+        // test/unit/run/child-coordinator-limits.test.ts.
+        throw new DomainValidationError("Duplicate terminal TASK_RESULT message");
+      }
+      this.sawTerminal = true;
+    }
+    this.messages.push(message);
   }
 }
 
@@ -600,7 +631,7 @@ export class ChildCoordinator {
       attemptController.abort();
     }, input.limits.timeoutMs);
 
-    const seen: AgentMessage[] = [];
+    const transcript = new AttemptTranscript();
     let terminalMessage: TaskResult | undefined;
     let executorOutcome: "SUCCESS" | "FAILURE" | "CANCELLED" | undefined;
     let failureReason: string | undefined;
@@ -613,11 +644,11 @@ export class ChildCoordinator {
           childRunId,
           input.taskId,
           childAgentId,
-          seen,
+          transcript,
           signal
         );
         // Do not break on the first terminal: a second TASK_RESULT must be
-        // rejected by assertAtMostOneTerminal as a protocol violation.
+        // rejected by the transcript as a protocol violation.
         if (terminal !== undefined) terminalMessage = terminal;
         if (executionEvent.type === "EXECUTION_FINISHED") {
           executorOutcome = executionEvent.outcome;
@@ -656,7 +687,7 @@ export class ChildCoordinator {
       ...(terminalMessage !== undefined ? { terminalMessage } : {}),
       ...(executorOutcome !== undefined ? { executorOutcome } : {}),
       ...(failureReason !== undefined ? { failureReason } : {}),
-      messages: seen
+      messages: transcript.messages
     };
   }
 
@@ -669,7 +700,7 @@ export class ChildCoordinator {
     childRunId: RunId,
     taskId: TaskId,
     childAgentId: AgentInstanceId,
-    seen: AgentMessage[],
+    transcript: AttemptTranscript,
     signal: AbortSignal
   ): Promise<TaskResult | undefined> {
     switch (event.type) {
@@ -718,8 +749,7 @@ export class ChildCoordinator {
         if (message.taskId !== taskId || message.runId !== childRunId) {
           throw new DomainValidationError(`Message does not match the leased task ${taskId}`);
         }
-        assertAtMostOneTerminal([...seen, message]);
-        seen.push(message);
+        transcript.accept(message);
         await this.appendParentEvent("CHILD_MESSAGE", { message }, taskId);
 
         if (message.type === "PEER_MESSAGE") {

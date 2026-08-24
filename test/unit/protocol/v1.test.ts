@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   createAgentInstanceId,
@@ -285,6 +286,22 @@ test("assertAtMostOneTerminal rejects duplicate terminals at the first and last 
   assert.throws(
     () => assertAtMostOneTerminal([first, middle, last]),
     (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+});
+
+test("maxCostUsd is declared with its non-enforcement disclosed, and nothing reads it", async () => {
+  const limits = { maxAttempts: 1, timeoutMs: 1_000, maxWallTimeMs: 1_000, maxCostUsd: 0.000_001 };
+  assert.doesNotThrow(() => validateAgentMessage({ ...validRequest(), limits }));
+
+  const protocolSource = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
+  assert.match(protocolSource, /maxCostUsd[\s\S]{0,400}?not enforced/);
+  const coordinatorSource = await readFile(
+    new URL("../../../src/run/child-coordinator.ts", import.meta.url),
+    "utf8"
+  );
+  assert.ok(
+    !/limits\.maxCostUsd/.test(coordinatorSource),
+    "the coordinator reads maxCostUsd: enforcement now exists and the disclosure must be rewritten"
   );
 });
 

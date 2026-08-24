@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import {
+  createAgentInstanceId,
   createArtifactId,
   createEventId,
   createEvidenceId,
@@ -20,7 +21,13 @@ import type { ProjectSnapshot } from "../../../src/domain/project.js";
 import type { Run } from "../../../src/domain/run.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
-import { SUPERVISOR, type ChildRunLimits, type TaskResult } from "../../../src/protocol/v1.js";
+import {
+  assertAtMostOneTerminal,
+  SUPERVISOR,
+  type AgentMessage,
+  type ChildRunLimits,
+  type TaskResult
+} from "../../../src/protocol/v1.js";
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
 
@@ -458,5 +465,144 @@ test("a generous wall budget leaves the cascade escalation untouched", async () 
     assert.equal(outcome.attempts, 2);
     assert.ok(!/wall-clock/.test(outcome.summary));
     assert.equal(clock.liveTimers(), 0, "no attempt or deadline timer outlives the child run");
+  });
+});
+
+/** Emits a fixed script of execution events on every attempt. */
+class ScriptedExecutor implements AgentExecutor {
+  calls = 0;
+  constructor(private readonly script: (request: AgentExecutionRequest) => ExecutionEvent[]) {}
+
+  async *execute(request: AgentExecutionRequest): AsyncIterable<ExecutionEvent> {
+    this.calls += 1;
+    for (const event of this.script(request)) yield event;
+  }
+}
+
+/** The wording protocol/v1 uses when a whole transcript carries two terminals. */
+function batchDuplicateTerminalMessage(): string {
+  const request: AgentExecutionRequest = {
+    runId: createRunId(UUID),
+    taskId: createTaskId(UUID),
+    agentInstanceId: createAgentInstanceId(UUID),
+    prompt: "",
+    workingDirectory: project.rootPath
+  };
+  const terminal = resultMessage(request, "SUCCESS");
+  try {
+    assertAtMostOneTerminal([terminal, terminal]);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error("assertAtMostOneTerminal accepted two terminals");
+}
+
+test("a second terminal is rejected with the same wording as the batch checker", async () => {
+  await withTempState(async (stateRoot) => {
+    const executor = new ScriptedExecutor((request) => [
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
+
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits({ maxAttempts: 3 })),
+      new AbortController().signal
+    );
+    const outcome = await handle.done;
+
+    assert.equal(outcome.outcome, "FAILURE");
+    assert.equal(
+      outcome.summary,
+      batchDuplicateTerminalMessage(),
+      "incremental rejection must not drift from protocol/v1's batch wording"
+    );
+    assert.equal(executor.calls, 1, "a protocol violation is not retried");
+    assert.equal(outcome.messages.length, 1, "the rejected second terminal is not recorded");
+  });
+});
+
+/**
+ * A valid PROGRESS message that counts how often it is validated. Only the
+ * protocol validator and JSON serialization read `protocolVersion`; nothing on
+ * the coordinator path does, so the getter counts validations per message.
+ */
+function countingProgress(request: AgentExecutionRequest, counter: { reads: number }): AgentMessage {
+  const message = {
+    id: createMessageId(UUID),
+    occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+    runId: request.runId,
+    taskId: request.taskId,
+    from: request.agentInstanceId,
+    to: SUPERVISOR,
+    type: "PROGRESS",
+    status: "WORKING",
+    summary: "still working",
+    evidenceIds: []
+  };
+  Object.defineProperty(message, "protocolVersion", {
+    enumerable: true,
+    get() {
+      counter.reads += 1;
+      return 1;
+    }
+  });
+  return message as unknown as AgentMessage;
+}
+
+test("transcript validation cost is linear in the number of child messages", async () => {
+  await withTempState(async (stateRoot) => {
+    const counter = { reads: 0 };
+    const messageCount = 40;
+    const executor = new ScriptedExecutor((request) => [
+      ...Array.from({ length: messageCount }, (): ExecutionEvent => ({
+        type: "MESSAGE",
+        message: countingProgress(request, counter)
+      })),
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
+
+    const handle = coordinator.startChildTask(childInput(taskId, childLimits()), new AbortController().signal);
+    const outcome = await handle.done;
+
+    assert.equal(outcome.outcome, "SUCCESS");
+    assert.equal(outcome.messages.length, messageCount + 1);
+    // Three reads per message: validation on arrival, validation of the parent
+    // CHILD_MESSAGE event, and that event's serialization. Re-checking the
+    // whole prefix per message instead costs ~messageCount²/2 extra reads.
+    assert.ok(
+      counter.reads <= 4 * messageCount,
+      `expected a bounded number of validations per message, saw ${counter.reads} for ${messageCount} messages`
+    );
+  });
+});
+
+test("maxCostUsd is inert: a child runs to completion past its declared ceiling", async () => {
+  await withTempState(async (stateRoot) => {
+    // Pins the disclosure in protocol/v1: the field is shape-validated and read
+    // by nothing here. If child-level cost enforcement is ever built, this test
+    // and that disclosure must change together.
+    const executor = new ScriptedExecutor((request) => [
+      { type: "TURN_FINISHED", usage: { inputTokens: 5_000_000, outputTokens: 5_000_000 } },
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
+
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits({ maxCostUsd: 0.000_001 })),
+      new AbortController().signal
+    );
+    const outcome = await handle.done;
+
+    assert.equal(outcome.outcome, "SUCCESS");
+    assert.equal(executor.calls, 1);
+    assert.ok(!/cost/i.test(outcome.summary), "no cost ceiling is claimed in the summary");
   });
 });

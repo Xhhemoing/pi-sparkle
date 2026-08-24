@@ -67,10 +67,27 @@ export interface MessageBase {
   to: AgentInstanceId | SupervisorAddress;
 }
 
+/**
+ * Per-child budget carried on a TASK_REQUEST. Shape validation here is not
+ * enforcement: `maxAttempts`, `timeoutMs`, and `maxWallTimeMs` are read and
+ * honored by `run/child-coordinator.ts`; `maxCostUsd` is not (see below).
+ */
 export interface ChildRunLimits {
   maxAttempts: number;
   timeoutMs: number;
   maxWallTimeMs: number;
+  /**
+   * Declared cost ceiling in USD. Validated for shape but **not enforced** at
+   * the child level: no component stops or fails a child run for exceeding it.
+   * Spend is not derivable where the child runs — the executor stream reports
+   * token usage only (`TURN_FINISHED.usage`), and no price catalog is
+   * populated behind it (`ModelInvocation.pricing` in
+   * `telemetry/model-invocation.ts` is optional and never filled in), so a
+   * ceiling here could only be enforced by first building model pricing. The
+   * one cost gate that does run is the experiments plane's own
+   * `thresholds.maxCostUsd` (`experiments/shadow.ts`), fed by externally
+   * supplied per-outcome costs; it never reads this field.
+   */
   maxCostUsd?: number;
 }
 
@@ -330,7 +347,13 @@ export function isTerminalMessage(message: AgentMessage): message is TaskResult 
   return message.type === "TASK_RESULT";
 }
 
-/** Rejects a second terminal message; an agent emits at most one TASK_RESULT. */
+/**
+ * Rejects a second terminal message; an agent emits at most one TASK_RESULT.
+ * This is the whole-transcript check, used where a batch of messages arrives
+ * at once. A live coordinator that sees messages one at a time enforces the
+ * same invariant incrementally (see `AttemptTranscript` in
+ * `run/child-coordinator.ts`) rather than re-scanning the prefix per message.
+ */
 export function assertAtMostOneTerminal(messages: readonly AgentMessage[]): void {
   let sawTerminal = false;
   for (const value of messages) {
