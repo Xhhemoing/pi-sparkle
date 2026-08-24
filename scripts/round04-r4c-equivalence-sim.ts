@@ -916,7 +916,7 @@ function check(label: string, ok: boolean): void {
   if (ok) checksPassed++;
   else {
     failures++;
-    console.error(`FAIL ${label}`);
+    process.stderr.write(`FAIL ${label}\n`);
   }
 }
 
@@ -1032,11 +1032,11 @@ function allUniqueRows(r: () => number, count: number): OfflineRow[] {
 }
 
 const out = (line: string): void => {
-  console.log(line);
+  process.stdout.write(`${line}\n`);
 };
 
 const fail = (line: string): void => {
-  console.error(line);
+  process.stderr.write(`${line}\n`);
   process.exitCode = 1;
 };
 
