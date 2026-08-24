@@ -8,7 +8,14 @@ import {
 } from "../../../src/domain/ids.js";
 import { defaultRunLimits } from "../../../src/domain/limits.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
-import { eventsLookLikeFlowchartRun, materializeCheckpoint, replayRun, validateCheckpoint } from "../../../src/run/replay.js";
+import {
+  eventsLookLikeFlowchartRun,
+  materializeCheckpoint,
+  replayedTerminalStatus,
+  replayRun,
+  TERMINAL_REPLAY_STATUSES,
+  validateCheckpoint
+} from "../../../src/run/replay.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -98,6 +105,55 @@ test("ordering violations are reported as anomalies", () => {
     makeEvent("RUN_CANCEL_REQUESTED", {})
   ];
   assert.deepEqual(replayRun(cancelAfterTerminal).anomalies, ["RUN_CANCEL_REQUESTED after a terminal event"]);
+});
+
+/**
+ * The ordering the run loop must never produce. The tracking gate's
+ * `queue_analysis` appends `RUN_BLOCKED` and means terminal-until-unblocked, so a
+ * `RUN_FAILED` on top of it is a second terminal — and it buries a state the
+ * operator can still act on. Replay is the arbiter of that rule and stays it: the
+ * writers consult replay rather than the other way round.
+ */
+test("RUN_BLOCKED is a terminal, so a RUN_FAILED after it is a second one", () => {
+  const blockedThenFailed = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_BLOCKED", { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_x"] }),
+    makeEvent("RUN_FAILED", { reason: "flowchart node failed: tsk_x" })
+  ];
+  assert.deepEqual(replayRun(blockedThenFailed).anomalies, ["multiple terminal events"]);
+
+  const blockedOnly = blockedThenFailed.slice(0, 3);
+  assert.equal(replayRun(blockedOnly).status, "BLOCKED");
+  assert.deepEqual(replayRun(blockedOnly).anomalies, []);
+});
+
+test("replayedTerminalStatus names the terminal a log already carries", () => {
+  const started = [makeEvent("RUN_CREATED", { run }), makeEvent("RUN_STARTED", {})];
+  assert.equal(replayedTerminalStatus([]), undefined);
+  assert.equal(replayedTerminalStatus(started), undefined, "a RUNNING log has no terminal yet");
+  assert.equal(
+    replayedTerminalStatus([...started, makeEvent("PAUSE_REQUESTED", { reason: "hold" })]),
+    undefined,
+    "paused is resumable, not terminal"
+  );
+  assert.equal(
+    replayedTerminalStatus([...started, makeEvent("RUN_CANCEL_REQUESTED", {})]),
+    undefined,
+    "a cancel request sets no terminal in replay, so it names none here either"
+  );
+
+  assert.equal(replayedTerminalStatus([...started, makeEvent("RUN_COMPLETED", {})]), "COMPLETED");
+  assert.equal(replayedTerminalStatus([...started, makeEvent("RUN_FAILED", { reason: "x" })]), "FAILED");
+  assert.equal(
+    replayedTerminalStatus([
+      ...started,
+      makeEvent("RUN_BLOCKED", { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_x"] })
+    ]),
+    "BLOCKED"
+  );
+
+  assert.deepEqual([...TERMINAL_REPLAY_STATUSES].toSorted(), ["BLOCKED", "COMPLETED", "FAILED"]);
 });
 
 test("materialized checkpoints validate and preserve replay state", () => {

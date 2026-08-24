@@ -192,6 +192,31 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
   };
 }
 
+/**
+ * The statuses a replayed log treats as terminal: exactly the ones
+ * {@link replayRun} sets `sawTerminal` for, so a second terminal event after any
+ * of them is an anomaly. `RUN_BLOCKED` is one of them — the tracking gate's
+ * `queue_analysis` means "terminal BLOCKED until an explicit unblock", not "keep
+ * going" — which is why it belongs here next to COMPLETED and FAILED.
+ */
+export const TERMINAL_REPLAY_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "COMPLETED",
+  "FAILED",
+  "BLOCKED"
+]);
+
+/**
+ * The terminal a log already replays, or `undefined` when it has none.
+ *
+ * One definition serves two callers: the anomaly rule above, and a writer
+ * deciding whether appending its own terminal would make the log say two things
+ * at once. They must not drift, so neither re-derives "terminal" locally.
+ */
+export function replayedTerminalStatus(events: readonly Event[]): RunStatus | undefined {
+  const status = replayRun(events).status;
+  return TERMINAL_REPLAY_STATUSES.has(status) ? status : undefined;
+}
+
 export function hasUnmatchedPause(events: readonly Event[]): boolean {
   let unmatched = false;
   for (const event of events) {

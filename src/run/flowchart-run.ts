@@ -73,6 +73,7 @@ import { createFilePauseController, type PauseController } from "./pause-control
 import {
   hasUnmatchedPause,
   materializeCheckpoint,
+  replayedTerminalStatus,
   replayRun,
   validateCheckpoint,
   type FlowchartCheckpointState,
@@ -166,10 +167,6 @@ function hasOpenWaiting(events: readonly Event[]): boolean {
     else if (event.type === "USER_ANSWER") waiting = false;
   }
   return waiting;
-}
-
-function hasEvent(events: readonly Event[], type: Event["type"]): boolean {
-  return events.some((event) => event.type === type);
 }
 
 function childResultsMap(results?: Readonly<Record<string, ChildNodeResult>>): Map<string, ChildNodeResult> {
@@ -559,9 +556,31 @@ async function persistWaiting(ctx: FlowchartLoopContext): Promise<void> {
   );
 }
 
-async function persistBlocked(ctx: FlowchartLoopContext): Promise<void> {
+/**
+ * The run's terminal is whatever its log already replays.
+ *
+ * The three terminal recorders below all consult this before appending, so a run
+ * records exactly one terminal — the first one that landed. The case that forced
+ * the rule: a clustered child that returns `outcome: SUCCESS` with
+ * `verification: { kind: "FAILED" }` drives the three-line gate to
+ * `queue_analysis`, which appends `RUN_BLOCKED` ("terminal BLOCKED until an
+ * explicit unblock", per `gate-apply.ts`), and the same result fails the node, so
+ * the loop then reached {@link persistFailed}. The log said BLOCKED and FAILED at
+ * once, `replayRun` flagged it, and the FAILED buried a state
+ * {@link RESUMABLE_CRASH_STATUSES} and `INJECTABLE_STATUSES` both treat as
+ * operator-actionable. The gate wins: that run ends BLOCKED with the analysis
+ * queued, and stays resumable.
+ *
+ * Refusing is silent by construction — a terminal the log already carries is not
+ * news, and the loop reports the status it replays either way.
+ */
+async function alreadyTerminal(ctx: FlowchartLoopContext): Promise<boolean> {
   const read = await ctx.eventStore.readAll();
-  if (hasEvent(read.events, "RUN_BLOCKED")) return;
+  return replayedTerminalStatus(read.events) !== undefined;
+}
+
+async function persistBlocked(ctx: FlowchartLoopContext): Promise<void> {
+  if (await alreadyTerminal(ctx)) return;
   const ledger = ctx.supervisor.snapshot().ledger;
   const requiredEvidence = ledger.requiredEvidence.map((entry) => entry.description);
   await ctx.append(
@@ -575,16 +594,14 @@ async function persistBlocked(ctx: FlowchartLoopContext): Promise<void> {
 }
 
 async function persistCompleted(ctx: FlowchartLoopContext): Promise<void> {
-  const read = await ctx.eventStore.readAll();
-  if (hasEvent(read.events, "RUN_COMPLETED")) return;
+  if (await alreadyTerminal(ctx)) return;
   await ctx.append(ctx.make("RUN_COMPLETED", {}));
 }
 
 async function persistFailed(ctx: FlowchartLoopContext, reason: string): Promise<void> {
   // Stop paying for children before recording the failure, not after.
   await ctx.abort.cancelAndSettle();
-  const read = await ctx.eventStore.readAll();
-  if (hasEvent(read.events, "RUN_FAILED")) return;
+  if (await alreadyTerminal(ctx)) return;
   await ctx.append(ctx.make("RUN_FAILED", { reason }));
 }
 
