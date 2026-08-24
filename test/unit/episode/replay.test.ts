@@ -1,38 +1,20 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { createEpisodeId, createProjectId, createRunId } from "../../../src/domain/ids.js";
-import { attachRun, openEpisode, reduceEpisodeEvents } from "../../../src/episode/manager.js";
-import { replayFromLog } from "../../../src/episode/replay.js";
 
-test("replayFromLog recovers a truncated final JSONL line", () => {
-  const opened = openEpisode({
-    id: createEpisodeId(),
-    projectId: createProjectId(),
-    objective: "ship",
-    contractVersion: 1,
-    acceptance: []
-  });
-  const attached = attachRun(opened.episode, createRunId(), opened.episode.projectId);
-  const complete = JSON.stringify(opened.event);
-  const result = replayFromLog([complete, '{"type":"RUN_ATTACH']);
-  assert.equal(result.recovered, true);
-  assert.equal(result.incompleteLine, '{"type":"RUN_ATTACH');
-  assert.equal(result.state.episode?.id, opened.episode.id);
-  assert.deepEqual(result.state.episode?.runIds, []);
-  assert.deepEqual(reduceEpisodeEvents([opened.event]), result.state);
-  assert.notEqual(attached.episode.runIds.length, 0);
-});
-
-test("replayFromLog fails closed on a corrupt mid-file line", () => {
-  const opened = openEpisode({
-    id: createEpisodeId(),
-    projectId: createProjectId(),
-    objective: "ship",
-    contractVersion: 1,
-    acceptance: []
-  });
-  assert.throws(
-    () => replayFromLog(["NOT JSON", JSON.stringify(opened.event)]),
-    /line 1/
+/**
+ * Census pin: replay.ts had no production caller and duplicated the validated
+ * EpisodeEventStore.readAll path. The store suite pins truncation recovery and
+ * validation; a second replay module needs a live caller before it can return.
+ */
+test("episode replay has no duplicate, unvalidated module", () => {
+  const replayPath = fileURLToPath(
+    new URL("../../../src/episode/replay.ts", import.meta.url)
+  );
+  assert.equal(
+    existsSync(replayPath),
+    false,
+    "episode replay belongs in EpisodeEventStore.readAll; a duplicate module needs a live caller"
   );
 });

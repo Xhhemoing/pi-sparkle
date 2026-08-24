@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { createRunId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
@@ -169,7 +170,7 @@ test("checkpoint writes do not block on the run lock", async () => {
   }
 });
 
-test("a corrupt checkpoint surfaces a parse error to the caller", async () => {
+test("a corrupt checkpoint surfaces a typed error naming the checkpoint file", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-test-"));
   try {
     const runId = createRunId(UUID);
@@ -178,7 +179,16 @@ test("a corrupt checkpoint surfaces a parse error to the caller", async () => {
     const paths = checkpointPaths(stateRoot, runId);
     await writeFile(paths.checkpoint, "{broken", "utf8");
     await writeFile(paths.temp, JSON.stringify({ ok: "uncommitted" }), "utf8");
-    await assert.rejects(() => store.read(), SyntaxError);
+    await assert.rejects(
+      () => store.read(),
+      (error: unknown) => {
+        assert.ok(error instanceof DomainValidationError);
+        assert.equal(error.constructor, DomainValidationError);
+        assert.match(error.message, /Invalid checkpoint/);
+        assert.ok(error.message.includes(paths.checkpoint), "the error must name the damaged file");
+        return true;
+      }
+    );
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

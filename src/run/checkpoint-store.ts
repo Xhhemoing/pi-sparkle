@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DomainValidationError } from "../domain/errors.js";
+import type { RunId } from "../domain/ids.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
-import type { RunId } from "../domain/ids.js";
 
 export class CheckpointStore {
   private readonly checkpointPath: string;
@@ -49,6 +50,12 @@ export class CheckpointStore {
       if (error.code === "ENOENT") return undefined;
       throw error;
     });
-    return raw === undefined ? undefined : JSON.parse(raw);
+    if (raw === undefined) return undefined;
+    try {
+      return JSON.parse(raw);
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new DomainValidationError(`Invalid checkpoint ${this.checkpointPath}: ${reason}`);
+    }
   }
 }
