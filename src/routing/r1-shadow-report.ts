@@ -12,6 +12,10 @@ import {
 import type { ModelDescriptor } from "./capability-registry.js";
 import type { OutcomeObservation } from "./outcomes.js";
 import type { RouteRequest } from "./policy.js";
+import {
+  mergePreparedR1Observations,
+  prepareR1Observations,
+} from "./posterior.js";
 import { routeR0, type R0Config, type R0Decision } from "./r0.js";
 import { routeR1 } from "./r1.js";
 
@@ -71,7 +75,7 @@ export function buildR1ShadowReport(input: R1ShadowReportInput): R1ShadowReport 
 
   const pairs: R1ShadowPair[] = [];
   const records: PairedEvaluationRecord[] = [];
-  const sharedObservations = input.observations ?? [];
+  const sharedPrepared = prepareR1Observations(input.observations ?? []);
 
   for (const episode of input.episodes) {
     if (episode.episodeHash.trim() === "" || episode.taskFamily.trim() === "") {
@@ -82,7 +86,11 @@ export function buildR1ShadowReport(input: R1ShadowReportInput): R1ShadowReport 
       taskFamily: episode.taskFamily,
     };
     const r0 = routeR0(input.r0Config, input.models, request);
-    const observations = [...sharedObservations, ...(episode.observations ?? [])];
+    const episodeObservations = episode.observations ?? [];
+    const observations =
+      episodeObservations.length === 0
+        ? sharedPrepared
+        : mergePreparedR1Observations(sharedPrepared, episodeObservations);
     const r1 = routeR1({
       r0,
       role: episode.role,
