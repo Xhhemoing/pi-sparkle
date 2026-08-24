@@ -19,6 +19,8 @@ Loop 3 draft (`agent/sota-opt-loop3-7e63`) claimed but has not landed: INSPECT_S
 
 Awaiting fable audit (`claude-fable-5-thinking-xhigh`) for 10 mutually exclusive tasks.
 
+**Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back.
+
 ---
 
 # Loop 2 — SOTA follow-on (2026-08-24)
