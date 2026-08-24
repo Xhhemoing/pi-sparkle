@@ -17,7 +17,7 @@ import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
-import { startRun } from "../run/coordinator.js";
+import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
 import type { Event } from "../run/events.js";
@@ -487,6 +487,35 @@ function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string)
   });
 }
 
+function formatRoleCounts(counts: readonly ClusterMailRoleCount[]): string {
+  return counts.map((entry) => `${entry.role}=${entry.count}`).join(", ");
+}
+
+/**
+ * The one operator-visible line for peer mail a cluster run never delivered
+ * (same shape as the invocation-drop warning: one stderr line, no failure).
+ * `undefined` when the run had no cluster or delivered everything.
+ */
+export function formatUndeliveredClusterMail(report: ClusterMailReport | undefined): string | undefined {
+  if (report === undefined) return undefined;
+  if (report.pending === 0 && report.deadLettered === 0) return undefined;
+  const pending =
+    report.pendingByRole.length === 0 ? "" : ` (${formatRoleCounts(report.pendingByRole)})`;
+  const reasons = report.deadLetteredByReason
+    .map((entry) => `${entry.reason}=${entry.count}`)
+    .join(", ");
+  const dropped =
+    report.deadLettered === 0
+      ? ""
+      : ` (${formatRoleCounts(report.deadLetteredByRole)}; ${reasons})`;
+  return `warning: cluster role-cast mail undelivered: pending=${report.pending}${pending}, dead-lettered=${report.deadLettered}${dropped}\n`;
+}
+
+function warnUndeliveredClusterMail(io: CliIo, report: ClusterMailReport | undefined): void {
+  const line = formatUndeliveredClusterMail(report);
+  if (line !== undefined) io.stderr(line);
+}
+
 function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
@@ -502,6 +531,7 @@ function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoo
       `  pending approval ${pending.plan.id}: ${pending.plan.items.map((item) => item.id).join(", ")}\n`
     );
   }
+  warnUndeliveredClusterMail(io, outcome.clusterMail);
 }
 
 async function readValidatedCheckpoint(stateRoot: string, runId: RunId): Promise<RunCheckpoint | undefined> {
@@ -774,6 +804,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
+    warnUndeliveredClusterMail(io, outcome.clusterMail);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
   }
 

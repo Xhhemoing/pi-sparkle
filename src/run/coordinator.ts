@@ -20,8 +20,12 @@ import type { AgentExecutor } from "../execution/contract.js";
 import { buildProjectContextIndex } from "../context/index.js";
 import { discoverProject } from "../project/discovery.js";
 import type { AgentQuestion } from "../protocol/v1.js";
-import { createClusterHost, type ClusterHost } from "../cluster/host.js";
-import { isAgentRole } from "../domain/roles.js";
+import {
+  createClusterHost,
+  type ClusterDeadLetterReasonCount,
+  type ClusterHost
+} from "../cluster/host.js";
+import { AGENT_ROLES, isAgentRole, type AgentRole } from "../domain/roles.js";
 import type { TaskAssignment } from "../routing/assign.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunHandle, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
@@ -63,12 +67,62 @@ export interface ParentRunInput {
   resolvedQuestionIds?: readonly string[];
 }
 
+export interface ClusterMailRoleCount {
+  readonly role: AgentRole;
+  readonly count: number;
+}
+
+/**
+ * Peer mail a cluster run never delivered, read once at run end. Two kinds,
+ * both invisible without this:
+ *
+ * - `pending`: role-cast mail still sitting in a role queue. The mailbox is
+ *   process-local, so mail still queued when the run returns is gone — a
+ *   resumed run builds an empty one.
+ * - `deadLettered`: mail the mailbox itself gave up on, straight from
+ *   {@link ClusterHost.deadLetterReport}.
+ */
+export interface ClusterMailReport {
+  readonly pending: number;
+  /** Roles with queued mail, most first, ties broken by role name. */
+  readonly pendingByRole: readonly ClusterMailRoleCount[];
+  readonly deadLettered: number;
+  readonly deadLetteredByRole: readonly ClusterMailRoleCount[];
+  readonly deadLetteredByReason: readonly ClusterDeadLetterReasonCount[];
+}
+
+/**
+ * Reads both undelivered-mail surfaces the host publishes. Pull, not the
+ * `onDeadLetter` push: the report is recomputed from the mailbox on every call,
+ * so it also carries drops caused by an out-of-band `mailbox()` claim, which
+ * the push seam only reports on the *next* registration — and a run that ends
+ * has no next registration. The push seam stays available for embedders that
+ * want a drop while the run is still going.
+ */
+export function summarizeClusterMail(host: ClusterHost): ClusterMailReport {
+  const mailbox = host.mailbox();
+  const pendingByRole = AGENT_ROLES.flatMap((role) => {
+    const count = mailbox.pendingForRole(role).length;
+    return count === 0 ? [] : [{ role, count }];
+  }).sort((a, b) => b.count - a.count || a.role.localeCompare(b.role));
+  const deadLetters = host.deadLetterReport();
+  return {
+    pending: pendingByRole.reduce((total, entry) => total + entry.count, 0),
+    pendingByRole,
+    deadLettered: deadLetters.total,
+    deadLetteredByRole: deadLetters.byRole,
+    deadLetteredByReason: deadLetters.byReason
+  };
+}
+
 export interface RunOutcome {
   runId: RunId;
   status: RunStatus;
   events: Event[];
   checkpoint: RunCheckpoint;
   project: ProjectSnapshot;
+  /** Undelivered peer mail; absent when the run had no cluster. */
+  clusterMail?: ClusterMailReport;
 }
 
 export interface RunningRun {
@@ -509,7 +563,14 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     const state = replayRun(read.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
     await checkpointStore.write(checkpoint);
-    return { runId, status, events: read.events, checkpoint, project };
+    return {
+      runId,
+      status,
+      events: read.events,
+      checkpoint,
+      project,
+      ...(clusterHost !== undefined ? { clusterMail: summarizeClusterMail(clusterHost) } : {})
+    };
   })();
 
   const running: RunningRun = {

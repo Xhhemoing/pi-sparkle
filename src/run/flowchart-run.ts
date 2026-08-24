@@ -28,6 +28,7 @@ import {
 } from "./child-coordinator.js";
 import { groundChildTask } from "./child-grounding.js";
 import { applyChildThreeLine } from "./child-tracking.js";
+import { summarizeClusterMail, type ClusterMailReport } from "./coordinator.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import {
   DEFAULT_HUMAN_CONFIDENCE,
@@ -119,6 +120,8 @@ export interface FlowchartRunOutcome {
   project: ProjectSnapshot;
   snapshot: FlowchartSupervisorSnapshot;
   pendingApproval?: PendingApproval;
+  /** Undelivered peer mail; absent when the run had no cluster. */
+  clusterMail?: ClusterMailReport;
 }
 
 function resolveLimits(partial?: Partial<FlowchartRunLimits> & { maxRounds?: number }): {
@@ -259,6 +262,7 @@ function attachChildRuntime(input: {
   childCoordinator: ChildCoordinator;
   spawnHandles: ChildRunHandle[];
   index: ProjectContextIndex;
+  clusterHost?: ClusterHost;
 } {
   const spawnHandles: ChildRunHandle[] = [];
   let childCoordinator!: ChildCoordinator;
@@ -306,7 +310,8 @@ function attachChildRuntime(input: {
   return {
     childCoordinator,
     spawnHandles,
-    index: buildProjectContextIndex(input.project)
+    index: buildProjectContextIndex(input.project),
+    ...(clusterHost !== undefined ? { clusterHost } : {})
   };
 }
 
@@ -485,6 +490,7 @@ interface FlowchartLoopContext {
   finishedChildren: Map<TaskId, ChildRunOutcome>;
   spawnHandles: ChildRunHandle[];
   childCoordinator?: ChildCoordinator;
+  clusterHost?: ClusterHost;
   index?: ProjectContextIndex;
   contract?: RequirementContract;
 }
@@ -601,7 +607,10 @@ async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
     checkpoint,
     project: ctx.project,
     snapshot: ctx.supervisor.snapshot(),
-    ...(pendingApproval !== undefined ? { pendingApproval } : {})
+    ...(pendingApproval !== undefined ? { pendingApproval } : {}),
+    // Read after teardown: every child that could still claim role mail has
+    // settled, so what is left here is what the run lost.
+    ...(ctx.clusterHost !== undefined ? { clusterMail: summarizeClusterMail(ctx.clusterHost) } : {})
   };
 }
 
@@ -909,6 +918,7 @@ export async function startFlowchartRun(
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
   let childCoordinator: ChildCoordinator | undefined;
+  let clusterHost: ClusterHost | undefined;
   let index: ProjectContextIndex | undefined;
   if (deps.executor !== undefined && plannedChildren.length > 0) {
     const attached = attachChildRuntime({
@@ -925,6 +935,7 @@ export async function startFlowchartRun(
     childCoordinator = attached.childCoordinator;
     index = attached.index;
     spawnHandles = attached.spawnHandles;
+    clusterHost = attached.clusterHost;
   }
 
   const ctx: FlowchartLoopContext = {
@@ -949,6 +960,7 @@ export async function startFlowchartRun(
     ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
     ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
+    ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
     ...(input.contract !== undefined ? { contract: input.contract } : {})
   };
@@ -1010,6 +1022,7 @@ export async function resumeFlowchartRun(
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
   let childCoordinator: ChildCoordinator | undefined;
+  let clusterHost: ClusterHost | undefined;
   let index: ProjectContextIndex | undefined;
   if (deps.executor !== undefined && rebuilt.length > 0) {
     const attached = attachChildRuntime({
@@ -1026,6 +1039,7 @@ export async function resumeFlowchartRun(
     childCoordinator = attached.childCoordinator;
     index = attached.index;
     spawnHandles = attached.spawnHandles;
+    clusterHost = attached.clusterHost;
   }
   const ctx: FlowchartLoopContext = {
     supervisor,
@@ -1049,6 +1063,7 @@ export async function resumeFlowchartRun(
     ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
     ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
+    ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {})
   };
 
