@@ -191,3 +191,10 @@
 | S2-G-6 | inspectRun 两遍扫描合并 | ~1µs/次 |
 | S2-G-7 | joinStatus 三遍计数融合 | ~16ns |
 | S2-G-8 | LeaseRegistry Date.parse 缓存 | 全 run ~35µs |
+| S2-H-1 | buildContractCandidate 无 inferences 时跳过 sourceRefs Set | 44ns/run |
+| S2-H-2 | assertAuthorityGrounding 空 authority 早退 | ~44ns |
+| S2-H-3 | critiqueContract 四遍融合 | 真实规模噪声；压力规模更慢 |
+| S2-H-4 | changeSetsEqual 单 Set delete 化 | 重复路径经 CheckAdapter 发散 |
+| S2-H-5 | selectHighestPrecedence 折叠权重携带 | 9–13ns，test-only |
+| S2-H-6 | registerRubric 外层冗余 spread 移除 | 7–20ns，test-only |
+| S2-H-7 | normalizeSources 默认 origin 守卫跳过 | 防御纵深保留 |
