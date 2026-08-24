@@ -1,10 +1,11 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeRoot } from "./state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
 import { episodeLockPath } from "../run/episode-bind.js";
+import { runLockPath } from "../run/event-store.js";
 import {
   invocationsLogPath,
   readInvocationRecords,
@@ -14,11 +15,11 @@ import {
 import type { FeedbackRecord } from "../feedback/types.js";
 import {
   feedbackLogPath,
-  feedbackTombstonesPath,
   readFeedbackRecordsRaw,
   readFeedbackTombstoneIds,
   withFeedbackLogLock,
-  writeFeedbackRecords
+  writeFeedbackRecords,
+  writeFeedbackTombstones
 } from "../feedback/store.js";
 import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 
@@ -38,10 +39,11 @@ export function materializeWithoutTombstones<T extends { id: string }>(
  *
  * Deleting a run removes its runtime subtree AND filter-rewrites the shared
  * `runtime/invocations.jsonl` so the run's rows stop backing derived routing
- * numbers. The subtree removal is then verified, because nothing on the run
- * plane serializes with a live writer and a deleted run directory comes
- * straight back on the next append; a delete that cannot prove the records
- * are gone fails loudly instead of returning success.
+ * numbers. The subtree removal holds the run's cooperative lock
+ * (`runLockPath`) and is verified under it and again after it, because a
+ * deleted run directory comes straight back on the next write from a writer
+ * that does not take that lock; a delete that cannot prove the records are
+ * gone fails loudly instead of returning success.
  *
  * Deleting an episode removes its runtime records — under the episode's own
  * cooperative lock, so no live writer is operating on them while they go —
@@ -152,17 +154,17 @@ export class RunRecordsSurvivedError extends DomainValidationError {
  * Fail-closed post-condition for a run delete: throw unless
  * `runtime/runs/<runId>/` is absent.
  *
- * `deleteRunRecords` calls this after removing the subtree, and it is exported
- * so an operator (or a later audit surface) can re-assert the same thing
- * without deleting again. There is no run-plane lock to hold — see
- * `deleteRunRecords` — so this is a point-in-time check, not a guarantee about
- * the future.
+ * `deleteRunRecords` calls this inside the run's cooperative lock, where no
+ * lock-taking writer can recreate the directory between the removal and the
+ * check. Called on its own — as an operator re-assertion or an audit surface —
+ * it takes no lock and is therefore a point-in-time check, not a guarantee
+ * about the future.
  */
 export async function verifyRunRecordsRemoved(stateRoot: string, runId: RunId): Promise<void> {
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
   const survivors = await survivingRunEntries(runDir);
   if (survivors === undefined) return;
-  throw runRecordsSurvived(runId, runDir, survivors, undefined);
+  throw runRecordsSurvived(runId, runDir, runLockPath(stateRoot, runId), survivors, undefined);
 }
 
 /** Entries left under the run directory, or `undefined` when it is gone. */
@@ -180,6 +182,7 @@ async function survivingRunEntries(runDir: string): Promise<readonly string[] | 
 function runRecordsSurvived(
   runId: RunId,
   runDir: string,
+  lockPath: string,
   survivors: readonly string[],
   cause: unknown
 ): RunRecordsSurvivedError {
@@ -189,7 +192,7 @@ function runRecordsSurvived(
       ? `${runDir} was removed and is on disk again (${listed})`
       : `${runDir} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) and is still on disk (${listed})`;
   return new RunRecordsSurvivedError(
-    `run:${runId}: ${what}; refusing to report the delete as successful. A live writer recreates a deleted run's directory on its next append (the JSONL appender retries ENOENT through mkdir), so stop or cancel the run before deleting it again.`,
+    `run:${runId}: ${what}; refusing to report the delete as successful. A run delete removes the subtree while holding the run's cooperative lock (${lockPath}), so these records were written by one of the writers that does not take it — the run's event appender or its checkpoint writer, i.e. a live run. Stop or cancel the run before deleting it again.`,
     runDir,
     survivors,
     cause
@@ -197,11 +200,12 @@ function runRecordsSurvived(
 }
 
 /**
- * Remove the run subtree and prove it is gone.
+ * Remove the run subtree and prove it is gone. Runs inside the run's
+ * cooperative lock (see `deleteRunRecords`).
  *
- * The removal is not coordinated with the run's writers — there is no
- * run-plane lock to take (see `deleteRunRecords`) — so `rm` can lose the race
- * two ways: a writer that recreates the directory mid-walk makes `rm` itself
+ * The verification stays even though the lock is held, because the lock is
+ * cooperative: `rm` can still lose the race to a writer that does not take it,
+ * two ways. A writer that recreates the directory mid-walk makes `rm` itself
  * fail (`ENOTEMPTY`), and one that recreates it just after the walk leaves a
  * fresh directory behind. Both end in the same operator-visible state — run
  * records on disk after a delete — so both raise the same typed error, with
@@ -215,7 +219,9 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
     await rm(runDir, { recursive: true, force: true });
   } catch (error) {
     const survivors = await survivingRunEntries(runDir);
-    if (survivors !== undefined) throw runRecordsSurvived(runId, runDir, survivors, error);
+    if (survivors !== undefined) {
+      throw runRecordsSurvived(runId, runDir, runLockPath(stateRoot, runId), survivors, error);
+    }
     throw error;
   }
   await verifyRunRecordsRemoved(stateRoot, runId);
@@ -232,43 +238,70 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * middle line we cannot prove which rows belong to this run, so nothing is
  * deleted at all rather than reporting a partial delete as success.
  *
- * ## The subtree removal is verified, not assumed
+ * ## The subtree removal happens under the run's lock, and is verified twice
  *
- * Unlike the two shared logs this delete touches, the run subtree has no
- * cooperative lock: `EventStore.append`, the checkpoint store, the pause
- * controller and the track loop all write under `runtime/runs/<runId>/`
- * without taking one, and `appendJsonlLine` recreates a missing directory
- * (ENOENT → `mkdir` → retry) rather than failing. A live run therefore puts
- * its directory back moments after `rm` removed it, and this used to be
- * reported as a clean delete with run records sitting on disk.
+ * `runtime/runs/<runId>.lock` (`runLockPath`) is the run plane's cooperative
+ * lock, and this delete holds it across the removal *and* the verification, so
+ * a writer that takes it lands wholly before the removal or wholly after the
+ * verification instead of into the window between them. Writing under
+ * `runtime/runs/<runId>/` recreates the directory — the writers `mkdir` it and
+ * `appendJsonlLine` retries ENOENT through `mkdir` — which is how a delete
+ * used to report success over records that were already back.
  *
- * So the removal is followed by `verifyRunRecordsRemoved`: if the directory is
- * back — or never went away — the delete throws `RunRecordsSurvivedError`
- * instead of returning a `DeletionResult`. The invocation rows dropped before
- * that point stay dropped (with the derived p50 snapshot invalidated with
+ * `options` bounds that acquisition, and it fails closed: a live writer that
+ * holds the lock for longer than the timeout means the delete throws with
+ * nothing removed rather than deleting around it. Locks are never stolen here
+ * either, so a lock left by a killed writer makes the delete fail until an
+ * operator removes it — identical to `delete --episode`, and diagnosable with
+ * `doctor`.
+ *
+ * Which writers take the lock is a measured decision, not a full set: the two
+ * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
+ * because acquiring per append or per checkpoint costs +22.5% / +17.5% on an
+ * end-to-end run. `requestPause` and the track-questions write do. Each
+ * exclusion is argued where it is made.
+ *
+ * The verification stays as belt-and-braces (`verifyRunRecordsRemoved`), and
+ * it runs twice: once inside the lock, and once after it is released. The lock
+ * is cooperative and one run-plane writer deliberately does not take it
+ * (`EventStore.append` — see there for the measured reason), so a resurrection
+ * is still possible; and releasing a lock is itself two I/O turns, which such
+ * a writer can use. Verifying again on the way out is what makes the returned
+ * `DeletionResult` a statement about the moment the call returns rather than
+ * about the moment it let go of the lock. The invocation rows dropped before
+ * any of this stay dropped (with the derived p50 snapshot invalidated with
  * them), which is the privacy-safe half to have completed, and a re-delete is
  * idempotent about the rest.
  *
- * Disclosed limit: this is a point-in-time check. A writer whose append lands
- * *after* the check still recreates the directory, and this delete will have
- * returned success by then — the same "a late write is a new fact, not a
- * resurrected one" posture the shared invocation log already documents, except
- * here the operator has no lock to serialize against. Closing that window
- * needs a run-scoped lock acquired by every run-plane writer, which is a
- * change to those writers, not to this delete.
+ * Measured on this VM against a tight-loop writer running for the whole
+ * delete, 30 attempts per writer (event appends, checkpoint writes, both, and
+ * a raw `mkdir` + append): every one of the 120 deletes failed closed, and
+ * none reported success with records on disk. The same probes against the
+ * previous code reported success over records that were already back 5, 2, 0
+ * and 5 times out of 30. What the lock does not buy here is a *clean* delete
+ * against a live run — that needs the per-step writers to take it too, which
+ * costs +22.5% / +17.5% end-to-end (see each writer). Against a live run this
+ * delete refuses; against a stopped one it removes and returns.
+ *
+ * The one limit that cannot be closed from here: a write that lands after the
+ * final verification is a new fact, not a resurrection — the same posture the
+ * shared invocation log documents. The operator's remedy is unchanged: stop
+ * the run, then delete again.
  */
 export async function deleteRunRecords(
   stateRoot: string,
-  runId: RunId
+  runId: RunId,
+  options: FileLockOptions = {}
 ): Promise<DeletionResult> {
   const invocations = await dropRunFromInvocationLog(stateRoot, runId);
 
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
-  const removed: string[] = [];
-  if (await statExists(runDir)) {
-    await removeRunSubtree(stateRoot, runId, runDir);
-    removed.push(runDir);
-  }
+  const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
+  // Re-assert outside the lock, so the claim this call returns with is about
+  // the moment it returns and not about the moment it let go: releasing a lock
+  // is itself two I/O turns, and a writer that does not take the lock can use
+  // them. One `readdir` on an absent directory, once per delete.
+  if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
   if (invocations.droppedRows > 0) {
     removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
     if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
@@ -280,6 +313,39 @@ export async function deleteRunRecords(
     droppedInvocations: invocations.droppedRows,
     residualEpisodeTextRunIds: []
   };
+}
+
+/**
+ * Take the run's cooperative lock and remove the subtree under it.
+ *
+ * Nothing on disk for this run — no records and no lock — is a genuine no-op:
+ * no lock is taken and `runtime/runs/` is not created just to delete from it,
+ * exactly as `unlinkEpisodeFiles` treats an absent episode. A lock with no
+ * records still means a live writer, so it is waited on and whatever that
+ * writer leaves behind is then removed.
+ *
+ * The presence check is re-done inside the lock: what the pre-check saw is
+ * stale by the time the lock is held, in both directions.
+ */
+async function removeRunSubtreeLocked(
+  stateRoot: string,
+  runId: RunId,
+  runDir: string,
+  options: FileLockOptions
+): Promise<string[]> {
+  const lockPath = runLockPath(stateRoot, runId);
+  const onDisk = await Promise.all([runDir, lockPath].map(statExists));
+  if (!onDisk.includes(true)) return [];
+
+  return withExclusiveFileLock(
+    lockPath,
+    async () => {
+      if (!(await statExists(runDir))) return [];
+      await removeRunSubtree(stateRoot, runId, runDir);
+      return [runDir];
+    },
+    options
+  );
 }
 
 /**
@@ -641,7 +707,10 @@ async function readTextFile(path: string): Promise<string> {
  *    the adaptation plane is not created just to delete from it.
  *  - The text is stripped before the tombstones are persisted. A crash between
  *    the two leaves stripped shells that are not yet tombstoned, which is the
- *    privacy-safe direction: the text is already gone.
+ *    privacy-safe direction: the text is already gone. Both writes are
+ *    crash-atomic in themselves (`writeFeedbackRecords`,
+ *    `writeFeedbackTombstones`), so neither can leave a torn file that the
+ *    next read cannot parse.
  */
 export async function cascadeFeedbackTombstones(
   stateRoot: string,
@@ -669,13 +738,7 @@ export async function cascadeFeedbackTombstones(
       if (cascaded.length === 0) return [];
 
       await writeFeedbackRecords(stateRoot, updated);
-      const tombstonePath = feedbackTombstonesPath(stateRoot);
-      await mkdir(dirname(tombstonePath), { recursive: true });
-      await writeFile(
-        tombstonePath,
-        `${JSON.stringify([...tombstones].sort(), null, 2)}\n`,
-        "utf8"
-      );
+      await writeFeedbackTombstones(stateRoot, tombstones);
       return cascaded.sort();
     },
     options

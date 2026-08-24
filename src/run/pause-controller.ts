@@ -1,11 +1,13 @@
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomic } from "../persist/atomic-file.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
 import { isIsoTimestamp, nowIso, type IsoTimestamp } from "../domain/timestamp.js";
+import { runLockPath } from "./event-store.js";
 
 export interface PauseToken {
   readonly paused: boolean;
@@ -46,9 +48,17 @@ function parsePauseToken(raw: string): PauseToken {
   };
 }
 
+/**
+ * `lockOptions` bounds the run-scoped cooperative lock `requestPause` takes
+ * (`runLockPath`), so a pause request and a `delete --run` of the same run
+ * cannot interleave: writing `pause.json` creates the run directory, which
+ * would otherwise put a subtree the delete just removed straight back.
+ * `token()` reads without the lock — the file is published by rename.
+ */
 export function createFilePauseController(
   stateRoot: string,
-  now: () => IsoTimestamp = nowIso
+  now: () => IsoTimestamp = nowIso,
+  lockOptions: FileLockOptions = {}
 ): PauseController {
   return {
     async requestPause(runId, reason) {
@@ -60,9 +70,16 @@ export function createFilePauseController(
         requestedAt: now(),
         ...(reason !== undefined ? { reason } : {})
       };
-      await writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`);
+      await withExclusiveFileLock(
+        runLockPath(stateRoot, runId),
+        () => writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`),
+        lockOptions
+      );
       return token;
     },
+    // Unlocked on purpose: an unlink cannot recreate the run directory, so
+    // clearing a pause has nothing for a `delete --run` to lose a race with.
+    // Taking the lock here would only make a clear create `runtime/runs/`.
     async clearPause(runId) {
       await unlink(pausePath(stateRoot, runId)).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") throw error;

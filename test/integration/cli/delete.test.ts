@@ -25,8 +25,9 @@ import {
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { deleteRunRecords, verifyRunRecordsRemoved } from "../../../src/privacy/deletion.js";
+import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
-import { EventStore } from "../../../src/run/event-store.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
 import { createEventId } from "../../../src/domain/ids.js";
 
@@ -338,6 +339,47 @@ test("delete --run proves the subtree is gone, and re-deletes a run that wrote a
     );
     assert.equal(existsSync(runDir), false);
     await verifyRunRecordsRemoved(stateRoot, runId);
+  });
+});
+
+/**
+ * The operator-visible half of the run lock: `delete --run` does not delete
+ * around a live holder, it waits for it. Nothing in the CLI changed for this —
+ * the wait happens inside `deleteRunRecords` — so what this pins is that the
+ * command still exits 0 and reports the removal after the holder let go, and
+ * that it leaves no lock file behind for the next operator to puzzle over.
+ */
+test("delete --run waits for whoever holds the run lock, then reports the removal", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(
+      runEvent(runId, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-00000000000b",
+        kind: "TEXT_DELTA",
+        summary: "work before the delete"
+      })
+    );
+
+    const io = capture();
+    let pending: Promise<number> | undefined;
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      pending = deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(existsSync(runDir), true, "the delete must wait, not delete around the holder");
+    });
+
+    assert.ok(pending !== undefined);
+    assert.equal(await pending, 0, io.err.join(""));
+    assert.match(io.out.join(""), new RegExp(`removed: .*${runId}`));
+    assert.equal(existsSync(runDir), false);
+    await verifyRunRecordsRemoved(stateRoot, runId);
+    assert.equal(
+      existsSync(runLockPath(stateRoot, runId)),
+      false,
+      "a completed delete leaves no run lock behind"
+    );
+    assert.doesNotMatch(io.out.join(""), /\.lock/, "the lock is not a record the delete removed");
   });
 });
 

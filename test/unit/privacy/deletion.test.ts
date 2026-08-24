@@ -44,8 +44,10 @@ import {
   findResidualEpisodeText,
   verifyRunRecordsRemoved
 } from "../../../src/privacy/deletion.js";
-import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
 import { episodeLockPath } from "../../../src/run/episode-bind.js";
+import { runLockPath } from "../../../src/run/event-store.js";
 import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
 import {
   invocationsLogPath,
@@ -951,13 +953,15 @@ test("a live append cannot resurrect the deleted run's rows after the rewrite", 
 });
 
 /**
- * The run plane has no cooperative lock: `EventStore.append`, the checkpoint
- * store, the pause controller and the track loop all write under
- * `runtime/runs/<runId>/` without taking one, and `appendJsonlLine` recreates
- * a missing directory (ENOENT -> mkdir -> retry) instead of failing. So a run
- * delete cannot serialize with its writers; what it can do is refuse to call
- * a removal a success when the records are on disk. These tests pin that
- * refusal, the mechanism that causes it, and the window it cannot close.
+ * The run plane's cooperative lock is `runtime/runs/<runId>.lock`
+ * (`runLockPath`). `deleteRunRecords` holds it across the removal and the
+ * verification, and the writers that are not in the per-step loop take it too
+ * (`requestPause`, the track-questions write). The two per-step writers do not
+ * — a measured decision pinned in their own tests — so `appendJsonlLine`'s
+ * ENOENT recovery and `writeFileAtomic`'s `mkdir` can still put a removed
+ * directory back. These tests pin what the delete does about that: it verifies
+ * under the lock and again after releasing it, and it refuses to call a
+ * removal a success when the records are on disk at either point.
  */
 function agentEvent(runId: RunId, summary: string): Event {
   return runEvent(runId, "AGENT_EVENT", {
@@ -1040,10 +1044,16 @@ test("a live append recreates the deleted run directory, and the check says so",
  * recursive removal reliably loses. Whether it loses by `rm` failing
  * (ENOTEMPTY, a file created inside the walk) or by the directory being back
  * afterwards, the delete must raise the one typed error instead of returning
- * a `DeletionResult`. Attempts are bounded and retried because which of the
- * two happens is up to the kernel, and because ~1 attempt in 5 (measured on
- * this VM) has the writer land just after the check — the window this fix
- * discloses rather than closes.
+ * a `DeletionResult`.
+ *
+ * The second assertion is the one this round added: a delete that *does*
+ * return must have the run directory gone at the moment it returns. That is
+ * why the removal is verified again after the lock is released — before, a
+ * writer that landed in the release window (or just after the in-lock check)
+ * left the caller holding a success over records that were already back. An
+ * adversarial probe measured up to 5 such deletes per 30 before this change
+ * (5/30 against a tight-loop appender, 2/30 against a checkpoint writer) and
+ * 0 per 30 after, for every writer shape.
  */
 test("a run directory recreated by a live writer fails the delete loudly", async () => {
   await withStateRoot(async (stateRoot) => {
@@ -1071,6 +1081,7 @@ test("a run directory recreated by a live writer fails the delete loudly", async
         (result) => result,
         (error: unknown) => error
       );
+      const onDiskAtReturn = existsSync(runDir);
       writing = false;
       await writer;
 
@@ -1080,6 +1091,11 @@ test("a run directory recreated by a live writer fails the delete loudly", async
           !(outcome instanceof Error),
           `a lost race must surface as RunRecordsSurvivedError, not ${String(outcome)}`
         );
+        assert.equal(
+          onDiskAtReturn,
+          false,
+          "a delete that returned a result must have the run directory gone when it returned"
+        );
       }
       await rm(runDir, { recursive: true, force: true });
     }
@@ -1087,18 +1103,210 @@ test("a run directory recreated by a live writer fails the delete loudly", async
     assert.ok(survived, "a delete that lost the race must not return a DeletionResult");
     assert.equal(survived.code, RUN_RECORDS_SURVIVED_CODE);
     assert.match(survived.message, /refusing to report the delete as successful/);
-    assert.match(survived.message, /stop or cancel the run/);
+    assert.match(survived.message, /Stop or cancel the run before deleting it again/);
     assert.ok(survived.runDir.includes("runtime"));
+    assert.ok(
+      survived.message.includes(`${survived.runDir}.lock`),
+      "the remedy must name the lock the delete held, so the operator can inspect it"
+    );
   });
+});
+
+/**
+ * The same race driven by the writers a real run uses, rather than by raw
+ * `fs`: the event appender (which does not take the run lock) and the
+ * checkpoint writer (which does not either). Neither may produce a delete that
+ * returns success over records that are on disk.
+ */
+test("a live run's own writers cannot make a delete report a removal it lost", async () => {
+  await withStateRoot(async (stateRoot) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const runId = createRunId(UUID);
+      const runDir = join(stateRoot, "runtime", "runs", runId);
+      const store = new EventStore(stateRoot, runId);
+      const checkpoints = new CheckpointStore(stateRoot, runId);
+      await store.append(agentEvent(runId, "before the delete"));
+      await Promise.all(
+        Array.from({ length: 200 }, (_, index) =>
+          writeFile(join(runDir, `part-${index}.json`), "{}\n", "utf8")
+        )
+      );
+
+      let writing = true;
+      const writer = (async () => {
+        for (let index = 0; writing; index += 1) {
+          await store.append(agentEvent(runId, `during ${index}`)).catch(() => undefined);
+          await checkpoints.write({ schemaVersion: 1, generation: index }).catch(() => undefined);
+        }
+      })();
+      const outcome: unknown = await deleteRunRecords(stateRoot, runId).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+      const onDiskAtReturn = existsSync(runDir);
+      writing = false;
+      await writer;
+
+      if (outcome instanceof Error) {
+        assert.ok(
+          outcome instanceof RunRecordsSurvivedError,
+          `a lost race must surface as RunRecordsSurvivedError, not ${String(outcome)}`
+        );
+      } else {
+        assert.equal(onDiskAtReturn, false, "a returned delete must leave nothing on disk");
+      }
+      await rm(runDir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The lock side of the delete, pinned the way the episode lock is: a delete
+ * waits for a live holder instead of deleting around it, and it fails closed
+ * when it cannot have the lock at all.
+ */
+test("delete --run waits for a live run-lock holder before removing anything", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(agentEvent(runId, "recorded work"));
+    let pending: Promise<{ removedPaths: readonly string[] }> | undefined;
+
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      pending = deleteRunRecords(stateRoot, runId);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(
+        existsSync(runDir),
+        true,
+        "records must not be removed while another writer holds the run lock"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual((await pending).removedPaths, [runDir]);
+    assert.equal(existsSync(runDir), false);
+    assert.equal(
+      existsSync(runLockPath(stateRoot, runId)),
+      false,
+      "the delete releases the lock it took"
+    );
+  });
+});
+
+test("a run delete that cannot take the run lock fails closed and removes nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(agentEvent(runId, "still here"));
+    const before = await readFile(join(runDir, "events.jsonl"), "utf8");
+    const lockPath = runLockPath(stateRoot, runId);
+    let outcome: unknown;
+
+    await withExclusiveFileLock(lockPath, async () => {
+      outcome = await deleteRunRecords(stateRoot, runId, { timeoutMs: 40, retryMs: 5 }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+    });
+
+    assert.ok(outcome instanceof DomainValidationError, "a lock timeout must reject the delete");
+    assert.equal((outcome as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.match(outcome.message, /timed out waiting for lock/);
+    assert.ok(outcome.message.includes(lockPath), "the failure must name the run lock");
+    assert.equal(await readFile(join(runDir, "events.jsonl"), "utf8"), before);
+
+    // Idempotent once the holder is gone.
+    assert.deepEqual((await deleteRunRecords(stateRoot, runId)).removedPaths, [runDir]);
+  });
+});
+
+/**
+ * A lock with no records next to it is still a live writer: waiting for it is
+ * what stops the delete from reporting "nothing found" a millisecond before
+ * the holder writes the run's records back. Same contract as the episode side.
+ */
+test("a run delete waits on a lock with no records and removes what that writer wrote", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    let pending: Promise<{ removedPaths: readonly string[] }> | undefined;
+
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      pending = deleteRunRecords(stateRoot, runId);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await mkdir(runDir, { recursive: true });
+      await writeFile(join(runDir, "pause.json"), "{}\n", "utf8");
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual((await pending).removedPaths, [runDir]);
+    assert.equal(existsSync(runDir), false);
+  });
+});
+
+test("a completed run delete leaves no lock behind and does not report one", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(agentEvent(runId, "work"));
+
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(result.removedPaths, [runDir]);
+    assert.equal(
+      existsSync(runLockPath(stateRoot, runId)),
+      false,
+      "the run lock must not outlive the delete that created it"
+    );
+    assert.ok(
+      !result.removedPaths.includes(runLockPath(stateRoot, runId)),
+      "a lock the delete created itself is not a run record it removed"
+    );
+  });
+});
+
+test("a delete of a run with nothing on disk creates neither the directory nor a lock", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(result.removedPaths, []);
+    assert.equal(
+      existsSync(join(stateRoot, "runtime", "runs")),
+      false,
+      "a delete must not create the directory it deletes from just to take a lock"
+    );
+    assert.equal(existsSync(runLockPath(stateRoot, runId)), false);
+  });
+});
+
+test("the run delete serializes on the same lock file the run writers take", async () => {
+  const runId = createRunId(UUID);
+  assert.equal(
+    runLockPath("/state", runId),
+    join("/state", "runtime", "runs", `${runId}.lock`),
+    "the lock is beside the run directory, so the delete's own rm cannot remove it"
+  );
+  // Source pin: the delete must reuse the shared path helper, and it must
+  // re-verify after the lock is released — a window no behavioural test can
+  // hit deterministically once it is closed.
+  const source = await readFile(new URL("../../../src/privacy/deletion.ts", import.meta.url), "utf8");
+  assert.match(source, /import \{ runLockPath \} from "\.\.\/run\/event-store\.js";/);
+  assert.doesNotMatch(source, /`\$\{runId\}\.lock`/);
+  assert.match(
+    source,
+    /removeRunSubtreeLocked\(stateRoot, runId, runDir, options\);[\s\S]*?if \(removed\.length > 0\) await verifyRunRecordsRemoved\(stateRoot, runId\);/
+  );
 });
 
 test("the run delete cannot report a subtree removal it did not verify", async () => {
   const source = await readFile(new URL("../../../src/privacy/deletion.ts", import.meta.url), "utf8");
-  // Source pin: the only path that reports `runDir` as removed is the one
-  // that goes through the verified helper. Removing the check would leave the
-  // resurrection race reported as a clean delete again, and no behavioural
-  // test can catch a window that closed.
-  assert.match(source, /await removeRunSubtree\(stateRoot, runId, runDir\);\s*removed\.push\(runDir\);/);
+  // Source pin: the only path that reports `runDir` as removed is the one that
+  // goes through the verified helper, and it runs inside the run lock.
+  // Removing the check would leave the resurrection race reported as a clean
+  // delete again, and no behavioural test can catch a window that closed.
+  assert.match(
+    source,
+    /withExclusiveFileLock\(\s*lockPath,\s*async \(\) => \{[\s\S]*?await removeRunSubtree\(stateRoot, runId, runDir\);\s*return \[runDir\];/
+  );
   assert.match(source, /await verifyRunRecordsRemoved\(stateRoot, runId\);/);
 });
 

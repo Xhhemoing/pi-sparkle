@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createRunId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
+import { runLockPath } from "../../../src/run/event-store.js";
 import { validateCheckpoint } from "../../../src/run/replay.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -138,6 +140,30 @@ test("concurrent checkpoint writes publish exactly one complete document", async
     assert.ok(expected.includes(raw), "published bytes are not any single writer's payload");
     assert.deepEqual(await store.read(), JSON.parse(raw));
     assert.deepEqual(await ownTempFiles(paths.checkpoint), []);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Decision pin, matching `event-store.test.ts`'s: the flowchart loop persists
+ * a checkpoint after every scheduling step, so this is a per-step writer and
+ * it deliberately does not take the run lock — measured at +62% per write and
+ * +17.5% end-to-end against a 5% bar (see the docstring on `write`). The delete
+ * side stays honest without it by verifying under the lock and again after it.
+ */
+test("checkpoint writes do not block on the run lock", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-test-"));
+  try {
+    const runId = createRunId(UUID);
+    const store = new CheckpointStore(stateRoot, runId);
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      await store.write({ schemaVersion: 1, marker: "written under someone else's lock" });
+    });
+    assert.deepEqual(await store.read(), {
+      schemaVersion: 1,
+      marker: "written under someone else's lock"
+    });
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

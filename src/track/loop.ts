@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../persist/atomic-file.js";
+import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import {
@@ -26,7 +27,7 @@ import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { startFlowchartRun } from "../run/flowchart-run.js";
 import { createModelRouter } from "../supervisor/model-router.js";
 import { bindEpisodeToRun, episodeIdFromEvents, settleBoundEpisode } from "../run/episode-bind.js";
-import { EventStore } from "../run/event-store.js";
+import { EventStore, runLockPath } from "../run/event-store.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import { materializeCheckpoint, replayRun, validateCheckpoint } from "../run/replay.js";
 import type { Event } from "../run/events.js";
@@ -250,11 +251,15 @@ async function waitForClarification(
   await append(make("RUN_STARTED", {}));
   const messageId = createMessageId(generateId);
   await append(make("RUN_WAITING_FOR_USER", { messageId }));
-  await mkdir(join(runtimeRoot(input.stateRoot), "runs", runId), { recursive: true });
-  await writeFile(
-    join(runtimeRoot(input.stateRoot), "runs", runId, "track-questions.json"),
-    JSON.stringify({ questions, objective: input.objective, contract }, null, 2),
-    "utf8"
+  // Crash-atomic and serialized with `delete --run`: the questions file holds
+  // the objective (and is scanned for residual episode text), and writing it
+  // creates the run directory, so a plain write here could both tear and put a
+  // deleted subtree back. `writeFileAtomic` creates the directory itself.
+  await withExclusiveFileLock(runLockPath(input.stateRoot, runId), () =>
+    writeFileAtomic(
+      join(runtimeRoot(input.stateRoot), "runs", runId, "track-questions.json"),
+      `${JSON.stringify({ questions, objective: input.objective, contract }, null, 2)}\n`
+    )
   );
   await settleBoundEpisode({
     stateRoot: input.stateRoot,
