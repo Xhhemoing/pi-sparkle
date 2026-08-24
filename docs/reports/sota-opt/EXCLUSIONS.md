@@ -347,5 +347,12 @@
 | S5-G-4 | 跨 store 相邻追加 Promise.all | parent⟹child 崩溃前缀违例 |
 | S5-G-5 | AGENT_EVENT 攒批合并落盘 | 逐消息持久性 + 实时可见性 |
 | S5-G-6 | edgeStatus→conditionHolds 双 getRuntime 合一 | 4.7–6.3ns/边 |
+| S5-H-1 | detectConflicts 分配前守卫 | 121–132ns；冲突侧负优化 |
 | S5-H-2 | 切片生产子树惰性 import | 2.2–2.4ms once-per-process CLI 噪声 |
 | S5-H-3 | hashArtifact 免拼接增量 hash32 折叠 | 零生产调用方；需复制集中化哈希 |
+| S5-J-1 | 授权导出 listObservations 拷贝在 scopes 过滤时消除 | 4–6µs；stringify 支配 |
+| S5-J-2 | codeMap 成本估算构串改闭式长度 | 2.6–2.7µs/编译 |
+| S5-J-3 | 删除级联 tombstones 读延迟到首匹配后 | fail-open 损坏侧车；75–86µs |
+| S5-J-4 | mailbox enqueue 冗余 byRole.set | 6.2–6.6ns；mailbox 数据面 |
+| S5-J-5 | resolveFromMap 属性双读 CSE | ~10ns/查 |
+| S5-J-6 | 跨 child 共享 acceptanceForRole default | 身份别名；~80ns |

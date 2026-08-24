@@ -19,8 +19,8 @@
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S4-C / S4-I；其余区报告收口。见 [round-04/PLAN.md](./round-04/PLAN.md) |
-| 5 | 第 4 波进行中 | 10 / 10（A–H 完成；I/J 在跑） | claude-fable-5-thinking-xhigh | C 落地 S5-C；F 落地 S5-F。见 [round-05/PLAN.md](./round-05/PLAN.md) |
-| 6 | 第 1 波已派出 | 1 / 10（A 已派出；B–J 待 R5 空槽） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
+| 5 | 第 4 波进行中 | 10 / 10（A–H/J 完成；I 在跑） | claude-fable-5-thinking-xhigh | C 落地 S5-C；F 落地 S5-F。见 [round-05/PLAN.md](./round-05/PLAN.md) |
+| 6 | 第 1 波进行中 | 2 / 10（A 在跑；B 本波派出） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
 
 ### Round 1 波次
 
@@ -65,13 +65,13 @@
 | 1 | R5-A 跟踪门控、R5-B live 路由、R5-C 离线路由 | A/B/C 完成已合入（C 落地 S5-C） |
 | 2 | R5-D 自优化、R5-E 学习、R5-F 实验 | D/E/F 完成已合入（F 落地 S5-F） |
 | 3 | R5-G 运行时/图、R5-H 评价/需求 | G/H 完成已合入 |
-| 4 | R5-I CLI/适配器、R5-J cluster/privacy | I 在跑；J 本波派出 |
+| 4 | R5-I CLI/适配器、R5-J cluster/privacy | J 完成已合入；I 在跑 |
 
 ### Round 6 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R6-A 跟踪门控 | A 已派出 |
+| 1 | R6-A 跟踪门控、R6-B live 路由 | A 在跑；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -127,7 +127,8 @@
 | R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已合入专属分支（仅 `R5-G.md`） |
 | R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已派出 |
 | R5-H | `cursor/r5-h-eval-fifth-pass-83a1` | 已合入专属分支（仅 `R5-H.md`） |
-| R5-J | `cursor/r5-j-persist-fifth-pass-83a1` | 已派出 |
+| R5-J | `cursor/r5-j-persist-fifth-pass-83a1` | 已合入专属分支（仅 `R5-J.md`） |
+| R6-B | `cursor/r6-b-live-routing-sixth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
