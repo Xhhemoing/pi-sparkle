@@ -19,8 +19,8 @@
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S4-C / S4-I；其余区报告收口。见 [round-04/PLAN.md](./round-04/PLAN.md) |
-| 5 | 第 4 波进行中 | 10 / 10（A–H/J 完成；I 在跑） | claude-fable-5-thinking-xhigh | C 落地 S5-C；F 落地 S5-F。见 [round-05/PLAN.md](./round-05/PLAN.md) |
-| 6 | 第 2 波进行中 | 5 / 10（A/B/D 完成；C 在跑；E 本波派出） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
+| 5 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S5-C / S5-F / S5-I-1；其余区报告收口。见 [round-05/PLAN.md](./round-05/PLAN.md) |
+| 6 | 第 2 波进行中 | 6 / 10（A/B/D 完成；C/E 在跑；F 本波派出） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
 
 ### Round 1 波次
 
@@ -65,14 +65,14 @@
 | 1 | R5-A 跟踪门控、R5-B live 路由、R5-C 离线路由 | A/B/C 完成已合入（C 落地 S5-C） |
 | 2 | R5-D 自优化、R5-E 学习、R5-F 实验 | D/E/F 完成已合入（F 落地 S5-F） |
 | 3 | R5-G 运行时/图、R5-H 评价/需求 | G/H 完成已合入 |
-| 4 | R5-I CLI/适配器、R5-J cluster/privacy | J 完成已合入；I 在跑 |
+| 4 | R5-I CLI/适配器、R5-J cluster/privacy | I/J 完成已合入（I 落地 S5-I-1） |
 
 ### Round 6 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R6-A 跟踪门控、R6-B live 路由、R6-C 离线路由 | A/B 完成已合入；C 在跑 |
-| 2 | R6-D 自优化、R6-E 学习 | D 完成已合入；E 本波派出 |
+| 2 | R6-D 自优化、R6-E 学习、R6-F 实验 | D 完成已合入；E 在跑；F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -124,7 +124,7 @@
 | R5-C | `cursor/r5-c-offline-routing-fifth-pass-83a1` | 已合入专属分支（S5-C 代码 + 报告 + 仿真）。父代理重跑 r1c/r2c/r3c/r4c/r5c 全绿（8028 / 14420 / 14730 / 24888 / 28555 逐位）；r5c 生产 809.5 ms vs 冻结 S4-C 1132.9 ms（1.40×） |
 | R5-E | `cursor/r5-e-learning-fifth-pass-83a1` | 已合入专属分支（仅 `R5-E.md`） |
 | R5-F | `cursor/r5-f-experiments-fifth-pass-83a1` | 已合入专属分支（S5-F 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f 全绿（2668 / 224 逐位）；r5f 全实验 P=2000/A=1000 = 259.73 ms |
-| R5-I | `cursor/r5-i-cli-fifth-pass-83a1` | 已派出 |
+| R5-I | `cursor/r5-i-cli-fifth-pass-83a1` | 已合入专属分支（S5-I-1 代码 + 报告 + 仿真）。待父代理重跑 r4i + r5i |
 | R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已合入专属分支（仅 `R5-G.md`） |
 | R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已合入专属分支（仅 `R6-A.md`） |
 | R6-C | `cursor/r6-c-offline-routing-sixth-pass-83a1` | 已派出 |
@@ -133,6 +133,7 @@
 | R6-B | `cursor/r6-b-live-routing-sixth-pass-83a1` | 已合入专属分支（仅 `R6-B.md`） |
 | R6-D | `cursor/r6-d-adaptation-sixth-pass-83a1` | 已合入专属分支（仅 `R6-D.md`） |
 | R6-E | `cursor/r6-e-learning-sixth-pass-83a1` | 已派出 |
+| R6-F | `cursor/r6-f-experiments-sixth-pass-83a1` | 已派出 |
 
 ## 合并策略
 

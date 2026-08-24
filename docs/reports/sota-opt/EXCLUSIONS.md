@@ -62,6 +62,7 @@
 - S4-I CLI/`auth-session` 在点用处惰性加载 Pi 运行时子树（`--executor pi` 与 auth 函数体内 `await import(runtime)`；见 round-04/R4-I.md）
 - S5-C `solveSymmetric` 消元 k 循环按 4 顺序展开（含顺序余数；浮点运算集合与顺序不变；见 round-05/R5-C.md）
 - S5-F `assertUniqueNonEmpty` 单探针去重（`add` + size 计数器代替 `has`+`add`；first-fault 与消息逐位不变；见 round-05/R5-F.md）
+- S5-I-1 CLI `main.ts` 12 条分支独占 dispatch 模块改为点用 `await import`（8 个一次性子命令 + `run/supervisor` + `track/loop` + `preferences/export` + `privacy/deletion`；主收益来自 Node v22.14 `getPackageScopeConfig` 在静态 `main.ts → track/loop.js` 边上的解析病理；见 round-05/R5-I.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -350,6 +351,10 @@
 | S5-H-1 | detectConflicts 分配前守卫 | 121–132ns；冲突侧负优化 |
 | S5-H-2 | 切片生产子树惰性 import | 2.2–2.4ms once-per-process CLI 噪声 |
 | S5-H-3 | hashArtifact 免拼接增量 hash32 折叠 | 零生产调用方；需复制集中化哈希 |
+| S5-I-2 | `src/cli/main.ts` 变体 B：8 handler + supervisor/export/deletion 惰性，`track/loop` 保持静态 | 同窗测量回到基线水平（-0~-6ms）：单条静态 track 边重新触发 Node v22.14 `getPackageScopeConfig` 病理。重开：该边解析成本消失且 handler 死重单独 ≥ 两位数 ms |
+| S5-I-3 | `src/cli/main.ts` 变体 M：仅 `track/loop` 惰性，其余 11 条保持静态 | 只拿到约一半（-7~-13ms），被 S5-I-1 全集严格支配。重开：全集因维护性回退时 M 可作为最小回退版重裁 |
+| S5-I-4 | 对共享模块（`run/replay.js`、`preferences/service.js`、`cli/model-catalog.js` 等）继续点用处惰性化 | 不具分支独占性（各 ≥2 常驻调用点）；单模块边际加载 µs~低 ms 级。重开：未来重构使某重型共享子树变为分支独占 |
+| S5-I-5 | 直接追打 Node `getPackageScopeConfig` 病态（改 dist 布局 / package.json scope / 引擎参数） | 超出 I 切片文件范围；GC 旗标无稳定相对收益。重开：引擎升级到 ≥22.19 后复测，或向上游报 issue 而非仓库内规避 |
 | S5-J-1 | 授权导出 listObservations 拷贝在 scopes 过滤时消除 | 4–6µs；stringify 支配 |
 | S5-J-2 | codeMap 成本估算构串改闭式长度 | 2.6–2.7µs/编译 |
 | S5-J-3 | 删除级联 tombstones 读延迟到首匹配后 | fail-open 损坏侧车；75–86µs |
