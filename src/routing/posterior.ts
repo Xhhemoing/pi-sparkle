@@ -190,4 +190,25 @@ export function observationsForKey(
   return observations.filter((o) => outcomeKey(o) === key);
 }
 
+/**
+ * Single-pass grouping by outcome key. Insertion order inside each group is
+ * the input order, so per-key posteriors are identical to filtering with
+ * `observationsForKey` — this only removes the per-candidate rescans.
+ */
+export function groupObservationsByKey(
+  observations: readonly OutcomeObservation[]
+): ReadonlyMap<string, readonly OutcomeObservation[]> {
+  const groups = new Map<string, OutcomeObservation[]>();
+  for (const observation of observations) {
+    const key = outcomeKey(observation);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [observation]);
+    } else {
+      group.push(observation);
+    }
+  }
+  return groups;
+}
+
 export { outcomeKey };

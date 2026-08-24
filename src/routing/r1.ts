@@ -3,9 +3,10 @@ import { observationsForR1, type OutcomeObservation } from "./outcomes.js";
 import type { PosteriorConfig } from "./posterior.js";
 import {
   DEFAULT_POSTERIOR_CONFIG,
+  groupObservationsByKey,
   isWellSampled,
   lowerConfidenceBound,
-  observationsForKey,
+  outcomeKey,
   posteriorMean,
   updatePosterior,
   weightedSampleSize,
@@ -79,20 +80,22 @@ export function routeR1(input: R1Input): R1Decision {
 
   const tierIds = [input.r0.selection, ...input.r0.fallbacks];
   const estimates: R1Estimate[] = [];
+  const modelsById = new Map(input.models.map((m) => [m.modelId, m]));
+  const observationsByKey = groupObservationsByKey(observations);
 
   for (const modelId of tierIds) {
-    const model = input.models.find((m) => m.modelId === modelId);
-    const parts = {
+    const model = modelsById.get(modelId);
+    const key = outcomeKey({
       taskFamily: request.taskFamily,
       role: input.role,
       modelVersion: model?.version ?? modelId,
       featureVersion: input.featureVersion,
-    };
-    const keyed = observationsForKey(observations, parts);
+    });
+    const keyed = observationsByKey.get(key) ?? [];
     const posterior = updatePosterior(config, keyed, input.nowMs);
     estimates.push({
       modelId,
-      key: `${parts.taskFamily}|${parts.role}|${parts.modelVersion}|${parts.featureVersion}`,
+      key,
       alpha: posterior.alpha,
       beta: posterior.beta,
       mean: posteriorMean(posterior),

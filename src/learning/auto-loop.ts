@@ -1,17 +1,15 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DomainValidationError } from "../domain/errors.js";
 import { createEvidenceId, isEvidenceId, type EpisodeId, type ProjectId } from "../domain/ids.js";
 import { hash32 } from "../domain/hash.js";
 import {
   hashCandidateContent
 } from "../adaptation/candidate.js";
 import {
-  loadAdaptationRegistry,
+  loadAdaptationRegistryOrNew,
   saveAdaptationRegistry,
   withAdaptationRegistryLock
 } from "../adaptation/promotion.js";
-import { ResourceRegistry } from "../adaptation/registry.js";
 import type { FeedbackRecord } from "../feedback/types.js";
 import { appendFeedback } from "../feedback/store.js";
 import type { Event } from "../run/events.js";
@@ -20,6 +18,7 @@ import { updateProjectBandit } from "./bandit-store.js";
 import { diagnoseModelProjectIssues, type ModelProjectIssue } from "./diagnostics.js";
 import { isAutoAdaptEnabled } from "../adaptation/approval-profile.js";
 import {
+  ensureRoutingBaseline,
   routingPolicyContent,
   routingPolicyIdentity,
   type LearnedAvoid,
@@ -164,27 +163,13 @@ async function proposeAndMaybePromote(input: {
   const identity = routingPolicyIdentity(input.projectRoot);
 
   return withAdaptationRegistryLock(input.stateRoot, async () => {
-    let registry: ResourceRegistry;
-    try {
-      registry = await loadAdaptationRegistry(input.stateRoot);
-    } catch (error) {
-      if (!(error instanceof DomainValidationError) || !/no registry snapshot/.test(error.message)) {
-        throw error;
-      }
-      registry = new ResourceRegistry();
-    }
-    let parent = registry.getActiveVersion(identity);
-    if (parent === undefined) {
-      parent = registry.registerBaseline({
-        identity,
-        content: routingPolicyContent({
-          primaryModelId: input.policy.primaryModelId,
-          avoid: [],
-          prefer: []
-        }),
-        author: { kind: "detector", identity: AUTO_ACTOR }
-      });
-    }
+    const registry = await loadAdaptationRegistryOrNew(input.stateRoot);
+    const parent = ensureRoutingBaseline(
+      registry,
+      identity,
+      input.policy.primaryModelId,
+      AUTO_ACTOR
+    );
     const existing = registry
       .candidatesFor(identity)
       .find((candidate) => candidate.contentHash === contentHash);

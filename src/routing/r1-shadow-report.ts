@@ -1,13 +1,14 @@
 import { DomainValidationError } from "../domain/errors.js";
-import { createEvaluationCard } from "../experiments/evaluation-card.js";
 import {
-  computeComparisonReport,
   DEFAULT_COMPARISON_REPORT_CONFIG,
-  validateComparisonReport,
   type ComparisonReport,
   type ComparisonReportConfig,
   type PairedEvaluationRecord,
 } from "../experiments/comparison-report.js";
+import {
+  gatedComparisonReport,
+  stripImprovementClaims,
+} from "../experiments/gated-comparison.js";
 import type { ModelDescriptor } from "./capability-registry.js";
 import type { OutcomeObservation } from "./outcomes.js";
 import type { RouteRequest } from "./policy.js";
@@ -19,7 +20,6 @@ const SIMULATION_COMPARISON_CONFIG: ComparisonReportConfig = {
   evidenceClass: "simulation",
 };
 
-const IMPROVEMENT_CLAIM = /improve|outperform|better|regret/i;
 const SIMULATION_CLAIM = "仿真证据";
 
 export interface FrozenR1ShadowEpisode {
@@ -136,8 +136,7 @@ export function buildR1ShadowReport(input: R1ShadowReportInput): R1ShadowReport 
 }
 
 function sanitizeClaims(claims: readonly string[] | undefined): readonly string[] {
-  const source = claims ?? [SIMULATION_CLAIM];
-  return source.filter((claim) => !IMPROVEMENT_CLAIM.test(claim));
+  return stripImprovementClaims(claims ?? [SIMULATION_CLAIM]);
 }
 
 function selectedCost(r0: R0Decision, modelId: string): number {
@@ -152,59 +151,10 @@ function gatedComparison(
   records: readonly PairedEvaluationRecord[],
   claims: readonly string[]
 ): ComparisonReport {
-  const card = cardFromRecords(records);
-  const report = computeComparisonReport(records, card, claims, SIMULATION_COMPARISON_CONFIG);
-  const validation = validateComparisonReport(report, SIMULATION_COMPARISON_CONFIG);
-  if (validation.valid) {
-    return report;
-  }
-  const stripped = report.claims.filter((claim) => !IMPROVEMENT_CLAIM.test(claim));
-  const retry = computeComparisonReport(records, card, stripped, SIMULATION_COMPARISON_CONFIG);
-  const retryValidation = validateComparisonReport(retry, SIMULATION_COMPARISON_CONFIG);
-  if (!retryValidation.valid) {
-    throw new DomainValidationError(
-      `comparison report invalid: ${retryValidation.reasons.join("; ")}`
-    );
-  }
-  return retry;
-}
-
-function cardFromRecords(records: readonly PairedEvaluationRecord[]) {
-  const domains = [...new Set(records.map((record) => record.taskFamily))];
-  const baselineUtilities = records.map((record) => record.baselineUtility);
-  const candidateUtilities = records.map((record) => record.candidateUtility);
-  const baselineCosts = records.map((record) => record.baselineCostUsd);
-  const candidateCosts = records.map((record) => record.candidateCostUsd);
-  return createEvaluationCard({
-    domains,
-    difficultyTiers: ["simulation"],
-    metrics: ["utility", "cost"],
-    baseline: {
-      utility: mean(baselineUtilities),
-      costUsd: mean(baselineCosts),
-      uncertainty: sampleStandardError(baselineUtilities),
-    },
-    candidate: {
-      utility: mean(candidateUtilities),
-      costUsd: mean(candidateCosts),
-      uncertainty: sampleStandardError(candidateUtilities),
-    },
-    guardrailViolations: [],
+  return gatedComparisonReport({
+    records,
+    claims,
+    config: SIMULATION_COMPARISON_CONFIG,
+    difficultyTier: "simulation",
   });
-}
-
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function sampleStandardError(values: readonly number[]): number {
-  if (values.length < 2) {
-    return 0;
-  }
-  const average = mean(values);
-  let variance = 0;
-  for (const value of values) {
-    variance += (value - average) * (value - average);
-  }
-  return Math.sqrt(variance / (values.length - 1)) / Math.sqrt(values.length);
 }
