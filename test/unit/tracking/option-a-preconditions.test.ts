@@ -6,8 +6,10 @@ import { describe, it } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import { AGENT_ROLES, type AgentRole } from "../../../src/domain/roles.js";
-import type { ArtifactId, EvidenceId, RunId, TaskId } from "../../../src/domain/ids.js";
-import { VERIFICATION_KINDS, validateAgentMessage } from "../../../src/protocol/v1.js";
+import type { AgentInstanceId, ArtifactId, EvidenceId, RunId, TaskId } from "../../../src/domain/ids.js";
+import type { AgentExecutionRequest, ExecutionEvent } from "../../../src/execution/contract.js";
+import { createTaskResultTool } from "../../../src/pi-adapter/pi-executor.js";
+import { VERIFICATION_KINDS, validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import type { ChildRunOutcome, ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { observationFromChild } from "../../../src/run/child-tracking.js";
 import { combineScore } from "../../../src/tracking/combined-score.js";
@@ -39,6 +41,11 @@ const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
  * Anyone implementing option (a) replaces these pins in the same diff, with
  * disclosure, and re-derives the 270-cell sweep in
  * `criteria-are-guidance.test.ts` under the new semantics.
+ *
+ * Pin 2 has already been through that: Loop 4 R9-2 shipped the child-side
+ * producer R8-4 called precondition 0, so the pin now records a real executor
+ * that can report PASSED/FAILED and a default path that still cannot. The
+ * other four still stand as written.
  */
 
 const REGISTRY = createAgentProfileRegistry(defaultAgentProfiles());
@@ -57,6 +64,47 @@ function specFor(role: AgentRole, criterionIds: readonly string[]): ChildTaskInp
     acceptanceCriteria: criterionIds.map((id) => ({ id, description: `criterion ${id}` })),
     limits: { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 }
   };
+}
+
+const AGENT_ID = "agt_01234567-89ab-cdef-0123-456789abcdef" as AgentInstanceId;
+
+/**
+ * Drives the shipped `sparkle_report_task_result` tool and returns the message
+ * it really emitted, so the pin below scores an executor-authored verdict
+ * rather than a hand-written lookalike.
+ */
+async function reportedTerminal(args: Record<string, unknown>): Promise<TaskResult> {
+  const emitted: ExecutionEvent[] = [];
+  const request = {
+    runId: CHILD_RUN_ID,
+    taskId: TASK_ID,
+    agentInstanceId: AGENT_ID,
+    prompt: "Do the work",
+    workingDirectory: "/tmp/project"
+  } satisfies AgentExecutionRequest;
+  await createTaskResultTool(request, (event) => emitted.push(event)).execute("tool_call_1", args);
+  const message = emitted[0];
+  assert.ok(message?.type === "MESSAGE" && message.message.type === "TASK_RESULT");
+  return validateAgentMessage(message.message) as TaskResult;
+}
+
+/**
+ * The child run the coordinator builds around a terminal it accepted:
+ * `outcome`/`summary` come from the terminal (`child-coordinator.ts:529-530`)
+ * and the id lists from the same message (`:570-571`).
+ */
+function childReporting(terminal: TaskResult): ChildRunOutcome {
+  return {
+    childRunId: CHILD_RUN_ID,
+    taskId: TASK_ID,
+    outcome: terminal.outcome,
+    attempts: 1,
+    summary: terminal.summary,
+    messages: [terminal],
+    artifactIds: terminal.artifactIds,
+    evidenceIds: terminal.evidenceIds,
+    terminalResult: terminal
+  } as unknown as ChildRunOutcome;
 }
 
 function childOutcome(kind: "PASSED" | "FAILED"): ChildRunOutcome {
@@ -108,27 +156,31 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     );
   });
 
-  it("no shipped executor can produce the verdict the gate admits on", async () => {
-    // The fact that admits a child to three-line scoring is a PASSED or FAILED
-    // `verification.kind`, and the only real executor cannot report one:
-    // `translatePiEvent` turns pi's stream into TEXT_DELTA/TOOL_*/TURN_FINISHED
-    // and never a MESSAGE, so `PiAgentExecutor` always closes the transcript
-    // with the terminal it synthesizes itself — UNOBSERVED. A per-criterion
-    // channel added to the protocol would land in the same place: no shipped
-    // producer could fill it. Re-derive this census when a producer ships; do
-    // not delete it.
+  it("the real executor now produces the verdict the gate admits on; silence still does not", async () => {
+    // Loop 4 R9-2 replaced this pin, as R8-4 required: the census is
+    // re-derived, not deleted. Its finding has inverted. `PiAgentExecutor`
+    // gained `sparkle_report_task_result`, a per-request tool of the
+    // `createClusterTools` shape that emits a real protocol-v1 TASK_RESULT
+    // into the attempt transcript, so `finish` replays the child's verdict
+    // instead of synthesizing UNOBSERVED. The gate therefore has a live
+    // producer for the first time — but only when the child calls the tool.
+    // Re-derive again when a producer ships or moves; do not delete.
     const files = await typeScriptFilesUnder(join(REPO_ROOT, "src"));
     const producers = new Map<string, string[]>();
     let piMessages = 0;
     for (const file of files) {
       const relative = file.slice(REPO_ROOT.length);
       // Comments discuss these shapes (`flowchart-run.ts` explains why a
-      // FAILED verdict blocks a run); only code produces one.
+      // FAILED verdict blocks a run); only code produces one. A producer whose
+      // kind is decided at runtime writes it as a shorthand property, so the
+      // census records that as `<runtime>` rather than missing it.
       const code = (await readFile(file, "utf8"))
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .replace(/^\s*\/\/.*$/gm, "");
-      for (const match of code.matchAll(/verification:\s*\{\s*kind:\s*"(PASSED|FAILED|UNOBSERVED)"/g)) {
-        producers.set(relative, [...(producers.get(relative) ?? []), match[1] as string]);
+      for (const match of code.matchAll(
+        /verification:\s*\{\s*kind\s*(?::\s*"(PASSED|FAILED|UNOBSERVED)")?\s*[,}]/g
+      )) {
+        producers.set(relative, [...(producers.get(relative) ?? []), match[1] ?? "<runtime>"]);
       }
       if (relative === "src/pi-adapter/pi-executor.ts") {
         piMessages = [...code.matchAll(/type:\s*"MESSAGE"/g)].length;
@@ -138,18 +190,77 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
       Object.fromEntries([...producers].toSorted()),
       {
         "src/cli/main.ts": ["PASSED"],
-        "src/pi-adapter/pi-executor.ts": ["UNOBSERVED"],
+        "src/pi-adapter/pi-executor.ts": ["<runtime>", "UNOBSERVED"],
         "src/testing/fake-executor.ts": ["PASSED"]
       },
-      "a scorable verdict has two fake producers and no live one"
+      "the two fakes still hard-code PASSED; the real executor reports or falls back to UNOBSERVED"
     );
     assert.equal(
       piMessages,
-      1,
-      "the pi adapter emits exactly one protocol message: the terminal it synthesizes"
+      2,
+      "the pi adapter emits two protocol messages: the child's verdict and the terminal it synthesizes when there is none"
     );
 
-    // The behavioural half, on the exact shape that adapter synthesizes.
+    // The behavioural half, on messages the adapter really produced.
+    const reported = await reportedTerminal({
+      verification: "PASSED",
+      summary: "ran the suite",
+      evidenceIds: [EVIDENCE_ID],
+      artifactIds: [ARTIFACT_ID]
+    });
+    const passed = assessChildObservation({
+      observation: observationFromChild(childReporting(reported), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    assert.equal(passed.apply, true, "a child-authored PASSED verdict is scored");
+    if (!passed.apply) return;
+    assert.equal(passed.turn.gate.kind, "none");
+
+    const failedTerminal = await reportedTerminal({
+      verification: "FAILED",
+      summary: "two assertions still fail",
+      evidenceIds: [EVIDENCE_ID]
+    });
+    const failed = assessChildObservation({
+      observation: observationFromChild(childReporting(failedTerminal), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    assert.equal(failed.apply, true);
+    if (!failed.apply) return;
+    assert.deepEqual(
+      failed.turn.gate.codes,
+      ["deterministic-fail"],
+      "the hard gate the codebase already ships is reachable for --executor pi for the first time"
+    );
+
+    // C6, re-checked against real inputs instead of prose. A real verdict does
+    // make `claimed-verification-without-checks` reachable, but only where
+    // R8-4 predicted: on FAILED (PASSED still echoes completedChecks, so the
+    // gap cannot open) and only when the child's own summary trips
+    // `isSuccessClaim`. `deterministic-fail` still leads, so the transition's
+    // reasonCode is unchanged and this stays a second code, never the first.
+    const boasting = await reportedTerminal({
+      verification: "FAILED",
+      summary: "the suite passed except for two assertions",
+      evidenceIds: [EVIDENCE_ID]
+    });
+    const claimed = assessChildObservation({
+      observation: observationFromChild(childReporting(boasting), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    assert.equal(claimed.apply, true);
+    if (!claimed.apply) return;
+    assert.deepEqual(claimed.turn.gate.codes, [
+      "deterministic-fail",
+      "claimed-verification-without-checks"
+    ]);
+
+    // The default path is unchanged: a child that reports nothing still gets
+    // the synthesized UNOBSERVED terminal, and UNOBSERVED is not scored at
+    // all. Producing a verdict is now possible, not mandatory.
     const synthesized: ChildObservation = {
       taskId: "tsk_probe",
       role: "tester",
@@ -165,6 +276,19 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
       assessChildObservation({ observation: synthesized, episodeId: "ep_probe", runId: "run_probe" }).apply,
       false,
       "an UNOBSERVED verdict is not scored at all, so nothing downstream of it runs"
+    );
+
+    // And the tool's evidence requirement is load-bearing rather than
+    // decorative: an unreferenced FAILED verdict is discarded here, before the
+    // gate, so refusing it at the producer is what keeps it from vanishing.
+    assert.equal(
+      assessChildObservation({
+        observation: { ...synthesized, verification: { kind: "FAILED", evidenceIds: [] }, evidenceIds: [] },
+        episodeId: "ep_probe",
+        runId: "run_probe"
+      }).apply,
+      false,
+      "a FAILED verdict citing nothing never reaches the gate"
     );
   });
 

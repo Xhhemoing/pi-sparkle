@@ -11,6 +11,7 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxProvider,
+  Type,
   type Api,
   type AssistantMessageEventStream,
   type Context,
@@ -22,10 +23,18 @@ import {
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import type { ModelRef } from "../config/model-ref.js";
 import { tryParseModelRef } from "../config/model-ref.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
-import { createInvocationId, createMessageId } from "../domain/ids.js";
+import {
+  createInvocationId,
+  createMessageId,
+  isArtifactId,
+  isEvidenceId,
+  type ArtifactId,
+  type EvidenceId
+} from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
-import { SUPERVISOR } from "../protocol/v1.js";
+import { SUPERVISOR, type TaskOutcome, type VerificationKind } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { InvocationCallOutcome, ModelInvocation } from "../telemetry/model-invocation.js";
 import { createClusterTools } from "./cluster-tools.js";
@@ -137,6 +146,162 @@ function usageCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
+/**
+ * The tool through which a child states its own verdict. Named for the
+ * transcript: the `TOOL_STARTED`/`TOOL_FINISHED` pair under this name is what
+ * produced the `TASK_RESULT` between them.
+ */
+export const REPORT_TASK_RESULT_TOOL = "sparkle_report_task_result";
+
+/**
+ * Verdicts a child may state. UNOBSERVED is deliberately absent: it is already
+ * what silence means, and {@link PiAgentExecutor.finish} synthesizes it.
+ */
+const REPORTABLE_VERDICTS: readonly VerificationKind[] = ["PASSED", "FAILED"];
+
+/**
+ * Outcomes a child may claim. CANCELLED is excluded: cancellation is the
+ * parent's fact, observed here through the abort signal, so a child asserting
+ * it would replace an observation with a claim.
+ */
+const REPORTABLE_OUTCOMES: readonly TaskOutcome[] = ["SUCCESS", "PARTIAL", "FAILURE"];
+
+function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
+  return { content: [{ type: "text", text }], details: {} };
+}
+
+function describe(value: unknown): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function idList<T extends string>(
+  field: string,
+  value: unknown,
+  isValid: (candidate: unknown) => candidate is T,
+  prefix: string
+): T[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new DomainValidationError(`${field} must be an array of ${prefix} ids`);
+  return value.map((candidate: unknown) => {
+    // A malformed reference is refused rather than dropped: silently shrinking
+    // the list would leave the verdict citing less than the child believes it
+    // cited, and a FAILED verdict with no surviving reference is not scored.
+    if (!isValid(candidate)) {
+      throw new DomainValidationError(`${field} entry ${describe(candidate)} is not a ${prefix} id`);
+    }
+    return candidate;
+  });
+}
+
+/**
+ * A child's own verdict channel, built per attempt from the leased request.
+ *
+ * Before this tool existed the adapter had no path to a `MESSAGE` at all —
+ * `translatePiEvent` maps pi's stream to text/tool/turn events only — so
+ * `finish` always synthesized `verification: { kind: "UNOBSERVED" }`, and
+ * `assessChildObservation` refuses UNOBSERVED. The tracking gate consequently
+ * had no live producer: its only scorable inputs came from the two fake
+ * executors. One tool call is the smallest thing that makes a real pi child's
+ * verdict a real observation.
+ *
+ * Message identity is stamped from the request, never taken from the model:
+ * the child coordinator refuses a message whose `from`/`runId`/`taskId` do not
+ * match the lease, and a child that could name them could impersonate a peer.
+ * The model supplies the verdict, its prose, and its references — nothing else.
+ *
+ * Exactly one verdict per attempt. A second call is refused at this boundary
+ * instead of being emitted, because the transcript rejects a duplicate
+ * terminal as a protocol violation and that would turn a model's slip into a
+ * failed task. The refusal text names the verdict already on the record.
+ */
+export function createTaskResultTool(
+  request: AgentExecutionRequest,
+  emit: (event: ExecutionEvent) => void
+): AgentTool<any> {
+  let reported: VerificationKind | undefined;
+  return {
+    name: REPORT_TASK_RESULT_TOOL,
+    label: "Sparkle Report Task Result",
+    description:
+      "Report this task's verdict, once, after you have checked the work. " +
+      "verification: PASSED or FAILED. summary: one line describing what you did. " +
+      "outcome (optional): SUCCESS, PARTIAL, or FAILURE. " +
+      "evidenceIds / artifactIds (optional): evd_ / art_ references the verdict rests on; " +
+      "a FAILED verdict must cite at least one evidenceId. " +
+      "Not calling this leaves the verdict unobserved, and an unobserved verdict is not scored.",
+    parameters: Type.Object({
+      verification: Type.String(),
+      summary: Type.String(),
+      outcome: Type.Optional(Type.String()),
+      evidenceIds: Type.Optional(Type.Array(Type.String())),
+      artifactIds: Type.Optional(Type.Array(Type.String()))
+    }),
+    execute: async (_toolCallId: string, params: unknown) => {
+      const record = params as {
+        verification?: unknown;
+        summary?: unknown;
+        outcome?: unknown;
+        evidenceIds?: unknown;
+        artifactIds?: unknown;
+      };
+      if (reported !== undefined) {
+        throw new DomainValidationError(
+          `this task already reported ${reported}; a task carries exactly one verdict`
+        );
+      }
+      const kind = REPORTABLE_VERDICTS.find((candidate) => candidate === record.verification);
+      if (kind === undefined) {
+        throw new DomainValidationError(
+          `verification must be one of ${REPORTABLE_VERDICTS.join(", ")}, got ${describe(record.verification)}`
+        );
+      }
+      const summary = typeof record.summary === "string" ? record.summary.trim() : "";
+      if (summary === "") {
+        throw new DomainValidationError("summary must be a non-empty string");
+      }
+      const outcome =
+        record.outcome === undefined
+          ? kind === "PASSED"
+            ? "SUCCESS"
+            : "FAILURE"
+          : REPORTABLE_OUTCOMES.find((candidate) => candidate === record.outcome);
+      if (outcome === undefined) {
+        throw new DomainValidationError(
+          `outcome must be one of ${REPORTABLE_OUTCOMES.join(", ")}, got ${describe(record.outcome)}`
+        );
+      }
+      const evidenceIds: EvidenceId[] = idList("evidenceIds", record.evidenceIds, isEvidenceId, "evd_");
+      const artifactIds: ArtifactId[] = idList("artifactIds", record.artifactIds, isArtifactId, "art_");
+      // An unreferenced FAILED verdict does not gate: `assessChildObservation`
+      // discards an assessment whose FAIL dimensions carry no evidence refs, so
+      // the verdict would vanish between here and the gate. Refusing says why.
+      if (kind === "FAILED" && evidenceIds.length === 0) {
+        throw new DomainValidationError("a FAILED verdict must cite at least one evidenceId");
+      }
+      emit({
+        type: "MESSAGE",
+        message: {
+          protocolVersion: 1,
+          id: createMessageId(),
+          occurredAt: nowIso(),
+          runId: request.runId,
+          taskId: request.taskId,
+          from: request.agentInstanceId,
+          to: SUPERVISOR,
+          type: "TASK_RESULT",
+          outcome,
+          summary,
+          artifactIds,
+          evidenceIds,
+          verification: { kind, evidenceIds: [...evidenceIds] }
+        }
+      });
+      reported = kind;
+      return textResult(`recorded ${kind} for ${request.taskId}`);
+    }
+  };
+}
+
 /** One agent run: the events it produced and how it ended. */
 interface AttemptRun {
   readonly events: readonly ExecutionEvent[];
@@ -214,13 +379,17 @@ export class PiAgentExecutor implements AgentExecutor {
   ): Promise<AttemptRun> {
     const events: ExecutionEvent[] = [];
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
+    // Built per attempt, like the cluster tools: a verdict reported by an
+    // attempt that then failed must not survive into the retried transcript,
+    // and `runWithRetry` only surfaces the last attempt's events.
+    const reportTaskResult = createTaskResultTool(request, (event) => events.push(event));
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
     const agent = new Agent({
       initialState: {
         systemPrompt: this.options.systemPrompt ?? "",
         model,
         thinkingLevel,
-        tools: [...(this.options.tools ?? []), ...clusterTools]
+        tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult]
       },
       streamFn: (streamModel: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream =>
         this.models.streamSimple(streamModel, context, {
@@ -360,6 +529,12 @@ export class PiAgentExecutor implements AgentExecutor {
   /**
    * Replay the collected transcript and close it out: a synthesized
    * TASK_RESULT when the agent produced none, then EXECUTION_FINISHED.
+   *
+   * A child that called {@link REPORT_TASK_RESULT_TOOL} already put its own
+   * terminal in the transcript, and that verdict stands — the adapter must not
+   * overwrite an observation with UNOBSERVED, nor append a second terminal.
+   * Only a silent child is synthesized for, which is why UNOBSERVED still
+   * means exactly what it meant before the tool existed: nobody looked.
    */
   private *finish(
     request: AgentExecutionRequest,
