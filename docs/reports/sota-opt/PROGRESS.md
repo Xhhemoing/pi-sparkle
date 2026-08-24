@@ -112,9 +112,11 @@
 | R5-A | `cursor/r5-a-tracking-fifth-pass-83a1` | 已合入专属分支（仅 `R5-A.md`） |
 | R5-B | `cursor/r5-b-live-routing-fifth-pass-83a1` | 已合入专属分支（仅 `R5-B.md`） |
 | R5-D | `cursor/r5-d-adaptation-fifth-pass-83a1` | 已合入专属分支（仅 `R5-D.md`） |
+| R5-C | `cursor/r5-c-offline-routing-fifth-pass-83a1` | 已合入专属分支（S5-C 代码 + 报告 + 仿真） |
+| R5-E | `cursor/r5-e-learning-fifth-pass-83a1` | 已合入专属分支（仅 `R5-E.md`） |
 | R5-F | `cursor/r5-f-experiments-fifth-pass-83a1` | 已派出 |
-| R5-E | `cursor/r5-e-learning-fifth-pass-83a1` | 已派出 |
-| R5-C | `cursor/r5-c-offline-routing-fifth-pass-83a1` | 已派出 |
+| R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已派出 |
+| R5-H | `cursor/r5-h-eval-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
