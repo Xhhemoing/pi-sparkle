@@ -2,7 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import type { Flowchart } from "../domain/flowchart.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef, tryParseModelRef } from "../config/model-ref.js";
-import type { SparkleListedModel } from "../pi-adapter/listed-model.js";
+import type { SparkleListedModel } from "../pi-adapter/listed-model-common.js";
 import { catalogModel, type CatalogModel } from "../routing/catalog-model.js";
 import {
   catalogFromPrimary,
@@ -50,10 +50,15 @@ export async function buildLiveCatalogConfig(
 
   const models: CatalogModel[] = [];
   const byId = new Map<string, CatalogModel>();
-  const { resolveListedModel } = await import("../pi-adapter/listed-model.js");
+  // Lazy per-provider resolution (S7-I-1): identical results to
+  // listed-model.js resolveListedModel, but builtin hits import only the
+  // queried provider's generated model table instead of providers/all's
+  // ~40-module graph, which every configured run --children/--track/
+  // --flowchart otherwise pays ~40-55ms to load.
+  const { resolveListedModelLazy } = await import("../pi-adapter/listed-model-lazy.js");
   for (const id of enabled) {
     const ref = parseModelRef(id);
-    const listed = resolveListedModel(ref.providerId, ref.modelId, config.customProviders);
+    const listed = await resolveListedModelLazy(ref.providerId, ref.modelId, config.customProviders);
     if (listed === undefined) {
       throw new DomainValidationError(`unknown model "${id}"`);
     }
