@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type {
   PreferenceObservation,
   PreferenceScope,
@@ -9,6 +8,8 @@ import type {
 import { nowIso } from "../domain/timestamp.js";
 import { createId } from "../domain/ids.js";
 import type { EpisodeId } from "../domain/ids.js";
+import { DomainValidationError } from "../domain/errors.js";
+import { writeFileAtomicSync } from "../persist/atomic-file.js";
 
 let persistFile: string | undefined;
 
@@ -16,32 +17,111 @@ const observations: PreferenceObservation[] = [];
 const tombstones = new Set<string>();
 const views = new Map<string, PreferenceView>();
 
-function loadFromDisk(): void {
-  if (persistFile === undefined || !existsSync(persistFile)) return;
-  const raw = JSON.parse(readFileSync(persistFile, "utf8")) as {
-    observations?: PreferenceObservation[];
-    tombstones?: string[];
+export const PREFERENCE_SNAPSHOT_UNREADABLE_CODE = "PREFERENCE_SNAPSHOT_UNREADABLE" as const;
+
+/**
+ * `adaptation/preferences.json` exists but cannot be read as a preference snapshot.
+ *
+ * Preferences are learned, behaviour-bearing state with no other copy on disk, so an
+ * unreadable snapshot fails closed: the store keeps whatever binding and in-memory state it
+ * had before the call, and nothing is persisted over the unreadable bytes. Silently starting
+ * from empty would look identical to "the user has never expressed a preference" and the next
+ * `recordPreference` would overwrite the file, destroying the history for good.
+ *
+ * The file is written by `writeFileAtomicSync`, so a partial snapshot is no longer reachable
+ * by a crash mid-write; what remains is external damage (a truncated restore, a hand edit, a
+ * disk fault). Recovery is an operator decision — repair the file from a backup, or move it
+ * aside to start over deliberately. Discriminate on `code`, never on the message.
+ */
+export class PreferenceSnapshotUnreadableError extends DomainValidationError {
+  readonly code = PREFERENCE_SNAPSHOT_UNREADABLE_CODE;
+  readonly path: string;
+
+  constructor(path: string, detail: string, cause?: unknown) {
+    super(
+      `preference snapshot at ${path} is unreadable (${detail}); ` +
+        "preferences were left untouched and nothing was written back — " +
+        "repair the file or move it aside to start from an empty store"
+    );
+    this.name = "PreferenceSnapshotUnreadableError";
+    this.path = path;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+interface PreferenceSnapshot {
+  readonly observations: readonly PreferenceObservation[];
+  readonly tombstones: readonly string[];
+}
+
+/**
+ * Structural gate only: rows are trusted field-by-field because this store is their sole
+ * writer. What it rejects is the shape a damaged file takes — a truncation, a wrong document,
+ * a non-array where history belongs — all of which would otherwise read as "no preferences".
+ */
+function parseSnapshot(path: string, raw: string): PreferenceSnapshot {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error: unknown) {
+    throw new PreferenceSnapshotUnreadableError(path, "not valid JSON", error);
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new PreferenceSnapshotUnreadableError(path, "top level is not a JSON object");
+  }
+  const record = value as { observations?: unknown; tombstones?: unknown };
+  const rawObservations = record.observations ?? [];
+  if (!Array.isArray(rawObservations)) {
+    throw new PreferenceSnapshotUnreadableError(path, "observations is not an array");
+  }
+  for (const row of rawObservations) {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new PreferenceSnapshotUnreadableError(path, "an observation row is not an object");
+    }
+  }
+  const rawTombstones = record.tombstones ?? [];
+  if (!Array.isArray(rawTombstones) || rawTombstones.some((id) => typeof id !== "string")) {
+    throw new PreferenceSnapshotUnreadableError(path, "tombstones is not an array of ids");
+  }
+  return {
+    observations: rawObservations as readonly PreferenceObservation[],
+    tombstones: rawTombstones as readonly string[],
   };
+}
+
+/** Reads and validates `file` before touching any in-memory state: a throw changes nothing. */
+function loadFromDisk(file: string): void {
+  if (!existsSync(file)) return;
+  const snapshot = parseSnapshot(file, readFileSync(file, "utf8"));
   observations.length = 0;
-  observations.push(...(raw.observations ?? []));
+  observations.push(...snapshot.observations);
   tombstones.clear();
-  for (const id of raw.tombstones ?? []) tombstones.add(id);
+  for (const id of snapshot.tombstones) tombstones.add(id);
   rebuildViews();
 }
 
 function saveToDisk(): void {
   if (persistFile === undefined) return;
-  mkdirSync(dirname(persistFile), { recursive: true });
-  writeFileSync(
+  writeFileAtomicSync(
     persistFile,
     JSON.stringify({ observations, tombstones: Array.from(tombstones) })
   );
 }
 
-/** Persist preferences to `filePath` and load any existing snapshot. */
+/**
+ * Persist preferences to `filePath` and load any existing snapshot.
+ *
+ * Binding happens only after a successful load, so a `PreferenceSnapshotUnreadableError`
+ * leaves the store persisting exactly where it did before instead of pointing at a file the
+ * next observation would overwrite.
+ */
 export function configurePreferencePersistence(filePath: string | undefined): void {
+  if (filePath === undefined) {
+    persistFile = undefined;
+    return;
+  }
+  loadFromDisk(filePath);
   persistFile = filePath;
-  if (filePath !== undefined) loadFromDisk();
 }
 
 /** Inferred observations must recur across this many comparable occurrences before becoming durable. */

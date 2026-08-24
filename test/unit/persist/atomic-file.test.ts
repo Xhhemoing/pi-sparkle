@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { renameSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { writeFileAtomic } from "../../../src/persist/atomic-file.js";
+import { writeFileAtomic, writeFileAtomicSync } from "../../../src/persist/atomic-file.js";
 
 async function withTempDir(run: (directory: string) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "pi-sparkle-atomic-"));
@@ -209,6 +210,99 @@ test("a failing fallback rename still cleans up its own temp", async () => {
       { code: "EPERM" }
     );
 
+    assert.deepEqual(await tempFiles(directory), []);
+  });
+});
+
+test("writeFileAtomicSync creates missing directories and publishes the exact bytes", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "nested", "deeper", "value.json");
+    writeFileAtomicSync(path, '{"a":1}');
+    assert.equal(await readFile(path, "utf8"), '{"a":1}');
+    assert.deepEqual(await tempFiles(join(directory, "nested", "deeper")), []);
+
+    writeFileAtomicSync(path, '{"a":2}');
+    assert.equal(await readFile(path, "utf8"), '{"a":2}');
+    assert.deepEqual(await tempFiles(join(directory, "nested", "deeper")), []);
+  });
+});
+
+test("writeFileAtomicSync names temps like the async writer and never reuses one", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "unique-sync.json");
+    const observed: string[] = [];
+    const recordingRename = (source: string, destination: string): void => {
+      observed.push(source);
+      renameSync(source, destination);
+    };
+
+    writeFileAtomicSync(path, "one\n", { rename: recordingRename });
+    writeFileAtomicSync(path, "two\n", { rename: recordingRename });
+
+    assert.equal(observed.length, 2);
+    assert.notEqual(observed[0], observed[1]);
+    for (const temp of observed) {
+      assert.ok(temp.startsWith(`${path}.${process.pid}.`), `unexpected temp name ${temp}`);
+      assert.ok(temp.endsWith(".tmp"), `unexpected temp name ${temp}`);
+    }
+    assert.equal(await readFile(path, "utf8"), "two\n");
+  });
+});
+
+test("writeFileAtomicSync refuses a stale temp instead of truncating it, and retries a fresh name", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "stale-sync.json");
+    const occupied = `${path}.${process.pid}.taken.tmp`;
+    await writeFile(occupied, "someone else is writing here", "utf8");
+
+    const suffixes = ["taken", "free"];
+    let next = 0;
+    writeFileAtomicSync(path, '{"ok":true}', {
+      uniqueSuffix: () => suffixes[next++] ?? "exhausted"
+    });
+
+    assert.equal(next, 2);
+    assert.equal(await readFile(path, "utf8"), '{"ok":true}');
+    assert.equal(await readFile(occupied, "utf8"), "someone else is writing here");
+  });
+});
+
+test("writeFileAtomicSync falls back to unlink-then-rename on EPERM", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "fallback-sync.json");
+    writeFileAtomicSync(path, '{"generation":1}');
+
+    let attempts = 0;
+    writeFileAtomicSync(path, '{"generation":2}', {
+      rename: (source, destination) => {
+        attempts += 1;
+        if (attempts === 1) throw codedError("EPERM");
+        renameSync(source, destination);
+      }
+    });
+
+    assert.equal(attempts, 2);
+    assert.equal(await readFile(path, "utf8"), '{"generation":2}');
+    assert.deepEqual(await tempFiles(directory), []);
+  });
+});
+
+test("a writeFileAtomicSync killed before its rename leaves the previous file intact", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "hard-fail-sync.json");
+    writeFileAtomicSync(path, '{"generation":1}');
+
+    assert.throws(
+      () =>
+        writeFileAtomicSync(path, '{"generation":2}', {
+          rename: () => {
+            throw codedError("EXDEV");
+          }
+        }),
+      { code: "EXDEV" }
+    );
+
+    assert.equal(await readFile(path, "utf8"), '{"generation":1}');
     assert.deepEqual(await tempFiles(directory), []);
   });
 });
