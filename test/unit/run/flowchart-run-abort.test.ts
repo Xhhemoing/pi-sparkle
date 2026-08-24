@@ -14,7 +14,7 @@ import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { injectFlowchartRun, resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
 import { replayRun } from "../../../src/run/replay.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
@@ -105,7 +105,12 @@ class RecordingExecutor implements AgentExecutor {
   readonly taskIds: string[] = [];
 
   constructor(
-    private readonly options: { readonly fail?: boolean; readonly onExecute?: () => void } = {}
+    private readonly options: {
+      readonly fail?: boolean;
+      readonly onExecute?: () => void;
+      /** Fires once the task result has been handed to the run. */
+      readonly onResult?: () => void;
+    } = {}
   ) {}
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
@@ -121,6 +126,7 @@ class RecordingExecutor implements AgentExecutor {
       return;
     }
     yield passingResult(request);
+    this.options.onResult?.();
     yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
   }
 }
@@ -368,6 +374,276 @@ test("a crash while resuming a paused run leaves the pause resumable", async () 
       "a crash during teardown must not bury a state the operator can still resume"
     );
     assert.equal(replayRun(read.events).status, "PAUSED");
+  });
+});
+
+/**
+ * Runs out of ids `budget` generations after it is armed, which is how the
+ * tests below drop a crash into one chosen window of a resumed run. Any dep
+ * failing there would do; the id generator is simply the one seam every append
+ * on the path goes through.
+ */
+function armableGenerator(): { generate: () => string; armAfter: (budget: number) => void } {
+  let n = 0;
+  let budget: number | undefined;
+  return {
+    generate: () => {
+      if (budget !== undefined) {
+        if (budget === 0) throw new Error("id generator exhausted");
+        budget -= 1;
+      }
+      return `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
+    },
+    armAfter: (remaining: number) => {
+      budget = remaining;
+    }
+  };
+}
+
+async function readCheckpoint(stateRoot: string, runId: RunId): Promise<{
+  flowchart: { snapshot: { nodes: Record<string, { state: string }>; facts: Record<string, unknown> } };
+}> {
+  const raw = await readFile(join(runtimeRoot(stateRoot), "runs", runId, "checkpoint.json"), "utf8");
+  return JSON.parse(raw) as {
+    flowchart: { snapshot: { nodes: Record<string, { state: string }>; facts: Record<string, unknown> } };
+  };
+}
+
+/** Node id → node state, read from the durable checkpoint rather than memory. */
+async function checkpointNodeStates(stateRoot: string, runId: RunId): Promise<Record<string, string>> {
+  const { flowchart } = await readCheckpoint(stateRoot, runId);
+  return Object.fromEntries(Object.entries(flowchart.snapshot.nodes).map(([id, node]) => [id, node.state]));
+}
+
+/**
+ * A two-node run paused after its first node finished: node `a` is COMPLETED
+ * and durable, node `b` has never run.
+ */
+async function pausedAfterFirstNode(stateRoot: string, projectRoot: string): Promise<RunId> {
+  const pause = new FakePauseController();
+  const executor = new RecordingExecutor({
+    onExecute: () => {
+      pause.paused = true;
+    }
+  });
+  const paused = await startFlowchartRun(deps(stateRoot, executor, pause), {
+    projectRoot,
+    flowchart: chain("paused-resume", ["a", "b"])
+  });
+  assert.equal(paused.status, "PAUSED");
+  assert.deepEqual(await checkpointNodeStates(stateRoot, paused.runId), { a: "COMPLETED", b: "READY" });
+  return paused.runId;
+}
+
+/**
+ * Resumes {@link pausedAfterFirstNode} with no pause token, which is the state
+ * a process leaves behind when it dies between `clearPause` and the
+ * `PAUSE_CLEARED` append: the token is gone, the log's `PAUSE_REQUESTED` is
+ * still unmatched, so the run executes while replaying as PAUSED. The resume is
+ * killed `budget` ids after node `b`'s result arrives.
+ */
+async function crashResumingPausedRun(stateRoot: string, runId: RunId, budget: number): Promise<void> {
+  const generator = armableGenerator();
+  const executor = new RecordingExecutor({ onResult: () => generator.armAfter(budget) });
+  await assert.rejects(
+    resumeFlowchartRun(
+      {
+        stateRoot,
+        router: router(),
+        now: () => TS,
+        generateId: generator.generate,
+        executor,
+        pause: new FakePauseController()
+      },
+      runId
+    ),
+    /id generator exhausted/
+  );
+}
+
+test("a crash after a node lands keeps a paused run's resume point level with its log", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await pausedAfterFirstNode(stateRoot, projectRoot);
+    await crashResumingPausedRun(stateRoot, runId, 3);
+
+    const crashed = await new EventStore(stateRoot, runId).readAll();
+    const types = crashed.events.map((event) => event.type);
+    // The window this pin is about: node b's result was accepted and gated, and
+    // the round that records it never got to append its ledger entry.
+    assert.ok(types.includes("TRACKING_ASSESSMENT"), "node b's result was accepted");
+    assert.equal(types.lastIndexOf("LEDGER_UPDATED") < types.indexOf("PAUSE_REQUESTED"), true);
+    assert.equal(replayRun(crashed.events).status, "PAUSED", "the crash left the pause standing");
+    assert.equal(
+      crashed.events.some((event) => event.type === "RUN_FAILED"),
+      false,
+      "a state the operator can still resume is never buried under a terminal"
+    );
+    assert.deepEqual(
+      await checkpointNodeStates(stateRoot, runId),
+      { a: "COMPLETED", b: "COMPLETED" },
+      "teardown flushes the resume point, so the checkpoint is not a node behind the log"
+    );
+
+    const afterCrash = new RecordingExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, afterCrash), runId);
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(afterCrash.taskIds, [], "resume re-pays for nothing the paused run had finished");
+    assert.deepEqual(replayRun(resumed.events).anomalies, []);
+  });
+});
+
+test("a node still in flight when a paused run crashes is retried on the record, not silently", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await pausedAfterFirstNode(stateRoot, projectRoot);
+    await crashResumingPausedRun(stateRoot, runId, 2);
+
+    const crashed = await new EventStore(stateRoot, runId).readAll();
+    assert.ok(
+      crashed.events.some(
+        (event) =>
+          event.type === "CHILD_MESSAGE" &&
+          (event.payload as { message: { type: string } }).message.type === "TASK_RESULT"
+      ),
+      "node b's child did report a result"
+    );
+    assert.equal(
+      crashed.events.some((event) => event.type === "TRACKING_ASSESSMENT"),
+      false,
+      "the crash landed before that result was accepted: b is still in flight"
+    );
+    assert.equal(replayRun(crashed.events).status, "PAUSED");
+    assert.deepEqual(await checkpointNodeStates(stateRoot, runId), { a: "COMPLETED", b: "RUNNING" });
+
+    const afterCrash = new RecordingExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, afterCrash), runId);
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(afterCrash.taskIds, ["tsk_b"], "an in-flight node is re-executed, at least once");
+
+    // The disclosed cost of that retry stays inspectable: both attempts kept
+    // their own child run, and the parent log names both.
+    const launches = resumed.events.filter(
+      (event) => event.type === "CHILD_RUN_CREATED" && event.taskId === "tsk_b"
+    );
+    assert.equal(launches.length, 2, "the interrupted attempt is still on the parent's record");
+    const childRunIds = new Set(
+      launches.map((event) => (event.payload as { childRun: { id: RunId } }).childRun.id)
+    );
+    assert.equal(childRunIds.size, 2, "the retry is a distinct child run, not an overwrite");
+    for (const childRunId of childRunIds) {
+      const childLog = await new EventStore(stateRoot, childRunId).readAll();
+      assert.equal(
+        childLog.events.filter((event) => event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED")
+          .length,
+        1,
+        `child run ${childRunId} closed its own log`
+      );
+    }
+  });
+});
+
+test("a crash while a run waits for the user records no terminal and stays answerable", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const gate = { ...node("gate"), approvalRequired: true };
+    const waiting = await startFlowchartRun(deps(stateRoot, new RecordingExecutor()), {
+      projectRoot,
+      flowchart: { id: "waiting-crash", nodes: [gate], edges: [] }
+    });
+    assert.equal(waiting.status, "WAITING_FOR_USER");
+    const pending = waiting.pendingApproval;
+    assert.ok(pending, "the run stopped on a real approval");
+
+    await assert.rejects(
+      resumeFlowchartRun(
+        deps(stateRoot, new RecordingExecutor(), new ThrowingPauseController()),
+        waiting.runId
+      ),
+      /pause token unreadable/
+    );
+
+    const crashed = await new EventStore(stateRoot, waiting.runId).readAll();
+    assert.equal(
+      crashed.events.some((event) => event.type === "RUN_FAILED"),
+      false,
+      "a question the operator still owes an answer to is not buried under a terminal"
+    );
+    assert.equal(replayRun(crashed.events).status, "WAITING_FOR_USER");
+
+    const answered = await resumeFlowchartRun(deps(stateRoot, new RecordingExecutor()), waiting.runId, {
+      approvalReply: { approvalPlanId: pending.plan.id, selectedActionIds: [pending.approveActionId!] }
+    });
+    assert.notEqual(answered.status, "WAITING_FOR_USER", "the crash cost the run nothing it had recorded");
+    assert.deepEqual(replayRun(answered.events).anomalies, []);
+  });
+});
+
+test("a crash while injecting into a paused run keeps the injection it applied", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await pausedAfterFirstNode(stateRoot, projectRoot);
+    assert.deepEqual((await readCheckpoint(stateRoot, runId)).flowchart.snapshot.facts, {});
+
+    // Ids run out on the ledger entry that follows the injection: the fact is
+    // applied to the supervisor and INJECTION_REQUESTED is on the log, but the
+    // round that would have checkpointed it never finishes.
+    const generator = armableGenerator();
+    generator.armAfter(1);
+    await assert.rejects(
+      injectFlowchartRun(
+        { stateRoot, router: router(), now: () => TS, generateId: generator.generate },
+        runId,
+        { actor: "operator", kind: "fact", key: "deploy-window", value: "closed" }
+      ),
+      /id generator exhausted/
+    );
+
+    const crashed = await new EventStore(stateRoot, runId).readAll();
+    assert.ok(
+      crashed.events.some((event) => event.type === "INJECTION_REQUESTED"),
+      "the injection was recorded before the crash"
+    );
+    assert.equal(
+      crashed.events.some((event) => event.type === "RUN_FAILED"),
+      false,
+      "inject is a side channel: it never fails a run it does not own"
+    );
+    assert.deepEqual(
+      (await readCheckpoint(stateRoot, runId)).flowchart.snapshot.facts,
+      { "deploy-window": "closed" },
+      "an injection the log records is one resume will actually see"
+    );
+  });
+});
+
+test("a crash while a run is blocked records no terminal and keeps the block resumable", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    // No executor and no results: the run stalls its way to BLOCKED.
+    const blocked = await startFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId: sequenceGenerator() },
+      {
+        projectRoot,
+        flowchart: chain("blocked-crash", ["only"]),
+        limits: { maxConsecutiveStalls: 1, maxRounds: 4 }
+      }
+    );
+    assert.equal(blocked.status, "BLOCKED");
+
+    await assert.rejects(
+      resumeFlowchartRun(
+        deps(stateRoot, new RecordingExecutor(), new ThrowingPauseController()),
+        blocked.runId
+      ),
+      /pause token unreadable/
+    );
+
+    const crashed = await new EventStore(stateRoot, blocked.runId).readAll();
+    assert.equal(
+      crashed.events.filter((event) => event.type === "RUN_FAILED").length,
+      0,
+      "a block an injection can still clear is not converted into a failure"
+    );
+    const replayed = replayRun(crashed.events);
+    assert.equal(replayed.status, "BLOCKED");
+    assert.deepEqual(replayed.anomalies, [], "the crash added no second terminal");
+    assert.deepEqual(await checkpointNodeStates(stateRoot, blocked.runId), { only: "RUNNING" });
   });
 });
 

@@ -11,6 +11,7 @@ import {
 } from "../../../src/agents/registry.js";
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
 import {
+  createRunId,
   parseRunId,
   parseTaskId,
   type ArtifactId,
@@ -26,9 +27,11 @@ import type {
 } from "../../../src/execution/contract.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
+import { discoverProject } from "../../../src/project/discovery.js";
 import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { EventStore } from "../../../src/run/event-store.js";
 import { inspectRun } from "../../../src/run/inspection.js";
-import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { createModelRouter } from "../../../src/supervisor/model-router.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 
@@ -358,5 +361,60 @@ test("an error escaping a node closes both the run's log and the crashed child's
       parentRunId
     );
     assert.equal(resumed.status, "FAILED", "the crashed run resumes as a failure, not as more work");
+  });
+});
+
+/** A profile whose prompt cannot be built, so the child dies launching attempt 1. */
+function unbuildableChild(base: ChildTaskInput): ChildTaskInput {
+  const profile = createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer");
+  return {
+    ...base,
+    profile: {
+      ...profile,
+      get systemInstruction(): string {
+        throw new Error("profile lookup failed for implementer");
+      }
+    }
+  };
+}
+
+/**
+ * Pins the child plane's duplicate-terminal guard against the one surface that
+ * reaches it. Within a single child run the guard is unreachable: `runTask`
+ * appends its terminal as its last act, so a throw always precedes it. What
+ * makes the guard load-bearing is `startChildTask`'s published `childRunId`
+ * option — two child runs handed the same id share one event log, and the
+ * second one's crash terminal would otherwise become that log's second.
+ */
+test("a child crashing onto a log another child already closed adds no second terminal", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const project = await discoverProject(projectRoot, { now: nowIso, generateId: sequenceGenerator() });
+    const coordinator = new ChildCoordinator({
+      stateRoot,
+      executor: new ProtocolChildExecutor(),
+      parentRunId: createRunId(sequenceGenerator()),
+      project,
+      registry: createAgentProfileRegistry(defaultAgentProfiles()),
+      maxConcurrentTasks: 2,
+      generateId: sequenceGenerator()
+    });
+
+    const settled = await coordinator.startChildTask(child("closed", "implementer"), new AbortController().signal)
+      .done;
+    assert.equal(settled.outcome, "SUCCESS");
+
+    await assert.rejects(
+      coordinator.startChildTask(
+        unbuildableChild(child("crasher", "implementer")),
+        new AbortController().signal,
+        { childRunId: settled.childRunId }
+      ).done,
+      /profile lookup failed for implementer/
+    );
+
+    const shared = await new EventStore(stateRoot, settled.childRunId).readAll();
+    const terminals = shared.events.filter((event) => TERMINAL_TYPES.includes(event.type));
+    assert.equal(terminals.length, 1, "the shared log keeps exactly one terminal event");
+    assert.equal(terminals[0]?.type, "RUN_COMPLETED", "and it is the one the settled child earned");
   });
 });

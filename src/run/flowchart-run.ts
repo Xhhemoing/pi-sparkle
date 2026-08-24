@@ -747,10 +747,47 @@ async function recordCrashTerminal(ctx: FlowchartLoopContext, error: unknown): P
 }
 
 /**
+ * The log states a crash leaves resumable. Each one is an answer the operator
+ * still owes the run, so {@link recordCrashTerminal} deliberately records no
+ * terminal for them — which makes the durable checkpoint, not a terminal event,
+ * the thing the next process reads.
+ */
+const RESUMABLE_CRASH_STATUSES: ReadonlySet<RunStatus> = new Set(["PAUSED", "WAITING_FOR_USER", "BLOCKED"]);
+
+/**
+ * Levels the durable resume point with the state the dying process had already
+ * applied, for the runs that get no terminal.
+ *
+ * Every node result is applied to the supervisor before the checkpoint that
+ * records it is written, so a crash in that window leaves the checkpoint one
+ * node behind the log. A run that also gets a terminal does not care — resume
+ * reports the failure and runs nothing. A run that stays resumable does: resume
+ * restores that stale checkpoint and re-executes, and re-paying for a node the
+ * operator's own paused run had already finished is silent lost work.
+ *
+ * This narrows the window to nodes that were still in flight when the crash
+ * landed. Those are re-executed on resume — at-least-once, as everywhere else —
+ * and the interrupted attempt keeps its own child run and its own entry in the
+ * parent log, so the retry is inspectable rather than silent. Best effort
+ * throughout: a checkpoint that cannot be written leaves the previous one in
+ * place, exactly as before.
+ */
+async function preserveResumableState(ctx: FlowchartLoopContext): Promise<void> {
+  try {
+    const read = await ctx.eventStore.readAll();
+    if (!RESUMABLE_CRASH_STATUSES.has(replayRun(read.events).status)) return;
+    await persistCheckpoint(ctx);
+  } catch {
+    // Best effort: see the contract above.
+  }
+}
+
+/**
  * Tears the run down when an error escapes. A throw from mid node (a child that
  * fails to launch, a rejected append) never reaches {@link finish}, so without
  * this the children started for that node keep running with nobody awaiting
- * them and the log ends mid-flight with no terminal event.
+ * them, the log ends mid-flight with no terminal event, and a run that stays
+ * resumable ends with a checkpoint behind its own log.
  */
 async function withRunTeardown(
   ctx: FlowchartLoopContext,
@@ -759,9 +796,12 @@ async function withRunTeardown(
   try {
     return await body();
   } catch (error) {
-    // Same order as persistFailed: stop paying for children, then record.
+    // Same order as persistFailed: stop paying for children, then record. The
+    // terminal comes first so a run that just got one is no longer resumable
+    // when the checkpoint flush reads the log back.
     await ctx.abort.cancelAndSettle();
     await recordCrashTerminal(ctx, error);
+    await preserveResumableState(ctx);
     throw error;
   }
 }
@@ -1238,9 +1278,20 @@ export async function injectFlowchartRun(
   await ctx.append(injectMake("INJECTION_REQUESTED", injectionEventPayload(injection)));
   ctx.supervisor.applyInjection(injection);
   const advanced = ctx.supervisor.advanceRound();
-  await persistLedger(ctx);
-  if (advanced.blocked) {
-    await persistBlocked(ctx);
+  try {
+    await persistLedger(ctx);
+    if (advanced.blocked) {
+      await persistBlocked(ctx);
+    }
+    return await finish(ctx);
+  } catch (error) {
+    // An injection applied here but never checkpointed is simply gone: the log
+    // keeps `INJECTION_REQUESTED`, but resume rebuilds the supervisor from the
+    // checkpoint and never replays it. Unlike the run's own teardown this
+    // records no terminal — inject is a side channel that may be pointed at a
+    // run another process is still driving, and failing that run from here
+    // would be a lie.
+    await preserveResumableState(ctx);
+    throw error;
   }
-  return finish(ctx);
 }

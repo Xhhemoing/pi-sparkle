@@ -373,7 +373,15 @@ export class ChildCoordinator {
    * the child's own event log stops wherever the throw landed — replay sees a
    * child that never ended, even though nothing is running it any more. The
    * append is best effort: the error escaping to the parent is the one worth
-   * reporting, and a child that already recorded a terminal event keeps it.
+   * reporting, and a failure that is itself in the append path (an unwritable
+   * log) leaves the child unclosed rather than masking the original error.
+   *
+   * The already-terminal check is not defensive. Within one child run it can
+   * never fire — {@link runTask} appends its terminal as its last act, so any
+   * throw precedes it — but {@link startChildTask} publishes `childRunId`, and
+   * two child runs given the same id share one event log. The check is what
+   * keeps that log at exactly one terminal; pinned by
+   * `test/integration/m2.5/children-flowchart.test.ts`.
    */
   private async recordCrashTerminal(childRunId: RunId, taskId: TaskId, error: unknown): Promise<void> {
     try {
