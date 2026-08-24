@@ -526,6 +526,19 @@ async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise
   }
 }
 
+type RunUnblockedPayloadKeys = keyof Extract<Event, { type: "RUN_UNBLOCKED" }>["payload"];
+type RunUnblockedPayloadKeysAreExact =
+  [RunUnblockedPayloadKeys] extends ["blockedEventId" | "reason" | "retryNodeId"]
+    ? ["blockedEventId" | "reason" | "retryNodeId"] extends [RunUnblockedPayloadKeys]
+      ? true
+      : false
+    : false;
+
+test("RUN_UNBLOCKED payload type is frozen to its three allowed keys", () => {
+  const exactKeySet: RunUnblockedPayloadKeysAreExact = true;
+  assert.equal(exactKeySet, true);
+});
+
 /**
  * The named refusals behind the `RUN_UNBLOCKED` seed above.
  *
