@@ -150,7 +150,24 @@ Parent sign-off: R6-1 option (a) — loop respects the gate (BLOCKED stays BLOCK
 | R6-9 | bc-fe0b8831-a06e-599c-8a78-1ae7b8fdc3e0 | exported-unused census |
 | R6-10 | bc-5d84790a-665a-5485-870f-e9cd99df2e8e | flowchart dead-letter pin + requeue countdown |
 
-Landed (exclusive; round still open): R6-10 `6fb7d9d` dead-letter pin; R6-8 SIGKILL run-lock probe (9×3); R6-6 cascade wire witness + `process-death`; R6-4 doctor `learnedState` inventory; R6-7 Round 5 docs truth-up (parent nit: ADR-006 stays Proposed); R6-9 unused-export census (3 deletions); R6-5 three doctor routes + `delete --lock-wait-ms` (parent joint: doctor bandit inventory is a signed-off isolation exception, not a selector); R6-2 resume child-spec pins (0/240 gate-directive diffs; reconstruct-from-log is Round 7); R6-1 gate BLOCKED wins over loop FAILED; R6-3 track-loop lock + supervised pre-flight hoist + pre-rounds settle.
+Landed: all ten slots + parent joints. Fable **7 ACCEPT, 3 ACCEPT-WITH-NITS, 0 ROLLBACK**.
+
+## Round 7 — in flight
+
+10 slots from `.agent_workspace/ROUND6-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R7-2 option (b); R7-8 keyed readers; R7-3 no new schema.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R7-1 | bc-fd5480c5-7ecd-5c11-925a-d9c7ddac8f99 | reconstruct child specs from the parent log |
+| R7-2 | bc-4fcfcfbb-158b-5c72-a828-cdd0bf5e54d0 | criteria are prompt-guidance (option b) |
+| R7-3 | bc-95c21c01-92e7-5262-a6d8-f51d862da704 | BLOCKED unblock design (no src) |
+| R7-4 | bc-1d383424-003c-5403-8981-d7e8fd40c768 | parent-plane crash terminal |
+| R7-5 | bc-7e2f994b-d4fb-58e1-a435-6172aff4bc0e | BLOCKED `next:` |
+| R7-6 | bc-a9ad6ea7-f226-5884-9c00-fc96f67fb59b | docs truth-up |
+| R7-7 | bc-57f5db89-4e89-55a4-b1a5-0e94c9cbcd0d | drop unused trackingAssessment |
+| R7-8 | bc-70a8c878-c620-5046-b2ef-4f43160c1de4 | keyed doctor readers |
+| R7-9 | bc-fb413605-1f00-5c45-8d8b-0cd905834e00 | reject empty task graphs |
+| R7-10 | bc-ba95ad7e-7665-5ecd-963d-98f38dc68121 | real-command bandit/catalog routes |
 
 ---
 

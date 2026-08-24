@@ -1,27 +1,29 @@
-# File ownership — Loop 4 Round 6 (`agent/opt-continuous`)
+# File ownership — Loop 4 Round 7 (`agent/opt-continuous`)
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `agent/opt-continuous`. Do not `git checkout` another branch.**
 
-Lists are binding. Sole owners this round: `flowchart-run.ts` = R6-1; `main.ts` = R6-5; `supervisor.ts` + `track/loop.ts` = R6-3; `doctor.ts` = R6-4.
+Lists are binding. Sole owners this round: `flowchart-run.ts` = R7-1; `prescore.ts`+`from-child.ts` = R7-2; `coordinator.ts` = R7-4; `main.ts` = R7-5; `supervisor.ts` = R7-7; `doctor.ts`+`bandit-store.ts`+`preferences/store.ts` = R7-8; `graph/validate.ts` = R7-9.
 
-Injection brief: `.agent_workspace/ROUND5-BRIEF.md`. Review: `.agent_workspace/loop4-r5-review.md`.
+Injection brief: `.agent_workspace/ROUND6-BRIEF.md`. Review: `.agent_workspace/loop4-r6-review.md`.
 
 | Slot | Model | Owns |
 |---|---|---|
-| R6-1 | opus | `src/run/flowchart-run.ts` (sole), `src/run/replay.ts`, `test/unit/run/replay.test.ts`, new/additive gate-outcome tests under `test/unit/run/` or `test/unit/tracking/`. Do **not** change `gate-apply.ts` semantics. |
-| R6-2 | opus | Additive `test/integration/m2.5/resume.test.ts`, additive `test/unit/run/flowchart-run-abort.test.ts`, the report. **No `src/**`.** Do not move `childTasksFromDefinition`. |
-| R6-3 | opus | `src/track/loop.ts`, `src/run/supervisor.ts` (sole), `test/unit/track/`, `test/integration/m2/` (supervisor-crash + refused-start pin). Census `test/integration/m3/` if track tests live there. |
-| R6-4 | gpt-sol | `src/cli/doctor.ts` (sole), `test/unit/cli/doctor.test.ts`. Do **not** edit `file-lock.ts` or `main.ts`. |
-| R6-5 | opus | `src/cli/main.ts` (sole), `src/cli/errors.ts`, additive `test/integration/cli/command-error-doctor.test.ts`, `test/integration/cli/delete.test.ts`. Keep sink-wiring + resume-disclosure pins green. |
-| R6-6 | gpt-sol | `test/integration/pi-adapter/`, `test/helpers/`. **No `src/**`.** Own stderr/request-count pin updates with disclosure. |
-| R6-7 | gpt-sol | `docs/**` only. Timestamp-disclose in-flight R6-1/2/3; do not predict. |
-| R6-8 | gpt-sol | `scripts/crash-probe.mjs` (sole), `test/helpers/` additions if needed. |
-| R6-9 | gpt-sol | Census first; claim unowned `src/` files in the report before editing. Report-only for `supervisor.ts` (→ R6-3) and `flowchart-run.ts` (→ R6-1). Their unit tests. |
-| R6-10 | gpt-sol | Additive `test/integration/cluster/undelivered-mail.test.ts`, additive `test/unit/cluster/mailbox.test.ts`. No shape/line-format change. |
+| R7-1 | opus | `src/run/flowchart-run.ts` (sole), `test/integration/m2.5/resume.test.ts`, `test/unit/run/flowchart-run-abort.test.ts`. Reconstruct from log. Update R6-2 rebuilt-spec pin with disclosure. |
+| R7-2 | opus | `src/tracking/prescore.ts`, `src/tracking/from-child.ts` (sole), `test/unit/tracking/`. Parent sign-off: option **(b)** this round — criteria are prompt-guidance; verifier is the sole gate. Do **not** take (a). |
+| R7-3 | gpt-sol | Additive pins in `test/unit/run/replay.test.ts` only. **No `src/**`.** Design unblock for Round 8; pin absorbing BLOCKED. |
+| R7-4 | opus | `src/run/coordinator.ts` (sole), additive `test/unit/run/`. Route parent crash through `recordCrashTerminal` / `replayedTerminalStatus`. |
+| R7-5 | opus | `src/cli/main.ts` (sole), additive `test/integration/cli/`. BLOCKED `next:` block. Keep sink-wiring + resume-disclosure pins green. |
+| R7-6 | gpt-sol | `docs/**` only. Timestamp-disclose in-flight R7-1/2/3; **do not touch any ADR status line.** |
+| R7-7 | gpt-sol | `src/run/supervisor.ts` (sole), additive `test/integration/m2/` or `test/unit/run/`. Census-and-delete `trackingAssessment` with an absence pin. |
+| R7-8 | opus | `src/cli/doctor.ts`, `src/learning/bandit-store.ts`, `src/preferences/store.ts`, `test/unit/cli/doctor.test.ts`, the isolation pin in `test/unit/routing/live-isolation.test.ts`. Parent sign-off: amend the pin; doctor stays diagnostic not a selector. JSON contract byte-identical. |
+| R7-9 | gpt-sol | `src/graph/validate.ts` (sole), `test/unit/graph/`, the one pin swap in `test/integration/m2/supervisor-crash.test.ts` if tightening. |
+| R7-10 | gpt-sol | Additive `test/integration/cli/command-error-doctor.test.ts`. **No `src/**`.** Real-command producers for bandit and catalog routes. |
 
 **Parent sign-off**
-- R6-1: option **(a)** — the loop respects the gate. `persistFailed` must refuse when the log already replays BLOCKED. A verification-failed clustered run ends BLOCKED with the analysis queued, resumable after an unblock. Keep exactly-one-terminal coherent. Do not take (b).
+- R7-2: option **(b)** — record in-source that acceptance criteria are prompt-guidance and the deterministic verifier is the sole gate. Do not make check-coverage real until R7-1's reconstruction has landed (Round 8). Update R6-2's FAIL-unreachable tripwire only if the documented contract changes; do not delete it.
+- R7-8: yes — export a keyed bandit read and a pure preference reader; doctor consumes both; isolation pin's `assert.match` moves with the new symbol in the same diff, `because` remains "read-only inventory, never a selector".
+- R7-3: no new persisted schema this round. Investigation + current-behavior pins + Round 8 design only.
 
-Frozen: jsonl; `writeFileAtomic`(+Sync); no new private tmp+rename; `withRunLifecycleLock` rules; `crash-terminal.ts` guards; append/checkpoint unlocked; `applyRetry`; ClusterMailReport + line; resume disclosures; `BANDIT_STATE_UNREADABLE`; commandFailureNext routes; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`.
+Frozen: one-definition-of-terminal; locked clarification lifecycle; `learnedState` field names; five `DOCTOR_ROUTED_NEXT` routes; `--lock-wait-ms` semantics; `process-death.ts`; R6-2 tripwires; R6-9 absence pins; jsonl; `writeFileAtomic`(+Sync); no new private tmp+rename; `withRunLifecycleLock` rules; `crash-terminal.ts` guards; append/checkpoint unlocked; `applyRetry`; ClusterMailReport + line; resume disclosures; `BANDIT_STATE_UNREADABLE`; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`.
 
-Every slot: census first; scoped eslint + whole-tree `tsc --noEmit`; 3× timing-sensitive tests; report `.agent_workspace/loop4-r6-tN.md`. No full gate. No scratch files at report time.
+Every slot: census first; scoped eslint + whole-tree `tsc --noEmit`; 3× timing-sensitive tests; report `.agent_workspace/loop4-r7-tN.md`. Census your consumers. Run `live-isolation.test.ts` if you add an import inside the live closure. No full gate. No scratch files at report time.
