@@ -20,6 +20,11 @@ export interface DoctorIo extends CliErrorIo {
   stdout(text: string): void;
 }
 
+export interface DoctorOptions {
+  /** Test seam; the real CLI defaults to the current process version. */
+  readonly nodeVersion?: string;
+}
+
 /**
  * Frozen `--json` contract. Additive changes only: consumers pin `checks[].name`
  * and read `ok` as the single go/no-go signal. In JSON mode stdout carries this
@@ -106,9 +111,8 @@ async function stateRootWritable(stateRoot: string): Promise<DoctorCheck> {
   }
 }
 
-function nodeCheck(engines: PackageEngines): DoctorCheck {
+function nodeCheck(engines: PackageEngines, actual: string): DoctorCheck {
   const minimum = minimumFromEngineRange(engines.enginesNode);
-  const actual = process.versions.node;
   const ok = versionAtLeast(actual, minimum);
   return {
     name: "node",
@@ -224,7 +228,11 @@ function piCompatCheck(): DoctorCheck {
   };
 }
 
-export async function doctorCommand(args: string[], io: DoctorIo): Promise<number> {
+export async function doctorCommand(
+  args: string[],
+  io: DoctorIo,
+  options: DoctorOptions = {}
+): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -237,7 +245,7 @@ export async function doctorCommand(args: string[], io: DoctorIo): Promise<numbe
   const engines = readPackageEngines();
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const checks: DoctorCheck[] = [
-    nodeCheck(engines),
+    nodeCheck(engines, options.nodeVersion ?? process.versions.node),
     pnpmCheck(engines),
     await stateRootWritable(stateRoot),
     legacyLayoutCheck(stateRoot),

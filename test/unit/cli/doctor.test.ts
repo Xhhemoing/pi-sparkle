@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
-import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
+import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
+
+const COMPLIANT_NODE_VERSION = "22.19.0";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -26,16 +28,44 @@ test("doctor reports developer preview and fake-executor next steps", async () =
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     const { io, out, err } = capture();
-    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
     assert.equal(code, 0, err.join(""));
     const text = out.join("");
     assert.match(text, /developer preview/);
     assert.match(text, /not a production capability/);
-    assert.match(text, /ok {2}node:/);
+    assert.match(text, new RegExp(`ok {2}node: ${COMPLIANT_NODE_VERSION}`));
     assert.match(text, /ok {2}state-root:/);
     assert.match(text, /live R1\/bandit\/topology: off/);
     assert.match(text, /fake executor/);
     assert.deepEqual(err, []);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed for an injected Node version below engines", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-old-node-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-old-node-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: "22.18.9" }
+    );
+
+    assert.equal(code, 1);
+    assert.match(
+      out.join(""),
+      /^  FAIL {2}node: 22\.18\.9 \(engines >=22\.19\.0\) — need >= 22\.19\.0$/m
+    );
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
@@ -72,7 +102,11 @@ test("doctor reports the pinned Pi packages and the offline compat status", asyn
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     const { io, out, err } = capture();
-    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
     assert.equal(code, 0, err.join(""));
     const text = out.join("");
     assert.match(text, /ok {2}pi-packages: agent-core=\d+\.\d+\.\d+ ai=\d+\.\d+\.\d+/);
