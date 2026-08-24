@@ -64,11 +64,11 @@ function check(label: string, ok: boolean, detail?: string): void {
   checks += 1;
   if (!ok) {
     failures += 1;
-    console.error(`FAIL: ${label}${detail === undefined ? "" : ` — ${detail}`}`);
+    process.stderr.write(`FAIL: ${label}${detail === undefined ? "" : ` — ${detail}`}\n`);
   }
 }
 function out(line: string): void {
-  console.log(line);
+  process.stdout.write(`${line}\n`);
 }
 
 function mulberry32(seed: number): () => number {
