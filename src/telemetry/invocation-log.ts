@@ -95,6 +95,120 @@ export async function appendInvocationRecord(
   }
 }
 
+/** One live-path telemetry write. Never rejects: a dropped row is not a failed run. */
+export type InvocationSink = (invocation: ModelInvocation) => Promise<void>;
+
+export interface InvocationSinkOptions extends AppendInvocationOptions {
+  /** Called once per record the sink gives up on, with why it was dropped. */
+  readonly onDrop?: (reason: string) => void;
+  /** Tries per record, the first attempt included. Default 3. */
+  readonly maxAttempts?: number;
+  /** Pause before each retry. Default 50ms. */
+  readonly retryBackoffMs?: number;
+  /** Sleep seam; tests use it to observe retries and to order the lock release. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Per-log-path queue for sink writes, holding a record's retries together.
+ *
+ * `appendInvocationRecord` already serializes appends, but a retry re-enters
+ * that queue at the back: without a second chain around the whole retry loop,
+ * a record that waited out a lock timeout would land after rows issued later.
+ */
+const sinkQueues = new Map<string, Promise<void>>();
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True only for `withExclusiveFileLock`'s timeout on *this* log's lock.
+ *
+ * Deliberately exact: a validation failure is also a `DomainValidationError`,
+ * and retrying one would only re-reject three times. An unrecognized message
+ * fails closed to "do not retry" — the row drops instead of looping.
+ */
+function isLockTimeout(error: unknown, lockPath: string): boolean {
+  return (
+    error instanceof DomainValidationError &&
+    error.message === `timed out waiting for lock at ${lockPath}`
+  );
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A telemetry writer for the live path: bounded retry, then an honest drop.
+ *
+ * `appendInvocationRecord` rejects when a rewriter (`delete --run`) holds the
+ * lock past the timeout, and the live executor cannot fail a run over a
+ * telemetry row — so callers used to swallow the rejection and lose every
+ * invocation in that window. This sink retries a lock timeout a few times so
+ * the common case (a rewrite shorter than the retry budget) still lands, and
+ * reports the terminal give-up through `onDrop` so the loss is visible instead
+ * of silent. Validation failures are never retried: the record is wrong, and
+ * writing it later would not make it right.
+ *
+ * Readers stay lock-free and `appendInvocationRecord` keeps its signature;
+ * this is a wrapper, not a new writer surface.
+ */
+export function createInvocationSink(
+  stateRoot: string,
+  options: InvocationSinkOptions = {}
+): InvocationSink {
+  const {
+    onDrop,
+    maxAttempts = 3,
+    retryBackoffMs = 50,
+    sleep = defaultSleep,
+    ...appendOptions
+  } = options;
+  const path = invocationsLogPath(stateRoot);
+  const lockPath = invocationLogLockPath(stateRoot);
+  const tries = Math.max(1, Math.trunc(maxAttempts));
+  // A reporter that throws would turn a dropped telemetry row back into a
+  // failed live call, which is the whole thing this sink exists to prevent.
+  const report = (reason: string): void => {
+    try {
+      onDrop?.(reason);
+    } catch {
+      // nothing left to report it to
+    }
+  };
+
+  const deliver = async (invocation: ModelInvocation): Promise<void> => {
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      try {
+        await appendInvocationRecord(stateRoot, invocation, appendOptions);
+        return;
+      } catch (error: unknown) {
+        if (!isLockTimeout(error, lockPath)) {
+          report(`invocation ${invocation.id} rejected: ${reasonOf(error)}`);
+          return;
+        }
+        if (attempt === tries) {
+          report(
+            `invocation ${invocation.id} dropped: lock timeout after ${tries} attempts on ${lockPath}`
+          );
+          return;
+        }
+        await sleep(retryBackoffMs);
+      }
+    }
+  };
+
+  return (invocation: ModelInvocation): Promise<void> => {
+    const previous = sinkQueues.get(path) ?? Promise.resolve();
+    const queued = previous.catch(() => undefined).then(() => deliver(invocation));
+    sinkQueues.set(path, queued);
+    return queued.finally(() => {
+      if (sinkQueues.get(path) === queued) sinkQueues.delete(path);
+    });
+  };
+}
+
 export interface InvocationLogRead {
   readonly path: string;
   /** Parsed rows, unvalidated: a row that is not an invocation is still a row. */

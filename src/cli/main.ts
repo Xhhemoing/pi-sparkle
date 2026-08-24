@@ -50,7 +50,7 @@ import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-
 import { createModelRouter } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
-import { appendInvocationRecord } from "../telemetry/invocation-log.js";
+import { createInvocationSink } from "../telemetry/invocation-log.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { assignTasks } from "../routing/assign.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
@@ -620,6 +620,15 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   }
   const thinkingLevel = resolveThinkingLevel(values.thinking);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  // One telemetry sink for every executor this command builds. It writes each
+  // invocation through the log's exclusive lock, retries a lock timeout a few
+  // times so a concurrent `delete --run` rewrite does not silently erase the
+  // window, and never rejects: a lost row warns, it does not fail the run.
+  const invocationSink = createInvocationSink(stateRoot, {
+    onDrop: (reason) => {
+      io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
+    }
+  });
   if (values.flowchart !== undefined) {
     const liveCatalog = await buildLiveCatalogConfig(stateRoot);
     const flowchart = await parseFlowchartFile(
@@ -633,7 +642,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         ? await createExecutor(
             flowchartExecutorKind(values.executor),
             stateRoot,
-            undefined,
+            {
+              onInvocation: (invocation) => {
+                void invocationSink(invocation);
+              }
+            },
             undefined,
             thinkingLevel
           )
@@ -678,13 +691,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     stateRoot,
     {
       onInvocation: (invocation) => {
-        // Fire-and-forget, but through the log's exclusive lock so a
-        // concurrent `delete --run` rewrite cannot clobber this row (see
-        // src/telemetry/invocation-log.ts). Errors — a lock timeout while a
-        // delete holds it, or a record that fails validation — drop the
-        // telemetry row rather than fail the run the executor is mid-way
-        // through.
-        void appendInvocationRecord(stateRoot, invocation).catch(() => undefined);
+        void invocationSink(invocation);
       }
     },
     flaggedPrimary,
