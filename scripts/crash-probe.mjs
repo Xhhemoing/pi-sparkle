@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,75 @@ const DEFAULT_ITERATIONS = 3;
 const CHILD_TIMEOUT_MS = 3_000;
 const CHILD_FLAG = "--crash-probe-child";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const UNBLOCK_REASON_BYTES = 16 * 1024 * 1024;
+const UNBLOCK_REASON_PREFIX = "widen the real append-before-checkpoint window: ";
+const UNBLOCK_NODE_ID = "tsk_crash_unblock";
+const UNBLOCK_NOW = "2026-08-24T20:00:00.000Z";
+
+const PROBE_ROUTER_CONFIG = {
+  policyVersion: "crash-probe-v1",
+  models: [
+    {
+      id: "cheap",
+      version: "cheap-v1",
+      roles: ["actor", "critic"],
+      maxComplexity: "MEDIUM",
+      estimatedCostUsd: 0.1,
+      estimatedDurationMs: 1_000
+    },
+    {
+      id: "premium",
+      version: "premium-v1",
+      roles: ["actor", "critic", "judge", "router"],
+      maxComplexity: "HIGH",
+      estimatedCostUsd: 0.5,
+      estimatedDurationMs: 4_000
+    }
+  ]
+};
+
+function unblockReason(bytes) {
+  assert.ok(bytes >= UNBLOCK_REASON_PREFIX.length);
+  return `${UNBLOCK_REASON_PREFIX}${"x".repeat(bytes - UNBLOCK_REASON_PREFIX.length)}`;
+}
+
+function verificationResult(request, kind) {
+  const evidenceId = `evd_crash-${request.taskId}`;
+  return {
+    type: "MESSAGE",
+    message: {
+      protocolVersion: 1,
+      id: `msg_crash-${request.agentInstanceId}`,
+      occurredAt: UNBLOCK_NOW,
+      runId: request.runId,
+      taskId: request.taskId,
+      from: request.agentInstanceId,
+      to: "SUPERVISOR",
+      type: "TASK_RESULT",
+      outcome: "SUCCESS",
+      summary: kind === "FAILED" ? "verification failed before unblock" : "verification passed after resume",
+      artifactIds: [`art_crash-${request.taskId}`],
+      evidenceIds: [evidenceId],
+      verification: { kind, evidenceIds: [evidenceId] }
+    }
+  };
+}
+
+function recordingExecutor(kind) {
+  const taskIds = [];
+  return {
+    taskIds,
+    async *execute(request, signal) {
+      taskIds.push(request.taskId);
+      if (signal.aborted) {
+        yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+        return;
+      }
+      yield verificationResult(request, kind);
+      yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+    }
+  };
+}
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -109,6 +179,31 @@ async function runChild(mode, payload) {
       }
     );
     await running.done;
+    return;
+  }
+
+  if (mode === "unblock-flowchart") {
+    const { unblockFlowchartRun } = await tsImport(
+      "../src/run/flowchart-run.ts",
+      import.meta.url
+    );
+    const { createModelRouter } = await tsImport(
+      "../src/supervisor/model-router.ts",
+      import.meta.url
+    );
+    await unblockFlowchartRun(
+      {
+        stateRoot: payload.stateRoot,
+        router: createModelRouter(PROBE_ROUTER_CONFIG),
+        now: () => payload.now,
+        generateId: randomUUID
+      },
+      payload.runId,
+      {
+        reason: unblockReason(payload.reasonBytes),
+        retryNodeId: payload.retryNodeId
+      }
+    );
     return;
   }
 
@@ -278,6 +373,71 @@ async function runKilledChild(mode, payload) {
   }
 }
 
+async function waitForCompleteAppend(eventsPath, previousSize, minimumGrowth, state) {
+  const deadline = Date.now() + CHILD_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const size = await stat(eventsPath).then(
+      (entry) => entry.size,
+      (error) => {
+        if (error?.code === "ENOENT") return 0;
+        throw error;
+      }
+    );
+    if (size >= previousSize + minimumGrowth) {
+      const handle = await open(eventsPath, "r");
+      try {
+        const byte = Buffer.alloc(1);
+        const { bytesRead } = await handle.read(byte, 0, 1, size - 1);
+        if (bytesRead === 1 && byte[0] === 0x0a) return size;
+      } finally {
+        await handle.close();
+      }
+    }
+    if (state.error !== undefined) throw state.error;
+    if (state.result !== undefined) {
+      throw new Error(
+        `child exited before the complete append was observable ` +
+          `(code=${state.result.code}, signal=${state.result.signal})`
+      );
+    }
+    await sleep(1);
+  }
+  throw new Error(`timed out waiting for complete append at ${eventsPath}`);
+}
+
+async function runExternallyKilledAfterAppend(mode, payload, eventsPath, previousSize) {
+  const spawned = spawnCrashChild(mode, payload);
+  const childPid = spawned.child.pid;
+  assert.equal(Number.isSafeInteger(childPid), true, `${mode} child must have a PID`);
+  try {
+    const appendedSize = await waitForCompleteAppend(
+      eventsPath,
+      previousSize,
+      payload.reasonBytes,
+      spawned.state
+    );
+    assert.equal(
+      spawned.child.kill("SIGKILL"),
+      true,
+      `${mode} child must still be alive after publishing the append`
+    );
+    const result = await Promise.race([
+      spawned.completion,
+      sleep(CHILD_TIMEOUT_MS, undefined, { ref: false }).then(() => {
+        throw new Error(`${mode} child did not exit after external SIGKILL`);
+      })
+    ]);
+    assert.equal(result.code, null, `${mode} child must not exit normally`);
+    assert.equal(result.signal, "SIGKILL", `${mode} child must receive external SIGKILL`);
+    return { appendedSize, childPid };
+  } finally {
+    if (spawned.child.exitCode === null && spawned.child.signalCode === null) {
+      spawned.child.kill("SIGKILL");
+      await spawned.completion.catch(() => undefined);
+    }
+  }
+}
+
 async function runCase(name, iterations, operation) {
   try {
     for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -367,12 +527,23 @@ async function runProbe(iterations) {
     "../src/persist/atomic-file.ts",
     import.meta.url
   );
-  const { createEpisodeId, createEventId, createProjectId, createRunId } = await tsImport(
-    "../src/domain/ids.ts",
-    import.meta.url
-  );
+  const {
+    createEpisodeId,
+    createEventId,
+    createProjectId,
+    createRunId,
+    parseTaskId
+  } = await tsImport("../src/domain/ids.ts", import.meta.url);
   const { nowIso } = await tsImport(
     "../src/domain/timestamp.ts",
+    import.meta.url
+  );
+  const { createAgentProfileRegistry, defaultAgentProfiles } = await tsImport(
+    "../src/agents/registry.ts",
+    import.meta.url
+  );
+  const { compileChildrenToFlowchart } = await tsImport(
+    "../src/graph/compile-children.ts",
     import.meta.url
   );
   const {
@@ -388,8 +559,17 @@ async function runProbe(iterations) {
     "../src/episode/store.ts",
     import.meta.url
   );
-  const { runLockPath } = await tsImport(
+  const { EventStore, runLockPath } = await tsImport(
     "../src/run/event-store.ts",
+    import.meta.url
+  );
+  const { resumeFlowchartRun, startFlowchartRun } = await tsImport(
+    "../src/run/flowchart-run.ts",
+    import.meta.url
+  );
+  const { replayRun } = await tsImport("../src/run/replay.ts", import.meta.url);
+  const { createModelRouter } = await tsImport(
+    "../src/supervisor/model-router.ts",
     import.meta.url
   );
 
@@ -896,6 +1076,122 @@ async function runProbe(iterations) {
           "the next writer adopted or modified the crashed writer's unique temp"
         );
         await rm(sentinel.source);
+      })
+    );
+
+    cases.push(
+      await runCase("unblock-append-before-checkpoint-sigkill", iterations, async (iteration) => {
+        const caseDir = join(root, "unblock-window", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const projectRoot = join(caseDir, "project");
+        await mkdir(projectRoot, { recursive: true });
+
+        const taskId = parseTaskId(UNBLOCK_NODE_ID);
+        const childTask = {
+          taskId,
+          role: "implementer",
+          objective: "fail verification, then pass after crash recovery",
+          profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+          inputArtifactIds: [],
+          acceptanceCriteria: [],
+          limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+        };
+        const failed = recordingExecutor("FAILED");
+        const blocked = await startFlowchartRun(
+          {
+            stateRoot,
+            router: createModelRouter(PROBE_ROUTER_CONFIG),
+            now: () => UNBLOCK_NOW,
+            generateId: randomUUID,
+            executor: failed,
+            cluster: true
+          },
+          {
+            projectRoot,
+            flowchart: compileChildrenToFlowchart([
+              { taskId, role: "implementer", objective: childTask.objective }
+            ]),
+            childTasks: [childTask]
+          }
+        );
+        assert.equal(blocked.status, "BLOCKED");
+        assert.deepEqual(failed.taskIds, [UNBLOCK_NODE_ID]);
+        assert.equal(blocked.snapshot.nodes[UNBLOCK_NODE_ID]?.state, "FAILED");
+
+        const runDir = join(runtimeRoot(stateRoot), "runs", blocked.runId);
+        const eventsPath = join(runDir, "events.jsonl");
+        const checkpointPath = join(runDir, "checkpoint.json");
+        const checkpointBefore = await readFile(checkpointPath, "utf8");
+        const eventBytesBefore = (await stat(eventsPath)).size;
+
+        // The observer is the parent process. A large but valid operator reason
+        // gives it time to see the complete append and SIGKILL the unmodified
+        // producer while that producer re-reads the log, before checkpoint I/O.
+        const killed = await runExternallyKilledAfterAppend(
+          "unblock-flowchart",
+          {
+            now: UNBLOCK_NOW,
+            reasonBytes: UNBLOCK_REASON_BYTES,
+            retryNodeId: UNBLOCK_NODE_ID,
+            runId: blocked.runId,
+            stateRoot
+          },
+          eventsPath,
+          eventBytesBefore
+        );
+        assert.ok(killed.appendedSize >= eventBytesBefore + UNBLOCK_REASON_BYTES);
+
+        const afterKill = (await new EventStore(stateRoot, blocked.runId).readAll()).events;
+        const unblocks = afterKill.filter((event) => event.type === "RUN_UNBLOCKED");
+        assert.equal(unblocks.length, 1, "the complete authorization append must survive SIGKILL");
+        assert.equal(unblocks[0]?.payload.reason.length, UNBLOCK_REASON_BYTES);
+        assert.equal(unblocks[0]?.payload.retryNodeId, UNBLOCK_NODE_ID);
+        assert.equal(afterKill.at(-1)?.type, "RUN_UNBLOCKED");
+        assert.equal(
+          await readFile(checkpointPath, "utf8"),
+          checkpointBefore,
+          "the externally observed checkpoint must still be the blocked one"
+        );
+        assert.deepEqual(
+          (await readdir(runDir)).filter((name) =>
+            name.startsWith(`checkpoint.json.${killed.childPid}.`)
+          ),
+          [],
+          "SIGKILL must land before the child starts its checkpoint write"
+        );
+
+        const lockPath = runLockPath(stateRoot, blocked.runId);
+        const lock = JSON.parse(await readFile(lockPath, "utf8"));
+        assert.equal(lock.pid, killed.childPid);
+        await rm(lockPath);
+
+        const passing = recordingExecutor("PASSED");
+        const resumed = await resumeFlowchartRun(
+          {
+            stateRoot,
+            router: createModelRouter(PROBE_ROUTER_CONFIG),
+            now: () => UNBLOCK_NOW,
+            generateId: randomUUID,
+            executor: passing,
+            cluster: true
+          },
+          blocked.runId
+        );
+        assert.equal(resumed.status, "COMPLETED");
+        assert.equal(resumed.snapshot.nodes[UNBLOCK_NODE_ID]?.state, "COMPLETED");
+        assert.deepEqual(passing.taskIds, [UNBLOCK_NODE_ID], "the reopened node must execute once");
+        assert.equal(
+          resumed.events.filter((event) => event.type === "RUN_UNBLOCKED").length,
+          1,
+          "resume must recover the existing authorization, not append another"
+        );
+        assert.deepEqual(
+          resumed.events
+            .map((event) => event.type)
+            .filter((type) => type === "RUN_BLOCKED" || type === "RUN_COMPLETED"),
+          ["RUN_BLOCKED", "RUN_COMPLETED"]
+        );
+        assert.deepEqual(replayRun(resumed.events).anomalies, []);
       })
     );
   } finally {

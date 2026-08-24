@@ -81,7 +81,9 @@ test("real process kills preserve persistence recovery invariants", { timeout: 2
       { iterations: 1, name: "feedback-rewrite-kill-before-rename", ok: true },
       { iterations: 1, name: "invocation-rewrite-kill-before-rename", ok: true },
       { iterations: 1, name: "episode-settle-stale-lock-recovery", ok: true },
-      { iterations: 1, name: "atomic-write-stale-unique-temp", ok: true }
+      { iterations: 1, name: "atomic-write-stale-unique-temp", ok: true },
+      // R9-5 disclosure: the standing probe intentionally grows from nine cases to ten.
+      { iterations: 1, name: "unblock-append-before-checkpoint-sigkill", ok: true }
     ]
   );
 });
