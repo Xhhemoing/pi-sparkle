@@ -478,3 +478,6 @@
 | S8-E-1 | tracked/children run 每 run 双重 loadLearnedRouting 去重 | 亚 ms 一次性（80–85µs）；去重须公开签名或 X1-1 缓存；并发 promote 新鲜性发散 |
 | S8-E-2 | baseSignal 条件 spread 改后置条件赋值 | 等价且混合形状 171–212ns/call，上界 ~2.6–3.2µs/run；收益大半为 PIC 敏感项 |
 | S8-E-3 | applyLearnedToNode 与 applyLearnedRouting 的 prefer.find 跨界去重 | 15–16ns/节点；落地须拓宽公开返回形状或复制回退逻辑 |
+| S8-F-1 | assign 路径同下标成员快路径（S7-F-1 证明机制外推） | 整 trim+includes 组件仅 1.14–1.21 ms/实验；失配次序负税且无耦合正项；无界形式 fail-open |
+| S8-F-2 | S7-F-2 首字符卫镜像到 A 线性 trim 站点 | 等价但 ~6.8 µs/实验 |
+| S8-F-3 | assertUniqueNonEmpty 长度 1 快路径（metrics 站点） | 等价但 ~190 µs/实验 |

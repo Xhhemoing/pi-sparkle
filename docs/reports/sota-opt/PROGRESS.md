@@ -22,7 +22,7 @@
 | 5 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S5-C / S5-F / S5-I-1；其余区报告收口。见 [round-05/PLAN.md](./round-05/PLAN.md) |
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
-| 8 | 第 2–3 波进行中 | 8 / 10（A/B/C/D/E 完成已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-08/PLAN.md](./round-08/PLAN.md) |
+| 8 | 第 3–4 波进行中 | 9 / 10（A–F 完成已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-08/PLAN.md](./round-08/PLAN.md) |
 
 ### Round 1 波次
 
@@ -92,8 +92,9 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R8-A 跟踪门控、R8-B live 路由、R8-C 离线路由 | A/B/C 完成已合入 |
-| 2 | R8-D 自优化、R8-E 学习、R8-F 实验 | D/E 完成已合入；F 运行中 |
-| 3 | R8-G 运行时/图、R8-H 评价/需求 | G 运行中；H 本波派出 |
+| 2 | R8-D 自优化、R8-E 学习、R8-F 实验 | D/E/F 完成已合入 |
+| 3 | R8-G 运行时/图、R8-H 评价/需求 | G/H 运行中 |
+| 4 | R8-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -175,9 +176,10 @@
 | R8-C | `cursor/r8-c-offline-routing-eighth-pass-83a1` | 已合入专属分支（仅 `R8-C.md`）。S8-C-1..4 淘汰；S7-C 后剖析 661–670 ms/报告，贴带不越带 |
 | R8-D | `cursor/r8-d-adaptation-eighth-pass-83a1` | 已合入专属分支（仅 `R8-D.md`）。S8-D-1..5 淘汰；eval 地板复核 4.05–4.33 ms，配置态仍同带 |
 | R8-E | `cursor/r8-e-learning-eighth-pass-83a1` | 已合入专属分支（仅 `R8-E.md`）。S8-E-1..3 淘汰；SLICE-CPU 复核 17.2–17.5 µs/run |
-| R8-F | `cursor/r8-f-experiments-eighth-pass-83a1` | 已派出 |
+| R8-F | `cursor/r8-f-experiments-eighth-pass-83a1` | 已合入专属分支（仅 `R8-F.md`）。S8-F-1..3 淘汰；全实验锚点复核 120.39 ms |
 | R8-G | `cursor/r8-g-runtime-eighth-pass-83a1` | 已派出 |
 | R8-H | `cursor/r8-h-eval-eighth-pass-83a1` | 已派出 |
+| R8-I | `cursor/r8-i-cli-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
