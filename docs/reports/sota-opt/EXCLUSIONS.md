@@ -63,6 +63,7 @@
 - S5-C `solveSymmetric` 消元 k 循环按 4 顺序展开（含顺序余数；浮点运算集合与顺序不变；见 round-05/R5-C.md）
 - S5-F `assertUniqueNonEmpty` 单探针去重（`add` + size 计数器代替 `has`+`add`；first-fault 与消息逐位不变；见 round-05/R5-F.md）
 - S5-I-1 CLI `main.ts` 12 条分支独占 dispatch 模块改为点用 `await import`（8 个一次性子命令 + `run/supervisor` + `track/loop` + `preferences/export` + `privacy/deletion`；主收益来自 Node v22.14 `getPackageScopeConfig` 在静态 `main.ts → track/loop.js` 边上的解析病理；见 round-05/R5-I.md）
+- S6-C `offline-logit.ts` IRLS 累加循环按支撑大小 s=2..5 直线化分派（滚动循环保留为 default；浮点装载/加法/存储目标与顺序不变；见 round-06/R6-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -369,6 +370,13 @@
 | S6-B-3 | HIGH_RISK_RE 交替项频率重排 | 等价但实测零收益 |
 | S6-B-4 | 空 avoid/prefer 跳过 applyLearnedRouting | 一般契约发散；278–404µs |
 | S6-B-5 | 全目录长度守卫跳过 allowed-Set | 重复 id 放行 premium；自败 |
+| S6-C-1 | irls 累加循环仅 s=4..5 特化（SW45） | 贴 ±35 ms 噪声带；是 S6-C 真子集，不再独立重提 |
+| S6-C-2 | irls 累加循环仅 s=5 特化（SW5） | 剂量响应低端，隐含落地量 ~31 ms 低于噪声带 |
+| S6-C-3 | irls 累加 ai 滚动 + bi 直线化（ISW） | 恰在噪声带上；对 S6-C 七组决斗全部落后。重开：支撑分布大改使 ai 层控制占比坍缩 |
+| S6-C-4 | irls 累加 bi 循环按 4/按 2 顺序展开（S5-C 镜像） | 短行程下主体几乎不执行。重开：设计因子数增长使支撑上界 ≥ ~8 |
+| S6-C-5 | irls 累加 `active.length` 提升为局部循环界 | 长度重读非主导；已被 S6-C 支配 |
+| S6-C-6 | irls eta/mu 戳拷贝循环微观重构 | 上界 ~2-4 ms；戳去重本体是 S2-C |
+| S6-C-7 | solveSymmetric 残留微观（`stop=n-3` 提升 / `a.some` 换手写循环） | 各个位 ms；校验毗邻公开错误契约。重开：p 或调用次数增一个数量级 |
 | S6-D-1 | retire/assertAssignable 前置 isResourceVersionId 守卫消除 | ~48ns；防御纵深 |
 | S6-D-2 | beginPromotion 重复意图守卫消除 | fail-open 崩溃恢复反例；11–16ns |
 | S6-D-3 | replayAssignments undefined-assignment 守卫消除 | 符号翻转抖动；跨模块纵深 |
