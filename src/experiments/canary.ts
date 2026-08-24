@@ -90,21 +90,53 @@ function restoreCanaryState(serialized: CanaryState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
-  // One prebuilt membership Set keeps the fail-closed full re-validation of
-  // every assignment at O(A + P) per restore instead of O(A × P).
-  const population = new Set(serialized.plan.population);
+  // Reversed membership re-validation (see restoreShadowState): index the
+  // assignment hashes, scan the fully re-validated population with an early
+  // exit, and reconstruct the exact production first-fault on failure. In
+  // canary order the hash check precedes the membership probe, which precedes
+  // the action/exposure checks, so the hash is collected right after the hash
+  // check and structural faults are captured for the same first-fault race.
   let derivedExposure = 0;
+  let structuralFault: DomainValidationError | undefined;
+  const pending = new Set<string>();
   for (const assignment of serialized.assignments) {
-    requirePopulationMember(population, assignment.episodeHash);
+    if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+      structuralFault = new DomainValidationError("episodeHash is required");
+      break;
+    }
+    pending.add(assignment.episodeHash);
     if (assignment.action !== "baseline" && assignment.action !== "candidate") {
-      throw new DomainValidationError("invalid canary action");
+      structuralFault = new DomainValidationError("invalid canary action");
+      break;
     }
     if (assignment.action === "candidate") {
       derivedExposure += 1;
     }
     if (!Number.isInteger(assignment.exposureCount) || assignment.exposureCount < 0) {
-      throw new DomainValidationError("assignment exposureCount must be an integer >= 0");
+      structuralFault = new DomainValidationError("assignment exposureCount must be an integer >= 0");
+      break;
     }
+  }
+  const target = pending.size;
+  if (target > 0) {
+    let found = 0;
+    for (const hash of serialized.plan.population) {
+      if (pending.has(hash)) {
+        found += 1;
+        if (found === target) {
+          break;
+        }
+      }
+    }
+    if (found !== target) {
+      const population = new Set(serialized.plan.population);
+      for (const assignment of serialized.assignments) {
+        requirePopulationMember(population, assignment.episodeHash);
+      }
+    }
+  }
+  if (structuralFault !== undefined) {
+    throw structuralFault;
   }
   if (derivedExposure !== serialized.exposureCount) {
     throw new DomainValidationError("exposureCount does not match candidate assignments");
