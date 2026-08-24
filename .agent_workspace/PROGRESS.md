@@ -169,7 +169,7 @@ Landed: all ten slots + parent joints. Fable **7 ACCEPT, 3 ACCEPT-WITH-NITS, 0 R
 | R7-9 | bc-fb413605-1f00-5c45-8d8b-0cd905834e00 | reject empty task graphs |
 | R7-10 | bc-ba95ad7e-7665-5ecd-963d-98f38dc68121 | real-command bandit/catalog routes |
 
-Landed: R7-10 STOP — `CATALOG_OBSERVED_CORRUPT` has no CLI producer (report only).
+Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (ADR-006 stays Proposed); R7-7 deleted unused `settleSupervisedOutcome`; R7-9 empty graphs fail in pre-flight.
 
 ---
 
