@@ -8,4 +8,4 @@ R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配
 
 分区与 Round 1 相同（R10-A … R10-J），报告写入 `docs/reports/sota-opt/round-10/`。
 
-状态：A 本波派出。A 切片 = `src/tracking/` + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`。不要重开 S1-A … S8-A-1..3 / S9-A-1。预算天花板约 60–76 µs/run。生产门控流量经 applyChildThreeLine；hashSummary 生产零流量。不要收窄公开类型，不要平行 turn 路径。
+状态：A 运行中；B 本波派出。B 切片 = live 路由（`src/routing/{r0,assign,policy,live-cascade,analyze-task,primary-catalog,catalog-model,assign-plan,live-selection}.ts` + `src/supervisor/model-router.ts`）。不要重开 S1-B … S8-B-1..4 / S9-B-1..4。天花板约 9–20 ms/eval；配置态 M=7+learned 仍同带。不要下沉 unknown-model 预扫描（S9-B-4 错误优先级发散）。Live = R0 等价。

@@ -23,8 +23,8 @@
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
-| 9 | 收口中 | 10 / 10 已派出（A–F/H/I 完成已合入；G/J 运行中） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
-| 10 | 第 1 波进行中 | 1 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-10/PLAN.md](./round-10/PLAN.md) |
+| 9 | 收口中 | 10 / 10 已派出（A–I 完成已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
+| 10 | 第 1 波进行中 | 2 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-10/PLAN.md](./round-10/PLAN.md) |
 
 ### Round 1 波次
 
@@ -104,14 +104,14 @@
 | --- | --- | --- |
 | 1 | R9-A 跟踪门控、R9-B live 路由、R9-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R9-D 自优化、R9-E 学习、R9-F 实验 | D/E/F 完成已合入 |
-| 3 | R9-G 运行时/图、R9-H 评价/需求 | H 完成已合入；G 运行中 |
+| 3 | R9-G 运行时/图、R9-H 评价/需求 | G/H 完成已合入 |
 | 4 | R9-I CLI/适配器、R9-J cluster/privacy | I 完成已合入；J 运行中 |
 
 ### Round 10 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R10-A 跟踪门控 | A 本波派出 |
+| 1 | R10-A 跟踪门控、R10-B live 路由 | A 运行中；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -204,11 +204,12 @@
 | R9-D | `cursor/r9-d-adaptation-ninth-pass-83a1` | 已合入专属分支（仅 `R9-D.md`）。S9-D-1..4 淘汰；配置态 × 命令类矩阵闭合 |
 | R9-E | `cursor/r9-e-learning-ninth-pass-83a1` | 已合入专属分支（仅 `R9-E.md`）。S9-E-1..3 淘汰；SLICE-CPU 复核 17.4–17.6 µs/run |
 | R9-F | `cursor/r9-f-experiments-ninth-pass-83a1` | 已合入专属分支（仅 `R9-F.md`）。S9-F-1..3 淘汰；全实验锚点复核 121.87 ms |
-| R9-G | `cursor/r9-g-runtime-ninth-pass-83a1` | 已派出 |
+| R9-G | `cursor/r9-g-runtime-ninth-pass-83a1` | 已合入专属分支（仅 `R9-G.md`）。S9-G-1..3 淘汰；CPU 0.29 ms vs I/O 87–98 ms |
 | R9-H | `cursor/r9-h-eval-ninth-pass-83a1` | 已合入专属分支（仅 `R9-H.md`）。S9-H-1..2 淘汰；配置态锚点仍低于默认态 |
 | R9-I | `cursor/r9-i-cli-ninth-pass-83a1` | 已合入专属分支（仅 `R9-I.md`）。无新排除 ID；配置态矩阵抽测复现；切片关闭 |
 | R9-J | `cursor/r9-j-persist-ninth-pass-83a1` | 已派出 |
 | R10-A | `cursor/r10-a-tracking-tenth-pass-83a1` | 已派出 |
+| R10-B | `cursor/r10-b-live-routing-tenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 

@@ -512,3 +512,6 @@
 | S9-E-3 | scoreTaskResult × taskSuccessFromResult 分派树合一 | 等价但 1.2–1.6ns/call；落地需公开面扩张或 X1-2 复制 |
 | S9-H-1 | applyRoutingScoreUpdate 死 RoutingScoreUpdate 中间对象消除 | 等价但符号翻转；V8 已标量替换；test-only 面 |
 | S9-H-2 | assertCanPromoteFromReview 参数 spread 换显式字面量 | 等价且 9.0–9.5ns/晋升；proposal-first 下不成热环 |
+| S9-G-1 | pause/inject 会话恢复免除 loadLearnedRouting | S2-I-1 同型：损坏 registry fail-open；22–24µs/命令 |
+| S9-G-2 | pause 轮询换 fs.watch 内存缓存观测 | 天花板 1.31–1.34ms/run；观测即时读盘语义发散 |
+| S9-G-3 | requestPause writeAtomic 去 fsync | 已受理暂停掉电丢失；243–263µs/命令 |
