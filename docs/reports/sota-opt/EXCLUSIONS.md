@@ -486,3 +486,7 @@
 | S8-H-1 | 盲评链 PairwiseInput comment 死字段消除 / 公开输入类型收窄 | 字段死但零生产调用方 + 活契约输入；瘦身链实测更慢（PIC 二态） |
 | S8-H-2 | heuristic 合同字面量条件数组 spread 换命令式 push | 等价但 103–182ns/run |
 | S8-H-3 | assertCoverageAllowsStart 全决议快路径 | schema 合法 default:"" / options:[""] fail-open；1011/8000 fuzz 发散 |
+| S8-I-1 | resolveListedModelLazy 对已声明 custom provider id 跳过 providers/all 回退 | 健全性反例：per-provider 表缺失时 custom 遮蔽 builtin，惰性面与同步面分歧 |
+| S8-I-2 | custom 态预热 providers/all import | ESM 实例化是主线程 CPU，无可重叠窗口 |
+| S8-I-3 | buildLiveCatalogConfig enabled 循环 Promise.all 化 | µs 级 + 未知 id 错误选择分歧（S7-I-3 同族） |
+| S9-A-1 | from-child 生产路径死 turn 输出尾跳过 | 等价但落地需平行 turn 路径或公开旗标 + 类型变更；~3.5–4.5µs/run |
