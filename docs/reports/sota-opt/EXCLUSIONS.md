@@ -510,3 +510,5 @@
 | S9-E-1 | applyCascadeRetry 死 behaviorDistribution 重算消除 | 等价但 242–272ns/run；删除字段强形态动 own-property |
 | S9-E-2 | collectSignalsFromEvents pass-2 消费者预过滤 | 等价但负优化；E=400 五次全负；两遍结构角度封死 |
 | S9-E-3 | scoreTaskResult × taskSuccessFromResult 分派树合一 | 等价但 1.2–1.6ns/call；落地需公开面扩张或 X1-2 复制 |
+| S9-H-1 | applyRoutingScoreUpdate 死 RoutingScoreUpdate 中间对象消除 | 等价但符号翻转；V8 已标量替换；test-only 面 |
+| S9-H-2 | assertCanPromoteFromReview 参数 spread 换显式字面量 | 等价且 9.0–9.5ns/晋升；proposal-first 下不成热环 |

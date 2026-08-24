@@ -23,7 +23,7 @@
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
-| 9 | 第 3–4 波进行中 | 9 / 10（A–F 完成已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
+| 9 | 第 4 波进行中 | 10 / 10（A–F/H 完成已合入；G/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
 
 ### Round 1 波次
 
@@ -103,8 +103,8 @@
 | --- | --- | --- |
 | 1 | R9-A 跟踪门控、R9-B live 路由、R9-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R9-D 自优化、R9-E 学习、R9-F 实验 | D/E/F 完成已合入 |
-| 3 | R9-G 运行时/图、R9-H 评价/需求 | G/H 运行中 |
-| 4 | R9-I CLI/适配器 | I 本波派出 |
+| 3 | R9-G 运行时/图、R9-H 评价/需求 | H 完成已合入；G 运行中 |
+| 4 | R9-I CLI/适配器、R9-J cluster/privacy | I 运行中；J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -198,8 +198,9 @@
 | R9-E | `cursor/r9-e-learning-ninth-pass-83a1` | 已合入专属分支（仅 `R9-E.md`）。S9-E-1..3 淘汰；SLICE-CPU 复核 17.4–17.6 µs/run |
 | R9-F | `cursor/r9-f-experiments-ninth-pass-83a1` | 已合入专属分支（仅 `R9-F.md`）。S9-F-1..3 淘汰；全实验锚点复核 121.87 ms |
 | R9-G | `cursor/r9-g-runtime-ninth-pass-83a1` | 已派出 |
-| R9-H | `cursor/r9-h-eval-ninth-pass-83a1` | 已派出 |
+| R9-H | `cursor/r9-h-eval-ninth-pass-83a1` | 已合入专属分支（仅 `R9-H.md`）。S9-H-1..2 淘汰；配置态锚点仍低于默认态 |
 | R9-I | `cursor/r9-i-cli-ninth-pass-83a1` | 已派出 |
+| R9-J | `cursor/r9-j-persist-ninth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
