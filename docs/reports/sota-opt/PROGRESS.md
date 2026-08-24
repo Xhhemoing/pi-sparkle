@@ -17,7 +17,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S1-F/J/C/I；其余区报告收口 |
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
-| 3 | 第 2–3 波进行中 | 10（2 在跑 / 5 完成 / 1 本波派出 / 2 排队） | claude-fable-5-thinking-xhigh | 落地 S3-C；[round-03/PLAN.md](./round-03/PLAN.md) |
+| 3 | 第 2–4 波进行中 | 10（2 在跑 / 6 完成 / 1 本波派出 / 1 排队） | claude-fable-5-thinking-xhigh | 落地 S3-C；[round-03/PLAN.md](./round-03/PLAN.md) |
 
 ### Round 1 波次
 
@@ -42,8 +42,9 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R3-A 跟踪门控、R3-B live 路由、R3-C 离线路由 | A/B/C 完成已合入（C 落地 S3-C） |
-| 2 | R3-D 自优化、R3-E 学习、R3-F 实验 | D/E 完成已合入；F 在跑 |
-| 3 | R3-G 运行时/图、R3-H 评价/需求 | G 在跑；H 本波派出 |
+| 2 | R3-D 自优化、R3-E 学习、R3-F 实验 | D/E/F 完成已合入 |
+| 3 | R3-G 运行时/图、R3-H 评价/需求 | G/H 在跑 |
+| 4 | R3-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -74,6 +75,7 @@
 | R3-D | `cursor/r3-d-adaptation-third-pass-83a1` | 已合入专属分支（仅 `R3-D.md`） |
 | R3-C | `cursor/r3c-offline-routing-c9c8` | 已合入专属分支（S3-C 代码 + 报告 + 仿真） |
 | R3-E | `cursor/r3-e-learning-third-pass-83a1` | 已合入专属分支（仅 `R3-E.md`） |
+| R3-F | `cursor/r3-f-experiments-third-pass-83a1` | 已合入专属分支（仅 `R3-F.md`） |
 
 ## 合并策略
 

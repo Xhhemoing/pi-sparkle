@@ -239,3 +239,8 @@
 | S3-E-3 | 分组循环冗余 Map.set 消除 | 公平副本对副本 ±8ns 抖动 |
 | S3-E-4 | updateProjectBandit arms/reward 双扫融合 | 八次七次更慢；锁内 I/O 支配 |
 | S3-E-5 | /unknown agent/i 字面量提升 | 1–6ns 深度亚噪声 |
+| S3-F-1 | restore 顺手建 assignment-hash Set 复用于 assign 唯一性 | A=1000 实测慢 5.9–6.5ms |
+| S3-F-2 | plan 引用同一性跳过 validateExperimentPlan | 就地变异时 fail-closed 发散；下界维持 |
+| S3-F-3 | restore 空 assignments 跳过 population Set | 每实验一次，P=2000 省 50.8µs |
+| S3-F-4 | createIsolationGuard 提升 resolve(outputRoot) | 一次性 µs；生产路径已被 S3-D-3 否决 |
+| S3-F-5 | toFrozenEpisode 投影省略直接别名 | 形状可观察 + test-only |
