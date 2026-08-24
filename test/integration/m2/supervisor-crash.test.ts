@@ -592,6 +592,57 @@ test("a supervised run that dies in its opening appends records a terminal and s
   });
 });
 
+test("a pre-rounds crash after binding closes the episode and checkpoints FAILED", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    let n = 0;
+    let budget: number | undefined;
+    const generateId = () => {
+      if (budget !== undefined) {
+        if (budget === 0) {
+          budget = undefined;
+          throw new Error("id generator exhausted");
+        }
+        budget -= 1;
+      }
+      return `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
+    };
+    const armAfter = (remaining: number) => {
+      budget = remaining;
+    };
+
+    // Nine ids carry the opening through RUN_STARTED. Fail the next event id,
+    // then disarm so the guarded crash terminal and settle can write their ids.
+    armAfter(9);
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new SucceedingExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: NOW,
+        generateId
+      },
+      { projectRoot, objective: "Ship it", tasks: [task("a")], limits: limits() }
+    );
+    await assert.rejects(() => running.done, /id generator exhausted/, "the graph append failure still escapes");
+
+    const read = await new EventStore(stateRoot, running.runId).readAll();
+    const types = read.events.map((event) => event.type);
+    assert.ok(types.includes("RUN_ATTACHED"), "the episode bind completed before the injected failure");
+    assert.equal(types.includes("TASK_GRAPH_ACCEPTED"), false, "the selected opening append did not land");
+    assert.deepEqual(
+      types.filter((type) => TERMINAL_TYPES.has(type)),
+      ["RUN_FAILED"],
+      "the in-flight guard records exactly one crash terminal"
+    );
+    assert.deepEqual(afterTerminal(read.events), ["EPISODE_CLOSED"], "the bound episode closes after the terminal");
+    assert.equal(replayRun(read.events).status, "FAILED");
+    assert.deepEqual(replayRun(read.events).anomalies, []);
+    assert.equal(await boundEpisodeStatus(stateRoot, read.events), "FAILED");
+    assert.equal(await checkpointStatus(stateRoot, running.runId), "FAILED");
+  });
+});
+
 test("a run that died before accepting a graph resumes as terminal rather than as a missing graph", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const runId = await crashedBeforeRounds(stateRoot, projectRoot);
