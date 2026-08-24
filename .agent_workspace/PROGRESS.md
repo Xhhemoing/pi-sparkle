@@ -106,7 +106,16 @@ Every subagent report **must start with the actual model slug** on line 1.
 
 ### Round 1 — in progress (initial build + baseline)
 
-Dispatched 6 concurrent tasks. See round reports when they land.
+Dispatched 6 concurrent `generalPurpose` tasks (2026-08-24). Reports land in `.agent_workspace/round1-*.md`.
+
+| ID | Agent | Model requested | Task id |
+|---|---|---|---|
+| R1-fable-A | architecture / gap audit | `claude-fable-5-thinking-xhigh` | `bc-81f69ecd-d3ef-5d3d-b502-0924c21e1f5d` |
+| R1-fable-B | skill overlay 0.84.3 | `claude-fable-5-thinking-xhigh` | `bc-0aec13dd-a365-5b43-a7d9-430e2e5c1bb6` |
+| R1-opus-A | pin 0.84.3 + adapter | `claude-opus-5-thinking-high-fast` | `bc-a61dbd4e-5252-59ea-b9e9-2f6d1da956ac` |
+| R1-opus-B | `pi-compat` CLI + doctor | `claude-opus-5-thinking-high-fast` | `bc-c7d69e3b-af52-587d-a93d-5be4ce55189b` |
+| R1-gpt-A | probe scripts | `gpt-5.6-sol-xhigh-fast` | `bc-7aa32cdf-6bd6-5ca1-8945-f49fb182c1a9` |
+| R1-gpt-B | `src/pi-compat` + unit tests | `gpt-5.6-sol-xhigh-fast` | `bc-53335016-fbb8-5d1a-b432-c7445e77c207` |
 
 ### Round 2 — pending
 
