@@ -529,3 +529,6 @@
 | S10-D-1 | saveAdaptationRegistry 每写 mkdir 省略 | 天真形态首写 ENOENT；健全形态撞 X1-1；A/B 符号不稳 |
 | S10-D-2 | candidate==baseline 时跳过第二次 assignTasks | 生产命中率恰 0；命中档 319–463µs 仍低于落地线 |
 | S10-G-1 | settleBoundEpisode 下沉出命令临界路径 | 0.88–1.49ms；outcome.events 前缀发散 + 终态 episode 永 OPEN |
+| S11-A-1 | from-child apply 守卫常量折叠（引理 D：入口收窄后 shouldApplyThreeLine 恒真） | 等价但 13.9–15.0ns/子结果；e2e 符号翻转；防御纵深。非 S10-A-1（内部删除，非平行门控分派） |
+| S11-A-2 | gate-apply none 路径死 from/currentGateStatus 扫描 | 65.9–67.1ns/gate；落地需收窄公开 GateApplyResult（S1-F-6/S8-A-3 族） |
+| S11-B-1 | route() 内融合 partitionLiveCandidates 硬过滤与 selectLiveModel 最小扫描 | 等价；M=2 +19–48µs/批低于 S4-B-4 噪声；M=7 符号翻转；M=10 符号稳定负优化 −100~−225µs |
