@@ -28,8 +28,8 @@
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
-| 14 | 第 4 波收尾 | 10 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
-| 15 | 第 1 波进行中 | 2 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-15/PLAN.md](./round-15/PLAN.md) |
+| 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
+| 15 | 第 1–2 波进行中 | 5 / 10（A/B 已合入；C/D/E 本波派出） | claude-fable-5-thinking-xhigh | [round-15/PLAN.md](./round-15/PLAN.md) |
 
 ### Round 1 波次
 
@@ -155,13 +155,14 @@
 | 1 | R14-A 跟踪门控、R14-B live 路由、R14-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R14-D 自优化、R14-E 学习、R14-F 实验 | D/E/F 完成已合入 |
 | 3 | R14-G 运行时/图、R14-H 评价/需求 | G/H 完成已合入 |
-| 4 | R14-I CLI/适配器、R14-J cluster/privacy | I 完成已合入；J 运行中 |
+| 4 | R14-I CLI/适配器、R14-J cluster/privacy | I/J 完成已合入 |
 
 ### Round 15 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R15-A 跟踪门控、R15-B live 路由 | A 运行中；B 本波派出 |
+| 1 | R15-A 跟踪门控、R15-B live 路由、R15-C 离线路由 | A/B 完成已合入；C 本波派出 |
+| 2 | R15-D 自优化、R15-E 学习 | D/E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -307,9 +308,12 @@
 | R14-G | `cursor/r14-g-runtime-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-G.md`）。无新排除 ID；计算顶复核 0.288–0.295 ms vs I/O 93.6–101.4 ms；引擎态/规模轴归档 |
 | R14-H | `cursor/r14-h-eval-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-H.md`）。无新排除 ID；热层默认复核 9.27–9.38 µs/run；引擎底 GC/JIT 轴归档 |
 | R14-I | `cursor/r14-i-cli-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-I.md`）。无新排除 ID；custom−builtin 复核 +23.7~+55.1 ms；肥配置态交叉不存在；六连空 |
-| R14-J | `cursor/r14-j-persist-fourteenth-pass-83a1` | 已派出 |
-| R15-A | `cursor/r15-a-tracking-fifteenth-pass-83a1` | 已派出 |
-| R15-B | `cursor/r15-b-live-routing-fifteenth-pass-83a1` | 已派出 |
+| R14-J | `cursor/r14-j-persist-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-J.md`）。无新排除 ID；I/O 地板复核；规模越线标定归档；切片关闭 |
+| R15-A | `cursor/r15-a-tracking-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-A.md`）。无新排除 ID；预算复核 69–83 µs/run；C/R 越线 + GC/JIT 轴归档 |
+| R15-B | `cursor/r15-b-live-routing-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-B.md`）。无新排除 ID；天花板复核 M=2 9.5–10.9 / M=10 18.5–25.4 ms/eval；A/A 噪声地板 + 引擎代归档 |
+| R15-C | `cursor/r15-c-offline-routing-fifteenth-pass-83a1` | 已派出 |
+| R15-D | `cursor/r15-d-adaptation-fifteenth-pass-83a1` | 已派出 |
+| R15-E | `cursor/r15-e-learning-fifteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
