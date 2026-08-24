@@ -485,6 +485,50 @@ function reportFailedRun(
   });
 }
 
+/**
+ * The operator-facing block for a run that ended BLOCKED.
+ *
+ * `reportFailedRun`'s counterpart, and it exists because BLOCKED stopped being
+ * an exotic status: since the tracking gate started deciding the terminal, a
+ * clustered child that reports success with a failed verification ends the run
+ * BLOCKED (`ANALYSIS_QUEUED`) instead of FAILED. Only the FAILED branch printed
+ * a `reason:`/`next:` pair, so that shape lost its routing entirely — the
+ * operator saw the status and was told nothing about what to do with it.
+ *
+ * Both halves come off `RUN_BLOCKED.payload`, which is the only place either is
+ * recorded: the gate writes its reason code plus the evidence the queued
+ * analysis is owed, and the stall detector writes its own reason plus the
+ * ledger's outstanding evidence. Last writer wins, matching `inspectRun` — a
+ * run can block more than once and only the newest demand is current.
+ *
+ * The remedies are the ones that exist today, resume included with what it
+ * actually does: no event clears a blocked log, so a resumed BLOCKED run
+ * re-runs and replays BLOCKED. That stays true until an unblock ships, and
+ * saying so here is cheaper than an operator discovering it.
+ */
+export function formatBlockedRunReport(
+  runId: RunId,
+  stateRoot: string,
+  events: readonly Event[]
+): string {
+  const blocked = events.findLast((event) => event.type === "RUN_BLOCKED");
+  const payload = blocked?.payload as
+    | { reason?: string; requiredEvidence?: readonly string[] }
+    | undefined;
+  const requiredEvidence = payload?.requiredEvidence ?? [];
+  return [
+    `  reason: ${payload?.reason ?? "unknown"}\n`,
+    `  required evidence: ${requiredEvidence.length === 0 ? "(none recorded)" : requiredEvidence.join(", ")}\n`,
+    `  next: pnpm cli inspect --run ${runId} --state-root ${stateRoot}\n`,
+    `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
+    `  note: resume re-runs this run but cannot unblock it — no event clears a BLOCKED log today, so pnpm cli resume --run ${runId} --state-root ${stateRoot} replays BLOCKED until an unblock ships\n`
+  ].join("");
+}
+
+function reportBlockedRun(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
+  io.stderr(formatBlockedRunReport(outcome.runId, stateRoot, outcome.events));
+}
+
 function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string): number {
   return cliFail(io, {
     command,
@@ -713,6 +757,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "run", "flowchart", outcome.runId, stateRoot, reason);
     }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }
     return flowchartExitCode(outcome.status);
   }
   const executorKind =
@@ -913,6 +960,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
+    }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
     }
     return flowchartExitCode(outcome.status);
   }

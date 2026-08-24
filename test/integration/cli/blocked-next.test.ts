@@ -1,0 +1,370 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import { formatBlockedRunReport, main, type CliIo } from "../../../src/cli/main.js";
+import {
+  parseTaskId,
+  type ArtifactId,
+  type EventId,
+  type EvidenceId,
+  type MessageId,
+  type RunId
+} from "../../../src/domain/ids.js";
+import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
+import type {
+  AgentExecutionRequest,
+  AgentExecutor,
+  ExecutionEvent
+} from "../../../src/execution/contract.js";
+import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+
+/**
+ * `run` tells the operator what to do with a BLOCKED run.
+ *
+ * Before this, only FAILED got a `reason:`/`next:` pair. Once the tracking gate
+ * started deciding the run's terminal, the production-ordinary shape — a
+ * clustered child reporting success against a failed verification — began
+ * ending BLOCKED, and that shape printed a status and nothing else.
+ *
+ * Two BLOCKED producers write `RUN_BLOCKED`, and the block has to serve both:
+ * the stall detector (`no progress for too many rounds`, ledger evidence) and
+ * the gate (`ANALYSIS_QUEUED`, the evidence the queued analysis is owed). Only
+ * the stall producer is reachable from the CLI offline, so it carries the
+ * end-to-end assertions and the gate's payload is driven through a real
+ * `startFlowchartRun` into the exported formatter.
+ */
+
+const TS: IsoTimestamp = parseIsoTimestamp("2026-08-24T09:00:00.000Z");
+const MAIN_PATH = fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url));
+
+function capture(): { io: CliIo; out: string[]; err: string[] } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: {
+      stdout: (text) => out.push(text),
+      stderr: (text) => err.push(text)
+    },
+    out,
+    err
+  };
+}
+
+async function withRoots(body: (stateRoot: string, projectRoot: string) => Promise<void>): Promise<void> {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-blocked-state-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-blocked-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await withIsolatedPiEnv(() => body(stateRoot, projectRoot));
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+/** One node and no result for it: the run stalls out and the loop blocks. */
+const STALLING_FLOWCHART = {
+  id: "cli-blocked-stall",
+  nodes: [
+    {
+      id: "only",
+      taskId: "tsk_only",
+      role: "actor",
+      objective: "Do the work",
+      modelPolicy: { allowedModels: ["cheap"] },
+      confidenceThreshold: 0.7,
+      approvalRequired: false
+    }
+  ],
+  edges: []
+};
+
+const COMPLETING_RESULTS = {
+  only: { outcome: "SUCCESS", confidence: 0.9, evidenceIds: ["evd_only"] }
+};
+
+async function runFlowchart(
+  stateRoot: string,
+  projectRoot: string,
+  resultsPath?: string
+): Promise<{ code: number; out: string; err: string; runId: string }> {
+  const flowchartPath = join(projectRoot, "flow.json");
+  await writeFile(flowchartPath, JSON.stringify(STALLING_FLOWCHART), "utf8");
+  const captured = capture();
+  const code = await main(
+    [
+      "run",
+      "--project",
+      projectRoot,
+      "--objective",
+      "Ship the work",
+      "--flowchart",
+      flowchartPath,
+      ...(resultsPath !== undefined ? ["--results", resultsPath] : []),
+      "--state-root",
+      stateRoot
+    ],
+    captured.io
+  );
+  const out = captured.out.join("");
+  return { code, out, err: captured.err.join(""), runId: out.match(/Run (run_[A-Za-z0-9_-]+):/)?.[1] ?? "" };
+}
+
+test("run prints a routed block when a flowchart run ends BLOCKED", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const started = await runFlowchart(stateRoot, projectRoot);
+
+    assert.equal(started.code, 1, "flowchartExitCode still decides the exit code for BLOCKED");
+    assert.match(started.out, /Run run_[A-Za-z0-9_-]+: BLOCKED/, "the status line is unchanged");
+    assert.ok(started.runId !== "", started.out);
+
+    // The half an operator could not see before: why, and what to do next.
+    assert.match(started.err, /^ {2}reason: no progress for too many rounds$/m);
+    assert.match(started.err, /^ {2}required evidence: /m);
+    assert.ok(
+      started.err.includes(`  next: pnpm cli inspect --run ${started.runId} --state-root ${stateRoot}\n`),
+      started.err
+    );
+    assert.ok(
+      started.err.includes(
+        `  next: pnpm cli inject --run ${started.runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`
+      ),
+      started.err
+    );
+    assert.match(started.err, /^ {2}note: resume re-runs this run but cannot unblock it/m);
+  });
+});
+
+test("the BLOCKED block names the three options that exist today, and no others", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const started = await runFlowchart(stateRoot, projectRoot);
+    assert.equal(started.code, 1);
+
+    const routed = started.err
+      .split("\n")
+      .filter((line) => line.startsWith("  next: ") || line.startsWith("  note: "));
+    assert.equal(routed.length, 3, `expected inspect, inject and the resume note: ${started.err}`);
+    assert.match(routed[0] ?? "", /pnpm cli inspect --run /);
+    assert.match(routed[1] ?? "", /pnpm cli inject --run .* --type fact /);
+    // Resume is listed for what it does, not for what an operator hopes it does:
+    // nothing clears a BLOCKED log yet, so it cannot be sold as the remedy.
+    assert.match(routed[2] ?? "", /no event clears a BLOCKED log today/);
+    assert.match(routed[2] ?? "", /replays BLOCKED until an unblock ships/);
+  });
+});
+
+test("a COMPLETED run prints no BLOCKED block", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const resultsPath = join(projectRoot, "results.json");
+    await writeFile(resultsPath, JSON.stringify(COMPLETING_RESULTS), "utf8");
+    const started = await runFlowchart(stateRoot, projectRoot, resultsPath);
+
+    assert.equal(started.code, 0, started.err);
+    assert.match(started.out, /Run run_[A-Za-z0-9_-]+: COMPLETED/);
+    assert.equal(started.err, "", "the block is BLOCKED-specific; a healthy run stays quiet");
+  });
+});
+
+test("resume leaves the run BLOCKED, which is what the note says it does", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const started = await runFlowchart(stateRoot, projectRoot);
+    assert.equal(started.code, 1);
+    assert.match(started.err, /replays BLOCKED until an unblock ships/);
+
+    const resumed = capture();
+    const code = await main(["resume", "--run", started.runId, "--state-root", stateRoot], resumed.io);
+    assert.equal(code, 1, "a resumed BLOCKED run is still a failure exit");
+    assert.match(
+      resumed.out.join(""),
+      new RegExp(`Run ${started.runId}: BLOCKED`),
+      "resume replays the block rather than clearing it"
+    );
+  });
+});
+
+function router(): ModelRouter {
+  return createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor", "critic"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      },
+      {
+        id: "premium",
+        version: "premium-v1",
+        roles: ["actor", "critic", "judge", "router"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000
+      }
+    ]
+  });
+}
+
+/** The gate's seed: a child that did the work and reported it, verification disagreeing. */
+const verificationFailedExecutor: AgentExecutor = {
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    yield {
+      type: "MESSAGE",
+      message: {
+        protocolVersion: 1,
+        id: `msg_vf-${request.agentInstanceId}` as MessageId,
+        occurredAt: TS,
+        runId: request.runId,
+        taskId: request.taskId,
+        from: request.agentInstanceId,
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "the child reported success; verification did not agree",
+        artifactIds: [`art_vf-${request.taskId}` as ArtifactId],
+        evidenceIds: [`evd_vf-${request.taskId}` as EvidenceId],
+        verification: { kind: "FAILED", evidenceIds: [`evd_vf-${request.taskId}` as EvidenceId] }
+      }
+    };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+};
+
+function childSpec(taskId: string): ChildTaskInput {
+  return {
+    taskId: parseTaskId(taskId),
+    role: "implementer",
+    objective: `Do ${taskId}`,
+    profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+    inputArtifactIds: [],
+    acceptanceCriteria: [],
+    limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+  };
+}
+
+test("the gate's queued analysis and its owed evidence reach the operator verbatim", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    // `--children` compiles this exact shape, but its fake child executor always
+    // reports PASSED, so the gate's BLOCKED is not drivable through the CLI
+    // offline. Production `startFlowchartRun` produces the payload, and the
+    // formatter both `run` branches share reads it.
+    const spec = childSpec("tsk_verify");
+    const outcome = await startFlowchartRun(
+      {
+        stateRoot,
+        router: router(),
+        now: () => TS,
+        executor: verificationFailedExecutor,
+        cluster: true
+      },
+      {
+        projectRoot,
+        flowchart: compileChildrenToFlowchart([
+          { taskId: spec.taskId, role: "implementer", objective: spec.objective }
+        ]),
+        childTasks: [spec]
+      }
+    );
+    assert.equal(outcome.status, "BLOCKED", "the gate decides the terminal");
+
+    const report = formatBlockedRunReport(outcome.runId, stateRoot, outcome.events);
+    assert.match(report, /^ {2}reason: ANALYSIS_QUEUED$/m, "the gate's reason code, not the stall detector's");
+    assert.match(
+      report,
+      /^ {2}required evidence: evd_vf-tsk_verify$/m,
+      "the evidence the queued analysis is owed, named on the RUN_BLOCKED payload"
+    );
+    assert.ok(report.includes(`--run ${outcome.runId} `), report);
+  });
+});
+
+/**
+ * Wiring pin for `run --children`, which is the branch that lost the routing in
+ * the first place and the one no offline test can drive to BLOCKED: its child
+ * executor is a fake that always reports `verification: PASSED`, so the gate
+ * never queues an analysis. The formatter is covered above against a real
+ * gate-written payload; what is left to protect is that this branch still calls
+ * it before handing the status to `flowchartExitCode`.
+ */
+function assertBlockedWiring(source: string): void {
+  const start = source.indexOf("async function runCommand(");
+  assert.ok(start >= 0, "runCommand must still exist in src/cli/main.ts");
+  const end = source.indexOf("\n}\n", start);
+  assert.ok(end > start, "could not find the end of runCommand");
+  const body = source.slice(start, end);
+
+  const exits = [...body.matchAll(/return flowchartExitCode\(outcome\.status\);/g)];
+  assert.equal(exits.length, 2, "runCommand reports two flowchart outcomes: --flowchart and --children");
+  for (const exit of exits) {
+    const guard = body.slice(Math.max(0, exit.index - 200), exit.index);
+    assert.match(
+      guard,
+      /if \(outcome\.status === "BLOCKED"\) \{\s*reportBlockedRun\(io, outcome, stateRoot\);\s*\}/,
+      `a flowchart outcome in runCommand exits without routing BLOCKED: ${guard}`
+    );
+  }
+}
+
+test("both flowchart outcomes in runCommand route BLOCKED before exiting", () => {
+  assertBlockedWiring(readFileSync(MAIN_PATH, "utf8"));
+});
+
+test("the wiring pin fails when the --children branch drops the BLOCKED block", () => {
+  const source = readFileSync(MAIN_PATH, "utf8");
+  const needle = `      return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
+    }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }`;
+  assert.ok(source.includes(needle), "mutation target not found in runCommand");
+  assert.throws(
+    () => {
+      assertBlockedWiring(source.replace(needle, `      return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
+    }`));
+    },
+    assert.AssertionError,
+    "the pin passed on a source that lost the children branch's BLOCKED block"
+  );
+});
+
+test("the block reads the newest RUN_BLOCKED and says so when no evidence was recorded", () => {
+  const runId = "run_synthetic" as RunId;
+  const blocked = (reason: string, requiredEvidence: readonly string[]) => ({
+    id: `evt_${reason}` as EventId,
+    schemaVersion: 1 as const,
+    occurredAt: TS,
+    runId,
+    type: "RUN_BLOCKED" as const,
+    actor: "supervisor" as const,
+    payload: { reason, requiredEvidence: [...requiredEvidence] }
+  });
+
+  // A run can block more than once; only the newest demand is current, which is
+  // the same last-writer-wins rule `inspectRun` applies to this payload.
+  const report = formatBlockedRunReport(runId, "/tmp/state", [
+    blocked("stale reason", ["evd_stale"]),
+    blocked("ANALYSIS_QUEUED", [])
+  ]);
+  assert.match(report, /^ {2}reason: ANALYSIS_QUEUED$/m);
+  assert.match(
+    report,
+    /^ {2}required evidence: \(none recorded\)$/m,
+    "an empty demand is stated, not silently omitted"
+  );
+});
