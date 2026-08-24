@@ -6,6 +6,8 @@ Lists are binding. **Hard contention:** R9-1 owns `replay.ts` + `flowchart-run.t
 
 Injection brief: `.agent_workspace/ROUND8-BRIEF.md`. Review: `.agent_workspace/loop4-r8-review.md`. Contract design: `.agent_workspace/loop4-r8-t2.md`. Option-(a) design: `.agent_workspace/loop4-r8-t4.md`.
 
+Dispatch ids: R9-1 `bc-d41cfdf0-7c32-5e6d-af12-8f2cefdb8a40`; R9-2 `bc-764849e3-e92b-50d3-8bfd-d54192981ec5`; R9-3 `bc-9e1dfd8f-5dc6-59f5-b393-21e2519eba9b`; R9-4 `bc-5fe54953-33ef-5e3e-9f08-a66f55080c5d`; R9-5 `bc-bdc88c7c-e40c-5daf-b259-94f27c9a13ed`; R9-6 `bc-072db4be-339b-56d0-8b92-78cae7897a76`; R9-7 `bc-64d2a703-3819-5377-a20c-f04dffa452f9`; R9-8 `bc-b4529b1e-ded7-5625-ac6b-b812409bcffc`; R9-9 `bc-f5f50053-06b0-52d5-9751-64ec03b655c6`; R9-10 `bc-ca262099-fbf9-5870-839e-a213db8117f4`.
+
 | Slot | Model | Owns |
 |---|---|---|
 | R9-1 | opus | `src/run/replay.ts`, `src/run/flowchart-run.ts`, `src/cli/main.ts` (all sole); `test/integration/m2.5/resume.test.ts`; `test/unit/supervisor/flowchart-snapshot.test.ts`; `test/unit/persist/row-fuzz.test.ts`; additive replay/checkpoint tests. Durable `contract` on the flowchart checkpoint. Fold: R8-2 region-regex nit; R8-8's producer-side `INSPECT_SUMMARY` one-liner at the `main.ts` literal. **Do not** add per-task criteria on the checkpoint. |
