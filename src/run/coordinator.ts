@@ -36,7 +36,13 @@ import { type AgentEventKind, type Event, type M0EventType, type ModelRoutedPayl
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import { applyChildThreeLine } from "./child-tracking.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint, type RunCheckpoint } from "./replay.js";
+import {
+  materializeCheckpoint,
+  replayedTerminalStatus,
+  replayRun,
+  validateCheckpoint,
+  type RunCheckpoint
+} from "./replay.js";
 
 const SUMMARY_LIMIT = 500;
 
@@ -335,6 +341,29 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
 }
 
 /**
+ * The terminal this run's log already replays, or `undefined` when it has none.
+ *
+ * Read through {@link replayedTerminalStatus} rather than by scanning for event
+ * types, because the parent plane has to mean the same thing by "terminal" as
+ * replay's anomaly rule and the flowchart loop's recorders do; a local
+ * re-derivation is how the two would drift.
+ *
+ * A log this cannot read counts as no terminal. The refusal it feeds is
+ * evidence-based — it withholds a crash terminal only where the log
+ * demonstrably carries one already — and an unreadable log is no such
+ * demonstration. Recording as before is also the smaller failure: it leaves a
+ * crashed run settling to FAILED the way it always has, instead of turning a
+ * corrupt log into a rejected `done` the caller cannot act on here.
+ */
+async function loggedTerminalStatus(eventStore: EventStore): Promise<RunStatus | undefined> {
+  try {
+    return replayedTerminalStatus((await eventStore.readAll()).events);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * M1: starts a parent run that leases child tasks to executors through the
  * ChildCoordinator. The parent settles COMPLETED only when every child
  * settles with a terminal result, FAILED on child failure/timeout, or
@@ -435,6 +464,41 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     controller.signal.addEventListener("abort", () => {
       void writeCancel();
     }, { once: true });
+
+    /**
+     * This run's one terminal recorder: appends the terminal the loop decided
+     * on unless the log already replays one, and reports the status the log
+     * ends up saying either way.
+     *
+     * The case that forces it is the tracking gate. `queue_analysis` appends
+     * `RUN_BLOCKED` — "terminal BLOCKED until an explicit unblock", per
+     * `gate-apply.ts` — and leaves a run an operator can still act on: the
+     * analysis is queued, the owed evidence is named, the episode is left
+     * waiting, and the run stays resumable. A `RUN_FAILED` landing after that
+     * would make the log say two things at once (`replayRun` flags the second
+     * terminal as an anomaly) and bury exactly the state that made the run
+     * actionable. So the gate wins here as it does on the flowchart plane,
+     * whose three recorders share this rule and this definition of "terminal".
+     *
+     * Reporting the *replayed* status rather than the intended one is what
+     * keeps the settle below, the checkpoint and the returned status agreeing
+     * with the log instead of with the branch that lost. The cost, stated
+     * rather than discovered: on the refusal path a crash's reason goes
+     * unrecorded, because the only place to put it would be a second terminal
+     * or an event type this run has no schema for — and a blocked run an
+     * operator can still clear is worth more than the reason a teardown that
+     * came after the block fell over.
+     */
+    const recordTerminal = async (
+      type: "RUN_COMPLETED" | "RUN_FAILED",
+      payload: unknown,
+      intended: RunStatus
+    ): Promise<RunStatus> => {
+      const recorded = await loggedTerminalStatus(eventStore);
+      if (recorded !== undefined) return recorded;
+      await append(make(type, payload));
+      return intended;
+    };
 
     let releaseQuestionHang = (): void => {};
     const questionHang = new Promise<void>((resolve) => {
@@ -604,21 +668,24 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
           status = "CANCELLED";
           await writeCancel();
         } else if (failures.length > 0 || remaining.length > 0) {
-          status = "FAILED";
           failureReason =
             failures.length > 0
               ? failures.map((childOutcome) => `${childOutcome.taskId}: ${childOutcome.summary}`).join("; ")
               : `unstarted children: ${remaining.map((child) => child.taskId).join(", ")}`;
-          await append(make("RUN_FAILED", { reason: failureReason }));
+          status = await recordTerminal("RUN_FAILED", { reason: failureReason }, "FAILED");
         } else {
-          status = "COMPLETED";
-          await append(make("RUN_COMPLETED", {}));
+          status = await recordTerminal("RUN_COMPLETED", {}, "COMPLETED");
         }
       }
     } catch (error) {
-      status = "FAILED";
-      failureReason = error instanceof Error ? error.message : String(error);
-      await append(make("RUN_FAILED", { reason: failureReason }));
+      // A crash on the way out is a terminal like any other on this plane, so
+      // it goes through the same recorder — and is refused over a log that
+      // already says BLOCKED for the same reason the branches above are.
+      status = await recordTerminal(
+        "RUN_FAILED",
+        { reason: error instanceof Error ? error.message : String(error) },
+        "FAILED"
+      );
     } finally {
       releaseQuestionHang();
       await Promise.allSettled(handles.map((handle) => handle.done));
