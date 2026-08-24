@@ -11,11 +11,10 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 6 coordination snapshot (2026-08-24 20:25 UTC): R6-1 (terminal
-> semantics), R6-2 (resume child-spec reconstruction), and R6-3 (remaining
-> lifecycle-lock corners) were in flight. This specification records the
-> landed Round 5 source observed at that timestamp and does not predict those
-> slots' final decisions.
+> Round 7 end-of-round sync (2026-08-24 21:01 UTC): R7-1 (resume child-spec
+> reconstruction), R7-2 (gate-semantics decision), and R7-3 (BLOCKED-unblock
+> investigation) were in flight. This specification records the landed Round 6
+> source observed at this timestamp and does not predict those slots.
 
 ## Milestone names
 
@@ -41,12 +40,26 @@ additive `locks` JSON field. Every lock entry includes conservative
 automatically; liveness and age do not prove staleness. Additive `runStates`
 lists PLANNING/RUNNING logs with age and inspect/resume/delete guidance. Those
 are advisory crash candidates because another process may still own the run.
-The `lock-inventory` and `run-state-inventory` checks fail on their respective
-scan errors. Doctor never changes run state and never acquires, steals, or
-deletes a lock. When a command fails with the frozen `LOCK_TIMEOUT` or
+Frozen-additive `learnedState` inventories every discovered project-key
+`bandit.json`, plus `preferences.json` and `catalog-observed.json`. Entries
+carry `kind`, learned/derived `stateClass`, `projectKey`, `path`,
+present/absent/readable/damaged `status`, and plane-correct `remediation`;
+the inventory also carries `advisory` and `scanErrors`. Typed snapshot damage
+is advisory, and only inventory scan/read errors fail
+`learned-state-inventory`; doctor never repairs, moves, deletes, or rebuilds
+these files. The `lock-inventory` and `run-state-inventory` checks fail on
+their respective scan errors. Doctor never changes run state and never
+acquires, steals, or deletes a lock.
+
+When a command fails with the frozen `LOCK_TIMEOUT` or
 `RUN_RECORDS_SURVIVED` code, its `next:` line routes to
 `pi-sparkle doctor --json --state-root <the failing command's root>` and names
-the answering `locks[]` and/or `runStates[]` inventory. This is code-based
+the answering `locks[]` and/or `runStates[]` inventory. Three adaptation-plane
+codes route to `learnedState[]`: `BANDIT_STATE_UNREADABLE` says repair or move
+aside to relearn the project from zero,
+`PREFERENCE_SNAPSHOT_UNREADABLE` says repair or move aside to start from an
+empty store, and `CATALOG_OBSERVED_CORRUPT` identifies derived state that may
+be deleted and rebuilt from `runtime/invocations.jsonl`. This is code-based
 classification through a depth-bounded `cause` walk, not message matching;
 all other failures keep the generic `next:`.
 
@@ -410,19 +423,34 @@ recovery evidence.
 
 The sidecar is a cooperative run-plane lock. The M0, parent, flowchart, and
 supervised start/resume paths acquire it before their first record and hold it
-through teardown. Run deletion takes the same lock across subtree removal and
-a first verification, then verifies again after release. A delete aimed at
-one of those live runs therefore waits for teardown; if the run outlives the
-5 s default wait, delete fails with `LOCK_TIMEOUT` and removes nothing. A
-cross-process pause takes the same lock and likewise fails closed while the
-locked run is live, rather than settling its episode/checkpoint from
-underneath the driver.
+through teardown. Clarification runs do the same for their event, checkpoint,
+episode, and questions writes; project discovery is hoisted outside and the
+questions write does not nest a second acquisition because the helper is not
+reentrant. Start preflight stays outside the lock, so a refused start persists
+nothing. Resume must lock before reading records that deletion could remove;
+a refused resume of a nonexistent supervised or flowchart run therefore
+leaves an empty `runtime/runs/` directory, but no run subtree, lock, or record.
+
+Run deletion takes the same lock across subtree removal and a first
+verification, then verifies again after release. `delete --run` and
+`delete --episode` accept `--lock-wait-ms <ms>`: omission preserves the 5 s
+default, `0` refuses immediately, and strict decimal input is capped at 24 h.
+A delete aimed at a live run waits for teardown up to that bound and otherwise
+fails with `LOCK_TIMEOUT` having removed nothing. A cross-process pause takes
+the same lock and likewise fails closed while the locked run is live, rather
+than settling its episode/checkpoint from underneath the driver. `pause`
+deliberately has no wait flag because a longer wait can succeed only after the
+run has already stopped, when the pause token would be a slow no-op.
 
 Normal teardown releases the owned sidecar. SIGKILL cannot run teardown and
 therefore leaves the lock behind. The lock implementation never steals one:
 delete, pause, and track-question writes stay blocked until an operator uses
 doctor's PID/liveness, age, remediation, and run-state evidence, stops any live
-owner, and manually removes a confirmed abandoned lock.
+owner, and manually removes a confirmed abandoned lock. Crash probe case 9,
+`sigkill-run-lock-operator-recovery`, proves this complete cross-process
+posture: the lock records a dead child PID, a bounded delete changes no bytes,
+doctor reports `pidLiveness: "not-running"` with manual-removal guidance, and
+deletion succeeds only after that confirmed abandoned lock is removed.
 
 Event appends and checkpoint writes deliberately do not acquire the sidecar
 because measured per-step locking exceeded the end-to-end regression bar. A
@@ -529,6 +557,15 @@ The M2 judge is a pluggable verifier that produces `APPROVED`, `REJECTED`, or `N
 
 ### Crash teardown
 
+The first terminal a flowchart log replays wins. Its blocked, completed, and
+failed writers and the replay anomaly rule share
+`TERMINAL_REPLAY_STATUSES` / `replayedTerminalStatus`, so they cannot derive
+terminal status differently. A tracking-gate `queue_analysis` therefore beats
+a later node failure: a verification-failed child leaves exactly one
+`RUN_BLOCKED` with reason `ANALYSIS_QUEUED`, checkpoint BLOCKED, episode
+WAITING, and no terminal-overwrite anomaly. The run remains injectable and
+resumable.
+
 If an error escapes supervised rounds while replay is PLANNING or RUNNING, the
 wrapper best-effort appends one `RUN_FAILED` with a bounded crash reason and
 settles launched round-mates. The crash path then re-reads the log, closes the
@@ -538,6 +575,12 @@ Episode close and checkpoint write are independent best-effort steps: failure
 of either does not suppress the other or mask the escaping error. On the
 ordinary path, only `EPISODE_CLOSED` follows the crash terminal. The wrapper
 does not overwrite a blocked, cancelled, or already-terminal log.
+
+The same terminal-then-settle pair covers failures while opening the supervised
+state before rounds begin. A pre-rounds death therefore ends with a FAILED
+event log, closed FAILED episode, and FAILED checkpoint instead of leaving a
+RUNNING log that no command can settle; terminal recording and each settle
+step remain best effort, and the original error still escapes.
 
 Flowchart teardown first cancels and settles child work, applies the same
 in-flight-only terminal posture, and rethrows. PAUSED, WAITING_FOR_USER, and
@@ -605,8 +648,16 @@ pnpm build
   `loopback-2`, `stream: true`, and flagged
   `reasoning_effort: "high"` (absent from the unflagged request). The supervised
   resume path carries the same request witness and intentionally settles
-  BLOCKED. Both invocation rows are decoded with the production calibration
-  reader. It requires no external provider or network.
+  BLOCKED. A second witness drives one two-tier child through a deterministic
+  test-only FAILED/PASSED verifier sequence; production records `TASK_RETRY`,
+  selects the next tier, and sends exactly two HTTP requests whose second body
+  carries `model: "loopback-2"`. The decorator supplies only verification
+  verdicts, not tier choice or transport. Invocation rows are decoded with the
+  production calibration reader. It requires no external provider or network.
+- `scripts/crash-probe.mjs` exercises nine crash/recovery cases for three
+  iterations each. Case 9 is the cross-process
+  `sigkill-run-lock-operator-recovery` chain described under Persistence and
+  Audit.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
 - M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
   on resume, legal/illegal transitions, resume replay, stall blocking, and

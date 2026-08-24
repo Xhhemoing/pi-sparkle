@@ -74,7 +74,7 @@ allowlist entry with a justification.
 | providers-config | runtime | `runtime/providers.json` | until-deleted | delete-files | 1 |
 | auth-credential | runtime | `runtime/auth.json` | until-deleted | delete-files | 1 |
 
-## Deletion tooling (Q2 remediation, extended through 2026-08-24 Round 4)
+## Deletion tooling (Q2 remediation, extended through 2026-08-24 Round 6)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
 `runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
@@ -94,23 +94,47 @@ do not take this lock and can recreate the subtree. A write after the final
 verification is a new write, so deletion after termination remains the
 supported flow.
 
-The M0, parent, flowchart, and supervised start/resume paths take
-`runtime/runs/<runId>.lock` once for the whole record-writing lifecycle and
-release it after teardown. `delete --run` aimed at one of those live runs
-therefore waits for clean teardown (bounded by the lock's 5 s default) instead
-of removing records underneath it; if the run outlives that wait, deletion
-fails with `LOCK_TIMEOUT` and removes nothing. The same exclusion means a
-cross-process pause aimed at a live locked run fails closed with
-`LOCK_TIMEOUT`. A process killed by SIGKILL cannot release its lock; locks are
-never stolen, so pause/delete/track-question writes remain blocked until an
-operator inspects the recorded PID and run state with `pi-sparkle doctor`,
-stops any live owner, and manually removes a confirmed abandoned lock.
+The M0, parent, flowchart, and supervised start/resume paths, plus clarification
+runs, take `runtime/runs/<runId>.lock` once for the whole record-writing
+lifecycle and release it after teardown. Clarification discovery remains
+outside the acquisition; its event, checkpoint, episode, and questions writes
+are all inside one non-reentrant acquisition. Start preflight also remains
+outside the lock on the other planes, so a refused start persists nothing.
+Resume must acquire before reading the records that deletion could remove; a
+refused resume of a nonexistent supervised or flowchart run therefore leaves
+an empty `runtime/runs/` directory, but no run subtree, lock, or record.
 
-> Round 6 coordination snapshot (2026-08-24 20:25 UTC): R6-1 (terminal
-> semantics), R6-2 (resume child-spec reconstruction), and R6-3 (remaining
-> lifecycle-lock corners) were in flight. The paragraph above records the
-> landed Round 5 lifecycle contract observed at this timestamp; it does not
-> predict those slots' final decisions.
+`delete --run <id>` and `delete --episode <id>` accept
+`--lock-wait-ms <ms>`. Omitting it preserves the lock's 5 s default, `0`
+refuses a held lock immediately, and only decimal whole milliseconds through
+the 24 h ceiling are accepted. A delete aimed at a live run waits for clean
+teardown up to that bound instead of removing records underneath it; if the
+run outlives the wait, deletion fails with `LOCK_TIMEOUT` and removes nothing.
+`pause` deliberately has no matching flag: waiting longer can succeed only
+after the lifecycle holder has stopped, when writing a pause token would be a
+slow no-op rather than pausing a busy run. A cross-process pause therefore
+still fails closed with `LOCK_TIMEOUT` while the run is live.
+
+A process killed by SIGKILL cannot release its lock; locks are never stolen, so
+pause/delete/track-question writes remain blocked until an operator inspects
+the recorded PID and run state with `pi-sparkle doctor`, stops any live owner,
+and manually removes a confirmed abandoned lock. Crash probe case 9,
+`sigkill-run-lock-operator-recovery`, crosses that OS-process boundary: it
+proves the recorded PID is dead, proves a timed-out delete changes no bytes,
+checks doctor's `pidLiveness: "not-running"` and manual-removal guidance, then
+removes the confirmed abandoned lock and verifies deletion.
+
+A flowchart run records exactly one terminal, the first one its log replays;
+a tracking-gate `queue_analysis` therefore beats a later node failure, and a
+verification-failed child ends the run BLOCKED with `ANALYSIS_QUEUED`, the
+episode WAITING, and the run injectable and resumable. The flowchart terminal
+writers and replay anomaly rule share `TERMINAL_REPLAY_STATUSES` /
+`replayedTerminalStatus` rather than deriving terminal status separately.
+
+> Round 7 end-of-round sync (2026-08-24 21:01 UTC): R7-1 (resume child-spec
+> reconstruction), R7-2 (gate-semantics decision), and R7-3 (BLOCKED-unblock
+> investigation) were in flight. This dictionary records the landed Round 6
+> contract observed at this timestamp and does not predict those slots.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
@@ -226,9 +250,9 @@ state root. Findings and resolutions:
   `registry.json.<pid>.<random>.tmp`; they are transient and do not get their
   own durable classes.
 - Operational lock files currently written below the state root are:
-  - `runtime/runs/<runId>.lock`, held by M0, parent, flowchart, and supervised
-    run lifecycles and shared with run deletion, pause writes, and
-    track-question writes (not per-step event/checkpoint writes);
+  - `runtime/runs/<runId>.lock`, held by M0, parent, flowchart, supervised, and
+    clarification run lifecycles and shared with run deletion, pause writes,
+    and track-question writes (not per-step event/checkpoint writes);
   - `runtime/invocations.jsonl.lock`, shared by invocation appends and the
     run-deletion filter rewrite;
   - `runtime/episodes/<id>.lock`, shared by CLI `episode close` and run-side
@@ -259,6 +283,19 @@ state root. Findings and resolutions:
   answering `locks[]` and/or `runStates[]` inventory. Routing is by code
   through a depth-bounded `cause` walk, never by message text; other failures
   retain the generic `next:`.
+  Doctor also exposes frozen-additive `learnedState`: entries for every
+  discovered project-key `bandit.json`, plus `preferences.json` and
+  `catalog-observed.json`. Each entry carries `kind`, `stateClass`
+  (`learned` or `derived`), `projectKey`, `path`, `status` (`present`,
+  `absent`, `readable`, or `damaged`), and `remediation`; the inventory also
+  carries `advisory` and `scanErrors`. Typed snapshot damage is advisory and
+  does not fail doctor; only inventory scan/read errors fail
+  `learned-state-inventory`. The three typed command failures route to that
+  inventory by code: `BANDIT_STATE_UNREADABLE` says repair or move aside to
+  relearn the project from zero, `PREFERENCE_SNAPSHOT_UNREADABLE` says repair
+  or move aside to start from an empty store, and
+  `CATALOG_OBSERVED_CORRUPT` identifies derived state that may be deleted and
+  rebuilt from `runtime/invocations.jsonl`.
 - `test/**` fixture writes are outside the state root and out of scope.
 
 ## Snapshot integrity and recovery
