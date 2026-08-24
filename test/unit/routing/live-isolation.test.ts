@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -121,6 +122,21 @@ function readModule(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
 }
 
+function listTypeScriptModules(relativeDirectory: string): string[] {
+  const modules: string[] = [];
+  const pending = [relativeDirectory];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (directory === undefined) break;
+    for (const entry of readdirSync(resolve(REPO_ROOT, directory), { withFileTypes: true })) {
+      const module = toPosix(`${directory}/${entry.name}`);
+      if (entry.isDirectory()) pending.push(module);
+      else if (entry.isFile() && entry.name.endsWith(".ts")) modules.push(module);
+    }
+  }
+  return modules.sort();
+}
+
 function importSpecifiers(source: string): string[] {
   const out: string[] = [];
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
@@ -186,6 +202,7 @@ function importChain(closure: Closure, module: string): string {
 }
 
 const LIVE_CLOSURE = buildClosure(LIVE_ENTRY_POINTS);
+const SRC_MODULES = listTypeScriptModules("src");
 
 test("every entry point and watched module path still exists", () => {
   const missing = [...LIVE_ENTRY_POINTS, ...WATCHED_MODULES].filter(
@@ -269,6 +286,26 @@ test("bandit reaches the live closure as a reward writer, never as a selector", 
     readers,
     [],
     "live execution must not read learned bandit state back (doctor inventory is the signed-off diagnostic exception)"
+  );
+});
+
+test("selectArm stays shadow-only and R8-9's root-keyed reader stays deleted", () => {
+  const selectArmCallers = SRC_MODULES.filter(
+    (module) => module !== "src/routing/bandit.ts" && /\bselectArm\b/.test(readModule(module))
+  );
+  assert.deepEqual(
+    selectArmCallers,
+    ["src/routing/shadow.ts"],
+    "selectArm's only src caller must remain the shadow router outside the live closure"
+  );
+
+  const deletedReaderUsers = SRC_MODULES.filter((module) =>
+    /\bloadProjectBandit\b/.test(readModule(module))
+  );
+  assert.deepEqual(
+    deletedReaderUsers,
+    [],
+    "R8-9 deleted the root-keyed loadProjectBandit export/call; only the keyed reader may remain"
   );
 });
 
