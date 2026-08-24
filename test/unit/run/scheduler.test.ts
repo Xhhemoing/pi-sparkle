@@ -7,12 +7,13 @@ import type { TaskNode } from "../../../src/domain/task.js";
 import type { TaskStatus } from "../../../src/domain/status.js";
 import type { IsoTimestamp } from "../../../src/domain/timestamp.js";
 import { validateTaskGraph } from "../../../src/graph/validate.js";
+import * as scheduler from "../../../src/run/scheduler.js";
 import {
   applyRetry,
-  applySkipped,
   applyTaskOutcome,
   LeaseRegistry,
   planRound,
+  TASK_OUTCOMES,
   type TaskOutcome
 } from "../../../src/run/scheduler.js";
 
@@ -53,23 +54,23 @@ function setStatuses(
 test("planRound returns ready tasks in deterministic topological order", () => {
   const graph = validateTaskGraph([task("c", ["a", "b"]), task("a"), task("b")]);
   const statuses = statusMap(graph);
-  const round = planRound(graph, statuses, 2, 1_000);
+  const round = planRound(graph, statuses, 2);
   assert.deepEqual(round, ["tsk_a", "tsk_b"], "only ready tasks, capped by concurrency");
 
   setStatuses(statuses, { a: "COMPLETED", b: "COMPLETED" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000), ["tsk_c"]);
+  assert.deepEqual(planRound(graph, statuses, 2), ["tsk_c"]);
 });
 
 test("planRound respects the concurrency cap and skips leased tasks", () => {
   const graph = validateTaskGraph([task("a"), task("b"), task("c")]);
   const statuses = statusMap(graph);
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000), ["tsk_a", "tsk_b"], "cap at 2");
+  assert.deepEqual(planRound(graph, statuses, 2), ["tsk_a", "tsk_b"], "cap at 2");
 
   // A leased task is not planned again.
   const leases = new LeaseRegistry(() => 0);
   leases.lease(createTaskId(() => "a"), createRunId(UUID), 5_000);
   setStatuses(statuses, { a: "RUNNING" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_b", "tsk_c"]);
+  assert.deepEqual(planRound(graph, statuses, 2, leases), ["tsk_b", "tsk_c"]);
 });
 
 test("LeaseRegistry enforces exactly one active lease per task", () => {
@@ -114,20 +115,38 @@ test("leases do not expire: no sweep API, and planRound still skips a lease past
   const taskId = createTaskId(() => "a");
   const lease = leases.lease(taskId, createRunId(UUID), 5_000);
   setStatuses(statuses, { a: "RUNNING" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_b"]);
+  assert.deepEqual(planRound(graph, statuses, 2, leases), ["tsk_b"]);
 
   // Well past expiresAt: the lease is still active and still blocks planning.
   now = Date.parse(lease.expiresAt) + 60_000;
   assert.deepEqual(leases.active(taskId), lease, "nothing reclaims a stale lease");
   assert.deepEqual(
-    planRound(graph, statuses, 2, 1_000, leases),
+    planRound(graph, statuses, 2, leases),
     ["tsk_b"],
     "planning ignores expiresAt; only release() or resume recovery frees the task"
   );
 
   leases.release(taskId);
   setStatuses(statuses, { a: "READY" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_a", "tsk_b"]);
+  assert.deepEqual(planRound(graph, statuses, 2, leases), ["tsk_a", "tsk_b"]);
+});
+
+/**
+ * Honesty pin for R3-8: `planRound` never read the lease duration it accepted,
+ * so the parameter implied an expiry input that planning does not have. It is
+ * gone from the signature; re-adding one means planning must actually consult
+ * it, which contradicts the R2-9 contract above.
+ */
+test("planRound takes no lease-duration parameter", () => {
+  assert.equal(planRound.length, 4, "graph, statusOf, maxConcurrentTasks, leases — no lease-duration slot");
+
+  // Positional proof: the 4th argument is the registry, not a duration.
+  const leases = new LeaseRegistry(() => 0);
+  const graph = validateTaskGraph([task("a"), task("b")]);
+  const statuses = statusMap(graph);
+  leases.lease(createTaskId(() => "a"), createRunId(UUID), 5_000);
+  setStatuses(statuses, { a: "RUNNING" });
+  assert.deepEqual(planRound(graph, statuses, 2, leases), ["tsk_b"]);
 });
 
 /** Comments removed so a commented-out call cannot satisfy a source pin. */
@@ -161,6 +180,33 @@ test("restore rebuilds a resume lease and keeps mutual exclusion", () => {
   assert.doesNotMatch(SUPERVISOR_SOURCE, /\.(isExpired|expired)\(/, "no caller may resurrect the removed expiry sweep");
 });
 
+/**
+ * Honesty pin for R3-8. `applySkipped()` was a declared transition rule that
+ * nothing in the DAG plane ever called, so the scheduler advertised a skip
+ * decision the supervisor cannot make. It is gone. The flowchart plane's skip
+ * injection is unaffected — it moves a `FlowNodeState`, not a `TaskStatus`.
+ */
+test("the DAG plane declares no skip transition, because nothing produces one", () => {
+  const skipExports = Object.keys(scheduler).filter((name) => /skip/i.test(name));
+  assert.deepEqual(skipExports, [], "a skip transition helper needs a live caller first");
+
+  const graph = validateTaskGraph([task("a")]);
+  const node = graph.byId.get(createTaskId(() => "a"))!;
+  for (const outcome of TASK_OUTCOMES) {
+    assert.notEqual(
+      applyTaskOutcome({ ...node, attempt: 0, maxAttempts: 1 }, outcome).status,
+      "SKIPPED",
+      `no accepted outcome yields SKIPPED (${outcome})`
+    );
+  }
+
+  assert.doesNotMatch(
+    SUPERVISOR_SOURCE,
+    /["']SKIPPED["']/,
+    "the supervisor records no SKIPPED task; wiring one means restoring a declared transition rule here"
+  );
+});
+
 test("applyTaskOutcome follows the declared state machine", () => {
   const graph = validateTaskGraph([task("a")]);
   const node = graph.byId.get(createTaskId(() => "a"))!;
@@ -182,16 +228,13 @@ test("applyTaskOutcome follows the declared state machine", () => {
 
   const cancelled = applyTaskOutcome(node, "CANCELLED");
   assert.equal(cancelled.status, "CANCELLED");
-
-  const skipped = applySkipped(node);
-  assert.equal(skipped.status, "SKIPPED");
 });
 
 test("a timed-out task blocks, retries to READY, and downstream waits for the join", () => {
   const graph = validateTaskGraph([task("b", ["a"]), task("a")]);
   const statuses = statusMap(graph);
 
-  const round1 = planRound(graph, statuses, 2, 1_000);
+  const round1 = planRound(graph, statuses, 2);
   assert.deepEqual(round1, ["tsk_a"]);
 
   // Task a times out: it blocks with attempt 1; the join stays unsatisfied.
@@ -199,13 +242,13 @@ test("a timed-out task blocks, retries to READY, and downstream waits for the jo
   const timedOut = applyTaskOutcome(nodeA, "TIMEOUT");
   assert.equal(timedOut.status, "BLOCKED");
   setStatuses(statuses, { a: "BLOCKED" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000), [], "join is unsatisfied while a is BLOCKED");
+  assert.deepEqual(planRound(graph, statuses, 2), [], "join is unsatisfied while a is BLOCKED");
 
   // Supervisor retries: BLOCKED -> READY, then a is schedulable again.
   const retried = applyRetry({ ...nodeA, status: "BLOCKED", attempt: 1 });
   assert.equal(retried.status, "READY");
   setStatuses(statuses, { a: "READY" });
-  assert.deepEqual(planRound(graph, statuses, 2, 1_000), ["tsk_a"]);
+  assert.deepEqual(planRound(graph, statuses, 2), ["tsk_a"]);
 });
 
 test("outcomes outside the accepted set are rejected", () => {

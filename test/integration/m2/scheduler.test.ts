@@ -166,7 +166,7 @@ async function runGraph(
   const parentSignal = new AbortController().signal;
 
   for (let round = 0; round < 10; round += 1) {
-    const ready = planRound(graph, statuses, maxConcurrentTasks, 5_000, leases);
+    const ready = planRound(graph, statuses, maxConcurrentTasks, leases);
     if (ready.length === 0) break;
     const results = await Promise.all(
       ready.map(async (taskId) => {

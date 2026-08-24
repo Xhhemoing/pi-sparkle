@@ -250,8 +250,11 @@ export async function runSupervisorRounds(
     await append(make("RUN_CANCEL_REQUESTED", {}));
   };
 
-  // Recover orphaned or expired leases: a reconstructed RUNNING lease has no
-  // live worker, so resume must not wait for wall-clock expiry.
+  // Recover orphaned leases: a reconstructed RUNNING lease has no live worker.
+  // Nothing expires a lease (see LeaseRegistry), so every restored lease is
+  // recovered here unconditionally rather than on a wall-clock deadline. The
+  // appended event type is still TASK_LEASE_EXPIRED — its name predates this
+  // contract; orphaning, not expiry, is what triggers it.
   for (const lease of leases.list()) {
     const node = graph.byId.get(lease.taskId);
     if (node === undefined) continue;
@@ -272,7 +275,7 @@ export async function runSupervisorRounds(
       break;
     }
 
-    const ready = planRound(graph, statuses, limits.maxConcurrentTasks, LEASE_MS, leases);
+    const ready = planRound(graph, statuses, limits.maxConcurrentTasks, leases);
     if (ready.length === 0) {
       const lookup = (id: TaskId): TaskStatus => statuses.get(id) ?? "PENDING";
       const failed = graph.tasks.filter((node) => lookup(node.id) === "FAILED");

@@ -91,14 +91,13 @@ export class LeaseRegistry {
  * capped at maxConcurrentTasks, excluding currently leased tasks. Both PENDING
  * and READY (retried) tasks are schedulable.
  *
- * `_leaseDurationMs` is accepted for call-site symmetry and is unread: planning
- * never consults lease expiry, only whether a lease is currently held.
+ * No lease duration is accepted: planning never consults lease expiry, only
+ * whether a lease is currently held.
  */
 export function planRound(
   graph: TaskGraph,
   statusOf: ReadonlyMap<TaskId, TaskStatus> | ((id: TaskId) => TaskStatus),
   maxConcurrentTasks: number,
-  _leaseDurationMs: number,
   leases?: LeaseRegistry
 ): TaskId[] {
   const lookup = (id: TaskId): TaskStatus => {
@@ -161,7 +160,10 @@ export function applyRetry(task: TaskNode): TaskTransition {
   return { status: "READY", attempt: task.attempt };
 }
 
-/** Declared skip rule: a task becomes SKIPPED only through this transition. */
-export function applySkipped(task: TaskNode): TaskTransition {
-  return { status: "SKIPPED", attempt: task.attempt };
-}
+// There is deliberately no skip transition here. `TaskStatus` includes SKIPPED
+// and `allDependenciesSatisfied` accepts it, but no DAG-plane caller ever
+// produces it: the only skip decision in the system is the flowchart plane's
+// `skip` injection, which moves a `FlowNodeState` — a different union handled
+// by `supervisor/flowchart-supervisor.ts`. A DAG skip rule may be added back
+// once a live caller exists; until then it would advertise a transition that
+// nothing performs.
