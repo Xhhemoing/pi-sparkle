@@ -416,3 +416,9 @@
 | S7-A-2 | roller uniqueStrings 中间拼接数组消除 | 等价 3.2–3.7µs/链，被已否决 S2-A-1 支配 |
 | S7-A-3 | evaluateGates 空 hardCodes 析取守卫 | 实测负优化（−0.6~−2.3ns） |
 | S7-A-4 | combineScore 加权组合代数重排 | 舍入后可观察发散（首反例 H=0.35 P=0.0055） |
+| S7-B-1 | familyOf deploy 门冗余合取消除（DEPLOY_RE ⊆ HIGH_RISK_RE） | 92–159µs/批；合取是意图护栏。重开：两词表被契约化联动 |
+| S7-B-2 | preferPrimary 被吸收析取消除 | 符号翻转零收益；删除后静默耦合 complexityOf |
+| S7-B-3 | evaluateLiveCandidate 空前置失败返回 rest 别名 | 97–416µs/批；跨函数公开契约别名 |
+| S7-B-4 | justification 常量尾段构造期预计算 | 符号翻转；X1-1 邻域派生缓存 |
+| S7-B-5 | 默认 `["tool-use"]` 能力数组模块级享元 | 可观察身份改变（S1-A-7 链） |
+| S7-B-6 | validateConfig 查重 Set 复用为 catalogIds | 每批一次 ns 级 |
