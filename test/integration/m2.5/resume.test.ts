@@ -267,15 +267,12 @@ test("resume fails closed when the checkpoint is missing", async () => {
 });
 
 /**
- * R6-2's investigation: `childTasksFromDefinition` rebuilds every resumed child
- * spec from the checkpointed flowchart, so a resumed run's children are not the
- * children the run started. The two tests below pin the two halves that decide
- * what Round 7 can do about it: what a resume actually loses, and the fact that
- * the parent log already carries enough to rebuild the spec faithfully.
- *
- * Measured at HEAD: the loss does not change any gate verdict today (see
- * `test/unit/run/flowchart-run-abort.test.ts`), so this is honesty and cost,
- * not a false-accept. The pins exist so that stays true by observation.
+ * R6-2 measured what a resume lost; R7-1 stopped losing most of it.
+ * `childTasksFromLog` rebuilds each resumed child from the parent log, so the
+ * caller's objective, artifacts, criteria and budget come back for any node the
+ * log has seen run. The tests below pin what is left: the substitution a node
+ * that never ran gets, the contract seam, and the premise the whole rebuild
+ * rests on — that the log really does carry every field.
  */
 
 const CONTRACT_CRITERION = "crit-integration";
@@ -389,35 +386,49 @@ function dimensionVerdicts(events: readonly Event[], taskId: string): Record<str
   return {};
 }
 
-test("a resumed node loses the caller's child spec and the run's contract", async () => {
-  await withTempState(async (stateRoot, projectRoot) => {
-    const children = [testerChild("tsk_first"), testerChild("tsk_second")];
-    const contract = contractCovering(CONTRACT_CRITERION);
-    const flowchart = compileChildrenToFlowchart(
-      children.map((child, index) => ({
-        taskId: child.taskId,
-        role: "tester" as const,
-        objective: child.objective,
-        ...(index > 0 ? { dependsOn: [children[index - 1]!.taskId] } : {})
-      }))
-    );
+/**
+ * Two tester children with a contract, paused after the first: the second node
+ * is only ever run by a resume, and the log has never seen it, so it is the
+ * substitution case rather than the reconstruction one. Faithful reconstruction
+ * of a node the log *has* seen is pinned in
+ * `test/unit/run/flowchart-run-abort.test.ts`.
+ */
+async function pausedBeforeSecondChild(
+  stateRoot: string,
+  projectRoot: string
+): Promise<{ runId: RunId; contract: RequirementContract }> {
+  const children = [testerChild("tsk_first"), testerChild("tsk_second")];
+  const contract = contractCovering(CONTRACT_CRITERION);
+  const flowchart = compileChildrenToFlowchart(
+    children.map((child, index) => ({
+      taskId: child.taskId,
+      role: "tester" as const,
+      objective: child.objective,
+      ...(index > 0 ? { dependsOn: [children[index - 1]!.taskId] } : {})
+    }))
+  );
 
-    // Leg 1 stops after the first node, so the second is only ever run by a resume.
-    const pause = new TogglePause();
-    const first = new PassingExecutor(() => {
-      pause.paused = true;
-    });
-    const paused = await startFlowchartRun(
-      { ...deps(stateRoot), executor: first, pause },
-      { projectRoot, flowchart, childTasks: children, contract }
-    );
-    assert.equal(paused.status, "PAUSED");
-    assert.deepEqual(first.taskIds, ["tsk_first"]);
+  const pause = new TogglePause();
+  const first = new PassingExecutor(() => {
+    pause.paused = true;
+  });
+  const paused = await startFlowchartRun(
+    { ...deps(stateRoot), executor: first, pause },
+    { projectRoot, flowchart, childTasks: children, contract }
+  );
+  assert.equal(paused.status, "PAUSED");
+  assert.deepEqual(first.taskIds, ["tsk_first"]);
+  return { runId: paused.runId, contract };
+}
+
+test("a node the resume has to substitute for gets a budget the caller authorised", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
 
     const resumed = await resumeFlowchartRun(
       { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
-      paused.runId,
-      { unpause: true }
+      runId,
+      { unpause: true, contract }
     );
     assert.equal(resumed.status, "COMPLETED");
 
@@ -425,36 +436,68 @@ test("a resumed node loses the caller's child spec and the run's contract", asyn
     const started = requests.find((request) => request.taskId === "tsk_first");
     const restarted = requests.find((request) => request.taskId === "tsk_second");
     assert.ok(started, "the first node ran under the caller's spec");
-    assert.ok(restarted, "the second node ran under the rebuilt spec");
+    assert.ok(restarted, "the second node ran under a rebuilt one");
 
-    // What the caller wrote, and what a resume substitutes for it.
+    // The second node has no request of its own on the log, so its criteria and
+    // artifacts stay empty — there is nothing to restore and nothing is invented.
     assert.deepEqual(started.acceptanceCriteria.map((criterion) => criterion.id), [CONTRACT_CRITERION]);
-    assert.deepEqual(started.limits, { maxAttempts: 3, timeoutMs: 45_000, maxWallTimeMs: 900_000 });
-    assert.deepEqual(restarted.acceptanceCriteria, [], "the resumed child is told no acceptance criteria");
+    assert.deepEqual(restarted.acceptanceCriteria, []);
     assert.deepEqual(restarted.inputArtifactIds, []);
-    assert.deepEqual(restarted.limits, { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 });
 
-    // The contract goes the same way: `resumeLockedFlowchartRun` never threads it
-    // into the loop context, so a resumed child is assessed with no constraints.
+    // The budget is the one substitution that is made rather than left empty,
+    // and it is the sibling's: a budget this run's caller really authorised.
+    // Before R7-1 every rebuilt child got {2, 60_000, 3_600_000} instead —
+    // twelve times this caller's wall budget and one extra attempt.
+    assert.deepEqual(started.limits, { maxAttempts: 3, timeoutMs: 45_000, maxWallTimeMs: 900_000 });
+    assert.deepEqual(restarted.limits, started.limits, "the resumed node spends what the caller allowed");
+
+    // And the contract the resume was given reaches its children, so the
+    // constraint dimension keeps applying across the resume boundary.
+    assert.equal(dimensionVerdicts(resumed.events, "tsk_first")["constraint-retention"], "PASS");
+    assert.equal(dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"], "PASS");
+  });
+});
+
+/**
+ * The half R7-1 could not close. A resume honours the contract it is handed,
+ * but nothing durable hands it one: `startFlowchartRun` takes the contract as
+ * input and only its acceptance criteria survive, on the bound episode, while
+ * the constraints this dimension reads are on no record a run id can reach. So
+ * a CLI resume — which has only a run id — still assesses against none. Making
+ * the contract durable is a schema decision; this pin is what a future round
+ * flips when it takes one.
+ */
+test("a resume that is handed no contract assesses its children against none", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId } = await pausedBeforeSecondChild(stateRoot, projectRoot);
+
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      runId,
+      { unpause: true }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+
     assert.equal(dimensionVerdicts(resumed.events, "tsk_first")["constraint-retention"], "PASS");
     assert.equal(
       dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"],
       "NOT_APPLICABLE",
-      "the resumed leg has no contract, so the constraint dimension stops applying"
+      "the resumed leg was given no contract, so the constraint dimension stops applying"
     );
   });
 });
 
 /**
- * The premise Round 7's fix rests on. R4-6 refused to persist executor config
- * because the log did not carry it; that reason does not apply here. Everything
- * `ChildTaskInput` needs is already durable: `TASK_REQUEST` carries the
- * objective, artifacts, criteria and limits, and the assignment-sourced
+ * The premise `childTasksFromLog` rests on. R4-6 refused to persist executor
+ * config because the log did not carry it; that reason does not apply here.
+ * Everything `ChildTaskInput` needs is already durable: `TASK_REQUEST` carries
+ * the objective, artifacts, criteria and limits, and the assignment-sourced
  * `MODEL_ROUTED` carries the true `agentRole` plus the `highRisk` and
  * `eligibleModels` that regenerate the cascade through the shipped planner.
  *
- * If a schema change ever drops one of these, a faithful rebuild stops being
- * possible without one — and this test is where that shows up.
+ * The rebuild reads exactly these fields, so if a schema change ever drops one
+ * of them the resume goes back to substituting — and this test is where that
+ * shows up, before the substitution does.
  */
 test("the parent log already carries what a faithful child-spec rebuild needs", async () => {
   await withTempState(async (stateRoot, projectRoot) => {

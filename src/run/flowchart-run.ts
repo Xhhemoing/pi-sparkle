@@ -20,6 +20,8 @@ import { buildProjectContextIndex, type ProjectContextIndex } from "../context/i
 import { createClusterHost, type ClusterHost } from "../cluster/host.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
 import type { TaskAssignment } from "../routing/assign.js";
+import { cheapFirstTiers } from "../routing/live-cascade.js";
+import type { ChildRunLimits, TaskRequest } from "../protocol/v1.js";
 import {
   ChildCoordinator,
   type ChildRunHandle,
@@ -115,6 +117,18 @@ export interface FlowchartContinuation {
   answer?: string;
   childResults?: Readonly<Record<string, ChildNodeResult>>;
   unpause?: boolean;
+  /**
+   * The requirement contract the run started under. A resume that is given one
+   * assesses its children against it, exactly as {@link startFlowchartRun}
+   * does; a resume that is not still assesses them against none.
+   *
+   * It has to be supplied because nothing durable carries it: the contract
+   * reaches a run through `startFlowchartRun`'s input, and only its acceptance
+   * criteria survive, on the bound episode. The constraints the tracking gate
+   * reads are on no record a run id can reach — see the disclosure in
+   * `.agent_workspace/loop4-r7-t1.md`.
+   */
+  contract?: RequirementContract;
 }
 
 export interface FlowchartRunOutcome {
@@ -228,22 +242,173 @@ class RunAbortScope {
   }
 }
 
-function childTasksFromDefinition(
+/**
+ * The catalog fields {@link cheapFirstTiers} reads.
+ *
+ * It comes from the resuming process's own router, not from the log: the log
+ * records which model ids were eligible, but not their versions or costs, so
+ * the tiers have to be re-derived against a live catalog. A resume configured
+ * against a different catalog therefore rebuilds different tiers — the same
+ * exposure a fresh start has, and the reason the run's router is the source
+ * rather than a second one built here.
+ */
+type CascadeCatalog = readonly {
+  readonly id: string;
+  readonly version?: string;
+  readonly estimatedCostUsd: number;
+}[];
+
+/**
+ * The last `TASK_REQUEST` the log carries per task.
+ *
+ * Every attempt records one and they differ only in the message envelope, so
+ * the last is the run's most recent statement of what that node was asked to
+ * do. A node an earlier resume already re-specified therefore rebuilds to the
+ * spec that resume really sent: the rebuild is a fixed point, not a second
+ * guess layered on the first.
+ */
+function loggedTaskRequests(events: readonly Event[]): Map<TaskId, TaskRequest> {
+  const requests = new Map<TaskId, TaskRequest>();
+  for (const event of events) {
+    if (event.type !== "CHILD_MESSAGE") continue;
+    const message = event.payload.message;
+    if (message.type !== "TASK_REQUEST") continue;
+    requests.set(message.taskId, message);
+  }
+  return requests;
+}
+
+/**
+ * The routing decision that carries a task's true {@link AgentRole}.
+ *
+ * Two producers write `MODEL_ROUTED` for one task: the pre-run assignment,
+ * which knows the `AgentRole` the caller asked for, and the supervisor's
+ * per-node routing, which only knows the flowchart role — and that role has
+ * already coarsened `tester` into `actor`. Only the assignment is a record of
+ * the child's spec, so this selects on `agentRole` rather than taking the
+ * first or the last event for the task. Taking the wrong one silently
+ * reintroduces the coarsening the rebuild exists to remove.
+ */
+function assignedRoutes(events: readonly Event[]): Map<TaskId, ModelRoutedPayload> {
+  const routes = new Map<TaskId, ModelRoutedPayload>();
+  for (const event of events) {
+    if (event.type !== "MODEL_ROUTED") continue;
+    if (event.payload.agentRole === undefined) continue;
+    routes.set(event.payload.taskId, event.payload);
+  }
+  return routes;
+}
+
+/**
+ * The per-attempt timeout a substituted budget gets. `RunLimits` carries no
+ * per-attempt field, so this is the one number no source on the log can
+ * supply; it is the value every rebuilt child used to get for all three.
+ */
+const FALLBACK_CHILD_TIMEOUT_MS = 60_000;
+
+/**
+ * The budget for a node the log has never seen run.
+ *
+ * Such a node has no request to reconstruct, so the rebuild substitutes one —
+ * but from a budget this run's caller actually authorised: a sibling's logged
+ * request first, then the run's own declared per-task limits. The old rebuild
+ * handed every resumed child `{2, 60_000, 3_600_000}` whatever the caller had
+ * asked for, which is how a resumed node came to be able to spend twelve times
+ * the caller's wall budget.
+ */
+function fallbackChildLimits(
+  events: readonly Event[],
+  requests: ReadonlyMap<TaskId, TaskRequest>
+): ChildRunLimits {
+  const sibling = requests.values().next();
+  if (sibling.done !== true) return sibling.value.limits;
+  for (const event of events) {
+    if (event.type !== "RUN_CREATED") continue;
+    const limits = event.payload.run.limits;
+    return {
+      maxAttempts: limits.maxAttemptsPerTask,
+      timeoutMs: FALLBACK_CHILD_TIMEOUT_MS,
+      maxWallTimeMs: limits.maxWallTimeMs
+    };
+  }
+  const defaults = defaultRunLimits();
+  return {
+    maxAttempts: defaults.maxAttemptsPerTask,
+    timeoutMs: FALLBACK_CHILD_TIMEOUT_MS,
+    maxWallTimeMs: defaults.maxWallTimeMs
+  };
+}
+
+/** Predecessor task ids per task, read off the checkpointed edges. */
+function dependenciesByTask(definition: Flowchart): Map<TaskId, TaskId[]> {
+  const taskIdByNode = new Map(definition.nodes.map((node) => [node.id, node.taskId]));
+  const dependencies = new Map<TaskId, TaskId[]>();
+  for (const edge of definition.edges) {
+    const from = taskIdByNode.get(edge.from);
+    const to = taskIdByNode.get(edge.to);
+    if (from === undefined || to === undefined) continue;
+    const existing = dependencies.get(to);
+    if (existing === undefined) dependencies.set(to, [from]);
+    else if (!existing.includes(from)) existing.push(from);
+  }
+  return dependencies;
+}
+
+/**
+ * The child specs a resumed run relaunches, rebuilt from the parent log.
+ *
+ * The checkpointed definition is the *node set*: which nodes exist, and which
+ * of them are children at all. The log is the *spec source*: `TASK_REQUEST`
+ * carries the objective, artifacts, acceptance criteria and budget the caller
+ * wrote, and the assignment's `MODEL_ROUTED` carries the true `AgentRole` plus
+ * the `highRisk` and `eligibleModels` that regenerate the cascade through the
+ * shipped planner. Nothing here needs a schema — every field was already
+ * durable, which is why R4-6's refusal to persist executor config does not
+ * apply to child specs.
+ *
+ * The predecessor it replaces, `childTasksFromDefinition`, synthesised each
+ * spec from the node alone: empty criteria, empty artifacts, no model, no
+ * cascade, the role coarsened back to `implementer`, and one hard-coded budget
+ * for every caller. A resumed child was not the child the run started.
+ */
+function childTasksFromLog(
+  events: readonly Event[],
   definition: Flowchart,
-  registry: AgentProfileRegistry
+  registry: AgentProfileRegistry,
+  catalog: CascadeCatalog
 ): ChildTaskInput[] {
+  const requests = loggedTaskRequests(events);
+  const routes = assignedRoutes(events);
+  const substituted = fallbackChildLimits(events, requests);
+  const dependencies = dependenciesByTask(definition);
   const tasks: ChildTaskInput[] = [];
   for (const node of definition.nodes) {
-    const role = mappedAgentRole(node.role);
-    if (role === undefined) continue;
+    // The definition decides membership, so a resume launches children for the
+    // same nodes it always did; the log only decides what they are asked to do.
+    const nodeRole = mappedAgentRole(node.role);
+    if (nodeRole === undefined) continue;
+    const request = requests.get(node.taskId);
+    const routed = routes.get(node.taskId);
+    const role = routed?.agentRole ?? nodeRole;
+    const dependsOn = dependencies.get(node.taskId) ?? [];
     tasks.push({
       taskId: node.taskId,
       role,
-      objective: node.objective,
+      objective: request?.objective ?? node.objective,
       profile: registry.resolve(role),
-      inputArtifactIds: [],
-      acceptanceCriteria: [],
-      limits: { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+      inputArtifactIds: request === undefined ? [] : [...request.inputArtifactIds],
+      acceptanceCriteria: request === undefined ? [] : [...request.acceptanceCriteria],
+      limits: request?.limits ?? substituted,
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
+      ...(routed !== undefined
+        ? {
+            assignedModel: routed.model,
+            cascade: {
+              highRisk: routed.highRisk,
+              tiers: cheapFirstTiers(routed.eligibleModels, catalog)
+            }
+          }
+        : {})
     });
   }
   return tasks;
@@ -1091,7 +1256,12 @@ async function resumeLockedFlowchartRun(
   const make = makeEventFactory(runId, now, generateId);
   const abort = new RunAbortScope();
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
-  const rebuilt = deps.executor !== undefined ? childTasksFromDefinition(definition, registry) : [];
+  // Reuses the read the resume already did: the log is the spec source, and
+  // reading it twice would only widen the window for the two copies to differ.
+  const rebuilt =
+    deps.executor !== undefined
+      ? childTasksFromLog(read.events, definition, registry, deps.router.config.models)
+      : [];
   const childByTaskId = childTaskMap(rebuilt);
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
@@ -1138,7 +1308,8 @@ async function resumeLockedFlowchartRun(
     ...(deps.executor !== undefined ? { executor: deps.executor } : {}),
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
     ...(clusterHost !== undefined ? { clusterHost } : {}),
-    ...(index !== undefined ? { index } : {})
+    ...(index !== undefined ? { index } : {}),
+    ...(continuation.contract !== undefined ? { contract: continuation.contract } : {})
   };
 
   return withRunTeardown(ctx, () => resumeRestoredRun(ctx, continuation));

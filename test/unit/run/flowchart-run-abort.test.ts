@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,8 @@ import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timest
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
-import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { assignTasks, type TaskAssignment } from "../../../src/routing/assign.js";
+import { SUPERVISOR, type AgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import type { ChildRunOutcome, ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { observationFromChild } from "../../../src/run/child-tracking.js";
 import { EventStore } from "../../../src/run/event-store.js";
@@ -30,28 +32,30 @@ function sequenceGenerator(): () => string {
   return () => `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
 }
 
+const ROUTER_CONFIG = {
+  policyVersion: "router-v1",
+  models: [
+    {
+      id: "cheap",
+      version: "cheap-v1",
+      roles: ["actor", "critic"] as const,
+      maxComplexity: "MEDIUM" as const,
+      estimatedCostUsd: 0.1,
+      estimatedDurationMs: 1_000
+    },
+    {
+      id: "premium",
+      version: "premium-v1",
+      roles: ["actor", "critic", "judge", "router"] as const,
+      maxComplexity: "HIGH" as const,
+      estimatedCostUsd: 0.5,
+      estimatedDurationMs: 4_000
+    }
+  ]
+};
+
 function router(): ModelRouter {
-  return createModelRouter({
-    policyVersion: "router-v1",
-    models: [
-      {
-        id: "cheap",
-        version: "cheap-v1",
-        roles: ["actor", "critic"],
-        maxComplexity: "MEDIUM",
-        estimatedCostUsd: 0.1,
-        estimatedDurationMs: 1_000
-      },
-      {
-        id: "premium",
-        version: "premium-v1",
-        roles: ["actor", "critic", "judge", "router"],
-        maxComplexity: "HIGH",
-        estimatedCostUsd: 0.5,
-        estimatedDurationMs: 4_000
-      }
-    ]
-  });
+  return createModelRouter(ROUTER_CONFIG);
 }
 
 function node(id: string): FlowNode {
@@ -846,16 +850,26 @@ test("a terminal append that cannot land still rethrows the original error", asy
 });
 
 /**
- * R6-2's investigation: `childTasksFromDefinition` rebuilds every resumed child
- * spec from the checkpointed flowchart, so a resumed node runs under a spec the
- * caller never wrote. The three tests below pin what that costs today — the
- * exact rebuilt shape, the gate verdict it produces, and the invariant that
- * currently keeps the shape change away from the verdict.
+ * R6-2 found that `childTasksFromDefinition` synthesised every resumed child
+ * spec from the checkpointed node — empty criteria, empty artifacts, no model,
+ * no cascade, the role coarsened back to `implementer`, and one hard-coded
+ * budget for every caller — so a resumed node ran under a spec the caller never
+ * wrote. R7-1 replaced it with `childTasksFromLog`: the definition stays the
+ * node set, the parent log becomes the spec source.
  *
- * Measured at HEAD over all 240 observations a routed child can produce: the
- * gate directive never differs between the original and the rebuilt spec, so
- * the re-specification is not a false-accept vector *today*. It is inert, not
- * harmless — see the third test for the invariant that makes it inert.
+ * The tests below pin both halves of what that means now. A node whose request
+ * is on the log resumes as the task the caller wrote, role included. A node
+ * that never ran has no request to restore, so the rebuild substitutes — and
+ * the substitution is a budget this run's caller really authorised, not the old
+ * `{2, 60_000, 3_600_000}` that let a resumed node spend twelve times the
+ * caller's wall budget. **A resumed run therefore now honours *tighter* caller
+ * limits than it used to**: this section is where a run that used to get two
+ * attempts and an hour is shown getting the one attempt and five minutes its
+ * caller asked for.
+ *
+ * The last two tests are unchanged in substance and stay load-bearing: the gate
+ * verdict is still invariant across the two spec shapes, and that is still only
+ * because check-coverage cannot fail.
  */
 
 /** A production-shaped tester child: real criteria, a routed model, a cascade. */
@@ -885,10 +899,24 @@ function testerSpecWithCriteria(taskId: string): ChildTaskInput {
 
 interface RecordedTaskRequest {
   readonly taskId: string;
+  readonly objective: string;
   readonly inputArtifactIds: readonly string[];
   readonly acceptanceCriteria: readonly { readonly id: string }[];
   readonly limits: Readonly<Record<string, number>>;
 }
+
+/** The spec half of a logged request: what the caller asked for, not the envelope. */
+function requestedSpec(request: RecordedTaskRequest): Record<string, unknown> {
+  return {
+    objective: request.objective,
+    inputArtifactIds: request.inputArtifactIds,
+    acceptanceCriteria: request.acceptanceCriteria,
+    limits: request.limits
+  };
+}
+
+/** The budget every rebuilt child used to get, whatever its caller had asked for. */
+const SYNTHESISED_LIMITS = { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 };
 
 /** Every TASK_REQUEST the parent log recorded for one task, in order. */
 function taskRequestsFor(events: readonly Event[], taskId: string): RecordedTaskRequest[] {
@@ -960,7 +988,7 @@ async function resumedAfterCrashBeforeAcceptance(
   return { runId: paused.runId, events: resumed.events, reexecuted: after.taskIds };
 }
 
-test("a resumed node is re-specified: the rebuilt child spec's exact shape", async () => {
+test("a node the log never saw run is re-specified against a budget the caller authorised", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const { events, reexecuted } = await resumedAfterCrashBeforeAcceptance(stateRoot, projectRoot);
     assert.deepEqual(reexecuted, ["tsk_b"], "only the in-flight node is redone");
@@ -977,19 +1005,185 @@ test("a resumed node is re-specified: the rebuilt child spec's exact shape", asy
     assert.deepEqual(original[0]?.limits, { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 });
 
     // Node b was still unstarted when the crash landed, so every attempt it ever
-    // got came from a resume — and none of them is the task the caller wrote.
-    // This is the gap, pinned field by field so it cannot change silently.
+    // got came from a resume. The log carries no request of the caller's for it
+    // and the rebuild invents none: criteria and artifacts stay empty, honestly.
     const rebuilt = taskRequestsFor(events, "tsk_b");
     assert.equal(rebuilt.length, 2, "node b was attempted twice, both times from a resume");
     for (const attempt of rebuilt) {
-      assert.deepEqual(attempt.acceptanceCriteria, [], "the caller's criteria are gone");
-      assert.deepEqual(attempt.inputArtifactIds, [], "so are the input artifacts");
-      assert.deepEqual(
+      assert.deepEqual(attempt.acceptanceCriteria, [], "a node that never ran has no criteria to restore");
+      assert.deepEqual(attempt.inputArtifactIds, [], "nor any input artifacts");
+      // The budget is the substitution R7-1 made explicit: node a's logged
+      // request, which is a budget this run's caller really authorised.
+      assert.deepEqual(attempt.limits, original[0]?.limits, "a sibling's authorised budget");
+      assert.deepEqual(attempt.limits, { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 });
+      assert.notDeepEqual(
         attempt.limits,
-        { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 },
-        "and the caller's budget is replaced by childTasksFromDefinition's hard-coded one"
+        SYNTHESISED_LIMITS,
+        "the hard-coded rebuild budget is gone: a resumed node now gets the caller's tighter one"
       );
     }
+
+    // The second attempt reconstructs the first rather than re-substituting, so
+    // repeated resumes converge instead of drifting further from the caller.
+    assert.deepEqual(requestedSpec(rebuilt[1]!), requestedSpec(rebuilt[0]!));
+  });
+});
+
+/**
+ * A run that dies with a child result on its log, no acceptance behind it, and
+ * no terminal either. The exhausted id generator also breaks the best-effort
+ * crash terminal (`crash-terminal.ts` swallows it), which is what a SIGKILL
+ * gives for free — R6-8 probed that cross-process. The checkpoint therefore
+ * keeps the node RUNNING, so the resume re-executes exactly the node whose
+ * caller-written `TASK_REQUEST` is already on the log: the case reconstruction
+ * exists for.
+ */
+async function crashedInAcceptanceWindow(
+  stateRoot: string,
+  projectRoot: string,
+  spec: ChildTaskInput,
+  assignments: readonly TaskAssignment[]
+): Promise<RunId> {
+  const generator = armableGenerator();
+  const executor = new RecordingExecutor({ onResult: () => generator.armAfter(2) });
+  await assert.rejects(
+    startFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId: generator.generate, executor },
+      {
+        projectRoot,
+        flowchart: compileChildrenToFlowchart([
+          { taskId: spec.taskId, role: "tester", objective: spec.objective }
+        ]),
+        childTasks: [spec],
+        assignments
+      }
+    ),
+    /id generator exhausted/
+  );
+  // The child run has a directory of its own, so the parent is the one with a
+  // checkpoint: only a run that can be resumed writes a resume point.
+  const ids = await readdir(join(runtimeRoot(stateRoot), "runs"));
+  const checkpointed: RunId[] = [];
+  for (const id of ids) {
+    if (existsSync(join(runtimeRoot(stateRoot), "runs", id, "checkpoint.json"))) {
+      checkpointed.push(parseRunId(id));
+    }
+  }
+  assert.equal(checkpointed.length, 1, "exactly one checkpointed run under the state root");
+  const runId = checkpointed[0]!;
+  const crashed = await new EventStore(stateRoot, runId).readAll();
+  assert.equal(
+    crashed.events.some((event) => event.type === "TRACKING_ASSESSMENT"),
+    false,
+    "the crash landed before the result was accepted"
+  );
+  assert.equal(replayRun(crashed.events).status, "RUNNING", "no terminal landed, so the run is resumable");
+  assert.deepEqual(await checkpointNodeStates(stateRoot, runId), { [spec.taskId]: "RUNNING" });
+  return runId;
+}
+
+function testerAssignments(spec: ChildTaskInput): readonly TaskAssignment[] {
+  return assignTasks({
+    tasks: [{ taskId: spec.taskId, role: "tester", objective: spec.objective }],
+    catalog: ROUTER_CONFIG
+  });
+}
+
+test("a node re-executed on resume runs under the spec the log recorded for it", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const spec = testerSpecWithCriteria("tsk_only");
+    const runId = await crashedInAcceptanceWindow(stateRoot, projectRoot, spec, testerAssignments(spec));
+
+    const after = new RecordingExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, after), runId);
+    assert.deepEqual(after.taskIds, ["tsk_only"], "the in-flight node is re-executed");
+
+    const requests = taskRequestsFor(resumed.events, "tsk_only");
+    assert.equal(requests.length, 2, "one attempt the caller specified, one the resume rebuilt");
+    assert.deepEqual(
+      requestedSpec(requests[1]!),
+      requestedSpec(requests[0]!),
+      "the rebuilt attempt is the task the caller wrote, field for field"
+    );
+    assert.deepEqual(requests[1]?.acceptanceCriteria.map((criterion) => criterion.id), [
+      "crit-integration",
+      "crit-regression"
+    ]);
+    assert.deepEqual(requests[1]?.inputArtifactIds, ["art_seed"]);
+    assert.deepEqual(requests[1]?.limits, { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 });
+
+    // The role came back with it, and the gate is where that shows: only a
+    // `tester`'s acceptance criteria become required checks, and the flowchart
+    // node role alone would have coarsened this child back to `implementer`.
+    const assessment = assessmentFor(resumed.events, "tsk_only");
+    assert.ok(assessment, "the resumed result was accepted");
+    assert.equal(
+      assessment.dimensions.find((dimension) => dimension.id === "check-coverage")?.verdict,
+      "PASS",
+      "the resumed child is gated as the tester the caller routed, not as an implementer"
+    );
+  });
+});
+
+/** Reports a deterministic verification failure, which is what escalates a cascade. */
+class FailingVerificationExecutor implements AgentExecutor {
+  readonly taskIds: string[] = [];
+  readonly modelIds: (string | undefined)[] = [];
+
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.taskIds.push(request.taskId);
+    this.modelIds.push(request.modelId);
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    const passing = passingResult(request);
+    assert.equal(passing.type, "MESSAGE");
+    const result = (passing as { message: AgentMessage }).message;
+    assert.equal(result.type, "TASK_RESULT");
+    yield {
+      type: "MESSAGE",
+      message: {
+        ...(result as TaskResult),
+        outcome: "FAILURE",
+        summary: "the deterministic check did not hold",
+        verification: { kind: "FAILED", evidenceIds: [`evd_fail-${request.taskId}` as EvidenceId] }
+      }
+    };
+    yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+  }
+}
+
+/**
+ * The cascade is the one restored field the log cannot show directly — no
+ * `TASK_REQUEST` carries it — so it is pinned by what it does: a resumed child
+ * whose deterministic check fails escalates to the next tier. Under the old
+ * rebuild there was no plan to escalate with, so the failure was simply final.
+ */
+test("a resumed child keeps the cascade the log recorded, so a failure still escalates", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const spec: ChildTaskInput = {
+      ...testerSpecWithCriteria("tsk_cascade"),
+      limits: { maxAttempts: 2, timeoutMs: 30_000, maxWallTimeMs: 300_000 }
+    };
+    const assignments = testerAssignments(spec);
+    assert.equal(assignments[0]?.analysis.highRisk, false, "a high-risk task would refuse to explore tiers");
+    const runId = await crashedInAcceptanceWindow(stateRoot, projectRoot, spec, assignments);
+
+    const after = new FailingVerificationExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, after), runId);
+
+    const retries = resumed.events.filter((event) => event.type === "TASK_RETRY");
+    assert.equal(retries.length, 1, "the resumed child escalated exactly once");
+    assert.deepEqual(
+      {
+        previousModel: (retries[0]?.payload as { previousModel?: string }).previousModel,
+        nextModel: (retries[0]?.payload as { nextModel?: string }).nextModel
+      },
+      { previousModel: "cheap", nextModel: "premium" },
+      "the tiers came back from MODEL_ROUTED through the shipped planner"
+    );
+    assert.deepEqual(after.modelIds, ["cheap", "premium"], "the second attempt really ran on the next tier");
   });
 });
 
@@ -1033,11 +1227,14 @@ test("the re-specification does not change the gate's verdict", async () => {
  * list against a copy of itself: acceptance criteria are never checked against
  * anything the child did, and the dimension cannot FAIL.
  *
- * This is the tripwire for R6-2's decision. The moment check-coverage becomes a
- * real check, a resumed node — whose criteria are empty — is gated more weakly
- * than the node the run started, and the re-specification becomes a
- * false-accept vector. Whoever makes that change must fix
- * `childTasksFromDefinition` in the same diff; this test is where they find out.
+ * This is the tripwire for R6-2's decision, and it still stands after R7-1.
+ * The moment check-coverage becomes a real check, a node gated on empty
+ * criteria is gated more weakly than the node the run started. R7-1 closed the
+ * larger half of that exposure — a node whose request is on the log now resumes
+ * with the caller's criteria — but a node that never ran still has none to
+ * restore, so whoever makes check-coverage real owns deciding what such a node
+ * is gated against. `childTasksFromLog` is where that decision lands; this test
+ * is where they find out it is owed.
  */
 test("check-coverage cannot fail, which is what keeps the rebuilt spec off the verdict", () => {
   const registry = createAgentProfileRegistry(defaultAgentProfiles());
