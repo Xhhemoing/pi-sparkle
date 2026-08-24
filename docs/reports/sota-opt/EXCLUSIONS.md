@@ -265,3 +265,11 @@
 | S3-J-4 | jsonl split 换手写行扫描 | 无稳定收益；JSON.parse+I/O 支配 |
 | S3-J-5 | rebuildViews 每 view nowIso() 提升 | lastUpdated 分布发散 + ~3.8µs |
 | S3-J-6 | export scopes Set 化 / filter+map 融合 | Set 化更慢；融合被 stringify 支配 |
+| S4-A-1 | turn.ts rollSummary 死 openMinors 覆盖 + 免克隆直传 | 等价但 2.5–2.9µs/run |
+| S4-A-2 | applyChildThreeLine caller 侧 verification 预检提升 | 生产路径 ~0 次/run + 亚噪声 |
+| S4-A-3 | shouldApplyThreeLine 死首条件消除 | 18–20ns + 公开函数 |
+| S4-B-1 | analyze-task 七正则链换单遍多模式扫描 | 廉价形式不等价；修正属负优化域 |
+| S4-B-2 | evaluateCandidate 约束依赖分解预评估 | 16–33µs + 平行路径 |
+| S4-B-3 | 成功路径共享冻结空 failures 单例 | 跨候选身份可观察改变 |
+| S4-B-4 | assignPlanned 直接传 task 作 options | 143–215µs/批噪声带 |
+| S4-B-5 | assignTasks 批内共享可变 route-input 骨架 | 232–349µs + S3-B-6 同护栏 |
