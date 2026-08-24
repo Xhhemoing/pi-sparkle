@@ -65,6 +65,8 @@
 - S5-I-1 CLI `main.ts` 12 条分支独占 dispatch 模块改为点用 `await import`（8 个一次性子命令 + `run/supervisor` + `track/loop` + `preferences/export` + `privacy/deletion`；主收益来自 Node v22.14 `getPackageScopeConfig` 在静态 `main.ts → track/loop.js` 边上的解析病理；见 round-05/R5-I.md）
 - S6-C `offline-logit.ts` IRLS 累加循环按支撑大小 s=2..5 直线化分派（滚动循环保留为 default；浮点装载/加法/存储目标与顺序不变；见 round-06/R6-C.md）
 - S6-F-1 shadow/canary restore 成员判断方向反转（pending assignment Set + population 扫描早退；validateExperimentPlan 与防御拷贝保留；见 round-06/R6-F.md）
+- S7-F-1 shadow/canary restore 对齐前缀快路径（同下标哈希相等即证非空+成员，失配后缀回退 S6-F-1，下标 0 失配改道原落地循环；见 round-07/R7-F.md）
+- S7-F-2 `assertUniqueNonEmpty` 可打印 ASCII 首字符卫（码点 33..126 跳过 trim；空串/非 ASCII 回落原探针；见 round-07/R7-F.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -432,6 +434,8 @@
 | S7-E-3 | outcomesFromRoutedRun family/role 校验前移到路由插入点 | 等价但五次全负（−35~−67ns/run）；小集合教训第十例 |
 | S7-E-4 | collectSignalsFromSubagentRun request.agent 探针循环外提升 | 六次异号纯抖动（−34~+13ns/文件） |
 | S7-E-5 | JUDGE_DECISION verdict 双三元合一单次分派 | 六次异号纯抖动（−32~+177ns/run） |
+| S7-F-3 | 对齐前缀快路径的朴素相位拆分（无下标 0 改道） | 失配次序被落地形态 C 支配；同类唯一赢家纪律 |
+| S7-F-4 | S7-F-1 回退体外提独立函数 | 失配带非函数形状所致，外提无稳定增益 |
 | S7-G-1 | validateJoin 边对索引（复用 edgePairs Set / 新建 Map） | NUL 键碰撞 fail-open；Map 变体 0.067µs/次、0.002ms/run |
 | S7-G-2 | 校验循环字面量数组提升模块级 Set | S1-G-3 同族；宿主全额 8.2µs/次、0.26ms/run |
 | S7-G-3 | DeterministicJudge.decide filter+includes 改 Set | 等价但 0.111µs/次、0.0018ms/run |
