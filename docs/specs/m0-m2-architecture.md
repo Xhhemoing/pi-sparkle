@@ -27,7 +27,12 @@ override. Topology, R1, and bandit must not attach to the live run loop until
 Checkpoint F. Web UI remains last.
 `pi-sparkle doctor` exists as a developer-preview diagnostic. Its `--json`
 output contract (`DoctorJsonReport`) is frozen additive-only; doctor itself
-remains a preview capability, not a production one.
+remains a preview capability, not a production one. Doctor recursively
+inventories `*.lock` files below the state root and reports metadata validity,
+age/source, recorded PID, and advisory PID liveness in prose and in the
+additive `locks` JSON field. The `lock-inventory` check fails on unreadable
+locks or directory-scan errors. It never acquires, steals, or deletes a lock,
+and PID liveness is not proof that a lock is stale.
 
 ## Objective
 
@@ -151,22 +156,37 @@ interface RunLimits {
 
 ### Task graph
 
-M2 adds a directed acyclic graph. The system must validate missing dependencies, self-dependencies, duplicate IDs, and cycles before any worker starts. A task may transition only through the state machine below.
+M2 adds a directed acyclic graph. The system must validate missing dependencies, self-dependencies, duplicate IDs, and cycles before any worker starts. The live supervised DAG produces the transitions below.
 
 ```text
 PENDING -> READY -> RUNNING -> COMPLETED
-                         |       |
-                         |       -> SKIPPED
-                         v
-                      BLOCKED -> READY
-                         |
-                         v
-                       FAILED
+                    |
+                    v
+                 BLOCKED -> READY
+                    |
+                    v
+                  FAILED
 
-PENDING | READY | BLOCKED -> CANCELLED
+PENDING | READY | RUNNING | BLOCKED -> CANCELLED
 ```
 
-`READY` requires all dependencies to be `COMPLETED` or explicitly `SKIPPED` by a declared transition rule. A task is leased to exactly one worker at a time. Lease expiry converts a running task to `BLOCKED`; it never silently duplicates work.
+The scheduler treats a dependency as satisfied when its persisted status is
+`COMPLETED` or `SKIPPED`. The `TaskStatus` vocabulary and readiness decoder
+retain `SKIPPED` compatibility, but the supervised DAG plane has no skip
+producer or declared skip operation; the former `applySkipped` rule was
+removed. Current DAG runs therefore satisfy dependencies through
+`COMPLETED`. Flowchart `SKIPPED` states are a separate plane and do not create
+DAG task transitions.
+
+A task is leased to exactly one worker at a time. The in-memory registry does
+not expire or reclaim a lease when its descriptive `expiresAt` timestamp
+passes; active work remains leased until its owner releases it. On process
+restart, supervised resume rebuilds leases for still-`RUNNING` tasks from
+`TASK_LEASED` events and immediately recovers them as orphaned because their
+workers did not survive. That recovery currently records the historically
+named `TASK_LEASE_EXPIRED` event and applies the timeout/retry transition, but
+wall-clock expiry is not its trigger. Per-attempt `timeoutMs` and child
+`maxWallTimeMs`, rather than lease expiry, bound active child work.
 
 ```ts
 interface TaskNode {
@@ -282,6 +302,23 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   outcome.
 - `maxCostUsd` is validated as a positive protocol field when present, but the
   child coordinator does not currently read usage or enforce this ceiling.
+
+### Cluster role-cast dead letters
+
+The process-local cluster mailbox bounds sender-only role-cast requeues by
+claim attempts. When the bound is exceeded, the host exposes the drop through
+two library surfaces: `deadLetterReport()` returns mailbox-derived totals,
+counts by role and reason, ordered entries, and observer-error count; optional
+`onDeadLetter` push notification reports each newly observed drop when an
+agent registers. An observer throw is tallied and does not fail registration.
+There is no wall-clock TTL or persistence, and a role queue with no later
+registration does not advance toward the bound.
+
+> Round 4 coordination snapshot (2026-08-24 18:40 UTC): R4-2 was still
+> in flight. At this timestamp the production embedders in
+> `run/coordinator.ts` and `run/flowchart-run.ts` pass only `onSpawn`, so
+> neither host surface reaches the CLI operator. This documents the R3-7 host
+> contract without predicting R4-2's final output.
 
 ## Pi Adapter
 
@@ -449,7 +486,9 @@ pnpm build
 - Use temporary directories for project discovery and event persistence tests.
 - M0 has one opt-in Pi smoke test that is skipped when model credentials are not configured; it must never be the only proof of correctness.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
-- M2 tests cycles, dependency joins, lease expiry, legal/illegal transitions, resume replay, stall blocking, and declared judge branches.
+- M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
+  on resume, legal/illegal transitions, resume replay, stall blocking, and
+  declared judge branches.
 
 ## Acceptance Scenarios
 

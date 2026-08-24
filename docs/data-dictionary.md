@@ -83,7 +83,17 @@ middle line fails the whole rewrite closed rather than reporting a partial
 delete as success), and — when rows were dropped — **invalidates the derived
 `runtime/routing/catalog-observed.json` snapshot** (unlinked, not recomputed;
 the class's recovery is "rebuild from invocations.jsonl" and readers treat a
-missing file as "no observations").
+missing file as "no observations"). The subtree removal is verified rather
+than assumed: if `runtime/runs/<id>/` survives or reappears during the removal,
+the command throws `RunRecordsSurvivedError` with code
+`RUN_RECORDS_SURVIVED` and refuses to report success. This is a point-in-time
+post-condition, not serialization against future writes.
+
+> Round 4 coordination snapshot (2026-08-24 18:40 UTC): R4-1 was still
+> in flight. The source at this timestamp has no cooperative run-plane lock
+> shared by `delete --run` and the run writers, so a writer can still recreate
+> the directory after the successful verification. Stop or cancel the run
+> before deleting it; this paragraph does not predict R4-1's final contract.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
@@ -133,17 +143,20 @@ these are covered by the claims above:
   the deletion suite pins that an episode delete leaves
   `adaptation/preferences.json` byte-identical. Use `pref delete` per
   observation.
-- **Deleting a run that is still executing no longer risks clobbering, but
-  delete-after-terminate is still the supported flow.** Since Loop 2 Round 1
-  both writers of the shared log go through the same cooperative lock
-  (`src/telemetry/invocation-log.ts`): the live appender uses
+- **Delete after termination remains the supported flow.** Since Loop 2
+  Round 1 both writers of the shared invocation log go through the same
+  cooperative lock (`src/telemetry/invocation-log.ts`): the live appender uses
   `appendInvocationRecord` and the delete's read-filter-write cycle runs
   inside `withInvocationLogLock`, so a live append lands wholly before or
   wholly after the rewrite (test-pinned, including the cannot-clobber case
-  and the append-times-out-instead-of-writing-unlocked case). What remains
-  true: rows a still-running run appends *after* the rewrite completes are
-  new rows and survive the delete, and an appender that cannot take the lock
-  in time silently drops its telemetry row rather than fail the run.
+  and the append-times-out-instead-of-writing-unlocked case). That lock does
+  not cover `runtime/runs/<runId>/`. A run writer that races the subtree
+  removal can make the removal fail or recreate records before its
+  post-check; both are surfaced as `RUN_RECORDS_SURVIVED`. A write after the
+  post-check can still recreate the directory after the command returned
+  success. Invocation rows appended after the rewrite are likewise new rows
+  and survive the delete, while an appender that cannot take the invocation
+  lock in time silently drops its telemetry row rather than fail the run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -205,7 +218,14 @@ state root. Findings and resolutions:
     guarding each project's bandit update.
   These are transient operational sidecars, not durable record classes.
   Normal release removes an owned lock; an abandoned lock is not stolen
-  automatically and may require manual cleanup.
+  automatically and may require manual cleanup. `pi-sparkle doctor`
+  recursively inventories every `*.lock` under the state root without
+  acquiring, stealing, or deleting it. Prose output and the additive
+  `DoctorJsonReport.locks` field report each lock's metadata status
+  (`valid`, `empty`, `invalid`, or `unreadable`), age and age source, recorded
+  PID, and advisory PID liveness; the `lock-inventory` check also reports
+  unreadable files and scan errors. PID liveness cannot prove that a lock is
+  stale.
 - `test/**` fixture writes are outside the state root and out of scope.
 
 The completeness guard lives in
