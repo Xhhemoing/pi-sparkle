@@ -113,8 +113,18 @@ export interface ClusterHostOptions {
  * appeared since the last one — including drops caused by a caller claiming
  * through `mailbox()` directly, which are picked up on the next registration
  * rather than lost. Nothing here adds a TTL or durability: a role queue that
- * sees no further registrations still makes no progress, and the report dies
- * with the process (both accepted non-goals, see `mailbox.ts`).
+ * sees no further registrations for its role still makes no progress, and the
+ * report dies with the process (both accepted non-goals, see `mailbox.ts`).
+ *
+ * Reachability: `send` only queues a role-cast when the sender is the sole
+ * holder of the addressed role, so a queued self-role-cast is exactly the
+ * starvation the mailbox bounds. Because the mailbox skips the sending *role*
+ * rather than the sending agent id, every later registration for that role
+ * advances the bound — so a run whose attempts each register a fresh agent id
+ * (the only production shape, `ChildCoordinator.runAttempt`) does reach a dead
+ * letter once the role is registered `DEFAULT_MAX_ROLE_REQUEUES` + 1 more
+ * times. Cross-role casts are untouched: they wait for their role, however
+ * long, and are delivered when it arrives.
  */
 export function createClusterHost(options: ClusterHostOptions): ClusterHost {
   const mailbox = createMailbox();

@@ -274,10 +274,44 @@ test("a run without a cluster carries no mail report", async () => {
 });
 
 /**
- * The dead-letter half of the summary, driven straight at the host: a drop
- * needs the *same* agent id to re-register past the requeue bound, and
- * `ChildCoordinator` mints a fresh id per attempt, so no run can produce one
- * today (see loop4-r4-t2.md). The consumer still has to read it.
+ * The reachability pin (R5-6). R4-2's census found `dead-lettered=` structurally
+ * 0 in production: the mailbox skipped the sending *agent id*, and every attempt
+ * registers a fresh one. The skip is the sending *role* now, so this run — five
+ * scouts chained so each registers after the previous one has cast, each with
+ * the fresh id `ChildCoordinator.runAttempt` mints — crosses the bound. The
+ * first scout is the only scout when it casts, so its cast queues; the four
+ * registrations that follow are four claim opportunities on its own role.
+ */
+test("a run registering a fresh id per attempt reaches a dead letter", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const scouts = [child("scout1", "scout")];
+    for (let index = 2; index <= DEFAULT_MAX_ROLE_REQUEUES + 2; index += 1) {
+      scouts.push(child(`scout${index}`, "scout", `scout${index - 1}`));
+    }
+    const outcome = await startParentRun(
+      { stateRoot, executor: new SelfCastExecutor(), registry, cluster: true },
+      { projectRoot, objective: "Survey the parser", children: scouts }
+    ).done;
+
+    assert.equal(outcome.status, "COMPLETED");
+    assert.deepEqual(outcome.clusterMail, {
+      pending: 0,
+      pendingByRole: [],
+      deadLettered: 1,
+      deadLetteredByRole: [{ role: "scout", count: 1 }],
+      deadLetteredByReason: [{ reason: "requeue-limit", count: 1 }]
+    });
+    assert.equal(
+      formatUndeliveredClusterMail(outcome.clusterMail),
+      "warning: cluster role-cast mail undelivered: pending=0, dead-lettered=1 (scout=1; requeue-limit=1)\n"
+    );
+  });
+});
+
+/**
+ * The same drop driven straight at the host, with one lone reviewer: the
+ * re-registration path the bound has always had. It stays green under R5-6's
+ * widened skip because the claimant is a holder of the sending role too.
  */
 test("dead letters from the host surface in the same summary and line", () => {
   const host = createClusterHost({ registry, onSpawn: () => {} });

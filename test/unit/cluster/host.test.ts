@@ -68,6 +68,42 @@ test("sender-only role-cast starvation reaches the host's dead-letter report", (
   assert.deepEqual(host.mailbox().pendingForRole("reviewer"), []);
 });
 
+/**
+ * The reachability pin (R5-6). Every attempt registers a *fresh* agent id, so
+ * while the mailbox skipped the sending agent id nothing but a re-registration
+ * of the same id could advance the bound — and no run does that. The skip is
+ * the sending role now, so the shape a run actually has reaches the drop.
+ */
+test("registrations with a fresh id per attempt reach the bound on the sending role", () => {
+  const seen: ClusterDeadLetter[] = [];
+  const host = makeHost((entry) => seen.push(entry));
+  const first = createAgentInstanceId();
+  join(host, first, "scout");
+  const mail = host.send({ from: first, body: "any other scout on this?", addressRole: "scout" });
+  assert.equal(host.mailbox().pendingForRole("scout").length, 1);
+
+  for (let attempt = 1; attempt <= DEFAULT_MAX_ROLE_REQUEUES; attempt += 1) {
+    const nextAttempt = createAgentInstanceId();
+    join(host, nextAttempt, "scout");
+    // The next instance of the sending role is not a recipient for its cast.
+    assert.equal(host.inbox(nextAttempt).length, 0);
+    assert.equal(host.mailbox().requeueCount(mail.id), attempt);
+    assert.equal(host.deadLetterReport().total, 0);
+  }
+
+  join(host, createAgentInstanceId(), "scout");
+  const report = host.deadLetterReport();
+  assert.equal(report.total, 1);
+  assert.deepEqual(report.byRole, [{ role: "scout", count: 1 }]);
+  assert.equal(report.entries[0]?.mail.id, mail.id);
+  assert.equal(report.entries[0]?.requeues, DEFAULT_MAX_ROLE_REQUEUES);
+  assert.deepEqual(
+    seen.map((entry) => entry.mail.id),
+    [mail.id]
+  );
+  assert.deepEqual(host.mailbox().pendingForRole("scout"), []);
+});
+
 test("a cluster that delivers its mail reports nothing", () => {
   const seen: ClusterDeadLetter[] = [];
   const host = makeHost((entry) => seen.push(entry));

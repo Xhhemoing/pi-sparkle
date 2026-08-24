@@ -105,27 +105,70 @@ test("the default requeue bound is what an unconfigured mailbox enforces", () =>
   assert.equal(mailbox.deadLetters("reviewer").length, 1);
 });
 
-test("a claim by a different agent still delivers mail that was requeued earlier", () => {
+/**
+ * The reachability change (R5-6): the skip is the sending *role*, not the
+ * sending agent id, so a second instance of that role — the shape every retry
+ * has, since each attempt registers a fresh id — does not resurrect the cast.
+ */
+test("a fresh agent id holding the sending role does not receive the role's own cast", () => {
   const mailbox = createMailbox({ maxRoleRequeues: 2 });
   const sender = createAgentInstanceId();
-  const peer = createAgentInstanceId();
+  const nextAttempt = createAgentInstanceId();
   const id = roleCast(mailbox, sender, "tester", "run the suite");
 
   mailbox.claimRole("tester", sender);
   assert.equal(mailbox.requeueCount(id), 1);
 
-  const delivered = mailbox.claimRole("tester", peer);
-  assert.equal(delivered.length, 1);
-  assert.equal(delivered[0]?.body, "run the suite");
-  assert.equal(delivered[0]?.to, peer);
-  assert.equal(mailbox.inbox(peer)[0]?.id, id);
-  assert.deepEqual(mailbox.pendingForRole("tester"), []);
+  assert.deepEqual(mailbox.claimRole("tester", nextAttempt), []);
+  assert.equal(mailbox.inbox(nextAttempt).length, 0);
+  assert.equal(mailbox.requeueCount(id), 2);
   assert.deepEqual(mailbox.deadLetters(), []);
-  // Delivery clears the requeue tally rather than carrying it forward.
+
+  // A third instance of the same role crosses the bound instead of delivering.
+  assert.deepEqual(mailbox.claimRole("tester", createAgentInstanceId()), []);
+  assert.deepEqual(mailbox.pendingForRole("tester"), []);
   assert.equal(mailbox.requeueCount(id), 0);
+  assert.equal(mailbox.deadLetters()[0]?.mail.id, id);
+  assert.equal(mailbox.deadLetters()[0]?.requeues, 2);
 });
 
-test("a claim skips only the claimant's own mail and preserves queue order", () => {
+test("a cast to a role its sender does not hold is delivered however late the role arrives", () => {
+  const mailbox = createMailbox({ maxRoleRequeues: 0 });
+  const scout = createAgentInstanceId();
+  const impl = createAgentInstanceId();
+  const id = roleCast(mailbox, scout, "implementer", "found src/parser.ts");
+
+  // Claims on other roles neither deliver it nor advance the bound, even at a
+  // zero bound: the sender holds none of them.
+  mailbox.claimRole("scout", scout);
+  mailbox.claimRole("reviewer", createAgentInstanceId());
+  assert.equal(mailbox.pendingForRole("implementer").length, 1);
+  assert.equal(mailbox.requeueCount(id), 0);
+  assert.deepEqual(mailbox.deadLetters(), []);
+
+  const delivered = mailbox.claimRole("implementer", impl);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, "found src/parser.ts");
+  assert.equal(delivered[0]?.to, impl);
+  assert.equal(mailbox.inbox(impl)[0]?.id, id);
+  assert.deepEqual(mailbox.pendingForRole("implementer"), []);
+  assert.deepEqual(mailbox.deadLetters(), []);
+});
+
+test("the mailbox learns role holders from claims, so cast order does not matter", () => {
+  const mailbox = createMailbox({ maxRoleRequeues: 1 });
+  const early = createAgentInstanceId();
+  // The cast happens before its sender is known to hold the role at all.
+  const id = roleCast(mailbox, early, "planner", "who else is planning?");
+  assert.equal(mailbox.requeueCount(id), 0);
+
+  mailbox.claimRole("planner", early);
+  assert.equal(mailbox.requeueCount(id), 1);
+  mailbox.claimRole("planner", createAgentInstanceId());
+  assert.equal(mailbox.deadLetters("planner").length, 1);
+});
+
+test("a claim skips only mail cast by its own role and preserves queue order", () => {
   const mailbox = createMailbox({ maxRoleRequeues: 1 });
   const sender = createAgentInstanceId();
   const peer = createAgentInstanceId();
