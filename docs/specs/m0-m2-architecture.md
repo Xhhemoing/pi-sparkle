@@ -30,9 +30,14 @@ output contract (`DoctorJsonReport`) is frozen additive-only; doctor itself
 remains a preview capability, not a production one. Doctor recursively
 inventories `*.lock` files below the state root and reports metadata validity,
 age/source, recorded PID, and advisory PID liveness in prose and in the
-additive `locks` JSON field. The `lock-inventory` check fails on unreadable
-locks or directory-scan errors. It never acquires, steals, or deletes a lock,
-and PID liveness is not proof that a lock is stale.
+additive `locks` JSON field. Every lock entry includes conservative
+`remediation`: a recorded dead PID says to inspect and remove manually, never
+automatically; liveness and age do not prove staleness. Additive `runStates`
+lists PLANNING/RUNNING logs with age and inspect/resume/delete guidance. Those
+are advisory crash candidates because another process may still own the run.
+The `lock-inventory` and `run-state-inventory` checks fail on their respective
+scan errors. Doctor never changes run state and never acquires, steals, or
+deletes a lock.
 
 ## Objective
 
@@ -314,11 +319,20 @@ agent registers. An observer throw is tallied and does not fail registration.
 There is no wall-clock TTL or persistence, and a role queue with no later
 registration does not advance toward the bound.
 
-> Round 4 coordination snapshot (2026-08-24 18:40 UTC): R4-2 was still
-> in flight. At this timestamp the production embedders in
-> `run/coordinator.ts` and `run/flowchart-run.ts` pass only `onSpawn`, so
-> neither host surface reaches the CLI operator. This documents the R3-7 host
-> contract without predicting R4-2's final output.
+At run end both cluster embedders pull the host/mailbox state into
+`ClusterMailReport`. When any mail remains, the CLI emits one stderr line:
+`warning: cluster role-cast mail undelivered: pending=…, dead-lettered=…`,
+including role and reason counts for nonzero groups. `pending=` is the
+production-reachable signal that a role queue was never drained before the
+process-local mailbox disappeared.
+
+> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-6 was still in
+> flight. At this timestamp `claimRole` increments a requeue only when the
+> claimant has the same id as the sender, while every production child attempt
+> registers a fresh agent id. A production run therefore cannot reach the
+> requeue bound: its CLI line can report pending mail, but `dead-lettered=`
+> remains 0 unless the mailbox/host API is driven directly. This records current
+> source and does not predict R5-6's decision.
 
 ## Pi Adapter
 
@@ -348,6 +362,15 @@ type ExecutionEvent =
 
 The adapter translates Pi events into `ExecutionEvent`; no Pi event shape becomes a public pi-sparkle contract. Tool call input and output are treated as sensitive artifacts: the default event log stores a redactable summary and reference, not arbitrary raw content.
 
+Resume accepts `--primary-model` and `--thinking` for either Pi executor
+reconstruction path. These values are not stored in run events or checkpoints:
+they configure the executor built for this resume and never imply restoration.
+A flagged Pi resume prints a `note:` describing what was requested now; a
+flag-free Pi resume warns that defaults were rebuilt. Passing either flag when
+resume builds no executor or a non-Pi executor warns that it was ignored. The
+disclosure is printed before executor construction, and invalid
+`PI_THINKING_LEVEL` values fail with the same validation as `run`.
+
 ## Persistence and Audit
 
 ### Event store
@@ -355,13 +378,33 @@ The adapter translates Pi events into `ExecutionEvent`; no Pi event shape become
 Each run receives a directory under the configured local data root:
 
 ```text
-<state-root>/runs/<run-id>/
+<state-root>/runtime/runs/<run-id>/
   events.jsonl
   checkpoint.json
   artifacts/
+
+<state-root>/runtime/runs/<run-id>.lock
 ```
 
-Every append-only event has a stable event ID, schema version, run ID, task ID where relevant, timestamp, actor, event type, and payload. The writer serializes appends per run and fsyncs at terminal transitions. Readers ignore a final incomplete JSONL line created by a process crash and report it as recovery evidence.
+Every append-only event has a stable event ID, schema version, run ID, task ID
+where relevant, timestamp, actor, event type, and payload. The writer serializes
+appends per `EventStore` instance and fsyncs at terminal transitions. Readers
+ignore a final incomplete JSONL line created by a process crash and report it as
+recovery evidence.
+
+The sidecar is a cooperative run-plane lock shared by `delete --run`, pause
+writes, and track-question writes. Run deletion holds it across subtree removal
+and a first verification, then verifies again after release. Event appends and
+checkpoint writes deliberately do not acquire it because measured per-step
+locking exceeded the end-to-end regression bar; if either recreates records
+during deletion, the double verification fails closed with
+`RUN_RECORDS_SURVIVED`. A write after the final verification is a new write, so
+operators should delete after termination.
+
+> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-1 was still in
+> flight. At this timestamp the run lifecycle does not hold the sidecar for its
+> duration; deletion racing a live run refuses rather than waiting for clean
+> teardown. This paragraph does not predict R5-1's final contract.
 
 Required M0 event types:
 
@@ -390,6 +433,14 @@ does **not** contain the M2 DAG supervisor's active leases. Supervised DAG
 resume reconstructs its graph, task statuses, attempts, ledger, and leases from
 the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
 task is recovered as orphaned because no worker survives process restart.
+
+`catalog-observed.json` and `preferences.json` also publish by atomic
+replacement, but their recovery contracts differ. Invalid catalog JSON throws
+`CATALOG_OBSERVED_CORRUPT`; the snapshot is derived from
+`runtime/invocations.jsonl` and can be rebuilt. Invalid preference JSON or
+snapshot shape throws `PREFERENCE_SNAPSHOT_UNREADABLE`; preferences are learned
+state with no rebuild source, and persistence binds only after a successful
+load so damaged bytes are not silently reset or overwritten.
 
 ### Evidence and artifacts
 
@@ -435,6 +486,28 @@ interface RunLedger {
 A round has progress only when it adds a completed task, validated artifact, new non-duplicate fact, resolved blocker, or a user-decision boundary. Repeating an equivalent plan or retrying without new evidence increments `consecutiveStalls`. Reaching the configured limit transitions the run to `BLOCKED` with a summary of the evidence required to continue.
 
 The M2 judge is a pluggable verifier that produces `APPROVED`, `REJECTED`, or `NEEDS_USER_DECISION` with evidence references. Its output routes a task only through declared graph transitions; it cannot issue arbitrary host commands.
+
+### Crash teardown
+
+If an error escapes supervised rounds while replay is PLANNING or RUNNING, the
+wrapper best-effort appends one `RUN_FAILED` with a bounded crash reason and
+rethrows the original error. It does not overwrite a blocked, cancelled, or
+already-terminal log, and round work is settled before the wrapper returns.
+
+Flowchart teardown first cancels and settles child work, applies the same
+in-flight-only terminal posture, and rethrows. PAUSED, WAITING_FOR_USER, and
+BLOCKED are intentionally resumable rather than terminal-on-crash; for those
+statuses `preserveResumableState` best-effort flushes a checkpoint from the
+event log so the durable resume point is not behind already-applied results.
+Work still in flight at the crash remains at-least-once and may execute again
+on resume.
+
+> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-2 was still in
+> flight. At this timestamp flowchart, supervised, and child crash-terminal
+> helpers remain separate. A supervised crash records `RUN_FAILED` and rethrows
+> before its outer episode/outcome/checkpoint settlement tail runs. This
+> describes current source and does not predict R5-2's extraction or settlement
+> changes.
 
 ## Security and Workspace Boundaries
 
@@ -485,6 +558,13 @@ pnpm build
 - Use a fake `AgentExecutor` for integration tests; it emits a fixed event sequence and honors `AbortSignal`.
 - Use temporary directories for project discovery and event persistence tests.
 - M0 has one opt-in Pi smoke test that is skipped when model credentials are not configured; it must never be the only proof of correctness.
+- The deterministic offline Pi path uses
+  `test/helpers/loopback-openai-provider.ts` as a local OpenAI-compatible SSE
+  server through `customProviders[].baseUrl`.
+  `test/integration/pi-adapter/loopback-cli-resume.test.ts` drives the exported
+  CLI through run, approval, and resume, verifies both HTTP requests, and
+  decodes both invocation rows with the production calibration reader. It
+  requires no external provider or network.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
 - M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
   on resume, legal/illegal transitions, resume replay, stall blocking, and

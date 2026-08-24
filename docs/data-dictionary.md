@@ -74,7 +74,7 @@ allowlist entry with a justification.
 | providers-config | runtime | `runtime/providers.json` | until-deleted | delete-files | 1 |
 | auth-credential | runtime | `runtime/auth.json` | until-deleted | delete-files | 1 |
 
-## Deletion tooling (Q2 remediation, extended 2026-08-24 Rounds 2–3)
+## Deletion tooling (Q2 remediation, extended through 2026-08-24 Round 4)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
 `runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
@@ -86,14 +86,20 @@ the class's recovery is "rebuild from invocations.jsonl" and readers treat a
 missing file as "no observations"). The subtree removal is verified rather
 than assumed: if `runtime/runs/<id>/` survives or reappears during the removal,
 the command throws `RunRecordsSurvivedError` with code
-`RUN_RECORDS_SURVIVED` and refuses to report success. This is a point-in-time
-post-condition, not serialization against future writes.
+`RUN_RECORDS_SURVIVED` and refuses to report success. The removal and first
+verification hold the cooperative `runtime/runs/<runId>.lock`; the command
+then verifies a second time after releasing the lock. The second verification
+is essential because the per-step event and checkpoint writers deliberately
+do not take this lock and can recreate the subtree. A write after the final
+verification is a new write, so deletion after termination remains the
+supported flow.
 
-> Round 4 coordination snapshot (2026-08-24 18:40 UTC): R4-1 was still
-> in flight. The source at this timestamp has no cooperative run-plane lock
-> shared by `delete --run` and the run writers, so a writer can still recreate
-> the directory after the successful verification. Stop or cancel the run
-> before deleting it; this paragraph does not predict R4-1's final contract.
+> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-1 was still in
+> flight. At this timestamp `delete --run`, pause writes, and track-question
+> writes take the run lock, but the run lifecycle itself does not hold it.
+> A delete racing a live event/checkpoint writer therefore fails closed with
+> `RUN_RECORDS_SURVIVED`; this records the source at the timestamp and does not
+> predict R5-1's final lifecycle-lock contract.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
@@ -149,14 +155,16 @@ these are covered by the claims above:
   `appendInvocationRecord` and the delete's read-filter-write cycle runs
   inside `withInvocationLogLock`, so a live append lands wholly before or
   wholly after the rewrite (test-pinned, including the cannot-clobber case
-  and the append-times-out-instead-of-writing-unlocked case). That lock does
-  not cover `runtime/runs/<runId>/`. A run writer that races the subtree
-  removal can make the removal fail or recreate records before its
-  post-check; both are surfaced as `RUN_RECORDS_SURVIVED`. A write after the
-  post-check can still recreate the directory after the command returned
-  success. Invocation rows appended after the rewrite are likewise new rows
-  and survive the delete, while an appender that cannot take the invocation
-  lock in time silently drops its telemetry row rather than fail the run.
+  and the append-times-out-instead-of-writing-unlocked case). The separate
+  run-plane lock covers the subtree removal plus its first verification, and
+  the delete re-verifies after release. Pause and track-question writes take
+  that lock; event appends and checkpoint writes remain lock-free for measured
+  end-to-end cost reasons. A live event/checkpoint writer can therefore make
+  deletion refuse with `RUN_RECORDS_SURVIVED`; a write after the final check
+  is a new row and may recreate the directory after success. Invocation rows
+  appended after their rewrite likewise survive, while an appender that
+  cannot take the invocation lock in time silently drops its telemetry row
+  rather than fail the run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -206,6 +214,8 @@ state root. Findings and resolutions:
   `registry.json.<pid>.<random>.tmp`; they are transient and do not get their
   own durable classes.
 - Operational lock files currently written below the state root are:
+  - `runtime/runs/<runId>.lock`, shared by run deletion, pause writes, and
+    track-question writes (not per-step event/checkpoint writes);
   - `runtime/invocations.jsonl.lock`, shared by invocation appends and the
     run-deletion filter rewrite;
   - `runtime/episodes/<id>.lock`, shared by CLI `episode close` and run-side
@@ -223,10 +233,33 @@ state root. Findings and resolutions:
   acquiring, stealing, or deleting it. Prose output and the additive
   `DoctorJsonReport.locks` field report each lock's metadata status
   (`valid`, `empty`, `invalid`, or `unreadable`), age and age source, recorded
-  PID, and advisory PID liveness; the `lock-inventory` check also reports
-  unreadable files and scan errors. PID liveness cannot prove that a lock is
-  stale.
+  PID, advisory PID liveness, and a per-entry `remediation`. A recorded dead
+  PID advises inspection and manual removal, never automatic removal; other
+  cases remain conservative because PID liveness cannot prove staleness. The
+  `lock-inventory` check also reports unreadable files and scan errors.
+  Doctor additionally exposes additive `runStates`: PLANNING/RUNNING event
+  logs with age, path, and inspect/resume/delete guidance. They are advisory
+  crash candidates, not proof of abandonment; `run-state-inventory` fails only
+  when a run-log scan fails.
 - `test/**` fixture writes are outside the state root and out of scope.
+
+## Snapshot integrity and recovery
+
+- `runtime/routing/catalog-observed.json` is crash-atomically published. Invalid
+  JSON throws `CatalogObservedCorruptError` with code
+  `CATALOG_OBSERVED_CORRUPT`; it is derived from
+  `runtime/invocations.jsonl`, so it can be rebuilt with
+  `buildCatalogObservedFromStateRoot` plus `persistCatalogObserved`, or deleted
+  to deliberately start from no observations. ENOENT is the only silent path;
+  parseable shape skew still degrades to empty observed stats.
+- `adaptation/preferences.json` is also crash-atomically published, but it is
+  learned behavior-bearing state with no source log from which to rebuild it.
+  Invalid JSON or a damaged top-level snapshot shape throws
+  `PreferenceSnapshotUnreadableError` with code
+  `PREFERENCE_SNAPSHOT_UNREADABLE`. Persistence binds only after a successful
+  load, so the unreadable file is not silently replaced by empty state. Repair
+  it from a backup, or move it aside only as an explicit decision to start
+  over.
 
 The completeness guard lives in
 `test/unit/privacy/record-classes.test.ts`: any durable path added to `src/`
