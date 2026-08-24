@@ -1279,3 +1279,59 @@ test("check-coverage cannot fail, which is what keeps the rebuilt spec off the v
   assert.equal(reachable.has("FAIL"), false, "no acceptance criterion can fail a child");
   assert.deepEqual([...reachable].toSorted(), ["PASS", "UNOBSERVED"]);
 });
+
+test("resume reconstruction stays wired through childTasksFromLog and keeps its R6-2 tripwire", async () => {
+  const flowchartRun = await readFile(new URL("../../../src/run/flowchart-run.ts", import.meta.url), "utf8");
+  const resumeStart = flowchartRun.indexOf("async function resumeLockedFlowchartRun(");
+  const resumeEnd = flowchartRun.indexOf("\n/** The resume-specific prologue", resumeStart);
+  assert.ok(resumeStart >= 0 && resumeEnd > resumeStart, "the locked resume call site stays inspectable");
+  const resume = flowchartRun.slice(resumeStart, resumeEnd);
+
+  assert.equal(
+    [...resume.matchAll(/\bchildTasksFromLog\s*\(/g)].length,
+    1,
+    "resume rebuilds children through childTasksFromLog exactly once"
+  );
+  assert.match(
+    resume,
+    /\? childTasksFromLog\(\s*read\.events,\s*definition,\s*registry,\s*deps\.router\.config\.models\s*\)\s*: \[\]/,
+    "the resume call site rebuilds from the log instead of synthesising child specs"
+  );
+  assert.match(
+    resume,
+    /const childByTaskId = childTaskMap\(rebuilt\);/,
+    "the map used by resumed execution comes from that rebuild"
+  );
+
+  // This test reads its own source so deleting or renaming the older executable
+  // tripwire cannot leave only this wiring pin green.
+  const thisSource = await readFile(new URL(import.meta.url), "utf8");
+  const tripwireTitle = [
+    "check-coverage cannot fail,",
+    "which is what keeps the rebuilt spec off the verdict"
+  ].join(" ");
+  const tripwireStart = thisSource.indexOf(`test("${tripwireTitle}", () => {`);
+  const tripwireCommentStart = thisSource.lastIndexOf("/**", tripwireStart);
+  const tripwireEnd = thisSource.indexOf("\n});", tripwireStart);
+  assert.ok(
+    tripwireStart >= 0 && tripwireCommentStart >= 0 && tripwireEnd > tripwireStart,
+    "R6-2's FAIL-unreachable tripwire still exists"
+  );
+  const tripwire = thisSource.slice(tripwireCommentStart, tripwireEnd);
+  assert.match(tripwire, /`childTasksFromLog`/, "the tripwire still names the reconstruction seam");
+  assert.match(
+    tripwire,
+    /for \(const kind of \["PASSED", "FAILED"\] as const\)/,
+    "the tripwire still sweeps both verification kinds"
+  );
+  assert.match(
+    tripwire,
+    /for \(const outcome of \["SUCCESS", "PARTIAL", "FAILURE", "CANCELLED", "TIMEOUT"\] as const\)/,
+    "the tripwire still sweeps every child outcome"
+  );
+  assert.match(
+    tripwire,
+    /assert\.equal\(reachable\.has\("FAIL"\), false,/,
+    "the tripwire still asserts that FAIL is unreachable"
+  );
+});
