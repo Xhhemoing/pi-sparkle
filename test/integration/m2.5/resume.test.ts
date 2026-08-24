@@ -195,6 +195,50 @@ test("crash after WAITING_FOR_USER restores pending plan and decisions from disk
   });
 });
 
+/**
+ * R5-5's investigation asked whether resume should adopt a child result the
+ * parent log already carries but the supervisor never accepted. The answer
+ * turns on *which* seam an adoption would go through, so both seams are pinned
+ * here.
+ *
+ * This one is the seam that already exists: caller-supplied `childResults` are
+ * applied straight to the supervisor, with no three-line gate. It is the right
+ * shape for results the caller vouches for and the wrong shape for results
+ * reconstructed from a log, which is why a future log adoption must go through
+ * `applyChildThreeLine` instead of reusing this path.
+ */
+test("caller-supplied childResults are applied without a three-line gate", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const first = await startFlowchartRun(deps(stateRoot), {
+      projectRoot,
+      flowchart: selectiveFlowchart(),
+      childResults: specialistResults
+    });
+    assert.equal(first.status, "WAITING_FOR_USER");
+    const pendingPlan = first.pendingApproval?.plan;
+    assert.ok(pendingPlan);
+
+    const continued = await resumeFlowchartRun(deps(stateRoot), first.runId, {
+      approvalReply: { approvalPlanId: pendingPlan.id, selectedActionIds: ["pathA"] },
+      childResults: { pathA: fakeResult(0.84, "evd_pathA") }
+    });
+
+    // The supplied results really were applied...
+    assert.equal(continued.status, "COMPLETED");
+    assert.equal(continued.snapshot.nodes["pathA"]?.state, "COMPLETED");
+    assert.equal(continued.snapshot.nodes["merge"]?.state, "COMPLETED");
+
+    // ...and nothing gated them. No assessment, no transition, on either leg.
+    for (const events of [first.events, continued.events]) {
+      assert.equal(
+        events.some((event) => event.type === "TRACKING_ASSESSMENT" || event.type === "GATE_TRANSITION"),
+        false,
+        "childResults bypass the acceptance gate entirely"
+      );
+    }
+  });
+});
+
 test("resume fails closed when the checkpoint is missing", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const first = await startFlowchartRun(deps(stateRoot), {

@@ -647,6 +647,163 @@ test("a crash while a run is blocked records no terminal and keeps the block res
   });
 });
 
+
+/**
+ * R4-4 pinned that a node still in flight at crash time is re-executed on
+ * resume. The three tests below pin the facts that decide whether a future
+ * resume could instead *adopt* the recorded result (R5-5's investigation):
+ * what the crashed log actually carries, what the retry costs, and why a
+ * `TASK_RESULT` on the parent log is not by itself the child's answer.
+ */
+
+test("a crash inside the acceptance window leaves a committed child result the supervisor never took", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await pausedAfterFirstNode(stateRoot, projectRoot);
+    await crashResumingPausedRun(stateRoot, runId, 2);
+
+    const crashed = await new EventStore(stateRoot, runId).readAll();
+    const launches = crashed.events.filter(
+      (event) => event.type === "CHILD_RUN_CREATED" && event.taskId === "tsk_b"
+    );
+    assert.equal(launches.length, 1, "node b's child was launched once");
+    const childRunId = (launches[0]?.payload as { childRun: { id: RunId } }).childRun.id;
+
+    // Everything an adopter would read is already durable on the parent log:
+    // which child ran, how many attempts it took, and what it finally reported.
+    const childMessages = crashed.events
+      .filter((event) => event.type === "CHILD_MESSAGE")
+      .map((event) => (event.payload as { message: { type: string; runId: RunId } }).message)
+      .filter((message) => message.runId === childRunId);
+    assert.equal(
+      childMessages.filter((message) => message.type === "TASK_REQUEST").length,
+      1,
+      "the parent log carries the attempt the child was given"
+    );
+    assert.equal(
+      childMessages.filter((message) => message.type === "TASK_RESULT").length,
+      1,
+      "the parent log carries the child's terminal result"
+    );
+
+    // And the child run committed: it closed its own log before the crash.
+    const childLog = await new EventStore(stateRoot, childRunId).readAll();
+    assert.equal(
+      childLog.events.filter(
+        (event) =>
+          event.type === "RUN_COMPLETED" ||
+          event.type === "RUN_FAILED" ||
+          event.type === "RUN_CANCEL_REQUESTED"
+      ).length,
+      1,
+      "the child run reached its own terminal, so its result is final"
+    );
+
+    // The supervisor still never took it, and the resume point says so.
+    assert.equal(
+      crashed.events.some((event) => event.type === "TRACKING_ASSESSMENT"),
+      false,
+      "no three-line gate ran, so nothing accepted the result"
+    );
+    assert.deepEqual(await checkpointNodeStates(stateRoot, runId), { a: "COMPLETED", b: "RUNNING" });
+  });
+});
+
+test("the retry a crashed acceptance window costs is one node, accepted once", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await pausedAfterFirstNode(stateRoot, projectRoot);
+    await crashResumingPausedRun(stateRoot, runId, 2);
+
+    const afterCrash = new RecordingExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, afterCrash), runId);
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(afterCrash.taskIds, ["tsk_b"], "exactly one node is paid for twice");
+
+    // The accepted cost is bounded at the re-execution: the second attempt is
+    // gated once, so the ledger does not carry two accepted results for one node.
+    const accepted = resumed.events.filter(
+      (event) =>
+        event.type === "TRACKING_ASSESSMENT" &&
+        (event.payload as { assessment: { turnId: string } }).assessment.turnId === "tsk_b"
+    );
+    assert.equal(accepted.length, 1, "node b's result is accepted exactly once, by the retry");
+    assert.deepEqual(replayRun(resumed.events).anomalies, []);
+  });
+});
+
+/**
+ * The premise behind requiring a *committed* child run rather than a recorded
+ * `TASK_RESULT`: `maybeCascadeRetry` can turn a reported result into another
+ * attempt, and production sets a cascade plan on every routed child
+ * (`cli/main.ts`, `track/loop.ts`). So the parent log can carry a `TASK_RESULT`
+ * that the child run itself went on to supersede.
+ */
+test("a TASK_RESULT on the parent log is not by itself the child's committed answer", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    let attempt = 0;
+    const executor: AgentExecutor = {
+      async *execute(request, signal) {
+        attempt += 1;
+        if (signal.aborted) {
+          yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+          return;
+        }
+        const failing = attempt === 1;
+        const passing = passingResult(request);
+        assert.equal(passing.type, "MESSAGE");
+        yield failing
+          ? {
+              type: "MESSAGE",
+              message: {
+                ...passing.message,
+                outcome: "FAILURE",
+                summary: "first attempt did not hold up",
+                verification: { kind: "FAILED", evidenceIds: [`evd_fail-${request.taskId}` as EvidenceId] }
+              }
+            }
+          : passing;
+        yield { type: "EXECUTION_FINISHED", outcome: failing ? "FAILURE" : "SUCCESS" };
+      }
+    };
+
+    const spec: ChildTaskInput = {
+      ...childSpec("tsk_cascaded", "implementer"),
+      assignedModel: "cheap",
+      cascade: {
+        highRisk: false,
+        tiers: [
+          { modelId: "cheap", version: "cheap-v1" },
+          { modelId: "premium", version: "premium-v1" }
+        ]
+      },
+      limits: { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+    };
+    const outcome = await startFlowchartRun(deps(stateRoot, executor), {
+      projectRoot,
+      flowchart: compileChildrenToFlowchart([
+        { taskId: spec.taskId, role: "implementer", objective: spec.objective }
+      ]),
+      childTasks: [spec]
+    });
+
+    assert.equal(outcome.status, "COMPLETED");
+    const launches = outcome.events.filter((event) => event.type === "CHILD_RUN_CREATED");
+    assert.equal(launches.length, 1, "one child run, not two: the retry is inside it");
+
+    const results = outcome.events.filter(
+      (event) =>
+        event.type === "CHILD_MESSAGE" &&
+        (event.payload as { message: { type: string } }).message.type === "TASK_RESULT"
+    );
+    assert.equal(results.length, 2, "the parent log carries both the superseded result and the final one");
+    const retryIndex = outcome.events.findIndex((event) => event.type === "TASK_RETRY");
+    assert.ok(retryIndex > 0, "the cascade retry is on the record");
+    assert.ok(
+      outcome.events.indexOf(results[0]!) < retryIndex && retryIndex < outcome.events.indexOf(results[1]!),
+      "the first result is followed by a retry, so reading it as final would be wrong"
+    );
+  });
+});
+
 test("a terminal append that cannot land still rethrows the original error", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     // The log is torn just before the run dies, so the best-effort terminal
