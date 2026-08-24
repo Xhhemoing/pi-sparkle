@@ -9,11 +9,14 @@ import {
   appendFeedbackWithRetry,
   feedbackLogLockPath,
   feedbackLogPath,
+  feedbackTombstonesPath,
   FEEDBACK_REDACTION_POLICY,
   readFeedback,
   readFeedbackRecordsRaw,
+  readFeedbackTombstoneIds,
   withFeedbackLogLock,
-  writeFeedbackRecords
+  writeFeedbackRecords,
+  writeFeedbackTombstones
 } from "../../../src/feedback/store.js";
 import { redactFeedback } from "../../../src/feedback/redaction.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
@@ -250,6 +253,64 @@ test("the write lock sits beside the log it guards", () => {
   const stateRoot = join(tmpdir(), "pi-sparkle-feedback-path-check");
   assert.equal(feedbackLogLockPath(stateRoot), `${feedbackLogPath(stateRoot)}.lock`);
   assert.match(feedbackLogLockPath(stateRoot), /records\.jsonl\.lock$/);
+});
+
+test("unparseable tombstones fail with the domain validation error contract", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackTombstonesPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '["fb-complete",', "utf8");
+
+    for (const read of [readFeedbackTombstoneIds, readFeedback]) {
+      await assert.rejects(
+        () => read(stateRoot),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal(error.constructor, DomainValidationError);
+          assert.equal(error.message, "malformed feedback tombstones.json: not valid JSON");
+          return true;
+        }
+      );
+    }
+  });
+});
+
+test("tombstone replacement keeps the old complete JSON visible until rename", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackTombstonesPath(stateRoot);
+    await writeFeedbackTombstones(stateRoot, new Set(["fb-old"]));
+    const before = await readFile(path, "utf8");
+    const expected = `${JSON.stringify(["fb-a", "fb-z"], null, 2)}\n`;
+    let enterRename = (): void => undefined;
+    const renameEntered = new Promise<void>((resolve) => {
+      enterRename = resolve;
+    });
+    let releaseRename = (): void => undefined;
+    const renameReleased = new Promise<void>((resolve) => {
+      releaseRename = resolve;
+    });
+    let sourcePath = "";
+
+    const pending = writeFeedbackTombstones(stateRoot, new Set(["fb-z", "fb-a"]), {
+      uniqueSuffix: () => "feedback-tombstones-test",
+      rename: async (source, destination) => {
+        sourcePath = source;
+        assert.equal(destination, path);
+        enterRename();
+        await renameReleased;
+        await rename(source, destination);
+      }
+    });
+
+    await renameEntered;
+    assert.equal(await readFile(path, "utf8"), before, "the destination is never truncated");
+    assert.equal(await readFile(sourcePath, "utf8"), expected, "the complete update is staged");
+    releaseRename();
+    await pending;
+
+    assert.equal(await readFile(path, "utf8"), expected);
+    assert.deepEqual(await readFeedbackTombstoneIds(stateRoot), new Set(["fb-a", "fb-z"]));
+  });
 });
 
 test("an append waits for the log lock instead of writing under another writer", async () => {

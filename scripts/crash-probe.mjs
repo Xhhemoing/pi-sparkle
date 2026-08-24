@@ -2,10 +2,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { tsImport } from "tsx/esm/api";
@@ -85,48 +84,19 @@ async function runChild(mode, payload) {
     return;
   }
 
-  if (mode === "feedback-cascade") {
-    const { cascadeFeedbackTombstones } = await tsImport(
-      "../src/privacy/deletion.ts",
-      import.meta.url
-    );
-    const { readFeedbackRecordsRaw } = await tsImport(
+  if (mode === "feedback-tombstones") {
+    const { withFeedbackLogLock, writeFeedbackRecords, writeFeedbackTombstones } = await tsImport(
       "../src/feedback/store.ts",
       import.meta.url
     );
-
-    // The tombstone path is a FIFO. This writer pairs with the cascade's
-    // initial tombstone read, then closes; the later tombstone write blocks
-    // with no reader after the feedback rewrite has completed.
-    const seedTombstones = writeFile(payload.tombstonePath, "[]\n", "utf8");
-    void seedTombstones.catch(() => undefined);
-    const monitor = (async () => {
-      const deadline = Date.now() + CHILD_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        try {
-          const records = await readFeedbackRecordsRaw(payload.stateRoot);
-          const target = records.find((record) => record.id === payload.feedbackId);
-          if (target !== undefined && target.body === undefined && target.summary === undefined) {
-            await signalAndKill(
-              payload.sentinelPath,
-              `${JSON.stringify({ pid: process.pid, phase: "feedback-stripped" })}\n`
-            );
-          }
-        } catch {
-          // Retry a transient lock-free read failure until the complete
-          // stripped row is publicly readable.
-        }
-        await sleep(2);
-      }
-      throw new Error("feedback cascade never exposed its stripped record");
-    })();
-
-    await Promise.race([
-      cascadeFeedbackTombstones(payload.stateRoot, payload.episodeId).then(() => {
-        throw new Error("feedback cascade completed instead of blocking before tombstones");
-      }),
-      monitor
-    ]);
+    await withFeedbackLogLock(payload.stateRoot, async () => {
+      await writeFeedbackRecords(payload.stateRoot, payload.records);
+      await writeFeedbackTombstones(
+        payload.stateRoot,
+        new Set(payload.tombstones),
+        crashBeforeRenameOptions(payload, "before-feedback-tombstones-rename")
+      );
+    });
     return;
   }
 
@@ -280,16 +250,6 @@ async function runKilledChild(mode, payload) {
   }
 }
 
-async function createFifo(path) {
-  await mkdir(dirname(path), { recursive: true });
-  const child = spawn("mkfifo", ["-m", "600", path], { stdio: "ignore" });
-  const result = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ code, signal }));
-  });
-  assert.deepEqual(result, { code: 0, signal: null }, `failed to create FIFO at ${path}`);
-}
-
 async function runCase(name, iterations, operation) {
   try {
     for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -336,7 +296,8 @@ async function runProbe(iterations) {
     feedbackLogPath,
     feedbackTombstonesPath,
     readFeedbackRecordsRaw,
-    readFeedbackTombstoneIds
+    readFeedbackTombstoneIds,
+    writeFeedbackTombstones
   } = await tsImport("../src/feedback/store.ts", import.meta.url);
   const {
     invocationLogLockPath,
@@ -515,34 +476,40 @@ async function runProbe(iterations) {
           );
         });
         const tombstonePath = feedbackTombstonesPath(stateRoot);
+        const existingTombstone = `feedback-existing-${iteration}`;
+        const oldTombstones = new Set([existingTombstone]);
+        const candidateTombstones = [existingTombstone, target.id].sort();
+        await writeFeedbackTombstones(stateRoot, oldTombstones);
+        const beforeTombstoneBytes = await readFile(tombstonePath, "utf8");
+        const candidateTombstoneBytes = `${JSON.stringify(candidateTombstones, null, 2)}\n`;
         const sentinelPath = join(caseDir, "child-ready");
-        await createFifo(tombstonePath);
 
-        await runKilledChild("feedback-cascade", {
-          episodeId,
-          feedbackId: target.id,
+        await runKilledChild("feedback-tombstones", {
+          records: stripped,
           sentinelPath,
           stateRoot,
-          tombstonePath
+          tombstones: candidateTombstones,
+          uniqueSuffix: `feedback-tombstones-${iteration}`
         });
         await access(feedbackLogLockPath(stateRoot));
         const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
-        assert.equal(sentinel.phase, "feedback-stripped");
+        assert.equal(sentinel.phase, "before-feedback-tombstones-rename");
+        assert.equal(sentinel.destination, tombstonePath);
+        assert.notEqual(sentinel.source, tombstonePath);
 
-        // Removing the synchronization FIFO models recovery of the interrupted
-        // tombstone destination; no tombstone bytes were published into it.
-        await rm(tombstonePath);
         const after = await readFeedbackRecordsRaw(stateRoot);
+        assert.deepEqual(after, stripped, "free text must be stripped before tombstone publication");
         assert.ok(
-          isDeepStrictEqual(after, before) || isDeepStrictEqual(after, stripped),
-          "cascade crash exposed neither the complete old log nor the complete stripped log"
+          after.some((record) => record.id === `feedback-unrelated-${iteration}`),
+          "the unrelated feedback row must survive the interrupted cascade"
         );
+        assert.equal(await readFile(tombstonePath, "utf8"), beforeTombstoneBytes);
         const tombstones = await readFeedbackTombstoneIds(stateRoot);
-        if (tombstones.has(target.id)) {
-          assert.deepEqual(after, stripped, "feedback was tombstoned before its free text was stripped");
-        }
+        assert.deepEqual(tombstones, oldTombstones);
         assert.equal(tombstones.has(target.id), false);
+        assert.equal(await readFile(sentinel.source, "utf8"), candidateTombstoneBytes);
         await rm(feedbackLogLockPath(stateRoot));
+        await rm(sentinel.source);
       })
     );
 

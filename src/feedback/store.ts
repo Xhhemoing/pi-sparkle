@@ -76,11 +76,31 @@ export async function readFeedbackTombstoneIds(stateRoot: string): Promise<Set<s
       throw error;
     }
   );
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new DomainValidationError("malformed feedback tombstones.json: not valid JSON");
+  }
   if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string")) {
     throw new DomainValidationError("malformed feedback tombstones.json: expected a string array");
   }
   return new Set(parsed as string[]);
+}
+
+/**
+ * Crash-atomically replace the feedback tombstone sidecar.
+ *
+ * Callers own serialization with feedback-log rewrites. `options` exists only
+ * as the atomic writer's deterministic rename seam for crash verification.
+ */
+export async function writeFeedbackTombstones(
+  stateRoot: string,
+  tombstones: ReadonlySet<string>,
+  options: AtomicWriteOptions = {}
+): Promise<void> {
+  const body = `${JSON.stringify([...tombstones].sort(), null, 2)}\n`;
+  await writeFileAtomic(feedbackTombstonesPath(stateRoot), body, options);
 }
 
 /**

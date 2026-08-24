@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test, type TestContext } from "node:test";
+import { test } from "node:test";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import {
   createAgentInstanceId,
@@ -415,12 +415,6 @@ async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise
   }
 }
 
-function skipUnowned(context: TestContext, target: string, fuzzContext: string, error: unknown): void {
-  context.skip(
-    `UNOWNED ${target} error-discipline defect (seed=${seedText()}, ${fuzzContext}): ${errorDetail(error)}`
-  );
-}
-
 test(
   "seeded row mutations preserve EpisodeEvent decoder error discipline",
   { timeout: FUZZ_TIMEOUT_MS },
@@ -510,7 +504,7 @@ test(
 test(
   "seeded row mutations preserve feedback-row decoder error discipline",
   { timeout: FUZZ_TIMEOUT_MS },
-  async (context) => {
+  async () => {
     await withStateRoot(async (stateRoot) => {
       const path = feedbackLogPath(stateRoot);
       await mkdir(dirname(path), { recursive: true });
@@ -525,8 +519,7 @@ test(
           decoded = await readFeedbackRecordsRaw(stateRoot);
         } catch (error) {
           if (!isExactDomainValidationError(error)) {
-            skipUnowned(context, "feedback-row decoder", `iteration=${iteration}`, error);
-            return;
+            failFuzz(`feedback-row decoder iteration=${iteration}`, error);
           }
           continue;
         }
@@ -536,13 +529,7 @@ test(
           await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
           assert.deepEqual(await readFeedbackRecordsRaw(stateRoot), decoded);
         } catch (error) {
-          skipUnowned(
-            context,
-            "feedback-row decoder",
-            `iteration=${iteration}, revalidation`,
-            error
-          );
-          return;
+          failFuzz(`feedback-row decoder iteration=${iteration}, revalidation`, error);
         }
       }
     });
