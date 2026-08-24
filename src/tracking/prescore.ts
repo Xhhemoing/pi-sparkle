@@ -20,6 +20,12 @@ export interface PrescoreInput {
   readonly retainedConstraintIds: readonly string[];
   readonly progressed: boolean | typeof UNOBSERVED;
   readonly stalledTurns: number;
+  /**
+   * That the verifier reached a verdict — *not* that a party other than the
+   * actor confirmed it. The sole production producer sets it from the child's
+   * own terminal TASK_RESULT; see `from-child.js` at the field, and the
+   * discard in `computePrescore` for why nothing may read it as corroboration.
+   */
   readonly independentEvidence: boolean;
   readonly narrative?: "PASS" | "ABSTAIN" | "UNOBSERVED";
   readonly actorSelfScore?: number;
@@ -74,6 +80,12 @@ export function computePrescore(input: PrescoreInput): PrescoreResult {
   const displayPrescore = cappedByHardFail ? Math.min(P, config.hardFailCap) : P;
 
   void input.actorSelfScore;
+  // Discarded, and this one is load-bearing: `independentEvidence` records
+  // that a verdict exists, and since Loop 4 R9-2 that verdict can be the
+  // child's self-report, so it is not corroboration and may not move the
+  // score. Reading it here — or anywhere — is a decision with its own
+  // justification, not a tidy-up of a stray `void` (Loop 4 R10-5,
+  // parent-signed; the absence of a reader is pinned).
   void input.independentEvidence;
 
   return {

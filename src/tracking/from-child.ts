@@ -164,6 +164,16 @@ export function prescoreInputFromObservation(observation: ChildObservation): Pre
     retainedConstraintIds: observation.constraints.map((constraint) => constraint.id),
     progressed,
     stalledTurns: 0,
+    // Not third-party verification, despite the name. This says only that the
+    // verifier reached a verdict; it does not say a party other than the actor
+    // produced one. Since Loop 4 R9-2 a pi child can author its own terminal
+    // TASK_RESULT via `sparkle_report_task_result`, so on that path
+    // `verification.kind` — and this flag with it — is the child's report of
+    // what it ran. Nothing reads the flag today (`prescore.ts` discards it),
+    // which is what keeps the gap harmless: a future consumer that reads it as
+    // independent corroboration would be scoring a claim as if it were a
+    // check. Recorded, deliberately not renamed (Loop 4 R10-5, parent-signed);
+    // pinned in `test/unit/tracking/independent-evidence-posture.test.ts`.
     independentEvidence: verification?.kind === "PASSED" || verification?.kind === "FAILED"
   };
 }
