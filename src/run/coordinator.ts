@@ -71,10 +71,87 @@ export interface RunOutcome {
   project: ProjectSnapshot;
 }
 
+export interface SteerOptions {
+  /** Who is steering. Recorded as the event actor. Defaults to `user`. */
+  actor?: string;
+}
+
 export interface RunningRun {
   runId: RunId;
   done: Promise<RunOutcome>;
   cancel(): void;
+  /**
+   * Push user-authored text into the agent loop while `done` is still
+   * pending. The agent picks it up after its current turn, so a steer sent
+   * during a long tool call lands before the next model call.
+   *
+   * This is not the flowchart `inject` verb. `inject` records a typed policy
+   * fact (`fact | override | skip`) for the supervisor to read; `steer` adds a
+   * conversational turn the model itself sees. The two are logged as different
+   * event types on purpose, so an audit can tell which one changed a run.
+   *
+   * Throws `DomainValidationError` synchronously when the text is blank, when
+   * no run is in flight, or when the executor does not implement steering —
+   * the text is never accepted and then quietly dropped. The returned promise
+   * resolves once the steer is recorded in the event log; the run itself also
+   * waits for that write before it settles, so ignoring the promise loses the
+   * error, not the record.
+   */
+  steer(text: string, options?: SteerOptions): Promise<void>;
+}
+
+const DEFAULT_STEER_ACTOR = "user";
+
+/**
+ * The run-level half of steering: a window that is open only while the
+ * executor is running, plus the event-log write that must land before the run
+ * settles.
+ *
+ * Validation and delivery are synchronous even though the log write is not, so
+ * a rejected steer reaches the caller as a thrown error rather than a rejected
+ * promise nobody awaited.
+ */
+class SteerChannel {
+  private record: ((text: string, actor: string) => Promise<void>) | undefined;
+  private writes: Promise<void> = Promise.resolve();
+
+  constructor(private readonly executor: AgentExecutor) {}
+
+  open(record: (text: string, actor: string) => Promise<void>): void {
+    this.record = record;
+  }
+
+  close(): void {
+    this.record = undefined;
+  }
+
+  steer(text: string, options: SteerOptions = {}): Promise<void> {
+    if (text.trim() === "") {
+      throw new DomainValidationError("steer text must be a non-empty string");
+    }
+    const actor = options.actor ?? DEFAULT_STEER_ACTOR;
+    if (actor.trim() === "") {
+      throw new DomainValidationError("steer actor must be a non-empty string");
+    }
+    const record = this.record;
+    if (record === undefined) {
+      throw new DomainValidationError("cannot steer: the run has no agent execution in flight");
+    }
+    if (this.executor.steerText === undefined) {
+      throw new DomainValidationError("cannot steer: this executor does not support steering");
+    }
+    // Delivery before logging: an event describing a steer the agent never
+    // received would be a false record of what the run was told.
+    this.executor.steerText(text);
+    const write = record(text, actor);
+    this.writes = Promise.allSettled([this.writes, write]).then(() => undefined);
+    return write;
+  }
+
+  /** Resolves once every accepted steer has finished writing, failures included. */
+  async settled(): Promise<void> {
+    await this.writes;
+  }
 }
 
 function bounded(text: string, limit = SUMMARY_LIMIT): string {
@@ -86,6 +163,7 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
   const runId = createRunId(generateId);
+  const steerChannel = new SteerChannel(deps.executor);
 
   const done = (async (): Promise<RunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
@@ -142,6 +220,21 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     let outcome: "SUCCESS" | "FAILURE" | "CANCELLED" = "FAILURE";
     let failureReason = "agent execution ended without a terminal event";
 
+    // Open before the first `next()` on the executor's iterator so a steer
+    // arriving with the very first event has somewhere to go.
+    steerChannel.open((text, actor) =>
+      append({
+        id: createEventId(generateId),
+        schemaVersion: 1,
+        occurredAt: now(),
+        runId,
+        taskId: rootTaskId,
+        type: "STEER_INJECTED",
+        actor,
+        payload: { agentInstanceId, text }
+      })
+    );
+
     try {
       let sawTerminal = false;
       for await (const executionEvent of deps.executor.execute(
@@ -185,7 +278,12 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     } catch (error) {
       outcome = "FAILURE";
       failureReason = error instanceof Error ? error.message : String(error);
+    } finally {
+      steerChannel.close();
     }
+    // Accepted steers are written concurrently with the stream; the run must
+    // not read its own log back before they land.
+    await steerChannel.settled();
 
     if (outcome === "SUCCESS") {
       await append(make("RUN_COMPLETED", {}));
@@ -213,7 +311,8 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
   const running: RunningRun = {
     runId,
     done,
-    cancel: () => controller.abort()
+    cancel: () => controller.abort(),
+    steer: (text, options) => steerChannel.steer(text, options)
   };
   return running;
 }
@@ -242,6 +341,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
   const generateId = deps.generateId;
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   const runId = createRunId(generateId);
+  const steerChannel = new SteerChannel(deps.executor);
 
   let resolveQuestion!: (question: AgentQuestion) => void;
   const questionPromise = new Promise<AgentQuestion>((resolve) => {
@@ -420,6 +520,21 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     let failureReason: string | undefined;
     let trackingBlocked = false;
 
+    // A parent run has no agent of its own, so a steer targets whichever child
+    // the shared executor currently has in flight. The executor refuses when
+    // that is ambiguous rather than broadcasting to every concurrent child.
+    steerChannel.open((text, actor) =>
+      append({
+        id: createEventId(generateId),
+        schemaVersion: 1,
+        occurredAt: now(),
+        runId,
+        type: "STEER_INJECTED",
+        actor,
+        payload: { text }
+      })
+    );
+
     try {
       let waiting = false;
       while (!waiting && !trackingBlocked) {
@@ -496,9 +611,11 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       failureReason = error instanceof Error ? error.message : String(error);
       await append(make("RUN_FAILED", { reason: failureReason }));
     } finally {
+      steerChannel.close();
       releaseQuestionHang();
       await Promise.allSettled(handles.map((handle) => handle.done));
     }
+    await steerChannel.settled();
 
     const beforeSettle = await eventStore.readAll();
     await settleBoundEpisode({
@@ -518,7 +635,8 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
   const running: RunningRun = {
     runId,
     done,
-    cancel: () => controller.abort()
+    cancel: () => controller.abort(),
+    steer: (text, options) => steerChannel.steer(text, options)
   };
   return running;
 }

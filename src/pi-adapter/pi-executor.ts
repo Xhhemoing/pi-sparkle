@@ -22,13 +22,16 @@ import {
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import type { ModelRef } from "../config/model-ref.js";
 import { tryParseModelRef } from "../config/model-ref.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
-import { createInvocationId, createMessageId } from "../domain/ids.js";
+import type { AgentInstanceId } from "../domain/ids.js";
+import { createInvocationId, createMessageId, type TaskId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { SUPERVISOR } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { InvocationCallOutcome, ModelInvocation } from "../telemetry/model-invocation.js";
 import { createClusterTools } from "./cluster-tools.js";
+import { CostGate, catalogPrices, type CostGateDisarmedReason, type CostGateLedger } from "./cost-gate.js";
 import { AsyncEventQueue, SparkleKernel } from "./kernel.js";
 import {
   callOutcomeForFailure,
@@ -81,7 +84,37 @@ export interface PiExecutorOptions {
    * The response body itself is never persisted — only its hash.
    */
   onInvocation?: (invocation: ModelInvocation) => void;
+  /**
+   * Default USD ceiling per execute() call, used when the request does not
+   * carry its own. See {@link AgentExecutionRequest.maxCostUsd}.
+   */
+  maxCostUsd?: number;
+  /**
+   * Optional sink for what the spend ceiling did. Fires when a requested
+   * ceiling could not be enforced and when one stopped a run, so "we capped
+   * this" and "we could not price this" never look alike in a log.
+   */
+  onCostGate?: (event: CostGateEvent) => void;
 }
+
+/**
+ * What the spend ceiling did on one execution. There is no event for a run
+ * with no ceiling: silence means nobody asked for one.
+ */
+export type CostGateEvent =
+  | {
+      readonly kind: "disarmed";
+      readonly taskId: TaskId;
+      /** The ceiling as requested, including one rejected as unusable. */
+      readonly maxCostUsd: number;
+      readonly reason: CostGateDisarmedReason;
+    }
+  | {
+      readonly kind: "stopped";
+      readonly taskId: TaskId;
+      readonly maxCostUsd: number;
+      readonly ledger: CostGateLedger;
+    };
 
 export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined {
   switch (event.type) {
@@ -161,6 +194,13 @@ interface RetriedRun {
 export class PiAgentExecutor implements AgentExecutor {
   private readonly models: MutableModels;
   private readonly faux?: FauxProviderHandle;
+  /**
+   * Kernels for attempts currently in flight, keyed by agent instance. One
+   * executor is shared by every child task a run leases, so this is a map
+   * rather than a single reference; `steerText` refuses to guess when more
+   * than one agent is live.
+   */
+  private readonly liveKernels = new Map<AgentInstanceId, SparkleKernel>();
 
   constructor(private readonly options: PiExecutorOptions) {
     if (options.models !== undefined) {
@@ -221,6 +261,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private async *runAttempt(
     model: Model<Api>,
     request: AgentExecutionRequest,
+    gate: CostGate,
     signal: AbortSignal
   ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
@@ -246,8 +287,15 @@ export class PiAgentExecutor implements AgentExecutor {
                 ? { apiKey: this.options.apiKey }
                 : {})
             })
-        })
+        }),
+      // Only installed when the gate can actually price this model; an
+      // unpriced run must not carry a predicate that can never fire.
+      gate.armed ? { stopAfterTurn: () => gate.requestStopIfExceeded() } : {}
     );
+
+    // Live for exactly this attempt. A retry builds a fresh Agent, so anything
+    // steered into the kernel below is gone the moment the attempt is retried.
+    this.liveKernels.set(request.agentInstanceId, kernel);
 
     const queue = new AsyncEventQueue<ExecutionEvent>();
     let thrown: unknown;
@@ -258,7 +306,12 @@ export class PiAgentExecutor implements AgentExecutor {
       // The kernel hands events back opaquely so its callers stay Pi-free;
       // inside the adapter this is where the Pi shape is re-attached.
       const translated = translatePiEvent(event as AgentEvent);
-      if (translated !== undefined) queue.push(translated);
+      if (translated === undefined) return;
+      // Priced here rather than off the drained queue: the loop consults the
+      // stop predicate immediately after it emits turn_end, and the consumer
+      // of that queue may not have been scheduled yet.
+      if (translated.type === "TURN_FINISHED") gate.recordTurn(translated.usage);
+      queue.push(translated);
     });
     const running = (async () => {
       try {
@@ -283,6 +336,9 @@ export class PiAgentExecutor implements AgentExecutor {
     } finally {
       signal.removeEventListener("abort", onAbort);
       unsubscribe();
+      if (this.liveKernels.get(request.agentInstanceId) === kernel) {
+        this.liveKernels.delete(request.agentInstanceId);
+      }
       // The caller walked away mid-run: stop the agent rather than leave it
       // streaming into a queue no one reads.
       if (!drained) kernel.abort();
@@ -309,6 +365,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private async *runWithRetry(
     model: Model<Api>,
     request: AgentExecutionRequest,
+    gate: CostGate,
     signal: AbortSignal
   ): AsyncGenerator<ExecutionEvent, RetriedRun> {
     const options = this.options.retry;
@@ -316,13 +373,19 @@ export class PiAgentExecutor implements AgentExecutor {
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
     for (let attempt = 1; ; attempt += 1) {
-      const run = yield* this.runAttempt(model, request, signal);
+      const run = yield* this.runAttempt(model, request, gate, signal);
       if (!run.failed || signal.aborted) {
         return { attempt, events: run.events, failure: undefined };
       }
       const failure = classifyProviderFailure(run.error, run.errorMessage);
       const decision = decideRetry(failure, attempt, policy, random);
       if (!decision.retry) {
+        return { attempt, events: run.events, failure };
+      }
+      // A retry is a fresh agent, so the stop predicate installed on the last
+      // one cannot hold the line: the ceiling has to be checked again here or
+      // a failing task would keep buying attempts past its budget.
+      if (gate.requestStopIfExceeded()) {
         return { attempt, events: run.events, failure };
       }
       options?.onRetry?.({
@@ -339,6 +402,37 @@ export class PiAgentExecutor implements AgentExecutor {
     }
   }
 
+  /**
+   * Queue user-authored text into the live agent loop; Pi delivers it once the
+   * current assistant turn ends, so a steer placed while a tool is blocked
+   * lands before the next model call.
+   *
+   * Three ways this refuses rather than swallowing the text: blank input, no
+   * attempt in flight, and more than one in flight. The last one matters
+   * because a single executor instance serves every child task of a run, and
+   * broadcasting one operator's correction to every concurrent agent is not
+   * something the caller asked for.
+   *
+   * Steering does not survive a retry. `runAttempt` builds a fresh `Agent` per
+   * attempt, so a queued message that has not been drained when the attempt
+   * fails is dropped along with the rest of that attempt's state.
+   */
+  steerText(text: string): void {
+    if (text.trim() === "") {
+      throw new DomainValidationError("steer text must be a non-empty string");
+    }
+    const live = [...this.liveKernels.values()];
+    if (live.length === 0) {
+      throw new DomainValidationError("cannot steer: no agent run is in flight");
+    }
+    if (live.length > 1) {
+      throw new DomainValidationError(
+        `cannot steer: ${live.length} agent runs are in flight and steering has no target`
+      );
+    }
+    (live[0] as SparkleKernel).steerText(text);
+  }
+
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     const resolved = this.resolveModel(request);
     if (resolved === undefined) {
@@ -346,11 +440,17 @@ export class PiAgentExecutor implements AgentExecutor {
       return;
     }
     const { identity, model } = resolved;
+    const gate = this.buildCostGate(request, model);
 
     const startedAtMs = Date.now();
     // Delegation forwards every attempt's events to the consumer as they
     // arrive and hands back the run summary once the retry loop is done.
-    const { attempt, events: collected, failure } = yield* this.runWithRetry(model, request, signal);
+    const { attempt, events: collected, failure } = yield* this.runWithRetry(
+      model,
+      request,
+      gate,
+      signal
+    );
     const callOutcome: InvocationCallOutcome = signal.aborted
       ? "cancelled"
       : failure === undefined
@@ -363,6 +463,16 @@ export class PiAgentExecutor implements AgentExecutor {
           this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
         )
       );
+    }
+
+    const gateState = gate.state;
+    if (gate.stopRequested && gateState.armed) {
+      this.options.onCostGate?.({
+        kind: "stopped",
+        taskId: request.taskId,
+        maxCostUsd: gateState.maxCostUsd,
+        ledger: gate.ledger
+      });
     }
 
     const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
@@ -379,7 +489,10 @@ export class PiAgentExecutor implements AgentExecutor {
           to: SUPERVISOR,
           type: "TASK_RESULT",
           outcome,
-          summary: "pi agent finished",
+          // The ceiling stops a turn boundary, which may or may not have been
+          // the one the agent was heading for anyway. Saying so keeps a
+          // budget-truncated task from reading like a completed one.
+          summary: gate.stopRequested ? "pi agent stopped at the cost ceiling" : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
           verification: { kind: "UNOBSERVED", evidenceIds: [] }
@@ -387,6 +500,36 @@ export class PiAgentExecutor implements AgentExecutor {
       };
     }
     yield { type: "EXECUTION_FINISHED", outcome };
+  }
+
+  /**
+   * Build this execution's spend ceiling from the request (or the executor's
+   * default) and the resolved model's catalog rates — the same `cost` block
+   * `listed-model.ts` surfaces, so the gate can never price a run at a rate
+   * nobody could look up.
+   *
+   * A ceiling that cannot be enforced is reported through `onCostGate` and
+   * then ignored. That is the failure mode the caller has to be able to see:
+   * a run continuing past a budget nobody could price is bad, but a run that
+   * claims to have honored a budget it invented numbers for is worse.
+   */
+  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>): CostGate {
+    const maxCostUsd = request.maxCostUsd ?? this.options.maxCostUsd;
+    const prices = catalogPrices(model.cost);
+    const gate = new CostGate({
+      ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+      ...(prices !== undefined ? { prices } : {})
+    });
+    const state = gate.state;
+    if (!state.armed && maxCostUsd !== undefined) {
+      this.options.onCostGate?.({
+        kind: "disarmed",
+        taskId: request.taskId,
+        maxCostUsd,
+        reason: state.reason
+      });
+    }
+    return gate;
   }
 
   /**

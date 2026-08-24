@@ -24,15 +24,40 @@ the runtime never takes a dependency on `pi-coding-agent`.
 
    must return nothing.
 
-2. **Verify wiring before claiming it.** The kernel exposing a capability
-   is not the same as the adapter wiring it. Example, verified 2026-08-24:
-   0.84.3's `Agent` ships `steer(message)` / `followUp(message)` with queue
-   modes (see `node_modules/@earendil-works/pi-agent-core/dist/agent.d.ts`),
-   yet `rg -n "steer|followUp|SparkleKernel" src/` returned zero matches —
-   the facade was a Round-1 target, not a landed fact. Never write "steer
-   is wired" (or any capability claim) in a report, SKILL section, or doc
-   until a grep of `src/` shows the call site and a test exercises it.
-   Absence of a grep hit fails the claim closed.
+2. **Verify wiring before claiming it — per layer.** A capability climbs
+   several layers, and each needs its own grep-plus-test evidence: Pi's
+   `Agent` ships it → `SparkleKernel` exposes it → the executor contract
+   carries it → a product surface calls it. Worked example, live steering,
+   all three Sparkle layers re-verified 2026-08-24:
+
+   - *Facade.* `rg -n "steerText" src/` hits `src/pi-adapter/kernel.ts`
+     (forwards `agent.steer(userMessage(text))`);
+     `test/unit/pi-adapter/kernel.test.ts` exercises it against a fake
+     agent.
+   - *Executor.* `AgentExecutor` declares optional `steerText?(text)`
+     (`src/execution/contract.ts`) and `PiAgentExecutor` implements it
+     (`src/pi-adapter/pi-executor.ts`): rejects empty text, refuses when
+     zero or several agents are in flight, otherwise forwards to the live
+     kernel. A missing method means "steering unsupported" — callers
+     fail, never drop the text.
+   - *Product.* `RunningRun.steer(text, options?)`
+     (`src/run/coordinator.ts`) validates, delivers to
+     `executor.steerText` *before* logging, then records the steer text
+     with its actor in the event log — user-authored text is loggable,
+     unlike thinking text (item 4). It is not the flowchart `inject`
+     verb: `inject` records a typed policy fact for the supervisor;
+     `steer` adds a conversational turn the model itself sees.
+     `test/integration/m0/steer.test.ts` exercises delivery, actor
+     logging, and the refusal paths.
+
+   The claim history is the caution: on this same date the grep went from
+   zero matches (the facade was a target, not a fact) to facade-only to
+   all three layers within hours — a report written between any two
+   landings that claimed the next layer would have been false. Every
+   status line above is a dated snapshot: re-grep `src/` before repeating
+   any capability claim in a report, SKILL section, or doc, and require
+   both the call site and a test. Absence of a grep hit fails the claim
+   closed.
 
 3. **Consume live events; never depend on buffered replay.** The historical
    executor buffered `subscribe` events and yielded them only after
@@ -45,13 +70,16 @@ the runtime never takes a dependency on `pi-coding-agent`.
    replay later.
 
 4. **Never persist thinking text.** `thinking_delta` payloads are chain-of-
-   thought. If your feature surfaces them, emit metadata only — e.g.
-   `{ type: "THINKING_DELTA", bytes }` — and never write the raw delta to
-   the event log, run JSONL, invocation records, reports, or fixtures.
-   This mirrors the existing invocation-telemetry rule (response bodies are
-   hashed, never retained). Gate: grep persisted artifacts for thinking
-   text before shipping; a length/byte count is the most any durable
-   record may carry.
+   thought. The bytes-only channel is landed — reuse it, never build a
+   parallel one: `src/execution/contract.ts` defines
+   `{ type: "THINKING_DELTA"; bytes: number }`, the raw delta stops inside
+   `translatePiEvent` (`src/pi-adapter/pi-executor.ts`), and coordinators
+   persist only `thinking delta (N bytes)` summaries. Never write the raw
+   delta to the event log, run JSONL, invocation records, reports, or
+   fixtures. This mirrors the existing invocation-telemetry rule (response
+   bodies are hashed, never retained). Gate: grep persisted artifacts for
+   thinking text before shipping; a length/byte count is the most any
+   durable record may carry.
 
 5. **Pin stays 0.84.3.** Kernel-reuse work rides the pinned
    `@earendil-works/pi-agent-core` / `pi-ai` at `0.84.3`; do not bump pins
@@ -89,5 +117,6 @@ rg -n "0\.84\.3" package.json                               # pin unchanged
 ```
 
 Plus the relevant unit/integration tests for the facade and live stream
-when they exist. Report `wired | not wired | unknown` per capability —
-offline or missing evidence means `unknown`, never a guess.
+when they exist. Report `wired | not wired | unknown` per capability *and
+per layer* (facade vs product) — offline or missing evidence means
+`unknown`, never a guess.

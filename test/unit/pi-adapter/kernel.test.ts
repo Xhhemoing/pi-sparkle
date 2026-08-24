@@ -10,6 +10,7 @@ import {
 
 class StubAgent implements SparkleKernelAgent {
   sessionId?: string;
+  shouldStopAfterTurn?: (...args: never[]) => boolean | Promise<boolean>;
   state = { isStreaming: true, errorMessage: "provider failed" };
   prompts: string[] = [];
   steered: SparkleKernelUserMessage[] = [];
@@ -100,6 +101,24 @@ describe("SparkleKernel", () => {
     assert.equal(agent.followedUp[0]?.role, "user");
     assert.equal(agent.followedUp[0]?.content, "verify the result");
     assert.equal(typeof agent.followedUp[0]?.timestamp, "number");
+  });
+
+  it("installs and invokes the Agent stop-after-turn hook without exposing Pi types", async () => {
+    const agent = new StubAgent();
+    let checks = 0;
+    const kernel = SparkleKernel.fromAgent(agent, {
+      stopAfterTurn: () => {
+        checks += 1;
+        return checks >= 2;
+      }
+    });
+
+    assert.equal(await agent.shouldStopAfterTurn?.(), false);
+    assert.equal(await agent.shouldStopAfterTurn?.(), true);
+    assert.equal(checks, 2);
+
+    kernel.setStopAfterTurn(undefined);
+    assert.equal(agent.shouldStopAfterTurn, undefined);
   });
 });
 

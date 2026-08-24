@@ -58,7 +58,22 @@ All 6 delivered (fable-A retried after dispatch error `bc-3363607a-52c2-5177-8b2
 
 P0 leftover: inject→steer still unwired. P1: shouldStopAfterTurn / maxCostUsd live enforcement. Spec union stale.
 
-### Round 2 — in progress
+### Round 2 — complete
+
+Live `RunningRun.steer` + adapter cost gate (cap not forwarded from coordinator yet). Brief: `.agent_workspace/R2-KERNEL-BRIEF.md`.
+
+### Round 3 — in progress (SOTA close-out)
+
+Read `.agent_workspace/R2-KERNEL-BRIEF.md`. No commit.
+
+| Agent | Model | Owns | Must not touch |
+|---|---|---|---|
+| R3-fable-A | `claude-fable-5-thinking-xhigh` | docs: cost-stop vs steer order; coordinator maxCostUsd wiring called out; `.agent_workspace/round3-fable-a.md` | `src/` except you must not |
+| R3-fable-B | `claude-fable-5-thinking-xhigh` | overlay ADR-001 import-specifier grep; per-layer claims after R3 wiring, `.agent_workspace/round3-fable-b.md` | `src/` |
+| R3-opus-A | `claude-opus-5-thinking-high-fast` | pass `run.limits.maxCostUsd` into execute() parent+child, `.agent_workspace/round3-opus-a.md` | overlay |
+| R3-opus-B | `claude-opus-5-thinking-high-fast` | unskip `steer-inflight.test.ts`; document or safely handle cost-stop dropping steer; `.agent_workspace/round3-opus-b.md` | `src/pi-adapter/cost-gate.ts` arithmetic |
+| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | tests that coordinator forwards maxCostUsd; `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
+| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | run `pnpm gate` and fix test/lint in owned test files; `.agent_workspace/round3-gpt-b.md` | `src/pi-adapter/kernel.ts` API shape |
 
 Read `.agent_workspace/R1-KERNEL-BRIEF.md`. No commit.
 

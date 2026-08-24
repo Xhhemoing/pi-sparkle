@@ -1,32 +1,40 @@
 MODEL_SLUG: gpt-5.6-sol-xhigh-fast
 
-# Round 2 — R2-gpt-B
+# Round 2 — R2-gpt-B cost-stop tests
 
-## Changes
+Status: done. No commit created; the parent orchestrator owns the round commit.
 
-- Restricted the default compatibility probe to source files in
-  `src/pi-adapter/`; it no longer reads docs or skills.
-- Made thinking-level detection inspect the adapter-owned
-  `SparkleThinkingLevel` union, so an empty contract can produce the required
-  `BROKEN:` finding instead of being masked by a constant.
-- Added an optional adapter reader to `buildPiCompatReport` for deterministic
-  failure-path testing. Reader failures remain non-throwing report findings.
-- Kept all existing exports and ADR-001: `src/pi-compat` does not import any
-  `@earendil-works/*` module. Package identifiers remain data, which is allowed
-  by the specifier-based boundary test.
-- Added coverage for documentation isolation, empty thinking levels, and a
-  failing/missing adapter reader.
+## Test file paths
+
+- `test/unit/pi-adapter/cost-gate.test.ts`
+  - Proves catalog-priced spend accumulates across turns and requests a stop
+    only when the cumulative total reaches `maxCostUsd`.
+  - Proves a zero/unknown catalog rate leaves spend undefined and never
+    requests a stop, even for very large token usage.
+- `test/integration/pi-adapter/cost-stop.test.ts`
+  - Uses a faux provider with an explicit stub price catalog. The first
+    tool-use turn exceeds the cap; Pi's installed `shouldStopAfterTurn` hook
+    prevents the scripted second provider call and emits a `stopped` ledger.
+  - Uses the same two-call script with a zero/unknown price catalog. The gate
+    reports `disarmed: unpriced-model`, both provider calls run, and no
+    fabricated `stopped` event appears.
+- `test/unit/pi-adapter/kernel.test.ts`
+  - Adds a structural stub-Agent assertion that `SparkleKernel` installs,
+    invokes, and removes the stop-after-turn predicate.
+
+## Probe
+
+- `scripts/kernel-reuse-probe.mjs` now separately requires
+  `PiAgentExecutor.steerText(text)` to forward to a live kernel. Current output
+  has three PASS lines: live stream, kernel facade, and executor steer wiring.
+
+No kernel public-surface redesign was made by this agent.
 
 ## Verification
 
-- `pnpm exec tsx --test test/unit/pi-compat/check.test.ts` — 14 passed.
-- `pnpm exec tsc --noEmit --pretty false` — passed.
-- Focused ESLint for owned source/tests — passed.
-- `pnpm exec tsx --test test/unit/pi-boundary.test.ts` — 3 passed.
-- Default adapter probe smoke test — passed with all seven thinking levels and
-  no `BROKEN:` findings.
-- `pnpm exec tsx --test test/unit/cli/pi-compat.test.ts` — 5 passed.
-- Concurrently added `test/unit/pi-compat/skill-discovery-0843.test.ts` — 2
-  passed (not modified by this agent).
-
-No commit was created.
+- Focused test command over the three paths above: 8 passed, 0 failed.
+- Focused ESLint over all three test files: passed.
+- `node scripts/kernel-reuse-probe.mjs`: 3 PASS, exit 0.
+- ESLint on `scripts/kernel-reuse-probe.mjs`: passed.
+- `pnpm exec tsc --noEmit --pretty false`: passed with the concurrent Round 2
+  implementation present.

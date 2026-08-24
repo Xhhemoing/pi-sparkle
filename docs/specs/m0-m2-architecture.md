@@ -287,11 +287,17 @@ interface AgentExecutionRequest {
 
 type ExecutionEvent =
   | { type: "TEXT_DELTA"; text: string }
+  // Reasoning progress as a byte count only. Chain-of-thought text never
+  // enters the execution stream, so it can never reach the event log.
+  | { type: "THINKING_DELTA"; bytes: number }
   | { type: "TOOL_STARTED"; toolCallId: string; toolName: string }
   | { type: "TOOL_FINISHED"; toolCallId: string; isError: boolean; summary: string }
   | { type: "TURN_FINISHED"; usage?: UsageSummary }
+  | { type: "MESSAGE"; message: AgentMessage }
   | { type: "EXECUTION_FINISHED"; outcome: "SUCCESS" | "FAILURE" | "CANCELLED" };
 ```
+
+The authoritative union lives in `src/execution/contract.ts`; this spec mirrors it (corrected 2026-08-24 — this block previously omitted `THINKING_DELTA` and `MESSAGE`). `THINKING_DELTA` carries a size only: the raw reasoning text is read exactly once inside the adapter to measure its UTF-8 byte length and never crosses the adapter boundary, so coordinators can record progress without persisting chain-of-thought. `MESSAGE` carries an already-validated M1 protocol envelope (`AgentMessage`) through the executor stream — executors emit the terminal `TASK_RESULT` this way and the child coordinator consumes it.
 
 The adapter translates Pi events into `ExecutionEvent`; no Pi event shape becomes a public pi-sparkle contract. Tool call input and output are treated as sensitive artifacts: the default event log stores a redactable summary and reference, not arbitrary raw content.
 

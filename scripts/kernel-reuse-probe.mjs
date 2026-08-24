@@ -47,6 +47,14 @@ function kernelExportsSteerText(source) {
   return exportsValue && /\bsteerText\s*\(/.test(source);
 }
 
+function executorWiresSteerText(source) {
+  return (
+    /\bexport\s+class\s+PiAgentExecutor\b/.test(source) &&
+    /\bsteerText\s*\(\s*text\s*:\s*string\s*\)/.test(source) &&
+    /\.\s*steerText\s*\(\s*text\s*\)/.test(source)
+  );
+}
+
 async function readSource(path) {
   try {
     return { source: await readFile(path, "utf8") };
@@ -79,7 +87,17 @@ export async function main() {
     console.log("FAIL kernel-facade: src/pi-adapter/kernel.ts does not export steerText");
   }
 
-  return live && facade ? 0 : 1;
+  const executorSteer =
+    executor.source !== undefined && executorWiresSteerText(executor.source);
+  if (executorSteer) {
+    console.log("PASS executor-steer: PiAgentExecutor forwards steerText to a live kernel");
+  } else if (executor.error !== undefined) {
+    console.log(`FAIL executor-steer: cannot read src/pi-adapter/pi-executor.ts (${executor.error})`);
+  } else {
+    console.log("FAIL executor-steer: PiAgentExecutor does not forward steerText to a live kernel");
+  }
+
+  return live && facade && executorSteer ? 0 : 1;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

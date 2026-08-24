@@ -1,8 +1,14 @@
+import { DomainValidationError } from "../domain/errors.js";
 import type { ArtifactId, EvidenceId, MessageId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { SUPERVISOR } from "../protocol/v1.js";
 
+/**
+ * Scripted events, no live loop, and deliberately no `steerText`: a caller who
+ * steers a run backed by this executor gets an explicit refusal instead of a
+ * no-op that looks like it worked.
+ */
 export class FakeExecutor implements AgentExecutor {
   constructor(private readonly steps: readonly ExecutionEvent[]) {}
 
@@ -15,9 +21,17 @@ export class FakeExecutor implements AgentExecutor {
   }
 }
 
+/**
+ * A run that stays in flight until it is aborted, which makes it the stand-in
+ * for anything that has to happen mid-run. It does implement `steerText`,
+ * recording each accepted steer in {@link steers}, so the run-level steering
+ * path can be exercised without a provider.
+ */
 export class GatedExecutor implements AgentExecutor {
   sawAbort = false;
+  readonly steers: string[] = [];
   readonly started: Promise<void>;
+  private inFlight = false;
   private resolveStarted!: () => void;
 
   constructor() {
@@ -26,7 +40,26 @@ export class GatedExecutor implements AgentExecutor {
     });
   }
 
+  steerText(text: string): void {
+    if (text.trim() === "") {
+      throw new DomainValidationError("steer text must be a non-empty string");
+    }
+    if (!this.inFlight) {
+      throw new DomainValidationError("cannot steer: no agent run is in flight");
+    }
+    this.steers.push(text);
+  }
+
   async *execute(_request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.inFlight = true;
+    try {
+      yield* this.stream(signal);
+    } finally {
+      this.inFlight = false;
+    }
+  }
+
+  private async *stream(signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     this.resolveStarted();
     yield { type: "TEXT_DELTA", text: "working" };
     if (signal.aborted) {

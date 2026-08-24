@@ -63,6 +63,7 @@ export const EVENT_TYPES = [
   "PAUSE_REQUESTED",
   "PAUSE_CLEARED",
   "INJECTION_REQUESTED",
+  "STEER_INJECTED",
   "EPISODE_OPENED",
   "RUN_ATTACHED",
   "EPISODE_WAITING",
@@ -251,6 +252,23 @@ export interface InjectionRequestedPayload {
   value?: string | number | boolean;
 }
 
+/**
+ * User-authored text pushed into a live agent loop. Distinct from
+ * INJECTION_REQUESTED, which records a typed flowchart policy fact; this
+ * records a conversational turn the user added mid-run.
+ *
+ * The text is stored verbatim, which is safe for the same reason it is
+ * required: it is the user's own instruction, not model reasoning. Nothing
+ * derived from a `THINKING_DELTA` may ever be routed here.
+ *
+ * The steering principal is the event's `actor`, not a payload field.
+ */
+export interface SteerInjectedPayload {
+  text: string;
+  /** Present when the steer targeted one known agent instance. */
+  agentInstanceId?: AgentInstanceId;
+}
+
 export interface EpisodeOpenedPayload {
   episode: ProjectEpisode;
 }
@@ -333,6 +351,7 @@ export type Event =
   | (EventBase & { type: "PAUSE_REQUESTED"; payload: PauseRequestedPayload })
   | (EventBase & { type: "PAUSE_CLEARED"; payload: EmptyPayload })
   | (EventBase & { type: "INJECTION_REQUESTED"; payload: InjectionRequestedPayload })
+  | (EventBase & { type: "STEER_INJECTED"; payload: SteerInjectedPayload })
   | (EventBase & { type: "EPISODE_OPENED"; payload: EpisodeOpenedPayload })
   | (EventBase & { type: "EPISODE_CLOSED"; payload: EpisodeClosedPayload })
   | (EventBase & { type: "RUN_ATTACHED"; payload: RunAttachedPayload })
@@ -701,6 +720,19 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       return isEmptyPayload(payload) ? undefined : "payload must be an empty object";
     case "INJECTION_REQUESTED":
       return injectionPayloadError(payload);
+    case "STEER_INJECTED": {
+      if (typeof payload.text !== "string" || payload.text.trim() === "") {
+        return "payload.text must be a non-empty string";
+      }
+      if (payload.agentInstanceId !== undefined && !isAgentInstanceId(payload.agentInstanceId)) {
+        return "payload.agentInstanceId must be a valid AgentInstanceId when present";
+      }
+      const keys = Object.keys(payload);
+      if (keys.some((key) => key !== "text" && key !== "agentInstanceId")) {
+        return "payload may only include text and agentInstanceId";
+      }
+      return undefined;
+    }
     case "EPISODE_OPENED": {
       if (payload.episode === undefined || payload.episode === null) return "payload.episode is required";
       const ep = payload.episode as Record<string, unknown>;

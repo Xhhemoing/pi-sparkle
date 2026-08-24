@@ -152,6 +152,7 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
         break;
       }
       case "INJECTION_REQUESTED":
+      case "STEER_INJECTED":
       case "CHILD_RUN_CREATED":
       case "CHILD_MESSAGE":
       case "TASK_TIMEOUT":

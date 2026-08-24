@@ -1,9 +1,19 @@
 export {
   PiAgentExecutor,
   translatePiEvent,
+  type CostGateEvent,
   type PiExecutorOptions,
   type SparkleThinkingLevel
 } from "./pi-executor.js";
+export {
+  CostGate,
+  catalogPrices,
+  type CostGateDisarmedReason,
+  type CostGateLedger,
+  type CostGatePrices,
+  type CostGateState,
+  type CostGateUsage
+} from "./cost-gate.js";
 export {
   AsyncEventQueue,
   SparkleKernel,
@@ -11,6 +21,7 @@ export {
   type SparkleKernelAgentFactory,
   type SparkleKernelEvent,
   type SparkleKernelOptions,
+  type SparkleKernelStopAfterTurn,
   type SparkleKernelUserMessage
 } from "./kernel.js";
 export {

@@ -186,3 +186,69 @@ wiring; expose them only when a consumer exists.
    so secondary features stop growing `PiAgentExecutor`; adoption items
    above should land as facade methods plus contract-level wiring, per
    `docs/kernel-reuse.md`.
+
+## 5. Round 2 addendum (2026-08-24, R2-fable-A)
+
+Re-verified on the same tree later the same day; every command below was run
+for this addendum, not carried over. The tree mutated mid-round: a first
+verification pass found P0 unwired (`RunningRun` exposed only `runId`,
+`done`, `cancel`; `steerText` matched only `kernel.ts`), and the wiring
+landed in the working tree while this addendum was being drafted. Item 1
+records the post-landing state.
+
+1. **P0 inject→steer landed (mid-round, uncommitted; parent commits).**
+   Post-landing evidence:
+   - `src/execution/contract.ts` gained optional
+     `AgentExecutor.steerText?(text)` — absence means "steering
+     unsupported"; the coordinator throws instead of dropping text.
+   - `RunningRun` (`src/run/coordinator.ts`) gained
+     `steer(text, { actor? })`, returned by both `startRun` and
+     `startParentRun`, backed by a `SteerChannel` that is open only while
+     execution is in flight, delivers to the executor before logging, and
+     blocks run settlement on the event-log write.
+   - Steer text persists with its actor as `STEER_INJECTED`
+     (`src/run/events.ts`; replayed in `src/run/replay.ts`). The §3-P0
+     persistence question was answered: verbatim text plus actor, distinct
+     event type from flowchart injection.
+   - Retry: document-and-drop — queued steering still does not survive the
+     fresh-`Agent` retry (semantics unchanged from §3-P0 item 1).
+   - Tests: `pnpm exec tsx --test` over `steer-inflight.test.ts`,
+     `steer-blocked-tool.test.ts`, `test/integration/m0/steer.test.ts` —
+     8 pass, 0 fail, 1 skip. The skip is a pre-landing placeholder
+     (`test.skip("RunningRun.steer forwards in-flight text…")`) whose
+     coverage now lives in `m0/steer.test.ts`; it should be removed.
+   - **Gate correction:** the circulated claim gate
+     `rg -n "RunningRun.steer" src/run/coordinator.ts` does not hit even
+     post-landing, because `steer` is a member inside the multi-line
+     interface block. Use `rg -n "steer\(text" src/run/coordinator.ts` or
+     `rg -n -U "interface RunningRun \{[\s\S]*?steer\("
+     src/run/coordinator.ts` (hits at the interface declaration).
+   - Still open: a CLI verb for live steer (the product surface is the
+     `RunningRun` handle); `followUpText` / `reset` / `sessionId` remain
+     facade-only (`rg -n "followUpText" src/` → `kernel.ts` only).
+   Correcting §2's phrasing while here: the `index.ts` export re-exports the
+   `SparkleKernel` class, not the `steerText`/`followUpText` method names.
+2. **§4.1 spec drift is resolved.** `docs/specs/m0-m2-architecture.md` now
+   mirrors the contract union including `THINKING_DELTA { bytes }` and
+   `MESSAGE`, with a pointer naming `src/execution/contract.ts` as
+   authoritative (edited this round by R2-fable-A). Note the contract also
+   gained `AgentExecutionRequest.maxCostUsd` mid-round (P1 work); the spec's
+   request shape still drifts and needs a spec owner.
+3. **The raw-substring boundary grep is stale.** As previously written in
+   `docs/kernel-reuse.md`, `rg -n "@earendil-works" src/ --glob
+   '!src/pi-adapter/**'` no longer returns empty: it hits
+   `src/pi-compat/check.ts` lines 49, 50, 135, 136, 154, 155 — package names
+   as *data* for version checks, not imports. The import-specifier form
+   (`rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob
+   '!src/pi-adapter/**'`) returns empty and matches the semantics of
+   `hasPiPackageImport` in `test/unit/pi-boundary.test.ts`.
+   `docs/kernel-reuse.md` is corrected; the overlay
+   (`.agents/skills/pi-sparkle/references/kernel-reuse.md`) was updated by
+   its owner mid-round for the steer landing but still carries the raw grep
+   form in two places — flagged for its owner.
+4. **Gates re-run for this addendum:** `node scripts/kernel-reuse-probe.mjs`
+   PASS, exit 0 — the probe itself grew a third check mid-round
+   (`executor-steer: PiAgentExecutor forwards steerText to a live kernel`)
+   and all three pass; `pnpm exec tsx --test` over `kernel.test.ts`,
+   `translate-thinking.test.ts`, `live-stream.test.ts` plus the three steer
+   suites — 14 pass, 0 fail, 1 skip (the stale placeholder from item 1).

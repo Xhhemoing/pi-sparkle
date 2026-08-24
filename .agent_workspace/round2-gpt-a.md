@@ -1,3 +1,26 @@
+MODEL_SLUG: gpt-5.6-sol-xhigh-fast
+
+# Round 2 — R2-gpt-A
+
+## Delivered
+
+- Added `test/unit/pi-adapter/steer-inflight.test.ts`.
+- The active regression test wraps a blocking stub agent in `SparkleKernel`, starts a prompt, waits until the agent reports streaming, and calls `steerText` before releasing the prompt.
+- The stub rejects steering outside an active prompt, so the no-throw assertion proves the call happened in flight. The test also verifies the queued user-message role, text, and timestamp.
+- Added a skipped `RunningRun.steer` contract case documenting both required assertions: in-flight steering does not throw and whitespace-only text is rejected.
+
+## API status
+
+- `SparkleKernel.steerText` is present and forwards to the agent steering queue.
+- `AgentExecutor.steerText` and `RunningRun.steer` are not present in the current source, so a faux-provider end-to-end `RunningRun` test cannot yet be written honestly.
+- Empty-text rejection remains specified in the skipped `RunningRun.steer` case rather than asserted against the current kernel facade, which does not reject it.
+
+## Verification
+
+- `pnpm test -- test/unit/pi-adapter/steer-inflight.test.ts` — **PASS**: 1 passed, 1 skipped.
+- `pnpm exec eslint test/unit/pi-adapter/steer-inflight.test.ts` — **PASS**.
+
+No `src/**` or CLI file was changed. No commit was created.
 # Round 2 — R2-gpt-A
 
 ## Changes

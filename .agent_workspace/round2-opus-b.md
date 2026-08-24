@@ -1,59 +1,138 @@
 MODEL_SLUG: claude-opus-5-thinking-high-fast
 
-# Round 2 — R2-opus-B (pi-compat CLI tests + npm script aliases)
+# Round 2 — R2-opus-B: `shouldStopAfterTurn` from accumulated cost vs `maxCostUsd`
 
-Status: done. Not committed (parent orchestrator commits the round).
+Target 2 in `R1-KERNEL-BRIEF.md`: `maxCostUsd` was validated in `src/domain/limits.ts`
+and enforced nowhere. It is now enforced inside the adapter, on the one condition
+that the spend can actually be accounted for.
 
-## Files written (all inside my exclusive paths)
+## What landed
 
-| File | Change |
-|---|---|
-| `test/unit/cli/pi-compat.test.ts` | New. 6 tests over `main(["pi-compat", ...])` and `piCompatBreakage` |
-| `test/unit/cli/doctor.test.ts` | Appended one test for the `pi-packages` / `pi-compat` doctor lines. Existing three tests untouched |
-| `package.json` | Added exactly three scripts: `pi-compat`, `pi:latest`, `pi:probe`. No dependency or other script changes |
-| `README.md` | Three new Commands rows for those scripts, directly above `pnpm test` |
-| `.agent_workspace/round2-opus-b.md` | This report |
+**`src/pi-adapter/cost-gate.ts` (new).** The arithmetic, separated from the executor
+so the rule is readable and testable on its own.
 
-`src/cli/pi-compat.ts` needed no change: `piCompatBreakage` and `readSparklePackageJson` were already exported.
+- `catalogPrices(cost)` reads USD-per-MTok off a resolved model's `cost` block —
+  the same numbers `listed-model.ts` surfaces (`model.cost.input` / `.output`).
+  No new price source, no fallback rate, no estimate.
+- `CostGate` accumulates provider-reported tokens per finished turn, prices them,
+  and answers `exceeded`. `requestStopIfExceeded()` latches `stopRequested` so the
+  caller can tell afterwards that the ceiling, not the model, ended the run.
+- Disarmed states are named, not silent: `no-cap`, `invalid-cap` (a ceiling that
+  is not a positive finite number), `unpriced-model`. A disarmed gate returns
+  `spentUsd: undefined` and never stops anything.
+- `ledger` reports `turnsWithoutUsage`. A nonzero count means `spentUsd` is a
+  floor, not a total — spend the ceiling could not see.
 
-Untouched as instructed: `src/cli/main.ts` (R2-opus-A owns `--thinking`), `src/pi-adapter/`, `src/pi-compat/`.
+**`src/pi-adapter/kernel.ts`.** `SparkleKernel.setStopAfterTurn(predicate)` plus the
+`stopAfterTurn` constructor option. `SparkleKernelAgent` gains
+`shouldStopAfterTurn?: ((...args: never[]) => boolean | Promise<boolean>)`. The
+`never[]` is load-bearing: the loop passes its turn context here, and naming that
+context would put a Pi type on an exported signature (ADR-001). A hook that ignores
+its arguments is assignable to the richer signature Pi declares, and `tsc` checks
+that at the `new Agent(...)` call site, where the structural match is made.
 
-## Test results
+**`src/pi-adapter/pi-executor.ts`.**
 
+- `buildCostGate(request, model)` per `execute()`: ceiling from
+  `request.maxCostUsd ?? options.maxCostUsd`, prices from the resolved model.
+- Usage is folded into the gate inside the `subscribe` listener, not off the
+  drained queue — the loop consults the stop predicate immediately after it emits
+  `turn_end`, and the queue consumer may not have been scheduled yet.
+- The predicate is installed only when the gate is armed; an unpriced run does not
+  carry a hook that can never fire.
+- `runWithRetry` re-checks the gate before each retry. A retry is a fresh `Agent`,
+  so the predicate installed on the last one cannot hold the line, and a failing
+  task would otherwise keep buying attempts past its budget.
+- The synthesized `TASK_RESULT` summary becomes `"pi agent stopped at the cost
+  ceiling"` when the gate tripped, so a budget-truncated task does not read like a
+  completed one.
+- `onCostGate?: (event: CostGateEvent) => void` — `{ kind: "disarmed", reason }`
+  when a requested ceiling could not be enforced, `{ kind: "stopped", ledger }`
+  when one ended a run. No event at all when no ceiling was requested.
+
+**`src/execution/contract.ts`.** `AgentExecutionRequest.maxCostUsd?: number`
+(additive, optional). The doc comment says executors that cannot price their own
+spend ignore it rather than guess.
+
+**`src/pi-adapter/index.ts`.** Exports the new surface.
+
+## The honesty rule this is built around
+
+If the catalog quotes no usable price, the gate disarms, reports
+`reason: "unpriced-model"` through `onCostGate`, and the run continues uncapped.
+No USD figure is produced for an unpriced model — `spentUsd` is `undefined`, not
+zero — and nothing claims the ceiling was honored.
+
+An all-zero `cost` block counts as unpriced, not free: `runtime.ts` fills an
+unspecified custom-provider rate with `0`, so a zero pair cannot be told apart from
+a model nobody priced. This is why the faux provider (`cost` all zeros) disarms the
+gate by default.
+
+Two deliberate divergences, both commented at the site:
+
+1. The gate counts reported usage regardless of the turn's eventual outcome, unlike
+   `sumUsage`'s cost-eligibility rule. That rule exists to keep per-token averages
+   from being dragged toward zero by error payloads; a ceiling asks a different
+   question, and tokens a provider reported before a stream failed are tokens it
+   will still bill. All-zero usage never reaches the gate — `translatePiEvent`
+   drops it — so an error payload's zeroed block adds nothing.
+2. A gate trip does not change `EXECUTION_FINISHED.outcome`. `shouldStopAfterTurn`
+   fires at a turn boundary that may well have been the last one anyway, so
+   "capped" does not imply "unfinished". The summary text carries the fact instead.
+
+## Verification
+
+Ran an offline probe (faux provider, model priced by hand, scripted tool calls) to
+confirm the hook is really installed and consulted by the live loop, then deleted it:
+
+- uncapped, 3 scripted turns: 3 provider calls, 3 `TURN_FINISHED`, 2 tools.
+- `maxCostUsd` tripped after turn 1: **1 provider call**, 1 `TURN_FINISHED`, the
+  in-flight tool still completed, summary `"pi agent stopped at the cost ceiling"`,
+  one `onCostGate` `stopped` event with the ledger.
+- unpriced model + ceiling: run completes normally, one `disarmed` /
+  `unpriced-model` event, no stop.
+- no ceiling: no events, no behavior change.
+
+Committed test: `test/unit/pi-adapter/cost-gate-ledger.test.ts` — 14 tests, the
+`CostGate` arithmetic and disarm reasons plus the kernel's stop-hook seam. Named
+`-ledger` to stay clear of R2-gpt-B, who owns the executor-level stop-after-turn
+tests; that file is not touched here.
+
+- `pnpm exec tsc --noEmit --pretty false` — clean.
+- ESLint on every touched file — clean.
+- `node scripts/run-tests.mjs` — 1441 pass, 0 fail, 2 skipped.
+- `test/unit/pi-boundary.test.ts` — passes; no Pi type reaches an exported
+  signature outside the adapter.
+
+## Notes for R2-gpt-B
+
+- The faux model's `cost` is a mutable plain object:
+  `models.getModel("faux","faux-1").cost.input = 1000` prices it, which is how the
+  probe above armed the gate. The alternative is a `createProvider` custom provider
+  with `inputCostPerMTok` set, matching `runtime.ts`.
+- Faux reports ~10 input / ~1 output tokens for a bare prompt, so a ceiling around
+  `0.001` USD at `cost.input = 1000` trips after the first turn.
+- Use `onCostGate` to assert; there is no new `ExecutionEvent` variant, so the
+  execution stream is unchanged apart from the `TASK_RESULT` summary text.
+
+## Left open (not mine to write)
+
+Nothing sets `request.maxCostUsd` yet, so a real run still does not carry its
+ceiling to the executor. `src/run/coordinator.ts` has `input.limits` in scope where
+it builds the request (~line 149); the missing line is:
+
+```ts
+...(input.limits?.maxCostUsd !== undefined ? { maxCostUsd: input.limits.maxCostUsd } : {})
 ```
-pnpm exec tsx --test test/unit/cli/pi-compat.test.ts test/unit/cli/doctor.test.ts
-# tests 9  # pass 9  # fail 0
-```
 
-`pnpm typecheck` clean; `eslint` clean on both files. `test/unit/package/pi-manifest.test.ts` still passes after the `package.json` edit (4/4).
+The same applies to `child-coordinator.ts` (~line 507) and `flowchart-executor.ts`.
+I did not touch those: my scope was `src/pi-adapter/**`, and R2-opus-A is editing
+`coordinator.ts` for `RunningRun.steer` in this same worktree. Until that line
+lands, the claim is "the adapter enforces a ceiling it is given", not "runs are
+capped". Do not upgrade the docs past that.
 
-## What the tests cover
+Also unwritten: `ModelInvocation.pricing` is still never populated, so the prices
+the gate used are not recorded on the invocation. Filling it needs a
+`catalogVersion` the codebase does not yet mint.
 
-1. `pi-compat --offline` — exit 0, human output has `pinned: agent-core=<v> ai=<v>`, `mode: offline`, `latest: skipped (offline)`, a `status:` line from the closed status union, and an empty stderr.
-2. `pi-compat --json` — stdout parses whole as a `PiCompatReport` with `offline: true`, no `latest` key, pins equal to `readPinnedPiVersions(readSparklePackageJson())`, a thinking-level list containing `high`, and `piCompatBreakage(report) === undefined` on the current pin.
-3. `--offline --online` — exit 1, stdout empty, `parseCliErrorJson` gives `command: "pi-compat"`, `stage: "parse-args"`.
-4. `--online` against an unreachable registry (`PI_COMPAT_REGISTRY_URL=http://127.0.0.1:1`, restored in `finally`) — fails closed: exit 0, `offline: false`, no `latest`, `status: "unknown"`, one stderr `warning:` line. Runs in ~15 ms and never leaves the host.
-5. `piCompatBreakage` over synthetic reports: healthy → `undefined`; `status: "behind"` with a behind-latest finding → `undefined` (being behind is not breakage); `BROKEN: ` finding → the message with the prefix stripped, chosen over an earlier non-BROKEN finding; `legacy-GoogleThinkingLevel` → the legacy message; empty `thinkingLevels` → the no-levels message.
-6. doctor on a tmp state root + tmp project — exit 0, `ok  pi-packages: agent-core=<semver> ai=<semver>`, `ok  pi-compat: status=<status>`, and no `FAIL` on either check.
-
-Follows the existing `capture()` io helper style; the pi-compat file has its own local copy, matching how each CLI test file in `test/unit/cli/` is self-contained.
-
-## Two judgment calls worth a review look
-
-- **Pins are read, not hardcoded.** The brief asked for "human output contains pinned 0.84.3". I assert the printed line against the pins read from `package.json` at test time, plus `agentCore === ai` (the matching-pin invariant from the Round 1 brief) and a numeric-semver shape. Today that is exactly `pinned: agent-core=0.84.3 ai=0.84.3`, but the next pin bump will not need an edit in this file. Synthetic version comparison is already covered by `test/unit/pi-compat/check.test.ts`, and `pnpm pi:latest` is the intended tripwire for a stale pin.
-- **`google-thinking` is asserted negatively.** The adapter probe currently reports `absent`, not `GoogleApiThinkingLevel`: per the Round 1 brief the Google rename was a no-code-change bump because the adapter never imported that type. So the tests assert only that the value is not `legacy-GoogleThinkingLevel`, which is the ADR-001 regression that matters. An `absent` → `GoogleApiThinkingLevel` transition would be a real adapter change and should not fail this test.
-
-## npm scripts, verified by hand
-
-| Script | Result |
-|---|---|
-| `pnpm pi-compat` | Prints the offline report, exit 0 |
-| `pnpm pi:probe` | 4 `PASS` lines (both pins, legacy identifier absent, `ThinkingLevel` imports from agent-core only), exit 0 |
-| `pnpm pi:latest --offline` | 3 `PINNED` lines, exit 0 |
-
-`pi-compat` uses `tsx src/cli/main.ts pi-compat` so it works without a build, matching the existing `cli` script; extra flags pass through (`pnpm pi-compat --json`). `pi:latest` / `pi:probe` are plain `node` on the `.mjs` probes, matching `security:probe`.
-
-## Notes for the parent
-
-- I did not add the scripts to `gate` or `prerelease`. `pi:latest` reaches the network by default and `pnpm pi-compat` overlaps the `pi-compat` doctor check that `pnpm test` already exercises, so wiring either into the gate would trade determinism for no new coverage. `pnpm pi:probe` is offline and deterministic and could reasonably join `prerelease` next to `security:probe` if you want it enforced — that is a `package.json` scripts edit outside what I was scoped to.
-- Full-suite `pnpm gate` deliberately not run: R2-opus-A is editing `src/cli/main.ts` concurrently, so a whole-repo run would report their in-progress state as mine. I ran my two files plus `pi-manifest`.
+No commit.

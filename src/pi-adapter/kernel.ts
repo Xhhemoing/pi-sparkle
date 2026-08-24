@@ -28,6 +28,14 @@ export interface SparkleKernelUserMessage {
 }
 
 /**
+ * Consulted after each completed turn. Returning true asks the loop to stop
+ * before it starts another provider request: the turn that just ran, including
+ * its tool calls, finishes normally, and queued steering is not polled. It is
+ * a request for a graceful stop, not an abort.
+ */
+export type SparkleKernelStopAfterTurn = () => boolean;
+
+/**
  * The slice of the Pi agent this facade drives.
  *
  * Declared structurally for two reasons: `new Agent(...)` satisfies it without
@@ -45,6 +53,13 @@ export interface SparkleKernelAgent {
   reset(): void;
   steer(message: SparkleKernelUserMessage): void;
   followUp(message: SparkleKernelUserMessage): void;
+  /**
+   * The loop's post-turn stop hook. Declared over arguments this facade never
+   * reads: the agent passes its turn context here, and naming that context
+   * would put a Pi type on an exported signature. A hook that ignores its
+   * arguments satisfies the richer signature the agent declares.
+   */
+  shouldStopAfterTurn?: ((...args: never[]) => boolean | Promise<boolean>) | undefined;
 }
 
 /** Builds the agent a kernel wraps. Called once, when the kernel is created. */
@@ -53,6 +68,8 @@ export type SparkleKernelAgentFactory = () => SparkleKernelAgent;
 export interface SparkleKernelOptions {
   /** Forwarded to providers for cache-aware backends. */
   sessionId?: string;
+  /** Installed as the post-turn stop hook; see {@link SparkleKernel.setStopAfterTurn}. */
+  stopAfterTurn?: SparkleKernelStopAfterTurn;
 }
 
 /**
@@ -115,6 +132,7 @@ export class SparkleKernel {
     options: SparkleKernelOptions = {}
   ) {
     if (options.sessionId !== undefined) this.agent.sessionId = options.sessionId;
+    if (options.stopAfterTurn !== undefined) this.setStopAfterTurn(options.stopAfterTurn);
   }
 
   /** Wrap an agent that already exists. */
@@ -169,6 +187,18 @@ export class SparkleKernel {
   /** Queue text to run only once the agent would otherwise stop. */
   followUpText(text: string): void {
     this.agent.followUp(userMessage(text));
+  }
+
+  /**
+   * Stop the run after the first turn for which `shouldStop` returns true.
+   * Pass undefined to remove a predicate already installed.
+   *
+   * The predicate is consulted once per completed turn, so it must be cheap
+   * and must not throw: the agent loop offers no recovery from a hook that
+   * rejects, and would tear down without its usual event sequence.
+   */
+  setStopAfterTurn(shouldStop: SparkleKernelStopAfterTurn | undefined): void {
+    this.agent.shouldStopAfterTurn = shouldStop === undefined ? undefined : () => shouldStop();
   }
 
   get sessionId(): string | undefined {
