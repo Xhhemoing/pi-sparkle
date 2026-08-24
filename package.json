@@ -41,6 +41,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "gate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "invocation:probe": "node scripts/invocation-lock-probe.mjs",
     "security:probe": "node scripts/security-probe.mjs",
     "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe"
   },

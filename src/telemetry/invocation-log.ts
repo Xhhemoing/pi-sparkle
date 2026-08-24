@@ -64,6 +64,12 @@ export async function withInvocationLogLock<T>(
  */
 const appendQueues = new Map<string, Promise<void>>();
 
+function isLockTimeout(error: unknown): error is DomainValidationError {
+  return (
+    error instanceof DomainValidationError && error.message.includes("timed out waiting for lock")
+  );
+}
+
 /**
  * Validate and append one invocation row under the log's exclusive lock.
  *
@@ -71,6 +77,10 @@ const appendQueues = new Map<string, Promise<void>>();
  * be read back is worse than a missing one, because calibration and the delete
  * filter both key off its fields. Callers on the live path treat a rejection
  * as a dropped telemetry row, never as a failed run.
+ *
+ * Lock timeouts get one immediate retry with the same options. Keeping the
+ * same timeout bounds telemetry waiting to at most two acquisition windows;
+ * a second timeout still rejects for the live caller to drop.
  */
 export async function appendInvocationRecord(
   stateRoot: string,
@@ -84,9 +94,16 @@ export async function appendInvocationRecord(
   const previous = appendQueues.get(path) ?? Promise.resolve();
   const queued = previous
     .catch(() => undefined)
-    .then(async () =>
-      withInvocationLogLock(stateRoot, () => appendJsonlLine(path, line, fsync), options)
-    );
+    .then(async () => {
+      const append = (): Promise<void> =>
+        withInvocationLogLock(stateRoot, () => appendJsonlLine(path, line, fsync), options);
+      try {
+        await append();
+      } catch (error: unknown) {
+        if (!isLockTimeout(error)) throw error;
+        await append();
+      }
+    });
   appendQueues.set(path, queued);
   try {
     await queued;

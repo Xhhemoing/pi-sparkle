@@ -148,6 +148,30 @@ test("an append waits for the log lock instead of writing under another writer",
   });
 });
 
+test("an append retries one lock timeout and lands when the lock clears during retry", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const record = invocation();
+    let pending: Promise<void> | undefined;
+
+    await withInvocationLogLock(stateRoot, async () => {
+      pending = appendInvocationRecord(stateRoot, record, {
+        timeoutMs: 80,
+        retryMs: 5
+      });
+      await sleep(120);
+      assert.equal(
+        existsSync(invocationsLogPath(stateRoot)),
+        false,
+        "the first timeout must not fall back to an unlocked append"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    await pending;
+    assert.deepEqual(idsOf(await readLines(stateRoot)), [record.id]);
+  });
+});
+
 test("a rewrite under the lock cannot clobber a concurrent append", async () => {
   await withStateRoot(async (stateRoot) => {
     const doomed = createRunId(UUID);
@@ -236,12 +260,14 @@ test("writeInvocationRecords replaces the log and empties it without leaving a b
   });
 });
 
-test("an append that cannot take the lock times out instead of writing unlocked", async () => {
+test("an append retries once then rejects when both lock waits time out", async () => {
   await withStateRoot(async (stateRoot) => {
     const held: RunId = createRunId(UUID);
     let outcome: unknown;
+    let elapsedMs = 0;
 
     await withInvocationLogLock(stateRoot, async () => {
+      const startedAt = Date.now();
       outcome = await appendInvocationRecord(stateRoot, invocation({ runId: held }), {
         timeoutMs: 40,
         retryMs: 5
@@ -249,10 +275,12 @@ test("an append that cannot take the lock times out instead of writing unlocked"
         () => "resolved",
         (error: unknown) => error
       );
+      elapsedMs = Date.now() - startedAt;
     });
 
     assert.ok(outcome instanceof DomainValidationError, "a lock timeout must reject the append");
     assert.match(outcome.message, /timed out waiting for lock/);
+    assert.ok(elapsedMs >= 70, `both 40ms lock waits should run; observed ${elapsedMs}ms`);
     assert.equal(existsSync(invocationsLogPath(stateRoot)), false, "no unlocked fallback write");
   });
 });
