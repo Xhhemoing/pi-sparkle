@@ -516,3 +516,7 @@
 | S9-G-2 | pause 轮询换 fs.watch 内存缓存观测 | 天花板 1.31–1.34ms/run；观测即时读盘语义发散 |
 | S9-G-3 | requestPause writeAtomic 去 fsync | 已受理暂停掉电丢失；243–263µs/命令 |
 | S10-A-1 | from-child 生产路径门控结局二元化 | 等价但需平行 turn 路径或公开旗标；18–21ns/turn；e2e 符号翻转 |
+| S9-J-1 | stripForbidden 逐 needle includes 卫 | 等价但 258–264ns/剥除，被 68–72µs jsonl 追加支配 |
+| S9-J-2 | rebuildViews 内部 weights Record→Map | 等价含原型键，但 3–4µs 被 saveToDisk 585–647µs 吞没 |
+| S9-J-3 | context index architecture/risks 双遍融合 | 等价但现实档 21–88ns/构建、每 run 一次 |
+| S9-J-4 | decideClosure structured-pass 短路死 legacyMatch | 等价但 4–865ns/判定；decideClosure 分解闭合 |
