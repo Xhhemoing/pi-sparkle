@@ -160,7 +160,7 @@
 | R7-A | `cursor/r7-a-tracking-seventh-pass-83a1` | 已合入专属分支（仅 `R7-A.md`） |
 | R7-B | `cursor/r7-b-live-routing-seventh-pass-83a1` | 已合入专属分支（仅 `R7-B.md`） |
 | R7-C | `cursor/r7-c-offline-routing-seventh-pass-83a1` | 已合入专属分支（仅 `R7-C.md`）。S7-C-1..4 淘汰；X2-1 档案见 R7-C-LAND |
-| R7-C-LAND | `cursor/r7-c-x21-sod-land-83a1` | 已合入专属分支（S7-C 代码 + 报告 + 仿真）。父代理重跑 r1c–r7c 待记 |
+| R7-C-LAND | `cursor/r7-c-x21-sod-land-83a1` | 已合入专属分支（S7-C 代码 + 报告 + 仿真）。父代理重跑 r1c–r7c 全绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193 逐位）；r7c 生产 659.1 ms vs 冻结 S6-C 744.6 ms（1.13×） |
 | R7-D | `cursor/r7-d-adaptation-seventh-pass-83a1` | 已合入专属分支（仅 `R7-D.md`） |
 | R7-E | `cursor/r7-e-learning-seventh-pass-83a1` | 已合入专属分支（仅 `R7-E.md`） |
 | R7-F | `cursor/r7-f-experiments-seventh-pass-83a1` | 已合入专属分支（S7-F-1/S7-F-2 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f/r6f/r7f 全绿（2668 / 224 / 27 / 169 逐位）；r5f 全实验 P=2000/A=1000 = 122.51 ms；r6f 全实验 119.41 ms；r7f 全实验 129.58 ms；r7f 四次序 restore 同号为正（prefix +45.55 / half +28.29 / scattered +4.40 / reversed +5.29 ms） |
