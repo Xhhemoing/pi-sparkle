@@ -319,3 +319,8 @@
 | S5-B-2 | evaluateCandidate 无限预算短路 | 真实路径 29–56µs；deadline 姊妹发散 |
 | S5-B-3 | analyzeTask reason join 换模板字面量 | 301–323µs/批；S1-B/S4-B-5 同噪声带 |
 | S5-B-4 | ResolvedRouteRequest 中间对象内联 | 46–68µs/批 |
+| S5-D-1 | restore() 对解析器产物的 id 再校验消除 | fail-open 反例；~805ns |
+| S5-D-2 | pairedRecords entries() 换索引循环 | 567–744ns/eval |
+| S5-D-3 | 保存链中间 snapshot() 对象消除 | 占 save+fsync 0.4–0.5% |
+| S5-D-4 | evalRoutingPolicy 全 UNOBSERVED 前置短路 | 双故障错误选择发散 |
+| S5-D-5 | rollback() resourceIdentityKey CSE | ~28ns；需改公开签名 |
