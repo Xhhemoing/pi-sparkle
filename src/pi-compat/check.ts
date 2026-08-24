@@ -89,8 +89,11 @@ export function comparePiVersions(pinned: string, latest: string): ComparableSta
 export function probeAdapterContract(input?: {
   readonly readAdapterSource?: () => string;
 }): PiCompatAdapterProbe {
-  const source = (input?.readAdapterSource ?? readDefaultAdapterSource)();
-  return inspectAdapterSource(source).probe;
+  if (input?.readAdapterSource !== undefined) {
+    const source = input.readAdapterSource();
+    return inspectAdapterSource(source, source).probe;
+  }
+  return inspectAdapterSource(readDefaultAdapterSource(), readDefaultNestedSkillEvidence()).probe;
 }
 
 export function buildPiCompatReport(input: {
@@ -195,7 +198,7 @@ function comparePackage(
 
 function inspectAdapterForReport(findings: string[]): AdapterInspection {
   try {
-    return inspectAdapterSource(readDefaultAdapterSource());
+    return inspectAdapterSource(readDefaultAdapterSource(), readDefaultNestedSkillEvidence());
   } catch (error: unknown) {
     findings.push(`BROKEN: unable to read Pi adapter sources: ${errorText(error)}`);
     return {
@@ -210,12 +213,12 @@ function inspectAdapterForReport(findings: string[]): AdapterInspection {
   }
 }
 
-function inspectAdapterSource(source: string): AdapterInspection {
-  const hasLegacyGoogleThinkingType = /\bGoogleThinkingLevel\b/.test(source);
-  const hasApiGoogleThinkingType = /\bGoogleApiThinkingLevel\b/.test(source);
+function inspectAdapterSource(adapterSource: string, nestedSkillEvidence: string): AdapterInspection {
+  const hasLegacyGoogleThinkingType = /\bGoogleThinkingLevel\b/.test(adapterSource);
+  const hasApiGoogleThinkingType = /\bGoogleApiThinkingLevel\b/.test(adapterSource);
   const hasNestedSkillEvidence =
-    /\bnested\b[\s\S]{0,100}\b(?:skill|group(?:ing|ed|s)?)\b/i.test(source) ||
-    /\b(?:skill|group(?:ing|ed|s)?)\b[\s\S]{0,100}\bnested\b/i.test(source);
+    /\bnested\b[\s\S]{0,100}\b(?:skill|group(?:ing|ed|s)?)\b/i.test(nestedSkillEvidence) ||
+    /\b(?:skill|group(?:ing|ed|s)?)\b[\s\S]{0,100}\bnested\b/i.test(nestedSkillEvidence);
 
   return {
     probe: {
@@ -252,14 +255,17 @@ function readDefaultAdapterSource(): string {
       ]
     }
   ];
+  return requiredSources.map(({ candidates, label }) =>
+    readFirstExistingSource(candidates, label)
+  ).join("\n");
+}
+
+function readDefaultNestedSkillEvidence(): string {
   const optionalEvidenceSources = [
     new URL("../../.agents/skills/pi-sparkle/SKILL.md", import.meta.url),
     new URL("../../docs/how-to-adapt-to-pi.md", import.meta.url)
   ];
-
-  const sourceParts = requiredSources.map(({ candidates, label }) =>
-    readFirstExistingSource(candidates, label)
-  );
+  const sourceParts: string[] = [];
   for (const path of optionalEvidenceSources) {
     if (existsSync(path)) sourceParts.push(readFileSync(path, "utf8"));
   }
