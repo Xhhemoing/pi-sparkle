@@ -192,11 +192,12 @@ function irls(
   const mu = new Array<number>(n).fill(0);
   const xtwx: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
   const xtwz: number[] = new Array<number>(p).fill(0);
-  // eta = dot(beta, x) and mu = sigmoid(eta) are pure functions of (beta,
-  // vector contents), and rows sharing a canonical key hold identical
-  // vectors, so computing each double once per key per iteration and copying
-  // it is bitwise identical to recomputing it per row. The stamp scratch
-  // never escapes this call and is reset by the per-iteration mark.
+  // eta (support-only sum below; supports derive from vector contents
+  // alone) and mu = sigmoid(eta) are pure functions of (beta, vector
+  // contents), and rows sharing a canonical key hold identical vectors, so
+  // computing each double once per key per iteration and copying it is
+  // bitwise identical to recomputing it per row. The stamp scratch never
+  // escapes this call and is reset by the per-iteration mark.
   const stamp = new Int32Array(keySpace);
   const etaByKey = new Float64Array(keySpace);
   const muByKey = new Float64Array(keySpace);
@@ -207,7 +208,10 @@ function irls(
       const key = keys[i]!;
       if (stamp[key] !== mark) {
         stamp[key] = mark;
-        const value = dot(beta, vectors[i]!);
+        // Support-only eta is bitwise-safe only under three premises: 0/1 design entries, a +0.0 accumulator start, and finite beta — with a non-0/1 design this must revert to full dot(beta, vectors[i]).
+        let value = 0;
+        const active = supports[i]!;
+        for (let ai = 0; ai < active.length; ai++) value += beta[active[ai]!]!;
         etaByKey[key] = value;
         muByKey[key] = sigmoid(value);
       }
