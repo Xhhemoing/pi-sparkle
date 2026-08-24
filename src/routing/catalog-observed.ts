@@ -25,6 +25,10 @@ export const CATALOG_OBSERVED_CORRUPT_CODE = "CATALOG_OBSERVED_CORRUPT" as const
  * unexpected shapes stays tolerated by `parseSnapshot` (unknown rows degrade to
  * `emptyObservedStats`), because that is version skew between writers, not damage.
  *
+ * The CLI route keyed by this error's code is defense-in-depth for a future command producer.
+ * Today doctor is the only command-path reader: it absorbs this error into its `learnedState`
+ * inventory as damaged derived state instead of propagating it to the command-failure surface.
+ *
  * Discriminate on `code`, never on the message.
  */
 export class CatalogObservedCorruptError extends DomainValidationError {

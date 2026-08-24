@@ -10,13 +10,14 @@ import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
 import { createEventId, createRunId, type RunId } from "../../../src/domain/ids.js";
 import {
   BANDIT_STATE_UNREADABLE_CODE,
-  BanditStateUnreadableError
+  BanditStateUnreadableError,
+  projectBanditPath
 } from "../../../src/learning/bandit-store.js";
+import { stableProjectKey } from "../../../src/learning/learned-routing.js";
 import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import {
   PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
-  PreferenceSnapshotUnreadableError,
-  configurePreferencePersistence
+  PreferenceSnapshotUnreadableError
 } from "../../../src/preferences/store.js";
 import {
   RUN_RECORDS_SURVIVED_CODE,
@@ -60,6 +61,14 @@ async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise
     await run(stateRoot);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
+  }
+}
+
+function restoreEnv(name: string, previous: string | undefined): void {
+  if (previous === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = previous;
   }
 }
 
@@ -262,6 +271,83 @@ test("the adaptation plane's fail-closed codes route to doctor's learnedState in
 });
 
 /**
+ * End-to-end through the real producer: an enabled `adapt auto` sees a
+ * model-attributed Pi subagent run, attempts to update this project's bandit,
+ * and refuses the truncated bytes already stored at the stable project key.
+ */
+test("adapt auto over a damaged project bandit routes to an inventory that lists it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const projectRoot = join(stateRoot, "project");
+    const subagentRuns = join(projectRoot, ".pi", "subagents", "runs");
+    const projectKey = stableProjectKey(projectRoot);
+    const banditPath = projectBanditPath(stateRoot, projectKey);
+    const previousAutoAdapt = process.env.SPARKLE_AUTO_ADAPT;
+    process.env.SPARKLE_AUTO_ADAPT = "1";
+
+    try {
+      await mkdir(subagentRuns, { recursive: true });
+      await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
+      await writeFile(
+        join(subagentRuns, "run-1.json"),
+        `${JSON.stringify({
+          id: "run-1",
+          status: "completed",
+          request: { agent: "implementer", cwd: projectRoot, task: "Implement parser" },
+          results: [
+            {
+              agent: "implementer",
+              exitCode: 0,
+              messages: [
+                {
+                  role: "assistant",
+                  model: "gpt-x",
+                  content: [{ type: "text", text: "implemented" }]
+                }
+              ]
+            }
+          ]
+        })}\n`,
+        "utf8"
+      );
+      await mkdir(dirname(banditPath), { recursive: true });
+      await writeFile(banditPath, "{ truncated", "utf8");
+
+      const io = capture();
+      assert.equal(
+        await main(
+          ["adapt", "auto", "--project", projectRoot, "--state-root", stateRoot],
+          io.io
+        ),
+        1
+      );
+      const parsed = parseCliErrorJson(io.err.join(""));
+      assert.equal(parsed?.command, "adapt");
+      assert.equal(parsed?.stage, "validation");
+      assert.ok(parsed?.message.includes(banditPath), parsed?.message);
+      assert.equal(
+        parsed?.next,
+        `this project's learned bandit state is damaged and no log can recompute it: run pi-sparkle doctor --json --state-root ${stateRoot} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to relearn this project from zero`
+      );
+
+      const doctor = capture();
+      await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+      const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+      const entry = report.learnedState.entries.find(
+        (candidate) => candidate.path === banditPath
+      );
+      assert.ok(entry, "doctor must inventory the bandit the adaptation write refused");
+      assert.equal(entry.kind, "bandit");
+      assert.equal(entry.stateClass, "learned");
+      assert.equal(entry.projectKey, projectKey);
+      assert.equal(entry.status, "damaged");
+      assert.match(entry.remediation, /move it aside and relearn from zero/);
+    } finally {
+      restoreEnv("SPARKLE_AUTO_ADAPT", previousAutoAdapt);
+    }
+  });
+});
+
+/**
  * The route answers, end to end through the real CLI: a damaged
  * `adaptation/preferences.json` makes `pref list` fail closed, its `next:`
  * names doctor, and doctor's `learnedState[]` really does carry that file as
@@ -275,28 +361,21 @@ test("pref list over a damaged snapshot routes to an inventory that lists it", a
 
     const io = capture();
     const doctor = capture();
-    try {
-      assert.equal(await main(["pref", "list", "--state-root", stateRoot], io.io), 1);
-      const parsed = parseCliErrorJson(io.err.join(""));
-      assert.equal(parsed?.command, "pref");
-      assert.equal(parsed?.stage, "validation");
-      assert.match(parsed?.message ?? "", /preference snapshot at .* is unreadable/);
-      assert.notEqual(parsed?.next, GENERIC_NEXT);
-      assert.ok(parsed?.next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`));
+    assert.equal(await main(["pref", "list", "--state-root", stateRoot], io.io), 1);
+    const parsed = parseCliErrorJson(io.err.join(""));
+    assert.equal(parsed?.command, "pref");
+    assert.equal(parsed?.stage, "validation");
+    assert.match(parsed?.message ?? "", /preference snapshot at .* is unreadable/);
+    assert.notEqual(parsed?.next, GENERIC_NEXT);
+    assert.ok(parsed?.next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`));
 
-      await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
-      const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
-      const entry = report.learnedState.entries.find(
-        (candidate) => candidate.path === snapshot
-      );
-      assert.ok(entry, "doctor must inventory the snapshot the pref read refused");
-      assert.equal(entry.status, "damaged");
-      assert.equal(entry.stateClass, "learned");
-      assert.match(entry.remediation, /move it aside/);
-    } finally {
-      // The store binds a process global; leave it where the suite found it.
-      configurePreferencePersistence(undefined);
-    }
+    await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+    const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+    const entry = report.learnedState.entries.find((candidate) => candidate.path === snapshot);
+    assert.ok(entry, "doctor must inventory the snapshot the pref read refused");
+    assert.equal(entry.status, "damaged");
+    assert.equal(entry.stateClass, "learned");
+    assert.match(entry.remediation, /move it aside/);
   });
 });
 
