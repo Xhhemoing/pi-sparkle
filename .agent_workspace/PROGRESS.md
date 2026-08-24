@@ -75,15 +75,4 @@ Read `.agent_workspace/R2-KERNEL-BRIEF.md`. No commit.
 | R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | tests that coordinator forwards maxCostUsd; `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
 | R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | run `pnpm gate` and fix test/lint in owned test files; `.agent_workspace/round3-gpt-b.md` | `src/pi-adapter/kernel.ts` API shape |
 
-Read `.agent_workspace/R1-KERNEL-BRIEF.md`. No commit.
-
-| Agent | Model | Owns | Must not touch |
-|---|---|---|---|
-| R2-fable-A | `claude-fable-5-thinking-xhigh` | `docs/specs/m0-m2-architecture.md` (ExecutionEvent union), `docs/kernel-reuse.md` leftover, `docs/reports/**` addendum, `.agent_workspace/round2-fable-a.md` | `src/` |
-| R2-fable-B | `claude-fable-5-thinking-xhigh` | overlay kernel-reuse ref (steer exposed vs product-wired), `.agent_workspace/round2-fable-b.md` | `src/` |
-| R2-opus-A | `claude-opus-5-thinking-high-fast` | `AgentExecutor.steerText?`, `PiAgentExecutor` live kernel ref, `RunningRun.steer`, event log for steer text+actor, `.agent_workspace/round2-opus-a.md` | skills, docs/specs |
-| R2-opus-B | `claude-opus-5-thinking-high-fast` | adapter `shouldStopAfterTurn` from accumulated invocation cost vs `maxCostUsd` (no invented prices), `.agent_workspace/round2-opus-b.md` | `src/run/coordinator.ts` steer API |
-| R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | tests for in-flight steer on faux blocked-tool run, `.agent_workspace/round2-gpt-a.md` | `src/cli/main.ts` unless a 5-line `steer` command is required by tests |
-| R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | tests for cost stop-after-turn; update probe if needed, `.agent_workspace/round2-gpt-b.md` | `src/pi-adapter/kernel.ts` public surface |
-
-### Round 3 — pending
+Read `.agent_workspace/R2-KERNEL-BRIEF.md`. No commit.
