@@ -1,5 +1,5 @@
-import type { OutcomeObservation } from "./outcomes.js";
-import { isInformativeOutcome, outcomeKey } from "./outcomes.js";
+import type { OutcomeKeyParts, OutcomeObservation } from "./outcomes.js";
+import { isInformativeOutcome, observationsForR1, outcomeKey } from "./outcomes.js";
 
 export interface BetaPosterior {
   readonly alpha: number;
@@ -104,6 +104,10 @@ function oneSidedTail(_z: number): number {
   return 0.05;
 }
 
+function lnBetaFunction(a: number, b: number): number {
+  return lnGamma(a) + lnGamma(b) - lnGamma(a + b);
+}
+
 function lnGamma(z: number): number {
   const g = 7;
   const c = [
@@ -154,10 +158,10 @@ function betacf(a: number, b: number, x: number): number {
   return h;
 }
 
-function regularizedIncompleteBeta(x: number, a: number, b: number): number {
+/** lnBeta is x-independent; the bisection caller computes it once per quantile. */
+function regularizedIncompleteBeta(x: number, a: number, b: number, lnBeta: number): number {
   if (x <= 0) return 0;
   if (x >= 1) return 1;
-  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b);
   const prefix = Math.exp(a * Math.log(x) + b * Math.log(1 - x) - lnBeta);
   if (x < (a + 1) / (a + b + 2)) {
     return (prefix * betacf(a, b, x)) / a;
@@ -166,11 +170,12 @@ function regularizedIncompleteBeta(x: number, a: number, b: number): number {
 }
 
 function inverseRegularizedIncompleteBeta(p: number, a: number, b: number): number {
+  const lnBeta = lnBetaFunction(a, b);
   let lo = 0;
   let hi = 1;
   for (let i = 0; i < 80; i++) {
     const mid = (lo + hi) / 2;
-    if (regularizedIncompleteBeta(mid, a, b) > p) hi = mid;
+    if (regularizedIncompleteBeta(mid, a, b, lnBeta) > p) hi = mid;
     else lo = mid;
   }
   return (lo + hi) / 2;
@@ -188,6 +193,119 @@ export function observationsForKey(
 ): OutcomeObservation[] {
   const key = outcomeKey(parts);
   return observations.filter((o) => outcomeKey(o) === key);
+}
+
+/**
+ * Single-pass grouping by outcome key. Insertion order inside each group is
+ * the input order, so per-key posteriors are identical to filtering with
+ * `observationsForKey` — this only removes the per-candidate rescans.
+ */
+export function groupObservationsByKey(
+  observations: readonly OutcomeObservation[]
+): ReadonlyMap<string, readonly OutcomeObservation[]> {
+  const groups = new Map<string, OutcomeObservation[]>();
+  for (const observation of observations) {
+    const key = outcomeKey(observation);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [observation]);
+    } else {
+      group.push(observation);
+    }
+  }
+  return groups;
+}
+
+/** Per-key posterior summary consumed by R1. Field order matches R1 estimate rows. */
+export interface R1KeyEstimate {
+  readonly key: string;
+  readonly alpha: number;
+  readonly beta: number;
+  readonly mean: number;
+  readonly lcb: number;
+  readonly samples: number;
+  readonly wellSampled: boolean;
+}
+
+interface CachedKeyEstimate {
+  readonly fingerprint: string;
+  readonly estimate: R1KeyEstimate;
+}
+
+/**
+ * R1-admissible observations filtered once and grouped by outcome key, with a
+ * per-key estimate memo. Prepared indexes are immutable after construction
+ * (the memo only caches pure-function results guarded by a config/time
+ * fingerprint), so a single index can serve every episode of a shadow report.
+ */
+export interface PreparedR1Observations {
+  readonly byKey: ReadonlyMap<string, readonly OutcomeObservation[]>;
+  readonly estimateCache: Map<string, CachedKeyEstimate>;
+}
+
+export function prepareR1Observations(
+  observations: readonly OutcomeObservation[]
+): PreparedR1Observations {
+  return {
+    byKey: groupObservationsByKey(observationsForR1(observations)),
+    estimateCache: new Map(),
+  };
+}
+
+/**
+ * Extend a prepared index with extra raw observations (e.g. per-episode
+ * frozen observations appended after the shared ones). Groups keep
+ * base-then-extra order, matching `prepareR1Observations([...base, ...extra])`
+ * bit for bit. Returns the base index unchanged when nothing admissible is added.
+ */
+export function mergePreparedR1Observations(
+  base: PreparedR1Observations,
+  extra: readonly OutcomeObservation[]
+): PreparedR1Observations {
+  const admissible = observationsForR1(extra);
+  if (admissible.length === 0) return base;
+  const byKey = new Map(base.byKey);
+  for (const [key, group] of groupObservationsByKey(admissible)) {
+    const existing = byKey.get(key);
+    byKey.set(key, existing === undefined ? group : [...existing, ...group]);
+  }
+  return { byKey, estimateCache: new Map() };
+}
+
+/**
+ * Deterministic per-key estimate. A pure function of (group, config, nowMs);
+ * the memo inside the prepared index only skips recomputation when the
+ * fingerprint of every input matches, so results are bitwise identical to
+ * recomputing from scratch.
+ */
+export function estimateForKey(
+  prepared: PreparedR1Observations,
+  config: PosteriorConfig,
+  nowMs: number,
+  parts: OutcomeKeyParts
+): R1KeyEstimate {
+  const key = outcomeKey(parts);
+  const fingerprint = estimateFingerprint(config, nowMs);
+  const hit = prepared.estimateCache.get(key);
+  if (hit !== undefined && hit.fingerprint === fingerprint) {
+    return hit.estimate;
+  }
+  const posterior = updatePosterior(config, prepared.byKey.get(key) ?? [], nowMs);
+  const estimate: R1KeyEstimate = {
+    key,
+    alpha: posterior.alpha,
+    beta: posterior.beta,
+    mean: posteriorMean(posterior),
+    lcb: lowerConfidenceBound(config, posterior),
+    samples: weightedSampleSize(config, posterior),
+    wellSampled: isWellSampled(config, posterior),
+  };
+  prepared.estimateCache.set(key, { fingerprint, estimate });
+  return estimate;
+}
+
+function estimateFingerprint(config: PosteriorConfig, nowMs: number): string {
+  return `${nowMs}|${config.priorAlpha}|${config.priorBeta}|${config.halfLifeMs}|${config.minSamples}|${config.lcbZ}|${config.lcbKind}`;
 }
 
 export { outcomeKey };

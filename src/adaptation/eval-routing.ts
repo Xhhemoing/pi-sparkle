@@ -6,15 +6,13 @@ import { hash32 } from "../domain/hash.js";
 import { isAgentRole, type AgentRole } from "../domain/roles.js";
 import { isCandidateId, parseTaskId, type CandidateId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
-import { createEvaluationCard } from "../experiments/evaluation-card.js";
 import {
-  computeComparisonReport,
   DEFAULT_COMPARISON_REPORT_CONFIG,
-  validateComparisonReport,
   type ComparisonReport,
   type ComparisonReportConfig,
   type PairedEvaluationRecord
 } from "../experiments/comparison-report.js";
+import { gatedComparisonReport } from "../experiments/gated-comparison.js";
 import { createIsolationGuard } from "../experiments/isolation.js";
 import { stableStringify } from "../experiments/manifest.js";
 import { replayCacheKey } from "../experiments/replay.js";
@@ -44,8 +42,6 @@ const REPLAY_COMPARISON_CONFIG: ComparisonReportConfig = {
   ...DEFAULT_COMPARISON_REPORT_CONFIG,
   evidenceClass: "simulation"
 };
-
-const IMPROVEMENT_CLAIM = /improve|outperform|better|regret/i;
 
 export interface RoutingEvalRequest {
   readonly stateRoot: string;
@@ -409,59 +405,10 @@ function pairedRecords(
 }
 
 function gatedComparison(records: readonly PairedEvaluationRecord[]): ComparisonReport {
-  const card = cardFromRecords(records);
-  const report = computeComparisonReport(records, card, [], REPLAY_COMPARISON_CONFIG);
-  const validation = validateComparisonReport(report, REPLAY_COMPARISON_CONFIG);
-  if (validation.valid) {
-    return report;
-  }
-  const stripped = report.claims.filter((claim) => !IMPROVEMENT_CLAIM.test(claim));
-  const retry = computeComparisonReport(records, card, stripped, REPLAY_COMPARISON_CONFIG);
-  const retryValidation = validateComparisonReport(retry, REPLAY_COMPARISON_CONFIG);
-  if (!retryValidation.valid) {
-    throw new DomainValidationError(
-      `comparison report invalid: ${retryValidation.reasons.join("; ")}`
-    );
-  }
-  return retry;
-}
-
-function cardFromRecords(records: readonly PairedEvaluationRecord[]) {
-  const domains = [...new Set(records.map((record) => record.taskFamily))];
-  const baselineUtilities = records.map((record) => record.baselineUtility);
-  const candidateUtilities = records.map((record) => record.candidateUtility);
-  const baselineCosts = records.map((record) => record.baselineCostUsd);
-  const candidateCosts = records.map((record) => record.candidateCostUsd);
-  return createEvaluationCard({
-    domains,
-    difficultyTiers: ["replay"],
-    metrics: ["utility", "cost"],
-    baseline: {
-      utility: mean(baselineUtilities),
-      costUsd: mean(baselineCosts),
-      uncertainty: sampleStandardError(baselineUtilities)
-    },
-    candidate: {
-      utility: mean(candidateUtilities),
-      costUsd: mean(candidateCosts),
-      uncertainty: sampleStandardError(candidateUtilities)
-    },
-    guardrailViolations: []
+  return gatedComparisonReport({
+    records,
+    claims: [],
+    config: REPLAY_COMPARISON_CONFIG,
+    difficultyTier: "replay"
   });
-}
-
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function sampleStandardError(values: readonly number[]): number {
-  if (values.length < 2) {
-    return 0;
-  }
-  const average = mean(values);
-  let variance = 0;
-  for (const value of values) {
-    variance += (value - average) * (value - average);
-  }
-  return Math.sqrt(variance / (values.length - 1)) / Math.sqrt(values.length);
 }

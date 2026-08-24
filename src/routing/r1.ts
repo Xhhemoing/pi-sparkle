@@ -1,14 +1,10 @@
 import type { R0Decision } from "./r0.js";
-import { observationsForR1, type OutcomeObservation } from "./outcomes.js";
-import type { PosteriorConfig } from "./posterior.js";
+import type { OutcomeObservation } from "./outcomes.js";
+import type { PosteriorConfig, PreparedR1Observations } from "./posterior.js";
 import {
   DEFAULT_POSTERIOR_CONFIG,
-  isWellSampled,
-  lowerConfidenceBound,
-  observationsForKey,
-  posteriorMean,
-  updatePosterior,
-  weightedSampleSize,
+  estimateForKey,
+  prepareR1Observations,
 } from "./posterior.js";
 import type { ModelDescriptor } from "./capability-registry.js";
 
@@ -23,7 +19,11 @@ export interface R1Input {
   readonly featureVersion: string;
   /** Eligible models, same source as R0 — no hidden global registry state. */
   readonly models: readonly ModelDescriptor[];
-  readonly observations: readonly OutcomeObservation[];
+  /**
+   * Raw observations, or an index built once with `prepareR1Observations`
+   * when many shadow calls share the same frozen observation set.
+   */
+  readonly observations: readonly OutcomeObservation[] | PreparedR1Observations;
   readonly config?: Partial<PosteriorConfig> | undefined;
   readonly nowMs: number;
   readonly qualityFloor?: number | undefined;
@@ -65,7 +65,6 @@ export function routeR1(input: R1Input): R1Decision {
   const qualityFloor = input.qualityFloor ?? DEFAULT_QUALITY_FLOOR;
   const hysteresisMargin = input.hysteresisMargin ?? DEFAULT_HYSTERESIS_MARGIN;
   const request = input.r0.request;
-  const observations = observationsForR1(input.observations);
 
   if (input.r0.selection === undefined) {
     return {
@@ -77,29 +76,22 @@ export function routeR1(input: R1Input): R1Decision {
     };
   }
 
+  const prepared = isPreparedObservations(input.observations)
+    ? input.observations
+    : prepareR1Observations(input.observations);
   const tierIds = [input.r0.selection, ...input.r0.fallbacks];
   const estimates: R1Estimate[] = [];
+  const modelsById = new Map(input.models.map((m) => [m.modelId, m]));
 
   for (const modelId of tierIds) {
-    const model = input.models.find((m) => m.modelId === modelId);
-    const parts = {
+    const model = modelsById.get(modelId);
+    const estimate = estimateForKey(prepared, config, input.nowMs, {
       taskFamily: request.taskFamily,
       role: input.role,
       modelVersion: model?.version ?? modelId,
       featureVersion: input.featureVersion,
-    };
-    const keyed = observationsForKey(observations, parts);
-    const posterior = updatePosterior(config, keyed, input.nowMs);
-    estimates.push({
-      modelId,
-      key: `${parts.taskFamily}|${parts.role}|${parts.modelVersion}|${parts.featureVersion}`,
-      alpha: posterior.alpha,
-      beta: posterior.beta,
-      mean: posteriorMean(posterior),
-      lcb: lowerConfidenceBound(config, posterior),
-      samples: weightedSampleSize(config, posterior),
-      wellSampled: isWellSampled(config, posterior),
     });
+    estimates.push({ modelId, ...estimate });
   }
 
   const sampled = estimates.filter((e) => e.wellSampled);
@@ -149,6 +141,12 @@ export function routeR1(input: R1Input): R1Decision {
     exploratory: false,
     fallback: false,
   };
+}
+
+function isPreparedObservations(
+  value: readonly OutcomeObservation[] | PreparedR1Observations
+): value is PreparedR1Observations {
+  return !Array.isArray(value);
 }
 
 function cheaperEstimate(left: R1Estimate, right: R1Estimate, r0: R0Decision): R1Estimate {

@@ -1,10 +1,8 @@
-import { DomainValidationError } from "../domain/errors.js";
 import type { EpisodeId, ProjectId, RunId } from "../domain/ids.js";
 import { isAgentRole } from "../domain/roles.js";
 import { hashCandidateContent } from "../adaptation/candidate.js";
-import { ResourceRegistry } from "../adaptation/registry.js";
 import {
-  loadAdaptationRegistry,
+  loadAdaptationRegistryOrNew,
   saveAdaptationRegistry,
   withAdaptationRegistryLock
 } from "../adaptation/promotion.js";
@@ -21,6 +19,7 @@ import {
   type OutcomeObservation
 } from "../routing/outcomes.js";
 import {
+  ensureRoutingBaseline,
   routingPolicyContent,
   routingPolicyIdentity,
   type LearnedAvoid,
@@ -103,27 +102,13 @@ export async function proposeRoutingFromOutcomes(
   const contentHash = hashCandidateContent(content);
   const identity = routingPolicyIdentity(input.projectRoot);
   const result = await withAdaptationRegistryLock(input.stateRoot, async () => {
-    let registry: ResourceRegistry;
-    try {
-      registry = await loadAdaptationRegistry(input.stateRoot);
-    } catch (error) {
-      if (!(error instanceof DomainValidationError) || !/no registry snapshot/.test(error.message)) {
-        throw error;
-      }
-      registry = new ResourceRegistry();
-    }
-    let parent = registry.getActiveVersion(identity);
-    if (parent === undefined) {
-      parent = registry.registerBaseline({
-        identity,
-        content: routingPolicyContent({
-          primaryModelId: input.primaryModelId,
-          avoid: [],
-          prefer: []
-        }),
-        author: { kind: "detector", identity: "pi-sparkle-learn" }
-      });
-    }
+    const registry = await loadAdaptationRegistryOrNew(input.stateRoot);
+    const parent = ensureRoutingBaseline(
+      registry,
+      identity,
+      input.primaryModelId,
+      "pi-sparkle-learn"
+    );
     const existing = registry
       .candidatesFor(identity)
       .find((candidate) => candidate.contentHash === contentHash);
