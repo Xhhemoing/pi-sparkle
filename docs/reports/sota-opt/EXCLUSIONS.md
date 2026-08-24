@@ -234,3 +234,8 @@
 | S3-C-1 | X′WX 上三角累加+镜像 | 省项被镜像拷贝抵消，边际抖动 |
 | S3-C-2 | 融合单遍+per-key w / per-(key,y) z 去重 | 更慢；仅类型契约内等价 |
 | S3-C-3 | bootstrap 采样缓冲跨 draw 复用 | 分配级噪声 |
+| S3-E-1 | collectSignalsFromEvents 独立 if 链改互斥分派 + payload 提升 | E=41 八次测量异号，纯抖动 |
+| S3-E-2 | runAutoAdaptFromEvents 前置扫描去重 | 105–124ns；信任 context 跳过重推导发散 |
+| S3-E-3 | 分组循环冗余 Map.set 消除 | 公平副本对副本 ±8ns 抖动 |
+| S3-E-4 | updateProjectBandit arms/reward 双扫融合 | 八次七次更慢；锁内 I/O 支配 |
+| S3-E-5 | /unknown agent/i 字面量提升 | 1–6ns 深度亚噪声 |
