@@ -34,6 +34,23 @@ Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. 
 
 **Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back. Fable re-measured jsonlAppend 68.264ms; T7 must record its own same-VM baseline before optimizing. Two host-dependent doctor test failures are T9's to hermeticize.
 
+## Round 1 landings (all 10 slots reported success; parent gate next)
+
+| Slot | Result |
+|---|---|
+| T1 | Feedback `records.jsonl.lock`; cascade fail-closed on corrupt log |
+| T2 | `createInvocationSink` lock-timeout retry; flowchart `onInvocation` wired |
+| T3 | Shared `writeFileAtomic` unique temps; checkpoint+pause torn-write closed |
+| T4 | `validateEpisodeEvent`; settle under `episodes/<id>.lock` |
+| T5 | Pre-aborted execute short-circuit; no provider call after cancel |
+| T6 | Durable cancel set; `maxWallTimeMs` enforced |
+| T7 | jsonlAppend −36%, fsync −34% (same-VM bench); signatures frozen |
+| T8 | Seeded protocol fuzz; `assertAtMostOneTerminal` no TypeError escape |
+| T9 | Doctor `nodeVersion` inject; adaptation-plane transitive value-import closure |
+| T10 | SIGKILL crash probe: jsonl tail, checkpoint old-then-next, no-steal lock |
+
+Subagents do not git commit. Parent commits after each round.
+
 ---
 
 # Loop 2 — SOTA follow-on (2026-08-24)
