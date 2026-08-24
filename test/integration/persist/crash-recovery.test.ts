@@ -47,7 +47,7 @@ function runReducedProbe(): Promise<{
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
-    }, 9_000);
+    }, 14_000);
     child.once("close", (code, signal) => {
       clearTimeout(timeout);
       resolve({ code, signal, stderr, stdout, timedOut });
@@ -55,7 +55,7 @@ function runReducedProbe(): Promise<{
   });
 }
 
-test("real process kills preserve persistence recovery invariants", { timeout: 10_000 }, async () => {
+test("real process kills preserve persistence recovery invariants", { timeout: 15_000 }, async () => {
   const result = await runReducedProbe();
   assert.equal(result.timedOut, false);
   assert.equal(result.signal, null);
@@ -75,7 +75,10 @@ test("real process kills preserve persistence recovery invariants", { timeout: 1
     [
       { iterations: 1, name: "jsonl-truncated-tail", ok: true },
       { iterations: 1, name: "checkpoint-old-then-next-write", ok: true },
-      { iterations: 1, name: "stale-lock-no-steal", ok: true }
+      { iterations: 1, name: "stale-lock-no-steal", ok: true },
+      { iterations: 1, name: "feedback-cascade-strip-before-tombstone", ok: true },
+      { iterations: 1, name: "episode-settle-stale-lock-recovery", ok: true },
+      { iterations: 1, name: "atomic-write-stale-unique-temp", ok: true }
     ]
   );
 });

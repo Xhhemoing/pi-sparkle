@@ -2,9 +2,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, open, rename, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { tsImport } from "tsx/esm/api";
@@ -18,18 +19,18 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function publishSentinel(sentinelPath) {
+async function publishSentinel(sentinelPath, contents = `${process.pid}\n`) {
   const handle = await open(sentinelPath, "wx");
   try {
-    await handle.writeFile(`${process.pid}\n`, "utf8");
+    await handle.writeFile(contents, "utf8");
     await handle.sync();
   } finally {
     await handle.close();
   }
 }
 
-async function signalAndKill(sentinelPath) {
-  await publishSentinel(sentinelPath);
+async function signalAndKill(sentinelPath, contents) {
+  await publishSentinel(sentinelPath, contents);
   process.kill(process.pid, "SIGKILL");
   await sleep(CHILD_TIMEOUT_MS);
   throw new Error("SIGKILL did not terminate crash-probe child");
@@ -68,6 +69,104 @@ async function runChild(mode, payload) {
     );
     await withExclusiveFileLock(payload.lockPath, async () => {
       await signalAndKill(payload.sentinelPath);
+    });
+    return;
+  }
+
+  if (mode === "feedback-cascade") {
+    const { cascadeFeedbackTombstones } = await tsImport(
+      "../src/privacy/deletion.ts",
+      import.meta.url
+    );
+    const { readFeedbackRecordsRaw } = await tsImport(
+      "../src/feedback/store.ts",
+      import.meta.url
+    );
+
+    // The tombstone path is a FIFO. This writer pairs with the cascade's
+    // initial tombstone read, then closes; the later tombstone write blocks
+    // with no reader after the feedback rewrite has completed.
+    const seedTombstones = writeFile(payload.tombstonePath, "[]\n", "utf8");
+    void seedTombstones.catch(() => undefined);
+    const monitor = (async () => {
+      const deadline = Date.now() + CHILD_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        try {
+          const records = await readFeedbackRecordsRaw(payload.stateRoot);
+          const target = records.find((record) => record.id === payload.feedbackId);
+          if (target !== undefined && target.body === undefined && target.summary === undefined) {
+            await signalAndKill(
+              payload.sentinelPath,
+              `${JSON.stringify({ pid: process.pid, phase: "feedback-stripped" })}\n`
+            );
+          }
+        } catch {
+          // A lock-free read may overlap writeFile's truncate/write interval.
+          // Retry until the complete stripped row is publicly readable.
+        }
+        await sleep(2);
+      }
+      throw new Error("feedback cascade never exposed its stripped record");
+    })();
+
+    await Promise.race([
+      cascadeFeedbackTombstones(payload.stateRoot, payload.episodeId).then(() => {
+        throw new Error("feedback cascade completed instead of blocking before tombstones");
+      }),
+      monitor
+    ]);
+    return;
+  }
+
+  if (mode === "episode-settle") {
+    const { createEventId } = await tsImport("../src/domain/ids.ts", import.meta.url);
+    const { nowIso } = await tsImport("../src/domain/timestamp.ts", import.meta.url);
+    const { settleBoundEpisode } = await tsImport(
+      "../src/run/episode-bind.ts",
+      import.meta.url
+    );
+    await settleBoundEpisode({
+      stateRoot: payload.stateRoot,
+      events: payload.events,
+      status: "FAILED",
+      append: async (event) => {
+        assert.equal(event.type, "EPISODE_CLOSED");
+        await signalAndKill(
+          payload.sentinelPath,
+          `${JSON.stringify({ pid: process.pid, phase: "terminal-snapshot-appended" })}\n`
+        );
+      },
+      make: (type, eventPayload) => ({
+        id: createEventId(),
+        schemaVersion: 1,
+        occurredAt: nowIso(),
+        runId: payload.runId,
+        type,
+        actor: "crash-probe",
+        payload: eventPayload
+      })
+    });
+    return;
+  }
+
+  if (mode === "atomic-write") {
+    const { writeFileAtomic } = await tsImport(
+      "../src/persist/atomic-file.ts",
+      import.meta.url
+    );
+    await writeFileAtomic(payload.destinationPath, payload.contents, {
+      uniqueSuffix: () => payload.uniqueSuffix,
+      rename: async (source, destination) => {
+        await signalAndKill(
+          payload.sentinelPath,
+          `${JSON.stringify({
+            pid: process.pid,
+            phase: "before-atomic-rename",
+            source,
+            destination
+          })}\n`
+        );
+      }
     });
     return;
   }
@@ -139,6 +238,16 @@ async function runKilledChild(mode, payload) {
   }
 }
 
+async function createFifo(path) {
+  await mkdir(dirname(path), { recursive: true });
+  const child = spawn("mkfifo", ["-m", "600", path], { stdio: "ignore" });
+  const result = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  assert.deepEqual(result, { code: 0, signal: null }, `failed to create FIFO at ${path}`);
+}
+
 async function runCase(name, iterations, operation) {
   try {
     for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -177,6 +286,38 @@ async function runProbe(iterations) {
   );
   const { runtimeRoot } = await tsImport(
     "../src/privacy/state-layout.ts",
+    import.meta.url
+  );
+  const {
+    appendFeedback,
+    feedbackLogLockPath,
+    feedbackTombstonesPath,
+    readFeedbackRecordsRaw,
+    readFeedbackTombstoneIds
+  } = await tsImport("../src/feedback/store.ts", import.meta.url);
+  const { writeFileAtomic } = await tsImport(
+    "../src/persist/atomic-file.ts",
+    import.meta.url
+  );
+  const { createEpisodeId, createEventId, createProjectId, createRunId } = await tsImport(
+    "../src/domain/ids.ts",
+    import.meta.url
+  );
+  const { nowIso } = await tsImport(
+    "../src/domain/timestamp.ts",
+    import.meta.url
+  );
+  const {
+    bindEpisodeToRun,
+    episodeLockPath,
+    settleBoundEpisode
+  } = await tsImport("../src/run/episode-bind.ts", import.meta.url);
+  const { EpisodeStore } = await tsImport(
+    "../src/run/episode-store.ts",
+    import.meta.url
+  );
+  const { EpisodeEventStore } = await tsImport(
+    "../src/episode/store.ts",
     import.meta.url
   );
 
@@ -280,6 +421,219 @@ async function runProbe(iterations) {
           { timeoutMs: 120, retryMs: 5 }
         );
         assert.equal(recovered, "recovered");
+      })
+    );
+
+    cases.push(
+      await runCase("feedback-cascade-strip-before-tombstone", iterations, async (iteration) => {
+        const caseDir = join(root, "feedback-cascade", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const episodeId = createEpisodeId(() => `cascade_${iteration}`);
+        const otherEpisodeId = createEpisodeId(() => `cascade_other_${iteration}`);
+        const target = await appendFeedback(stateRoot, {
+          id: `feedback-cascade-${iteration}`,
+          episodeId,
+          kind: "human",
+          rubricVersion: "1",
+          score: 90,
+          evidenceRefs: [],
+          redacted: false,
+          createdAt: nowIso(),
+          body: `feedback body ${iteration}`,
+          summary: `feedback summary ${iteration}`
+        });
+        await appendFeedback(stateRoot, {
+          id: `feedback-unrelated-${iteration}`,
+          episodeId: otherEpisodeId,
+          kind: "peer",
+          rubricVersion: "1",
+          score: 70,
+          evidenceRefs: [],
+          redacted: false,
+          createdAt: nowIso(),
+          body: `unrelated body ${iteration}`,
+          summary: `unrelated summary ${iteration}`
+        });
+        assert.equal(target.body, `feedback body ${iteration}`);
+        assert.equal(target.summary, `feedback summary ${iteration}`);
+
+        const before = await readFeedbackRecordsRaw(stateRoot);
+        const stripped = before.map((record) => {
+          if (record.id !== target.id) return record;
+          return Object.fromEntries(
+            Object.entries(record).filter(([key]) => key !== "body" && key !== "summary")
+          );
+        });
+        const tombstonePath = feedbackTombstonesPath(stateRoot);
+        const sentinelPath = join(caseDir, "child-ready");
+        await createFifo(tombstonePath);
+
+        await runKilledChild("feedback-cascade", {
+          episodeId,
+          feedbackId: target.id,
+          sentinelPath,
+          stateRoot,
+          tombstonePath
+        });
+        await access(feedbackLogLockPath(stateRoot));
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "feedback-stripped");
+
+        // Removing the synchronization FIFO models recovery of the interrupted
+        // tombstone destination; no tombstone bytes were published into it.
+        await rm(tombstonePath);
+        const after = await readFeedbackRecordsRaw(stateRoot);
+        assert.ok(
+          isDeepStrictEqual(after, before) || isDeepStrictEqual(after, stripped),
+          "cascade crash exposed neither the complete old log nor the complete stripped log"
+        );
+        const tombstones = await readFeedbackTombstoneIds(stateRoot);
+        if (tombstones.has(target.id)) {
+          assert.deepEqual(after, stripped, "feedback was tombstoned before its free text was stripped");
+        }
+        assert.equal(tombstones.has(target.id), false);
+        await rm(feedbackLogLockPath(stateRoot));
+      })
+    );
+
+    cases.push(
+      await runCase("episode-settle-stale-lock-recovery", iterations, async (iteration) => {
+        const caseDir = join(root, "episode-settle", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const runId = createRunId(() => `settle_${iteration}`);
+        const events = [];
+        const make = (type, payload) => ({
+          id: createEventId(),
+          schemaVersion: 1,
+          occurredAt: nowIso(),
+          runId,
+          type,
+          actor: "crash-probe",
+          payload
+        });
+        const bound = await bindEpisodeToRun({
+          stateRoot,
+          runId,
+          projectId: createProjectId(() => `settle_${iteration}`),
+          objective: `crash settle ${iteration}`,
+          append: async (event) => {
+            events.push(event);
+          },
+          make
+        });
+        const snapshots = new EpisodeStore(stateRoot, bound.episodeId);
+        const episodeEvents = new EpisodeEventStore(stateRoot, bound.episodeId);
+        const sentinelPath = join(caseDir, "child-ready");
+
+        await runKilledChild("episode-settle", {
+          events,
+          runId,
+          sentinelPath,
+          stateRoot
+        });
+        const lockPath = episodeLockPath(stateRoot, bound.episodeId);
+        await access(lockPath);
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "terminal-snapshot-appended");
+        const terminalBeforeWaiter = (await snapshots.readAll()).episodes.filter((episode) =>
+          ["COMPLETED", "FAILED", "ABANDONED"].includes(episode.status)
+        );
+        assert.equal(terminalBeforeWaiter.length, 1);
+        assert.equal(terminalBeforeWaiter[0]?.status, "FAILED");
+
+        let waiterError;
+        try {
+          await settleBoundEpisode({
+            stateRoot,
+            events,
+            status: "FAILED",
+            append: async (event) => {
+              events.push(event);
+            },
+            make,
+            lockOptions: { timeoutMs: 120, retryMs: 5 }
+          });
+        } catch (error) {
+          waiterError = error;
+        }
+        assert.ok(waiterError instanceof Error);
+        assert.equal(waiterError.name, "DomainValidationError");
+        assert.match(waiterError.message, /timed out waiting for lock/);
+        assert.equal(
+          (await snapshots.readAll()).episodes.filter((episode) =>
+            ["COMPLETED", "FAILED", "ABANDONED"].includes(episode.status)
+          ).length,
+          1
+        );
+
+        await rm(lockPath);
+        await settleBoundEpisode({
+          stateRoot,
+          events,
+          status: "FAILED",
+          append: async (event) => {
+            events.push(event);
+          },
+          make,
+          lockOptions: { timeoutMs: 120, retryMs: 5 }
+        });
+        assert.equal(
+          (await snapshots.readAll()).episodes.filter((episode) =>
+            ["COMPLETED", "FAILED", "ABANDONED"].includes(episode.status)
+          ).length,
+          1
+        );
+        assert.equal(
+          (await episodeEvents.readAll()).events.filter((event) => event.type === "EPISODE_CLOSED")
+            .length,
+          1
+        );
+        assert.equal(events.filter((event) => event.type === "EPISODE_CLOSED").length, 0);
+      })
+    );
+
+    cases.push(
+      await runCase("atomic-write-stale-unique-temp", iterations, async (iteration) => {
+        const caseDir = join(root, "atomic-write", String(iteration));
+        await mkdir(caseDir, { recursive: true });
+        const destinationPath = join(caseDir, "value.json");
+        const sentinelPath = join(caseDir, "child-ready");
+        const oldContents = `${JSON.stringify({ generation: "old", iteration })}\n`;
+        const interruptedContents = `${JSON.stringify({
+          generation: "interrupted",
+          iteration,
+          filler: "x".repeat(100_000)
+        })}\n`;
+        const recoveredContents = `${JSON.stringify({ generation: "recovered", iteration })}\n`;
+        await writeFileAtomic(destinationPath, oldContents);
+
+        await runKilledChild("atomic-write", {
+          contents: interruptedContents,
+          destinationPath,
+          sentinelPath,
+          uniqueSuffix: `interrupted-${iteration}`
+        });
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "before-atomic-rename");
+        assert.equal(sentinel.destination, destinationPath);
+        assert.notEqual(sentinel.source, destinationPath);
+        const afterCrash = await readFile(destinationPath, "utf8");
+        assert.ok(
+          afterCrash === oldContents || afterCrash === interruptedContents,
+          "atomic destination contained bytes other than the complete old or new payload"
+        );
+        assert.equal(await readFile(sentinel.source, "utf8"), interruptedContents);
+
+        await writeFileAtomic(destinationPath, recoveredContents, {
+          uniqueSuffix: () => `interrupted-${iteration}`
+        });
+        assert.equal(await readFile(destinationPath, "utf8"), recoveredContents);
+        assert.equal(
+          await readFile(sentinel.source, "utf8"),
+          interruptedContents,
+          "the next writer adopted or modified the crashed writer's unique temp"
+        );
+        await rm(sentinel.source);
       })
     );
   } finally {
