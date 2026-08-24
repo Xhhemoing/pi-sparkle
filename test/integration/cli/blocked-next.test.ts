@@ -486,3 +486,55 @@ test("the block reads the newest RUN_BLOCKED and says so when no evidence was re
     "an empty demand is stated, not silently omitted"
   );
 });
+
+test("the formatter keeps the four-line prefix and never promotes discard to a fifth next", () => {
+  const runId = "run_prefix_freeze" as RunId;
+  const stateRoot = "/tmp/prefix-freeze";
+  const report = formatBlockedRunReport(runId, stateRoot, [
+    {
+      id: "evt_prefix_freeze" as EventId,
+      schemaVersion: 1,
+      occurredAt: TS,
+      runId,
+      type: "RUN_BLOCKED",
+      actor: "supervisor",
+      payload: { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_required"] }
+    }
+  ]);
+  const ordinary = [
+    `  next: pnpm cli inspect --run ${runId} --state-root ${stateRoot}`,
+    `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}`,
+    `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}`,
+    `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work`
+  ];
+
+  const assertFrozenRouting = (text: string): void => {
+    const routed = text
+      .split("\n")
+      .filter((line) => line.startsWith("  next: ") || line.startsWith("  note: "));
+    assert.deepEqual(routed.slice(0, ordinary.length), ordinary, text);
+    assert.equal(
+      routed.filter((line) => line.startsWith("  next: ")).length,
+      3,
+      "inspect, inject and unblock are the only next lines"
+    );
+    const discard = routed.find((line) => line.includes("--discard-executed"));
+    assert.ok(discard?.startsWith("  note: "), "discard is disclosure about unblock, not another remedy");
+  };
+
+  assertFrozenRouting(report);
+
+  const reordered = report.replace(
+    `${ordinary[0]}\n${ordinary[1]}\n`,
+    `${ordinary[1]}\n${ordinary[0]}\n`
+  );
+  assert.notEqual(reordered, report, "reorder mutation target must exist");
+  assert.throws(() => assertFrozenRouting(reordered), assert.AssertionError);
+
+  const fifthNext = report.replace(
+    "  note: if that unblock is refused",
+    "  next: if that unblock is refused"
+  );
+  assert.notEqual(fifthNext, report, "discard mutation target must exist");
+  assert.throws(() => assertFrozenRouting(fifthNext), assert.AssertionError);
+});

@@ -570,3 +570,49 @@ test("inspect --summary-json is refused for --episode", async () => {
   assert.equal(code, 1);
   assert.match(err.join(""), /only available with --run/);
 });
+
+test("rich child inspection state cannot add a fifth INSPECT_SUMMARY key", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const coordinator = new ChildCoordinator({
+      stateRoot,
+      executor: new SuccessChildExecutor(),
+      parentRunId: createRunId(seq),
+      project,
+      registry: createAgentProfileRegistry(defaultAgentProfiles()),
+      maxConcurrentTasks: 1,
+      now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+      generateId: seq
+    });
+    const runId = coordinator.parentRunId;
+    await seedParentRun(stateRoot, runId);
+    const outcome = await coordinator.startChildTask(
+      childInput(createTaskId(seq)),
+      new AbortController().signal
+    ).done;
+    assert.equal(outcome.outcome, "SUCCESS");
+
+    const richInspection = await inspectRun(stateRoot, runId);
+    assert.equal(richInspection.children.length, 1, "the fixture must carry summary-adjacent child state");
+    assert.ok(richInspection.children[0]?.terminalResult, "the terminal result is available to inspection");
+
+    const json = capture();
+    const code = await main(
+      ["inspect", "--run", runId, "--state-root", stateRoot, "--summary-json"],
+      json.io
+    );
+    assert.equal(code, 0, json.err.join(""));
+    const summary = JSON.parse(json.out.join("").trim()) as Record<string, unknown>;
+    assert.deepEqual(
+      Object.keys(summary),
+      SUMMARY_CONTRACT_KEYS,
+      "children, terminal results, and verification detail remain internal inspection state"
+    );
+    assert.deepEqual(summary, {
+      type: "INSPECT_SUMMARY",
+      runId,
+      status: "COMPLETED",
+      requiredEvidence: []
+    });
+  });
+});
