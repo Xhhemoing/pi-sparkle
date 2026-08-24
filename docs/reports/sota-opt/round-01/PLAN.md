@@ -2,6 +2,8 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：`cursor/sota-persistent-opt-83a1`。
 
+因云端异步 VM 上限为 3，本轮按 A+F+J → B+C+D → E+G+H → I 分波派出，目标仍是 10 区全覆盖。
+
 | 代号 | 范围 | 报告路径 |
 | --- | --- | --- |
 | R1-A | `src/tracking/`、`src/run/child-tracking.ts`、`src/run/gate-apply.ts` | `docs/reports/sota-opt/round-01/R1-A.md` |

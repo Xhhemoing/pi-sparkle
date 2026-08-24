@@ -7,11 +7,24 @@
 - 专属分支从 `origin/main` @ `4a59949` 拉出，并已干净合并 `cursor/three-line-opt-iter4-ae47`（Iter0–4 保行为优化 + 报告 + 等价仿真脚本）。
 - 不停轮。目标 ≥20 轮 × 10 子代理，之后仍继续。
 
+## 平台约束
+
+云端异步新 VM 上限为 **3**。第 1 轮仍按 10 区计划执行，分波派出，不缩减目标。模型一律 `claude-fable-5-thinking-xhigh`，未降级。
+
 ## 轮次
 
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | 派出中 | 10 | claude-fable-5-thinking-xhigh | 见 [round-01/PLAN.md](./round-01/PLAN.md) |
+| 1 | 第 1 波派出中 | 10（3 在跑 / 7 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
+
+### Round 1 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R1-A 跟踪门控、R1-F 实验门控、R1-J cluster/privacy/episode | 已派出 |
+| 2 | R1-B live 路由、R1-C 离线路由、R1-D 自优化 | 排队 |
+| 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | 排队 |
+| 4 | R1-I CLI/适配器 | 排队（第 4 波不满 3，空位留给第 2 轮） |
 
 ## 待合并 PR / 分支
 
