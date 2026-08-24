@@ -104,19 +104,50 @@ Every subagent report **must start with the actual model slug** on line 1.
 
 ## Round log
 
-### Round 1 — in progress (initial build + baseline)
+### Round 1 — complete (2026-08-24)
 
-Dispatched 6 concurrent `generalPurpose` tasks (2026-08-24). Reports land in `.agent_workspace/round1-*.md`.
+All 6 subagents returned. Requested slugs vs reports: fable pair `claude-fable-5-thinking-xhigh`; opus pair `claude-opus-5-thinking-high-fast`; gpt pair `gpt-5.6-sol-xhigh-fast`. No silent downgrade recorded in reports.
 
-| ID | Agent | Model requested | Task id |
+#### Shipped
+
+- **Pi pin 0.84.1 → 0.84.3** (`pi-agent-core` + `pi-ai`, matching pair). Adapter typecheck clean: consumed agent-core `.d.ts` is byte-identical; `GoogleThinkingLevel` rename was never imported; optional `toolChoice` already flows through the options spread. Adapter now exports `SparkleThinkingLevel` instead of leaking Pi's `ThinkingLevel` into CLI.
+- **Auxiliary `pi-sparkle pi-compat [--json] [--offline|--online]`** + doctor checks `pi-packages` / `pi-compat`. Library in `src/pi-compat/`. Offline-default; online fail-closed.
+- **Probes:** `scripts/pi-compat-probe.mjs`, `scripts/pi-latest-check.mjs` (offline / JSON / `--strict`).
+- **Docs:** `docs/how-to-adapt-to-pi.md`, `docs/reports/2026-08-24-pi-0843-gap-audit.md`.
+- **Overlay:** SKILL.md 0.84.3 section + `references/pi-version-adapt.md`; prompt `pi-bump` hint.
+- **Parent fix:** `test/unit/pi-boundary.test.ts` now matches import specifiers, not string mentions (unblocked `src/pi-compat` literals).
+
+#### Remaining defects
+
+- No CLI integration tests for `pi-compat` yet (library tests exist; `pnpm test -- test/unit/pi-compat` dir form hits Node `ERR_UNSUPPORTED_DIR_IMPORT`).
+- No `package.json` scripts wrapping the probe files.
+- No `--thinking` on `run` (env `PI_THINKING_LEVEL` only). Google models silently clamp `xhigh`/`max`.
+- Nested-skill 0.84.3 discovery is documented, not fixture-tested (must not look like a second skill under `.agents/skills/`).
+- `pi-ai` `ThinkingLevel` dropped `"off"` while agent-core kept it — watch on next bump.
+- Probe must stay adapter-source-only; do not re-widen to docs (legacy identifier in prose must not fail doctor).
+- This VM's Node may be 22.14 vs `engines >=22.19.0` — environmental doctor FAIL, not product.
+
+#### Round 2 focus (SOTA gap)
+
+1. CLI tests + npm script aliases + help/README/how-to flag alignment (`--online` vs contract).
+2. `--thinking` on `run`, documented vs TUI `/thinking`.
+3. Nested-skill + AGENTS.md discovery fixture under `test/`.
+4. Keep ADR-001/006: no extensions, no coding-agent dep, no PowerShell tool.
+5. Re-run `pnpm gate` after the boundary-test parent fix.
+
+### Round 2 — in progress (targeted refactor + deep optimization)
+
+Brief: `.agent_workspace/ROUND1-BRIEF.md` (inject into every R2 agent).
+
+| Agent | Model slug | Owns (write) | Must not touch |
 |---|---|---|---|
-| R1-fable-A | architecture / gap audit | `claude-fable-5-thinking-xhigh` | `bc-81f69ecd-d3ef-5d3d-b502-0924c21e1f5d` |
-| R1-fable-B | skill overlay 0.84.3 | `claude-fable-5-thinking-xhigh` | `bc-0aec13dd-a365-5b43-a7d9-430e2e5c1bb6` |
-| R1-opus-A | pin 0.84.3 + adapter | `claude-opus-5-thinking-high-fast` | `bc-a61dbd4e-5252-59ea-b9e9-2f6d1da956ac` |
-| R1-opus-B | `pi-compat` CLI + doctor | `claude-opus-5-thinking-high-fast` | `bc-c7d69e3b-af52-587d-a93d-5be4ce55189b` |
-| R1-gpt-A | probe scripts | `gpt-5.6-sol-xhigh-fast` | `bc-7aa32cdf-6bd6-5ca1-8945-f49fb182c1a9` |
-| R1-gpt-B | `src/pi-compat` + unit tests | `gpt-5.6-sol-xhigh-fast` | `bc-53335016-fbb8-5d1a-b432-c7445e77c207` |
+| R2-fable-A | `claude-fable-5-thinking-xhigh` | `docs/how-to-adapt-to-pi.md`, `docs/reports/**` (align flags, thinking, SOTA remainder), `.agent_workspace/round2-fable-a.md` | `src/`, `package.json` |
+| R2-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**`, `prompts/sparkle.md`, `.agent_workspace/round2-fable-b.md` | `src/`, `package.json` |
+| R2-opus-A | `claude-opus-5-thinking-high-fast` | `src/cli/main.ts` (`run --thinking` + USAGE), adapter runtime only if mapping required, `test/unit/cli/` tests for `--thinking`, `.agent_workspace/round2-opus-a.md` | `src/pi-compat/`, skills, `package.json` scripts |
+| R2-opus-B | `claude-opus-5-thinking-high-fast` | `test/unit/cli/pi-compat.test.ts`, doctor test appends, `package.json` scripts `pi-compat`/`pi:latest` only, `src/cli/pi-compat.ts` if export needed, `.agent_workspace/round2-opus-b.md` | `src/cli/main.ts`, `src/pi-adapter/` |
+| R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**` (nested + AGENTS.md fixtures), fixture tests, script edge cases under `scripts/`, `.agent_workspace/round2-gpt-a.md` | `src/cli/main.ts`, `package.json` |
+| R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/check.ts` (derive names from dep keys if still hardcoded; keep probe adapter-only), `test/unit/pi-compat/**`, `.agent_workspace/round2-gpt-b.md` | `src/cli/main.ts`, `src/pi-adapter/` |
 
-### Round 2 — pending
+Do not git commit. Parent commits after the round.
 
 ### Round 3 — pending

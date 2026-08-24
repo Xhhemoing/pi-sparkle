@@ -1,6 +1,6 @@
 ---
 description: Audit Pi harness health with the pi-sparkle diagnostic skill.
-argument-hint: "[focus: bloat | evidence | drift | prompts]"
+argument-hint: "[focus: bloat | evidence | drift | prompts | pi-bump]"
 ---
 
 Use the `pi-sparkle` skill for this request. Read

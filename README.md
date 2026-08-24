@@ -143,7 +143,8 @@ pnpm cli run \
 | `pnpm cli adapt status` | Show the proposal-first adaptation plane (never mutates a live run) |
 | `pnpm cli adapt learn --run <runId>` | Propose a routing-policy candidate from MODEL_ROUTED events |
 | `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` still collects) |
-| `pnpm cli doctor [--project <path>]` | Developer-preview preflight (Node, pnpm, state-root, providers). Not a production capability |
+| `pnpm cli doctor [--project <path>]` | Developer-preview preflight (Node, pnpm, state-root, providers, plus `pi-packages` / `pi-compat`). Not a production capability |
+| `pnpm cli pi-compat [--json] [--offline]` | Offline-first report of the pinned Pi packages against the adapter contract; `--online` adds npm dist-tags and fails closed. Exit 1 only on a broken adapter contract |
 | `pnpm test` | Run the full test suite |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
 

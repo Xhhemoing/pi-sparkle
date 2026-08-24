@@ -83,6 +83,34 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
   `understand` vs `graphify`, `scenario-skill-router` vs `using-superpowers`.
 - Verified: append, kill switch (PI_SKILL_ROUTE_LOG=0), doctor ok/corrupt paths, audit aggregation
 
+## Pi 0.84.3 Adaptation (2026-08-24)
+
+Latest published Pi as of this date is **0.84.3**. Do not trust prose for the
+live pin — read `package.json` (`@earendil-works/pi-agent-core` /
+`@earendil-works/pi-ai`) or run `pi-sparkle pi-compat --offline`. Behavior
+changes in 0.84.3 that matter to this overlay:
+
+- **Nested skill discovery:** Markdown skills inside `.agents/skills/`
+  grouping directories are now discovered. Our flat layout
+  (`.agents/skills/pi-sparkle/SKILL.md`) is unchanged and still discovered.
+  Do not split this overlay into nested sub-skills — that is skill bloat,
+  not adaptation.
+- **Root Markdown no longer "broken skills":** `README.md` / `AGENTS.md` at
+  the root of a skill directory are no longer reported as broken skills
+  unless they declare skill frontmatter. Any audit finding on Pi ≥ 0.84.3
+  that flags such files as broken is stale — re-probe before reporting it.
+- **Thinking level:** the Pi TUI now has a `/thinking` selector
+  (session-scoped; Ctrl+S saves it). This package's runtime is configured via
+  `PI_THINKING_LEVEL`. They are separate knobs; do not report one as drift of
+  the other.
+- **Still no extension:** ADR-006 remains Proposed. `/sparkle` stays a prompt
+  template; this overlay registers no extension commands or session
+  listeners, so 0.84.3 extension-event additions (e.g.
+  `session_compact_failed`) are out of scope here.
+
+On any Pi version bump, run the checklist in references/pi-version-adapt.md
+(it counts toward the 1–2 reference cap).
+
 ## Routing to References
 
 - references/skill-bloat.md — detection, pruning, usage metrics
@@ -91,6 +119,7 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - references/meta-skill.md — harness-friction-analyzer spec
 - references/prompt-tuning.md — scenario-similarity router, dynamic composition, fit guardrails
 - references/agent-config.md — drift detection, tool-allowlist enforcement, subagent error patterns
+- references/pi-version-adapt.md — checklist for Pi version bumps (changelog, pin vs `pi --version`, skill discovery, doctor/pi-compat)
 
 ## Activation Rule
 Only load 1-2 references per invocation. After analysis, propose the smallest durable fix (new reference, router update, or meta-skill) rather than one-off patches.

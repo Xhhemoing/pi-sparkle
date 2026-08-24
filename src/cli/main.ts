@@ -69,6 +69,7 @@ import { injectCommand } from "./inject.js";
 import { authCommand } from "./auth.js";
 import { modelsCommand } from "./models.js";
 import { doctorCommand } from "./doctor.js";
+import { piCompatCommand } from "./pi-compat.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
@@ -205,6 +206,8 @@ const USAGE = `pi-sparkle — project-development multi-agent runtime (developer
 Usage:
   pi-sparkle --version
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>]
+  pi-sparkle pi-compat [--json] [--offline]
+  pi-sparkle pi-compat --online [--json]
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--state-root <dir>]
@@ -1430,6 +1433,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await injectCommand(rest, io);
       case "doctor":
         return await doctorCommand(rest, io);
+      case "pi-compat":
+        return await piCompatCommand(rest, io);
       case "version":
       case "--version":
       case "-V":
