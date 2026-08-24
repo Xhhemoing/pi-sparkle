@@ -1,3 +1,26 @@
+# Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)
+
+- **Branch:** `agent/opt-continuous`
+- **Parent:** Cursor Grok 4.6 orchestrator (20+ round × 10-agent loop)
+- **Base:** `main` @ `2a921ee` (PR #6 Loop 2 merged)
+- **Started:** 2026-08-24
+- **Quality bar:** measurable ≥5% for perf; defensive tests on every landing; no cosmetic refactors
+- **Forbidden:** live R1/bandit/topology, Outcome-supported, ADR-006 Accepted, P0 sign-off, auto-promote, silent cross-family model fallback
+
+## Protocol
+
+Each round: fable audit → 10 concurrent landings (opus-fast + gpt-sol) → parent `pnpm gate` + benches → fable review → commit/push/PR. Subagents do **not** git commit. Saturation: if a module gains <2% for 2 consecutive rounds, move to I/O, races, protocol, or disaster recovery.
+
+## Seed residuals (not yet on main)
+
+Loop 3 draft (`agent/sota-opt-loop3-7e63`) claimed but has not landed: INSPECT_SUMMARY freeze; feedback append/rewrite lock; invocation lock-timeout retry; adaptation-plane import closure. Treat as open until present on this branch. Do not claim Loop 3 files if that PR lands first — rebase and retarget.
+
+## Round 1 — in flight
+
+Awaiting fable audit (`claude-fable-5-thinking-xhigh`) for 10 mutually exclusive tasks.
+
+---
+
 # Loop 2 — SOTA follow-on (2026-08-24)
 
 - **Branch:** `agent/sota-opt-next-7e63`
