@@ -58,6 +58,7 @@
 - S1-I `run --children` 复用 `smartChildPlan` 已校准 live 目录（见 round-01/R1-I.md）
 - S2-C offline-logit IRLS 规范键 eta/mu 去重（见 round-02/R2-C.md）
 - S3-C offline-logit IRLS 累加循环单位乘法消除（0/1 设计下 `w*xi[a]*xi[b]`/`w*xi[a]*z` 逐位等于 `w`/`w*z`；见 round-03/R3-C.md）
+- S4-C `solveSymmetric` 消元/回代循环不变量引用提升（`m[row]`/`m[col]`/`x[col]` 提升为局部引用；浮点运算集合与顺序不变；见 round-04/R4-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -273,6 +274,12 @@
 | S4-B-3 | 成功路径共享冻结空 failures 单例 | 跨候选身份可观察改变 |
 | S4-B-4 | assignPlanned 直接传 task 作 options | 143–215µs/批噪声带 |
 | S4-B-5 | assignTasks 批内共享可变 route-input 骨架 | 232–349µs + S3-B-6 同护栏 |
+| S4-C-1 | solveSymmetric 消元 k 循环死存储跳过（起点 col+1） | 双向抖动（+80/−50 ms） |
+| S4-C-2 | solveSymmetric 扁平 Float64Array 内部表示（偏移表 / 行拷贝交换） | 实测 1720/1585 ms，劣于行引用提升 |
+| S4-C-3 | solveSymmetric 防御拷贝 map+spread 改 for+slice | 与赢家差 1.7 ms 噪声；拷贝存在性维持 |
+| S4-C-4 | APC off 向量每 fit scratch 缓冲复用 | 分配级；APC 全站点 ~19 ms 低于噪声带 |
+| S4-C-5 | irls 每 fit 预提取 ys 消除 rows[i].y 属性读 | 数 ms，亚噪声 |
+| S4-C-6 | IRLS 首迭代 eta/mu 常量短路（beta=0） | ~2 ms/报告，亚噪声 |
 | S4-D-1 | parseLedgerEntry 尾部条件 spread 消除 | 两次基准符号翻转，纯抖动 |
 | S4-D-2 | rollback 载入链双拷贝消除 | 别名泄漏反例 + 133–143ns |
 | S4-D-3 | evalRoutingPolicy registry/dataset 载入重叠 | 双故障/投机读发散；79–127µs |
