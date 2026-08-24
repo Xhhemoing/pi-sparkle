@@ -364,3 +364,8 @@
 | S6-B-3 | HIGH_RISK_RE 交替项频率重排 | 等价但实测零收益 |
 | S6-B-4 | 空 avoid/prefer 跳过 applyLearnedRouting | 一般契约发散；278–404µs |
 | S6-B-5 | 全目录长度守卫跳过 allowed-Set | 重复 id 放行 premium；自败 |
+| S6-D-1 | retire/assertAssignable 前置 isResourceVersionId 守卫消除 | ~48ns；防御纵深 |
+| S6-D-2 | beginPromotion 重复意图守卫消除 | fail-open 崩溃恢复反例；11–16ns |
+| S6-D-3 | replayAssignments undefined-assignment 守卫消除 | 符号翻转抖动；跨模块纵深 |
+| S6-D-4 | parseRegistrySnapshot identity intern | 身份 + 别名双反例；~160ns |
+| S6-D-5 | eval rerunHash 换更快同字节序列化 | 459–468µs；实现在切片外 |
