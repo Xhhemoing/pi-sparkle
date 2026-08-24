@@ -57,3 +57,15 @@
 ## 本战役新增
 
 由各轮子代理追加，格式：`S<轮次>-<区>-<n>`。
+
+| ID | 方案 | 原因 |
+| --- | --- | --- |
+| S1-A-1 | gate-apply `currentGateStatus` 反向扫描早退 | 等价但 E=41 每 run 省 318ns，噪声 |
+| S1-A-2 | from-child 复用外层 prescore | 噪声 + 公开注入口风险 |
+| S1-A-3 | human-score matchAll 早退/惰性「分」匹配 | 单句输入噪声 |
+| S1-A-4 | prescore 循环融合 + Set 化 | 等价但实测更慢 |
+| S1-A-5 | roller confirmedDecisions 过滤 Set 化 | 个位数，实测持平 |
+| S1-A-6 | gates shouldEscalateMinors 单遍融合 | minors≤6，亚噪声 |
+| S1-A-7 | turn.ts anomalyCodes 别名省略拷贝 | 可观察对象身份改变，零收益 |
+| S1-A-8 | types evidenceWeight/枚举 Map/Set | 表长≤9，噪声 |
+| S1-A-9 | nextTrackingSeq 反向扫描 | 不等价：乱序 seq 发散 |
