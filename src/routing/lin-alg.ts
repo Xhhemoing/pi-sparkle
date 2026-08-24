@@ -12,6 +12,13 @@ import { DomainValidationError } from "../domain/errors.js";
  * targets the identical memory in the identical order. The float operation
  * set, values, and order are unchanged — the hoists only drop redundant
  * outer-array loads that the JIT does not eliminate on its own.
+ *
+ * The elimination k loop is unrolled by four with an in-order remainder:
+ * the bodies execute for k, k+1, k+2, k+3 in exactly the source order of
+ * the rolled loop (no reordering, no extra or missing iterations), so the
+ * sequence of loads, float operations, and stores is identical instruction
+ * for instruction — only the per-element loop increment/compare/branch
+ * overhead is amortized, which the JIT does not do on its own here.
  */
 export function solveSymmetric(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
@@ -50,7 +57,15 @@ export function solveSymmetric(a: readonly (readonly number[])[], b: readonly nu
       const rowArr = m[row]!;
       const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
-      for (let k = col; k < n; k++) {
+      let k = col;
+      const stop = n - 3;
+      for (; k < stop; k += 4) {
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+        rowArr[k + 1] = rowArr[k + 1]! - factor * colArr[k + 1]!;
+        rowArr[k + 2] = rowArr[k + 2]! - factor * colArr[k + 2]!;
+        rowArr[k + 3] = rowArr[k + 3]! - factor * colArr[k + 3]!;
+      }
+      for (; k < n; k++) {
         rowArr[k] = rowArr[k]! - factor * colArr[k]!;
       }
       x[row] = x[row]! - factor * xCol;

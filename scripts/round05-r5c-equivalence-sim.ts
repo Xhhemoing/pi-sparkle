@@ -1,42 +1,48 @@
 /**
- * Round 4 / R4-C equivalence & performance simulation (offline routing slice).
+ * Round 5 / R5-C equivalence & performance simulation (offline routing slice).
  *
- * The R4-C edit lives entirely in `src/routing/lin-alg.ts`: loop-invariant
- * reference hoisting inside `solveSymmetric`. A CPU profile of the perf
- * fixture shows the Gaussian-elimination kernel holds ~77% of the whole
- * `fitLogitAdditive` self time, and the JIT does not hoist the `m[col]` /
- * `m[row]` / `x[col]` loads out of the elimination loops on its own (the
- * element stores conservatively kill them). Hoisting them is pure code
- * motion: no statement between the hoist point and the last use reassigns
- * `m[col]`, `m[row]`, or `x[col]` (the pivot swap runs before the hoist and
- * elimination writes only touch elements of rows strictly below `col`), so
- * every read and write targets the identical memory in the identical order
- * and the float operation set/values/order are unchanged — bitwise-identical
- * outputs by construction. This is the same transform S3-C landed for the
- * IRLS accumulation (`xtwx[a]` row hoist), applied to the dominant kernel.
+ * The R5-C edit lives entirely in `src/routing/lin-alg.ts`: the elimination
+ * inner k loop of `solveSymmetric` is unrolled by four with an in-order
+ * remainder. A re-profile of the perf fixture after S4-C shows the kernel
+ * still holds ~65% of the whole `fitLogitAdditive` self time and runs
+ * ~644 million elimination iterations per report; the per-element loop
+ * increment/compare/branch overhead is the remaining non-float cost the JIT
+ * does not amortize on its own. Unrolling with in-order bodies is pure
+ * loop-control restructuring: the bodies execute for k, k+1, k+2, k+3 in
+ * exactly the source order of the rolled loop, with no reordering and no
+ * extra or missing iterations, so the sequence of loads, float operations,
+ * and stores is identical instruction for instruction — bitwise-identical
+ * outputs by construction, needing no lemma beyond "the loop body contains
+ * no break/continue".
  *
- * Variants raced for the single-winner adjudication:
- *   CTL     frozen ccd4ab4 (S3-C production) solveSymmetric, verbatim below
- *   PROD    production import (the landed R4-C winner)
- *   VAR-H2  winner embedded independently (colArr + rowArr + xCol hoists)
- *   VAR-H   hoists without xCol (dominated sibling)
- *   VAR-HD  H2 + dead-store skip (inner k loop starts at col+1; the
- *           eliminated m[row][col] is provably never read again) — measured
- *           SLOWER than H2, rejected
- *   VAR-F   flat Float64Array + Int32 row-offset table (O(1) swaps) — rejected
- *   VAR-FC  flat Float64Array + physical row-copy swaps — rejected
- *   VAR-H3  H2 + defensive copy restructured to for+slice — noise vs H2,
- *           rejected (copy stays verbatim `a.map(row => [...row])`)
+ * Variants raced for the single-winner adjudication (all bitwise-equal):
+ *   CTL     frozen 6b997f1 (S4-C production) solveSymmetric, verbatim below
+ *   PROD    production import (the landed R5-C winner)
+ *   U4      winner embedded independently (k-loop unroll x4 + remainder)
+ *   U2      k-loop unroll x2 — dominated (~+138 ms vs ctl, ~-100/-150 ms vs U4)
+ *   U8      k-loop unroll x8 — statistically tied with U4 (+9/+15 ms, below
+ *           the ±35 ms noise band), double the body for no provable gain
+ *   RP2     row-pair blocking (2 rows share colArr[k] loads) — measured
+ *           SLOWER than ctl in the multi-way race, rejected
+ *   RP4     row-quad blocking — tied with U4 within noise (+20/+25 ms,
+ *           consistent direction but below the band) and needs an extra
+ *           row-disjointness lemma (global op order changes; per-location
+ *           sequences are identical), rejected on audit position
+ *   RP2U2   row-pair + k unroll x2 — dominated by U4
+ *   RP4U2   row-quad + k unroll x2 — ties U4 (-4/-0.1 ms), register
+ *           pressure erases the combination, rejected
  *
  * Every check demands bitwise-identical floats (Object.is) and identical
  * structures/strings. The fit pipeline embedded below is the verbatim
  * current production `offline-logit.ts` (unchanged this round) parameterized
  * only by the solve function, so control-vs-variant diffs are exactly the
- * solve edits; production-import-vs-control diffs are exactly the R4-C edit.
+ * solve edits; production-import-vs-control diffs are exactly the R5-C edit.
  * Direct kernel checks additionally cover pivot-swap-forcing matrices,
  * asymmetric inputs, singular/non-finite/negative-zero/empty/1x1 inputs and
- * the non-square error path, which the fit-level fixtures cannot force.
- * Run with: npx tsx scripts/round04-r4c-equivalence-sim.ts
+ * the non-square error path, which the fit-level fixtures cannot force; the
+ * random kernel sizes n = 2..12 sweep every main/remainder split of the
+ * unrolled loop (trip counts 1..12).
+ * Run with: npx tsx scripts/round05-r5c-equivalence-sim.ts
  */
 
 import { fitLogitAdditive } from "../src/routing/offline-logit.js";
@@ -47,9 +53,9 @@ import { DomainValidationError } from "../src/domain/errors.js";
 
 type Solve = (a: readonly (readonly number[])[], b: readonly number[]) => number[] | null;
 
-/* ------------------------------------------------------------------ */
-/* Frozen ccd4ab4 (S3-C production) solveSymmetric — verbatim CONTROL. */
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------- */
+/* Frozen 6b997f1 (S4-C production) solveSymmetric — verbatim CONTROL.  */
+/* ------------------------------------------------------------------- */
 
 function ctlSolveSymmetric(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
@@ -62,7 +68,6 @@ function ctlSolveSymmetric(a: readonly (readonly number[])[], b: readonly number
   const eps = 1e-12;
 
   for (let col = 0; col < n; col++) {
-    // Partial pivot: largest |value| in this column at or below the diagonal.
     let pivotRow = col;
     let pivotAbs = Math.abs(m[col]![col]!);
     for (let row = col + 1; row < n; row++) {
@@ -81,22 +86,26 @@ function ctlSolveSymmetric(a: readonly (readonly number[])[], b: readonly number
       x[col] = x[pivotRow]!;
       x[pivotRow] = tb;
     }
-    const pivot = m[col]![col]!;
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
     for (let row = col + 1; row < n; row++) {
-      const factor = m[row]![col]! / pivot;
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
       for (let k = col; k < n; k++) {
-        m[row]![k] = m[row]![k]! - factor * m[col]![k]!;
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
       }
-      x[row] = x[row]! - factor * x[col]!;
+      x[row] = x[row]! - factor * xCol;
     }
   }
 
   const solution = new Array<number>(n).fill(0);
   for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
     let sum = x[row]!;
-    for (let k = row + 1; k < n; k++) sum -= m[row]![k]! * solution[k]!;
-    const diag = m[row]![row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
     if (Math.abs(diag) < eps) return null;
     solution[row] = sum / diag;
   }
@@ -136,19 +145,23 @@ function countingSolve(a: readonly (readonly number[])[], b: readonly number[]):
       x[col] = x[pivotRow]!;
       x[pivotRow] = tb;
     }
-    const pivot = m[col]![col]!;
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
     for (let row = col + 1; row < n; row++) {
-      const factor = m[row]![col]! / pivot;
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
-      for (let k = col; k < n; k++) m[row]![k] = m[row]![k]! - factor * m[col]![k]!;
-      x[row] = x[row]! - factor * x[col]!;
+      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      x[row] = x[row]! - factor * xCol;
     }
   }
   const solution = new Array<number>(n).fill(0);
   for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
     let sum = x[row]!;
-    for (let k = row + 1; k < n; k++) sum -= m[row]![k]! * solution[k]!;
-    const diag = m[row]![row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
     if (Math.abs(diag) < eps) return null;
     solution[row] = sum / diag;
   }
@@ -160,8 +173,8 @@ function countingSolve(a: readonly (readonly number[])[], b: readonly number[]):
 
 /* ----------------------------- variants ----------------------------- */
 
-/** Winner, embedded independently of the production import. */
-function varH2(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+/** Winner, embedded independently of the production import: k-loop unroll x4. */
+function varU4(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
   if (a.length !== n || a.some((row) => row.length !== n)) {
     throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
@@ -195,7 +208,17 @@ function varH2(a: readonly (readonly number[])[], b: readonly number[]): number[
       const rowArr = m[row]!;
       const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
-      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      let k = col;
+      const stop = n - 3;
+      for (; k < stop; k += 4) {
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+        rowArr[k + 1] = rowArr[k + 1]! - factor * colArr[k + 1]!;
+        rowArr[k + 2] = rowArr[k + 2]! - factor * colArr[k + 2]!;
+        rowArr[k + 3] = rowArr[k + 3]! - factor * colArr[k + 3]!;
+      }
+      for (; k < n; k++) {
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      }
       x[row] = x[row]! - factor * xCol;
     }
   }
@@ -214,8 +237,8 @@ function varH2(a: readonly (readonly number[])[], b: readonly number[]): number[
   return solution;
 }
 
-/** Hoists without xCol (dominated sibling). */
-function varH(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+/** k-loop unroll x2 (dominated sibling). */
+function varU2(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
   if (a.length !== n || a.some((row) => row.length !== n)) {
     throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
@@ -244,12 +267,85 @@ function varH(a: readonly (readonly number[])[], b: readonly number[]): number[]
     }
     const colArr = m[col]!;
     const pivot = colArr[col]!;
+    const xCol = x[col]!;
     for (let row = col + 1; row < n; row++) {
       const rowArr = m[row]!;
       const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
-      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
-      x[row] = x[row]! - factor * x[col]!;
+      let k = col;
+      const stop = n - 1;
+      for (; k < stop; k += 2) {
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+        rowArr[k + 1] = rowArr[k + 1]! - factor * colArr[k + 1]!;
+      }
+      for (; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      x[row] = x[row]! - factor * xCol;
+    }
+  }
+  const solution = new Array<number>(n).fill(0);
+  for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
+    let sum = x[row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
+    if (Math.abs(diag) < eps) return null;
+    solution[row] = sum / diag;
+  }
+  for (const value of solution) {
+    if (!Number.isFinite(value)) return null;
+  }
+  return solution;
+}
+
+/** k-loop unroll x8 (tied with U4 within noise; double the body, rejected). */
+function varU8(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+  const n = b.length;
+  if (a.length !== n || a.some((row) => row.length !== n)) {
+    throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
+  }
+  const m: number[][] = a.map((row) => [...row]);
+  const x: number[] = [...b];
+  const eps = 1e-12;
+  for (let col = 0; col < n; col++) {
+    let pivotRow = col;
+    let pivotAbs = Math.abs(m[col]![col]!);
+    for (let row = col + 1; row < n; row++) {
+      const abs = Math.abs(m[row]![col]!);
+      if (abs > pivotAbs) {
+        pivotAbs = abs;
+        pivotRow = row;
+      }
+    }
+    if (pivotAbs < eps) return null;
+    if (pivotRow !== col) {
+      const tmp = m[col]!;
+      m[col] = m[pivotRow]!;
+      m[pivotRow] = tmp;
+      const tb = x[col]!;
+      x[col] = x[pivotRow]!;
+      x[pivotRow] = tb;
+    }
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
+    for (let row = col + 1; row < n; row++) {
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
+      if (factor === 0) continue;
+      let k = col;
+      const stop = n - 7;
+      for (; k < stop; k += 8) {
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+        rowArr[k + 1] = rowArr[k + 1]! - factor * colArr[k + 1]!;
+        rowArr[k + 2] = rowArr[k + 2]! - factor * colArr[k + 2]!;
+        rowArr[k + 3] = rowArr[k + 3]! - factor * colArr[k + 3]!;
+        rowArr[k + 4] = rowArr[k + 4]! - factor * colArr[k + 4]!;
+        rowArr[k + 5] = rowArr[k + 5]! - factor * colArr[k + 5]!;
+        rowArr[k + 6] = rowArr[k + 6]! - factor * colArr[k + 6]!;
+        rowArr[k + 7] = rowArr[k + 7]! - factor * colArr[k + 7]!;
+      }
+      for (; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      x[row] = x[row]! - factor * xCol;
     }
   }
   const solution = new Array<number>(n).fill(0);
@@ -268,14 +364,13 @@ function varH(a: readonly (readonly number[])[], b: readonly number[]): number[]
 }
 
 /**
- * H2 + dead-store skip: the inner k loop starts at col+1, leaving the
- * eliminated m[row][col] at its pre-step value. That position is provably
- * never read again (pivot searches read later columns only, back
- * substitution reads the upper triangle only, swaps move whole row
- * references), so outputs stay bitwise identical — but the variant measured
- * SLOWER than H2 and is rejected.
+ * Row-pair blocking: two rows advance together and share the colArr[k]
+ * loads. The rows are independent (distinct arrays; colArr is read-only in
+ * the loop; x slots are disjoint), so every memory location still sees the
+ * identical read/write sequence with identical values even though the
+ * global interleaving differs. Measured SLOWER than ctl — rejected.
  */
-function varHD(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+function varRP2(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
   if (a.length !== n || a.some((row) => row.length !== n)) {
     throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
@@ -305,11 +400,36 @@ function varHD(a: readonly (readonly number[])[], b: readonly number[]): number[
     const colArr = m[col]!;
     const pivot = colArr[col]!;
     const xCol = x[col]!;
-    for (let row = col + 1; row < n; row++) {
+    let row = col + 1;
+    for (; row + 1 < n; row += 2) {
+      const r1 = m[row]!;
+      const r2 = m[row + 1]!;
+      const f1 = r1[col]! / pivot;
+      const f2 = r2[col]! / pivot;
+      if (f1 !== 0 && f2 !== 0) {
+        for (let k = col; k < n; k++) {
+          const c = colArr[k]!;
+          r1[k] = r1[k]! - f1 * c;
+          r2[k] = r2[k]! - f2 * c;
+        }
+        x[row] = x[row]! - f1 * xCol;
+        x[row + 1] = x[row + 1]! - f2 * xCol;
+      } else {
+        if (f1 !== 0) {
+          for (let k = col; k < n; k++) r1[k] = r1[k]! - f1 * colArr[k]!;
+          x[row] = x[row]! - f1 * xCol;
+        }
+        if (f2 !== 0) {
+          for (let k = col; k < n; k++) r2[k] = r2[k]! - f2 * colArr[k]!;
+          x[row + 1] = x[row + 1]! - f2 * xCol;
+        }
+      }
+    }
+    for (; row < n; row++) {
       const rowArr = m[row]!;
       const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
-      for (let k = col + 1; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
       x[row] = x[row]! - factor * xCol;
     }
   }
@@ -328,131 +448,14 @@ function varHD(a: readonly (readonly number[])[], b: readonly number[]): number[
   return solution;
 }
 
-/** Flat Float64Array + Int32 row-offset table (rejected: slower than H2). */
-function varF(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+/** Row-quad blocking (tied with U4 within noise; extra lemma, rejected). */
+function varRP4(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
   if (a.length !== n || a.some((row) => row.length !== n)) {
     throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
   }
-  const m = new Float64Array(n * n);
-  for (let i = 0; i < n; i++) m.set(a[i]! as number[], i * n);
-  const x = Float64Array.from(b);
-  const base = new Int32Array(n);
-  for (let i = 0; i < n; i++) base[i] = i * n;
-  const eps = 1e-12;
-  for (let col = 0; col < n; col++) {
-    let pivotRow = col;
-    let pivotAbs = Math.abs(m[base[col]! + col]!);
-    for (let row = col + 1; row < n; row++) {
-      const abs = Math.abs(m[base[row]! + col]!);
-      if (abs > pivotAbs) {
-        pivotAbs = abs;
-        pivotRow = row;
-      }
-    }
-    if (pivotAbs < eps) return null;
-    if (pivotRow !== col) {
-      const tmp = base[col]!;
-      base[col] = base[pivotRow]!;
-      base[pivotRow] = tmp;
-      const tb = x[col]!;
-      x[col] = x[pivotRow]!;
-      x[pivotRow] = tb;
-    }
-    const cBase = base[col]!;
-    const pivot = m[cBase + col]!;
-    const xCol = x[col]!;
-    for (let row = col + 1; row < n; row++) {
-      const rBase = base[row]!;
-      const factor = m[rBase + col]! / pivot;
-      if (factor === 0) continue;
-      for (let k = col; k < n; k++) m[rBase + k] = m[rBase + k]! - factor * m[cBase + k]!;
-      x[row] = x[row]! - factor * xCol;
-    }
-  }
-  const solution = new Array<number>(n).fill(0);
-  for (let row = n - 1; row >= 0; row--) {
-    const rBase = base[row]!;
-    let sum = x[row]!;
-    for (let k = row + 1; k < n; k++) sum -= m[rBase + k]! * solution[k]!;
-    const diag = m[rBase + row]!;
-    if (Math.abs(diag) < eps) return null;
-    solution[row] = sum / diag;
-  }
-  for (const value of solution) {
-    if (!Number.isFinite(value)) return null;
-  }
-  return solution;
-}
-
-/** Flat Float64Array + physical row-copy swaps (rejected: slower than H2). */
-function varFC(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
-  const n = b.length;
-  if (a.length !== n || a.some((row) => row.length !== n)) {
-    throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
-  }
-  const m = new Float64Array(n * n);
-  for (let i = 0; i < n; i++) m.set(a[i]! as number[], i * n);
-  const x = Float64Array.from(b);
-  const eps = 1e-12;
-  for (let col = 0; col < n; col++) {
-    let pivotRow = col;
-    let pivotAbs = Math.abs(m[col * n + col]!);
-    for (let row = col + 1; row < n; row++) {
-      const abs = Math.abs(m[row * n + col]!);
-      if (abs > pivotAbs) {
-        pivotAbs = abs;
-        pivotRow = row;
-      }
-    }
-    if (pivotAbs < eps) return null;
-    if (pivotRow !== col) {
-      const cOff = col * n;
-      const pOff = pivotRow * n;
-      for (let k = 0; k < n; k++) {
-        const tmp = m[cOff + k]!;
-        m[cOff + k] = m[pOff + k]!;
-        m[pOff + k] = tmp;
-      }
-      const tb = x[col]!;
-      x[col] = x[pivotRow]!;
-      x[pivotRow] = tb;
-    }
-    const cBase = col * n;
-    const pivot = m[cBase + col]!;
-    const xCol = x[col]!;
-    for (let row = col + 1; row < n; row++) {
-      const rBase = row * n;
-      const factor = m[rBase + col]! / pivot;
-      if (factor === 0) continue;
-      for (let k = col; k < n; k++) m[rBase + k] = m[rBase + k]! - factor * m[cBase + k]!;
-      x[row] = x[row]! - factor * xCol;
-    }
-  }
-  const solution = new Array<number>(n).fill(0);
-  for (let row = n - 1; row >= 0; row--) {
-    const rBase = row * n;
-    let sum = x[row]!;
-    for (let k = row + 1; k < n; k++) sum -= m[rBase + k]! * solution[k]!;
-    const diag = m[rBase + row]!;
-    if (Math.abs(diag) < eps) return null;
-    solution[row] = sum / diag;
-  }
-  for (const value of solution) {
-    if (!Number.isFinite(value)) return null;
-  }
-  return solution;
-}
-
-/** H2 + defensive copy via for+slice (noise vs H2, rejected). */
-function varH3(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
-  const n = b.length;
-  if (a.length !== n || a.some((row) => row.length !== n)) {
-    throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
-  }
-  const m: number[][] = new Array(n);
-  for (let i = 0; i < n; i++) m[i] = a[i]!.slice() as number[];
-  const x: number[] = b.slice() as number[];
+  const m: number[][] = a.map((row) => [...row]);
+  const x: number[] = [...b];
   const eps = 1e-12;
   for (let col = 0; col < n; col++) {
     let pivotRow = col;
@@ -476,7 +479,246 @@ function varH3(a: readonly (readonly number[])[], b: readonly number[]): number[
     const colArr = m[col]!;
     const pivot = colArr[col]!;
     const xCol = x[col]!;
+    let row = col + 1;
+    for (; row + 3 < n; row += 4) {
+      const r1 = m[row]!;
+      const r2 = m[row + 1]!;
+      const r3 = m[row + 2]!;
+      const r4 = m[row + 3]!;
+      const f1 = r1[col]! / pivot;
+      const f2 = r2[col]! / pivot;
+      const f3 = r3[col]! / pivot;
+      const f4 = r4[col]! / pivot;
+      if (f1 !== 0 && f2 !== 0 && f3 !== 0 && f4 !== 0) {
+        for (let k = col; k < n; k++) {
+          const c = colArr[k]!;
+          r1[k] = r1[k]! - f1 * c;
+          r2[k] = r2[k]! - f2 * c;
+          r3[k] = r3[k]! - f3 * c;
+          r4[k] = r4[k]! - f4 * c;
+        }
+        x[row] = x[row]! - f1 * xCol;
+        x[row + 1] = x[row + 1]! - f2 * xCol;
+        x[row + 2] = x[row + 2]! - f3 * xCol;
+        x[row + 3] = x[row + 3]! - f4 * xCol;
+      } else {
+        if (f1 !== 0) {
+          for (let k = col; k < n; k++) r1[k] = r1[k]! - f1 * colArr[k]!;
+          x[row] = x[row]! - f1 * xCol;
+        }
+        if (f2 !== 0) {
+          for (let k = col; k < n; k++) r2[k] = r2[k]! - f2 * colArr[k]!;
+          x[row + 1] = x[row + 1]! - f2 * xCol;
+        }
+        if (f3 !== 0) {
+          for (let k = col; k < n; k++) r3[k] = r3[k]! - f3 * colArr[k]!;
+          x[row + 2] = x[row + 2]! - f3 * xCol;
+        }
+        if (f4 !== 0) {
+          for (let k = col; k < n; k++) r4[k] = r4[k]! - f4 * colArr[k]!;
+          x[row + 3] = x[row + 3]! - f4 * xCol;
+        }
+      }
+    }
+    for (; row < n; row++) {
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
+      if (factor === 0) continue;
+      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      x[row] = x[row]! - factor * xCol;
+    }
+  }
+  const solution = new Array<number>(n).fill(0);
+  for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
+    let sum = x[row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
+    if (Math.abs(diag) < eps) return null;
+    solution[row] = sum / diag;
+  }
+  for (const value of solution) {
+    if (!Number.isFinite(value)) return null;
+  }
+  return solution;
+}
+
+/** Row-pair blocking + k unroll x2 (dominated by U4). */
+function varRP2U2(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+  const n = b.length;
+  if (a.length !== n || a.some((row) => row.length !== n)) {
+    throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
+  }
+  const m: number[][] = a.map((row) => [...row]);
+  const x: number[] = [...b];
+  const eps = 1e-12;
+  for (let col = 0; col < n; col++) {
+    let pivotRow = col;
+    let pivotAbs = Math.abs(m[col]![col]!);
     for (let row = col + 1; row < n; row++) {
+      const abs = Math.abs(m[row]![col]!);
+      if (abs > pivotAbs) {
+        pivotAbs = abs;
+        pivotRow = row;
+      }
+    }
+    if (pivotAbs < eps) return null;
+    if (pivotRow !== col) {
+      const tmp = m[col]!;
+      m[col] = m[pivotRow]!;
+      m[pivotRow] = tmp;
+      const tb = x[col]!;
+      x[col] = x[pivotRow]!;
+      x[pivotRow] = tb;
+    }
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
+    let row = col + 1;
+    for (; row + 1 < n; row += 2) {
+      const r1 = m[row]!;
+      const r2 = m[row + 1]!;
+      const f1 = r1[col]! / pivot;
+      const f2 = r2[col]! / pivot;
+      if (f1 !== 0 && f2 !== 0) {
+        let k = col;
+        const stop = n - 1;
+        for (; k < stop; k += 2) {
+          const c0 = colArr[k]!;
+          const c1 = colArr[k + 1]!;
+          r1[k] = r1[k]! - f1 * c0;
+          r1[k + 1] = r1[k + 1]! - f1 * c1;
+          r2[k] = r2[k]! - f2 * c0;
+          r2[k + 1] = r2[k + 1]! - f2 * c1;
+        }
+        for (; k < n; k++) {
+          const c = colArr[k]!;
+          r1[k] = r1[k]! - f1 * c;
+          r2[k] = r2[k]! - f2 * c;
+        }
+        x[row] = x[row]! - f1 * xCol;
+        x[row + 1] = x[row + 1]! - f2 * xCol;
+      } else {
+        if (f1 !== 0) {
+          for (let k = col; k < n; k++) r1[k] = r1[k]! - f1 * colArr[k]!;
+          x[row] = x[row]! - f1 * xCol;
+        }
+        if (f2 !== 0) {
+          for (let k = col; k < n; k++) r2[k] = r2[k]! - f2 * colArr[k]!;
+          x[row + 1] = x[row + 1]! - f2 * xCol;
+        }
+      }
+    }
+    for (; row < n; row++) {
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
+      if (factor === 0) continue;
+      for (let k = col; k < n; k++) rowArr[k] = rowArr[k]! - factor * colArr[k]!;
+      x[row] = x[row]! - factor * xCol;
+    }
+  }
+  const solution = new Array<number>(n).fill(0);
+  for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
+    let sum = x[row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
+    if (Math.abs(diag) < eps) return null;
+    solution[row] = sum / diag;
+  }
+  for (const value of solution) {
+    if (!Number.isFinite(value)) return null;
+  }
+  return solution;
+}
+
+/** Row-quad blocking + k unroll x2 (ties U4; register pressure, rejected). */
+function varRP4U2(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
+  const n = b.length;
+  if (a.length !== n || a.some((row) => row.length !== n)) {
+    throw new DomainValidationError("solveSymmetric requires a square matrix matching b");
+  }
+  const m: number[][] = a.map((row) => [...row]);
+  const x: number[] = [...b];
+  const eps = 1e-12;
+  for (let col = 0; col < n; col++) {
+    let pivotRow = col;
+    let pivotAbs = Math.abs(m[col]![col]!);
+    for (let row = col + 1; row < n; row++) {
+      const abs = Math.abs(m[row]![col]!);
+      if (abs > pivotAbs) {
+        pivotAbs = abs;
+        pivotRow = row;
+      }
+    }
+    if (pivotAbs < eps) return null;
+    if (pivotRow !== col) {
+      const tmp = m[col]!;
+      m[col] = m[pivotRow]!;
+      m[pivotRow] = tmp;
+      const tb = x[col]!;
+      x[col] = x[pivotRow]!;
+      x[pivotRow] = tb;
+    }
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
+    let row = col + 1;
+    for (; row + 3 < n; row += 4) {
+      const r1 = m[row]!;
+      const r2 = m[row + 1]!;
+      const r3 = m[row + 2]!;
+      const r4 = m[row + 3]!;
+      const f1 = r1[col]! / pivot;
+      const f2 = r2[col]! / pivot;
+      const f3 = r3[col]! / pivot;
+      const f4 = r4[col]! / pivot;
+      if (f1 !== 0 && f2 !== 0 && f3 !== 0 && f4 !== 0) {
+        let k = col;
+        const stop = n - 1;
+        for (; k < stop; k += 2) {
+          const c0 = colArr[k]!;
+          const c1 = colArr[k + 1]!;
+          r1[k] = r1[k]! - f1 * c0;
+          r1[k + 1] = r1[k + 1]! - f1 * c1;
+          r2[k] = r2[k]! - f2 * c0;
+          r2[k + 1] = r2[k + 1]! - f2 * c1;
+          r3[k] = r3[k]! - f3 * c0;
+          r3[k + 1] = r3[k + 1]! - f3 * c1;
+          r4[k] = r4[k]! - f4 * c0;
+          r4[k + 1] = r4[k + 1]! - f4 * c1;
+        }
+        for (; k < n; k++) {
+          const c = colArr[k]!;
+          r1[k] = r1[k]! - f1 * c;
+          r2[k] = r2[k]! - f2 * c;
+          r3[k] = r3[k]! - f3 * c;
+          r4[k] = r4[k]! - f4 * c;
+        }
+        x[row] = x[row]! - f1 * xCol;
+        x[row + 1] = x[row + 1]! - f2 * xCol;
+        x[row + 2] = x[row + 2]! - f3 * xCol;
+        x[row + 3] = x[row + 3]! - f4 * xCol;
+      } else {
+        if (f1 !== 0) {
+          for (let k = col; k < n; k++) r1[k] = r1[k]! - f1 * colArr[k]!;
+          x[row] = x[row]! - f1 * xCol;
+        }
+        if (f2 !== 0) {
+          for (let k = col; k < n; k++) r2[k] = r2[k]! - f2 * colArr[k]!;
+          x[row + 1] = x[row + 1]! - f2 * xCol;
+        }
+        if (f3 !== 0) {
+          for (let k = col; k < n; k++) r3[k] = r3[k]! - f3 * colArr[k]!;
+          x[row + 2] = x[row + 2]! - f3 * xCol;
+        }
+        if (f4 !== 0) {
+          for (let k = col; k < n; k++) r4[k] = r4[k]! - f4 * colArr[k]!;
+          x[row + 3] = x[row + 3]! - f4 * xCol;
+        }
+      }
+    }
+    for (; row < n; row++) {
       const rowArr = m[row]!;
       const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
@@ -500,8 +742,8 @@ function varH3(a: readonly (readonly number[])[], b: readonly number[]): number[
 }
 
 /* ------------------------------------------------------------------- */
-/* Verbatim current production fitLogitAdditive pipeline (S3-C form),   */
-/* parameterized only by the solve function.                            */
+/* Verbatim current production fitLogitAdditive pipeline (S3-C form,    */
+/* unchanged this round), parameterized only by the solve function.     */
 /* ------------------------------------------------------------------- */
 
 const MAX_ITER_DEFAULT = 50;
@@ -1044,12 +1286,13 @@ const fail = (line: string): void => {
 
 const KERNEL_VARIANTS: Array<[string, Solve]> = [
   ["prod", solveSymmetric],
-  ["H2", varH2],
-  ["H", varH],
-  ["HD", varHD],
-  ["F", varF],
-  ["FC", varFC],
-  ["H3", varH3],
+  ["U4", varU4],
+  ["U2", varU2],
+  ["U8", varU8],
+  ["RP2", varRP2],
+  ["RP4", varRP4],
+  ["RP2U2", varRP2U2],
+  ["RP4U2", varRP4U2],
 ];
 
 function scenarioKernel(): void {
@@ -1074,12 +1317,13 @@ function scenarioKernel(): void {
   cases.push({ label: "negzero-2x2", a: [[-0, 1], [1, -0]], b: [-0, 1] });
   // factor === 0 skip path.
   cases.push({ label: "zero-factor-3x3", a: [[2, 1, 0], [0, 3, 1], [4, 0, 5]], b: [1, 2, 3] });
-  // Tiny sizes.
+  // Tiny sizes (the unrolled main loop never runs below trip count 4).
   cases.push({ label: "one-by-one", a: [[5]], b: [10] });
   cases.push({ label: "one-by-one-singular", a: [[0]], b: [10] });
   cases.push({ label: "empty", a: [], b: [] });
-  // Random symmetric positive-definite-ish and asymmetric matrices, n = 2..12.
-  const r = fixtureRng(0x4c04);
+  // Random symmetric positive-definite-ish and asymmetric matrices, n = 2..12:
+  // sweeps every main/remainder split of the unrolled k loop (trips 1..12).
+  const r = fixtureRng(0x5c05);
   for (let t = 0; t < 30; t++) {
     const n = 2 + Math.floor(r() * 11);
     const sym: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
@@ -1122,7 +1366,8 @@ function scenarioKernel(): void {
   check("kernel.swap-coverage", swapCount > 0);
   out(
     `scenario 1 (direct kernel bitwise equivalence, ${cases.length + badInputs.length} matrices x ` +
-      `{production, H2, H, HD, F, FC, H3} vs frozen ccd4ab4 reference; pivot swaps exercised: ${swapCount})`
+      `{production, U4, U2, U8, RP2, RP4, RP2U2, RP4U2} vs frozen 6b997f1 reference; ` +
+      `pivot swaps exercised: ${swapCount})`
   );
 }
 
@@ -1215,17 +1460,18 @@ function scenarioEquivalence(): void {
 
   for (const [index, testCase] of cases.entries()) {
     const expected = fitWith(ctlSolveSymmetric, testCase.rows, testCase.options);
-    compareReports(`R4C-prod[${index}]`, expected, fitLogitAdditive(testCase.rows, testCase.options));
-    compareReports(`R4C-H2[${index}]`, expected, fitWith(varH2, testCase.rows, testCase.options));
-    compareReports(`R4C-H[${index}]`, expected, fitWith(varH, testCase.rows, testCase.options));
-    compareReports(`R4C-HD[${index}]`, expected, fitWith(varHD, testCase.rows, testCase.options));
-    compareReports(`R4C-F[${index}]`, expected, fitWith(varF, testCase.rows, testCase.options));
-    compareReports(`R4C-FC[${index}]`, expected, fitWith(varFC, testCase.rows, testCase.options));
-    compareReports(`R4C-H3[${index}]`, expected, fitWith(varH3, testCase.rows, testCase.options));
+    compareReports(`R5C-prod[${index}]`, expected, fitLogitAdditive(testCase.rows, testCase.options));
+    compareReports(`R5C-U4[${index}]`, expected, fitWith(varU4, testCase.rows, testCase.options));
+    compareReports(`R5C-U2[${index}]`, expected, fitWith(varU2, testCase.rows, testCase.options));
+    compareReports(`R5C-U8[${index}]`, expected, fitWith(varU8, testCase.rows, testCase.options));
+    compareReports(`R5C-RP2[${index}]`, expected, fitWith(varRP2, testCase.rows, testCase.options));
+    compareReports(`R5C-RP4[${index}]`, expected, fitWith(varRP4, testCase.rows, testCase.options));
+    compareReports(`R5C-RP2U2[${index}]`, expected, fitWith(varRP2U2, testCase.rows, testCase.options));
+    compareReports(`R5C-RP4U2[${index}]`, expected, fitWith(varRP4U2, testCase.rows, testCase.options));
   }
   out(
-    `scenario 2 (full-report bitwise equivalence, ${cases.length} cases x {production, H2, H, HD, ` +
-      `F, FC, H3} vs frozen ccd4ab4 solve under the verbatim S3-C pipeline)`
+    `scenario 2 (full-report bitwise equivalence, ${cases.length} cases x {production, U4, U2, U8, ` +
+      `RP2, RP4, RP2U2, RP4U2} vs frozen 6b997f1 solve under the verbatim production pipeline)`
   );
 }
 
@@ -1250,27 +1496,32 @@ function perfFixture(): void {
   // Correctness first: the perf fixture must also be bitwise identical.
   const expected = fitWith(ctlSolveSymmetric, rows, options);
   compareReports("perf-fixture.prod", expected, fitLogitAdditive(rows, options));
-  compareReports("perf-fixture.H2", expected, fitWith(varH2, rows, options));
-  compareReports("perf-fixture.H", expected, fitWith(varH, rows, options));
-  compareReports("perf-fixture.HD", expected, fitWith(varHD, rows, options));
-  compareReports("perf-fixture.F", expected, fitWith(varF, rows, options));
-  compareReports("perf-fixture.FC", expected, fitWith(varFC, rows, options));
-  compareReports("perf-fixture.H3", expected, fitWith(varH3, rows, options));
+  compareReports("perf-fixture.U4", expected, fitWith(varU4, rows, options));
+  compareReports("perf-fixture.U2", expected, fitWith(varU2, rows, options));
+  compareReports("perf-fixture.U8", expected, fitWith(varU8, rows, options));
+  compareReports("perf-fixture.RP2", expected, fitWith(varRP2, rows, options));
+  compareReports("perf-fixture.RP4", expected, fitWith(varRP4, rows, options));
+  compareReports("perf-fixture.RP2U2", expected, fitWith(varRP2U2, rows, options));
+  compareReports("perf-fixture.RP4U2", expected, fitWith(varRP4U2, rows, options));
 
   // Kernel workload shape on this fixture (swaps counted by the instrumented control).
   swapCount = 0;
   fitWith(countingSolve, rows, options);
   out(`perf fixture kernel shape: rows=400, pivot swaps across all solve calls: ${swapCount}`);
 
+  // In-process multi-way race: the parameterized solve call site is
+  // megamorphic here, so only the relative ordering is meaningful; the
+  // landing numbers come from clean two-lane runs (see the R5-C report).
   const racers: Array<[string, () => AttributionReport]> = [
-    ["ctl (S3-C frozen)", (): AttributionReport => fitWith(ctlSolveSymmetric, rows, options)],
+    ["ctl (S4-C frozen)", (): AttributionReport => fitWith(ctlSolveSymmetric, rows, options)],
     ["production", (): AttributionReport => fitLogitAdditive(rows, options)],
-    ["VAR-H2", (): AttributionReport => fitWith(varH2, rows, options)],
-    ["VAR-H", (): AttributionReport => fitWith(varH, rows, options)],
-    ["VAR-HD", (): AttributionReport => fitWith(varHD, rows, options)],
-    ["VAR-F", (): AttributionReport => fitWith(varF, rows, options)],
-    ["VAR-FC", (): AttributionReport => fitWith(varFC, rows, options)],
-    ["VAR-H3", (): AttributionReport => fitWith(varH3, rows, options)],
+    ["VAR-U4", (): AttributionReport => fitWith(varU4, rows, options)],
+    ["VAR-U2", (): AttributionReport => fitWith(varU2, rows, options)],
+    ["VAR-U8", (): AttributionReport => fitWith(varU8, rows, options)],
+    ["VAR-RP2", (): AttributionReport => fitWith(varRP2, rows, options)],
+    ["VAR-RP4", (): AttributionReport => fitWith(varRP4, rows, options)],
+    ["VAR-RP2U2", (): AttributionReport => fitWith(varRP2U2, rows, options)],
+    ["VAR-RP4U2", (): AttributionReport => fitWith(varRP4U2, rows, options)],
   ];
   const times = racers.map(() => [] as number[]);
   for (let rep = 0; rep < 7; rep++) {
