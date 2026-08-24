@@ -259,3 +259,9 @@
 | S3-I-4 | inspect --json 每事件 stdout 批量合并 | 实测慢 85–86µs；CliIo 调用次数可观测 |
 | S3-I-5 | setDefaultModels 每字段双 parseModelRef 消除 | ~25ns，一次性配置 |
 | S3-I-6 | answer/pause 预检查 readAll 换 stat 探针 | 损坏日志 fail-closed 被绕过 |
+| S3-J-1 | stripForbidden 顺序剥除融合单遍 | 密钥前缀逃过脱敏；融合还慢 ~10× |
+| S3-J-2 | context/index 排序比较器 decorate 提升 | 现实档 15–17µs；压力档仍低于否决线 |
+| S3-J-3 | cluster 单播 send 双 trim 合并 | 16–19ns；mailbox 数据面 |
+| S3-J-4 | jsonl split 换手写行扫描 | 无稳定收益；JSON.parse+I/O 支配 |
+| S3-J-5 | rebuildViews 每 view nowIso() 提升 | lastUpdated 分布发散 + ~3.8µs |
+| S3-J-6 | export scopes Set 化 / filter+map 融合 | Set 化更慢；融合被 stringify 支配 |
