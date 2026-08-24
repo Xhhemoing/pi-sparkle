@@ -42,6 +42,13 @@ export type ChildTrackingDecision =
 /**
  * Decides whether a routed child's TASK_RESULT has enough protocol facts to
  * run three-line scoring. Does not invent tracker prose or fill UNOBSERVED as 0.5.
+ *
+ * The only fact that gates the child is `verification.kind`: PASSED or FAILED
+ * from the deterministic verifier admits the child to scoring, and FAILED is
+ * what becomes `deterministicFail` — the hard gate. The task's acceptance
+ * criteria and the run contract's constraints are recorded as dimension
+ * verdicts and move the numeric prescore, but cannot change the directive.
+ * See `prescore.ts::coverageOutcome` for the recorded contract.
  */
 export function assessChildObservation(input: {
   readonly observation: ChildObservation;
@@ -111,6 +118,20 @@ export function assessChildObservation(input: {
   };
 }
 
+/**
+ * The sole production producer of a `PrescoreInput`.
+ *
+ * `completedChecks` and `retainedConstraintIds` are derived from the request,
+ * not observed, and that is deliberate (Loop 4 R7-2, parent-signed): a child's
+ * terminal TASK_RESULT carries one verification verdict, no per-criterion or
+ * per-constraint outcome, so there is nothing honest to put here. Echoing the
+ * inputs keeps the two criteria-shaped dimensions from silently reading as
+ * failures of the child; it also makes them incapable of failing one. The
+ * deterministic verifier is the gate — see `prescore.ts::coverageOutcome`.
+ *
+ * Anyone replacing either derivation with a real observation is changing the
+ * gate's semantics on every plane, not just this function.
+ */
 export function prescoreInputFromObservation(observation: ChildObservation): PrescoreInput {
   const verification = observation.verification;
   const claims = observation.summary.trim() === "" ? [] : [observation.summary];
