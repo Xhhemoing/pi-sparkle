@@ -359,3 +359,8 @@
 | S6-A-1 | Number(x.toFixed(4)) 换 Math.round(x*1e4)/1e4 | 半格点 4419/10000 发散；~2.5µs |
 | S6-A-2 | from-child FAIL 守卫合取短路重排 | 10.0–10.5ns/子结果 |
 | S6-A-3 | from-child constraint-retention 死校验短路 | 需平行路径或公开旗标；22–24ns |
+| S6-B-1 | buildDecision eligible.map 与 oneHot 融合单遍 | 40–73µs/批 |
+| S6-B-2 | makeApprovalPlan 取消项享元单例 | 可观察身份改变；52–60µs |
+| S6-B-3 | HIGH_RISK_RE 交替项频率重排 | 等价但实测零收益 |
+| S6-B-4 | 空 avoid/prefer 跳过 applyLearnedRouting | 一般契约发散；278–404µs |
+| S6-B-5 | 全目录长度守卫跳过 allowed-Set | 重复 id 放行 premium；自败 |
