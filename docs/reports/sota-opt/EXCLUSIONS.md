@@ -392,6 +392,13 @@
 | S6-F-3 | `assertUniqueNonEmpty` 批量 Set 快路径 + 精确回退 | 等价但 +2.10/−0.34ms 符号翻转；validate 布局维度闭合 |
 | S6-F-4 | `assertUniqueNonEmpty` 换 null-prototype 对象表 | 稳定负优化（慢 38–45%） |
 | S6-F-5 | S6-F-1 之上叠双指针子序列快路径 | 符号随输入次序翻转。重开：assignment 次序被契约化为 population 子序列 |
+| S6-G-1 | finish() 三连 readAll 穿线复用 | 外部 cancel 落在相邻读间会跳过 episode 结算；每 CLI 一次噪声 |
+| S6-G-2 | resumeFlowchartRun 双读复用首读 | 同机制：在已取消 run 上继续执行节点 |
+| S6-G-3 | checkpoint 去掉内层 restore 重验（S3-G-2 互补） | 内层即可恢复性屏障；两层合计仅 3.4–4.2ms/run |
+| S6-G-4 | isIsoTimestamp 的 Date.parse 换纯 regex/手写日历 | 双向发散（13 月放行；2 月 30 日 V8 回卷）。重开：时戳契约改为严格日历 |
+| S6-G-5 | 同 store 门控追加改入队 Promise.all | 等价但 ±µs 符号翻转＝零收益 |
+| S6-G-6 | runFlowchartLoop 去掉租约后 persistCheckpoint | 执行中崩溃后 resume 重路由全部租约节点（id 流发散）。名义 14.9–22.1ms 是契约地板 |
+| S6-G-7 | applyChildThreeLine 的 per-child readAll 换内存镜像 | tracking 门控证据边界；S1-G-1 同契约调用点 |
 | S6-H-1 | detectConflicts 过滤器间顺序早退（fast 空即跳过 slow） | 133–136ns/run；冲突侧压力更慢 −0.9~−2.1µs。重开：合同规模 ≥2 个量级且冲突侧不再负优化 |
 | S6-H-2 | 门控组合内 taskToChecks 死计算跳过 | 127–166ns/run；落地需平行构建器或收窄公开 CoverageMatrix。重开：调用图出现每 turn 热路径 |
 | S6-H-3 | assertCoverageAllowsStart 无条件消除 gated 拷贝 | 21–45ns/run；门逻辑须复制一份。重开：checkCoverageGate 单实现被正式拆分 |
