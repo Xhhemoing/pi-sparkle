@@ -57,3 +57,13 @@
 ## 本战役新增
 
 由各轮子代理追加，格式：`S<轮次>-<区>-<n>`。
+
+| ID | 方案 | 原因 |
+| --- | --- | --- |
+| S1-J-1 | preferences `rebuildViews` 增量化（按 pair 局部更新） | 未受影响 view 的 `lastUpdated` 可见时间戳改变，行为不保 |
+| S1-J-2 | preferences `applyObservation` recurrence 计数器化 | 同路径 `saveToDisk`/`rebuildViews` 本就 O(N)，收益常数级；派生索引须与 4 条变异路径同步（X1-1 型风险） |
+| S1-J-3 | episode `reduceEpisodeEvents` runIds Set 化/共享可变数组 | 单 episode run 数个位级；episode 闭合为数据面强调区 |
+| S1-J-4 | cluster 役播 role→agent 目录索引 | P ≤ maxTasks 小常数；mailbox 数据面；第二同步结构无收益 |
+| S1-J-5 | track/loop `assignments.find` 换 Map | C ≤ ~6，live 面，X3-1 同理 |
+| S1-J-6 | context/index dirty×generated 前缀匹配索引化 | 一次性构建、D/G 小，噪声级 |
+| S1-J-7 | context/packet 首个 `omissions.sort` 冗余移除 | 结构等价但 k 小、常数噪声（X3-2 同理） |
