@@ -128,7 +128,7 @@
 | R5-I | `cursor/r5-i-cli-fifth-pass-83a1` | 已合入专属分支（S5-I-1 代码 + 报告 + 仿真）。父代理重跑 r4i 68/68、r5i 119/119 全绿；`cli --version` 冒烟通过 |
 | R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已合入专属分支（仅 `R5-G.md`） |
 | R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已合入专属分支（仅 `R6-A.md`） |
-| R6-C | `cursor/r6-c-offline-routing-sixth-pass-83a1` | 已合入专属分支（S6-C 代码 + 报告 + 仿真）。待父代理重跑 r1c–r6c |
+| R6-C | `cursor/r6-c-offline-routing-sixth-pass-83a1` | 已合入专属分支（S6-C 代码 + 报告 + 仿真）。父代理重跑 r1c–r6c 全绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 逐位）；r6c 生产 743.9 ms vs 冻结 S5-C 780.5 ms（1.05×） |
 | R5-H | `cursor/r5-h-eval-fifth-pass-83a1` | 已合入专属分支（仅 `R5-H.md`） |
 | R5-J | `cursor/r5-j-persist-fifth-pass-83a1` | 已合入专属分支（仅 `R5-J.md`） |
 | R6-B | `cursor/r6-b-live-routing-sixth-pass-83a1` | 已合入专属分支（仅 `R6-B.md`） |
