@@ -28,7 +28,7 @@
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
-| 14 | 第 1 波进行中 | 3 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
+| 14 | 第 1–2 波进行中 | 4 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
 
 ### Round 1 波次
 
@@ -151,7 +151,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R14-A 跟踪门控、R14-B live 路由、R14-C 离线路由 | A/B 运行中；C 本波派出 |
+| 1 | R14-A 跟踪门控、R14-B live 路由、R14-C 离线路由 | A 完成已合入；B/C 运行中 |
+| 2 | R14-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -288,9 +289,10 @@
 | R13-H | `cursor/r13-h-eval-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-H.md`）。无新排除 ID；热层默认复核 9.3–10.4 µs/run；规模-越线标定归档 |
 | R13-I | `cursor/r13-i-cli-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-I.md`）。无新排除 ID；custom−builtin 复核 +21.5~+51.7 ms；`all.models` 文件级探针 blocked |
 | R13-J | `cursor/r13-j-persist-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-J.md`）。无新排除 ID；I/O 地板复核；切片关闭 |
-| R14-A | `cursor/r14-a-tracking-fourteenth-pass-83a1` | 已派出 |
+| R14-A | `cursor/r14-a-tracking-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-A.md`）。无新排除 ID；预算复核 69–81 µs/run；E 规模越线标定 + max-codes 格归档 |
 | R14-B | `cursor/r14-b-live-routing-fourteenth-pass-83a1` | 已派出 |
 | R14-C | `cursor/r14-c-offline-routing-fourteenth-pass-83a1` | 已派出 |
+| R14-D | `cursor/r14-d-adaptation-fourteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
