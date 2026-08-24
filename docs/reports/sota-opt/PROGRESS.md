@@ -135,7 +135,7 @@
 | R6-B | `cursor/r6-b-live-routing-sixth-pass-83a1` | 已合入专属分支（仅 `R6-B.md`） |
 | R6-D | `cursor/r6-d-adaptation-sixth-pass-83a1` | 已合入专属分支（仅 `R6-D.md`） |
 | R6-E | `cursor/r6-e-learning-sixth-pass-83a1` | 已合入专属分支（仅 `R6-E.md`） |
-| R6-F | `cursor/r6-f-experiments-sixth-pass-83a1` | 已合入专属分支（S6-F-1 代码 + 报告 + 仿真）。待父代理重跑 r1f/r5f/r6f |
+| R6-F | `cursor/r6-f-experiments-sixth-pass-83a1` | 已合入专属分支（S6-F-1 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f/r6f 全绿（2668 / 224 / 27 逐位）；r5f 全实验 P=2000/A=1000 = 173.05 ms；r6f 全实验 176.48 ms |
 | R6-G | `cursor/r6-g-runtime-sixth-pass-83a1` | 已派出 |
 | R6-H | `cursor/r6-h-eval-sixth-pass-83a1` | 已合入专属分支（仅 `R6-H.md`） |
 | R6-I | `cursor/r6-i-cli-sixth-pass-83a1` | 已派出 |
