@@ -106,7 +106,7 @@
 | R4-F | `cursor/r4-f-experiments-fourth-pass-83a1` | 已合入专属分支（仅 `R4-F.md`） |
 | R4-G | `cursor/r4-g-runtime-fourth-pass-83a1` | 已合入专属分支（仅 `R4-G.md`） |
 | R4-H | `cursor/r4-h-eval-fourth-pass-83a1` | 已合入专属分支（仅 `R4-H.md`） |
-| R4-I | `cursor/r4-i-cli-fourth-pass-83a1` | 已合入专属分支（S4-I 代码 + 报告 + 仿真） |
+| R4-I | `cursor/r4-i-cli-fourth-pass-83a1` | 已合入专属分支（S4-I 代码 + 报告 + 仿真）。父代理重跑 r4i 全绿（68 检查 / 0 失败）；`cli --version` 冒烟通过 |
 | R4-J | `cursor/r4-j-persist-fourth-pass-83a1` | 已合入专属分支（仅 `R4-J.md`） |
 | R5-A | `cursor/r5-a-tracking-fifth-pass-83a1` | 已合入专属分支（仅 `R5-A.md`） |
 | R5-B | `cursor/r5-b-live-routing-fifth-pass-83a1` | 已合入专属分支（仅 `R5-B.md`） |
