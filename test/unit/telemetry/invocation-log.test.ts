@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -274,6 +274,49 @@ test("the sink retries a lock timeout and the row lands once the lock clears", a
     assert.deepEqual(backoffs, [1], "exactly one retry was needed");
     assert.deepEqual(drops, [], "a row that lands is never reported as dropped");
     assert.deepEqual(idsOf(await readLines(stateRoot)), [record.id]);
+  });
+});
+
+test("the sink does not retry a message-only imitation of a lock timeout", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const probePath = join(stateRoot, "probe");
+    const probe = await open(probePath, "w");
+    type Handle = typeof probe;
+    type HandlePrototype = {
+      writeFile: Handle["writeFile"];
+    };
+    const prototype = Object.getPrototypeOf(probe) as HandlePrototype;
+    const originalWriteFile = prototype.writeFile;
+    await probe.close();
+    await rm(probePath);
+
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let metadataWrites = 0;
+    const lockPath = invocationLogLockPath(stateRoot);
+    prototype.writeFile = (async function (): Promise<void> {
+      metadataWrites += 1;
+      throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
+    }) as Handle["writeFile"];
+
+    try {
+      const sink = createInvocationSink(stateRoot, {
+        onDrop: (reason) => drops.push(reason),
+        maxAttempts: 3,
+        retryBackoffMs: 1,
+        sleep: async (ms) => {
+          backoffs.push(ms);
+        }
+      });
+      await sink(invocation());
+    } finally {
+      prototype.writeFile = originalWriteFile;
+    }
+
+    assert.equal(metadataWrites, 1, "an error without LOCK_TIMEOUT is attempted only once");
+    assert.deepEqual(backoffs, [], "message text alone must not enter the retry path");
+    assert.equal(drops.length, 1);
+    assert.match(drops[0] ?? "", /^invocation .* rejected: timed out waiting for lock at /);
   });
 });
 

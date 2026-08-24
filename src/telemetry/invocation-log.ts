@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
-import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects, type JsonlRecovery } from "../persist/jsonl.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { validateInvocation, type ModelInvocation } from "./model-invocation.js";
@@ -122,16 +126,17 @@ const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * True only for `withExclusiveFileLock`'s timeout on *this* log's lock.
+ * True only for `withExclusiveFileLock`'s typed timeout.
  *
  * Deliberately exact: a validation failure is also a `DomainValidationError`,
- * and retrying one would only re-reject three times. An unrecognized message
+ * and retrying one would only re-reject three times. An unrecognized error
  * fails closed to "do not retry" — the row drops instead of looping.
  */
-function isLockTimeout(error: unknown, lockPath: string): boolean {
+function isLockTimeout(error: unknown): boolean {
   return (
     error instanceof DomainValidationError &&
-    error.message === `timed out waiting for lock at ${lockPath}`
+    "code" in error &&
+    error.code === LOCK_TIMEOUT_CODE
   );
 }
 
@@ -184,7 +189,7 @@ export function createInvocationSink(
         await appendInvocationRecord(stateRoot, invocation, appendOptions);
         return;
       } catch (error: unknown) {
-        if (!isLockTimeout(error, lockPath)) {
+        if (!isLockTimeout(error)) {
           report(`invocation ${invocation.id} rejected: ${reasonOf(error)}`);
           return;
         }

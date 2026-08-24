@@ -81,6 +81,8 @@ test("withExclusiveFileLock times out while another owner holds the lock", async
           ),
         (error: unknown) =>
           error instanceof DomainValidationError &&
+          "code" in error &&
+          error.code === "LOCK_TIMEOUT" &&
           error.message === `timed out waiting for lock at ${lockPath}`
       );
       assert.equal(operationCalled, false);
