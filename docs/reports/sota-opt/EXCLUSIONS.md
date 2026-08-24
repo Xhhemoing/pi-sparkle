@@ -427,6 +427,11 @@
 | S7-D-3 | saveAdaptationRegistry 临时名 UUID→pid+计数器 | 崩溃遗留+PID 复用 EEXIST；81–90ns |
 | S7-D-4 | rollback 幂等快路径前置（跳过 target/retired 检查） | retired-active fail-open；~267–283ns |
 | S7-D-5 | pairedRecords 冗余 ?? 回退消除 | 等价但 ~1.2–1.6µs + 跨函数耦合 |
+| S7-E-1 | scoreUserAnswer trim 分配消除（/\S/ 探针 + \b 原文本直测） | 等价含 CJK 边界，但方向随输入翻转（±4–6ns/调用） |
+| S7-E-2 | truncate 恒等快路径（预探针跳过 replace+trim） | 等价且 hit 侧 273–293ns/call，上界 ~3–7µs/run；miss 侧付探针 |
+| S7-E-3 | outcomesFromRoutedRun family/role 校验前移到路由插入点 | 等价但五次全负（−35~−67ns/run）；小集合教训第十例 |
+| S7-E-4 | collectSignalsFromSubagentRun request.agent 探针循环外提升 | 六次异号纯抖动（−34~+13ns/文件） |
+| S7-E-5 | JUDGE_DECISION verdict 双三元合一单次分派 | 六次异号纯抖动（−32~+177ns/run） |
 | S7-G-1 | validateJoin 边对索引（复用 edgePairs Set / 新建 Map） | NUL 键碰撞 fail-open；Map 变体 0.067µs/次、0.002ms/run |
 | S7-G-2 | 校验循环字面量数组提升模块级 Set | S1-G-3 同族；宿主全额 8.2µs/次、0.26ms/run |
 | S7-G-3 | DeterministicJudge.decide filter+includes 改 Set | 等价但 0.111µs/次、0.0018ms/run |
