@@ -219,9 +219,11 @@ Fable review (`.agent_workspace/loop4-r9-review.md` at `8e933a7`): **9 ACCEPT, 1
 
 Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI flip-pin; unblock carries contract); R9-2 `dff71f1` `sparkle_report_task_result` + pin 2 re-derived (PASSED opens / FAILED hard-blocks for `--executor pi`); R9-3 `97e475e` fail-closed pin + design `RUN_UNBLOCKED_WITH_DISCARD` (no payload field); R9-4 `af9f993` Round 8 docs (ADR-006 Proposed; ADR `0005` body still names deleted `loadProjectBandit` — flag-only; nit: nine-case probe line); R9-5 `25a57d9` 10th probe case; R9-6 `4d21a96` `runStatus` is a ledger not a control input (zero `src` readers); R9-7 `73363a2` character-exact `DOCTOR_ROUTED_NEXT` freeze; R9-8 `1b5ed59` `childTasksFromLog` resume call-site + FAIL-unreachable tripwire; R9-9 `8f45505` `loadProjectBandit` gone / `selectArm` shadow-only; R9-10 `5970a2f` `RUN_UNBLOCKED` payload three keys type-frozen.
 
-## Round 10 — landings (parent gate GREEN; fable review pending)
+## Round 10 — landings (parent gate GREEN; fable 10 ACCEPT / 0 nits / 0 rollback)
 
 Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1915 / 1914 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **10 cases × 3** (discard-window probe deferred). ADR-006 stays Proposed. Zero parent fix-joints.
+
+Fable review (`.agent_workspace/loop4-r10-review.md` at `6c60ba6`): **10 ACCEPT, 0 ACCEPT-WITH-NITS, 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND10-BRIEF.md`.
 
 10 slots from `.agent_workspace/ROUND9-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R10-1 **YES** `RUN_UNBLOCKED_WITH_DISCARD`; R10-2 option (a) **deferred**; R10-5 comment-only `independentEvidence` posture; R10-6 probe **deferred**.
 
@@ -239,6 +241,23 @@ Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1915 / 1914 pas
 | R10-10 | bc-179325e9-b579-5eaa-9d28-17af209d4a6f | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
 
 Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-executed` (charged estimates fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 `a57fd7d` option (a) unimplemented freeze; R10-3 `66edccb` Round 9 docs; R10-4 `2e22453` writer-census pin (pure-CLI `--track`→pause STOP: tracked run has no pause controller); R10-5 `9b9888a` `independentEvidence` self-report posture; R10-6 `05d146c` verdict-producer standing rules; R10-7 `366df19` never-synthesize-from-episode; R10-8 `2399346` `applyRetry` absence over discard identifiers; R10-9 `d4b52b1` matched discard ledger status; R10-10 `d4741e6` `TERMINAL_REPLAY_STATUSES` / `RUN_UNBLOCKED*` not a status.
+
+## Round 11 — in flight
+
+10 slots from `.agent_workspace/ROUND10-BRIEF.md` (five real candidates + five concurrent-src guards). Stay on `agent/opt-continuous`. Parent sign-off: R11-1 **YES** option (a); R11-3 **YES** tracked pause controller (no race; fold declined); R11-4 **YES** restore-path charge validation.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R11-1 | pending | implement option (a) |
+| R11-2 | pending | discard crash-probe eleventh case |
+| R11-3 | pending | tracked-run pause controller |
+| R11-4 | pending | restore-path discard audit validation |
+| R11-5 | pending | Round 10 docs truth-up |
+| R11-6 | pending | keep live-isolation pins |
+| R11-7 | pending | keep INSPECT_SUMMARY + BLOCKED prefix |
+| R11-8 | pending | keep `applyRetry` AST pin |
+| R11-9 | pending | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R11-10 | pending | keep never-synthesize-from-episode |
 
 ---
 
