@@ -34,7 +34,9 @@ Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. 
 
 **Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back. Fable re-measured jsonlAppend 68.264ms; T7 must record its own same-VM baseline before optimizing. Two host-dependent doctor test failures are T9's to hermeticize.
 
-## Round 1 landings (all 10 slots reported success; parent gate next)
+## Round 1 landings (parent gate GREEN after review)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1508 / 1507 pass / 0 fail / 1 skip**. Reviewer independently re-verified T7 (−31.5% / −28.6%) and crash-probe `ok: true`. 7 ACCEPT, 3 ACCEPT-WITH-NITS (T2/T8/T9), 0 ROLLBACK. Doctor host-Node baseline retired.
 
 | Slot | Result |
 |---|---|
@@ -49,7 +51,11 @@ Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. 
 | T9 | Doctor `nodeVersion` inject; adaptation-plane transitive value-import closure |
 | T10 | SIGKILL crash probe: jsonl tail, checkpoint old-then-next, no-steal lock |
 
-Subagents do not git commit. Parent commits after each round.
+Saturated this round: `persist/jsonl`, `protocol/v1` parse. Round 2 tilts to I/O, races, protocol honesty, disaster recovery. Brief: `.agent_workspace/ROUND1-BRIEF.md`.
+
+## Round 2 — in flight
+
+10 slots from the Round 1 brief (R2-1 flowchart abort … R2-10 docs honesty). Ownership in `OWNERSHIP.md`.
 
 ---
 
