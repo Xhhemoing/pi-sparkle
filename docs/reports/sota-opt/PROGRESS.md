@@ -16,7 +16,7 @@
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
 | 1 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S1-F/J/C/I；其余区报告收口 |
-| 2 | 第 1 波进行中 | 10（2 在跑 / 1 本波派出 / 7 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
+| 2 | 第 1 波进行中 | 10（2 在跑 / 1 完成 / 1 本波派出 / 6 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
 
 ### Round 1 波次
 
@@ -31,7 +31,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R2-A 跟踪、R2-B live 路由、R2-C 离线路由 | A/B 在跑；C 本波派出 |
+| 1 | R2-A 跟踪、R2-B live 路由、R2-C 离线路由 | A 完成已合入；B/C 在跑 |
+| 2 | R2-D 自优化 | 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -47,6 +48,7 @@
 | R1-G | `cursor/r1-g-runtime-graph-domain-f48c` | 已合入专属分支（仅 `R1-G.md`） |
 | R1-I | `cursor/r1-i-cli-adapter-slice-f177` | 已合入专属分支（S1-I 代码 + 报告） |
 | R1-H | `cursor/r1-h-eval-req-review-rubric-038d` | 已合入专属分支（仅 `R1-H.md`） |
+| R2-A | `cursor/r2a-tracking-slice-ccba` | 已合入专属分支（仅 `R2-A.md`） |
 
 ## 合并策略
 

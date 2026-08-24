@@ -149,3 +149,9 @@
 | S1-H-7 | createEvaluationRecord 聚合谓词融合 | test-only |
 | S1-H-8 | registerRubric copy-on-write 改就地写 | 污染 DEFAULT_REGISTRY |
 | S1-H-9 | changeSetsEqual 数组长度早退 | 集合相等语义发散 |
+| S2-A-1 | roller 无截断快路径 | ~12µs/episode，低于落地线 |
+| S2-A-2 | from-child evidenceRefsOf 双算去重 | 143ns；别名或改签名 |
+| S2-A-3 | claimed-verification 复用 prescore 维度 | 2.3ns + 跨函数耦合 |
+| S2-A-4 | gate-apply spread+push 换 concat | 实测慢 3.7× |
+| S2-A-5 | hashAssessment dimensions 冗余 spread 移除 | 173ns 噪声 |
+| S2-A-6 | from-child dimensions 三遍融合 | 10.9ns 亚噪声 |
