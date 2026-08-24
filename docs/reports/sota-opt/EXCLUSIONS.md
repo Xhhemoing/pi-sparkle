@@ -103,3 +103,11 @@
 | S1-D-7 | promoteWithRegistry 外层 evalReport 去重 | 双故障抛错次序可观察发散 |
 | S1-D-8 | adaptation 小表 includes 换 Set/Map | 表长≤10，噪声 |
 | S1-D-9 | parseRoutingPolicyContent 双 JSON.parse 消除 | 需改公开签名 + 噪声 |
+| S1-E-1 | collectSignalsFromEvents 两遍扫描合并单遍 | 迟到 PROJECT_DISCOVERED / 重路由绑错模型 |
+| S1-E-2 | JUDGE_DECISION role/family 双重 Map.get 去重 | ±ns 抖动，亚噪声 |
+| S1-E-3 | extractAssistant 字符串折叠改 parts+join | 现实 6 段 ~230ns |
+| S1-E-4 | persistSignals evidenceIds.filter 去重 | 被 appendFeedback I/O 支配 |
+| S1-E-5 | ingestSubagentDirectory Promise.all 并行读 | 非复杂度下降；fd 风险 |
+| S1-E-6 | diagnose 组内多遍融合单遍 | 真实规模亚噪声，10× 更慢 |
+| S1-E-7 | attributeToBoundary 排序换单遍 min | test-only，无生产调用方 |
+| S1-E-8 | detectRepeatedPatterns keys 预取 | 小规模更慢；无生产调用方 |

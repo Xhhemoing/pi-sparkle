@@ -15,7 +15,7 @@
 
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | 第 2–3 波进行中 | 10（2 在跑 / 5 完成 / 3 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
+| 1 | 第 3 波进行中 | 10（2 在跑 / 6 完成 / 2 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
 
 ### Round 1 波次
 
@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | 1 | R1-A 跟踪门控、R1-F 实验门控、R1-J cluster/privacy/episode | A/F/J 完成已合入 |
 | 2 | R1-B live 路由、R1-C 离线路由、R1-D 自优化 | B/D 完成已合入；C 在跑 |
-| 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | E 在跑；G 本波派出；H 排队 |
+| 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | E 完成已合入；G 在跑；H 本波派出 |
 | 4 | R1-I CLI/适配器 | 排队（第 4 波不满 3，空位留给第 2 轮） |
 
 ## 待合并 PR / 分支
@@ -35,6 +35,7 @@
 | R1-J | `cursor/r1j-data-plane-opt-d508` | 已合入专属分支（J1 代码 + 报告 + 仿真） |
 | R1-B | `cursor/r1-b-live-routing-slice-c9b5` | 已合入专属分支（仅 `R1-B.md`） |
 | R1-D | `cursor/r1-d-adaptation-opt-41f0` | 已合入专属分支（仅 `R1-D.md`） |
+| R1-E | `cursor/r1e-learning-slice-5cd3` | 已合入专属分支（仅 `R1-E.md`） |
 
 ## 合并策略
 
