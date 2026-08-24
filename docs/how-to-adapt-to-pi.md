@@ -52,17 +52,25 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
   `src/pi-compat/check.ts` mirrors it as `SPARKLE_THINKING_LEVELS`. If Pi
   adds or removes a level, both mirrors must be updated in the same PR as
   the pin. Two watch items as of 0.84.3:
-  - pi-ai narrowed its own `ThinkingLevel` to exclude `"off"` and moved
-    `"off"` into `ModelThinkingLevel = "off" | ThinkingLevel`
-    (`pi-ai/dist/types.d.ts`); agent-core's union still includes `"off"`
-    (`pi-agent-core/dist/types.d.ts`). If a future agent-core aligns with
-    pi-ai, the CLI default level `"off"` breaks — check this union first at
-    every bump.
+  - pi-ai dropped `"off"` from its own `ThinkingLevel` and moved it into
+    `ModelThinkingLevel = "off" | ThinkingLevel`
+    (`pi-ai/dist/types.d.ts`). This repo is unaffected **by design**: the
+    adapter (`src/pi-adapter/`) imports the union from **agent-core**, whose
+    `ThinkingLevel` still includes `"off"`
+    (`pi-agent-core/dist/types.d.ts`), and every other module sees only the
+    adapter's re-export — pi-ai's narrowed union never reaches the CLI. If
+    a future agent-core aligns with pi-ai, the CLI default level `"off"`
+    breaks — check this union first at every bump.
   - Google APIs silently clamp `xhigh`/`max` down: pi-ai's
     `GoogleApiThinkingLevel` tops out at `HIGH`, and
     `ResolvedGoogleThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max">`
     (`pi-ai/dist/api/google-shared.d.ts`). The CLI forwards the requested
-    level unchanged; the clamp is provider behavior, not drift in this repo.
+    level unchanged. This is a **known provider behavior, not a pi-sparkle
+    bug** — do not file it as repo drift, and do not "fix" it by rewriting
+    the level in the CLI or adapter. The behavior is pinned as a
+    characterization test, `test/unit/pi-adapter/thinking-clamp.test.ts`:
+    if it fails after a bump, Pi's clamp moved and the docs/USAGE need an
+    edit, not the adapter.
 - `MutableModels.streamSimple(model, context, options)` — the adapter spreads
   caller options through, so additive `SimpleStreamOptions` fields (for
   example `toolChoice`, added in 0.84.3) flow transparently.
@@ -159,7 +167,10 @@ Expected after a clean bump: `pinned` equals the new version,
 `google-thinking=absent`, all seven thinking levels listed
 (`off,minimal,low,medium,high,xhigh,max`), doctor `pi-packages` shows the new
 pair. `status=unknown` is correct offline; `behind` after an online check
-means a newer Pi shipped while you worked — restart at step 1.
+means a newer Pi shipped while you worked — restart at step 1. One
+non-finding to expect: `run --thinking xhigh|max` against a Google model
+behaves like `high` — that is the provider clamp from step 2, not a
+regression introduced by the bump.
 
 ### 6. Update skill overlay notes if discovery/frontmatter rules changed
 
@@ -233,12 +244,18 @@ Deliberate non-goals. Revisit only with a new ADR, not during a routine bump:
   no longer flips the report. The Round 1 constraint of never spelling it
   contiguously in this document is retired; this bullet doubles as the
   regression probe for that.
-- The thinking-level list appears in three places that must stay in sync:
-  agent-core's `ThinkingLevel`, `THINKING_LEVELS` in `src/cli/main.ts`
-  (validates both `run --thinking` and `PI_THINKING_LEVEL`), and
-  `SPARKLE_THINKING_LEVELS` in `src/pi-compat/check.ts`. There is no
-  automated drift test yet, so checking the union is a manual part of
-  step 2 at every bump.
+- The thinking-level list has one upstream source — agent-core's
+  `ThinkingLevel` — and three sparkle-owned mirrors that must stay in sync
+  with it: `SparkleThinkingLevel` in `src/pi-adapter/pi-executor.ts` (the
+  adapter's public union), `THINKING_LEVELS` in `src/cli/main.ts` (validates
+  both `run --thinking` and `PI_THINKING_LEVEL`), and
+  `SPARKLE_THINKING_LEVELS` in `src/pi-compat/check.ts`. Drift coverage: if
+  a bump **narrows** agent-core's union, `pnpm typecheck` fails at the
+  adapter boundary where `SparkleThinkingLevel` is handed to the `Agent`,
+  and `test/unit/pi-adapter/thinking-clamp.test.ts` compile-time-pins the
+  Google unions against `SparkleThinkingLevel`. If a bump **adds** a level,
+  nothing fails automatically — the three mirrors just go stale — so
+  comparing the union is still a manual part of step 2 at every bump.
 - Version bumps are one commit (pin + lockfile), verification evidence goes
   in the PR description, and any newly absorbed capability is a separate
   commit with its own tests.

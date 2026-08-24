@@ -35,11 +35,12 @@ durable fix. Never auto-edit pins, register extensions, or invent usage data.
    a failure.
 5. **Thinking config.** The Pi TUI `/thinking` selector is session-scoped
    (Ctrl+S saves it); this package's runtime reads `PI_THINKING_LEVEL`
-   (off|minimal|low|medium|high|xhigh|max). A `run --thinking <level>` flag
-   with precedence over the env var is planned — cite it only after the
-   `pi-sparkle help` USAGE lists it. These are separate knobs. Verify the
-   runtime value still maps to a level the pinned `pi-ai` accepts; do not
-   report one knob as drift of another.
+   (off|minimal|low|medium|high|xhigh|max). The landed `run --thinking
+   <level>` flag wins over the env var for one run and never persists;
+   on every bump confirm the `pi-sparkle help` USAGE still lists it.
+   These are separate knobs. Verify the runtime value still maps to a
+   level the pinned `pi-ai` accepts; do not report one knob as drift of
+   another.
 6. **Record.** Update the dated adaptation section in `SKILL.md` and correct
    any version claim that is now false. Do not add a new top-level skill for
    a version bump — that is bloat, not adaptation.

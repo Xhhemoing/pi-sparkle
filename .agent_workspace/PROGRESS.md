@@ -176,6 +176,8 @@ Brief for Round 3: `.agent_workspace/ROUND2-BRIEF.md`.
 | R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**`, discovery tests, probe script edges, `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
 | R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/**` + its tests; prove docs spelling `GoogleThinkingLevel` does not fail doctor, `.agent_workspace/round3-gpt-b.md` | `src/cli/main.ts` |
 
-Do not git commit. Parent commits after the round.
+### Round 3 — complete (2026-08-24)
 
-### Round 3 leftover tracker — pending reports
+All 6 returned. `pnpm gate` green (1213 pass, 1 skipped smoke). Overlay `--thinking` stale “planned” claim fixed. Status matrix updated. Google clamp characterized. No conflicts vs `origin/main`.
+
+See `.agent_workspace/ROUND3-BRIEF.md`.

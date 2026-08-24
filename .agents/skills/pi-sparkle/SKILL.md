@@ -120,9 +120,10 @@ Behavior changes in 0.84.3 that matter to this overlay:
      the Pi TUI, invisible to this package's runtime.
   2. `PI_THINKING_LEVEL` — this package's runtime env var
      (off|minimal|low|medium|high|xhigh|max; default off).
-  3. `run --thinking <level>` — planned CLI flag with precedence over the
-     env var. It does NOT exist until the `pi-sparkle help` USAGE lists it;
-     verify there before citing the flag in any finding.
+  3. `run --thinking <level>` — landed CLI flag, listed in the
+     `pi-sparkle help` USAGE. Precedence: flag > `PI_THINKING_LEVEL` >
+     `off`. Per-run only — it never persists, unlike the TUI `/thinking`
+     selector (knob 1), which is session-scoped and saved with Ctrl+S.
   Do not report one knob as drift of another.
 - **Still no extension:** ADR-006 remains Proposed. `/sparkle` stays a prompt
   template; this overlay registers no extension commands or session

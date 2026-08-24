@@ -132,17 +132,33 @@ describe("Pi compatibility checks", () => {
     assert.equal(probe.googleThinkingType, "GoogleApiThinkingLevel");
   });
 
-  it("probes adapter source only and ignores a fake documentation legacy identifier", () => {
-    const sources = {
-      adapter: `type Level = GoogleApiThinkingLevel;\n${THINKING_LEVEL_TYPE}`,
-      documentation: "Migration note: GoogleThinkingLevel was the legacy name."
-    };
-    assert.match(sources.documentation, /\bGoogleThinkingLevel\b/);
+  it("does not mark reports broken for legacy text outside adapter sources", () => {
+    const documentation = "Migration note: GoogleThinkingLevel was the legacy name.";
+    assert.match(documentation, /\bGoogleThinkingLevel\b/);
 
-    const probe = probeAdapterContract({
-      readAdapterSource: () => sources.adapter
-    });
-    assert.equal(probe.googleThinkingType, "GoogleApiThinkingLevel");
+    for (const adapter of [
+      {
+        source: `type Level = GoogleApiThinkingLevel;\n${THINKING_LEVEL_TYPE}`,
+        expectedGoogleType: "GoogleApiThinkingLevel"
+      },
+      {
+        source: THINKING_LEVEL_TYPE,
+        expectedGoogleType: "absent"
+      }
+    ] as const) {
+      const report = buildPiCompatReport({
+        packageJson: packageJson(),
+        offline: true,
+        now: NOW,
+        readAdapterSource: () => adapter.source
+      });
+
+      assert.equal(report.adapter.googleThinkingType, adapter.expectedGoogleType);
+      assert.equal(
+        report.findings.some((finding) => finding.startsWith("BROKEN:")),
+        false
+      );
+    }
   });
 
   it("marks an adapter with empty thinking levels as broken", () => {

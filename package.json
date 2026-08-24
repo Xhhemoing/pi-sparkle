@@ -42,7 +42,7 @@
     "build": "tsc -p tsconfig.build.json",
     "gate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "security:probe": "node scripts/security-probe.mjs",
-    "prerelease": "pnpm gate && pnpm security:probe"
+    "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.3",

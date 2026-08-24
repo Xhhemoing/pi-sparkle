@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const groupingRoot = join(repoRoot, "test/fixtures/pi-0843-skills/grouping");
 const nestedSkillPath = join(groupingRoot, "nested-skill/SKILL.md");
+const overlaySkillsRoot = join(repoRoot, ".agents/skills");
 
 test("Pi 0.84.3 fixture contains a valid nested SKILL.md", () => {
   assert.equal(existsSync(nestedSkillPath), true);
@@ -30,4 +31,20 @@ test("grouping Markdown files do not declare skill frontmatter", () => {
       `${filename} must remain ordinary Markdown`
     );
   }
+});
+
+test("nested discovery fixture is not installed as a second overlay skill", () => {
+  const installedSkillFiles = readdirSync(overlaySkillsRoot, {
+    encoding: "utf8",
+    recursive: true
+  }).filter((path) => basename(path) === "SKILL.md");
+  const fixtureCopies = installedSkillFiles.filter((path) =>
+    /^name:\s*nested-fixture-skill$/m.test(readFileSync(join(overlaySkillsRoot, path), "utf8"))
+  );
+
+  assert.deepEqual(
+    fixtureCopies,
+    [],
+    "nested-fixture-skill must remain under test/fixtures, never .agents/skills"
+  );
 });

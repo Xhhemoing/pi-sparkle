@@ -78,7 +78,7 @@ pnpm cli run \
 
 `pi-sparkle auth login openai --key sk-...` writes `~/.pi-sparkle/auth.json` (stored credentials win over env). `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` still work as a compatibility override for the default provider.
 
-Optional: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh`).
+Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`), or `--thinking <level>` on `run`, which wins over the env var for that run only and never persists. Google models silently clamp `xhigh`/`max`.
 
 ### Parent + children
 
@@ -135,7 +135,7 @@ pnpm cli run \
 | Command | Description |
 |---------|-------------|
 | `pnpm cli version` | Print `0.1.0` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
-| `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--state-root`) |
+| `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
 | `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, and evidence. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
