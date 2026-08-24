@@ -1,6 +1,5 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isCandidateId, isProjectId, isResourceVersionId } from "../domain/ids.js";
@@ -11,6 +10,7 @@ import {
   assertCanPromoteFromReview,
   type ReviewerKind
 } from "../review/self-review.js";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { validateComparisonReport } from "../experiments/comparison-report.js";
 import type { ApprovalProfile } from "./approval-profile.js";
@@ -327,21 +327,7 @@ export async function saveAdaptationRegistry(
 ): Promise<void> {
   const path = adaptationRegistryPath(stateRoot);
   const serialized = `${JSON.stringify(registry.snapshot(), null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  const handle = await open(tempPath, "wx");
-  try {
-    await handle.writeFile(serialized, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tempPath, path);
-  } catch (error) {
-    await rm(tempPath, { force: true });
-    throw error;
-  }
+  await writeFileAtomic(path, serialized);
 }
 
 export function withAdaptationRegistryLock<T>(
