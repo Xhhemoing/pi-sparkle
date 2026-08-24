@@ -2,7 +2,6 @@ import {
   createEventId,
   createRunId,
   createTaskId,
-  type EventId,
   type IdGenerator,
   type RunId,
   type TaskId
@@ -29,9 +28,7 @@ import { recordCrashTerminal } from "./crash-terminal.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
-import { applyTrackingGate, nextTrackingSeq } from "./gate-apply.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
-import { hashAssessment, type TrackingAssessment } from "../tracking/types.js";
 import {
   checkpointCarriesFlowchart,
   materializeCheckpoint,
@@ -515,36 +512,9 @@ async function executeSupervisorRounds(
   return { status: finalStatus, ...(finalReason !== undefined ? { reason: finalReason } : {}) };
 }
 
-/** Applies a tracking gate after a settle only when an assessment is supplied. */
-export async function settleSupervisedOutcome(opts: {
-  events: readonly Event[];
-  append: (event: Event) => Promise<void>;
-  nowIso: string;
-  generateEventId: () => EventId;
-  trackingAssessment?: TrackingAssessment;
-  policyVersion?: string;
-  expectedSeq?: number;
-}): Promise<void> {
-  const assessment = opts.trackingAssessment;
-  if (assessment === undefined) return;
-  const applied = applyTrackingGate({
-    events: opts.events,
-    assessment,
-    assessmentHash: hashAssessment(assessment),
-    expectedSeq: opts.expectedSeq ?? nextTrackingSeq(opts.events),
-    policyVersion: opts.policyVersion ?? "track-v1",
-    nowIso: opts.nowIso,
-    generateEventId: opts.generateEventId
-  });
-  for (const event of applied.events.slice(opts.events.length)) {
-    await opts.append(event);
-  }
-}
-
 /**
  * The settle tail both embedders run once the rounds return a status: close the
- * bound episode, apply a tracking gate if one was supplied, and write the
- * checkpoint that records the run's final state.
+ * bound episode and write the checkpoint that records the run's final state.
  */
 async function finishSupervisedRun(
   ctx: SupervisorContext,
@@ -557,12 +527,6 @@ async function finishSupervisedRun(
     status,
     append: ctx.append,
     make: (type, payload) => ctx.make(type, payload)
-  });
-  await settleSupervisedOutcome({
-    events: beforeSettle.events,
-    append: ctx.append,
-    nowIso: ctx.now(),
-    generateEventId: () => createEventId(ctx.generateId)
   });
   const finalRead = await ctx.eventStore.readAll();
   const checkpoint = validateCheckpoint(materializeCheckpoint(replayRun(finalRead.events), ctx.now()));
