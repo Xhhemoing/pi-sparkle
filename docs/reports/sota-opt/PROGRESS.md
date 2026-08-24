@@ -213,10 +213,10 @@
 | R10-A | `cursor/r10-a-tracking-tenth-pass-83a1` | 已合入专属分支（仅 `R10-A.md`）。S10-A-1 淘汰；预算复核 59–70 µs/run |
 | R10-B | `cursor/r10-b-live-routing-tenth-pass-83a1` | 已合入专属分支（仅 `R10-B.md`）。S10-B-1..3 淘汰；天花板复核含 M=10+learned |
 | R10-C | `cursor/r10-c-offline-routing-tenth-pass-83a1` | 已合入专属分支（仅 `R10-C.md`）。S10-C-1..3 淘汰；r1c–r7c 回归门绿；贴带不越带 |
-| R10-G | `cursor/r10-g-runtime-tenth-pass-83a1` | 已派出 |
 | R10-D | `cursor/r10-d-adaptation-tenth-pass-83a1` | 首 VM ERROR 无分支；已重派 |
 | R10-E | `cursor/r10-e-learning-tenth-pass-83a1` | 已合入专属分支（仅 `R10-E.md`）。无新排除 ID；SLICE-CPU 复核 10.9–11.3 µs/run |
 | R10-F | `cursor/r10-f-experiments-tenth-pass-83a1` | 已派出 |
+| R10-G | `cursor/r10-g-runtime-tenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
