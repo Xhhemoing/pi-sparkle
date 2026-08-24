@@ -382,3 +382,8 @@
 | S6-D-3 | replayAssignments undefined-assignment 守卫消除 | 符号翻转抖动；跨模块纵深 |
 | S6-D-4 | parseRegistrySnapshot identity intern | 身份 + 别名双反例；~160ns |
 | S6-D-5 | eval rerunHash 换更快同字节序列化 | 459–468µs；实现在切片外 |
+| S6-E-1 | collectSignalsFromEvents 五个 per-task 路由 Map 合一为单 struct Map | 廉价整体替换丢 keep-on-undefined；忠实 field-wise merge 仅 +0.3–0.7µs/run。重开：事件规模 ≥3 个量级且不被 readAll 支配 |
+| S6-E-2 | scoreUserAnswer 双正则合并单遍组合正则 | 廉价形式负向优先 vs 首位置匹配发散；忠实 matchAll 慢 3–12×。重开：负向优先语义被正式改为位置序契约 |
+| S6-E-3 | updateProjectBandit 每写 mkdir(recursive) 消除/提升 | S5-G-1 同型；22.7–23.7µs/call。重开：bandit 事务离开文件锁 I/O 且外部清理自愈被正式放宽 |
+| S6-E-4 | bandit.json 紧凑序列化（去 pretty-print） | S4-G-6 同型：磁盘字节发散；delta 243–254ns。重开：bandit.json 被正式声明为非人读数据面 |
+| S6-E-5 | PEER_NEGATIVE 与 /unknown agent/i 首匹配复用 | 两探针语义独立（词边界 vs 裸子串）；忠实形式零节省。重开：两探针先统一语义 |
