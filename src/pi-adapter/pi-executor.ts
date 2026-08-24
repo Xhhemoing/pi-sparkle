@@ -235,6 +235,11 @@ export class PiAgentExecutor implements AgentExecutor {
     let runFailed = false;
     const onAbort = () => agent.abort();
     signal.addEventListener("abort", onAbort, { once: true });
+    // An abort that landed while the Agent was being built reaches no
+    // listener: `addEventListener` on an already-aborted signal never fires.
+    // Nothing can run between the registration above and this check, so the
+    // two paths are exclusive and `abort()` happens exactly once.
+    if (signal.aborted) agent.abort();
     try {
       agent.subscribe((event) => {
         const translated = translatePiEvent(event);
@@ -272,15 +277,23 @@ export class PiAgentExecutor implements AgentExecutor {
     const policy = resolveRetryPolicy(options);
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
+    let latest: RetriedRun = { attempt: 1, events: [], failure: undefined };
     for (let attempt = 1; ; attempt += 1) {
+      // Cancellation is checked before *every* attempt, not only after a
+      // backoff sleep: a signal that flipped anywhere in the loop body must
+      // not buy the provider one more call.
+      if (signal.aborted) {
+        return latest;
+      }
       const run = await this.runAttempt(model, request, signal);
       if (!run.failed || signal.aborted) {
         return { attempt, events: run.events, failure: undefined };
       }
       const failure = classifyProviderFailure(run.error, run.errorMessage);
+      latest = { attempt, events: run.events, failure };
       const decision = decideRetry(failure, attempt, policy, random);
       if (!decision.retry) {
-        return { attempt, events: run.events, failure };
+        return latest;
       }
       options?.onRetry?.({
         attempt,
@@ -291,12 +304,23 @@ export class PiAgentExecutor implements AgentExecutor {
       });
       await sleep(decision.delayMs, signal);
       if (signal.aborted) {
-        return { attempt, events: run.events, failure };
+        return latest;
       }
     }
   }
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    const startedAtMs = Date.now();
+
+    // Cancellation that happened before the executor was reached — a parent
+    // aborting while this child waited in a queue. No Agent is constructed and
+    // no stream is opened: the provider must not be paid for a dead run.
+    if (signal.aborted) {
+      this.reportInvocation(request, this.resolveIdentity(request), [], startedAtMs, 1, "cancelled");
+      yield* this.finish(request, [], "CANCELLED");
+      return;
+    }
+
     const resolved = this.resolveModel(request);
     if (resolved === undefined) {
       yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
@@ -304,7 +328,6 @@ export class PiAgentExecutor implements AgentExecutor {
     }
     const { identity, model } = resolved;
 
-    const startedAtMs = Date.now();
     const { attempt, events: collected, failure } = await this.runWithRetry(model, request, signal);
     const callOutcome: InvocationCallOutcome = signal.aborted
       ? "cancelled"
@@ -312,16 +335,38 @@ export class PiAgentExecutor implements AgentExecutor {
         ? "ok"
         : callOutcomeForFailure(failure);
 
-    if (this.options.onInvocation !== undefined) {
-      this.options.onInvocation(
-        recordInvocation(
-          this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
-        )
-      );
-    }
+    this.reportInvocation(request, identity, collected, startedAtMs, attempt, callOutcome);
 
-    for (const event of collected) yield event;
     const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
+    yield* this.finish(request, collected, outcome);
+  }
+
+  private reportInvocation(
+    request: AgentExecutionRequest,
+    identity: ModelRef,
+    collected: readonly ExecutionEvent[],
+    startedAtMs: number,
+    attempt: number,
+    callOutcome: InvocationCallOutcome
+  ): void {
+    if (this.options.onInvocation === undefined) return;
+    this.options.onInvocation(
+      recordInvocation(
+        this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
+      )
+    );
+  }
+
+  /**
+   * Replay the collected transcript and close it out: a synthesized
+   * TASK_RESULT when the agent produced none, then EXECUTION_FINISHED.
+   */
+  private *finish(
+    request: AgentExecutionRequest,
+    collected: readonly ExecutionEvent[],
+    outcome: "SUCCESS" | "FAILURE" | "CANCELLED"
+  ): Generator<ExecutionEvent> {
+    for (const event of collected) yield event;
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       yield {
         type: "MESSAGE",
