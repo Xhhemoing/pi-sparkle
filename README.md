@@ -54,9 +54,15 @@ pnpm cli inspect --episode <epId>
 `--json` prints the raw event stream, one event per line, with nothing
 appended. `--summary-json` prints exactly one `INSPECT_SUMMARY` object with
 the run status and the evidence the latest stall/block asked for
-(`requiredEvidence`, empty for a run that never stalled); it is not a domain
-event and the two flags are mutually exclusive. A stalled or blocked run also
-shows its `required evidence` list in the default prose view.
+(`requiredEvidence`, empty for a run that never stalled). The summary is a
+**frozen additive-only contract** (`InspectSummaryJson` in
+`src/run/inspection.ts`, same policy as doctor `--json`): scripts may pin
+`type`, `runId`, `status`, and `requiredEvidence`; new keys may be added over
+time, and existing keys keep their meaning. It remains a developer-preview
+surface, is only available with `--run`, is not a domain event (no `id`, its
+`type` is outside the event union), and the two flags stay mutually
+exclusive. A stalled or blocked run also shows its `required evidence` list
+in the default prose view.
 
 ### Resume an interrupted run
 
@@ -152,7 +158,7 @@ pnpm cli run \
 | `pnpm cli version` | Print `0.1.0` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
-| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` (mutually exclusive with `--json`). A crash-truncated JSONL tail is ignored and warned on stderr |
+| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` — a frozen additive-only contract: pin `type`/`runId`/`status`/`requiredEvidence`, new keys may appear, existing keys keep meaning (mutually exclusive with `--json`, run-only). A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
 | `pnpm cli resume --run <runId>` | Resume a paused or interrupted run (`--supervised` for M2 DAG checkpoints; `--unpause` to clear a pause token) |
 | `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |
