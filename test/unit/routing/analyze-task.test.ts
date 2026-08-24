@@ -38,6 +38,32 @@ test("screenshot work requires vision; docker image does not", () => {
   assert.deepEqual([...docker.requiredCapabilities], ["tool-use"]);
 });
 
+test("a shared screenshot objective scopes vision to implementer debugger worker", () => {
+  const objective = "Look at this screenshot and fix the button spacing";
+  for (const role of ["implementer", "debugger", "worker"] as const) {
+    assert.ok(
+      analyzeTask(objective, role).requiredCapabilities.includes("vision"),
+      `${role} must require vision`
+    );
+  }
+  for (const role of ["planner", "scout", "reviewer", "tester"] as const) {
+    assert.deepEqual(
+      [...analyzeTask(objective, role).requiredCapabilities],
+      ["tool-use"],
+      `${role} must not inherit sibling vision`
+    );
+  }
+});
+
+test("generic edit roles do not inherit a verify/QA test family", () => {
+  const objective = "Verify the invoice totals and validate the QA coverage report";
+  assert.equal(analyzeTask(objective, "implementer").family, "edit");
+  assert.equal(analyzeTask(objective, "debugger").family, "edit");
+  assert.equal(analyzeTask(objective, "worker").family, "edit");
+  assert.equal(analyzeTask(objective, "tester").family, "test");
+  assert.equal(analyzeTask(objective, "reviewer").family, "review");
+});
+
 test("role outranks a shared objective so reviewer is not labelled test", () => {
   const objective = "Refactor the billing helper and add a unit test";
   assert.equal(analyzeTask(objective, "implementer").family, "refactor");

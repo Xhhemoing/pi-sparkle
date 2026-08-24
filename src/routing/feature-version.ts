@@ -3,23 +3,24 @@
  * sensors, or token estimators that feed routing change. R1 cells key on
  * featureVersion; mixing versions is forbidden.
  *
- * assign-v4 (2026-08-23): family is role-first for reviewer/tester/scout/
- * planner; review/refactor keywords outrank test for generic edit roles;
- * keyword "reasoning" escalates complexity instead of hard-filtering on an
- * undeclarable capability. Posteriors keyed on assign-v3 must not be reused.
- * Flowchart isolation is `flowchart-v4` (persisted AgentRole + high-risk gate).
+ * assign-v5 (2026-08-24): vision is role-scoped to implementer / debugger /
+ * worker; generic edit roles no longer inherit TEST_RE families. Posteriors
+ * keyed on assign-v4 must not be reused.
+ * Flowchart isolation is `flowchart-v5` (analysis complexity when AgentRole
+ * is persisted).
  */
-export const ASSIGN_FEATURE_VERSION = "assign-v4";
+export const ASSIGN_FEATURE_VERSION = "assign-v5";
 
 /**
  * Flowchart live path. Bump independently of assign-* when the live
  * flowchart decision (role resolution, human gate, analyzer) changes.
  *
- * flowchart-v4 (2026-08-23): persist AgentRole on compiled nodes so tester
- * / planner / scout do not collapse to implementer; high-risk analysis
- * arms the human gate (`WAITING_FOR_USER`) on the executed path.
+ * flowchart-v5 (2026-08-24): when compile persisted `agentRole`, record
+ * analyzeTask complexity instead of max(supervisor floor, analysis) so
+ * scout / tester match assign-v5. Posteriors keyed on flowchart-v4 must
+ * not be reused.
  */
-export const FLOWCHART_FEATURE_VERSION = "flowchart-v4";
+export const FLOWCHART_FEATURE_VERSION = "flowchart-v5";
 
 export const FEATURE_VERSION_REASONS: readonly string[] = [
   "role-regex-classifier",
@@ -32,5 +33,8 @@ export const FEATURE_VERSION_REASONS: readonly string[] = [
   "review-refactor-outrank-test",
   "reasoning-escalates-complexity-not-capability",
   "flowchart-persists-agent-role",
-  "flowchart-high-risk-arms-human-gate"
+  "flowchart-high-risk-arms-human-gate",
+  "role-scoped-vision-capability",
+  "generic-edit-roles-skip-test-family",
+  "flowchart-uses-analysis-complexity-when-agent-role-persisted"
 ];

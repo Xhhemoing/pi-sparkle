@@ -299,7 +299,21 @@ test("live flowchart routing applies analyzeTask high-risk and capability filter
   );
   assert.equal(tester.agentRole, "tester");
   assert.equal(tester.family, "test");
+  assert.equal(tester.complexity, "LOW");
   assert.equal(tester.statusAfterRoute, "RUNNING");
+
+  const reviewerVision = routeFlowNode(
+    router,
+    {
+      ...node("review"),
+      agentRole: "reviewer",
+      objective: "Look at this screenshot and fix the padding"
+    },
+    "LOW",
+    limits
+  );
+  assert.equal(reviewerVision.model, "small");
+  assert.equal(reviewerVision.family, "review");
 
   assert.throws(
     () =>
@@ -359,6 +373,69 @@ test("a refusal message names the constraint that actually bound it", () => {
       /required capability/i.test(error.message) &&
       /vision/i.test(error.message)
   );
+});
+
+test("persisted agentRole records analyzeTask complexity instead of the supervisor floor", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "small",
+        version: "small-v1",
+        roles: ["actor", "critic", "tool"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      },
+      {
+        id: "large",
+        version: "large-v1",
+        roles: ["actor", "critic", "router", "judge", "tool"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const scout = routeFlowNode(
+    router,
+    {
+      ...node("survey"),
+      agentRole: "scout",
+      objective: "Survey the payment module"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(scout.complexity, "LOW");
+  assert.equal(scout.family, "research");
+  assert.equal(scout.featureVersion, FLOWCHART_FEATURE_VERSION);
+
+  const tester = routeFlowNode(
+    router,
+    {
+      ...node("qa"),
+      agentRole: "tester",
+      objective: "Run the unit tests"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(tester.complexity, "LOW");
+  assert.equal(tester.family, "test");
+
+  const legacyTool = routeFlowNode(
+    router,
+    {
+      ...node("legacy", "tool"),
+      objective: "Run the unit tests"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(legacyTool.complexity, "MEDIUM");
+  assert.equal(legacyTool.family, "test");
 });
 
 test("high-risk and cost/time refusal wordings stay stable for their callers", () => {

@@ -360,6 +360,10 @@ function maxComplexity(left: TaskComplexity, right: TaskComplexity): TaskComplex
  * Live flowchart route. Runs analyzeTask so high-risk, privacy, and
  * capability keywords actually filter the catalog — family is no longer
  * hardcoded as "unknown".
+ *
+ * When compile persisted `agentRole`, analysis complexity is authoritative
+ * so assign-v5 and flowchart-v5 record the same number. Legacy nodes without
+ * a persisted role still take the supervisor floor via maxComplexity.
  */
 export function routeFlowNode(
   router: ModelRouter,
@@ -369,10 +373,14 @@ export function routeFlowNode(
 ): RoutingDecision {
   const agentRole = resolvedAgentRole(node);
   const analysis = analyzeTask(node.objective, agentRole);
+  const recordedComplexity =
+    node.agentRole !== undefined
+      ? analysis.complexity
+      : maxComplexity(complexity, analysis.complexity);
   return router.route({
     taskId: node.taskId,
     role: node.role,
-    complexity: maxComplexity(complexity, analysis.complexity),
+    complexity: recordedComplexity,
     modelPolicy: node.modelPolicy,
     confidenceThreshold: node.confidenceThreshold,
     approvalRequired: node.approvalRequired || analysis.highRisk,

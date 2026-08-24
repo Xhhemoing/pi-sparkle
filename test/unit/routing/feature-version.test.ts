@@ -13,13 +13,16 @@ import type { OutcomeObservation } from "../../../src/routing/outcomes.js";
 import type { RouteRequest } from "../../../src/routing/policy.js";
 
 test("ASSIGN_FEATURE_VERSION is the live isolation key and documents bump reasons", () => {
-  assert.equal(ASSIGN_FEATURE_VERSION, "assign-v4");
-  assert.equal(FLOWCHART_FEATURE_VERSION, "flowchart-v4");
+  assert.equal(ASSIGN_FEATURE_VERSION, "assign-v5");
+  assert.equal(FLOWCHART_FEATURE_VERSION, "flowchart-v5");
   assert.ok(FEATURE_VERSION_REASONS.includes("contract-risk-flag-overrides-keywords"));
   assert.ok(FEATURE_VERSION_REASONS.includes("role-outranks-keywords-for-family"));
   assert.ok(FEATURE_VERSION_REASONS.includes("review-refactor-outrank-test"));
   assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-persists-agent-role"));
   assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-high-risk-arms-human-gate"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("role-scoped-vision-capability"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("generic-edit-roles-skip-test-family"));
+  assert.ok(FEATURE_VERSION_REASONS.includes("flowchart-uses-analysis-complexity-when-agent-role-persisted"));
 });
 
 test("contract-risk flag overrides keyword heuristics", () => {

@@ -125,6 +125,32 @@ test("screenshot work routes to the vision-capable primary instead of refusing",
   assert.ok(assignments[0]?.analysis.requiredCapabilities.includes("vision"));
 });
 
+test("a shared screenshot objective does not escalate scout reviewer tester off cheap", () => {
+  const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+  const objective = "Look at this screenshot and fix the padding";
+  const assignments = assignTasks({
+    catalog,
+    tasks: [
+      { taskId: parseTaskId("tsk_plan"), role: "planner", objective },
+      { taskId: parseTaskId("tsk_scout"), role: "scout", objective },
+      { taskId: parseTaskId("tsk_impl"), role: "implementer", objective },
+      { taskId: parseTaskId("tsk_rev"), role: "reviewer", objective },
+      { taskId: parseTaskId("tsk_test"), role: "tester", objective }
+    ]
+  });
+  const byRole = Object.fromEntries(assignments.map((row) => [row.role, row]));
+  assert.equal(byRole.planner?.decision.model, "premium");
+  assert.equal(byRole.planner?.analysis.preferPrimary, true);
+  assert.ok(!byRole.planner?.analysis.requiredCapabilities.includes("vision"));
+  assert.equal(byRole.scout?.decision.model, "cheap");
+  assert.equal(byRole.implementer?.decision.model, "premium");
+  assert.ok(byRole.implementer?.analysis.requiredCapabilities.includes("vision"));
+  assert.equal(byRole.reviewer?.decision.model, "cheap");
+  assert.equal(byRole.tester?.decision.model, "cheap");
+  assert.equal(byRole.scout?.decision.complexity, "LOW");
+  assert.equal(byRole.tester?.decision.complexity, "LOW");
+});
+
 test("local-only work refuses a cloud-general catalog", () => {
   const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
   assert.throws(

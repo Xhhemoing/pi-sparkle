@@ -43,5 +43,13 @@ Prior cycle artifacts (do not substitute for this goal’s required slugs):
 
 ## Phase 3 — parent cross-validate + polish — `cursor-grok-4.6`
 
-- **Action:** Re-read `parseObservedSignal` and the A5 tests; they match the fable spec (prose `model` fallback → missing class; 429/tool/contract still land; `classifyTaskFailure` itself untouched). Shipped fable successor (c) A3: CLI run summary names how many high-risk gates `--assume-defaults` auto-cleared. Did **not** ship A2/A4/A6/`--approve-high-risk` (owner-gated per strategy).
+- **Action:** Re-read `parseObservedSignal` and the A5 tests; they match the fable spec (prose `model` fallback → missing class; 429/tool/contract still land; `classifyTaskFailure` itself untouched). Shipped fable successor (c) A3: CLI run summary names how many high-risk gates `--assume-defaults` auto-cleared. Did **not** ship A2/A4/A6/`--approve-high-risk` in that increment (owner-gated risk de-escalation still not shipped).
 - **Result:** A5 unit/bandit/auto-loop **26/26**. Track + CLI A3 tests **6/6**. `pnpm gate` @ `865fd30`: **1196 / 1195 / 0 / 1**. Live path remains R0 + flowchart; Stage 2 still owner-gated.
+
+## Phase 4 — successor queue A2 + A6 + A4 + A7 — `cursor-grok-4.6`
+
+- **Action:** Continue the fable successor queue in leverage order, without de-escalating sibling **high-risk** (Stage 2 still owner-gated) and without rewriting the Phase-2 verdict file.
+  - **A2 + A6 as assign-v5:** `vision` only for implementer / debugger / worker; planner / scout / reviewer / tester stay `tool-use` on a shared screenshot objective. Generic edit roles skip `TEST_RE` so "Verify … QA coverage" stays `family: edit`. Review/refactor still outrank test. Deploy-family and `highRisk` sibling escalation untouched.
+  - **A4 as flowchart-v5:** when compile persisted `agentRole`, `routeFlowNode` records `analyzeTask` complexity (scout/tester LOW) instead of `max(supervisor MEDIUM floor, analysis)`. Legacy nodes without `agentRole` still take the floor.
+  - **A7:** live-selector transitive import graph from `model-router.ts` and `assign.ts` must not reach `r1` / `bandit` / `shadow` / `r1-shadow-report` / `propensity` / `simulation-holdout`. The 10-file textual allowlist stays. Walk is *not* from `src/cli/main.ts` because `track/loop` → `runAutoAdaptLoop` legitimately sees bandit after the run.
+- **Result (pre-gate):** targeted routing/flowchart/isolation suites **42/42**. Feature versions bumped together. Stage 2 `--approve-high-risk` still not shipped. CLI re-measure and `pnpm gate` follow this commit.

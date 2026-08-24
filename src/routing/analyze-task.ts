@@ -70,7 +70,7 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
     role === "planner" ||
     role === "debugger" ||
     family === "deploy";
-  const requiredCapabilities = options.requiredCapabilities ?? capabilitiesOf(text);
+  const requiredCapabilities = options.requiredCapabilities ?? capabilitiesOf(text, role);
   const privacyRequired =
     options.privacyRequired ??
     (options.ownershipRestricted === true || LOCAL_ONLY_RE.test(text) ? "local" : "cloud-general");
@@ -98,6 +98,13 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
 }
 
 /**
+ * Roles that actually consume visual artifacts. A shared run objective that
+ * mentions a screenshot must not escalate planner / scout / reviewer / tester
+ * onto a vision-capable (usually premium) model.
+ */
+const VISION_ROLES: ReadonlySet<AgentRole> = new Set(["implementer", "debugger", "worker"]);
+
+/**
  * Only physical capability boundaries become hard requirements. `vision` is
  * one: a text-only model cannot read a screenshot, so refusing is correct.
  * Keyword-flagged "reasoning" is a quality gradient, not an incapability —
@@ -105,9 +112,9 @@ export function analyzeTask(objective: string, role: AgentRole, options: Analyze
  * filtering the catalog. Contract-supplied capabilities still pass through
  * untouched via AnalyzeTaskOptions.requiredCapabilities.
  */
-function capabilitiesOf(text: string): readonly string[] {
+function capabilitiesOf(text: string, role: AgentRole): readonly string[] {
   const capabilities = ["tool-use"];
-  if (VISION_RE.test(text)) capabilities.push("vision");
+  if (VISION_ROLES.has(role) && VISION_RE.test(text)) capabilities.push("vision");
   return capabilities;
 }
 
@@ -115,9 +122,11 @@ function capabilitiesOf(text: string): readonly string[] {
  * Family is the R1 data-isolation key. Role outranks keywords for roles with
  * an intrinsic family, so a shared run objective cannot relabel the reviewer
  * or tester (all children usually see the same objective text). Generic edit
- * roles specialize by text; review/refactor outrank test so "refactor X and
- * add a unit test" counts as refactor work, not test work. This mapping
- * agrees with the learning plane's familyFromRole fallback.
+ * roles specialize by text; review/refactor still outrank test so "refactor X
+ * and add a unit test" counts as refactor work. TEST_RE does not relabel
+ * implementer / debugger / worker — a shared "verify / QA coverage" objective
+ * must not contaminate the edit posterior. This mapping agrees with the
+ * learning plane's familyFromRole fallback.
  */
 function familyOf(text: string, role: AgentRole): TaskFamily {
   if (HIGH_RISK_RE.test(text) && /\b(deploy|production|prod\b)\b/i.test(text)) return "deploy";
@@ -129,7 +138,8 @@ function familyOf(text: string, role: AgentRole): TaskFamily {
   if (RESEARCH_RE.test(text)) return "research";
   if (REVIEW_RE.test(text)) return "review";
   if (REFACTOR_RE.test(text)) return "refactor";
-  if (TEST_RE.test(text)) return "test";
+  const genericEdit = role === "implementer" || role === "debugger" || role === "worker";
+  if (!genericEdit && TEST_RE.test(text)) return "test";
   if (IMPLEMENT_RE.test(text)) return "edit";
   return ROLE_FAMILY[role] ?? "unknown";
 }
