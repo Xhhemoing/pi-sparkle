@@ -466,3 +466,7 @@
 | S8-B-2 | liveRefusalMessage 双 .some 融合单遍 | R=40 实测更慢；V8 builtin 反例第四例 |
 | S8-B-3 | selectLiveModel 比较器调用展开 | 每 route ~10ns + 总序契约双份 |
 | S8-B-4 | assignPlanned learned 路径第一次防御拷贝省略 | 符号翻转；全批共享 allowedIds 裸传护栏 |
+| S8-C-1 | onProbabilitiesFor 点积改支撑升序求和（S7-C 引理站点外推） | 逐位等价但 4.57–4.66 ms/报告，低于 ±35 ms 带 ~7× |
+| S8-C-2 | APC off 值改支撑求和跳 contrast 列（免 slice 拷贝 + 免 O(p) off 点积） | 逐位等价但 22.2–23.6 ms/报告、决斗 +14.3/+15.6/+18.3 ms 全部带内（贴带不越带） |
+| S8-C-3 | irls 收敛侧 beta.every(Number.isFinite) 死代码消除 | 恒真可证但 0.40 ms/报告；跨函数不变量第二证人 |
+| S8-C-4 | solveSymmetric 回代对角 eps 卫死代码消除 | 恒不触发可证但删除侧稳定更慢（布局伪影）；fail-closed 数值卫 |
