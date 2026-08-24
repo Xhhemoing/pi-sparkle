@@ -19,10 +19,11 @@ import { fileURLToPath } from "node:url";
  *   - `src/routing/bandit.ts` — reached through `src/learning/bandit-store.ts`,
  *     which the post-run adaptation loop uses to *write* per-project reward
  *     counters. Only the constructor/writer symbols are imported; `selectArm`
- *     (the exploratory selector) has no caller in the closure. `loadProjectBandit`
- *     is called from `bandit-store.ts` itself and from `src/cli/doctor.ts` for
- *     the read-only `learnedState` inventory (R6-4; parent sign-off: doctor
- *     never feeds routing). No other live module may read the stored state back.
+ *     (the exploratory selector) has no caller in the closure. The stored state is
+ *     read back by `bandit-store.ts` itself and by `src/cli/doctor.ts`, which calls
+ *     `loadProjectBanditByKey` for the read-only `learnedState` inventory (R6-4;
+ *     parent sign-off: read-only inventory, never a selector — doctor never feeds
+ *     routing). No other live module may read the stored state back.
  *   - `src/routing/topology.ts` — reached through `src/run/supervisor.ts`, which
  *     defines the parked `planTaskTopology` wrapper. The run loop does not call
  *     it (M5-T5 / Checkpoint F owns that integration), which the pinned
@@ -250,15 +251,19 @@ test("bandit reaches the live closure as a reward writer, never as a selector", 
     .sort();
   assert.deepEqual(selectors, [], "selectArm gained a caller inside the live execution plane");
 
+  // R7-8 narrowed the exception: doctor now reaches the stored state through the
+  // keyed reader instead of inverting the project-key hash, so the symbol this pin
+  // requires moved with it. The sign-off it encodes is unchanged — read-only
+  // inventory, never a selector.
   assert.match(
     readModule("src/cli/doctor.ts"),
-    /\bloadProjectBandit\b/,
+    /\bloadProjectBanditByKey\b/,
     "doctor's signed-off exception is the learnedState inventory reader, not a selector"
   );
   const readers = [...LIVE_CLOSURE.members]
     .filter((module) => module !== "src/learning/bandit-store.ts")
     .filter((module) => module !== "src/cli/doctor.ts")
-    .filter((module) => /\bloadProjectBandit\b/.test(readModule(module)))
+    .filter((module) => /\bloadProjectBandit(?:ByKey)?\b/.test(readModule(module)))
     .sort();
   assert.deepEqual(
     readers,

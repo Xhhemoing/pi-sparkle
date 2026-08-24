@@ -6,8 +6,15 @@ import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
-import { createEventId, createRunId } from "../../../src/domain/ids.js";
+import { createEpisodeId, createEventId, createRunId } from "../../../src/domain/ids.js";
 import { stableProjectKey } from "../../../src/learning/learned-routing.js";
+import {
+  configurePreferencePersistence,
+  isTombstoned,
+  listObservations,
+  recordPreference,
+  resetPreferenceStore
+} from "../../../src/preferences/store.js";
 import { adaptationRoot } from "../../../src/privacy/state-layout.js";
 import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
 import { EventStore } from "../../../src/run/event-store.js";
@@ -764,6 +771,112 @@ test("doctor inventories learned and derived state through the shipped readers w
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * R7-8. Doctor reaches a stored bandit file through the keyed reader, so the
+ * inventory no longer depends on the project-key hash being invertible. The key
+ * below is well-formed for the scan but outside the magnitude any project root
+ * can hash to, which is exactly what the deleted base-31 preimage refused: it
+ * used to push a scan error and report the file `present but unclassified`,
+ * failing the check. Read by key, the same bytes classify normally.
+ */
+test("doctor inventories a stored project key it could not have hashed back to a root", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-keyed-"));
+  const unreachableKey = "pffffffff";
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  const banditPath = join(projectsDir, unreachableKey, "bandit.json");
+  const damagedBandit = '{"arms":';
+  try {
+    await mkdir(join(projectsDir, unreachableKey), { recursive: true });
+    await writeFile(banditPath, damagedBandit, "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.deepEqual(report.learnedState.scanErrors, []);
+    assert.deepEqual(
+      report.learnedState.entries.find((entry) => entry.path === banditPath),
+      {
+        kind: "bandit",
+        stateClass: "learned",
+        projectKey: unreachableKey,
+        path: banditPath,
+        status: "damaged",
+        remediation:
+          "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+      }
+    );
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, true, "an unmapped key is no longer a scan failure");
+    assert.equal(await readFile(banditPath, "utf8"), damagedBandit);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * R7-8. The preferences probe reads through a pure reader instead of binding the
+ * process-global store and unbinding it again. The bind was observable: it
+ * replaced this process's in-memory history with the inventoried file's, and the
+ * unbind left the store unbound whatever it had been before. Doctor is a
+ * read-only inventory, so neither may happen.
+ */
+test("doctor inventories preferences without adopting them into the process store", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-pref-pure-"));
+  const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+  const planted = {
+    id: "pref_planted",
+    scope: "user",
+    scopeKey: "u1",
+    key: "format",
+    value: "planted",
+    evidenceEpisodeId: "epi_planted",
+    weight: 1,
+    createdAt: "2026-08-24T18:00:00.000Z",
+    explicit: true,
+    recurrenceCount: 1
+  };
+  const snapshot = `${JSON.stringify({ observations: [planted], tombstones: ["pref_gone"] })}\n`;
+  try {
+    await mkdir(adaptationRoot(stateRoot), { recursive: true });
+    await writeFile(preferencesPath, snapshot, "utf8");
+
+    configurePreferencePersistence(undefined);
+    resetPreferenceStore();
+    const mine = recordPreference("user", "u1", "format", "mine", createEpisodeId(), 1, true);
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(
+      report.learnedState.entries.find((entry) => entry.path === preferencesPath)?.status,
+      "readable"
+    );
+
+    assert.deepEqual(
+      listObservations().map((row) => row.id),
+      [mine.id],
+      "doctor must not load the inventoried snapshot into this process's store"
+    );
+    assert.equal(isTombstoned("pref_gone"), false, "nor its tombstones");
+
+    // Still unbound, exactly as doctor found it: a later observation cannot land
+    // on top of the file doctor only read.
+    recordPreference("user", "u1", "format", "later", createEpisodeId(), 1, true);
+    assert.equal(await readFile(preferencesPath, "utf8"), snapshot);
+  } finally {
+    configurePreferencePersistence(undefined);
+    resetPreferenceStore();
+    await rm(stateRoot, { recursive: true, force: true });
   }
 });
 

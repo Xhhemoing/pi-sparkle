@@ -14,13 +14,14 @@ import { loadProvidersConfig } from "../config/providers-config.js";
 import { isRunId, type RunId } from "../domain/ids.js";
 import {
   BanditStateUnreadableError,
-  loadProjectBandit
+  loadProjectBanditByKey,
+  projectBanditPath
 } from "../learning/bandit-store.js";
 import { stableProjectKey } from "../learning/learned-routing.js";
 import { readPinnedPiVersions } from "../pi-compat/check.js";
 import {
-  configurePreferencePersistence,
-  PreferenceSnapshotUnreadableError
+  PreferenceSnapshotUnreadableError,
+  readPreferenceSnapshot
 } from "../preferences/store.js";
 import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
 import {
@@ -415,30 +416,6 @@ async function runStateInventory(
   return { advisory: RUN_STATE_ADVISORY, entries, scanErrors };
 }
 
-/**
- * Bandit files are stored under a stable project key, while the shipped reader
- * deliberately accepts a project root. The hash is the Java-style base-31
- * accumulator in `stableProjectKey`; encoding the stored positive magnitude as
- * base-31 code units gives the reader an opaque root that maps back to that key.
- * This keeps doctor on the production reader without parsing bandit bytes a
- * second time. The candidate is verified so a future key algorithm fails as a
- * scan error rather than reading a different project's state.
- */
-function projectRootForStoredKey(projectKey: string): string | undefined {
-  if (!/^p(?:0|[1-9a-f][0-9a-f]*)$/.test(projectKey)) return undefined;
-  let magnitude = Number.parseInt(projectKey.slice(1), 16);
-  if (!Number.isSafeInteger(magnitude) || magnitude < 0 || magnitude > 0x80000000) {
-    return undefined;
-  }
-  const codeUnits: number[] = [];
-  while (magnitude > 0) {
-    codeUnits.unshift(magnitude % 31);
-    magnitude = Math.floor(magnitude / 31);
-  }
-  const candidate = String.fromCharCode(...codeUnits);
-  return stableProjectKey(candidate) === projectKey ? candidate : undefined;
-}
-
 function learnedStateEntry(
   kind: DoctorLearnedStateKind,
   stateClass: DoctorLearnedStateClass,
@@ -485,24 +462,9 @@ async function learnedStateInventory(
   }
 
   for (const projectKey of [...projectKeys].sort((left, right) => left.localeCompare(right))) {
-    const path = join(projectsDir, projectKey, "bandit.json");
-    const opaqueProjectRoot = projectRootForStoredKey(projectKey);
-    if (opaqueProjectRoot === undefined) {
-      scanErrors.push(`${path}: project key cannot be mapped to the shipped bandit reader`);
-      entries.push(
-        learnedStateEntry(
-          "bandit",
-          "learned",
-          projectKey,
-          path,
-          "present",
-          LEARNED_STATE_REMEDIATION
-        )
-      );
-      continue;
-    }
+    const path = projectBanditPath(stateRoot, projectKey);
     try {
-      const bandit = await loadProjectBandit(stateRoot, opaqueProjectRoot);
+      const bandit = await loadProjectBanditByKey(stateRoot, projectKey);
       entries.push(
         learnedStateEntry(
           "bandit",
@@ -556,15 +518,17 @@ async function learnedStateInventory(
         )
       );
     } else {
-      configurePreferencePersistence(preferencesPath);
-      configurePreferencePersistence(undefined);
+      // The pure reader validates the snapshot without binding it, so inventorying
+      // preferences cannot leave this process persisting to — or holding — an
+      // operator's preference history.
+      const snapshot = readPreferenceSnapshot(preferencesPath);
       entries.push(
         learnedStateEntry(
           "preferences",
           "learned",
           null,
           preferencesPath,
-          "readable",
+          snapshot === undefined ? "absent" : "readable",
           PREFERENCE_STATE_REMEDIATION
         )
       );

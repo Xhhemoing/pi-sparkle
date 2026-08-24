@@ -9,8 +9,17 @@ import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { stableProjectKey } from "./learned-routing.js";
 import type { ObservedSignal } from "./signals.js";
 
+/**
+ * Where a *stored* project key's bandit state lives. Callers that discovered a key by scanning
+ * `adaptation/learning/projects` have no project root to hand back, so the layout is exported
+ * here rather than reconstructed — and never inverted: `stableProjectKey` is one-way.
+ */
+export function projectBanditPath(stateRoot: string, projectKey: string): string {
+  return join(adaptationRoot(stateRoot), "learning", "projects", projectKey, "bandit.json");
+}
+
 function banditPath(stateRoot: string, projectRoot: string): string {
-  return join(adaptationRoot(stateRoot), "learning", "projects", stableProjectKey(projectRoot), "bandit.json");
+  return projectBanditPath(stateRoot, stableProjectKey(projectRoot));
 }
 
 export const BANDIT_STATE_UNREADABLE_CODE = "BANDIT_STATE_UNREADABLE" as const;
@@ -160,6 +169,19 @@ export async function loadProjectBandit(
   projectRoot: string
 ): Promise<BanditState | undefined> {
   return readBanditFile(banditPath(stateRoot, projectRoot));
+}
+
+/**
+ * The same read, keyed by the stored project key instead of a project root, for callers that
+ * enumerate `adaptation/learning/projects` and never see the roots those keys were hashed from.
+ * Same contract as `loadProjectBandit`: `undefined` only for a project with no bandit yet,
+ * `BanditStateUnreadableError` for damaged bytes, and nothing is written back either way.
+ */
+export async function loadProjectBanditByKey(
+  stateRoot: string,
+  projectKey: string
+): Promise<BanditState | undefined> {
+  return readBanditFile(projectBanditPath(stateRoot, projectKey));
 }
 
 /**

@@ -49,7 +49,7 @@ export class PreferenceSnapshotUnreadableError extends DomainValidationError {
   }
 }
 
-interface PreferenceSnapshot {
+export interface PreferenceSnapshot {
   readonly observations: readonly PreferenceObservation[];
   readonly tombstones: readonly string[];
 }
@@ -89,10 +89,22 @@ function parseSnapshot(path: string, raw: string): PreferenceSnapshot {
   };
 }
 
+/**
+ * Read and validate a snapshot without binding the store or touching its in-memory state:
+ * `undefined` means the file does not exist, and damage throws
+ * `PreferenceSnapshotUnreadableError`. This is the reader for callers that want to know whether
+ * a snapshot is intact — a diagnostic inventory, say — without adopting it as this process's
+ * preferences; `configurePreferencePersistence` is what adopts one.
+ */
+export function readPreferenceSnapshot(file: string): PreferenceSnapshot | undefined {
+  if (!existsSync(file)) return undefined;
+  return parseSnapshot(file, readFileSync(file, "utf8"));
+}
+
 /** Reads and validates `file` before touching any in-memory state: a throw changes nothing. */
 function loadFromDisk(file: string): void {
-  if (!existsSync(file)) return;
-  const snapshot = parseSnapshot(file, readFileSync(file, "utf8"));
+  const snapshot = readPreferenceSnapshot(file);
+  if (snapshot === undefined) return;
   observations.length = 0;
   observations.push(...snapshot.observations);
   tombstones.clear();
