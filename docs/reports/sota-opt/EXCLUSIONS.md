@@ -94,3 +94,12 @@
 | S1-B-6 | routeR0 高风险过滤 Map 化 | 等价但 M=10 实测更慢 |
 | S1-B-7 | validateInput 复杂度数组字面量提升 | V8 已优化，零收益 |
 | S1-B-8 | assignPlanned allowedIds 防御拷贝省略 | 跨 assignment 共享引用，身份改变 |
+| S1-D-1 | registry addVersion 拷贝追加改可变 push | 调用方持有数组可观察增长 |
+| S1-D-2 | candidatesFor identity 二级索引 | C=8 实测更慢 |
+| S1-D-3 | reconstructPromotion 反向早退 | 无生产调用方，ns 级 |
+| S1-D-4 | eval-routing catalogCost 换 Map | 真实 M=2，全程 <0.1µs |
+| S1-D-5 | registry Array.from(values()) 改直接迭代 | 常数噪声 |
+| S1-D-6 | paretoFront 换排序/分治 skyline | n 个位数，收益上界亚微秒 |
+| S1-D-7 | promoteWithRegistry 外层 evalReport 去重 | 双故障抛错次序可观察发散 |
+| S1-D-8 | adaptation 小表 includes 换 Set/Map | 表长≤10，噪声 |
+| S1-D-9 | parseRoutingPolicyContent 双 JSON.parse 消除 | 需改公开签名 + 噪声 |
