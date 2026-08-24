@@ -17,7 +17,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S1-F/J/C/I；其余区报告收口 |
 | 2 | 第 4 波收尾 | 10（1 在跑 / 9 完成 / 0 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
-| 3 | 第 1 波进行中 | 10（1 在跑 / 1 本波派出 / 8 排队） | claude-fable-5-thinking-xhigh | [round-03/PLAN.md](./round-03/PLAN.md) |
+| 3 | 第 1 波进行中 | 10（1 在跑 / 1 完成 / 1 本波派出 / 7 排队） | claude-fable-5-thinking-xhigh | [round-03/PLAN.md](./round-03/PLAN.md) |
 
 ### Round 1 波次
 
@@ -41,7 +41,7 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R3-A 跟踪门控、R3-B live 路由 | A 在跑；B 本波派出 |
+| 1 | R3-A 跟踪门控、R3-B live 路由、R3-C 离线路由 | A 完成已合入；B 在跑；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -66,6 +66,7 @@
 | R2-G | `cursor/r2-g-runtime-graph-domain-ffb9` | 已合入专属分支（仅 `R2-G.md`） |
 | R2-H | `cursor/r2-h-eval-req-review-rubric-05c5` | 已合入专属分支（仅 `R2-H.md`） |
 | R2-I | `cursor/r2-i-sota-opt-7b6c` | 已合入专属分支（仅 `R2-I.md`） |
+| R3-A | `cursor/r3-a-tracking-third-pass-41c0` | 已合入专属分支（仅 `R3-A.md`） |
 
 ## 合并策略
 

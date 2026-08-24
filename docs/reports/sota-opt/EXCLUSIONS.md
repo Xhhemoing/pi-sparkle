@@ -204,3 +204,7 @@
 | S2-I-4 | resume/answer/inspect CLI 预读去重 | 需改 run 公开签名 |
 | S2-I-5 | doctor 检查 Promise.all 并行 | 53–75µs |
 | S2-I-6 | parseProvidersConfig 双遍融合 | 错误选择发散 |
+| S3-A-1 | roller mandatory 死 text 字段移除 | 被 S2-A-1 支配；抖动内 |
+| S3-A-2 | lightMinorCount 已定义时跳过 prescoreInput 克隆 | 生产不可达 |
+| S3-A-3 | claims.some(isSuccessClaim) 双算去重 | 35–40ns + 公开面变更 |
+| S3-A-4 | mergeOpenMinors 双空输入早退 | 32–39ns 亚噪声 |
