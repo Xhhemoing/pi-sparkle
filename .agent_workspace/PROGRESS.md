@@ -17,9 +17,9 @@ Loop 3 draft (`agent/sota-opt-loop3-7e63`) claimed but has not landed: INSPECT_S
 
 ## Round 1 — in flight
 
-Awaiting fable audit (`claude-fable-5-thinking-xhigh`) for 10 mutually exclusive tasks.
+Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. Dispatching T1–T10 (6 opus-fast + 4 gpt-sol). Exclusive ownership in `OWNERSHIP.md`.
 
-**Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back.
+**Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back. Fable re-measured jsonlAppend 68.264ms; T7 must record its own same-VM baseline before optimizing. Two host-dependent doctor test failures are T9's to hermeticize.
 
 ---
 
