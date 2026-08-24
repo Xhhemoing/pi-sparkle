@@ -281,3 +281,6 @@
 | S4-E-1 | collectSignalsFromEvents 空事件快路径 | 534–542ns；被 ~10²µs I/O 支配 |
 | S4-E-2 | persistSignals∥updateProjectBandit 编排重叠 | 317–443µs；双故障错误非确定 |
 | S4-E-3 | baseSignal 隐藏类单态化 | 形状不等价；~180–230ns/run |
+| S4-F-1 | dataset 私有 seen Set 复用为 universe | U=2000 双向抖动；sealed 链路 test-only |
+| S4-F-2 | replayPolicy 空 exclusions 免 Set+filter | 3–106µs；无生产调用方 |
+| S4-F-3 | comparison-report 循环内 delta 减法 CSE | N=1000 仅 ~41µs |
