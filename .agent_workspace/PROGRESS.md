@@ -139,6 +139,15 @@ All 6 subagents returned. Requested slugs vs reports: fable pair `claude-fable-5
 
 Brief: `.agent_workspace/ROUND1-BRIEF.md` (inject into every R2 agent).
 
+| ID | Agent | Task id |
+|---|---|---|
+| R2-fable-A | docs / SOTA remainder | `bc-35f62f6f-4574-5169-a5f2-20faa869fc3b` |
+| R2-fable-B | overlay polish | `bc-6dffdb01-cefb-5ec0-9875-f5a7b3e55ad4` |
+| R2-opus-A | `run --thinking` | `bc-00f6c6c9-ecf9-52db-87b1-7bf715759711` |
+| R2-opus-B | CLI tests + npm scripts | `bc-f79dace0-0fdd-525d-9a84-0692a1664278` |
+| R2-gpt-A | nested-skill fixtures | `bc-08ed8fc4-3182-5bfd-a743-b676eab458a4` |
+| R2-gpt-B | library hardening | `bc-2d231917-25e7-5b3e-a2da-ee15c1b8121f` |
+
 | Agent | Model slug | Owns (write) | Must not touch |
 |---|---|---|---|
 | R2-fable-A | `claude-fable-5-thinking-xhigh` | `docs/how-to-adapt-to-pi.md`, `docs/reports/**` (align flags, thinking, SOTA remainder), `.agent_workspace/round2-fable-a.md` | `src/`, `package.json` |
