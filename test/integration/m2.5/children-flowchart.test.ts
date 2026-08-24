@@ -1,12 +1,30 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import {
+  createAgentProfileRegistry,
+  defaultAgentProfiles,
+  type AgentProfile,
+  type AgentProfileRegistry
+} from "../../../src/agents/registry.js";
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
-import { parseTaskId } from "../../../src/domain/ids.js";
-import { isAgentRole } from "../../../src/domain/roles.js";
+import {
+  parseTaskId,
+  type ArtifactId,
+  type EvidenceId,
+  type MessageId
+} from "../../../src/domain/ids.js";
+import { isAgentRole, type AgentRole } from "../../../src/domain/roles.js";
+import { nowIso } from "../../../src/domain/timestamp.js";
+import type {
+  AgentExecutionRequest,
+  AgentExecutor,
+  ExecutionEvent
+} from "../../../src/execution/contract.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { inspectRun } from "../../../src/run/inspection.js";
 import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
@@ -106,5 +124,156 @@ test("compiled children execute through the flowchart supervisor and persist chi
       assert.ok(childRun.messages.some((message) => message.type === "TASK_REQUEST"));
       assert.ok(childRun.messages.some((message) => message.type === "TASK_RESULT"));
     }
+  });
+});
+
+function router() {
+  return createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor", "critic"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      },
+      {
+        id: "premium",
+        version: "premium-v1",
+        roles: ["actor", "critic", "judge", "router"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000
+      }
+    ]
+  });
+}
+
+/** A registry whose profile for one role blows up when the prompt is built. */
+function registryFailingFor(brokenRole: AgentRole): AgentProfileRegistry {
+  const base = createAgentProfileRegistry(defaultAgentProfiles());
+  return {
+    has: (role) => base.has(role),
+    list: () => base.list(),
+    resolve: (role): AgentProfile => {
+      if (role !== brokenRole) return base.resolve(role);
+      return {
+        ...base.resolve(role),
+        get systemInstruction(): string {
+          throw new Error(`profile lookup failed for ${role}`);
+        }
+      };
+    }
+  };
+}
+
+function roleFromPrompt(prompt: string): string {
+  return /^Role: (.+)$/m.exec(prompt)?.[1] ?? "";
+}
+
+/**
+ * The parent child spawns two peers: one that keeps working until it is
+ * cancelled, and one that cannot launch at all. The failed launch throws out of
+ * the node, which is the window where the run leaves the loop with a live child.
+ */
+class SpawningExecutor implements AgentExecutor {
+  peerSawAbort = false;
+  private resolvePeerStarted!: () => void;
+  readonly peerStarted = new Promise<void>((resolve) => {
+    this.resolvePeerStarted = resolve;
+  });
+
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    if (roleFromPrompt(request.prompt) === "reviewer") {
+      this.resolvePeerStarted();
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) {
+          this.peerSawAbort = true;
+          resolve();
+          return;
+        }
+        signal.addEventListener(
+          "abort",
+          () => {
+            this.peerSawAbort = true;
+            resolve();
+          },
+          { once: true }
+        );
+      });
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+
+    const cluster = request.cluster;
+    assert.ok(cluster, "the parent child runs with a cluster session");
+    cluster.spawn({ role: "reviewer", objective: "keep reviewing until cancelled" });
+    cluster.spawn({ role: "tester", objective: "peer that cannot launch" });
+    await this.peerStarted;
+    yield {
+      type: "MESSAGE",
+      message: {
+        protocolVersion: 1,
+        id: `msg_spawner-${request.agentInstanceId}` as MessageId,
+        occurredAt: nowIso(),
+        runId: request.runId,
+        taskId: request.taskId,
+        from: request.agentInstanceId,
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "spawned the peers",
+        artifactIds: [`art_spawner-${request.taskId}` as ArtifactId],
+        evidenceIds: [`evd_spawner-${request.taskId}` as EvidenceId],
+        verification: { kind: "PASSED", evidenceIds: [`evd_spawner-${request.taskId}` as EvidenceId] }
+      }
+    };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+}
+
+async function eventTypesByRun(stateRoot: string): Promise<Map<string, string[]>> {
+  const runsRoot = join(runtimeRoot(stateRoot), "runs");
+  const runIds = await readdir(runsRoot);
+  const byRun = new Map<string, string[]>();
+  for (const runId of runIds) {
+    const raw = await readFile(join(runsRoot, runId, "events.jsonl"), "utf8").catch(() => "");
+    const types = raw
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => (JSON.parse(line) as { type: string }).type);
+    byRun.set(runId, types);
+  }
+  return byRun;
+}
+
+test("an error escaping a node cancels the peer that is still running", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const spawner = child("spawner", "worker");
+    const flowchart = compileChildrenToFlowchart([
+      { taskId: spawner.taskId, role: "worker", objective: spawner.objective }
+    ]);
+    const executor = new SpawningExecutor();
+
+    await assert.rejects(
+      startFlowchartRun(
+        {
+          stateRoot,
+          router: router(),
+          executor,
+          registry: registryFailingFor("tester"),
+          generateId: sequenceGenerator()
+        },
+        { projectRoot, flowchart, objective: "Spawn peers", childTasks: [spawner] }
+      ),
+      /profile lookup failed for tester/
+    );
+
+    assert.equal(executor.peerSawAbort, true, "teardown aborts the peer that was still running");
+    const byRun = await eventTypesByRun(stateRoot);
+    const cancelled = [...byRun.values()].filter((types) => types.includes("RUN_CANCEL_REQUESTED"));
+    assert.equal(cancelled.length, 1, "the live peer settles as a cancelled child run");
   });
 });

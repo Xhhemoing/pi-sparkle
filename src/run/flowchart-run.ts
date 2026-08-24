@@ -175,6 +175,55 @@ function childTaskMap(tasks: readonly ChildTaskInput[] | undefined): Map<TaskId,
   return map;
 }
 
+/**
+ * Run-level cancellation for one flowchart run: the abort signal shared by every
+ * executor call and every child launched under the run, plus the child handles
+ * that are still in flight. Both halves are needed — the signal stops a live
+ * attempt, while {@link ChildRunHandle.cancel} also covers the queued and
+ * between-attempts windows, where no attempt controller exists to abort.
+ */
+class RunAbortScope {
+  private readonly controller = new AbortController();
+  private readonly live = new Set<ChildRunHandle>();
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
+  get aborted(): boolean {
+    return this.controller.signal.aborted;
+  }
+
+  /** Registers a child so teardown can cancel it; forgotten once it settles. */
+  track(handle: ChildRunHandle): ChildRunHandle {
+    this.live.add(handle);
+    const forget = (): void => {
+      this.live.delete(handle);
+    };
+    void handle.done.then(forget, forget);
+    return handle;
+  }
+
+  /**
+   * Aborts the run and waits for the children it cancelled to settle, so a
+   * failed, paused, or finished run never returns while a child it launched is
+   * still spending. A child can spawn peers as it unwinds, so cancellation
+   * repeats until nothing is left in flight.
+   */
+  async cancelAndSettle(): Promise<void> {
+    this.cancel();
+    while (this.live.size > 0) {
+      await Promise.allSettled([...this.live].map((handle) => handle.done));
+      this.cancel();
+    }
+  }
+
+  private cancel(): void {
+    this.controller.abort();
+    for (const handle of this.live) handle.cancel();
+  }
+}
+
 function childTasksFromDefinition(
   definition: Flowchart,
   registry: AgentProfileRegistry
@@ -205,7 +254,7 @@ function attachChildRuntime(input: {
   readonly cluster: boolean;
   readonly generateId?: IdGenerator;
   readonly now: () => IsoTimestamp;
-  readonly abort: AbortController;
+  readonly abort: RunAbortScope;
 }): {
   childCoordinator: ChildCoordinator;
   spawnHandles: ChildRunHandle[];
@@ -221,18 +270,23 @@ function attachChildRuntime(input: {
       ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
       onSpawn: (spawned) => {
         if (!isAgentRole(spawned.role)) return;
+        // A run that has already torn down must not start new paid work for a
+        // child that is itself being cancelled.
+        if (input.abort.aborted) return;
         spawnHandles.push(
-          childCoordinator.startChildTask(
-            {
-              taskId: spawned.taskId,
-              role: spawned.role,
-              objective: spawned.objective,
-              profile: input.registry.resolve(spawned.role),
-              inputArtifactIds: [],
-              acceptanceCriteria: [],
-              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
-            },
-            input.abort.signal
+          input.abort.track(
+            childCoordinator.startChildTask(
+              {
+                taskId: spawned.taskId,
+                role: spawned.role,
+                objective: spawned.objective,
+                profile: input.registry.resolve(spawned.role),
+                inputArtifactIds: [],
+                acceptanceCriteria: [],
+                limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+              },
+              input.abort.signal
+            )
           )
         );
       }
@@ -312,7 +366,7 @@ async function executeClusteredNode(
     ...(ctx.contract !== undefined ? { contract: ctx.contract } : {})
   });
   const spawnedBefore = ctx.spawnHandles.length;
-  const handle = coordinator.startChildTask(grounded, ctx.abort.signal);
+  const handle = ctx.abort.track(coordinator.startChildTask(grounded, ctx.abort.signal));
   const outcome = await handle.done;
   ctx.finishedChildren.set(outcome.taskId, outcome);
   await drainSpawnedChildren(ctx.spawnHandles, ctx.finishedChildren, spawnedBefore);
@@ -354,6 +408,7 @@ async function executeRemainingRunningNodes(ctx: FlowchartLoopContext): Promise<
         prompt: formatFlowchartNodePrompt(node, model),
         workingDirectory: ctx.project.rootPath,
         agentInstanceId,
+        signal: ctx.abort.signal,
         ...(model !== undefined ? { modelId: model } : {}),
         ...(ctx.generateId !== undefined ? { generateId: ctx.generateId } : {})
       });
@@ -425,7 +480,7 @@ interface FlowchartLoopContext {
   pause?: PauseController;
   executor?: AgentExecutor;
   stateRoot: string;
-  abort: AbortController;
+  abort: RunAbortScope;
   childByTaskId: Map<TaskId, ChildTaskInput>;
   finishedChildren: Map<TaskId, ChildRunOutcome>;
   spawnHandles: ChildRunHandle[];
@@ -516,12 +571,17 @@ async function persistCompleted(ctx: FlowchartLoopContext): Promise<void> {
 }
 
 async function persistFailed(ctx: FlowchartLoopContext, reason: string): Promise<void> {
+  // Stop paying for children before recording the failure, not after.
+  await ctx.abort.cancelAndSettle();
   const read = await ctx.eventStore.readAll();
   if (hasEvent(read.events, "RUN_FAILED")) return;
   await ctx.append(ctx.make("RUN_FAILED", { reason }));
 }
 
 async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
+  // Terminal teardown: whatever the status, the run stops here, so nothing it
+  // launched may outlive it.
+  await ctx.abort.cancelAndSettle();
   const checkpoint = await persistCheckpoint(ctx);
   const beforeSettle = await ctx.eventStore.readAll();
   await settleBoundEpisode({
@@ -579,6 +639,8 @@ async function pauseIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRun
   if (ctx.pause === undefined) return undefined;
   const token = await ctx.pause.token(ctx.runId);
   if (!token.paused) return undefined;
+  // A paused run keeps no work alive: children stop before the pause is recorded.
+  await ctx.abort.cancelAndSettle();
   const read = await ctx.eventStore.readAll();
   if (!hasUnmatchedPause(read.events)) {
     await ctx.append(
@@ -640,6 +702,23 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
   if (exhausted !== undefined) return exhausted;
   await persistFailed(ctx, `maxRounds (${ctx.maxRounds}) exhausted without completion`);
   return finish(ctx);
+}
+
+/**
+ * Tears the run down when an error escapes. A throw from mid node (a child that
+ * fails to launch, a rejected append) never reaches {@link finish}, so without
+ * this the children started for that node keep running with nobody awaiting them.
+ */
+async function withRunTeardown(
+  ctx: FlowchartLoopContext,
+  body: () => Promise<FlowchartRunOutcome>
+): Promise<FlowchartRunOutcome> {
+  try {
+    return await body();
+  } catch (error) {
+    await ctx.abort.cancelAndSettle();
+    throw error;
+  }
 }
 
 function makeEventFactory(
@@ -787,7 +866,7 @@ export async function startFlowchartRun(
     }
   }
 
-  const abort = new AbortController();
+  const abort = new RunAbortScope();
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   const plannedChildren = input.childTasks ?? [];
   const childByTaskId = childTaskMap(plannedChildren);
@@ -838,7 +917,7 @@ export async function startFlowchartRun(
     ...(input.contract !== undefined ? { contract: input.contract } : {})
   };
   await persistCheckpoint(ctx);
-  return runFlowchartLoop(ctx);
+  return withRunTeardown(ctx, () => runFlowchartLoop(ctx));
 }
 
 export async function resumeFlowchartRun(
@@ -888,7 +967,7 @@ export async function resumeFlowchartRun(
   );
 
   const make = makeEventFactory(runId, now, generateId);
-  const abort = new AbortController();
+  const abort = new RunAbortScope();
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   const rebuilt = deps.executor !== undefined ? childTasksFromDefinition(definition, registry) : [];
   const childByTaskId = childTaskMap(rebuilt);
@@ -937,16 +1016,24 @@ export async function resumeFlowchartRun(
     ...(index !== undefined ? { index } : {})
   };
 
+  return withRunTeardown(ctx, () => resumeRestoredRun(ctx, continuation));
+}
+
+/** The resume-specific prologue (unpause, approval, pending results) plus the loop. */
+async function resumeRestoredRun(
+  ctx: FlowchartLoopContext,
+  continuation: FlowchartContinuation
+): Promise<FlowchartRunOutcome> {
   if (continuation.unpause === true) {
-    const pause = deps.pause ?? createFilePauseController(deps.stateRoot, now);
-    await pause.clearPause(runId);
-    const latest = await eventStore.readAll();
+    const pause = ctx.pause ?? createFilePauseController(ctx.stateRoot, ctx.now);
+    await pause.clearPause(ctx.runId);
+    const latest = await ctx.eventStore.readAll();
     if (hasUnmatchedPause(latest.events)) {
       await ctx.append(ctx.make("PAUSE_CLEARED", {}));
     }
   }
 
-  const latestReplay = replayRun((await eventStore.readAll()).events);
+  const latestReplay = replayRun((await ctx.eventStore.readAll()).events);
   if (
     latestReplay.status === "COMPLETED" ||
     latestReplay.status === "FAILED" ||
@@ -962,7 +1049,7 @@ export async function resumeFlowchartRun(
     await applyApproval(ctx, continuation.approvalReply, continuation.answer);
   }
 
-  const appliedResults = applyRunningResults(ctx.supervisor, definition, ctx.results);
+  const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
   const appliedExecutor = await executeRemainingRunningNodes(ctx);
   const applied = appliedResults + appliedExecutor;
   if (continuation.approvalReply !== undefined || applied > 0) {
@@ -1041,7 +1128,7 @@ async function restoreFlowchartSession(
     project: replayed.project,
     runId,
     stateRoot: deps.stateRoot,
-    abort: new AbortController(),
+    abort: new RunAbortScope(),
     childByTaskId: childTaskMap([]),
     finishedChildren: new Map<TaskId, ChildRunOutcome>(),
     spawnHandles: [],
