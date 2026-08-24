@@ -422,3 +422,13 @@
 | S7-B-4 | justification 常量尾段构造期预计算 | 符号翻转；X1-1 邻域派生缓存 |
 | S7-B-5 | 默认 `["tool-use"]` 能力数组模块级享元 | 可观察身份改变（S1-A-7 链） |
 | S7-B-6 | validateConfig 查重 Set 复用为 catalogIds | 每批一次 ns 级 |
+| S7-D-1 | preparePromotion 内 putContent 重存消除 | legacy 无 contents 快照 fail-closed + hash32 碰撞 last-write→first-write；~10–14ns |
+| S7-D-2 | eval 报告尾 gatedComparisonReport/replayCacheKey/stringify/写盘 | 切片外 + 28.7–29.2µs = 端到端 0.62–0.69% |
+| S7-D-3 | saveAdaptationRegistry 临时名 UUID→pid+计数器 | 崩溃遗留+PID 复用 EEXIST；81–90ns |
+| S7-D-4 | rollback 幂等快路径前置（跳过 target/retired 检查） | retired-active fail-open；~267–283ns |
+| S7-D-5 | pairedRecords 冗余 ?? 回退消除 | 等价但 ~1.2–1.6µs + 跨函数耦合 |
+| S7-G-1 | validateJoin 边对索引（复用 edgePairs Set / 新建 Map） | NUL 键碰撞 fail-open；Map 变体 0.067µs/次、0.002ms/run |
+| S7-G-2 | 校验循环字面量数组提升模块级 Set | S1-G-3 同族；宿主全额 8.2µs/次、0.26ms/run |
+| S7-G-3 | DeterministicJudge.decide filter+includes 改 Set | 等价但 0.111µs/次、0.0018ms/run |
+| S7-G-4 | expandTaskTransition BFS shift 改索引队列 | X4-6 同族；8 节点 0.50µs/次、0.008ms/run |
+| S7-G-5 | resume replay∥checkpoint∥learned 并行 | 真数据依赖 + S5-G-4/S6-G-5 Promise.all 家族 |
