@@ -515,3 +515,4 @@
 | S9-G-1 | pause/inject 会话恢复免除 loadLearnedRouting | S2-I-1 同型：损坏 registry fail-open；22–24µs/命令 |
 | S9-G-2 | pause 轮询换 fs.watch 内存缓存观测 | 天花板 1.31–1.34ms/run；观测即时读盘语义发散 |
 | S9-G-3 | requestPause writeAtomic 去 fsync | 已受理暂停掉电丢失；243–263µs/命令 |
+| S10-A-1 | from-child 生产路径门控结局二元化 | 等价但需平行 turn 路径或公开旗标；18–21ns/turn；e2e 符号翻转 |
