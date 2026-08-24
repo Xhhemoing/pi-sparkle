@@ -24,7 +24,7 @@ import {
 } from "../../../src/domain/ids.js";
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
-import { deleteRunRecords } from "../../../src/privacy/deletion.js";
+import { deleteRunRecords, verifyRunRecordsRemoved } from "../../../src/privacy/deletion.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
@@ -196,6 +196,18 @@ test("deleted episode text cannot be resurrected from disk or through the read A
   });
 });
 
+function runEvent(runId: RunId, type: Event["type"], payload: unknown): Event {
+  return {
+    id: createEventId(UUID),
+    schemaVersion: 1,
+    occurredAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z"),
+    runId,
+    type,
+    actor: "delete-cli-test",
+    payload
+  } as Event;
+}
+
 /**
  * A run attached to the episode whose append-only event log embeds the whole
  * episode snapshot — the copy `delete --episode` refuses to rewrite.
@@ -205,20 +217,10 @@ async function attachRunHoldingEpisodeText(
   episodeId: EpisodeId
 ): Promise<RunId> {
   const runId = createRunId(UUID);
-  const event = (type: Event["type"], payload: unknown): Event =>
-    ({
-      id: createEventId(UUID),
-      schemaVersion: 1,
-      occurredAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z"),
-      runId,
-      type,
-      actor: "delete-cli-test",
-      payload
-    }) as Event;
   const store = new EventStore(stateRoot, runId);
-  await store.append(event("EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
+  await store.append(runEvent(runId, "EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
   await store.append(
-    event("RUN_ATTACHED", {
+    runEvent(runId, "RUN_ATTACHED", {
       episodeId,
       runId,
       attachedAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z")
@@ -290,6 +292,52 @@ test("delete --run removes the whole runtime run subtree", async () => {
     const code = await deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
     assert.equal(code, 0, io.err.join(""));
     assert.equal(existsSync(runDir), false);
+  });
+});
+
+/**
+ * `delete --run` prints "removed: <runDir>" only for a removal it verified.
+ * Nothing on the run plane locks against a live writer, so the second half of
+ * this test is the operator-visible consequence the CLI now has to live with:
+ * an executor that outlives the delete recreates the run directory on its
+ * next append, and the remedy is to stop it and delete again.
+ */
+test("delete --run proves the subtree is gone, and re-deletes a run that wrote again", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const store = new EventStore(stateRoot, runId);
+    const append = async (summary: string): Promise<void> =>
+      store.append(
+        runEvent(runId, "AGENT_EVENT", {
+          agentInstanceId: "agt_00000000-0000-4000-8000-00000000000a",
+          kind: "TEXT_DELTA",
+          summary
+        })
+      );
+    await append("work before the delete");
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+
+    const first = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], first.io),
+      0,
+      first.err.join("")
+    );
+    assert.match(first.out.join(""), new RegExp(`removed: .*${runId}`));
+    assert.equal(existsSync(runDir), false);
+    // The exit code the operator saw is backed by a check, not an assumption.
+    await verifyRunRecordsRemoved(stateRoot, runId);
+
+    await append("work after the delete");
+    assert.equal(existsSync(runDir), true, "a live appender recreates the deleted directory");
+    const second = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], second.io),
+      0,
+      second.err.join("")
+    );
+    assert.equal(existsSync(runDir), false);
+    await verifyRunRecordsRemoved(stateRoot, runId);
   });
 });
 

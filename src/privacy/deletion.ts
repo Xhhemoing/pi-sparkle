@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeRoot } from "./state-layout.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
 import { episodeLockPath } from "../run/episode-bind.js";
@@ -37,12 +38,17 @@ export function materializeWithoutTombstones<T extends { id: string }>(
  *
  * Deleting a run removes its runtime subtree AND filter-rewrites the shared
  * `runtime/invocations.jsonl` so the run's rows stop backing derived routing
- * numbers. Deleting an episode removes its runtime records — under the
- * episode's own cooperative lock, so no live writer is operating on them
- * while they go — and cascades into the adaptation plane: every feedback
- * record bound to that episode loses all of its free-text fields and its id
- * is persisted as a tombstone, so dataset exports and materialized views can
- * never resurrect it.
+ * numbers. The subtree removal is then verified, because nothing on the run
+ * plane serializes with a live writer and a deleted run directory comes
+ * straight back on the next append; a delete that cannot prove the records
+ * are gone fails loudly instead of returning success.
+ *
+ * Deleting an episode removes its runtime records — under the episode's own
+ * cooperative lock, so no live writer is operating on them while they go —
+ * and cascades into the adaptation plane: every feedback record bound to that
+ * episode loses all of its free-text fields and its id is persisted as a
+ * tombstone, so dataset exports and materialized views can never resurrect
+ * it.
  *
  * What an episode delete deliberately does NOT do is edit an attached run's
  * append-only event log, which can hold its own copy of the objective. Those
@@ -112,6 +118,109 @@ async function statExists(path: string): Promise<boolean> {
   }
 }
 
+export const RUN_RECORDS_SURVIVED_CODE = "RUN_RECORDS_SURVIVED" as const;
+
+/**
+ * A `delete --run` that cannot prove the run's records are gone.
+ *
+ * Thrown when `runtime/runs/<runId>/` is still on disk after the delete tried
+ * to remove it — either because a live writer put it back or because the
+ * removal itself failed (the failure is attached as `cause`). Discriminate on
+ * `code`, never on the message.
+ */
+export class RunRecordsSurvivedError extends DomainValidationError {
+  readonly code = RUN_RECORDS_SURVIVED_CODE;
+  readonly runDir: string;
+  /** What was found under `runDir`, sorted; empty for a bare directory. */
+  readonly survivingEntries: readonly string[];
+
+  constructor(
+    message: string,
+    runDir: string,
+    survivingEntries: readonly string[],
+    cause?: unknown
+  ) {
+    super(message);
+    this.name = "RunRecordsSurvivedError";
+    this.runDir = runDir;
+    this.survivingEntries = survivingEntries;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/**
+ * Fail-closed post-condition for a run delete: throw unless
+ * `runtime/runs/<runId>/` is absent.
+ *
+ * `deleteRunRecords` calls this after removing the subtree, and it is exported
+ * so an operator (or a later audit surface) can re-assert the same thing
+ * without deleting again. There is no run-plane lock to hold — see
+ * `deleteRunRecords` — so this is a point-in-time check, not a guarantee about
+ * the future.
+ */
+export async function verifyRunRecordsRemoved(stateRoot: string, runId: RunId): Promise<void> {
+  const runDir = join(runtimeRoot(stateRoot), "runs", runId);
+  const survivors = await survivingRunEntries(runDir);
+  if (survivors === undefined) return;
+  throw runRecordsSurvived(runId, runDir, survivors, undefined);
+}
+
+/** Entries left under the run directory, or `undefined` when it is gone. */
+async function survivingRunEntries(runDir: string): Promise<readonly string[] | undefined> {
+  const entries = await readdir(runDir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    // The path is there but is not a directory: still a survivor, just one
+    // with nothing to list.
+    if (error.code === "ENOTDIR") return [];
+    throw error;
+  });
+  return entries === undefined ? undefined : [...entries].sort();
+}
+
+function runRecordsSurvived(
+  runId: RunId,
+  runDir: string,
+  survivors: readonly string[],
+  cause: unknown
+): RunRecordsSurvivedError {
+  const listed = survivors.length === 0 ? "an empty directory" : survivors.join(", ");
+  const what =
+    cause === undefined
+      ? `${runDir} was removed and is on disk again (${listed})`
+      : `${runDir} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) and is still on disk (${listed})`;
+  return new RunRecordsSurvivedError(
+    `run:${runId}: ${what}; refusing to report the delete as successful. A live writer recreates a deleted run's directory on its next append (the JSONL appender retries ENOENT through mkdir), so stop or cancel the run before deleting it again.`,
+    runDir,
+    survivors,
+    cause
+  );
+}
+
+/**
+ * Remove the run subtree and prove it is gone.
+ *
+ * The removal is not coordinated with the run's writers — there is no
+ * run-plane lock to take (see `deleteRunRecords`) — so `rm` can lose the race
+ * two ways: a writer that recreates the directory mid-walk makes `rm` itself
+ * fail (`ENOTEMPTY`), and one that recreates it just after the walk leaves a
+ * fresh directory behind. Both end in the same operator-visible state — run
+ * records on disk after a delete — so both raise the same typed error, with
+ * the removal failure attached as `cause` when there was one. A removal error
+ * that left nothing behind is rethrown unchanged: it is an I/O failure, not a
+ * resurrection, and mislabelling it would send the operator hunting a live
+ * writer that does not exist.
+ */
+async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string): Promise<void> {
+  try {
+    await rm(runDir, { recursive: true, force: true });
+  } catch (error) {
+    const survivors = await survivingRunEntries(runDir);
+    if (survivors !== undefined) throw runRecordsSurvived(runId, runDir, survivors, error);
+    throw error;
+  }
+  await verifyRunRecordsRemoved(stateRoot, runId);
+}
+
 /**
  * Delete one run's records: the runtime subtree (events, checkpoint, pause
  * state, track questions) under `runtime/runs/<runId>/`, plus that run's rows
@@ -122,6 +231,31 @@ async function statExists(path: string): Promise<boolean> {
  * The invocation rewrite runs first and fails closed: if the log has a corrupt
  * middle line we cannot prove which rows belong to this run, so nothing is
  * deleted at all rather than reporting a partial delete as success.
+ *
+ * ## The subtree removal is verified, not assumed
+ *
+ * Unlike the two shared logs this delete touches, the run subtree has no
+ * cooperative lock: `EventStore.append`, the checkpoint store, the pause
+ * controller and the track loop all write under `runtime/runs/<runId>/`
+ * without taking one, and `appendJsonlLine` recreates a missing directory
+ * (ENOENT → `mkdir` → retry) rather than failing. A live run therefore puts
+ * its directory back moments after `rm` removed it, and this used to be
+ * reported as a clean delete with run records sitting on disk.
+ *
+ * So the removal is followed by `verifyRunRecordsRemoved`: if the directory is
+ * back — or never went away — the delete throws `RunRecordsSurvivedError`
+ * instead of returning a `DeletionResult`. The invocation rows dropped before
+ * that point stay dropped (with the derived p50 snapshot invalidated with
+ * them), which is the privacy-safe half to have completed, and a re-delete is
+ * idempotent about the rest.
+ *
+ * Disclosed limit: this is a point-in-time check. A writer whose append lands
+ * *after* the check still recreates the directory, and this delete will have
+ * returned success by then — the same "a late write is a new fact, not a
+ * resurrected one" posture the shared invocation log already documents, except
+ * here the operator has no lock to serialize against. Closing that window
+ * needs a run-scoped lock acquired by every run-plane writer, which is a
+ * change to those writers, not to this delete.
  */
 export async function deleteRunRecords(
   stateRoot: string,
@@ -132,13 +266,12 @@ export async function deleteRunRecords(
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
   const removed: string[] = [];
   if (await statExists(runDir)) {
-    await rm(runDir, { recursive: true, force: true });
+    await removeRunSubtree(stateRoot, runId, runDir);
     removed.push(runDir);
   }
   if (invocations.droppedRows > 0) {
     removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
-    const staleAggregate = await invalidateCatalogObserved(stateRoot);
-    if (staleAggregate !== undefined) removed.push(staleAggregate);
+    if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
   }
   return {
     target: `run:${runId}`,
@@ -562,6 +695,8 @@ function stripFreeText(record: FeedbackRecord): FeedbackRecord {
 interface InvocationRewrite {
   readonly path: string;
   readonly droppedRows: number;
+  /** The stale p50 snapshot this rewrite invalidated, when there was one. */
+  readonly staleAggregate: string | undefined;
 }
 
 /**
@@ -584,6 +719,10 @@ interface InvocationRewrite {
  *    A live invocation append therefore lands either wholly before the read or
  *    wholly after the write, instead of into the window between them where the
  *    rewrite would clobber it.
+ *  - The derived p50 snapshot is invalidated here, with the rows, rather than
+ *    at the end of the delete: the subtree removal that follows can fail
+ *    closed (`RunRecordsSurvivedError`), and a failed delete must not leave an
+ *    aggregate that still averages rows this rewrite already dropped.
  */
 async function dropRunFromInvocationLog(
   stateRoot: string,
@@ -592,7 +731,7 @@ async function dropRunFromInvocationLog(
   const path = invocationsLogPath(stateRoot);
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
-  if (!(await statExists(path))) return { path, droppedRows: 0 };
+  if (!(await statExists(path))) return { path, droppedRows: 0, staleAggregate: undefined };
   const droppedRows = await withInvocationLogLock(stateRoot, async () => {
     const { values } = await readInvocationRecords(
       stateRoot,
@@ -604,7 +743,9 @@ async function dropRunFromInvocationLog(
     await writeInvocationRecords(stateRoot, kept);
     return dropped;
   });
-  return { path, droppedRows };
+  const staleAggregate =
+    droppedRows > 0 ? await invalidateCatalogObserved(stateRoot) : undefined;
+  return { path, droppedRows, staleAggregate };
 }
 
 function rowNamesRun(row: unknown, runId: RunId): boolean {

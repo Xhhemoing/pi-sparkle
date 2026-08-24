@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -36,10 +36,13 @@ import {
 import { adaptationRoot } from "../../../src/privacy/state-layout.js";
 import {
   FREE_TEXT_FEEDBACK_FIELDS,
+  RUN_RECORDS_SURVIVED_CODE,
+  RunRecordsSurvivedError,
   cascadeFeedbackTombstones,
   deleteEpisodeRecords,
   deleteRunRecords,
-  findResidualEpisodeText
+  findResidualEpisodeText,
+  verifyRunRecordsRemoved
 } from "../../../src/privacy/deletion.js";
 import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import { episodeLockPath } from "../../../src/run/episode-bind.js";
@@ -945,6 +948,158 @@ test("a live append cannot resurrect the deleted run's rows after the rewrite", 
     assert.equal(second.droppedInvocations, 1);
     assert.deepEqual(await loadInvocationsFromStateRoot(stateRoot), []);
   });
+});
+
+/**
+ * The run plane has no cooperative lock: `EventStore.append`, the checkpoint
+ * store, the pause controller and the track loop all write under
+ * `runtime/runs/<runId>/` without taking one, and `appendJsonlLine` recreates
+ * a missing directory (ENOENT -> mkdir -> retry) instead of failing. So a run
+ * delete cannot serialize with its writers; what it can do is refuse to call
+ * a removal a success when the records are on disk. These tests pin that
+ * refusal, the mechanism that causes it, and the window it cannot close.
+ */
+function agentEvent(runId: RunId, summary: string): Event {
+  return runEvent(runId, "AGENT_EVENT", {
+    agentInstanceId: "agt_00000000-0000-4000-8000-000000000009",
+    kind: "TEXT_DELTA",
+    summary
+  });
+}
+
+test("verifying a run delete passes on an absent subtree and fails on a recreated one", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    // Nothing on disk: there is nothing to disprove.
+    await verifyRunRecordsRemoved(stateRoot, runId);
+
+    // `appendJsonlLine`'s recovery path creates the directory first and
+    // appends second, so even a bare directory is a resurrection in flight.
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await mkdir(runDir, { recursive: true });
+    await assert.rejects(
+      () => verifyRunRecordsRemoved(stateRoot, runId),
+      (error: unknown) => {
+        assert.ok(error instanceof RunRecordsSurvivedError);
+        assert.equal(error.code, RUN_RECORDS_SURVIVED_CODE);
+        assert.equal(error.runDir, runDir);
+        assert.deepEqual(error.survivingEntries, []);
+        assert.match(error.message, /an empty directory/);
+        // The CLI maps this class onto a validation failure, not a crash.
+        assert.ok(error instanceof DomainValidationError);
+        return true;
+      }
+    );
+  });
+});
+
+test("a live append recreates the deleted run directory, and the check says so", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const store = new EventStore(stateRoot, runId);
+    await store.append(agentEvent(runId, "first"));
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(result.removedPaths, [runDir]);
+    assert.equal(existsSync(runDir), false);
+    // The success the delete reported is one it proved.
+    await verifyRunRecordsRemoved(stateRoot, runId);
+
+    // The disclosed window: an executor that outlived the delete appends
+    // again and the appender's ENOENT retry puts the directory back. Those
+    // bytes are a new fact rather than a resurrected one, but a caller must
+    // be able to find out that run records exist again.
+    await store.append(agentEvent(runId, "written after the delete"));
+    assert.equal(existsSync(runDir), true, "the appender recreates what the delete removed");
+    await assert.rejects(
+      () => verifyRunRecordsRemoved(stateRoot, runId),
+      (error: unknown) => {
+        assert.ok(error instanceof RunRecordsSurvivedError);
+        assert.deepEqual(error.survivingEntries, ["events.jsonl"]);
+        return true;
+      }
+    );
+
+    // Deleting again is honest about the new bytes: removed, then verified.
+    const second = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(second.removedPaths, [runDir]);
+    await verifyRunRecordsRemoved(stateRoot, runId);
+    assert.doesNotMatch(
+      await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8").catch(
+        () => ""
+      ),
+      /written after the delete/
+    );
+  });
+});
+
+/**
+ * The race itself. The writer does exactly what `appendJsonlLine` does when
+ * its directory disappeared — mkdir, then append — in a tight loop, so the
+ * recursive removal reliably loses. Whether it loses by `rm` failing
+ * (ENOTEMPTY, a file created inside the walk) or by the directory being back
+ * afterwards, the delete must raise the one typed error instead of returning
+ * a `DeletionResult`. Attempts are bounded and retried because which of the
+ * two happens is up to the kernel, and because ~1 attempt in 5 (measured on
+ * this VM) has the writer land just after the check — the window this fix
+ * discloses rather than closes.
+ */
+test("a run directory recreated by a live writer fails the delete loudly", async () => {
+  await withStateRoot(async (stateRoot) => {
+    let survived: RunRecordsSurvivedError | undefined;
+    for (let attempt = 0; attempt < 12 && survived === undefined; attempt += 1) {
+      const runId = createRunId(UUID);
+      const runDir = join(stateRoot, "runtime", "runs", runId);
+      await mkdir(runDir, { recursive: true });
+      // Enough entries that the removal spans several event-loop turns: a
+      // one-file directory is walked and gone before a writer can interleave.
+      await Promise.all(
+        Array.from({ length: 300 }, (_, index) =>
+          writeFile(join(runDir, `part-${index}.json`), "{}\n", "utf8")
+        )
+      );
+
+      let writing = true;
+      const writer = (async () => {
+        while (writing) {
+          await mkdir(runDir, { recursive: true }).catch(() => undefined);
+          await appendFile(join(runDir, "events.jsonl"), "{}\n", "utf8").catch(() => undefined);
+        }
+      })();
+      const outcome: unknown = await deleteRunRecords(stateRoot, runId).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+      writing = false;
+      await writer;
+
+      if (outcome instanceof RunRecordsSurvivedError) survived = outcome;
+      else {
+        assert.ok(
+          !(outcome instanceof Error),
+          `a lost race must surface as RunRecordsSurvivedError, not ${String(outcome)}`
+        );
+      }
+      await rm(runDir, { recursive: true, force: true });
+    }
+
+    assert.ok(survived, "a delete that lost the race must not return a DeletionResult");
+    assert.equal(survived.code, RUN_RECORDS_SURVIVED_CODE);
+    assert.match(survived.message, /refusing to report the delete as successful/);
+    assert.match(survived.message, /stop or cancel the run/);
+    assert.ok(survived.runDir.includes("runtime"));
+  });
+});
+
+test("the run delete cannot report a subtree removal it did not verify", async () => {
+  const source = await readFile(new URL("../../../src/privacy/deletion.ts", import.meta.url), "utf8");
+  // Source pin: the only path that reports `runDir` as removed is the one
+  // that goes through the verified helper. Removing the check would leave the
+  // resurrection race reported as a clean delete again, and no behavioural
+  // test can catch a window that closed.
+  assert.match(source, /await removeRunSubtree\(stateRoot, runId, runDir\);\s*removed\.push\(runDir\);/);
+  assert.match(source, /await verifyRunRecordsRemoved\(stateRoot, runId\);/);
 });
 
 test("run delete invalidates the derived observed snapshot only when rows were dropped", async () => {
