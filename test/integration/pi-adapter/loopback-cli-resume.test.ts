@@ -169,7 +169,12 @@ test("offline custom provider persists run and resume invocations for calibratio
       resumed.io
     );
     assert.equal(resumeCode, 0, resumed.err.join(""));
-    assert.equal(resumed.err.join(""), "");
+    // R4-6: a flag-free `--executor pi` resume rebuilds on defaults and says so.
+    // Other stderr remains a failure; this is the one disclosed line.
+    assert.equal(
+      resumed.err.join(""),
+      "warning: resume rebuilt the pi executor on defaults (the default primary model, thinking off); the run's own --primary-model/--thinking are not recorded, so pass them again if it did not start on defaults\n"
+    );
     assert.match(resumed.out.join(""), /COMPLETED/);
     await waitForInvocationRows(stateRoot, 2);
 
