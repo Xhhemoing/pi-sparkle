@@ -333,7 +333,8 @@ export function isTerminalMessage(message: AgentMessage): message is TaskResult 
 /** Rejects a second terminal message; an agent emits at most one TASK_RESULT. */
 export function assertAtMostOneTerminal(messages: readonly AgentMessage[]): void {
   let sawTerminal = false;
-  for (const message of messages) {
+  for (const value of messages) {
+    const message = validateAgentMessage(value);
     if (!isTerminalMessage(message)) continue;
     if (sawTerminal) {
       throw new DomainValidationError("Duplicate terminal TASK_RESULT message");

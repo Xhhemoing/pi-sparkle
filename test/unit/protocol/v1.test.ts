@@ -12,6 +12,7 @@ import {
   type RunId,
   type TaskId
 } from "../../../src/domain/ids.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import {
   PROTOCOL_VERSION,
@@ -103,6 +104,30 @@ test("all protocol v1 message types validate with conforming fixtures", () => {
     assert.deepEqual(validateAgentMessage(message), message);
     assert.equal(isAgentMessage(message), true);
   }
+});
+
+test("proto-pollution keys remain inert protocol data", () => {
+  const message = validRequest();
+  Object.defineProperties(message, {
+    ["__proto__"]: {
+      value: { polluted: true },
+      enumerable: true,
+      configurable: true,
+      writable: true
+    },
+    constructor: {
+      value: { prototype: { polluted: true } },
+      enumerable: true,
+      configurable: true,
+      writable: true
+    }
+  });
+
+  const validated = validateAgentMessage(message);
+  assert.equal(Object.hasOwn(validated, "__proto__"), true);
+  assert.equal(Object.hasOwn(validated, "constructor"), true);
+  assert.equal(Object.getPrototypeOf(validated), Object.prototype);
+  assert.equal(({} as { polluted?: unknown }).polluted, undefined);
 });
 
 test("only TASK_RESULT is a terminal message", () => {
@@ -251,6 +276,39 @@ test("assertAtMostOneTerminal rejects duplicate TASK_RESULT messages", () => {
   assert.doesNotThrow(() => assertAtMostOneTerminal([one]));
   assert.doesNotThrow(() => assertAtMostOneTerminal([one, validateAgentMessage(validProgress())]));
   assert.throws(() => assertAtMostOneTerminal([one, two]), /terminal|duplicate|TASK_RESULT/i);
+});
+
+test("assertAtMostOneTerminal rejects duplicate terminals at the first and last index", () => {
+  const first = validateAgentMessage(validResult());
+  const middle = validateAgentMessage(validProgress());
+  const last = validateAgentMessage(validResult());
+  assert.throws(
+    () => assertAtMostOneTerminal([first, middle, last]),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+});
+
+test("assertAtMostOneTerminal rejects malformed entries with exactly DomainValidationError", () => {
+  assert.throws(
+    () => assertAtMostOneTerminal([null] as unknown as AgentMessage[]),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+});
+
+test("oversized arrays complete with DomainValidationError discipline", () => {
+  const evidenceId = createEvidenceId(UUID);
+  const oversizedEvidenceIds = Array.from({ length: 10_000 }, () => evidenceId);
+  const oversizedProgress = { ...validProgress(), evidenceIds: oversizedEvidenceIds };
+  assert.equal(validateAgentMessage(oversizedProgress).evidenceIds.length, oversizedEvidenceIds.length);
+
+  assert.throws(
+    () => validateAgentMessage({ ...oversizedProgress, evidenceIds: [...oversizedEvidenceIds, null] }),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+
+  const progress = validateAgentMessage(validProgress());
+  const oversizedMessageArray = Array.from({ length: 10_000 }, () => progress);
+  assert.doesNotThrow(() => assertAtMostOneTerminal(oversizedMessageArray));
 });
 
 test("non-object and non-message values fail closed", () => {
