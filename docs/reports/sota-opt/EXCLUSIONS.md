@@ -183,3 +183,11 @@
 | S2-F-4 | assign 复用 restore 已建 Set | 全实验仅 ~0.8% |
 | S2-F-5 | splitFromManifest 尾部双验消除 | fail-closed 防御纵深 |
 | S2-F-6 | pairedEvaluationCard 多遍融合 | N=40 仅 13µs |
+| S2-G-1 | leaseReadyNodes 循环内 computeStatus 缓存 | O(N²) 上界仅数 µs |
+| S2-G-2 | failurePathCompletedGraph DFS 去重 | 链式失败恢复终态发散 |
+| S2-G-3 | approvedActionIds 改可变 push | ~15ns/审批 |
+| S2-G-4 | expandTaskTransition 8×8 BFS 预计算表 | ~480ns/变迁 |
+| S2-G-5 | ChildCoordinator 跨轮复用 | 确定性 id 流发散 |
+| S2-G-6 | inspectRun 两遍扫描合并 | ~1µs/次 |
+| S2-G-7 | joinStatus 三遍计数融合 | ~16ns |
+| S2-G-8 | LeaseRegistry Date.parse 缓存 | 全 run ~35µs |

@@ -16,7 +16,7 @@
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
 | 1 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S1-F/J/C/I；其余区报告收口 |
-| 2 | 第 3–4 波进行中 | 10（2 在跑 / 6 完成 / 2 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
+| 2 | 第 4 波收尾 | 10（2 在跑 / 7 完成 / 1 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
 
 ### Round 1 波次
 
@@ -33,8 +33,8 @@
 | --- | --- | --- |
 | 1 | R2-A 跟踪、R2-B live 路由、R2-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R2-D 自优化、R2-E 学习、R2-F 实验 | D/E/F 完成已合入 |
-| 3 | R2-G 运行时/图、R2-H 评价/需求 | G/H 在跑 |
-| 4 | R2-I CLI/适配器、R2-J cluster/privacy | I 本波派出；J 排队 |
+| 3 | R2-G 运行时/图、R2-H 评价/需求 | G 完成已合入；H 在跑 |
+| 4 | R2-I CLI/适配器、R2-J cluster/privacy | I 在跑；J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -56,6 +56,7 @@
 | R2-C | `cursor/r2c-offline-routing-6f3a` | 已合入专属分支（S2-C 代码 + 报告 + 仿真） |
 | R2-E | `cursor/r2-e-learning-slice-a47a` | 已合入专属分支（仅 `R2-E.md`） |
 | R2-F | `cursor/r2f-experiments-research-c879` | 已合入专属分支（仅 `R2-F.md`） |
+| R2-G | `cursor/r2-g-runtime-graph-domain-ffb9` | 已合入专属分支（仅 `R2-G.md`） |
 
 ## 合并策略
 
