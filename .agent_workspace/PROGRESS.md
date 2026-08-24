@@ -173,9 +173,9 @@ Fable review (`.agent_workspace/loop4-r7-review.md` at `bdc4cb9`): **9 ACCEPT, 1
 
 Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (ADR-006 stays Proposed; nit: in-flight disclosure undercounted siblings); R7-7 deleted unused `settleSupervisedOutcome`; R7-9 empty graphs fail in pre-flight; R7-3 absorbing-BLOCKED pins + Round 8 `RUN_UNBLOCKED` design (no schema); R7-8 keyed `loadProjectBanditByKey` + pure preference reader; R7-2 option (b) recorded in-source (criteria are prompt-guidance); R7-5 BLOCKED `next:` on `run`; R7-1 reconstruct child specs from the parent log; R7-4 parent-plane crash refuses over a replayed terminal.
 
-## Round 8 — in flight
+## Round 8 — landings (parent gate in progress)
 
-10 slots from `.agent_workspace/ROUND7-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R8-1 **YES** `RUN_UNBLOCKED` schema; R8-2 no schema this half; R8-4 design-only; R8-6 option (b); R8-7 do not amend crash-terminal rethrow; R8-9 delete `loadProjectBandit`. Brief R8-3 folded into R8-1 (same `main.ts`). Durable contract implementation deferred until after R8-1 (file contention on `replay.ts` / `flowchart-run.ts`).
+10 slots from `.agent_workspace/ROUND7-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R8-1 **YES** `RUN_UNBLOCKED` schema; R8-2 no schema this half; R8-4 design-only; R8-6 option (b); R8-7 do not amend crash-terminal rethrow; R8-9 delete `loadProjectBandit`. Brief R8-3 folded into R8-1 (same `main.ts`). Durable contract implementation deferred until after R8-1 (file contention on `replay.ts` / `flowchart-run.ts`). ADR-006 stays Proposed.
 
 | Slot | Agent | Focus |
 |---|---|---|
