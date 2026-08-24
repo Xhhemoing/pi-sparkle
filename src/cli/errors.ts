@@ -33,6 +33,31 @@ export function cliFail(io: CliErrorIo, report: Omit<CliErrorReport, "ok">): typ
   return CLI_EXIT.error;
 }
 
+/**
+ * The `code` of a typed failure, when it carries a string one.
+ *
+ * Discriminating on `code` is the only supported way to classify an error at
+ * this boundary: messages name paths, ids and timeouts, and are not a
+ * contract.
+ */
+export function errorCodeOf(error: unknown): string | undefined {
+  if (error === null || typeof error !== "object" || !("code" in error)) return undefined;
+  const code = (error as { code: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * `pi-sparkle doctor --json` as the operator has to run it to see the state
+ * root the failing command used: doctor defaults to `~/.pi-sparkle`, so a
+ * remedy that omits an explicit `--state-root` would inventory a different
+ * tree than the one that just refused.
+ */
+export function doctorJsonCommand(stateRoot: string | undefined): string {
+  return stateRoot === undefined
+    ? "pi-sparkle doctor --json"
+    : `pi-sparkle doctor --json --state-root ${stateRoot}`;
+}
+
 export function parseCliErrorJson(stderr: string): CliErrorReport | undefined {
   const lines = stderr.trim().split(/\r?\n/).reverse();
   for (const line of lines) {

@@ -3,7 +3,12 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
-import { deleteRunRecords, deleteEpisodeRecords } from "../privacy/deletion.js";
+import {
+  deleteRunRecords,
+  deleteEpisodeRecords,
+  RUN_RECORDS_SURVIVED_CODE
+} from "../privacy/deletion.js";
+import { LOCK_TIMEOUT_CODE } from "../persist/file-lock.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -72,7 +77,7 @@ import { modelsCommand } from "./models.js";
 import { doctorCommand } from "./doctor.js";
 import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, doctorJsonCommand, errorCodeOf } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
@@ -1637,6 +1642,77 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
   }
   return 0;
 }
+
+/** What a command that failed for no routed reason tells the operator to do. */
+const GENERIC_FAILURE_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
+
+/**
+ * The two refusals whose entire remedy is an inventory `pi-sparkle doctor`
+ * already prints, and which no amount of retrying resolves on its own: a
+ * cooperative lock this CLI will never steal, and a `delete --run` that could
+ * not prove the records are gone. Both are deliberate fail-closed outcomes, so
+ * the operator's next move is to find out who holds what.
+ *
+ * Keyed by the frozen error codes only. The messages name paths, ids and
+ * timeouts and are not a classification surface.
+ */
+const DOCTOR_ROUTED_NEXT: ReadonlyMap<string, (doctor: string) => string> = new Map([
+  [
+    LOCK_TIMEOUT_CODE,
+    (doctor: string): string =>
+      `the lock is held and pi-sparkle never steals one: run ${doctor} and read locks[] for the holder's pid, age and remediation, then retry`
+  ],
+  [
+    RUN_RECORDS_SURVIVED_CODE,
+    (doctor: string): string =>
+      `the run's records are still on disk: run ${doctor} and read runStates[] for a live run and locks[] for its lock, stop that run, then delete again`
+  ]
+]);
+
+/**
+ * Depth-bounded walk of the `cause` chain so a future wrapper cannot quietly
+ * drop the routing; the thrown error itself is always classified first.
+ */
+function doctorRoutedNext(error: unknown, doctor: string): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current === null || typeof current !== "object") return undefined;
+    const routed = DOCTOR_ROUTED_NEXT.get(errorCodeOf(current) ?? "");
+    if (routed !== undefined) return routed(doctor);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * `--state-root` as the failing command received it. Scanned rather than
+ * parsed: this runs on the failure path, where `parseArgs` throwing on another
+ * command's flags would replace the operator's error with a worse one.
+ */
+function stateRootArgument(args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--state-root") {
+      const value = args[index + 1];
+      return value === undefined || value.startsWith("--") ? undefined : value;
+    }
+    if (arg.startsWith("--state-root=")) {
+      const value = arg.slice("--state-root=".length);
+      return value === "" ? undefined : value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The `next:` line for a command that threw: the doctor remedy when the
+ * failure carries a routed code, the generic advice otherwise.
+ */
+export function commandFailureNext(error: unknown, args: readonly string[]): string {
+  return doctorRoutedNext(error, doctorJsonCommand(stateRootArgument(args))) ?? GENERIC_FAILURE_NEXT;
+}
+
 export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
   const [command, ...rest] = argv;
   try {
@@ -1700,7 +1776,7 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       command: command ?? "pi-sparkle",
       stage: error instanceof DomainValidationError ? "validation" : "execute",
       message: error instanceof Error ? error.message : String(error),
-      next: "fix the reported error, then retry; use pi-sparkle doctor for preflight"
+      next: commandFailureNext(error, rest)
     });
   }
 }
