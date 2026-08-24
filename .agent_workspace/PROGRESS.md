@@ -74,7 +74,7 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 
 ## Round 3 landings (parent gate GREEN)
 
-**Parent verification (Node v22.14.0):** `pnpm gate` exit 0 after all R3 commits (recovered off a stray `cursor/r3-4-event-fuzz-e2ad` onto `agent/opt-continuous`).
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1604 / 1603 pass / 0 fail / 1 skip** (PI_SMOKE only). Fable: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R3-7, R3-10), 0 ROLLBACK. Crash-probe 8×3 `ok: true`.
 
 | Slot | Result |
 |---|---|
@@ -88,6 +88,10 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 | R3-8 | Dropped `applySkipped` and unread `_leaseDurationMs` |
 | R3-9 | Resume `createExecutor` shares invocation sink |
 | R3-10 | Docs: no checkpoint leases; episode lock honesty |
+
+## Round 4 — in flight
+
+10 slots from `.agent_workspace/ROUND3-BRIEF.md`. Region-shared: `main.ts` (R4-2 summary vs R4-6 resume), `flowchart-run.ts` (R4-2 host vs R4-4 teardown). Stay on `agent/opt-continuous`.
 
 ---
 
