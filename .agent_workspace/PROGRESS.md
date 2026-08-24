@@ -135,18 +135,18 @@ Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R5-2 supervised lock-before-prefligh
 
 Parent sign-off: R6-1 option (a) — loop respects the gate (BLOCKED stays BLOCKED).
 
-| Slot | Focus |
-|---|---|
-| R6-1 | gate BLOCKED vs loop FAILED |
-| R6-2 | resume rebuilds children without criteria (invest.) |
-| R6-3 | track-loop lock + supervised pre-flight |
-| R6-4 | doctor learned/derived state inventory |
-| R6-5 | route three codes; bounded delete wait |
-| R6-6 | cascade wire witness + process-death helper |
-| R6-7 | docs truth-up |
-| R6-8 | SIGKILL run-lock crash-probe |
-| R6-9 | exported-unused census |
-| R6-10 | flowchart dead-letter pin + requeue countdown |
+| Slot | Agent | Focus |
+|---|---|---|
+| R6-1 | bc-ffac634f-11f6-5b8c-903d-74689e0a7a40 | gate BLOCKED vs loop FAILED |
+| R6-2 | bc-c9fcea17-8a38-5ac8-8289-81f82cf53d3d | resume rebuilds children without criteria (invest.) |
+| R6-3 | bc-169e516d-6a23-5fab-913c-bdb663ffc190 | track-loop lock + supervised pre-flight |
+| R6-4 | bc-90bf9ac5-8915-59c0-b337-8a948d327a84 | doctor learned/derived state inventory |
+| R6-5 | bc-85d0aaa9-49e8-501b-a23b-f2e142c8a1c4 | route three codes; bounded delete wait |
+| R6-6 | bc-58f2ba17-2b13-5a5c-800f-9a0f7dc571f4 | cascade wire witness + process-death helper |
+| R6-7 | bc-5b3b394e-6541-531e-b2e2-36c37315bfc0 | docs truth-up |
+| R6-8 | bc-e2934355-33b8-5e45-b123-7de4e94cf0ef | SIGKILL run-lock crash-probe |
+| R6-9 | bc-fe0b8831-a06e-599c-8a78-1ae7b8fdc3e0 | exported-unused census |
+| R6-10 | bc-5d84790a-665a-5485-870f-e9cd99df2e8e | flowchart dead-letter pin + requeue countdown |
 
 ---
 
