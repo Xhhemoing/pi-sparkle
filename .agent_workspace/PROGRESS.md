@@ -53,22 +53,22 @@ Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. 
 
 Saturated this round: `persist/jsonl`, `protocol/v1` parse. Round 2 tilts to I/O, races, protocol honesty, disaster recovery. Brief: `.agent_workspace/ROUND1-BRIEF.md`.
 
-## Round 2 — in flight
+## Round 2 landings (parent gate GREEN)
 
-10 slots from the Round 1 brief. Ownership in `OWNERSHIP.md`.
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0 after all R2 commits. Ranked leftovers from Round 1 closed except invocation-row TypeError (R2-7 found; R2-2 was classifier-only).
 
-| Slot | Agent | Focus |
-|---|---|---|
-| R2-1 | bc-11de8034-901a-50c0-a099-680ee9093af5 | flowchart abort |
-| R2-2 | bc-b5694f7d-6c41-54d4-9d10-6432ecfd5370 | typed lock + perf |
-| R2-3 | bc-8d785fde-67c5-5e42-a305-627af9b71d98 | episode delete lock |
-| R2-4 | bc-1dae2b91-0873-5ea3-b858-335249fe5cf4 | feedback drop parity |
-| R2-5 | bc-1ca028e1-ab1e-54bb-9412-34aac24f4ed9 | maxCostUsd + O(n²) |
-| R2-6 | bc-e18edd08-0a22-5240-8f2a-4e6dc3a305c8 | crash-probe extension |
-| R2-7 | bc-a82780c5-0654-53e8-9dc7-5295f6dd1153 | row fuzz |
-| R2-8 | bc-3f3cdbd1-0e3c-5d42-8f36-5c03e56ae947 | mailbox starvation |
-| R2-9 | bc-9683882b-9421-539c-8ff9-51b7c115f86b | scheduler lease dead code |
-| R2-10 | bc-f92dbfe2-495e-51f2-84e4-1ace08466c05 | dictionary honesty |
+| Slot | Result |
+|---|---|
+| R2-1 | Flowchart `RunAbortScope` fires abort into executors and children |
+| R2-2 | Typed `LOCK_TIMEOUT`; lock serial/contended ~−12.5% |
+| R2-3 | `delete --episode` acquires episode lock before unlink |
+| R2-4 | `appendFeedbackWithRetry`; auto-adapt warns on lock drop, does not fail |
+| R2-5 | Incremental terminal check; `maxCostUsd` disclosed unenforced |
+| R2-6 | Crash probe: cascade, settle-lock, `writeFileAtomic` |
+| R2-7 | Persistence-row fuzzer; invocation TypeError documented unowned |
+| R2-8 | Sender-only role-cast requeues dead-lettered after bound |
+| R2-9 | Dropped dead `expired()`; kept `restore()` for resume |
+| R2-10 | Dictionary: unique temps, lock inventory, wall vs cost honesty |
 
 ---
 
