@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -274,6 +274,60 @@ test("resume fails closed when the checkpoint is missing", async () => {
  * that never ran gets, the contract seam, and the premise the whole rebuild
  * rests on — that the log really does carry every field.
  */
+
+test("the flowchart checkpoint and its writer currently carry no run contract", async () => {
+  const [replay, checkpointStore, flowchartRun] = await Promise.all([
+    readFile(new URL("../../../src/run/replay.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../src/run/checkpoint-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../src/run/flowchart-run.ts", import.meta.url), "utf8")
+  ]);
+  const checkpointState = replay.match(/export interface FlowchartCheckpointState \{[\s\S]*?^\}/m)?.[0];
+  const checkpointValidator = replay.match(
+    /export function validateFlowchartCheckpointState[\s\S]*?^\}/m
+  )?.[0];
+  const checkpointWriter = flowchartRun.match(/async function persistCheckpoint[\s\S]*?^\}/m)?.[0];
+  const checkpointRestorer = flowchartRun.match(/async function restoreFlowchartSession[\s\S]*?^\}/m)?.[0];
+
+  assert.ok(checkpointState, "FlowchartCheckpointState remains structurally inspectable");
+  assert.ok(checkpointValidator, "the flowchart checkpoint validator remains structurally inspectable");
+  assert.ok(checkpointWriter, "the flowchart checkpoint writer remains structurally inspectable");
+  assert.ok(checkpointRestorer, "the pause/inject checkpoint restore remains structurally inspectable");
+  assert.doesNotMatch(checkpointState, /\bcontract\b/);
+  assert.doesNotMatch(checkpointValidator, /\bcontract\b/);
+  assert.doesNotMatch(checkpointWriter, /\bcontract\b/);
+  assert.doesNotMatch(checkpointRestorer, /\bcontract\b/);
+  assert.doesNotMatch(checkpointStore, /\bcontract\b/);
+});
+
+test("episode binding currently retains acceptance criteria, not the run contract", async () => {
+  const source = await readFile(new URL("../../../src/run/episode-bind.ts", import.meta.url), "utf8");
+  const openedEpisode = source.match(/const opened = openEpisode\(\{[\s\S]*?^ {2}\}\);/m)?.[0];
+
+  assert.ok(openedEpisode, "the episode projection remains structurally inspectable");
+  assert.match(openedEpisode, /acceptance: contract\.acceptanceCriteria/);
+  assert.doesNotMatch(
+    openedEpisode,
+    /\b(?:contract|constraints)\s*:/,
+    "neither the full contract nor its constraints are projected onto the episode"
+  );
+});
+
+test("the CLI flowchart continuation currently cannot recover a run contract", async () => {
+  const source = await readFile(new URL("../../../src/cli/main.ts", import.meta.url), "utf8");
+  const continuationBuilder = source.match(/function flowchartContinuation[\s\S]*?^\}/m)?.[0];
+  const resumeCommand = source.match(/async function resumeCommand[\s\S]*?^}\n\nconst PREFERENCE_SCOPES/m)?.[0];
+
+  assert.ok(continuationBuilder, "flowchartContinuation remains structurally inspectable");
+  assert.ok(resumeCommand, "resumeCommand remains structurally inspectable");
+  assert.match(continuationBuilder, /checkpoint\?: RunCheckpoint/);
+  assert.doesNotMatch(continuationBuilder, /\bcontract\b/);
+  assert.match(
+    resumeCommand,
+    /resumeFlowchartRun\([\s\S]*?flowchartContinuation\(\{\s*checkpoint,/,
+    "CLI resume supplies the checkpoint to a continuation builder that currently projects no contract"
+  );
+  assert.doesNotMatch(resumeCommand, /\bcontract\b/);
+});
 
 const CONTRACT_CRITERION = "crit-integration";
 
