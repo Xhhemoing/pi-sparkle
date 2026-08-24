@@ -60,6 +60,7 @@
 - S3-C offline-logit IRLS 累加循环单位乘法消除（0/1 设计下 `w*xi[a]*xi[b]`/`w*xi[a]*z` 逐位等于 `w`/`w*z`；见 round-03/R3-C.md）
 - S4-C `solveSymmetric` 消元/回代循环不变量引用提升（`m[row]`/`m[col]`/`x[col]` 提升为局部引用；浮点运算集合与顺序不变；见 round-04/R4-C.md）
 - S4-I CLI/`auth-session` 在点用处惰性加载 Pi 运行时子树（`--executor pi` 与 auth 函数体内 `await import(runtime)`；见 round-04/R4-I.md）
+- S5-C `solveSymmetric` 消元 k 循环按 4 顺序展开（含顺序余数；浮点运算集合与顺序不变；见 round-05/R5-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -319,8 +320,20 @@
 | S5-B-2 | evaluateCandidate 无限预算短路 | 真实路径 29–56µs；deadline 姊妹发散 |
 | S5-B-3 | analyzeTask reason join 换模板字面量 | 301–323µs/批；S1-B/S4-B-5 同噪声带 |
 | S5-B-4 | ResolvedRouteRequest 中间对象内联 | 46–68µs/批 |
+| S5-C-1 | solveSymmetric 消元 k 循环按 2 顺序展开 | 被按 4 展开支配 |
+| S5-C-2 | solveSymmetric 消元 k 循环按 8 顺序展开 | 对 U4 仅 +9–15 ms，低于噪声带 |
+| S5-C-3 | solveSymmetric 消元行对分块（含 +k 展开） | 实测慢于滚动对照 |
+| S5-C-4 | solveSymmetric 消元行四分块（含 +k 展开） | 对 U4 +20–25 ms，低于噪声带 |
+| S5-C-5 | 回代 k 循环 / eta 点积顺序展开 | 串行依赖链；重排违逐位 |
+| S5-C-6 | 主元搜索循环微观重构 | 上界 ~10 ms；选择规则本体 |
+| S5-C-7 | irls xtwx 触碰单元置零代替整行 fill(0) | 15–25 ms 上界，低于噪声带 |
 | S5-D-1 | restore() 对解析器产物的 id 再校验消除 | fail-open 反例；~805ns |
 | S5-D-2 | pairedRecords entries() 换索引循环 | 567–744ns/eval |
 | S5-D-3 | 保存链中间 snapshot() 对象消除 | 占 save+fsync 0.4–0.5% |
 | S5-D-4 | evalRoutingPolicy 全 UNOBSERVED 前置短路 | 双故障错误选择发散 |
 | S5-D-5 | rollback() resourceIdentityKey CSE | ~28ns；需改公开签名 |
+| S5-E-1 | runAutoAdaptFromEvents 前置扫描反向早退 | projectRoot first-wins 发散；89–92ns |
+| S5-E-2 | collectSignalsFromEvents ctx 循环外提升 | 五次异号抖动 |
+| S5-E-3 | parseObservedSignal 两级 spread 合一 | extraSignals 零生产流量；~280ns |
+| S5-E-4 | diagnose 分组键换嵌套 Map | 廉价形式平局序发散；忠实形式抖动 |
+| S5-E-5 | auto-loop 切片内惰性 import | 独占增量仅 2.8–3.0ms |

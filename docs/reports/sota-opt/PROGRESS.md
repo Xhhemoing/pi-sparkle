@@ -19,7 +19,7 @@
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S4-C / S4-I；其余区报告收口。见 [round-04/PLAN.md](./round-04/PLAN.md) |
-| 5 | 第 2 波进行中 | 6 / 10（A/B/D 完成；C/E 在跑；F 本波派出） | claude-fable-5-thinking-xhigh | [round-05/PLAN.md](./round-05/PLAN.md) |
+| 5 | 第 3 波进行中 | 8 / 10（A/B/C/D/E 完成；F 在跑；G/H 本波派出） | claude-fable-5-thinking-xhigh | C 落地 S5-C。见 [round-05/PLAN.md](./round-05/PLAN.md) |
 
 ### Round 1 波次
 
@@ -61,8 +61,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R5-A 跟踪门控、R5-B live 路由、R5-C 离线路由 | A/B 完成已合入；C 在跑 |
-| 2 | R5-D 自优化、R5-E 学习、R5-F 实验 | D 完成已合入；E 在跑；F 本波派出 |
+| 1 | R5-A 跟踪门控、R5-B live 路由、R5-C 离线路由 | A/B/C 完成已合入（C 落地 S5-C） |
+| 2 | R5-D 自优化、R5-E 学习、R5-F 实验 | D/E 完成已合入；F 在跑 |
+| 3 | R5-G 运行时/图、R5-H 评价/需求 | G/H 本波派出 |
 
 ## 待合并 PR / 分支
 
