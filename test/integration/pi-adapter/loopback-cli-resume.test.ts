@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import type {
   AgentExecutor,
   ExecutionEvent
 } from "../../../src/execution/contract.js";
-import { EventStore } from "../../../src/run/event-store.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import { startSupervisedRun } from "../../../src/run/supervisor.js";
 import { loadInvocationsFromStateRoot } from "../../../src/routing/cost-calibration.js";
 import { invocationsLogPath } from "../../../src/telemetry/invocation-log.js";
@@ -303,6 +304,10 @@ test("supervised resume overrides a distinct configured default on the HTTP requ
 
     try {
       await waitForTaskRunning(stateRoot, interrupted.runId);
+      // The fixture models process death by abandoning a live handle. The
+      // lifecycle lock stays held until the owner token is gone, so clear the
+      // sidecar the dead process would have left (same remedy as m2/resume).
+      rmSync(runLockPath(stateRoot, interrupted.runId), { force: true });
       assert.equal(provider.requests.length, 0, "the interrupted fixture never contacted the provider");
 
       const resumed = capture();
