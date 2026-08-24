@@ -55,6 +55,7 @@
 - S1-F M6-T3 shadow/canary restore population 成员判断 → Set（fail-closed 全量重校验保留，O(A×P)→O(P+A)/次；见 round-01/R1-F.md）
 - J1 `evaluatePreferenceLoop` 每主体增量折叠 + O(1) 墓碑撤销（见 round-01/R1-J.md）
 - S1-C offline-logit：bootstrap 工件复用 + APC copy-derive + IRLS 缓冲每 fit 一次分配（见 round-01/R1-C.md）
+- S1-I `run --children` 复用 `smartChildPlan` 已校准 live 目录（见 round-01/R1-I.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -131,3 +132,11 @@
 | S1-G-7 | nodeTaskId find→Map | 仅审批路径，N 几十 |
 | S1-G-8 | ConcurrencyGate/LeaseRegistry 指针化 | X4-6 同类 |
 | S1-G-9 | setRuntime 原地变异 | 别名安全边界 |
+| S1-I-1 | flowchart 路径未校准构建去重 | ~190µs 噪声 |
+| S1-I-2 | runCommand 与 createExecutor providers.json 双读 | ~60µs 噪声 |
+| S1-I-3 | smartChildPlan assignments.find 换 Map | children 个位数 |
+| S1-I-4 | models 子命令多次重读 | 一次性配置命令 |
+| S1-I-5 | auth status --all 每 provider createPiRuntime 提升 | 亚感知 + 凭据面 |
+| S1-I-6 | parseCliErrorJson reverse 换反向索引 | ns 级噪声 |
+| S1-I-7 | buildInvocation += 换 parts+join | 实测慢 6.4× |
+| S1-I-8 | resolveListedModel 自定义路径先构建再 find | 每命令个位数次 |
