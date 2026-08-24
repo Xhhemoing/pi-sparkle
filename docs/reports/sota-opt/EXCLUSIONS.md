@@ -284,3 +284,13 @@
 | S4-F-1 | dataset 私有 seen Set 复用为 universe | U=2000 双向抖动；sealed 链路 test-only |
 | S4-F-2 | replayPolicy 空 exclusions 免 Set+filter | 3–106µs；无生产调用方 |
 | S4-F-3 | comparison-report 循环内 delta 减法 CSE | N=1000 仅 ~41µs |
+| S4-G-1 | 同轮 RUNNING 节点 Promise.all 并行执行 | 确定性 id 流与事件次序漂移 |
+| S4-G-2 | persistCheckpoint 写侧 validateCheckpoint 全跳过 | 损坏态 fsync 落盘；非法收益 |
+| S4-G-3 | applyApproval 双层校验去重 | 非法 reply 先追加再抛错 |
+| S4-G-4 | persistLedger 整快照改窄投影 | 5.4–14ms/run；需拓宽公开接口 |
+| S4-G-5 | finish() 出参复用 checkpoint 内嵌快照 | 身份别名化；0.17ms/run |
+| S4-G-6 | CheckpointStore 美化 JSON 改紧凑 | 磁盘数据面字节发散 |
+| S4-G-7 | failed 过滤器下沉入 !canProgress | 全 run ≤9.7µs |
+| S4-H-1 | checkCoverageGate own-key 换 Object.hasOwn | 非可枚举键 fail-open；2–9ns |
+| S4-H-2 | critique 与 detectConflicts 结果级去重 | 公开签名 + 223ns |
+| S4-H-3 | heuristicCritic omissions 就地变异免双拷贝 | 322–486ns/run |
