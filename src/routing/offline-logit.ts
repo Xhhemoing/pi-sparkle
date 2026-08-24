@@ -140,11 +140,46 @@ function computeSupports(vectors: readonly number[][]): number[][] {
   });
 }
 
+/**
+ * Canonical key per row: index of the first base row sharing the same
+ * (scenarioId, modelVersion, projectId) triple. The design vector is a pure
+ * function of that triple, so rows with equal keys hold identical vectors.
+ * Nested maps keep the key exact — no separator string that a "|" inside
+ * modelVersion could collide with. Computed once per base fit; bootstrap
+ * resamples reuse keys by index, exactly like vectors and supports.
+ */
+function canonicalRowKeys(rows: readonly Row[]): number[] {
+  const byScenario = new Map<string, Map<string, Map<string, number>>>();
+  const keys = new Array<number>(rows.length);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    let byModel = byScenario.get(row.scenarioId);
+    if (byModel === undefined) {
+      byModel = new Map();
+      byScenario.set(row.scenarioId, byModel);
+    }
+    let byProject = byModel.get(row.modelVersion);
+    if (byProject === undefined) {
+      byProject = new Map();
+      byModel.set(row.modelVersion, byProject);
+    }
+    let canonical = byProject.get(row.projectId);
+    if (canonical === undefined) {
+      canonical = i;
+      byProject.set(row.projectId, canonical);
+    }
+    keys[i] = canonical;
+  }
+  return keys;
+}
+
 function irls(
   design: Design,
   rows: readonly Row[],
   vectors: readonly number[][],
   supports: readonly (readonly number[])[],
+  keys: readonly number[],
+  keySpace: number,
   maxIter: number
 ): FitResult {
   const p = design.names.length;
@@ -157,11 +192,27 @@ function irls(
   const mu = new Array<number>(n).fill(0);
   const xtwx: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
   const xtwz: number[] = new Array<number>(p).fill(0);
+  // eta = dot(beta, x) and mu = sigmoid(eta) are pure functions of (beta,
+  // vector contents), and rows sharing a canonical key hold identical
+  // vectors, so computing each double once per key per iteration and copying
+  // it is bitwise identical to recomputing it per row. The stamp scratch
+  // never escapes this call and is reset by the per-iteration mark.
+  const stamp = new Int32Array(keySpace);
+  const etaByKey = new Float64Array(keySpace);
+  const muByKey = new Float64Array(keySpace);
   let beta = new Array<number>(p).fill(0);
   for (let iter = 0; iter < maxIter; iter++) {
+    const mark = iter + 1;
     for (let i = 0; i < n; i++) {
-      eta[i] = dot(beta, vectors[i]!);
-      mu[i] = sigmoid(eta[i]!);
+      const key = keys[i]!;
+      if (stamp[key] !== mark) {
+        stamp[key] = mark;
+        const value = dot(beta, vectors[i]!);
+        etaByKey[key] = value;
+        muByKey[key] = sigmoid(value);
+      }
+      eta[i] = etaByKey[key]!;
+      mu[i] = muByKey[key]!;
     }
     for (let d = 0; d < p; d++) xtwx[d]!.fill(0);
     xtwz.fill(0);
@@ -283,7 +334,8 @@ export function fitLogitAdditive(
   const design = buildDesign(baseRows);
   const vectors = baseRows.map((r) => design.build(r));
   const supports = computeSupports(vectors);
-  const fit = irls(design, baseRows, vectors, supports, maxIter);
+  const keys = canonicalRowKeys(baseRows);
+  const fit = irls(design, baseRows, vectors, supports, keys, baseRows.length, maxIter);
   if (fit.coefficients === null) {
     return uncertainReport(baseRows.length, "INVALID_ESTIMATE: singular or non-finite Hessian");
   }
@@ -310,22 +362,25 @@ export function fitLogitAdditive(
   const draws = new Map<string, number[]>();
   let successful = 0;
   for (let draw = 0; draw < bootstrapDraws; draw++) {
-    // A resampled row is a base row, so its design vector and support are
-    // exactly the ones computed once for the base fit; reusing them by index
-    // removes the per-draw O(rows × p) rebuild without touching any float.
-    // Consumers only read the vectors, so the aliasing is unobservable.
+    // A resampled row is a base row, so its design vector, support, and
+    // canonical key are exactly the ones computed once for the base fit;
+    // reusing them by index removes the per-draw O(rows × p) rebuild without
+    // touching any float. Consumers only read the vectors, so the aliasing
+    // is unobservable.
     const sample: Row[] = [];
     const sampleVectors: number[][] = [];
     const sampleSupports: number[][] = [];
+    const sampleKeys: number[] = [];
     for (let i = 0; i < baseRows.length; i++) {
       const index = Math.floor(random() * baseRows.length);
       sample.push(baseRows[index]!);
       sampleVectors.push(vectors[index]!);
       sampleSupports.push(supports[index]!);
+      sampleKeys.push(keys[index]!);
     }
     // A resample can collapse to a single class; that draw is skipped.
     if (sample.every((r) => r.y === 0) || sample.every((r) => r.y === 1)) continue;
-    const bootFit = irls(design, sample, sampleVectors, sampleSupports, maxIter);
+    const bootFit = irls(design, sample, sampleVectors, sampleSupports, sampleKeys, baseRows.length, maxIter);
     if (bootFit.coefficients === null) continue;
     successful += 1;
     const sampleOnProbabilities = onProbabilitiesFor(sampleVectors, bootFit.coefficients);
