@@ -27,7 +27,8 @@
 | 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
-| 13 | 第 4 波收尾 | 10 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-13/PLAN.md](./round-13/PLAN.md) |
+| 13 | 第 4 波收尾 | 10 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-13/PLAN.md](./round-13/PLAN.md) |
+| 14 | 第 1 波进行中 | 1 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
 
 ### Round 1 波次
 
@@ -143,8 +144,14 @@
 | --- | --- | --- |
 | 1 | R13-A 跟踪门控、R13-B live 路由、R13-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R13-D 自优化、R13-E 学习、R13-F 实验 | D/E/F 完成已合入 |
-| 3 | R13-G 运行时/图、R13-H 评价/需求 | G 完成已合入；H 运行中 |
-| 4 | R13-I CLI/适配器、R13-J cluster/privacy | I 运行中；J 本波派出 |
+| 3 | R13-G 运行时/图、R13-H 评价/需求 | G/H 完成已合入 |
+| 4 | R13-I CLI/适配器、R13-J cluster/privacy | I/J 运行中 |
+
+### Round 14 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R14-A 跟踪门控 | A 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -278,9 +285,10 @@
 | R13-E | `cursor/r13-e-learning-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-E.md`）。无新排除 ID；SLICE-CPU 复核 13.5–15.9 µs/run；S13-B-1 辖区未重提 |
 | R13-F | `cursor/r13-f-experiments-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-F.md`）。无新排除 ID；全实验锚点复核 119–130 ms；validate Ω(P) 体分解归档 |
 | R13-G | `cursor/r13-g-runtime-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-G.md`）。无新排除 ID；计算顶复核 0.289–0.293 ms vs I/O 85.1–109.2 ms；Node 22.22 API 面轴归档 |
-| R13-H | `cursor/r13-h-eval-thirteenth-pass-83a1` | 已派出 |
+| R13-H | `cursor/r13-h-eval-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-H.md`）。无新排除 ID；热层默认复核 9.3–10.4 µs/run；规模-越线标定归档 |
 | R13-I | `cursor/r13-i-cli-thirteenth-pass-83a1` | 已派出 |
 | R13-J | `cursor/r13-j-persist-thirteenth-pass-83a1` | 已派出 |
+| R14-A | `cursor/r14-a-tracking-fourteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
