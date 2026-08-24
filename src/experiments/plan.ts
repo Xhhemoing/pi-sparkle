@@ -54,14 +54,21 @@ function assertUniqueNonEmpty(values: readonly string[], label: string): void {
     throw new DomainValidationError(`${label} must be a non-empty array`);
   }
   const seen = new Set<string>();
+  let unique = 0;
   for (const value of values) {
     if (typeof value !== "string" || value.trim() === "") {
       throw new DomainValidationError(`${label} contains an empty entry`);
     }
-    if (seen.has(value)) {
+    // Single table probe per entry: `add` plus a size counter detects the
+    // duplicate exactly where `has` + `add` would (a duplicate `add` is a
+    // no-op, so `size` stalls), with identical first-fault order and message.
+    // This validator runs on every fail-closed restore, so the probe count
+    // dominates the mandated Ω(P) re-validation cost.
+    seen.add(value);
+    unique += 1;
+    if (seen.size !== unique) {
       throw new DomainValidationError(`${label} contains a duplicate: ${value}`);
     }
-    seen.add(value);
   }
 }
 
