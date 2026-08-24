@@ -167,7 +167,7 @@
 | R7-J | `cursor/r7-j-persist-seventh-pass-83a1` | 已派出 |
 | R7-G | `cursor/r7-g-runtime-seventh-pass-83a1` | 已合入专属分支（仅 `R7-G.md`） |
 | R7-H | `cursor/r7-h-eval-seventh-pass-83a1` | 已合入专属分支（仅 `R7-H.md`） |
-| R7-I | `cursor/r7-i-cli-seventh-pass-83a1` | 已合入专属分支（S7-I-1 代码 + 报告 + 仿真）。父代理重跑 r4i/r5i/r7i 待记 |
+| R7-I | `cursor/r7-i-cli-seventh-pass-83a1` | 已合入专属分支（S7-I-1 代码 + 报告 + 仿真）。父代理重跑 r4i/r5i/r7i 全绿（68 / 119 / 80） |
 | R8-A | `cursor/r8-a-tracking-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
