@@ -173,9 +173,11 @@ Fable review (`.agent_workspace/loop4-r7-review.md` at `bdc4cb9`): **9 ACCEPT, 1
 
 Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (ADR-006 stays Proposed; nit: in-flight disclosure undercounted siblings); R7-7 deleted unused `settleSupervisedOutcome`; R7-9 empty graphs fail in pre-flight; R7-3 absorbing-BLOCKED pins + Round 8 `RUN_UNBLOCKED` design (no schema); R7-8 keyed `loadProjectBanditByKey` + pure preference reader; R7-2 option (b) recorded in-source (criteria are prompt-guidance); R7-5 BLOCKED `next:` on `run`; R7-1 reconstruct child specs from the parent log; R7-4 parent-plane crash refuses over a replayed terminal.
 
-## Round 8 — landings (parent gate GREEN)
+## Round 8 — landings (parent gate GREEN; fable 9 ACCEPT / 1 nit / 0 rollback)
 
 Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1845 / 1844 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **9 cases × 3**. ADR-006 stays Proposed.
+
+Fable review (`.agent_workspace/loop4-r8-review.md` at `b65ad06`): **9 ACCEPT, 1 ACCEPT-WITH-NITS (R8-2), 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND8-BRIEF.md`.
 
 10 slots from `.agent_workspace/ROUND7-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R8-1 **YES** `RUN_UNBLOCKED` schema; R8-2 no schema this half; R8-4 design-only; R8-6 option (b); R8-7 do not amend crash-terminal rethrow; R8-9 delete `loadProjectBandit`. Brief R8-3 folded into R8-1 (same `main.ts`). Durable contract implementation deferred until after R8-1 (file contention on `replay.ts` / `flowchart-run.ts`). ADR-006 stays Proposed.
 
@@ -192,7 +194,24 @@ Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1845 / 1844 pas
 | R8-9 | bc-fa848108-24c4-5b92-8430-a0dc6683f100 | delete unused `loadProjectBandit` |
 | R8-10 | bc-6d55b575-e843-5581-bac0-6370415d16ac | re-seed bound-episode pre-rounds settle |
 
-Landed: R8-1 `RUN_UNBLOCKED` + locked `unblock` + honesty repair on BLOCKED `next:`; R8-2 contract-absence pins (schema deferred); R8-3 flowchart `applyRetry` absence pin; R8-4 option-(a) design (no live verdict producer); R8-5 Round 7 docs (ADR-006 Proposed); R8-6 catalog posture (b) + bandit `adapt auto` pin; R8-7 WAITING_FOR_USER crash / cancel-request decisions; R8-8 `INSPECT_SUMMARY` frozen-additive; R8-9 deleted `loadProjectBandit`; R8-10 bound-episode pre-rounds settle reseed.
+Landed: R8-1 `RUN_UNBLOCKED` + locked `unblock` + honesty repair on BLOCKED `next:`; R8-2 contract-absence pins (schema deferred; nit: resumeCommand region regex swallows unblockCommand); R8-3 flowchart `applyRetry` absence pin; R8-4 option-(a) design (no live verdict producer — four preconditions); R8-5 Round 7 docs (ADR-006 Proposed); R8-6 catalog posture (b) + bandit `adapt auto` pin; R8-7 WAITING_FOR_USER crash / cancel-request decisions; R8-8 `INSPECT_SUMMARY` frozen-additive; R8-9 deleted `loadProjectBandit`; R8-10 bound-episode pre-rounds settle reseed.
+
+## Round 9 — in flight
+
+10 slots from `.agent_workspace/ROUND8-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R9-1 **YES** durable `contract` on the flowchart checkpoint; R9-2 **YES** `report_task_result` tool (no protocol schema); R9-3 design-only; R9-6 in-source gate-reconstruction posture (no new consumer). R9-3 does not co-schedule src with R9-1.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R9-1 | pending | durable run contract on resume |
+| R9-2 | pending | Pi executor verdict producer |
+| R9-3 | pending | executed-descendant discard design |
+| R9-4 | pending | Round 8 docs truth-up |
+| R9-5 | pending | unblock crash-probe case |
+| R9-6 | pending | gate-reconstruction posture |
+| R9-7 | pending | freeze five `DOCTOR_ROUTED_NEXT` routes |
+| R9-8 | pending | freeze `childTasksFromLog` reconstruction |
+| R9-9 | pending | freeze isolation after `loadProjectBandit` delete |
+| R9-10 | pending | freeze `RUN_UNBLOCKED` payload keys |
 
 ---
 
