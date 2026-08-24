@@ -387,3 +387,7 @@
 | S6-E-3 | updateProjectBandit 每写 mkdir(recursive) 消除/提升 | S5-G-1 同型；22.7–23.7µs/call。重开：bandit 事务离开文件锁 I/O 且外部清理自愈被正式放宽 |
 | S6-E-4 | bandit.json 紧凑序列化（去 pretty-print） | S4-G-6 同型：磁盘字节发散；delta 243–254ns。重开：bandit.json 被正式声明为非人读数据面 |
 | S6-E-5 | PEER_NEGATIVE 与 /unknown agent/i 首匹配复用 | 两探针语义独立（词边界 vs 裸子串）；忠实形式零节省。重开：两探针先统一语义 |
+| S6-H-1 | detectConflicts 过滤器间顺序早退（fast 空即跳过 slow） | 133–136ns/run；冲突侧压力更慢 −0.9~−2.1µs。重开：合同规模 ≥2 个量级且冲突侧不再负优化 |
+| S6-H-2 | 门控组合内 taskToChecks 死计算跳过 | 127–166ns/run；落地需平行构建器或收窄公开 CoverageMatrix。重开：调用图出现每 turn 热路径 |
+| S6-H-3 | assertCoverageAllowsStart 无条件消除 gated 拷贝 | 21–45ns/run；门逻辑须复制一份。重开：checkCoverageGate 单实现被正式拆分 |
+| S6-H-4 | extractor/critic 角色对象模块级单例化 | 466–853ns/run；偏好档仍须新建。重开：提取链进入每 turn 热路径 |
