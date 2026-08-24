@@ -51,7 +51,48 @@ Exclusive ownership (do not touch another slot’s files):
 
 ## Round 1 结论简报
 
-_Pending collection of the six subagent reports._
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1282 pass / 0 fail / 1 skip**. `dist/` map files **0**. `security-probe` **14 passed, 0 open**. Bench `scripts/bench-runtime.mjs` ok (jsonlAppend ~85ms/1000, lock contended ~245ms).
+
+### 已实现功能
+
+| Slot | Model | Landed |
+|---|---|---|
+| fable-1 | `claude-fable-5-thinking-xhigh` | Architecture audit; `--children` is flowchart (matrix honesty); coverage-gate wiring precision; isolation-enforcement precision; CONTRIBUTING `preferences/` + `pnpm gate` |
+| fable-2 | `claude-fable-5-thinking-xhigh` | Isolation/privacy audit; ADR-004 follow-up contradiction fixed; ADR-005 enforcement note; dictionary delete-cascade holes disclosed |
+| opus-1 | `claude-opus-5-thinking-high-fast` | Real PII/secret/path redaction + ReDoS hardening; `doctor --json` frozen contract; informational `legacy-layout` check |
+| opus-2 | `claude-opus-5-thinking-high-fast` | 429/5xx retry with Retry-After/`remedy_hint`; usage `undefined` on failed calls; `costEligibleInvocations`; `migrate-legacy` dry-run/`--apply` |
+| gpt-sol-1 | `gpt-5.6-sol-xhigh-fast` | JSONL+lock benches; lock fd leak on metadata write; exclusive-lock tests; stale locks remain timeout-only (PID-reuse conservative) |
+| gpt-sol-2 | `gpt-5.6-sol-xhigh-fast` | Build maps stripped; security-probe expanded (Bearer/PEM/UNC); domain/graph edge tests |
+
+Parent post-collect honesty: USAGE lists `doctor --json`; status-matrix doctor row records the frozen JSON contract; fake-executor row mentions `migrate-legacy`.
+
+### 遗留缺陷
+
+1. `live-isolation.test.ts` is source-text over ten files — cannot see transitive `bandit.ts` (post-run write) or `topology.ts` (parked import).
+2. Episode-delete cascade strips `body` not `summary`; `delete --run` does not rewrite global `invocations.jsonl`; episode `.lock` survives.
+3. `calibrateCatalogFromState` still averages failed calls into per-token cost (helper exists, not wired).
+4. README / `m0-m2-architecture.md` still say `--children` is not the flowchart engine; seven CLI commands missing from README table.
+5. `pnpm test -- <dir>` throws `ERR_UNSUPPORTED_DIR_IMPORT` (tsx + package script).
+6. Orphan barrel `src/supervisor/flowchart.ts` (zero importers).
+7. `redacted: true` means “pass ran”, not “content removed”; decision classes not persisted.
+8. Prompt-injection class still unused (deliberate; false-positive risk).
+9. Node engines `>=22.19.0` vs some hosts on 22.14.0 (doctor fails closed — correct).
+
+### 性能瓶颈
+
+- JSONL append ~0.08ms/line locally; lock serial ~0.25ms/acquire. Not a CI gate.
+- Redaction ReDoS closed (~5ms at 32K vs seconds before). Size cap still after scan-of-redacted text (good).
+- Retry sleeps up to 8s backoff, refuses Retry-After > 30s (by design).
+- No stale-lock steal (PID reuse). Abandoned lock = timeout + manual cleanup.
+
+### 下轮攻坚重点 (Round 2)
+
+1. Transitive live-isolation test + plane-boundary prefix gap (`supervisor/`, `cli/`).
+2. Privacy cascade: strip `summary`, filter-rewrite invocations on `delete --run`, drop episode lock; align `record-classes`.
+3. Wire `costEligibleInvocations` into cost-calibration.
+4. README + architecture spec honesty; `adapt promote` USAGE form; doctor/migrate in command table.
+5. Test-runner directory glob; `bandit-store` units; evidence-invariant + checkpoint crash tests.
+6. Delete or justify orphan `flowchart.ts` barrel; fix `r0.ts` “not imported live” header.
 
 ## Round 2 结论简报
 

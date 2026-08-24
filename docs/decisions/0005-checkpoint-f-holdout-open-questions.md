@@ -74,3 +74,29 @@ not import R1, bandit, or shadow routers.
   positive probabilities to pass overlap checks is forbidden.
 - Importance-weighted ESS (π/μ) is required for OPE; raw propensity squares
   are not.
+
+## Enforcement status (2026-08-24 audit — informative, decision unchanged)
+
+The import ban above is enforced by
+`test/unit/routing/live-isolation.test.ts`, which scans the literal source
+text of a fixed ten-file live-plane list. A transitive import-closure audit
+(see `docs/reports/2026-08-24-sota-isolation-privacy.md`) found:
+
+- No live entry point (`src/cli/main.ts`, `src/run/flowchart-run.ts`,
+  `src/track/loop.ts`, `src/run/supervisor.ts`) reaches `routing/r1.ts`,
+  `routing/shadow.ts`, `routing/r1-shadow-report.ts`,
+  `experiments/shadow-compare.ts`, or `experiments/simulation-holdout.ts`.
+  The selection ban holds.
+- `routing/bandit.ts` **is** transitively loaded by the live track path, but
+  only via `learning/bandit-store.ts`'s post-run reward bookkeeping
+  (`createBanditState` / `recordReward`). The selector `selectArm` has no
+  caller outside `routing/shadow.ts` (unreachable from live entry points),
+  and no live module reads `bandit.json`.
+- `routing/topology.ts` is imported at module level by `run/supervisor.ts`
+  for the parked `planTaskTopology`, which the run loop does not call (pinned
+  by the isolation test). Topology is not named in this ADR's import ban; the
+  status-matrix phrase "must not import into live execution" is broader than
+  both this ADR and the code.
+
+The source-text test does not detect transitive imports; hardening it into a
+closure check is queued follow-up work.

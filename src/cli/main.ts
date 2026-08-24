@@ -69,6 +69,7 @@ import { injectCommand } from "./inject.js";
 import { authCommand } from "./auth.js";
 import { modelsCommand } from "./models.js";
 import { doctorCommand } from "./doctor.js";
+import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
@@ -204,7 +205,7 @@ const USAGE = `pi-sparkle — project-development multi-agent runtime (developer
 
 Usage:
   pi-sparkle --version
-  pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>]
+  pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--state-root <dir>]
@@ -223,6 +224,7 @@ Usage:
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
   pi-sparkle delete --run <runId> | --episode <epId> [--state-root <dir>]
+  pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
@@ -235,8 +237,9 @@ State root defaults to ~/.pi-sparkle. The default executor is a deterministic
 fake. --children without --executor pi uses the child fake executor so the
 README example completes locally. Pass --executor pi after pi-sparkle models
 set-default (and/or PI_PROVIDER/PI_MODEL). doctor is a developer-preview
-preflight (Node, pnpm, state-root, providers, Pi dispatch contract); it is not a production
-capability until this output contract is frozen. Per-provider env keys (OPENAI_API_KEY, ...) and
+preflight (Node, pnpm, state-root, providers, Pi dispatch contract, legacy-layout).
+--json prints the frozen DoctorJsonReport contract (stdout is one object; not a
+production capability). Per-provider env keys (OPENAI_API_KEY, ...) and
 pi-sparkle auth login replace a single PI_API_KEY; PI_API_KEY remains a
 compatibility override for the default provider only. --children runs the
 parent as a coordinator over the child tasks in
@@ -1422,6 +1425,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await episodeCommand(rest, io);
       case "delete":
         return await deleteCommand(rest, io);
+      case "migrate-legacy":
+        return await migrateLegacyCommand(rest, io);
       case "commits":
         return await commitsCommand(rest, io);
       case "pause":

@@ -8,6 +8,29 @@ export interface FileLockOptions {
   readonly retryMs?: number;
 }
 
+function errorCode(error: unknown): unknown {
+  return error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+}
+
+function isOwnedBy(raw: string, ownerToken: string): boolean {
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      "ownerToken" in value &&
+      value.ownerToken === ownerToken
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Acquires a cooperative lock and waits until timeout when a lock file already exists.
+ * Locks are not stolen from stale-looking PIDs: PID reuse and shared filesystems make
+ * liveness checks insufficient proof that the recorded owner cannot still be active.
+ */
 export async function withExclusiveFileLock<T>(
   lockPath: string,
   operation: () => Promise<T>,
@@ -23,17 +46,24 @@ export async function withExclusiveFileLock<T>(
   while (lock === undefined) {
     try {
       lock = await open(lockPath, "wx");
+    } catch (error: unknown) {
+      if (errorCode(error) !== "EEXIST") throw error;
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
+      continue;
+    }
+
+    try {
       await lock.writeFile(
         JSON.stringify({ ownerToken, pid: process.pid, acquiredAt: new Date().toISOString() }),
         "utf8"
       );
     } catch (error: unknown) {
-      const code = error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
-      if (code !== "EEXIST") throw error;
-      if (Date.now() - startedAt >= timeoutMs) {
-        throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, retryMs));
+      await lock.close().catch(() => undefined);
+      await rm(lockPath, { force: true }).catch(() => undefined);
+      throw error;
     }
   }
 
@@ -42,7 +72,7 @@ export async function withExclusiveFileLock<T>(
   } finally {
     await lock.close();
     const current = await readFile(lockPath, "utf8").catch(() => "");
-    if (current.includes(`"ownerToken":"${ownerToken}"`)) {
+    if (isOwnedBy(current, ownerToken)) {
       await rm(lockPath, { force: true });
     }
   }

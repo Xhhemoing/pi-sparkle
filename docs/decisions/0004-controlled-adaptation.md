@@ -73,7 +73,7 @@ Only `Outcome-supported` candidates may be claimed as demonstrated improvement.
 
 ## Follow-up
 
-The detailed contracts, workflow, milestones, and acceptance scenarios are defined in [the adaptive agent work-loop specification](../specs/adaptive-agent-work-loop.md). This ADR remains Proposed until that specification and its default authority policy are approved.
+The detailed contracts, workflow, milestones, and acceptance scenarios are defined in [the adaptive agent work-loop specification](../specs/adaptive-agent-work-loop.md). This ADR remained Proposed until that specification and its default authority policy were approved; both approvals were recorded 2026-08-21 (see the policy-gates table in [`docs/status-matrix.md`](../status-matrix.md)), at which point the status above became Accepted.
 
 | Gate | Owner | Inputs | Exit | Verify |
 |---|---|---|---|---|

@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { skillRouteLogCheck, unknownAgentDriftCheck } from "../../../src/cli/doctor-overlay.js";
+import {
+  legacyLayoutCheck,
+  skillRouteLogCheck,
+  unknownAgentDriftCheck
+} from "../../../src/cli/doctor-overlay.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 
@@ -52,6 +56,55 @@ test("agent-drift lists historical Unknown agent without adding a profile", asyn
     assert.match(check.detail, /general-purpose x1/);
     assert.match(check.detail, /undeclared in dispatch contract/);
     assert.match(check.detail, /do not add a profile/);
+  });
+});
+
+test("legacy-layout is silent on a state root with nothing pre-plane in it", async () => {
+  await withDir(async (root) => {
+    const check = legacyLayoutCheck(root);
+    assert.equal(check.name, "legacy-layout");
+    assert.equal(check.ok, true);
+    assert.match(check.detail, /no pre-plane files/);
+  });
+});
+
+test("legacy-layout names both pre-plane locations and their plane-aware paths", async () => {
+  await withDir(async (root) => {
+    await mkdir(join(root, "feedback"), { recursive: true });
+    await writeFile(join(root, "feedback", "records.jsonl"), "", "utf8");
+    await mkdir(join(root, "runs"), { recursive: true });
+
+    const check = legacyLayoutCheck(root);
+    // Informational only: an old directory next to a working one must not
+    // block the preflight.
+    assert.equal(check.ok, true);
+    assert.match(check.detail, new RegExp(join("feedback", "records.jsonl").replace(/\\/g, "\\\\")));
+    assert.match(check.detail, /\bruns\b/);
+    assert.match(check.detail, new RegExp(join("adaptation", "feedback").replace(/\\/g, "\\\\")));
+    assert.match(check.detail, new RegExp(join("runtime", "runs").replace(/\\/g, "\\\\")));
+    assert.match(check.detail, /invisible to plane-aware code/);
+    // Detection only — migration is a separate, explicit step.
+    assert.doesNotMatch(check.detail, /migrated|moved/);
+  });
+});
+
+test("legacy-layout ignores the plane-aware layout it is meant to recommend", async () => {
+  await withDir(async (root) => {
+    await mkdir(join(root, "adaptation", "feedback"), { recursive: true });
+    await writeFile(join(root, "adaptation", "feedback", "records.jsonl"), "", "utf8");
+    await mkdir(join(root, "runtime", "runs"), { recursive: true });
+
+    const check = legacyLayoutCheck(root);
+    assert.equal(check.ok, true);
+    assert.match(check.detail, /no pre-plane files/);
+  });
+});
+
+test("legacy-layout only flags runs/ when it is a directory", async () => {
+  await withDir(async (root) => {
+    await writeFile(join(root, "runs"), "not a directory", "utf8");
+    const check = legacyLayoutCheck(root);
+    assert.match(check.detail, /no pre-plane files/);
   });
 });
 

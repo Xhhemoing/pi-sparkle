@@ -7,6 +7,7 @@ import type { ModelRef } from "../config/model-ref.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
 import { PiAgentExecutor } from "./pi-executor.js";
+import type { RetryOptions } from "./provider-retry.js";
 
 export interface PiRuntime {
   readonly models: MutableModels;
@@ -35,6 +36,8 @@ export async function createConfiguredPiExecutor(input: {
   readonly aliases?: Readonly<Record<string, ModelRef>>;
   readonly customProviders?: readonly CustomProviderConfig[];
   readonly systemPrompt?: string;
+  /** Overrides the executor's default bounded 429/5xx retry. */
+  readonly retry?: RetryOptions;
   readonly onInvocation?: (invocation: ModelInvocation) => void;
 }): Promise<PiAgentExecutor> {
   // Omitted customProviders means "load the state root's providers.json";
@@ -54,6 +57,7 @@ export async function createConfiguredPiExecutor(input: {
     ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
     ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
     ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+    ...(input.retry !== undefined ? { retry: input.retry } : {}),
     ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {})
   });
 }

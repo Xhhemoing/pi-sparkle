@@ -37,7 +37,7 @@ src/           # Source code (TypeScript)
   requirement/ # Coverage, critic, precedence gates
   review/      # Actor-critic review system
   rubric/      # Evaluation rubrics
-  preference/  # Preference detection and storage
+  preferences/ # Preference detection and storage
 test/          # Test suites (unit + integration)
 docs/          # Specifications, ADRs, research
 tasks/         # Planning and task tracking
@@ -53,6 +53,7 @@ All contributions must pass:
 | `pnpm lint` | ESLint checks |
 | `pnpm test` | Unit and integration tests (tsx --test) |
 | `pnpm build` | Production build (tsconfig.build.json) |
+| `pnpm gate` | All four in sequence (merge-time gate) |
 
 ## Commit Guidelines
 

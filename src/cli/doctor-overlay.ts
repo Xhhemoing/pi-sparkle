@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_PI_DISPATCH_CONTRACT } from "../agents/dispatch-preflight.js";
+import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
 
 export interface OverlayCheck {
   readonly name: string;
@@ -73,6 +74,64 @@ export function skillRouteLogCheck(
     const message = error instanceof Error ? error.message : String(error);
     return { name: "skill-route", ok: false, detail: message };
   }
+}
+
+interface LegacyStateEntry {
+  readonly relative: string;
+  readonly kind: "file" | "directory";
+  readonly planeAware: (stateRoot: string) => string;
+}
+
+/**
+ * Pre-plane state-root layout (before the runtime/ + adaptation/ split). These
+ * paths are still readable by hand but no plane-aware module looks at them, so
+ * a state root that only has these is silently empty from the runtime's point
+ * of view. Detection only — migration is a separate, explicit command.
+ */
+const LEGACY_STATE_ENTRIES: readonly LegacyStateEntry[] = [
+  {
+    relative: join("feedback", "records.jsonl"),
+    kind: "file",
+    planeAware: (stateRoot) => join(adaptationRoot(stateRoot), "feedback", "records.jsonl")
+  },
+  {
+    relative: "runs",
+    kind: "directory",
+    planeAware: (stateRoot) => join(runtimeRoot(stateRoot), "runs")
+  }
+];
+
+function existsAs(path: string, kind: "file" | "directory"): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const stats = statSync(path);
+    return kind === "directory" ? stats.isDirectory() : stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Informational: never fails the preflight. A legacy state root is not broken,
+ * it is invisible, and failing closed here would block every user who still has
+ * an old directory lying around next to a working one.
+ */
+export function legacyLayoutCheck(stateRoot: string): OverlayCheck {
+  const found = LEGACY_STATE_ENTRIES.filter((entry) =>
+    existsAs(join(stateRoot, entry.relative), entry.kind)
+  );
+  if (found.length === 0) {
+    return { name: "legacy-layout", ok: true, detail: `no pre-plane files under ${stateRoot}` };
+  }
+  const parts = found.map((entry) => `${entry.relative} (plane-aware path: ${entry.planeAware(stateRoot)})`);
+  return {
+    name: "legacy-layout",
+    ok: true,
+    detail:
+      `pre-plane state under ${stateRoot}: ${parts.join("; ")} — ` +
+      "invisible to plane-aware code, which reads runtime/ and adaptation/ only; " +
+      "migrate it before treating this state root as complete"
+  };
 }
 
 export function unknownAgentDriftCheck(projectRoot: string | undefined): OverlayCheck {

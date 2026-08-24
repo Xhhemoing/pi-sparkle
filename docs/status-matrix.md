@@ -15,15 +15,15 @@ Definitions (ADR-004):
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |
 |---|---|---|---|---|---|
-| Fake executor `run` / `inspect` / `resume` | yes | yes | yes | no | Default local path. Quality gate: `pnpm gate`. |
-| `--children` parent coordinator | yes | yes | yes | no | Fake child executor when `--executor` is omitted or `fake`. Not the flowchart engine. |
+| Fake executor `run` / `inspect` / `resume` | yes | yes | yes | no | Default local path. Quality gate: `pnpm gate`. `migrate-legacy` copies pre-plane state into `runtime/` + `adaptation/` (dry-run default, `--apply` to write). |
+| `--children` parent coordinator | yes | yes | yes | no | Fake child executor when `--executor` is omitted or `fake`. The CLI compiles the spec through `compileChildrenToFlowchart` and executes it on the flowchart engine with `ChildCoordinator` child semantics (corrected 2026-08-24; "not the flowchart engine" was stale). `startParentRun` remains a library/test-only entry. |
 | `compileChildrenToFlowchart` | yes | yes | library tests | no | Wired at the CLI children path and the track loop (corrected 2026-08-22; was stale). Real-provider coverage of this path is still open. |
 | `--flowchart` supervisor | yes | yes | yes | no | Public orchestrator. Incompatible with `--children` / `--track`. Optional `--executor fake\|pi` runs RUNNING nodes; `--results` still overrides. |
 | Event log + checkpoint + resume | yes | yes | yes | no | Truncated JSONL tail recovered; corrupt middle line fails closed. |
 | Episode bind / `inspect --episode` | yes | yes | yes | no | Reducer is fail-closed on duplicate open/attach, terminal replay, and dangling cross-stream refs. |
-| Coverage gate | yes | `--track` / parent start | unit + integration | no | Skip-contracts and answered questions still start. |
+| Coverage gate | yes | `--track` / library starts with a contract | unit + integration | no | Enforced by `assertCoverageAllowsStart` at `startFlowchartRun` / `startParentRun` / `startSupervisedRun` when a contract is provided; `--track` builds one, plain CLI `--children` does not (corrected 2026-08-24; "parent start" alone was stale — `startParentRun` is tests-only). Skip-contracts and answered questions still start. |
 | Real Pi executor | yes | `--executor pi` | opt-in `PI_SMOKE=1` | no | Needs Node `>=22.19.0`, credentials, models, network. |
-| `doctor` | yes | yes | unit tests | no | Developer-preview preflight. Output contract is not frozen. |
+| `doctor` | yes | yes | unit tests | no | Developer-preview preflight. `--json` emits frozen `DoctorJsonReport` (`preview`, `liveAdaptive: false`, `checks[]`, `next[]`). Prose remains the default. Informational `legacy-layout` check never fails the preflight. |
 
 ## Adaptive library line (M3–M6)
 
@@ -31,7 +31,7 @@ Definitions (ADR-004):
 |---|---|---|---|---|---|
 | R0 / static `ModelRouter` | yes | live flowchart + `--children` assign | yes | no | Live path. |
 | Public prior snapshot | yes | `--public-prior` | yes | no | Hashed frozen file only; no HTTP leaderboard fetch. |
-| R1 / bandit / topology | yes | **shadow / offline only** | module tests | no | Must not import into live execution until F-PROD. |
+| R1 / bandit / topology | yes | **shadow / offline only** | module tests | no | Must not import into live execution until F-PROD. Enforcement precision (2026-08-24): `live-isolation.test.ts` checks **direct** imports of ten live files; `planTaskTopology` is pinned defined-but-unused in `run/supervisor.ts`; post-run auto-loop writes project bandit stats (adaptation plane, via `bandit-store`) but no live path reads them (`loadProjectBandit` has zero consumers). |
 | Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` required. |
 | Promotion CAS + rollback | yes | CLI | unit tests | no | Proposal-first. |
 | Preferences + tombstones | yes | `pref` CLI | yes | no | Dataset export lists tombstone ids and drops payloads; authorized export omits tombstones unless `includeTombstones` (integration redaction chain). |

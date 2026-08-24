@@ -62,12 +62,45 @@ allowlist entry with a justification.
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
 `runtime/runs/<id>/`. `pi-sparkle delete --episode <id>` removes both episode
 file shapes **and cascades into the adaptation plane**: every feedback record
-bound to that episode has its free-text body stripped and its id persisted to
+bound to that episode has its free-text `body` stripped and its id persisted to
 `adaptation/feedback/tombstones.json`. `readFeedback` filters tombstoned ids
-at the first layer, so a lingering payload can never be re-surfaced, and
-dataset exports keep listing tombstone ids without payloads. The CLI fails
-closed: missing/ambiguous target flags exit 1, an unknown id ("nothing found")
-exits 1 rather than reporting success.
+at the first layer, so a lingering payload is never re-surfaced **through that
+API**, and dataset exports keep listing tombstone ids without payloads. The CLI
+fails closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
+found") exits 1 rather than reporting success.
+
+### Known limits of the current delete commands (2026-08-24 audit)
+
+Honest gaps found by the isolation/privacy audit
+([report](reports/2026-08-24-sota-isolation-privacy.md)); none of these are
+covered by the claims above:
+
+- **Cascade strips `body`, not `summary`.** The auto-adapt loop writes derived
+  user text into feedback `summary` (truncated user answers as
+  `user: <answer>`, peer-message bodies, subagent assistant text — up to
+  400 chars, `src/learning/signals.ts`). The episode cascade leaves `summary`
+  on disk in `records.jsonl`; it is hidden by the tombstone filter but not
+  physically removed. `src/privacy/record-classes.ts` also lists only `body`
+  as a sensitive feedback field — `summary` should be treated as equally
+  sensitive until the source of truth is corrected.
+- **Episode text survives inside attached runs.** `bindEpisodeToRun` appends
+  an `EPISODE_OPENED` event carrying the full episode (including the
+  objective text) into each attached run's
+  `runtime/runs/<runId>/events.jsonl`. `delete --episode` does not touch run
+  event logs; that copy is removed only when the run itself is deleted.
+- **`delete --run` does not reach `runtime/invocations.jsonl`.** Invocations
+  are one global append-only file; a deleted run's rows (hashes, usage
+  numbers, ids — no prompt/response text) survive, as do its aggregates in
+  `runtime/routing/catalog-observed.json`. This under-delivers the
+  `model-invocation` class's declared run-scoped `delete-files` behavior.
+- **Declared propagation `run-event → episode` is not implemented** — by
+  design (`src/privacy/deletion.ts`: episodes can outlive runs under
+  multi-run attach), but `src/privacy/record-classes.ts` still declares it.
+- **Preferences are not cascaded.** Observations whose `evidenceEpisodeId`
+  references a deleted episode keep their payload and the episode link; use
+  `pref delete` per observation.
+- **`runtime/episodes/<id>.lock`** (operational lock, no user text) is not
+  removed by `delete --episode`.
 
 ## Completeness audit (2026-08-22)
 
@@ -98,6 +131,13 @@ fails.
 
 - Raw prompts, response bodies, secrets, and hidden reasoning are excluded from
   optimization datasets. Invocations store hashes and optional usage only.
+- The persisted `redacted: true` flag on a feedback record means the redaction
+  pass **ran** over it (the write-path policy sets `redactPII: true`
+  unconditionally), not that sensitive content was necessarily found and
+  removed. The per-call `RedactionDecision.classes` distinguishes matches
+  (`secret`/`path` fire only on a hit), but classes are not persisted with the
+  record. The declared `prompt-injection` class is deliberately not detected
+  (see the rationale in `src/feedback/redaction.ts`).
 - Missing provider usage is `undefined`, never `0`.
 - Preference dataset export always lists tombstone ids and never the deleted
   payloads (`exportForDataset`).

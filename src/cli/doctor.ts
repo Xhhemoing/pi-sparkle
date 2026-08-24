@@ -12,10 +12,25 @@ import {
 } from "../agents/dispatch-preflight.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
-import { skillRouteLogCheck, unknownAgentDriftCheck } from "./doctor-overlay.js";
+import { legacyLayoutCheck, skillRouteLogCheck, unknownAgentDriftCheck } from "./doctor-overlay.js";
 
 export interface DoctorIo extends CliErrorIo {
   stdout(text: string): void;
+}
+
+/**
+ * Frozen `--json` contract. Additive changes only: consumers pin `checks[].name`
+ * and read `ok` as the single go/no-go signal. In JSON mode stdout carries this
+ * object and nothing else; the human-readable failure report still goes to
+ * stderr through cliFail, and the exit code is unchanged.
+ */
+export interface DoctorJsonReport {
+  readonly version: string;
+  readonly preview: true;
+  readonly liveAdaptive: false;
+  readonly ok: boolean;
+  readonly checks: readonly DoctorCheck[];
+  readonly next: readonly string[];
 }
 
 export interface PackageEngines {
@@ -24,11 +39,18 @@ export interface PackageEngines {
   readonly packageManager: string;
 }
 
-interface DoctorCheck {
+export interface DoctorCheck {
   readonly name: string;
   readonly ok: boolean;
   readonly detail: string;
 }
+
+const NEXT_STEPS: readonly string[] = [
+  "pnpm cli run --project <path> --objective <text> uses the fake executor",
+  "--executor pi requires models set-default or PI_PROVIDER/PI_MODEL"
+];
+
+const FIX_FAILURES_NEXT = "fix the failing entries in checks[], then re-run pi-sparkle doctor";
 
 function readPackageEngines(): PackageEngines {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -163,13 +185,26 @@ function piDispatchCheck(projectRoot: string | undefined, agentsDir: string | un
   };
 }
 
+function buildDoctorJsonReport(version: string, checks: readonly DoctorCheck[]): DoctorJsonReport {
+  const ok = checks.every((check) => check.ok);
+  return {
+    version,
+    preview: true,
+    liveAdaptive: false,
+    ok,
+    checks,
+    next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS]
+  };
+}
+
 export async function doctorCommand(args: string[], io: DoctorIo): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
       "state-root": { type: "string" },
       project: { type: "string" },
-      "agents-dir": { type: "string" }
+      "agents-dir": { type: "string" },
+      json: { type: "boolean" }
     }
   });
   const engines = readPackageEngines();
@@ -178,27 +213,39 @@ export async function doctorCommand(args: string[], io: DoctorIo): Promise<numbe
     nodeCheck(engines),
     pnpmCheck(engines),
     await stateRootWritable(stateRoot),
+    legacyLayoutCheck(stateRoot),
     await providersCheck(stateRoot),
     await projectCheck(values.project),
     piDispatchCheck(values.project, values["agents-dir"]),
     skillRouteLogCheck(values.project),
     unknownAgentDriftCheck(values.project)
   ];
-  io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
-  io.stdout("  live R1/bandit/topology: off until Checkpoint F-PROD closes\n");
-  let failed = false;
-  for (const check of checks) {
-    io.stdout(`  ${check.ok ? "ok" : "FAIL"}  ${check.name}: ${check.detail}\n`);
-    if (!check.ok) failed = true;
+  const failed = checks.some((check) => !check.ok);
+
+  if (values.json === true) {
+    io.stdout(`${JSON.stringify(buildDoctorJsonReport(engines.version, checks))}\n`);
+  } else {
+    io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
+    io.stdout("  live R1/bandit/topology: off until Checkpoint F-PROD closes\n");
+    for (const check of checks) {
+      io.stdout(`  ${check.ok ? "ok" : "FAIL"}  ${check.name}: ${check.detail}\n`);
+    }
+    for (const step of NEXT_STEPS) {
+      io.stdout(`  next: ${step}\n`);
+    }
   }
-  io.stdout("  next: pnpm cli run --project <path> --objective <text> uses the fake executor\n");
-  io.stdout("  next: --executor pi requires models set-default or PI_PROVIDER/PI_MODEL\n");
+
   if (failed) {
+    // Even in JSON mode the failure report goes to stderr, so stdout stays a
+    // single parseable object while the exit code still fails the caller.
     return cliFail(io, {
       command: "doctor",
       stage: "preflight",
       message: "one or more doctor checks failed",
-      next: "fix the FAIL lines above, then re-run pi-sparkle doctor"
+      next:
+        values.json === true
+          ? FIX_FAILURES_NEXT
+          : "fix the FAIL lines above, then re-run pi-sparkle doctor"
     });
   }
   return CLI_EXIT.ok;
