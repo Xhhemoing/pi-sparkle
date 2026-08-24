@@ -582,14 +582,13 @@ async function settleCrashedSupervisedRun(ctx: SupervisorContext): Promise<void>
  * `open` is the run's own pre-rounds window: the opening appends, the episode
  * bind, and the state the rounds will drive. It is protected by the same two
  * steps the rounds get, because a run that dies in there used to get neither.
- * Reproduced on this VM two ways — an episode store that cannot be written, and
- * an empty task list, whose `TASK_GRAPH_ACCEPTED` append is refused by event
- * validation — the log stopped after `RUN_STARTED` with no terminal, no
- * checkpoint and an episode bound forever, and no command could settle it:
- * `resumeSupervisedRun` refuses a log with no accepted graph, which is every
- * log this window can leave. So the window records a terminal (in-flight only,
- * as ever: an empty or already-settled log gets nothing) and then settles to
- * what the log honestly replays.
+ * Reproduced on this VM with failures inside the window. The former empty-task
+ * seed no longer reaches it: `validateTaskGraph([])` now refuses in preflight,
+ * before the lock or any write. Once opening has begun, a death before graph
+ * acceptance can still leave no resumable graph: `resumeSupervisedRun` refuses
+ * a log with no accepted graph. So the window records a terminal (in-flight
+ * only, as ever: an empty or already-settled log gets nothing) and then settles
+ * to what the log honestly replays.
  *
  * A resume passes a trivial `open`. Its pre-flight reads and refuses before it
  * writes anything, and it must stay outside: a resume that refuses a log must

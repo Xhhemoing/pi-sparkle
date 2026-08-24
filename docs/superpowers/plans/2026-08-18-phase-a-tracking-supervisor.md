@@ -166,6 +166,17 @@ P         = round(quality * coverage, 4)
 Nothing applicable-and-observed → `quality = 0`, `coverage = 0`, `P = 0`.  
 Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.30)`. **`P` itself is not capped** — hard gate is the control path.
 
+> Implemented-semantics note (2026-08-24): this plan's dimension examples do
+> not make acceptance criteria an independent child verdict. Criteria are
+> prompt guidance plus a plan-time coverage obligation; at child assessment the
+> deterministic verifier is the sole gate. Production `check-coverage` has no
+> `FAIL` outcome, and the producer echoes constraints into
+> `constraint-retention`, so neither criteria-shaped dimension can change the
+> directive today. `cappedByHardFail` / `displayPrescore` are display-only:
+> `combineScore` and `evaluateGates` receive uncapped `P`. In the sentence
+> above, "hard gate is the control path" refers to verifier/anomaly gate facts,
+> not to the display cap.
+
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 
 ```ts

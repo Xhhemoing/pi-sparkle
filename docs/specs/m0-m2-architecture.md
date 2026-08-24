@@ -11,10 +11,12 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 7 end-of-round sync (2026-08-24 21:01 UTC): R7-1 (resume child-spec
-> reconstruction), R7-2 (gate-semantics decision), and R7-3 (BLOCKED-unblock
-> investigation) were in flight. This specification records the landed Round 6
-> source observed at this timestamp and does not predict those slots.
+> Round 8 docs-slot end sync (2026-08-24 21:50 UTC): the working tree includes
+> R8-9's deletion of the unused root-keyed `loadProjectBandit`; the keyed
+> doctor reader remains. R8-8's frozen-additive `INSPECT_SUMMARY` declaration
+> is present. R8-1's unblock schema, replay/restore path, locked command, and
+> rewritten BLOCKED operator note are also present and reflected below; its
+> assigned replay and BLOCKED-output pins were still being rewritten.
 
 ## Milestone names
 
@@ -185,7 +187,12 @@ interface RunLimits {
 
 ### Task graph
 
-M2 adds a directed acyclic graph. The system must validate missing dependencies, self-dependencies, duplicate IDs, and cycles before any worker starts. The live supervised DAG produces the transitions below.
+M2 adds a directed acyclic graph. The system must validate an empty graph,
+missing dependencies, self-dependencies, duplicate IDs, and cycles before any
+worker starts. `validateTaskGraph([])` is a synchronous preflight refusal:
+it occurs before the run lock and every event/checkpoint write, so an empty
+input leaves no durable run record. The live supervised DAG produces the
+transitions below.
 
 ```text
 PENDING -> READY -> RUNNING -> COMPLETED
@@ -331,6 +338,22 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   outcome.
 - `maxCostUsd` is validated as a positive protocol field when present, but the
   child coordinator does not currently read usage or enforce this ceiling.
+
+On flowchart resume, a node whose parent log contains a `TASK_REQUEST` runs
+under that recorded spec. Objective, input artifacts, acceptance criteria, and
+child limits come from the request; the role-bearing assignment
+`MODEL_ROUTED` restores the agent role, assigned model, and cascade; dependencies
+come from the checkpointed edges. A node that was never requested retains empty
+criteria/artifacts and receives the earliest logged sibling's budget, or the
+run's declared per-task limits when there is no sibling. This reconstruction is
+stable across repeated resumes because the latest request per task wins.
+
+`FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
+that supplies it gets the same child grounding and assessment as start.
+Production resume has only a run id, however, and the contract's constraints
+are not durable on any record it can reach. No production caller can currently
+fill the seam; the runtime does not invent an empty constraint set from the
+episode's acceptance criteria.
 
 ### Cluster role-cast dead letters
 
@@ -482,7 +505,9 @@ carry the run and project snapshots when present, overall status, agent
 outcomes, the last durable event ID, and update time. A flowchart checkpoint
 also carries the flowchart definition, validated supervisor snapshot (including
 node statuses and its ledger), and limits required for flowchart resume. It
-does **not** contain the M2 DAG supervisor's active leases. Supervised DAG
+does not yet carry the run requirement contract, which is why production
+flowchart resume cannot supply `FlowchartContinuation.contract`. It also does
+**not** contain the M2 DAG supervisor's active leases. Supervised DAG
 resume reconstructs its graph, task statuses, attempts, ledger, and leases from
 the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
 task is recovered as orphaned because no worker survives process restart.
@@ -555,16 +580,42 @@ A round has progress only when it adds a completed task, validated artifact, new
 
 The M2 judge is a pluggable verifier that produces `APPROVED`, `REJECTED`, or `NEEDS_USER_DECISION` with evidence references. Its output routes a task only through declared graph transitions; it cannot issue arbitrary host commands.
 
+Acceptance criteria have two non-terminal roles today: prompt guidance for the
+child and a plan-time coverage obligation. At child assessment the deterministic
+verifier is the sole gate. Criteria-shaped tracking dimensions may change the
+recorded verdicts and numeric prescore, but cannot change the directive:
+`check-coverage` has no `FAIL` outcome in production, while
+`constraint-retention` is fed the original constraints rather than an
+independent observation. `cappedByHardFail` and `displayPrescore` are display
+facts only; `combineScore` and `evaluateGates` consume the uncapped `P`.
+
+When `run --flowchart` or `run --children` returns BLOCKED, stderr reports the
+newest `RUN_BLOCKED` reason and required evidence, then gives `inspect`,
+`inject`, and `unblock` `next:` lines. Flowchart `resume` and `answer` print the
+same block. The final note states the order honestly: resume alone replays
+BLOCKED; the operator first runs the locked
+`unblock --reason <text> [--retry-node <nodeId>]` command, then resume executes
+the reopened work. `unblock` records a `RUN_UNBLOCKED` naming the exact active
+block and reopens state without executing it; stale, repeated, and wrong-node
+requests fail closed. The BLOCKED exit code remains 1.
+
 ### Crash teardown
 
-The first terminal a flowchart log replays wins. Its blocked, completed, and
+The active terminal a flowchart log replays wins. Its blocked, completed, and
 failed writers and the replay anomaly rule share
 `TERMINAL_REPLAY_STATUSES` / `replayedTerminalStatus`, so they cannot derive
 terminal status differently. A tracking-gate `queue_analysis` therefore beats
-a later node failure: a verification-failed child leaves exactly one
+a later node failure: a verification-failed child leaves one active
 `RUN_BLOCKED` with reason `ANALYSIS_QUEUED`, checkpoint BLOCKED, episode
-WAITING, and no terminal-overwrite anomaly. The run remains injectable and
-resumable.
+WAITING, and no terminal-overwrite anomaly. A `RUN_UNBLOCKED` that names that
+exact block ends the interval; replay then has no terminal and the next
+COMPLETED, FAILED, or BLOCKED can become active. A stale or mismatched unblock
+is an anomaly and leaves the block in force.
+
+The library/test-only parent plane uses the same shared definition:
+`runParentRun` routes its completion, failure, and crash exits through one
+`recordTerminal`; that recorder asks `replayedTerminalStatus` first and refuses
+to append a second terminal over the replayed one.
 
 If an error escapes supervised rounds while replay is PLANNING or RUNNING, the
 wrapper best-effort appends one `RUN_FAILED` with a bounded crash reason and

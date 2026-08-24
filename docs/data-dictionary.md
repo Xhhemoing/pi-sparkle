@@ -100,6 +100,9 @@ lifecycle and release it after teardown. Clarification discovery remains
 outside the acquisition; its event, checkpoint, episode, and questions writes
 are all inside one non-reentrant acquisition. Start preflight also remains
 outside the lock on the other planes, so a refused start persists nothing.
+That includes the M2 supervised DAG's empty-graph check:
+`validateTaskGraph([])` throws before lock acquisition, event append,
+checkpoint write, or executor entry.
 Resume must acquire before reading the records that deletion could remove; a
 refused resume of a nonexistent supervised or flowchart run therefore leaves
 an empty `runtime/runs/` directory, but no run subtree, lock, or record.
@@ -124,17 +127,46 @@ proves the recorded PID is dead, proves a timed-out delete changes no bytes,
 checks doctor's `pidLiveness: "not-running"` and manual-removal guidance, then
 removes the confirmed abandoned lock and verifies deletion.
 
-A flowchart run records exactly one terminal, the first one its log replays;
-a tracking-gate `queue_analysis` therefore beats a later node failure, and a
+A flowchart run has exactly one active replayed terminal. A tracking-gate
+`queue_analysis` therefore beats a later node failure, and a
 verification-failed child ends the run BLOCKED with `ANALYSIS_QUEUED`, the
 episode WAITING, and the run injectable and resumable. The flowchart terminal
 writers and replay anomaly rule share `TERMINAL_REPLAY_STATUSES` /
-`replayedTerminalStatus` rather than deriving terminal status separately.
+`replayedTerminalStatus` rather than deriving terminal status separately. A
+matched `RUN_UNBLOCKED` explicitly ends the named BLOCKED interval; replay then
+has no terminal until a later COMPLETED, FAILED, or BLOCKED event becomes
+active.
+The library/test-only parent plane follows the same first-terminal rule:
+`runParentRun` routes its completion, ordinary failure, and crash exits through
+one `recordTerminal`, which consults `replayedTerminalStatus` and refuses a
+second terminal append.
 
-> Round 7 end-of-round sync (2026-08-24 21:01 UTC): R7-1 (resume child-spec
-> reconstruction), R7-2 (gate-semantics decision), and R7-3 (BLOCKED-unblock
-> investigation) were in flight. This dictionary records the landed Round 6
-> contract observed at this timestamp and does not predict those slots.
+On flowchart resume, a node with a logged `TASK_REQUEST` is reconstructed from
+the durable parent log rather than from the checkpoint definition's thin node
+shape: the request restores objective, artifacts, criteria, and budget; the
+role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
+checkpointed edges restore dependencies. A never-requested node keeps empty
+criteria/artifacts and uses the earliest logged sibling budget or the run's
+declared per-task limits. `FlowchartContinuation.contract` is honoured when
+supplied, but the contract is not currently durable on the run log,
+checkpoint, or episode in a form a production resume caller can recover, so
+that seam has no production supplier.
+
+For a BLOCKED `run --flowchart` or `run --children`, the CLI renders the newest
+recorded reason and required evidence plus `inspect`, `inject`, and `unblock`
+`next:` lines. Flowchart `resume` and `answer` render the same block. The note
+states that resume alone replays BLOCKED: the operator runs the locked
+`unblock --reason <text> [--retry-node <nodeId>]` command first, then resumes
+the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
+block and reopens state without executing it; stale, repeated, and wrong-node
+requests are refused. A BLOCKED result still exits 1.
+
+> Round 8 docs-slot end sync (2026-08-24 21:50 UTC): these durability contracts
+> were re-checked against the working tree. R8-9's deletion of the unused
+> root-keyed `loadProjectBandit`, R8-8's test-only frozen-additive
+> `INSPECT_SUMMARY` declaration, and R8-1's unblock schema/replay/restore,
+> locked command, and rewritten BLOCKED note were present; R8-1's assigned
+> replay and BLOCKED-output pins were still being rewritten.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
