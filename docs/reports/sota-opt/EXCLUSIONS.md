@@ -62,7 +62,6 @@
 
 | ID | 方案 | 原因 |
 | --- | --- | --- |
-<<<<<<< HEAD
 | S1-A-1 | gate-apply `currentGateStatus` 反向扫描早退 | 等价但 E=41 每 run 省 318ns，噪声 |
 | S1-A-2 | from-child 复用外层 prescore | 噪声 + 公开注入口风险 |
 | S1-A-3 | human-score matchAll 早退/惰性「分」匹配 | 单句输入噪声 |
