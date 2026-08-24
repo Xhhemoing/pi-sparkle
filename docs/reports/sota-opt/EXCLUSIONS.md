@@ -244,3 +244,8 @@
 | S3-F-3 | restore 空 assignments 跳过 population Set | 每实验一次，P=2000 省 50.8µs |
 | S3-F-4 | createIsolationGuard 提升 resolve(outputRoot) | 一次性 µs；生产路径已被 S3-D-3 否决 |
 | S3-F-5 | toFrozenEpisode 投影省略直接别名 | 形状可观察 + test-only |
+| S3-G-1 | snapshot() 平坦记录 structuredClone 改浅展开 | 全 run 上界 2.8–8.6ms；隔离性降级 |
+| S3-G-2 | checkpoint 双层校验去重 | 错误消息前缀发散 + ~35µs |
+| S3-G-3 | handleExecutionEvent 增量终结计数 | ~0.35µs/尝试 |
+| S3-G-4 | finish() 跳过末次 persistCheckpoint | 把 RUNNING 陈旧态当终态落盘 |
+| S3-G-5 | isId 前缀模块级提升 | ~33ns/查；外推仅 ~13ms/run |
