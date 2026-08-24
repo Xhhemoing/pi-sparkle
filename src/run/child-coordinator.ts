@@ -21,6 +21,7 @@ import type { AgentProfile, AgentProfileRegistry } from "../agents/registry.js";
 import type { ContextPacket } from "../context/packet.js";
 import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { formatChildPrompt } from "./child-prompt.js";
+import { CHILD_CRASH_PREFIX, recordChildCrashTerminal } from "./crash-terminal.js";
 import { tryParseModelRef } from "../config/model-ref.js";
 import {
   isTerminalMessage,
@@ -186,19 +187,6 @@ class AttemptTranscript {
 
 /** Delays above this are clamped by setTimeout and would fire immediately. */
 const MAX_TIMER_MS = 2_147_483_647;
-
-/** The child-run events that close a child's own log. */
-const TERMINAL_CHILD_EVENT_TYPES: ReadonlySet<Event["type"]> = new Set([
-  "RUN_COMPLETED",
-  "RUN_FAILED",
-  "RUN_CANCEL_REQUESTED"
-]);
-
-/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
-function crashReason(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)).trim();
-  return `child run crashed: ${bounded(message === "" ? "unknown error" : message)}`;
-}
 
 const realSchedule = (fn: () => void, ms: number): { cancel(): void } => {
   const handle = setTimeout(fn, ms);
@@ -371,26 +359,22 @@ export class ChildCoordinator {
   /**
    * Closes the log of a child whose run threw instead of settling. Without it
    * the child's own event log stops wherever the throw landed — replay sees a
-   * child that never ended, even though nothing is running it any more. The
-   * append is best effort: the error escaping to the parent is the one worth
-   * reporting, and a failure that is itself in the append path (an unwritable
-   * log) leaves the child unclosed rather than masking the original error.
+   * child that never ended, even though nothing is running it any more.
    *
-   * The already-terminal check is not defensive. Within one child run it can
-   * never fire — {@link runTask} appends its terminal as its last act, so any
-   * throw precedes it — but {@link startChildTask} publishes `childRunId`, and
-   * two child runs given the same id share one event log. The check is what
-   * keeps that log at exactly one terminal; pinned by
+   * The contract (already-terminal guard, best-effort append, caller rethrows)
+   * lives in `run/crash-terminal.ts` alongside the run planes'; the child's
+   * prefix and its own log are what this call supplies. Pinned by
    * `test/integration/m2.5/children-flowchart.test.ts`.
    */
-  private async recordCrashTerminal(childRunId: RunId, taskId: TaskId, error: unknown): Promise<void> {
-    try {
-      const read = await this.childStore(childRunId).readAll();
-      if (read.events.some((event) => TERMINAL_CHILD_EVENT_TYPES.has(event.type))) return;
-      await this.appendChildEvent(childRunId, "RUN_FAILED", { reason: crashReason(error) }, taskId);
-    } catch {
-      // Swallowed on purpose: see the method contract.
-    }
+  private recordCrashTerminal(childRunId: RunId, taskId: TaskId, error: unknown): Promise<void> {
+    return recordChildCrashTerminal(
+      {
+        readEvents: async () => (await this.childStore(childRunId).readAll()).events,
+        appendFailed: (reason) => this.appendChildEvent(childRunId, "RUN_FAILED", { reason }, taskId)
+      },
+      error,
+      CHILD_CRASH_PREFIX
+    );
   }
 
   private buildTaskRequest(input: ChildTaskInput, childRunId: RunId, childAgentId: AgentInstanceId): TaskRequest {

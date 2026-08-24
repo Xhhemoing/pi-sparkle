@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
-import { createMessageId, createTaskId, type TaskId } from "../../../src/domain/ids.js";
+import { createMessageId, createTaskId, type RunId, type TaskId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import { SUPERVISOR, type TaskResult } from "../../../src/protocol/v1.js";
 import { DeterministicJudge } from "../../../src/graph/judge.js";
+import { LOCK_TIMEOUT_CODE } from "../../../src/persist/file-lock.js";
 import { resumeSupervisedRun, startSupervisedRun } from "../../../src/run/supervisor.js";
-import { EventStore } from "../../../src/run/event-store.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import type { TaskNode } from "../../../src/domain/task.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -18,6 +20,23 @@ const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
 function sequenceGenerator(): () => string {
   let n = 0;
   return () => `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
+}
+
+/**
+ * Finishes the process-death fiction these tests rely on.
+ *
+ * A run now holds its cooperative lock (`runLockPath`) for its whole
+ * lifecycle, so a resume of a run that is still live waits and then fails
+ * closed — that is the point of the lock, and one process driving one run's
+ * records is what it buys. An abandoned in-process handle is still live by
+ * that measure. A real SIGKILL leaves the lock file behind for an operator to
+ * clear (doctor inventories it with age, PID and remediation; locks are never
+ * stolen), which is exactly what this does. Removal is safe against the
+ * abandoned run's own later release: `withExclusiveFileLock` only unlinks a
+ * lock whose owner token is still its own.
+ */
+function simulateProcessDeath(stateRoot: string, runId: RunId): void {
+  rmSync(runLockPath(stateRoot, runId), { force: true });
 }
 
 function resultMessage(request: AgentExecutionRequest, outcome: "SUCCESS" | "FAILURE"): TaskResult {
@@ -133,9 +152,11 @@ test("resume after an interruption completes without rerunning finished work", a
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(sawCheckpoint, true, "the interrupted run must persist a completed task and a running lease");
-    // Simulate process death: abandon the first handle (its executor hangs).
-    // After resume completes, cancel the abandoned handle so its pending
-    // attempt timer does not keep the test process alive.
+    // Simulate process death: abandon the first handle (its executor hangs)
+    // and release the run lock the dead process would have left behind. After
+    // resume completes, cancel the abandoned handle so its pending attempt
+    // timer does not keep the test process alive.
+    simulateProcessDeath(stateRoot, runId);
     const resumed = resumeSupervisedRun(deps(stateRoot, new HangingExecutor([])), runId);
     const outcome = await resumed.done;
     assert.equal(outcome.status, "COMPLETED");
@@ -207,12 +228,46 @@ test("resume of an in-window orphaned lease recovers instead of stalling", async
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(sawCheckpoint, true, "interrupted run must persist a completed task and a running lease");
+    simulateProcessDeath(stateRoot, runId);
     const resumed = resumeSupervisedRun(
       { ...deps(stateRoot, new HangingExecutor([])), now: liveNow },
       runId
     );
     const outcome = await resumed.done;
     assert.equal(outcome.status, "COMPLETED");
+    first.cancel();
+    await first.done.catch(() => undefined);
+  });
+});
+
+test("a resume refuses a run this process is still driving", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const taskB = createTaskId(() => "b");
+    const first = startSupervisedRun(deps(stateRoot, new HangingExecutor([taskB])), {
+      projectRoot,
+      objective: "Ship it",
+      tasks: [task("a"), task("b")],
+      limits: limits()
+    });
+    const runId = first.runId;
+    const store = new EventStore(stateRoot, runId);
+    for (let i = 0; i < 500 && (await store.readAll()).events.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    // No process death this time: the live run holds the lock, so the resume
+    // waits its bounded wait and fails closed rather than driving the same
+    // run's records alongside it.
+    const resumed = resumeSupervisedRun(
+      { ...deps(stateRoot, new HangingExecutor([])), runLock: { timeoutMs: 50 } },
+      runId
+    );
+    await assert.rejects(
+      () => resumed.done,
+      (error: unknown) => (error as { code?: string }).code === LOCK_TIMEOUT_CODE,
+      "a second driver is refused with the lock's own code, not a message match"
+    );
+
     first.cancel();
     await first.done.catch(() => undefined);
   });

@@ -68,7 +68,7 @@ export async function recordCrashTerminal(
 }
 
 /** The child-run events that close a child's own log. */
-export const TERMINAL_CHILD_EVENT_TYPES: ReadonlySet<Event["type"]> = new Set([
+const TERMINAL_CHILD_EVENT_TYPES: ReadonlySet<Event["type"]> = new Set([
   "RUN_COMPLETED",
   "RUN_FAILED",
   "RUN_CANCEL_REQUESTED"

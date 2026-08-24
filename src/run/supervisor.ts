@@ -21,8 +21,11 @@ import { DeterministicJudge } from "../graph/judge.js";
 import { validateTaskGraph, type TaskGraph } from "../graph/validate.js";
 import { discoverProject } from "../project/discovery.js";
 import { advanceLedgerRound, classifyRoundProgress, createLedger, type LedgerRoundEvent, type RunLedger } from "../supervisor/ledger.js";
+import type { FileLockOptions } from "../persist/file-lock.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunOutcome } from "./child-coordinator.js";
+import { withRunLifecycleLock } from "./coordinator.js";
+import { recordCrashTerminal } from "./crash-terminal.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
@@ -85,6 +88,8 @@ export interface SupervisorDeps {
   judge?: JudgeAdapter;
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
+  /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
+  runLock?: FileLockOptions;
 }
 
 export interface SupervisedRunInput {
@@ -218,38 +223,6 @@ export function reconstructSupervisorState(
   }
 
   return { graph, statuses, attempts, leases, ledger };
-}
-
-const CRASH_REASON_LIMIT = 500;
-
-/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
-function crashReason(error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)).trim();
-  const detail = message === "" ? "unknown error" : message;
-  const bounded = detail.length <= CRASH_REASON_LIMIT ? detail : `${detail.slice(0, CRASH_REASON_LIMIT)}…`;
-  return `run crashed: ${bounded}`;
-}
-
-/**
- * Records the terminal event for a supervised run that died by an escaping
- * error, so replay sees a failure instead of a log that just stops mid-round.
- * The same two limits the flowchart and child planes apply:
- *
- * - Only a log still reading as in flight gets one. A run already recorded as
- *   cancelled, blocked or finished has an honest status of its own, and a crash
- *   on the way out must neither duplicate that terminal nor bury it.
- * - Every failure here is swallowed. The error on its way out is the one worth
- *   reporting.
- */
-async function recordCrashTerminal(ctx: SupervisorContext, error: unknown): Promise<void> {
-  try {
-    const read = await ctx.eventStore.readAll();
-    const status = replayRun(read.events).status;
-    if (status !== "PLANNING" && status !== "RUNNING") return;
-    await ctx.append(ctx.make("RUN_FAILED", { reason: crashReason(error) }));
-  } catch {
-    // Best effort: an append that cannot land must not mask the original error.
-  }
 }
 
 /**
@@ -568,6 +541,94 @@ export async function settleSupervisedOutcome(opts: {
   }
 }
 
+/**
+ * The settle tail both embedders run once the rounds return a status: close the
+ * bound episode, apply a tracking gate if one was supplied, and write the
+ * checkpoint that records the run's final state.
+ */
+async function finishSupervisedRun(
+  ctx: SupervisorContext,
+  status: RunStatus
+): Promise<{ events: Event[]; checkpoint: RunCheckpoint }> {
+  const beforeSettle = await ctx.eventStore.readAll();
+  await settleBoundEpisode({
+    stateRoot: ctx.deps.stateRoot,
+    events: beforeSettle.events,
+    status,
+    append: ctx.append,
+    make: (type, payload) => ctx.make(type, payload)
+  });
+  await settleSupervisedOutcome({
+    events: beforeSettle.events,
+    append: ctx.append,
+    nowIso: ctx.now(),
+    generateEventId: () => createEventId(ctx.generateId)
+  });
+  const finalRead = await ctx.eventStore.readAll();
+  const checkpoint = validateCheckpoint(materializeCheckpoint(replayRun(finalRead.events), ctx.now()));
+  await ctx.checkpointStore.write(checkpoint);
+  return { events: finalRead.events, checkpoint };
+}
+
+/**
+ * Runs the same settle tail for a run that died on its way out.
+ *
+ * The tail lives after `runSupervisorRounds` in both embedders, so the rethrow
+ * skipped it: a crashed run left its episode bound forever, and its durable
+ * checkpoint kept the last pre-crash status — resumable — while its own log
+ * already read FAILED. The two disagreed about a run nobody was driving.
+ *
+ * The status is re-read from the log rather than passed in, because the crash
+ * terminal `runSupervisorRounds` just recorded is what makes it honest; a log
+ * that got no terminal (already cancelled, blocked, settled) settles to the
+ * state it honestly recorded, which is the in-flight-only rule doing its job,
+ * not an exception to it. Each step swallows its own failure so an episode that
+ * will not close does not also cost the checkpoint, and the caller rethrows the
+ * original error regardless.
+ */
+async function settleCrashedSupervisedRun(ctx: SupervisorContext): Promise<void> {
+  try {
+    const read = await ctx.eventStore.readAll();
+    const status = replayRun(read.events).status;
+    try {
+      await settleBoundEpisode({
+        stateRoot: ctx.deps.stateRoot,
+        events: read.events,
+        status,
+        append: ctx.append,
+        make: (type, payload) => ctx.make(type, payload)
+      });
+    } catch {
+      // Best effort: an episode that will not close must not cost the
+      // checkpoint below.
+    }
+    const afterEpisode = await ctx.eventStore.readAll();
+    const checkpoint = validateCheckpoint(materializeCheckpoint(replayRun(afterEpisode.events), ctx.now()));
+    await ctx.checkpointStore.write(checkpoint);
+  } catch {
+    // Best effort throughout: the error on its way out is the one worth
+    // reporting, and settling is bookkeeping.
+  }
+}
+
+/**
+ * Runs the supervised rounds and settles the run either way. A crash still
+ * rethrows — settling never converts it into a run that finished.
+ */
+async function runAndSettleSupervisedRun(
+  ctx: SupervisorContext,
+  state: SupervisorState,
+  objective: string
+): Promise<{ status: RunStatus; events: Event[]; checkpoint: RunCheckpoint }> {
+  try {
+    const { status } = await runSupervisorRounds(ctx, state, objective);
+    return { status, ...(await finishSupervisedRun(ctx, status)) };
+  } catch (error) {
+    await settleCrashedSupervisedRun(ctx);
+    throw error;
+  }
+}
+
 /** M2: starts a supervisor run over a validated task graph. */
 export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInput): SupervisedRunHandle {
   if (input.contract !== undefined) {
@@ -588,7 +649,12 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
   const judge = deps.judge ?? new DeterministicJudge();
   const runId = createRunId(generateId);
 
-  const done = (async (): Promise<SupervisedRunOutcome> => {
+  // The supervised plane mirrors the flowchart and parent lifecycles: one
+  // acquisition of the run's cooperative lock, held from before the run's first
+  // record until after its teardown, so a concurrent `delete --run` waits for
+  // the run rather than removing its records mid-flight. The trade it buys and
+  // the writers it blocks are stated on the helper.
+  const done = withRunLifecycleLock(deps.stateRoot, runId, async (): Promise<SupervisedRunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
@@ -661,29 +727,9 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
       make
     };
 
-    const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
-    const status = result.status;
-
-    const beforeSettle = await eventStore.readAll();
-    await settleBoundEpisode({
-      stateRoot: deps.stateRoot,
-      events: beforeSettle.events,
-      status,
-      append,
-      make: (type, payload) => make(type, payload)
-    });
-    await settleSupervisedOutcome({
-      events: beforeSettle.events,
-      append,
-      nowIso: now(),
-      generateEventId: () => createEventId(generateId)
-    });
-    const finalRead = await eventStore.readAll();
-    const finalReplayed = replayRun(finalRead.events);
-    const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
-    await checkpointStore.write(checkpoint);
-    return { runId, status, events: finalRead.events, checkpoint, project: project };
-  })();
+    const settled = await runAndSettleSupervisedRun(ctx, state, run.rootTaskId);
+    return { runId, status: settled.status, events: settled.events, checkpoint: settled.checkpoint, project };
+  }, deps.runLock);
 
   return {
     runId,
@@ -699,7 +745,10 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
   const generateId = deps.generateId;
   const judge = deps.judge ?? new DeterministicJudge();
 
-  const done = (async (): Promise<SupervisedRunOutcome> => {
+  // Same acquisition as a fresh start, and it also serializes a resume against
+  // the run it is resuming: two processes cannot drive one run's records at
+  // once.
+  const done = withRunLifecycleLock(deps.stateRoot, runId, async (): Promise<SupervisedRunOutcome> => {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
 
@@ -771,29 +820,15 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
       make
     };
 
-    const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
-    const status = result.status;
-
-    const beforeSettle = await eventStore.readAll();
-    await settleBoundEpisode({
-      stateRoot: deps.stateRoot,
-      events: beforeSettle.events,
-      status,
-      append,
-      make: (type, payload) => make(type, payload)
-    });
-    await settleSupervisedOutcome({
-      events: beforeSettle.events,
-      append,
-      nowIso: now(),
-      generateEventId: () => createEventId(generateId)
-    });
-    const finalRead = await eventStore.readAll();
-    const finalReplayed = replayRun(finalRead.events);
-    const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
-    await checkpointStore.write(checkpoint);
-    return { runId, status, events: finalRead.events, checkpoint, project: replayed.project! };
-  })();
+    const settled = await runAndSettleSupervisedRun(ctx, state, run.rootTaskId);
+    return {
+      runId,
+      status: settled.status,
+      events: settled.events,
+      checkpoint: settled.checkpoint,
+      project: replayed.project!
+    };
+  }, deps.runLock);
 
   return {
     runId,
