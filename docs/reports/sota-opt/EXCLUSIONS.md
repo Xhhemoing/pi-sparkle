@@ -57,6 +57,7 @@
 - S1-C offline-logit：bootstrap 工件复用 + APC copy-derive + IRLS 缓冲每 fit 一次分配（见 round-01/R1-C.md）
 - S1-I `run --children` 复用 `smartChildPlan` 已校准 live 目录（见 round-01/R1-I.md）
 - S2-C offline-logit IRLS 规范键 eta/mu 去重（见 round-02/R2-C.md）
+- S3-C offline-logit IRLS 累加循环单位乘法消除（0/1 设计下 `w*xi[a]*xi[b]`/`w*xi[a]*z` 逐位等于 `w`/`w*z`；见 round-03/R3-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -230,3 +231,6 @@
 | S3-D-3 | eval-routing assertReplayIsolated roots 去重 | 351–388µs 低于否决线 |
 | S3-D-4 | parseRollbackLedgerEntry 外层再拷贝消除 | ~1.1µs/载入 |
 | S3-D-5 | monitor report() 死 emptyAxes 分配下沉 | ~70ns，test-only |
+| S3-C-1 | X′WX 上三角累加+镜像 | 省项被镜像拷贝抵消，边际抖动 |
+| S3-C-2 | 融合单遍+per-key w / per-(key,y) z 去重 | 更慢；仅类型契约内等价 |
+| S3-C-3 | bootstrap 采样缓冲跨 draw 复用 | 分配级噪声 |
