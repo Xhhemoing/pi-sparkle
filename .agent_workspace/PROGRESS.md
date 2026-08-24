@@ -89,22 +89,24 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 | R3-9 | Resume `createExecutor` shares invocation sink |
 | R3-10 | Docs: no checkpoint leases; episode lock honesty |
 
-## Round 4 — in flight
+## Round 4 landings (parent gate GREEN; fable review in flight)
 
-10 slots from `.agent_workspace/ROUND3-BRIEF.md`. Region-shared: `main.ts` (R4-2 summary vs R4-6 resume), `flowchart-run.ts` (R4-2 host vs R4-4 teardown). Stay on `agent/opt-continuous`.
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1680 / 1679 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe 8×3 `ok: true`. Per-step run-lock on append/checkpoint rolled back (+22.5% / +17.5% e2e vs 5% bar).
 
-| Slot | Agent | Focus |
-|---|---|---|
-| R4-1 | bc-1fe0656f-0956-535e-91f1-fa19820b2a50 | run delete lock |
-| R4-2 | bc-9b839647-0b49-561e-b3bb-94be6a9e9ac8 | dead-letter CLI hop |
-| R4-3 | bc-61dbcf06-a46c-5490-bbc9-50fa6a2b6048 | supervised crash + applyRetry |
-| R4-4 | bc-c8de446e-5b28-5a75-aeb9-e9b6ac25eb99 | paused-crash contract |
-| R4-5 | bc-4ec18dc8-5a9a-5554-a44e-a96c8b21ad69 | doctor remedy |
-| R4-6 | bc-49d6afd1-80a8-5f4c-b72d-062da27240d9 | resume flags |
-| R4-7 | bc-e202135c-16c4-5d87-9a83-79df1598c297 | atomic tombstones |
-| R4-8 | bc-ee55ba3e-9887-53af-a146-a76f23ea7f58 | docs |
-| R4-9 | bc-4aef1845-c7aa-5ddc-b00d-9b73adee0153 | catalog/prefs atomic |
-| R4-10 | bc-b3ee3ffc-faa1-53fc-95f7-32988a2ee9b3 | pi loopback |
+| Slot | Result |
+|---|---|
+| R4-1 | `runtime/runs/<id>.lock`; delete verifies again after release; hot-path writers unlocked |
+| R4-2 | Undelivered cluster mail on outcome + one CLI stderr line (pending + dead letters) |
+| R4-3 | Supervised `RUN_FAILED` on escape; both retries through `applyRetry` |
+| R4-4 | Flush resumable flowchart checkpoint on crash; in-flight-only terminal unchanged |
+| R4-5 | Doctor per-lock remediation + PLANNING/RUNNING inventory (no steal) |
+| R4-6 | Resume `--primary-model`/`--thinking` + rebuild disclosure; config not persisted |
+| R4-7 | Atomic `tombstones.json`; malformed JSON is `DomainValidationError`; fuzz fail-closed |
+| R4-8 | Docs truth-up for R3 (in-flight R4-1/2/6 timestamp-disclosed) |
+| R4-9 | Atomic catalog-observed + preferences; additive `writeFileAtomicSync` |
+| R4-10 | Offline pi loopback run/resume/calibration fixture |
+
+Fable review agent: `bc-c5cbac0c-c3f8-5b03-85b5-356e57ccc23f` → `loop4-r4-review.md` + `ROUND4-BRIEF.md`.
 
 ---
 
