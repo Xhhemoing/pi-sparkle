@@ -489,4 +489,6 @@
 | S8-I-1 | resolveListedModelLazy 对已声明 custom provider id 跳过 providers/all 回退 | 健全性反例：per-provider 表缺失时 custom 遮蔽 builtin，惰性面与同步面分歧 |
 | S8-I-2 | custom 态预热 providers/all import | ESM 实例化是主线程 CPU，无可重叠窗口 |
 | S8-I-3 | buildLiveCatalogConfig enabled 循环 Promise.all 化 | µs 级 + 未知 id 错误选择分歧（S7-I-3 同族） |
+| S8-J-1 | context sourcedFact 跨调用 CSE（复用 resolveHash 的 sourceHashes 探针） | 等价但 8–47ns/调用、446–614ns/构建；sourcedFact 分解闭合 |
+| S8-J-2 | jsonl appendJsonlLine fsync 路径单句柄合并 | 符号不稳（fsync 抖动）+ 外扰 unlink 窗口面发散；≤2 次/run |
 | S9-A-1 | from-child 生产路径死 turn 输出尾跳过 | 等价但落地需平行 turn 路径或公开旗标 + 类型变更；~3.5–4.5µs/run |
