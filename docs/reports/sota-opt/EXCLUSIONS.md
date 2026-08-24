@@ -86,3 +86,11 @@
 | S1-J-5 | track/loop `assignments.find` 换 Map | C≤~6，live 面 |
 | S1-J-6 | context/index dirty×generated 前缀匹配索引化 | 一次性构建，噪声级 |
 | S1-J-7 | context/packet 首个 `omissions.sort` 冗余移除 | k 小，常数噪声 |
+| S1-B-1 | analyze-task 去重 HIGH_RISK_RE + DEPLOY_RE 提升常量 | 等价但 ns 级噪声 |
+| S1-B-2 | analyze-task `long` 换手写换行计数早退 | 现实短单行，亚噪声 |
+| S1-B-3 | familyOf 同分支布尔短路重排 | 最大现实规模仍噪声 |
+| S1-B-4 | decideLiveCascade find+findIndex 合并单扫 | T≤10，噪声 |
+| S1-B-5 | cheapFirstTiers 冗余 spread 移除 | 一次分配，噪声 |
+| S1-B-6 | routeR0 高风险过滤 Map 化 | 等价但 M=10 实测更慢 |
+| S1-B-7 | validateInput 复杂度数组字面量提升 | V8 已优化，零收益 |
+| S1-B-8 | assignPlanned allowedIds 防御拷贝省略 | 跨 assignment 共享引用，身份改变 |
