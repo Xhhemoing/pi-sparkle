@@ -11,14 +11,15 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 9 docs-slot final working-tree sync (2026-08-24 22:36 UTC): all Round 8
-> work is committed. R8-9's root-keyed `loadProjectBandit` deletion landed in
-> `ba0b2ce`; R8-8's frozen-additive `INSPECT_SUMMARY` pins landed in `e47d693`;
-> R8-1's unblock implementation, four-line BLOCKED operator block, and pins
-> landed in `05051ac`. The final census also found R9-1's durable checkpoint
-> contract and `INSPECT_SUMMARY` producer comment plus R9-2's real-executor
-> verdict tool in the working tree. They were not HEAD commits at this census
-> and are described below as working-tree implementation facts.
+> Round 10 docs-slot final working-tree sync (2026-08-24 23:31 UTC): R9-1's
+> durable contract and R9-2's verdict producer are now HEAD commits
+> `aeb14dc` and `dff71f1`; the ten-case probe landed in `25a57d9`.
+> Round 10's writer-census, verdict, never-synthesize, and tracking-posture
+> proofs also landed (`2e22453`, `05d146c`, `366df19`, `9b9888a`). The
+> `RUN_UNBLOCKED_WITH_DISCARD` implementation and its R10-8/R10-9 companion
+> pins were complete in the sibling-owned working tree but were not yet a HEAD
+> commit at this timestamp; implementation descriptions below follow that
+> observed tree. This supersedes the 22:36 UTC in-flight note.
 
 ## Milestone names
 
@@ -361,11 +362,23 @@ stable across repeated resumes because the latest request per task wins.
 
 `FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
 that supplies it gets the same child grounding and assessment as start. The
-run requirement contract is also durable on `FlowchartCheckpointState`.
-Checkpoint validation, persistence, pause/inject restoration, and both CLI
-continuation paths preserve it; resume uses an explicit continuation contract
-first and otherwise recovers the checkpointed value. The runtime never invents
-an empty constraint set from the episode's acceptance criteria.
+run requirement contract is also durable as optional
+`FlowchartCheckpointState.contract?` without changing checkpoint
+`schemaVersion: 1`; absence remains valid for old and contract-less runs.
+Checkpoint validation, every flowchart-checkpoint writer, pause/inject
+restoration, and both CLI continuation paths preserve it. Resume uses an
+explicit continuation contract first and otherwise recovers the checkpointed
+value. The runtime never synthesizes a contract from the episode, from
+per-task acceptance criteria, or as an empty `{ constraints: [] }` value.
+A recursive source pin requires every `materializeCheckpoint` call with a
+flowchart payload to carry `contract`; it deliberately does not freeze the
+writer count.
+
+The offline `run --track --assume-defaults --executor fake` path does extract
+and persist a contract without a live provider. A pure CLI
+`run --track` → `pause` → `resume` proof is not currently reachable, however:
+the tracked start supplies no pause dependency, and `run` prints the run id
+only after the awaited tracked outcome is already terminal.
 
 ### Cluster role-cast dead letters
 
@@ -481,8 +494,8 @@ Normal teardown releases the owned sidecar. SIGKILL cannot run teardown and
 therefore leaves the lock behind. The lock implementation never steals one:
 delete, pause, and track-question writes stay blocked until an operator uses
 doctor's PID/liveness, age, remediation, and run-state evidence, stops any live
-owner, and manually removes a confirmed abandoned lock. Crash probe case 9,
-`sigkill-run-lock-operator-recovery`, proves this complete cross-process
+owner, and manually removes a confirmed abandoned lock. The crash-probe case
+`sigkill-run-lock-operator-recovery` proves this complete cross-process
 posture: the lock records a dead child PID, a bounded delete changes no bytes,
 doctor reports `pidLiveness: "not-running"` with manual-removal guidance, and
 deletion succeeds only after that confirmed abandoned lock is removed.
@@ -575,6 +588,12 @@ An artifact may be reference-only when retaining its body would expose credentia
 
 The M2 supervisor is deterministic for scheduling and state transitions. An LLM may propose a task graph or ledger update only as validated input; it never directly mutates state.
 
+`GateApplyResult.runStatus` is a ledger projection, not a control input. The
+runtime controls execution through the gate directive and durable events; no
+runtime plane reads `runStatus` (or its sibling result metadata `applied` and
+`transitionId`) to authorize a transition. A future reader is therefore a
+separate control-plane decision, not incidental wiring.
+
 ```ts
 interface RunLedger {
   revision: number;
@@ -602,14 +621,22 @@ recorded verdicts and numeric prescore, but cannot change the directive:
 independent observation. A fourth precondition dominates any per-criterion
 change: the real executor needs a whole-task verdict producer before a
 per-criterion channel can be meaningful. That producer now exists.
-`PiAgentExecutor` exposes `sparkle_report_task_result` on every attempt; a
-child call emits a protocol-v1 `TASK_RESULT` with `PASSED` or evidence-backed
-`FAILED`. `PASSED` reaches scoring with no gate in the pinned case; `FAILED`
-reaches the existing hard `deterministic-fail` gate, so an `--executor pi` run
-can now block on the child verdict. Silence or a refused report still
-synthesizes `UNOBSERVED`, which child assessment refuses. The tool carries one
-whole-task verdict, not per-criterion results; that later protocol/gate work
-remains unimplemented.
+`PiAgentExecutor` exposes `sparkle_report_task_result` on every leased attempt.
+The request supplies run/task/agent identity; the model cannot override it.
+The tool accepts only a non-empty-summary `PASSED` or `FAILED` whole-task
+verdict (`CANCELLED` is a parent fact), rejects the whole call on malformed
+`evd_`/`art_` references, and requires at least one evidence id for `FAILED`.
+Each attempt may emit one verdict: the first valid report wins, and a report
+from an attempt that later fails cannot leak into its retry. The adapter
+synthesizes `UNOBSERVED` only when the surviving attempt is silent or every
+report is refused.
+
+Measured production-input reachability confirms the control result:
+`PASSED` opened all 360 swept cells (minimum prescore 0.750, above the 0.55
+soft threshold), while `FAILED` hard-blocked all 180 swept cells with
+`deterministic-fail` leading. An `--executor pi` run can therefore really
+become BLOCKED on the child's verdict. The tool still carries no
+per-criterion results; that later protocol/gate work remains unimplemented.
 `cappedByHardFail` and `displayPrescore` are display facts only; `combineScore`
 and `evaluateGates` consume the uncapped `P`.
 
@@ -622,6 +649,18 @@ print the same block. The operator first runs the locked
 the reopened work. `unblock` records a `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
 requests fail closed. The BLOCKED exit code remains 1.
+
+Ordinary `RUN_UNBLOCKED` deliberately remains exact-keyed to
+`blockedEventId`, `reason`, and optional `retryNodeId`; it cannot authorize
+rewinding already executed descendants. The signed-off stronger operation is
+`unblock --discard-executed`, represented by one distinct exact-keyed
+`RUN_UNBLOCKED_WITH_DISCARD` authorization. This is not a fourth
+`RUN_UNBLOCKED` key and not a two-event sequence with a half-authorization
+crash window. The implementation computes the complete descendant set under
+the lifecycle lock rather than accepting an operator-supplied list, validates
+charged estimates against cited `MODEL_ROUTED` rows, and writes nothing on a
+mismatch. Evidence and history survive, discarded control-state outcomes
+clear, and the operation refunds no budget.
 
 ### Crash teardown
 
@@ -734,10 +773,13 @@ pnpm build
   carries `model: "loopback-2"`. The decorator supplies only verification
   verdicts, not tier choice or transport. Invocation rows are decoded with the
   production calibration reader. It requires no external provider or network.
-- `scripts/crash-probe.mjs` exercises nine crash/recovery cases for three
-  iterations each. Case 9 is the cross-process
-  `sigkill-run-lock-operator-recovery` chain described under Persistence and
-  Audit.
+- `scripts/crash-probe.mjs` exercises ten crash/recovery cases for three
+  iterations each. The cross-process `sigkill-run-lock-operator-recovery`
+  chain is described under Persistence and Audit. The added tenth case,
+  `unblock-append-before-checkpoint-sigkill`, externally kills the producer
+  after its complete `RUN_UNBLOCKED` append and proves resume applies the
+  reopen exactly once. The ordered ten-name pin lives at
+  `test/integration/persist/crash-recovery.test.ts`.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
 - M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
   on resume, legal/illegal transitions, resume replay, stall blocking, and

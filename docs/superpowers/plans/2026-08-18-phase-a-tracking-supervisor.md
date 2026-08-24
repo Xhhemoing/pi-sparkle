@@ -177,12 +177,21 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > above, "hard gate is the control path" refers to verifier/anomaly gate facts,
 > not to the display cap. Round 9 closed the fourth precondition that sat
 > before any per-criterion gate work: `PiAgentExecutor` now exposes
-> `sparkle_report_task_result`, which emits one whole-task protocol-v1
-> `TASK_RESULT` with `PASSED` or evidence-backed `FAILED`. The pinned real-input
-> cases now reach gate kind `none` for `PASSED` and hard
-> `deterministic-fail` for `FAILED`; silence or a refused report still
-> synthesizes `UNOBSERVED` and is not scored. This does not implement a
-> per-criterion result channel.
+> `sparkle_report_task_result` on every leased attempt. Identity comes from the
+> request, never the model; accepted outcomes are `PASSED` and `FAILED` only,
+> summaries are non-empty, malformed evidence/artifact references refuse the
+> whole call, and `FAILED` requires evidence. The first valid verdict wins, and
+> a verdict from an attempt that later fails cannot leak into its retry.
+> `UNOBSERVED` is synthesized only for a surviving silent/refused attempt.
+> Measured production-input sweeps have `PASSED` open all 360 cells (minimum
+> 0.750 over the 0.55 soft threshold) and `FAILED` hard-block all 180 cells with
+> `deterministic-fail` leading. This does not implement a per-criterion result
+> channel.
+>
+> `PrescoreInput.independentEvidence` does not mean third-party corroboration:
+> its sole production writer derives it from that child verdict, including the
+> child's own report, and `computePrescore` deliberately discards it. It is
+> inert today; a future scoring reader needs a separate justification.
 
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 
@@ -419,6 +428,12 @@ export function executionAuthority(input: {
   readonly rollingSummaryText?: string;
 }): unknown; // returns taskContext; ignores rollingSummaryText
 ```
+
+> Implemented posture (2026-08-24, Round 9): `GateApplyResult.runStatus` is a
+> ledger projection, not a control input. The coordinator and flowchart planes
+> consume the directive/events and have zero `runStatus` readers; `applied` and
+> `transitionId` are result metadata in the same posture. Adding a reader is a
+> separate control decision.
 
 Event payloads:
 

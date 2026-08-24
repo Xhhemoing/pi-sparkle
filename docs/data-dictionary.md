@@ -121,11 +121,15 @@ still fails closed with `LOCK_TIMEOUT` while the run is live.
 A process killed by SIGKILL cannot release its lock; locks are never stolen, so
 pause/delete/track-question writes remain blocked until an operator inspects
 the recorded PID and run state with `pi-sparkle doctor`, stops any live owner,
-and manually removes a confirmed abandoned lock. Crash probe case 9,
-`sigkill-run-lock-operator-recovery`, crosses that OS-process boundary: it
-proves the recorded PID is dead, proves a timed-out delete changes no bytes,
-checks doctor's `pidLiveness: "not-running"` and manual-removal guidance, then
-removes the confirmed abandoned lock and verifies deletion.
+and manually removes a confirmed abandoned lock. The crash-probe case
+`sigkill-run-lock-operator-recovery` crosses that OS-process boundary: it proves
+the recorded PID is dead, proves a timed-out delete changes no bytes, checks
+doctor's `pidLiveness: "not-running"` and manual-removal guidance, then removes
+the confirmed abandoned lock and verifies deletion. The standing probe has ten
+ordered cases, each run for three iterations. The added tenth case,
+`unblock-append-before-checkpoint-sigkill`, proves exact-once recovery after an
+external kill between the complete `RUN_UNBLOCKED` append and checkpoint write;
+the name-list pin is `test/integration/persist/crash-recovery.test.ts`.
 
 A flowchart run has exactly one active replayed terminal. A tracking-gate
 `queue_analysis` therefore beats a later node failure, and a
@@ -152,20 +156,31 @@ shape: the request restores objective, artifacts, criteria, and budget; the
 role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
 checkpointed edges restore dependencies. A never-requested node keeps empty
 criteria/artifacts and uses the earliest logged sibling budget or the run's
-declared per-task limits. The optional run requirement contract is durable on
-`FlowchartCheckpointState`: validation, checkpoint writers, pause/inject
-restoration, and both CLI continuation paths preserve it. Resume honours an
-explicit `FlowchartContinuation.contract` first and otherwise recovers the
-checkpointed value. It never invents a contract from episode acceptance
-criteria.
+declared per-task limits. The optional run requirement contract is durable as
+`FlowchartCheckpointState.contract?` at unchanged checkpoint
+`schemaVersion: 1`; absence remains valid. Validation, every
+flowchart-checkpoint writer, pause/inject restoration, and both CLI
+continuation paths preserve it. Resume honours an explicit
+`FlowchartContinuation.contract` first and otherwise recovers the checkpointed
+value. It never synthesizes a contract from the episode, from per-task
+acceptance criteria, or as an empty `{ constraints: [] }` value.
 
 Each real Pi-executor attempt exposes `sparkle_report_task_result`. A valid
-call writes one leased-identity protocol-v1 `TASK_RESULT` with a whole-task
-`PASSED` or evidence-backed `FAILED` verdict into that attempt's transcript;
-the adapter does not append its fallback terminal over it. Silence, a refused
-report, or a retry whose surviving attempt reports nothing still produces
-`UNOBSERVED`, which child assessment does not score. The tool does not carry
-per-criterion results.
+call writes one request-identity protocol-v1 `TASK_RESULT` with a non-empty
+summary and a whole-task `PASSED` or evidence-backed `FAILED` verdict into that
+attempt's transcript. `CANCELLED` is not a child claim; malformed `evd_` or
+`art_` references refuse the whole call; `FAILED` requires at least one
+evidence id. The first valid verdict wins, and a failed attempt's verdict does
+not leak into the retry. The adapter synthesizes `UNOBSERVED` only when the
+surviving attempt is silent or every report is refused. Measured reachability
+has `PASSED` open all 360 swept production-input cells (minimum 0.750 over the
+0.55 soft threshold) and `FAILED` hard-block all 180 swept cells with
+`deterministic-fail` leading. The tool does not carry per-criterion results.
+
+`GateApplyResult.runStatus` is a ledger projection, not a control input. Both
+runtime planes act on the directive and events and have zero
+`runStatus` readers; `applied` and `transitionId` are likewise result metadata,
+not transition authority.
 
 For a BLOCKED `run --flowchart` or `run --children`, the CLI renders the newest
 recorded reason and required evidence plus exactly four routed lines:
@@ -177,14 +192,24 @@ the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
 requests are refused. A BLOCKED result still exits 1.
 
-> Round 9 docs-slot final working-tree sync (2026-08-24 22:36 UTC): R8-9's
-> root-keyed reader deletion (`ba0b2ce`), R8-8's frozen-additive
-> `INSPECT_SUMMARY` pins (`e47d693`), and R8-1's unblock implementation plus
-> four-line BLOCKED block and pins (`05051ac`) are committed. R9-1's durable
-> checkpoint contract and producer-side `INSPECT_SUMMARY` comment, and R9-2's
-> `sparkle_report_task_result` producer, were present but uncommitted in the
-> final working-tree census; the live descriptions above follow that observed
-> tree without claiming those changes are at HEAD.
+Ordinary `RUN_UNBLOCKED` keeps exactly its three signed-off keys
+(`blockedEventId`, `reason`, optional `retryNodeId`) and cannot discard
+executed descendants. The stronger `--discard-executed` authorization has the
+distinct exact-keyed event `RUN_UNBLOCKED_WITH_DISCARD`; it is neither a
+fourth ordinary-unblock key nor a two-event sequence. The implementation
+computes its consequence set under the lifecycle lock, validates charged
+estimates against cited `MODEL_ROUTED` rows, preserves history and evidence,
+clears superseded control-state outcomes, and refunds no budget.
+
+> Round 10 docs-slot final working-tree sync (2026-08-24 23:31 UTC): R9-1's
+> durable contract and R9-2's verdict producer are now HEAD commits
+> `aeb14dc` and `dff71f1`; the ten-case probe landed in `25a57d9`.
+> Round 10's writer-census, verdict, never-synthesize, and tracking-posture
+> proofs also landed (`2e22453`, `05d146c`, `366df19`, `9b9888a`). The
+> `RUN_UNBLOCKED_WITH_DISCARD` implementation and its R10-8/R10-9 companion
+> pins were complete in the sibling-owned working tree but were not yet a HEAD
+> commit at this timestamp; implementation descriptions above follow that
+> observed tree. This supersedes the 22:36 UTC in-flight note.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation

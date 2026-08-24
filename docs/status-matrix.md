@@ -11,16 +11,15 @@ Definitions (ADR-004):
 - **Outcome-supported** — held-out or comparable later benefit, no guardrail
   regression. Nothing in this repo is Outcome-supported.
 
-> Round 9 docs-slot final working-tree sync (2026-08-24 22:36 UTC): all Round 8
-> work is committed. R8-9's root-keyed `loadProjectBandit` deletion landed in
-> `ba0b2ce`; R8-8's frozen-additive `INSPECT_SUMMARY` pins landed in `e47d693`;
-> R8-1's `RUN_UNBLOCKED` implementation, four-line BLOCKED block, and pins
-> landed in `05051ac`. The final census also found uncommitted R9-1 durability
-> edits (`FlowchartCheckpointState.contract`, its writers/restorers and CLI
-> projection, plus the `INSPECT_SUMMARY` producer comment) and R9-2's
-> `sparkle_report_task_result` producer with its inverted census pin. Those
-> working-tree truths are documented below; neither is represented as a HEAD
-> commit.
+> Round 10 docs-slot final working-tree sync (2026-08-24 23:31 UTC): R9-1's
+> durable contract and R9-2's verdict producer are now HEAD commits
+> `aeb14dc` and `dff71f1`; the ten-case probe landed in `25a57d9`.
+> Round 10's writer-census, verdict, never-synthesize, and tracking-posture
+> proofs also landed (`2e22453`, `05d146c`, `366df19`, `9b9888a`). The
+> `RUN_UNBLOCKED_WITH_DISCARD` implementation and its R10-8/R10-9 companion
+> pins were complete in the sibling-owned working tree but were not yet a HEAD
+> commit at this timestamp; implementation descriptions below follow that
+> observed tree. This supersedes the 22:36 UTC in-flight note.
 
 ## Runtime line (M0–M2.5)
 
@@ -43,6 +42,37 @@ Definitions (ADR-004):
 | Persist file lock | yes | bandit/preference/feedback writes | unit tests (`test/unit/persist/file-lock.test.ts`) | no | Exclusive `wx` lock; fd leak on metadata write fixed 2026-08-24. Stale locks are timeout-only (no PID-reuse steal by design): an abandoned lock means timeout + manual cleanup. |
 | `doctor` | yes | yes | unit tests (`test/unit/cli/doctor.test.ts`) | no | Developer-preview preflight. Recursive read-only `locks` entries include metadata status, age/source, recorded PID, advisory liveness, and additive per-lock `remediation`; a recorded dead PID says inspect and remove manually, never automatically, while ambiguous/live cases stay conservative. Additive `runStates` inventories PLANNING/RUNNING logs with age and inspect/resume/delete guidance; they are advisory crash candidates because a live process may still own the run. Frozen-additive `learnedState` inventories every discovered project-key `bandit.json` plus `preferences.json` and `catalog-observed.json`; entries carry `kind`, learned/derived `stateClass`, `projectKey`, `path`, present/absent/readable/damaged `status`, and plane-correct `remediation`, with inventory-level `advisory` and `scanErrors`. Typed damage remains advisory; only scan/read errors fail `learned-state-inventory`. Doctor never repairs or rebuilds those files. The frozen route map names three `learnedState[]` remediations: damaged bandit → repair or move aside and relearn this project from zero; damaged preferences → repair or move aside and start from an empty store; corrupt derived catalog → delete and rebuild from `runtime/invocations.jsonl`. The catalog route currently has no CLI producer because doctor absorbs that error into inventory. `lock-inventory` fails on unreadable locks or scan errors; `run-state-inventory` fails only on scan errors. Doctor never changes run state and never acquires, steals, or deletes a lock. `LOCK_TIMEOUT` and `RUN_RECORDS_SURVIVED` command failures code-route their `next:` line to `doctor --json` at the same state root and name the relevant `locks[]`/`runStates[]` field; generic failures keep the generic line. Informational `legacy-layout` still never fails the preflight. |
 | Retention bounds | no | no | sizing probe only (`scripts/retention-probe.mjs`, 2026-08-24 R3) | no | Retention of `runtime/invocations.jsonl` and `runtime/episodes/` is unbounded (accepted Q3 position). The probe measures on-disk growth and reports `unbounded: true` without failing — it is a diagnostic, not a gate. Bounding (age- or size-based, delete-cascade-consistent) is an open policy decision. |
+
+Round 9 truth-up and current runtime postures:
+
+- Optional `FlowchartCheckpointState.contract?` remains on checkpoint
+  `schemaVersion: 1`; absence is valid. Every flowchart-checkpoint writer must
+  carry it, and no path may synthesize a contract from the episode, per-task
+  acceptance criteria, or an empty constraints value. A recursive source pin
+  checks that property without freezing the writer count. Offline
+  `run --track --assume-defaults --executor fake` extracts and persists a
+  contract, but a pure CLI track → pause → resume arc is currently unreachable:
+  tracked start supplies no pause dependency and reports its run id only after
+  the awaited outcome is terminal.
+- `sparkle_report_task_result` stamps lease identity, permits only a non-empty
+  `PASSED`/`FAILED` child claim, requires evidence for `FAILED`, rejects the
+  whole call on malformed references, and accepts only the first verdict per
+  attempt. A failed attempt cannot leak its verdict into a retry; only silence
+  or refused reports produce `UNOBSERVED`. Measured sweeps had `PASSED` open
+  360/360 cells (floor 0.750 > 0.55) and `FAILED` hard-block 180/180 with
+  `deterministic-fail` leading. The unfortunately named
+  `PrescoreInput.independentEvidence` is derived from that child verdict and
+  discarded by scoring; it is not third-party corroboration.
+- `GateApplyResult.runStatus` is a ledger projection with zero runtime readers,
+  not transition authority. Both runtime planes consume directives/events;
+  `applied` and `transitionId` are result metadata in the same posture.
+- Ordinary `RUN_UNBLOCKED` stays exact-keyed to its three fields. The stronger
+  executed-descendant authorization is the distinct
+  `RUN_UNBLOCKED_WITH_DISCARD` event behind `--discard-executed`, not a fourth
+  ordinary-unblock key and not a two-event sequence.
+- The standing crash probe has ten ordered cases run three times each. Case 10
+  is `unblock-append-before-checkpoint-sigkill`; the name-list pin is
+  `test/integration/persist/crash-recovery.test.ts`.
 
 ## Pi compatibility line (pin + auxiliary tooling)
 
