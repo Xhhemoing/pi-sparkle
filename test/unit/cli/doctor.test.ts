@@ -7,6 +7,9 @@ import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
 import { createEventId, createRunId } from "../../../src/domain/ids.js";
+import { stableProjectKey } from "../../../src/learning/learned-routing.js";
+import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import { makeEvent, makeRun } from "../../helpers/event-factory.js";
 
@@ -154,7 +157,8 @@ const CONTRACT_KEYS = [
   "checks",
   "next",
   "locks",
-  "runStates"
+  "runStates",
+  "learnedState"
 ];
 
 async function runDoctorJson(
@@ -192,6 +196,21 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
     assert.equal(typeof report.runStates.advisory, "string");
     assert.ok(Array.isArray(report.runStates.entries));
     assert.ok(Array.isArray(report.runStates.scanErrors));
+    assert.deepEqual(Object.keys(report.learnedState), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.learnedState.advisory, "string");
+    assert.ok(Array.isArray(report.learnedState.entries));
+    assert.ok(Array.isArray(report.learnedState.scanErrors));
+    assert.deepEqual(
+      report.learnedState.entries.map((entry) => Object.keys(entry)),
+      report.learnedState.entries.map(() => [
+        "kind",
+        "stateClass",
+        "projectKey",
+        "path",
+        "status",
+        "remediation"
+      ])
+    );
 
     for (const check of report.checks) {
       assert.deepEqual(Object.keys(check), ["name", "ok", "detail"]);
@@ -214,7 +233,8 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "pi-packages",
         "pi-compat",
         "lock-inventory",
-        "run-state-inventory"
+        "run-state-inventory",
+        "learned-state-inventory"
       ]
     );
   } finally {
@@ -586,5 +606,201 @@ test("doctor reports the current local PID as running but only advisory", async 
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories learned and derived state through the shipped readers without changing bytes", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-proj-"));
+  const damagedProjectRoot = `${projectRoot}-damaged`;
+  const absentProjectRoot = `${projectRoot}-absent`;
+  const readableProjectKey = stableProjectKey(projectRoot);
+  const damagedProjectKey = stableProjectKey(damagedProjectRoot);
+  const absentProjectKey = stableProjectKey(absentProjectRoot);
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  const readableBanditPath = join(projectsDir, readableProjectKey, "bandit.json");
+  const damagedBanditPath = join(projectsDir, damagedProjectKey, "bandit.json");
+  const absentBanditPath = join(projectsDir, absentProjectKey, "bandit.json");
+  const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+  const observedPath = catalogObservedPath(stateRoot);
+  const readableBandit = `${JSON.stringify(
+    {
+      arms: ["model-a"],
+      pulls: { "model-a": 1 },
+      rewardSum: { "model-a": 1 },
+      explorationsUsed: 0,
+      highRiskExplorations: 0
+    },
+    null,
+    2
+  )}\n`;
+  const damagedBandit = '{"arms":';
+  const damagedPreferences = '{"observations":';
+  const damagedObserved = '{"versions":';
+
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(projectsDir, readableProjectKey), { recursive: true });
+    await mkdir(join(projectsDir, damagedProjectKey), { recursive: true });
+    await mkdir(join(projectsDir, absentProjectKey), { recursive: true });
+    await mkdir(join(adaptationRoot(stateRoot)), { recursive: true });
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(readableBanditPath, readableBandit, "utf8");
+    await writeFile(damagedBanditPath, damagedBandit, "utf8");
+    await writeFile(preferencesPath, damagedPreferences, "utf8");
+    await writeFile(observedPath, damagedObserved, "utf8");
+
+    const first = capture();
+    const firstCode = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      first.io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
+    assert.equal(firstCode, 0, first.err.join(""));
+    const report = JSON.parse(first.out.join("")) as DoctorJsonReport;
+    assert.deepEqual(report.learnedState.scanErrors, []);
+    assert.match(report.learnedState.advisory, /shipped state readers/);
+    assert.match(report.learnedState.advisory, /doctor never repairs, moves, deletes, or rebuilds/);
+    assert.equal(report.learnedState.entries.length, 5);
+
+    const byPath = new Map(report.learnedState.entries.map((entry) => [entry.path, entry]));
+    assert.deepEqual(byPath.get(readableBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: readableProjectKey,
+      path: readableBanditPath,
+      status: "readable",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(damagedBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: damagedProjectKey,
+      path: damagedBanditPath,
+      status: "damaged",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(absentBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: absentProjectKey,
+      path: absentBanditPath,
+      status: "absent",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(preferencesPath), {
+      kind: "preferences",
+      stateClass: "learned",
+      projectKey: null,
+      path: preferencesPath,
+      status: "damaged",
+      remediation:
+        "learned state: repair the file or move it aside and relearn preferences from an empty store; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(observedPath), {
+      kind: "catalog-observed",
+      stateClass: "derived",
+      projectKey: null,
+      path: observedPath,
+      status: "damaged",
+      remediation:
+        "derived state: delete the damaged file and rebuild it from runtime/invocations.jsonl; doctor never changes it"
+    });
+
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, true, "damaged state is advisory, not a scan failure");
+    assert.match(learnedCheck?.detail ?? "", /1 readable, 1 absent, 3 damaged/);
+    assert.equal(report.ok, true);
+    assert.deepEqual(
+      await Promise.all(
+        [readableBanditPath, damagedBanditPath, preferencesPath, observedPath].map((path) =>
+          readFile(path, "utf8")
+        )
+      ),
+      [readableBandit, damagedBandit, damagedPreferences, damagedObserved],
+      "doctor must leave learned and derived state byte-identical"
+    );
+
+    const validPreferences = '{"observations":[],"tombstones":[]}\n';
+    const validObserved = '{"versions":{}}\n';
+    await writeFile(preferencesPath, validPreferences, "utf8");
+    await writeFile(observedPath, validObserved, "utf8");
+    const second = capture();
+    assert.equal(
+      await doctorCommand(
+        ["--json", "--state-root", stateRoot, "--project", projectRoot],
+        second.io,
+        { nodeVersion: COMPLIANT_NODE_VERSION }
+      ),
+      0,
+      second.err.join("")
+    );
+    const reread = JSON.parse(second.out.join("")) as DoctorJsonReport;
+    const rereadByPath = new Map(reread.learnedState.entries.map((entry) => [entry.path, entry]));
+    assert.equal(rereadByPath.get(preferencesPath)?.status, "readable");
+    assert.equal(rereadByPath.get(observedPath)?.status, "readable");
+    assert.equal(await readFile(preferencesPath, "utf8"), validPreferences);
+    assert.equal(await readFile(observedPath, "utf8"), validObserved);
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}learned-state-inventory: 5 state file\(s\) inventoried/);
+    assert.match(
+      text,
+      new RegExp(`state: bandit: project-key=${damagedProjectKey} class=learned status=damaged`)
+    );
+    assert.match(text, /state: catalog-observed: class=derived status=readable/);
+    assert.match(text, /derived state: delete the damaged file and rebuild it/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails the learned-state check only for scan errors", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-scan-"));
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  try {
+    await mkdir(join(adaptationRoot(stateRoot), "learning"), { recursive: true });
+    await writeFile(projectsDir, "not a directory", "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(report.learnedState.scanErrors.length, 1);
+    assert.match(report.learnedState.scanErrors[0] ?? "", /projects/);
+    assert.deepEqual(
+      report.learnedState.entries.map((entry) => [entry.kind, entry.status]),
+      [
+        ["preferences", "absent"],
+        ["catalog-observed", "absent"]
+      ]
+    );
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, false);
+    assert.match(learnedCheck?.detail ?? "", /1 scan error/);
+    assert.equal(
+      report.checks.filter((check) => !check.ok).map((check) => check.name).includes(
+        "learned-state-inventory"
+      ),
+      true
+    );
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
+    assert.equal(await readFile(projectsDir, "utf8"), "not a directory");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
   }
 });
