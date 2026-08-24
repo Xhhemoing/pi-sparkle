@@ -25,8 +25,8 @@
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
 | 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](./round-09/PLAN.md) |
 | 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
-| 11 | 第 4 波收尾 | 10 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-11/PLAN.md](./round-11/PLAN.md) |
-| 12 | 第 1 波进行中 | 2 / 10（A 运行中；B 本波派出；与 R11-J 并跑） | claude-fable-5-thinking-xhigh | [round-12/PLAN.md](./round-12/PLAN.md) |
+| 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
+| 12 | 第 1 波进行中 | 3 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-12/PLAN.md](./round-12/PLAN.md) |
 
 ### Round 1 波次
 
@@ -125,13 +125,13 @@
 | 1 | R11-A 跟踪门控、R11-B live 路由、R11-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R11-D 自优化、R11-E 学习、R11-F 实验 | D/E/F 完成已合入 |
 | 3 | R11-G 运行时/图、R11-H 评价/需求 | G/H 完成已合入 |
-| 4 | R11-I CLI/适配器、R11-J cluster/privacy | I 完成已合入；J 运行中 |
+| 4 | R11-I CLI/适配器、R11-J cluster/privacy | I/J 完成已合入 |
 
 ### Round 12 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R12-A 跟踪门控、R12-B live 路由 | A 运行中；B 本波派出（与 R11-J 并跑） |
+| 1 | R12-A 跟踪门控、R12-B live 路由、R12-C 离线路由 | A/B 运行中；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -249,7 +249,8 @@
 | R11-I | `cursor/r11-i-cli-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-I.md`）。无新排除 ID；custom−builtin 复核 +22.8~+48.0 ms；S8-I-1 重开物定位为 pi-ai `models.generated` 导出 |
 | R12-A | `cursor/r12-a-tracking-twelfth-pass-83a1` | 已派出 |
 | R12-B | `cursor/r12-b-live-routing-twelfth-pass-83a1` | 已派出 |
-| R11-J | `cursor/r11-j-persist-eleventh-pass-83a1` | 已派出 |
+| R11-J | `cursor/r11-j-persist-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-J.md`）。无新排除 ID；I/O 地板复核；切片关闭 |
+| R12-C | `cursor/r12-c-offline-routing-twelfth-pass-83a1` | 已派出 |
 
 ## 合并策略
 

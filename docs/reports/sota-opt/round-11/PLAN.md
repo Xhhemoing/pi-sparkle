@@ -8,7 +8,7 @@ R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配
 
 分区与 Round 1 相同（R11-A … R11-J），报告写入 `docs/reports/sota-opt/round-11/`。
 
-状态：第 4 波收尾；A–I 已合入（S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3 淘汰；R11-C / R11-E / R11-F / R11-H / R11-I 空枚举未铸 ID）；J 运行中。第 12 轮已开，见 [round-12/PLAN.md](../round-12/PLAN.md)。C 切片已合入：空枚举，未铸 S11-C-*。必须站在已落地 S7-C 之上，不得另起平行实现。噪声带 ±35 ms；贴带不越带。S10-C-3 对称 Schur 镜像理论否决。r1c–r7c 回归门绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）。RID/CNT 归约重排已用反例探针封死，禁止重铸。
+状态：10 / 10 完成已合入（S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3 淘汰；R11-C / R11-E / R11-F / R11-H / R11-I / R11-J 无新排除 ID）。第 12 轮进行中，见 [round-12/PLAN.md](../round-12/PLAN.md)。
 
 D 切片已合入：S11-D-1..2 淘汰。eval 地板复核 3.58–4.41 ms。禁止去 fsync / 完整性再哈希。S9-D-4 便宜形态永不重开。
 
@@ -22,4 +22,4 @@ H 切片已合入：空枚举，未铸 S11-H-*。热层默认复核 8.5–9.1 µ
 
 I 切片已合入：空枚举，未铸 S11-I-*。custom−builtin 复核 children +45.9/+22.8、track +48.0/+23.4 ms（22.14/22.22）。S8-I-1 重开条件收紧为：pi-ai 自身 ship `models.generated`（或 `./providers/all.models`）版本锁定导出；0.84.1 仍为 7 exports，包内源存在但三种 specifier 均不可达。仓内自制 union / 磁盘快照仍属同族，不铸 ID。
 
-J 切片 = **29 文件**：cluster 3 / privacy 3 / preferences 7 / episode 5 / persist 2 / track 4 / context 2 / feedback 3。站在 J1 之上（`loop-eval.ts` 增量 fold + O(1) tombstone undo；`scripts/r1j-equivalence-sim.ts` 2468 项须保持绿）。不要重开 S1-J-1..7 / S2-J-1..11 / S3-J-1..6 / S4-J-1..6 / S5-J-1..6 / S6-J-1..6 / S7-J-1..6 / S8-J-1..2 / S9-J-1..4。R10-J 空枚举、未铸 S10-J-*。S5-J-3 删除级联 tombstone 两读 fail-closed 顺序钉死。S6-J-1 墓碑∥body 并行化 fail-open。S8-J-2 jsonl fsync 单句柄合并符号不稳。禁止去 fsync / 完整性再哈希。基线 `fb41417` 预期空 diff。I/O 地板支配（saveToDisk 百 µs～亚 ms；jsonl+fsync 229–264µs）。
+J 切片已合入：空枚举，未铸 S11-J-*。I/O 地板复核成立；r1j 2468 项绿。S5-J-3 / S6-J-1 / S8-J-2 原样。
