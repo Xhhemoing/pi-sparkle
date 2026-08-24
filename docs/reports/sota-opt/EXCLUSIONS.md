@@ -208,3 +208,20 @@
 | S3-A-2 | lightMinorCount 已定义时跳过 prescoreInput 克隆 | 生产不可达 |
 | S3-A-3 | claims.some(isSuccessClaim) 双算去重 | 35–40ns + 公开面变更 |
 | S3-A-4 | mergeOpenMinors 双空输入早退 | 32–39ns 亚噪声 |
+| S2-J-1 | loop-eval 两次 tombstones.has 合并 | 扩展点调用次数可观测 |
+| S2-J-2 | loop-eval createdAt 排序换 Date.parse 数字键 | Z vs +00:00 指标发散 |
+| S2-J-3 | cluster 役播 trim 提升 | P≤16，ns–µs |
+| S2-J-4 | commandSourceKey package.json find 提升 | ~6µs/构建 |
+| S2-J-5 | selectCodeMap 防御拷贝省略 | ~45ns |
+| S2-J-6 | applyObservation filter→单遍计数 | 被 saveToDisk 支配 |
+| S2-J-7 | privacy 删除级联无匹配早退 | 数据面；有匹配倒贴 |
+| S2-J-8 | decideClosure evidenceRefs Set 提升 | ~800ns/close |
+| S2-J-9 | feedback store needles 排序提升模块常量 | I/O 支配；X1-1 邻域 |
+| S2-J-10 | readFeedback 双读改 Promise.all | 双故障抛错竞态 |
+| S2-J-11 | waitForClarification 双 readAll 内存镜像 | S1-G-1 同域 |
+| S3-B-1 | assignTasks 批内按请求键记忆化 partitionLiveCandidates | 实测负优化（copy/alias 两变体慢 884–1442µs/批）；alias 身份改变 |
+| S3-B-2 | cheapFirstTiers 装饰-排序-还原消除比较器重复查询 | T≤10 省 39–201ns |
+| S3-B-3 | cheapFirstTiers tie-break localeCompare 换码点比较 | 混大小写等成本 id 序发散 |
+| S3-B-4 | applyCascade previous===selection 免建 tiers 快路径 | 生产不可达 + 50–80ns |
+| S3-B-5 | validateInput 与 unknown-model 分段融合单遍 | 实测更慢（V8 内建快路径反例） |
+| S3-B-6 | partitionLiveCandidates 共享可变请求对象 | ~260µs 噪声带 + 别名可变危险 |
