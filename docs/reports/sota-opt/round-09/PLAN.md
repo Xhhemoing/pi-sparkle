@@ -8,4 +8,4 @@ R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配
 
 分区与 Round 1 相同（R9-A … R9-J），报告写入 `docs/reports/sota-opt/round-09/`。
 
-状态：A–F/H 完成已合入（S9-A-1 / S9-B-1..4 / S9-C-1..4 / S9-D-1..4 / S9-E-1..3 / S9-F-1..3 / S9-H-1..2 淘汰）；G/I 运行中；J 本波派出。J 切片 = `src/cluster/` + `src/privacy/` + `src/preferences/` + `src/episode/` + `src/persist/` + `src/track/` + `src/context/` + `src/feedback/`。不要重开 S1-J-1..7 / S2-J-1..11 / S3-J-1..6 / S4-J-1..6 / S5-J-1..6 / S6-J-1..6 / S7-J-1..6 / S8-J-1..2，也不要重做 J1。不要去 fsync，不要 sourcedFact 跨调用 CSE，不要合并 jsonl 单句柄。删除级联配置态锚点约 666–717µs。I/O 地板支配。
+状态：A–F/H/I 完成已合入（S9-A-1 / S9-B-1..4 / S9-C-1..4 / S9-D-1..4 / S9-E-1..3 / S9-F-1..3 / S9-H-1..2 淘汰；R9-I 无新排除 ID）；G/J 运行中。第 10 轮已开，见 [round-10/PLAN.md](../round-10/PLAN.md)。
