@@ -64,6 +64,7 @@
 - S5-F `assertUniqueNonEmpty` 单探针去重（`add` + size 计数器代替 `has`+`add`；first-fault 与消息逐位不变；见 round-05/R5-F.md）
 - S5-I-1 CLI `main.ts` 12 条分支独占 dispatch 模块改为点用 `await import`（8 个一次性子命令 + `run/supervisor` + `track/loop` + `preferences/export` + `privacy/deletion`；主收益来自 Node v22.14 `getPackageScopeConfig` 在静态 `main.ts → track/loop.js` 边上的解析病理；见 round-05/R5-I.md）
 - S6-C `offline-logit.ts` IRLS 累加循环按支撑大小 s=2..5 直线化分派（滚动循环保留为 default；浮点装载/加法/存储目标与顺序不变；见 round-06/R6-C.md）
+- S6-F-1 shadow/canary restore 成员判断方向反转（pending assignment Set + population 扫描早退；validateExperimentPlan 与防御拷贝保留；见 round-06/R6-F.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -387,6 +388,10 @@
 | S6-E-3 | updateProjectBandit 每写 mkdir(recursive) 消除/提升 | S5-G-1 同型；22.7–23.7µs/call。重开：bandit 事务离开文件锁 I/O 且外部清理自愈被正式放宽 |
 | S6-E-4 | bandit.json 紧凑序列化（去 pretty-print） | S4-G-6 同型：磁盘字节发散；delta 243–254ns。重开：bandit.json 被正式声明为非人读数据面 |
 | S6-E-5 | PEER_NEGATIVE 与 /unknown agent/i 首匹配复用 | 两探针语义独立（词边界 vs 裸子串）；忠实形式零节省。重开：两探针先统一语义 |
+| S6-F-2 | restore 成员反转的 delete+size 早退形态 | 三种次序全部被落地 has+计数形态支配（差 8–13ms）。重开：实测稳定反超 >5% |
+| S6-F-3 | `assertUniqueNonEmpty` 批量 Set 快路径 + 精确回退 | 等价但 +2.10/−0.34ms 符号翻转；validate 布局维度闭合 |
+| S6-F-4 | `assertUniqueNonEmpty` 换 null-prototype 对象表 | 稳定负优化（慢 38–45%） |
+| S6-F-5 | S6-F-1 之上叠双指针子序列快路径 | 符号随输入次序翻转。重开：assignment 次序被契约化为 population 子序列 |
 | S6-H-1 | detectConflicts 过滤器间顺序早退（fast 空即跳过 slow） | 133–136ns/run；冲突侧压力更慢 −0.9~−2.1µs。重开：合同规模 ≥2 个量级且冲突侧不再负优化 |
 | S6-H-2 | 门控组合内 taskToChecks 死计算跳过 | 127–166ns/run；落地需平行构建器或收窄公开 CoverageMatrix。重开：调用图出现每 turn 热路径 |
 | S6-H-3 | assertCoverageAllowsStart 无条件消除 gated 拷贝 | 21–45ns/run；门逻辑须复制一份。重开：checkCoverageGate 单实现被正式拆分 |
