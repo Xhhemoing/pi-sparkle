@@ -1,0 +1,345 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import {
+  createEventId,
+  createMessageId,
+  createRunId,
+  createTaskId,
+  type RunId,
+  type TaskId
+} from "../../../src/domain/ids.js";
+import type { Run } from "../../../src/domain/run.js";
+import type { TaskNode } from "../../../src/domain/task.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import { DeterministicJudge, type JudgeAdapter, type JudgeDecision } from "../../../src/graph/judge.js";
+import { validateTaskGraph } from "../../../src/graph/validate.js";
+import { discoverProject } from "../../../src/project/discovery.js";
+import { SUPERVISOR, type TaskResult } from "../../../src/protocol/v1.js";
+import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import type { Event } from "../../../src/run/events.js";
+import { replayRun } from "../../../src/run/replay.js";
+import { LeaseRegistry } from "../../../src/run/scheduler.js";
+import {
+  resumeSupervisedRun,
+  runSupervisorRounds,
+  startSupervisedRun,
+  type SupervisorContext,
+  type SupervisorState
+} from "../../../src/run/supervisor.js";
+import { createLedger } from "../../../src/supervisor/ledger.js";
+
+const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
+
+const NOW = () => parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+
+/** Terminal parent-run events: replay must never see two of these. */
+const TERMINAL_TYPES = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_BLOCKED"]);
+
+function sequenceGenerator(): () => string {
+  let n = 0;
+  return () => `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
+}
+
+function resultMessage(request: AgentExecutionRequest): TaskResult {
+  return {
+    protocolVersion: 1,
+    id: createMessageId(UUID),
+    occurredAt: NOW(),
+    runId: request.runId,
+    taskId: request.taskId,
+    from: request.agentInstanceId,
+    to: SUPERVISOR,
+    type: "TASK_RESULT",
+    outcome: "SUCCESS",
+    summary: "done",
+    artifactIds: [],
+    evidenceIds: [`evd_${request.taskId}` as never],
+    verification: { kind: "PASSED", evidenceIds: [] }
+  };
+}
+
+class SucceedingExecutor implements AgentExecutor {
+  constructor(private readonly slowTasks: readonly TaskId[] = []) {}
+
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    if (this.slowTasks.includes(request.taskId)) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    yield { type: "MESSAGE", message: resultMessage(request) };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+}
+
+/**
+ * A judge that throws is the cheapest realistic way to make an error escape the
+ * round loop: `judge.decide` is called directly by the task promise, so unlike
+ * an executor throw (which the child coordinator converts into a FAILURE
+ * outcome) it reaches `runSupervisorRounds` unhandled.
+ */
+class ExplodingJudge implements JudgeAdapter {
+  decide(): JudgeDecision {
+    throw new Error("judge exploded");
+  }
+}
+
+function task(id: string, dependencies: string[] = []): TaskNode {
+  return {
+    id: createTaskId(() => id),
+    title: id,
+    objective: `Do ${id}`,
+    role: "worker",
+    dependencies: dependencies.map((dep) => createTaskId(() => dep)),
+    acceptanceCriteria: [{ id: "ac-1", description: "works" }],
+    status: "PENDING",
+    attempt: 0,
+    maxAttempts: 3,
+    timeoutMs: 60_000,
+    artifactIds: [],
+    evidenceIds: []
+  };
+}
+
+function limits() {
+  return {
+    maxTasks: 2,
+    maxConcurrentTasks: 2,
+    maxAttemptsPerTask: 3,
+    maxRounds: 10,
+    maxConsecutiveStalls: 3,
+    maxWallTimeMs: 600_000
+  };
+}
+
+async function withTempState(run: (stateRoot: string, projectRoot: string) => Promise<void>) {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-sup-crash-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-sup-crash-proj-"));
+  try {
+    await run(stateRoot, projectRoot);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+/** Starts a supervised run whose judge throws, and returns the crashed run id. */
+async function crashedRun(stateRoot: string, projectRoot: string): Promise<RunId> {
+  const running = startSupervisedRun(
+    {
+      stateRoot,
+      executor: new SucceedingExecutor(),
+      registry: createAgentProfileRegistry(defaultAgentProfiles()),
+      judge: new ExplodingJudge(),
+      now: NOW,
+      generateId: sequenceGenerator()
+    },
+    { projectRoot, objective: "Ship it", tasks: [task("a")], limits: limits() }
+  );
+  await assert.rejects(() => running.done, /judge exploded/, "the error still reaches the caller");
+  return running.runId;
+}
+
+test("an error escaping the supervised round loop records RUN_FAILED and rethrows", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const runId = await crashedRun(stateRoot, projectRoot);
+
+    const read = await new EventStore(stateRoot, runId).readAll();
+    const last = read.events.at(-1);
+    assert.equal(last?.type, "RUN_FAILED", "the crashed run's log ends with a terminal event");
+    assert.match(
+      (last?.payload as { reason: string }).reason,
+      /^run crashed: judge exploded$/,
+      "the reason names the escaping error"
+    );
+
+    const replayed = replayRun(read.events);
+    assert.equal(replayed.status, "FAILED", "replay no longer reports the run as RUNNING forever");
+    assert.deepEqual(replayed.anomalies, [], "no duplicate terminal, no out-of-order event");
+    assert.equal(
+      read.events.filter((event) => TERMINAL_TYPES.has(event.type)).length,
+      1,
+      "exactly one terminal event"
+    );
+  });
+});
+
+test("a crashed supervised run resumes as terminal and appends nothing", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const runId = await crashedRun(stateRoot, projectRoot);
+    const before = await new EventStore(stateRoot, runId).readAll();
+
+    const resumed = resumeSupervisedRun(
+      {
+        stateRoot,
+        executor: new SucceedingExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: NOW,
+        generateId: sequenceGenerator()
+      },
+      runId
+    );
+    const outcome = await resumed.done;
+    assert.equal(outcome.status, "FAILED", "resume reports the crash, it does not restart the run");
+    assert.equal(outcome.events.length, before.events.length, "a terminal run is resumed read-only");
+    assert.equal(outcome.checkpoint.status, "FAILED");
+  });
+});
+
+test("a crash waits for its round-mates, so nothing is appended after the terminal", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const failing = createTaskId(() => "a");
+    const slow = createTaskId(() => "b");
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new SucceedingExecutor([slow]),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        // Only the first task's verdict throws; its round-mate keeps working.
+        judge: {
+          decide: (input) => {
+            if (input.taskId === failing) throw new Error("judge exploded");
+            return { taskId: input.taskId, verdict: "APPROVED", evidenceIds: [] };
+          }
+        },
+        now: NOW,
+        generateId: sequenceGenerator()
+      },
+      { projectRoot, objective: "Ship it", tasks: [task("a"), task("b")], limits: limits() }
+    );
+    await assert.rejects(() => running.done, /judge exploded/);
+
+    const read = await new EventStore(stateRoot, running.runId).readAll();
+    const completed = read.events.findIndex(
+      (event) =>
+        event.type === "TASK_STATUS_CHANGED" &&
+        (event.payload as { taskId: string; status: string }).taskId === "tsk_b" &&
+        (event.payload as { status: string }).status === "COMPLETED"
+    );
+    assert.ok(completed >= 0, "the run must not return while a task it launched is still running");
+    assert.equal(read.events.at(-1)?.type, "RUN_FAILED", "the crash terminal is the last event in the log");
+    assert.deepEqual(replayRun(read.events).anomalies, []);
+  });
+});
+
+/**
+ * Builds a supervisor context by hand so a crash can be provoked against a log
+ * that already reads as settled. `startSupervisedRun` cannot reach this state:
+ * it is the process-death-during-teardown case.
+ */
+async function seededContext(input: {
+  stateRoot: string;
+  projectRoot: string;
+  seed: (make: (type: Event["type"], payload: unknown) => Event) => Event;
+}): Promise<{ ctx: SupervisorContext; state: SupervisorState; store: EventStore }> {
+  const generateId = sequenceGenerator();
+  const project = await discoverProject(input.projectRoot, { now: NOW, generateId });
+  const runId = createRunId(generateId);
+  const graph = validateTaskGraph([task("a")]);
+  const run: Run = {
+    id: runId,
+    projectId: project.id,
+    rootTaskId: createTaskId(generateId),
+    status: "PLANNING",
+    limits: limits(),
+    createdAt: NOW(),
+    updatedAt: NOW()
+  };
+  const store = new EventStore(input.stateRoot, runId);
+  const make = (type: Event["type"], payload: unknown, taskId?: TaskId): Event =>
+    ({
+      id: createEventId(generateId),
+      schemaVersion: 1,
+      occurredAt: NOW(),
+      runId,
+      ...(taskId !== undefined ? { taskId } : {}),
+      type,
+      actor: "supervisor",
+      payload
+    }) as Event;
+  const append = (event: Event) => store.append(event);
+
+  await append(make("PROJECT_DISCOVERED", { project }));
+  await append(make("RUN_CREATED", { run }));
+  await append(make("RUN_STARTED", {}));
+  await append(make("TASK_GRAPH_ACCEPTED", { tasks: graph.tasks }));
+  await append(input.seed((type, payload) => make(type, payload)));
+
+  const ctx: SupervisorContext = {
+    deps: {
+      stateRoot: input.stateRoot,
+      executor: new SucceedingExecutor(),
+      registry: createAgentProfileRegistry(defaultAgentProfiles())
+    },
+    runId,
+    project,
+    run,
+    limits: run.limits,
+    now: NOW,
+    generateId,
+    judge: new ExplodingJudge(),
+    eventStore: store,
+    checkpointStore: new CheckpointStore(input.stateRoot, runId),
+    controller: new AbortController(),
+    append,
+    make
+  };
+  const state: SupervisorState = {
+    graph,
+    statuses: new Map(graph.tasks.map((node) => [node.id, node.status])),
+    attempts: new Map(graph.tasks.map((node) => [node.id, node.attempt])),
+    leases: new LeaseRegistry(() => Date.parse(NOW())),
+    ledger: createLedger("Ship it", 3)
+  };
+  return { ctx, state, store };
+}
+
+const SETTLED_LOGS: ReadonlyArray<{
+  name: string;
+  status: string;
+  seed: (make: (type: Event["type"], payload: unknown) => Event) => Event;
+}> = [
+  {
+    name: "RUN_BLOCKED",
+    status: "BLOCKED",
+    seed: (make) => make("RUN_BLOCKED", { reason: "needs a decision", requiredEvidence: ["a passing build"] })
+  },
+  {
+    name: "RUN_CANCEL_REQUESTED",
+    status: "CANCELLED",
+    seed: (make) => make("RUN_CANCEL_REQUESTED", {})
+  }
+];
+
+for (const settled of SETTLED_LOGS) {
+  test(`a crash after ${settled.name} keeps that state instead of appending a terminal`, async () => {
+    await withTempState(async (stateRoot, projectRoot) => {
+      const { ctx, state, store } = await seededContext({ stateRoot, projectRoot, seed: settled.seed });
+
+      await assert.rejects(
+        () => runSupervisorRounds(ctx, state, ctx.run.rootTaskId),
+        /judge exploded/,
+        "the error is rethrown whether or not a terminal was recorded"
+      );
+
+      const read = await store.readAll();
+      assert.equal(
+        read.events.some((event) => event.type === "RUN_FAILED"),
+        false,
+        "a settled log must not be overwritten by a crash terminal"
+      );
+      const replayed = replayRun(read.events);
+      assert.equal(replayed.status, settled.status, "the run keeps the status it honestly recorded");
+      assert.deepEqual(replayed.anomalies, []);
+    });
+  });
+}

@@ -207,6 +207,38 @@ test("the DAG plane declares no skip transition, because nothing produces one", 
   );
 });
 
+/**
+ * Honesty pin for R4-3. `applyRetry` was a declared rule with no production
+ * caller: the supervisor recorded BLOCKED -> READY with a status literal at
+ * both of its retry sites, so editing the rule changed nothing and the guard
+ * below never ran. Both sites now go through it.
+ */
+test("the supervisor retries through applyRetry, not a status literal", () => {
+  assert.match(SUPERVISOR_SOURCE, /applyRetry\(/, "the supervisor must call the declared retry rule");
+  assert.doesNotMatch(
+    SUPERVISOR_SOURCE,
+    /recordStatus\([^)]*"READY"/,
+    "a retry recorded as a literal bypasses applyRetry's BLOCKED guard"
+  );
+  assert.doesNotMatch(
+    SUPERVISOR_SOURCE,
+    /applyRetry\([^)]*status: "BLOCKED"/,
+    "the rule must see the status the log recorded; a literal makes its guard vacuous"
+  );
+
+  // The guard the literal skipped: only a recorded BLOCKED may retry.
+  const graph = validateTaskGraph([task("a")]);
+  const node = graph.byId.get(createTaskId(() => "a"))!;
+  for (const status of ["PENDING", "READY", "RUNNING", "COMPLETED", "SKIPPED", "FAILED", "CANCELLED"] as const) {
+    assert.throws(
+      () => applyRetry({ ...node, status, attempt: 1 }),
+      /Cannot retry/,
+      `${status} is not a retryable status`
+    );
+  }
+  assert.equal(applyRetry({ ...node, status: "BLOCKED", attempt: 2 }).attempt, 2, "a retry keeps the attempt count");
+});
+
 test("applyTaskOutcome follows the declared state machine", () => {
   const graph = validateTaskGraph([task("a")]);
   const node = graph.byId.get(createTaskId(() => "a"))!;

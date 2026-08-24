@@ -12,6 +12,7 @@ import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
 import { assertTransitionTask, expandTaskTransition } from "../domain/state.js";
 import type { RunStatus, TaskStatus } from "../domain/status.js";
+import type { TaskNode } from "../domain/task.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
 import type { AgentProfileRegistry } from "../agents/registry.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -36,7 +37,7 @@ import {
   type RunCheckpoint
 } from "./replay.js";
 import { allDependenciesSatisfied } from "../graph/readiness.js";
-import { applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
+import { applyRetry, applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
 import { decideTopology } from "../routing/topology.js";
 import type { TopologyDecision } from "../routing/topology.js";
 
@@ -89,7 +90,7 @@ export interface SupervisorDeps {
 export interface SupervisedRunInput {
   projectRoot: string;
   objective: string;
-  tasks: import("../domain/task.js").TaskNode[];
+  tasks: TaskNode[];
   limits?: RunLimits;
   contract?: import("../domain/contract.js").RequirementContract;
   resolvedQuestionIds?: readonly string[];
@@ -219,7 +220,59 @@ export function reconstructSupervisorState(
   return { graph, statuses, attempts, leases, ledger };
 }
 
+const CRASH_REASON_LIMIT = 500;
+
+/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
+function crashReason(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).trim();
+  const detail = message === "" ? "unknown error" : message;
+  const bounded = detail.length <= CRASH_REASON_LIMIT ? detail : `${detail.slice(0, CRASH_REASON_LIMIT)}…`;
+  return `run crashed: ${bounded}`;
+}
+
+/**
+ * Records the terminal event for a supervised run that died by an escaping
+ * error, so replay sees a failure instead of a log that just stops mid-round.
+ * The same two limits the flowchart and child planes apply:
+ *
+ * - Only a log still reading as in flight gets one. A run already recorded as
+ *   cancelled, blocked or finished has an honest status of its own, and a crash
+ *   on the way out must neither duplicate that terminal nor bury it.
+ * - Every failure here is swallowed. The error on its way out is the one worth
+ *   reporting.
+ */
+async function recordCrashTerminal(ctx: SupervisorContext, error: unknown): Promise<void> {
+  try {
+    const read = await ctx.eventStore.readAll();
+    const status = replayRun(read.events).status;
+    if (status !== "PLANNING" && status !== "RUNNING") return;
+    await ctx.append(ctx.make("RUN_FAILED", { reason: crashReason(error) }));
+  } catch {
+    // Best effort: an append that cannot land must not mask the original error.
+  }
+}
+
+/**
+ * Runs the supervised rounds and guarantees the log ends honestly. An error
+ * that escapes the loop — a judge that throws, a rejected append, a child that
+ * fails to launch — used to leave the run replaying RUNNING forever; it now
+ * records a terminal first and is rethrown regardless, so the caller still
+ * learns the run crashed.
+ */
 export async function runSupervisorRounds(
+  ctx: SupervisorContext,
+  state: SupervisorState,
+  objective: string
+): Promise<{ status: RunStatus; reason?: string }> {
+  try {
+    return await executeSupervisorRounds(ctx, state, objective);
+  } catch (error) {
+    await recordCrashTerminal(ctx, error);
+    throw error;
+  }
+}
+
+async function executeSupervisorRounds(
   ctx: SupervisorContext,
   state: SupervisorState,
   _objective: string
@@ -240,6 +293,16 @@ export async function runSupervisorRounds(
       await append(make("TASK_STATUS_CHANGED", { taskId, status: step, attempt }, taskId));
       current = step;
     }
+  };
+
+  // BLOCKED -> READY goes through the scheduler's declared rule rather than a
+  // literal, so editing that rule changes what the supervisor does. The status
+  // handed to it is the one just recorded, not the graph node's stale copy,
+  // which is what makes its guard real: a retry can only follow a recorded
+  // BLOCKED.
+  const recordRetry = async (node: TaskNode, attempt: number): Promise<void> => {
+    const retry = applyRetry({ ...node, status: statuses.get(node.id) ?? "PENDING", attempt });
+    await recordStatus(node.id, retry.status, retry.attempt);
   };
 
   let cancelRecorded = false;
@@ -263,7 +326,7 @@ export async function runSupervisorRounds(
     await append(make("TASK_LEASE_EXPIRED", { taskId: lease.taskId, childRunId: lease.runId }, lease.taskId));
     await recordStatus(lease.taskId, transition.status, transition.attempt);
     if (transition.status === "BLOCKED") {
-      await recordStatus(lease.taskId, "READY", transition.attempt);
+      await recordRetry(node, transition.attempt);
     }
     leases.release(lease.taskId);
   }
@@ -420,7 +483,7 @@ export async function runSupervisorRounds(
           const transition = applyTaskOutcome({ ...node, attempt: attempt - 1 }, toTaskOutcome(outcome.outcome));
           await recordStatus(taskId, transition.status, transition.attempt);
           if (transition.status === "BLOCKED") {
-            await recordStatus(taskId, "READY", transition.attempt);
+            await recordRetry(node, transition.attempt);
           }
           break;
         }
@@ -431,7 +494,15 @@ export async function runSupervisorRounds(
       }
     });
 
-    await Promise.all(taskPromises);
+    // Settle the whole round before letting a rejection out. A task that throws
+    // must not leave its round-mates appending events after the crash terminal,
+    // and the run must not return while a child it launched is still spending.
+    // The abort controller is deliberately not tripped here: the per-task abort
+    // check records RUN_CANCEL_REQUESTED, which would bury the crash as a
+    // cancellation nobody requested.
+    const settled = await Promise.allSettled(taskPromises);
+    const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failure !== undefined) throw failure.reason;
     if (cancelRecorded) break;
 
     const progress = classifyRoundProgress(roundEvent, ledger);

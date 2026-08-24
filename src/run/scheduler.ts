@@ -152,7 +152,13 @@ export function applyTaskOutcome(
   }
 }
 
-/** Declared retry transition: BLOCKED -> READY (supervisor decision). */
+/**
+ * Retry transition: BLOCKED -> READY (supervisor decision). Live caller:
+ * `runSupervisorRounds` in `run/supervisor.ts`, at both of its retry sites —
+ * lease recovery and a rejected judge verdict. It passes the status the log
+ * recorded, so the guard below rejects a retry the state machine does not
+ * allow instead of quietly recording READY.
+ */
 export function applyRetry(task: TaskNode): TaskTransition {
   if (task.status !== "BLOCKED") {
     throw new DomainValidationError(`Cannot retry task in status ${task.status}`);

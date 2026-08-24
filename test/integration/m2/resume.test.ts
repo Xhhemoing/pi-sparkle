@@ -142,6 +142,15 @@ test("resume after an interruption completes without rerunning finished work", a
     first.cancel();
     await first.done.catch(() => undefined);
 
+    const bStatuses = outcome.events
+      .filter((e) => e.type === "TASK_STATUS_CHANGED" && (e.payload as { taskId: string }).taskId === "tsk_b")
+      .map((e) => (e.payload as { status: string }).status);
+    assert.deepEqual(
+      bStatuses.slice(0, 4),
+      ["READY", "RUNNING", "BLOCKED", "READY"],
+      "the orphaned lease is recovered through the declared retry rule, not a status literal"
+    );
+
     const completedEvents = outcome.events.filter(
       (e) => e.type === "TASK_STATUS_CHANGED" && (e.payload as { status: string }).status === "COMPLETED"
     );
