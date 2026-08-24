@@ -8,7 +8,7 @@ import {
   type Flowchart,
   type FlowchartNodeRole
 } from "../domain/flowchart.js";
-import { isAgentRole, type AgentRole } from "../domain/roles.js";
+import type { AgentRole } from "../domain/roles.js";
 import type { TaskId } from "../domain/ids.js";
 
 const DEFAULT_ALLOWED_MODELS = ["cheap", "premium"] as const;
@@ -28,23 +28,6 @@ export interface CompileChildrenOptions {
   readonly allowedModels?: readonly string[];
   readonly preferredModel?: string;
   readonly confidenceThreshold?: number;
-}
-
-export function compilableChildFrom(input: {
-  readonly taskId: TaskId;
-  readonly role: string;
-  readonly objective: string;
-  readonly dependsOn?: readonly TaskId[];
-}): CompilableChild {
-  if (!isAgentRole(input.role)) {
-    throw new DomainValidationError(`role must be a known AgentRole: ${input.role}`);
-  }
-  return {
-    taskId: input.taskId,
-    role: input.role,
-    objective: input.objective,
-    ...(input.dependsOn !== undefined ? { dependsOn: input.dependsOn } : {})
-  };
 }
 
 export function flowchartRoleForAgentRole(role: AgentRole): FlowchartNodeRole {

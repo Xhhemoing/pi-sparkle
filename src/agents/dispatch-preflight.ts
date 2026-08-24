@@ -1,7 +1,6 @@
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
-import { DomainValidationError } from "../domain/errors.js";
 import { isAgentRole, type AgentRole } from "../domain/roles.js";
 
 export const DISPATCH_CONTRACT_VERSION = 1 as const;
@@ -102,20 +101,6 @@ export function preflightAgentRole(
     );
   }
   return preflightPiAgentName(mapped, loadedProfiles, contract);
-}
-
-export class DispatchPreflightError extends DomainValidationError {
-  readonly code: DispatchRefusalCode;
-  readonly requestedName: string;
-  readonly available: readonly string[];
-
-  constructor(result: Extract<DispatchPreflight, { ok: false }>) {
-    super(result.message);
-    this.name = "DispatchPreflightError";
-    this.code = result.code;
-    this.requestedName = result.requestedName;
-    this.available = result.available;
-  }
 }
 
 export interface PiDispatchGuard {

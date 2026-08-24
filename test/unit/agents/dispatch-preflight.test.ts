@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import * as dispatchPreflight from "../../../src/agents/dispatch-preflight.js";
 import {
   DEFAULT_PI_DISPATCH_CONTRACT,
   createPiDispatchGuard,
@@ -33,6 +34,10 @@ test("the contract declares Pi profiles and an explicit implementer mapping, not
     (DEFAULT_PI_DISPATCH_CONTRACT.piProfiles as readonly string[]).includes("general-purpose"),
     false
   );
+});
+
+test("dispatch preflight exposes result values, not an unthrown error wrapper", () => {
+  assert.equal("DispatchPreflightError" in dispatchPreflight, false);
 });
 
 test("general-purpose is refused before a subagent run is created", () => {

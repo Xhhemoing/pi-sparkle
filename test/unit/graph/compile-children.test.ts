@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { parseTaskId } from "../../../src/domain/ids.js";
 import { validateFlowchart } from "../../../src/domain/flowchart.js";
 import { DomainValidationError } from "../../../src/domain/errors.js";
+import * as childCompiler from "../../../src/graph/compile-children.js";
 import {
   compileChildrenToFlowchart,
   flowchartRoleForAgentRole,
@@ -18,6 +19,10 @@ const child = (
   role,
   objective: `Do ${id}`,
   ...(dependsOn !== undefined ? { dependsOn: dependsOn.map((dep) => parseTaskId(`tsk_${dep}`)) } : {})
+});
+
+test("child compilation does not publish an unused raw-role adapter", () => {
+  assert.equal("compilableChildFrom" in childCompiler, false);
 });
 
 test("flowchartRoleForAgentRole maps reviewer to critic and everyone else to actor", () => {
