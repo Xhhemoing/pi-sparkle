@@ -155,3 +155,8 @@
 | S2-A-4 | gate-apply spread+push 换 concat | 实测慢 3.7× |
 | S2-A-5 | hashAssessment dimensions 冗余 spread 移除 | 173ns 噪声 |
 | S2-A-6 | from-child dimensions 三遍融合 | 10.9ns 亚噪声 |
+| S2-D-1 | registry restore versionsByKey 批量重建 | V 个位数，~250ns |
+| S2-D-2 | rollback CAS 后冗余 versionsById.get 消除 | 9–18ns；fail-closed 兜底 |
+| S2-D-3 | eval-routing 双 parseTaskId 消除 | E=200 约 16.5µs |
+| S2-D-4 | 双 assignTasks 共享 analyzeTask | ~116µs 低于否决线 + 需改公开签名 |
+| S2-D-5 | monitor snapshot 跳过已验证观测重复校验 | ~615ns；防御纵深 |
