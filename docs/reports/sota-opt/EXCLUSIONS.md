@@ -481,3 +481,6 @@
 | S8-F-1 | assign 路径同下标成员快路径（S7-F-1 证明机制外推） | 整 trim+includes 组件仅 1.14–1.21 ms/实验；失配次序负税且无耦合正项；无界形式 fail-open |
 | S8-F-2 | S7-F-2 首字符卫镜像到 A 线性 trim 站点 | 等价但 ~6.8 µs/实验 |
 | S8-F-3 | assertUniqueNonEmpty 长度 1 快路径（metrics 站点） | 等价但 ~190 µs/实验 |
+| S8-H-1 | 盲评链 PairwiseInput comment 死字段消除 / 公开输入类型收窄 | 字段死但零生产调用方 + 活契约输入；瘦身链实测更慢（PIC 二态） |
+| S8-H-2 | heuristic 合同字面量条件数组 spread 换命令式 push | 等价但 103–182ns/run |
+| S8-H-3 | assertCoverageAllowsStart 全决议快路径 | schema 合法 default:"" / options:[""] fail-open；1011/8000 fuzz 发散 |
