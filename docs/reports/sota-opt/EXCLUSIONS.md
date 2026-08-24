@@ -526,3 +526,5 @@
 | S10-C-1 | irls 每拟合 distinct-key 代表表换逐行 stamp 扫描 | 逐位但池 ~7 ms；对决 +11–17 ms，在 ±35 ms 带内 |
 | S10-C-2 | APC off-value 按 canonical key 去重 | S8-C-2 天花板真子集；对决 +11–13 ms，贴带不越带 |
 | S10-C-3 | solveSymmetric 对称 Schur 镜像 | 部分主元破坏对称；3458/10000 反例；X2-3 同族 |
+| S10-D-1 | saveAdaptationRegistry 每写 mkdir 省略 | 天真形态首写 ENOENT；健全形态撞 X1-1；A/B 符号不稳 |
+| S10-D-2 | candidate==baseline 时跳过第二次 assignTasks | 生产命中率恰 0；命中档 319–463µs 仍低于落地线 |
