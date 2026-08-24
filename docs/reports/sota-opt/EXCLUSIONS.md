@@ -52,8 +52,20 @@
 - A2 prepared 观测索引；B1 per-key 估计备忘录；C1 lnBeta 提升
 - D1 offline-logit design 索引；E2 APC on-prob 提升；F1 IRLS 支撑列表；G1 prob-add 父格复用
 - H1 replayPolicy exclusions → Set
+- S1-F M6-T3 shadow/canary restore population 成员判断 → Set（fail-closed 全量重校验保留，O(A×P)→O(P+A)/次；见 round-01/R1-F.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
 
 由各轮子代理追加，格式：`S<轮次>-<区>-<n>`。
+
+| ID | 方案 | 原因 |
+| --- | --- | --- |
+| S1-F-1 | gatedComparisonReport strip-retry 复用首报告仅换 claims | 可证同值，但仓内调用方（eval-routing `[]`、r1-shadow-report 预 strip）使 retry 对改进声明不可达，收益不可测 |
+| S1-F-2 | replayPolicy 消除 selected 的 propensityFor 二次调用 | RoutingPolicy 公开扩展点，调用次数/顺序可观测；1/(E+1) 噪声级 |
+| S1-F-3 | HoldoutVault 审计追加拷贝改可变 push | audit 数组外持，readonly 契约（X4-2 同类） |
+| S1-F-4 | calibrateSoftThreshold 三遍并单遍 | 常数 3→1，冻结集一次性 informational（X3-2/X3-5 同类） |
+| S1-F-5 | comparison-report `Array.from(families.entries())` 直接迭代 | 省一次分配，X3-2 同类噪声 |
+| S1-F-6 | validateExperimentPlan 返回 population Set 复用 | 公开 void 签名变更（X0-4 同类） |
+| S1-F-7 | canary reversibleScopes Set 化 | scope 个位数（X1-4 同类） |
+| S1-F-8 | recordExperimentOutcome 查重/成本累加 Set/增量化 | 单点查询建 Set 同 O(n)；缓存＝X1-1；增量字段＝X0-4；每调用重算为 X3-3 同类 |
