@@ -6,6 +6,9 @@ import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
+import { createEventId, createRunId } from "../../../src/domain/ids.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { makeEvent, makeRun } from "../../helpers/event-factory.js";
 
 const COMPLIANT_NODE_VERSION = "22.19.0";
 
@@ -143,7 +146,16 @@ test("doctor fails closed when --project has no package.json", async () => {
 // engine-dependent — so `ok` is only ever asserted against the checks
 // themselves and against the exit code.
 
-const CONTRACT_KEYS = ["version", "preview", "liveAdaptive", "ok", "checks", "next", "locks"];
+const CONTRACT_KEYS = [
+  "version",
+  "preview",
+  "liveAdaptive",
+  "ok",
+  "checks",
+  "next",
+  "locks",
+  "runStates"
+];
 
 async function runDoctorJson(
   args: string[]
@@ -176,6 +188,10 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
     assert.equal(typeof report.locks.advisory, "string");
     assert.ok(Array.isArray(report.locks.entries));
     assert.ok(Array.isArray(report.locks.scanErrors));
+    assert.deepEqual(Object.keys(report.runStates), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.runStates.advisory, "string");
+    assert.ok(Array.isArray(report.runStates.entries));
+    assert.ok(Array.isArray(report.runStates.scanErrors));
 
     for (const check of report.checks) {
       assert.deepEqual(Object.keys(check), ["name", "ok", "detail"]);
@@ -197,7 +213,8 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "agent-drift",
         "pi-packages",
         "pi-compat",
-        "lock-inventory"
+        "lock-inventory",
+        "run-state-inventory"
       ]
     );
   } finally {
@@ -350,7 +367,8 @@ test("doctor inventories nested locks with additive JSON diagnostics and never r
       acquiredAt,
       pid: 4242,
       pidLiveness: "not-running",
-      metadata: "valid"
+      metadata: "valid",
+      remediation: `age 10000ms; recorded PID 4242 is not running: inspect and remove manually; never automatic (${validLock})`
     });
     const empty = report.locks.entries.find((entry) => entry.path === emptyLock);
     assert.equal(empty?.metadata, "empty");
@@ -365,6 +383,9 @@ test("doctor inventories nested locks with additive JSON diagnostics and never r
     assert.equal(invalid?.metadata, "invalid");
     assert.equal(invalid?.pid, null);
     assert.equal(invalid?.pidLiveness, "not-recorded");
+    assert.match(valid?.remediation ?? "", /age 10000ms/);
+    assert.match(valid?.remediation ?? "", /inspect and remove manually; never automatic/);
+    assert.match(empty?.remediation ?? "", /inspect metadata and ownership/);
     assert.deepEqual(checkedPids, [4242]);
 
     const lockCheck = report.checks.find((check) => check.name === "lock-inventory");
@@ -391,6 +412,146 @@ test("doctor inventories nested locks with additive JSON diagnostics and never r
     assert.match(text, /episode-1\.lock: age=10000ms source=acquiredAt pid=4242/);
     assert.match(text, /records\.jsonl\.lock: age=30000ms source=mtime pid=not-recorded/);
     assert.match(text, /metadata=empty/);
+    assert.match(text, /inspect and remove manually; never automatic/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories PLANNING and RUNNING logs as read-only advisory crash candidates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-run-states-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-run-states-proj-"));
+  const nowMs = Date.parse("2026-08-24T18:00:00.000Z");
+  const planningAt = "2026-08-24T17:59:00.000Z";
+  const runningAt = "2026-08-24T17:59:30.000Z";
+  const planningRunId = createRunId(() => "doctor-planning");
+  const runningRunId = createRunId(() => "doctor-running");
+  const completedRunId = createRunId(() => "doctor-completed");
+  const planningPath = join(stateRoot, "runtime", "runs", planningRunId, "events.jsonl");
+  const runningPath = join(stateRoot, "runtime", "runs", runningRunId, "events.jsonl");
+  const completedPath = join(stateRoot, "runtime", "runs", completedRunId, "events.jsonl");
+  let eventSequence = 0;
+  const eventId = () => createEventId(() => `doctor-${++eventSequence}`);
+
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const planningStore = new EventStore(stateRoot, planningRunId);
+    await planningStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: planningRunId } }, {
+        id: eventId(),
+        runId: planningRunId,
+        occurredAt: planningAt
+      })
+    );
+    const runningStore = new EventStore(stateRoot, runningRunId);
+    await runningStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: runningRunId } }, {
+        id: eventId(),
+        runId: runningRunId,
+        occurredAt: "2026-08-24T17:58:00.000Z"
+      })
+    );
+    await runningStore.append(
+      makeEvent("RUN_STARTED", {}, {
+        id: eventId(),
+        runId: runningRunId,
+        occurredAt: runningAt
+      })
+    );
+    const completedStore = new EventStore(stateRoot, completedRunId);
+    await completedStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: completedRunId } }, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:57:00.000Z"
+      })
+    );
+    await completedStore.append(
+      makeEvent("RUN_STARTED", {}, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:57:30.000Z"
+      })
+    );
+    await completedStore.append(
+      makeEvent("RUN_COMPLETED", {}, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:58:30.000Z"
+      })
+    );
+    const originalLogs = await Promise.all(
+      [planningPath, runningPath, completedPath].map((path) => readFile(path, "utf8"))
+    );
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION, nowMs }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.match(report.runStates.advisory, /advisory crash candidates only/);
+    assert.match(report.runStates.advisory, /live process may still own the run/);
+    assert.match(report.runStates.advisory, /doctor never changes run state/);
+    assert.deepEqual(report.runStates.scanErrors, []);
+    assert.equal(report.runStates.entries.length, 2);
+    assert.deepEqual(
+      report.runStates.entries.find((entry) => entry.runId === planningRunId),
+      {
+        runId: planningRunId,
+        path: planningPath,
+        status: "PLANNING",
+        ageMs: 60_000,
+        lastEventAt: planningAt,
+        remediation: `inspect with pi-sparkle inspect --run ${planningRunId}; then resume --run ${planningRunId} or delete --run ${planningRunId}`
+      }
+    );
+    assert.deepEqual(
+      report.runStates.entries.find((entry) => entry.runId === runningRunId),
+      {
+        runId: runningRunId,
+        path: runningPath,
+        status: "RUNNING",
+        ageMs: 30_000,
+        lastEventAt: runningAt,
+        remediation: `inspect with pi-sparkle inspect --run ${runningRunId}; then resume --run ${runningRunId} or delete --run ${runningRunId}`
+      }
+    );
+    assert.equal(
+      report.runStates.entries.some((entry) => entry.runId === completedRunId),
+      false,
+      "terminal logs are not crash candidates"
+    );
+    const runStateCheck = report.checks.find((check) => check.name === "run-state-inventory");
+    assert.equal(runStateCheck?.ok, true);
+    assert.match(runStateCheck?.detail ?? "", /2 PLANNING\/RUNNING run log\(s\)/);
+    assert.match(runStateCheck?.detail ?? "", /advisory crash candidate/);
+
+    assert.deepEqual(
+      await Promise.all(
+        [planningPath, runningPath, completedPath].map((path) => readFile(path, "utf8"))
+      ),
+      originalLogs,
+      "doctor must not modify run logs"
+    );
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}run-state-inventory: 2 PLANNING\/RUNNING run log\(s\)/);
+    assert.match(text, new RegExp(`run: ${planningRunId}: status=PLANNING age=60000ms`));
+    assert.match(text, new RegExp(`resume --run ${runningRunId} or delete --run ${runningRunId}`));
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });

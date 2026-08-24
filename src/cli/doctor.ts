@@ -11,7 +11,11 @@ import {
   listPiAgentProfilesFromDirs
 } from "../agents/dispatch-preflight.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
+import { isRunId, type RunId } from "../domain/ids.js";
 import { readPinnedPiVersions } from "../pi-compat/check.js";
+import { runtimeRoot } from "../privacy/state-layout.js";
+import { EventStore } from "../run/event-store.js";
+import { replayRun } from "../run/replay.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
 import { legacyLayoutCheck, skillRouteLogCheck, unknownAgentDriftCheck } from "./doctor-overlay.js";
 import { buildOfflinePiCompatReport, piCompatBreakage, readSparklePackageJson } from "./pi-compat.js";
@@ -43,6 +47,7 @@ export interface DoctorJsonReport {
   readonly checks: readonly DoctorCheck[];
   readonly next: readonly string[];
   readonly locks: DoctorLockInventory;
+  readonly runStates: DoctorRunStateInventory;
 }
 
 export type DoctorLockPidLiveness = "running" | "not-running" | "unknown" | "not-recorded";
@@ -57,11 +62,29 @@ export interface DoctorLockEntry {
   readonly pid: number | null;
   readonly pidLiveness: DoctorLockPidLiveness;
   readonly metadata: DoctorLockMetadata;
+  readonly remediation: string;
 }
 
 export interface DoctorLockInventory {
   readonly advisory: string;
   readonly entries: readonly DoctorLockEntry[];
+  readonly scanErrors: readonly string[];
+}
+
+export type DoctorInFlightRunStatus = "PLANNING" | "RUNNING";
+
+export interface DoctorRunStateEntry {
+  readonly runId: RunId;
+  readonly path: string;
+  readonly status: DoctorInFlightRunStatus;
+  readonly ageMs: number;
+  readonly lastEventAt: string;
+  readonly remediation: string;
+}
+
+export interface DoctorRunStateInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorRunStateEntry[];
   readonly scanErrors: readonly string[];
 }
 
@@ -85,6 +108,8 @@ const NEXT_STEPS: readonly string[] = [
 const FIX_FAILURES_NEXT = "fix the failing entries in checks[], then re-run pi-sparkle doctor";
 const LOCK_PID_ADVISORY =
   "PID liveness is advisory only: PID reuse and shared/container filesystems mean it cannot prove a lock is stale; doctor never steals or deletes locks";
+const RUN_STATE_ADVISORY =
+  "PLANNING/RUNNING logs are advisory crash candidates only: a live process may still own the run; inspect before resume or delete --run, and doctor never changes run state";
 
 function readPackageEngines(): PackageEngines {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -158,6 +183,25 @@ function recordValue(value: unknown, key: string): unknown {
   return key in record ? record[key] : undefined;
 }
 
+function lockRemediation(
+  path: string,
+  ageMs: number | null,
+  pid: number | null,
+  pidLiveness: DoctorLockPidLiveness
+): string {
+  const age = ageMs === null ? "unknown age" : `age ${Math.round(ageMs)}ms`;
+  if (pid !== null && pidLiveness === "not-running") {
+    return `${age}; recorded PID ${pid} is not running: inspect and remove manually; never automatic (${path})`;
+  }
+  if (pid !== null && pidLiveness === "running") {
+    return `${age}; recorded PID ${pid} appears to be running: do not remove based on age alone`;
+  }
+  if (pid !== null) {
+    return `${age}; recorded PID ${pid} liveness is unknown: inspect ownership before any manual removal; never automatic`;
+  }
+  return `${age}; no valid PID is recorded: inspect metadata and ownership before any manual removal; never automatic`;
+}
+
 async function inspectLock(
   path: string,
   nowMs: number,
@@ -177,26 +221,30 @@ async function inspectLock(
   }
 
   if (raw === undefined) {
+    const ageMs = mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs);
     return {
       path,
-      ageMs: mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs),
+      ageMs,
       ageSource: mtimeMs === undefined ? null : "mtime",
       acquiredAt: null,
       pid: null,
       pidLiveness: "not-recorded",
-      metadata: "unreadable"
+      metadata: "unreadable",
+      remediation: lockRemediation(path, ageMs, null, "not-recorded")
     };
   }
 
   if (raw.trim() === "") {
+    const ageMs = mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs);
     return {
       path,
-      ageMs: mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs),
+      ageMs,
       ageSource: mtimeMs === undefined ? null : "mtime",
       acquiredAt: null,
       pid: null,
       pidLiveness: "not-recorded",
-      metadata: "empty"
+      metadata: "empty",
+      remediation: lockRemediation(path, ageMs, null, "not-recorded")
     };
   }
 
@@ -224,15 +272,18 @@ async function inspectLock(
     typeof ownerToken === "string" && ownerToken.length > 0 && pid !== null && acquiredAt !== null
       ? "valid"
       : "invalid";
+  const ageMs = sourceMs === undefined ? null : Math.max(0, nowMs - sourceMs);
+  const recordedPidLiveness = pid === null ? "not-recorded" : pidLiveness(pid);
 
   return {
     path,
-    ageMs: sourceMs === undefined ? null : Math.max(0, nowMs - sourceMs),
+    ageMs,
     ageSource,
     acquiredAt,
     pid,
-    pidLiveness: pid === null ? "not-recorded" : pidLiveness(pid),
-    metadata
+    pidLiveness: recordedPidLiveness,
+    metadata,
+    remediation: lockRemediation(path, ageMs, pid, recordedPidLiveness)
   };
 }
 
@@ -273,6 +324,55 @@ async function lockInventory(
   return { advisory: LOCK_PID_ADVISORY, entries, scanErrors };
 }
 
+async function runStateInventory(
+  stateRoot: string,
+  options: DoctorOptions
+): Promise<DoctorRunStateInventory> {
+  const entries: DoctorRunStateEntry[] = [];
+  const scanErrors: string[] = [];
+  const nowMs = options.nowMs ?? Date.now();
+  const runsDir = join(runtimeRoot(stateRoot), "runs");
+  let children;
+  try {
+    children = await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${runsDir}: ${message}`);
+    }
+    return { advisory: RUN_STATE_ADVISORY, entries, scanErrors };
+  }
+
+  children.sort((left, right) => left.name.localeCompare(right.name));
+  for (const child of children) {
+    if (!child.isDirectory() || !isRunId(child.name)) continue;
+    const runId = child.name;
+    const path = join(runsDir, runId, "events.jsonl");
+    try {
+      const read = await new EventStore(stateRoot, runId).readAll();
+      if (read.events.length === 0) continue;
+      const status = replayRun(read.events).status;
+      if (status !== "PLANNING" && status !== "RUNNING") continue;
+      const lastEventAt = read.events[read.events.length - 1]?.occurredAt;
+      if (lastEventAt === undefined) continue;
+      entries.push({
+        runId,
+        path,
+        status,
+        ageMs: Math.max(0, nowMs - Date.parse(lastEventAt)),
+        lastEventAt,
+        remediation: `inspect with pi-sparkle inspect --run ${runId}; then resume --run ${runId} or delete --run ${runId}`
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${path}: ${message}`);
+    }
+  }
+
+  entries.sort((left, right) => left.runId.localeCompare(right.runId));
+  return { advisory: RUN_STATE_ADVISORY, entries, scanErrors };
+}
+
 function lockInventoryCheck(inventory: DoctorLockInventory): DoctorCheck {
   const unreadable = inventory.entries.filter((entry) => entry.metadata === "unreadable").length;
   const errors = inventory.scanErrors.length;
@@ -290,12 +390,27 @@ function lockInventoryCheck(inventory: DoctorLockInventory): DoctorCheck {
   };
 }
 
+function runStateInventoryCheck(inventory: DoctorRunStateInventory): DoctorCheck {
+  const errors = inventory.scanErrors.length;
+  return {
+    name: "run-state-inventory",
+    ok: errors === 0,
+    detail: `${inventory.entries.length} PLANNING/RUNNING run log(s) found as advisory crash candidate(s)${
+      errors === 0 ? "" : `; ${errors} log scan error(s)`
+    }; ${inventory.advisory}`
+  };
+}
+
 function lockEntryDetail(entry: DoctorLockEntry): string {
   return `${entry.path}: age=${
     entry.ageMs === null ? "unknown" : `${Math.round(entry.ageMs)}ms`
   } source=${entry.ageSource ?? "unknown"} pid=${entry.pid ?? "not-recorded"} pid-liveness=${
     entry.pidLiveness
-  } metadata=${entry.metadata}`;
+  } metadata=${entry.metadata}; remediation=${entry.remediation}`;
+}
+
+function runStateEntryDetail(entry: DoctorRunStateEntry): string {
+  return `${entry.runId}: status=${entry.status} age=${Math.round(entry.ageMs)}ms path=${entry.path}; remediation=${entry.remediation}`;
 }
 
 function nodeCheck(engines: PackageEngines, actual: string): DoctorCheck {
@@ -381,7 +496,8 @@ function piDispatchCheck(projectRoot: string | undefined, agentsDir: string | un
 function buildDoctorJsonReport(
   version: string,
   checks: readonly DoctorCheck[],
-  locks: DoctorLockInventory
+  locks: DoctorLockInventory,
+  runStates: DoctorRunStateInventory
 ): DoctorJsonReport {
   const ok = checks.every((check) => check.ok);
   return {
@@ -391,7 +507,8 @@ function buildDoctorJsonReport(
     ok,
     checks,
     next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS],
-    locks
+    locks,
+    runStates
   };
 }
 
@@ -437,6 +554,7 @@ export async function doctorCommand(
   const engines = readPackageEngines();
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const locks = await lockInventory(stateRoot, options);
+  const runStates = await runStateInventory(stateRoot, options);
   const checks: DoctorCheck[] = [
     nodeCheck(engines, options.nodeVersion ?? process.versions.node),
     pnpmCheck(engines),
@@ -449,12 +567,13 @@ export async function doctorCommand(
     unknownAgentDriftCheck(values.project),
     piPackagesCheck(),
     piCompatCheck(),
-    lockInventoryCheck(locks)
+    lockInventoryCheck(locks),
+    runStateInventoryCheck(runStates)
   ];
   const failed = checks.some((check) => !check.ok);
 
   if (values.json === true) {
-    io.stdout(`${JSON.stringify(buildDoctorJsonReport(engines.version, checks, locks))}\n`);
+    io.stdout(`${JSON.stringify(buildDoctorJsonReport(engines.version, checks, locks, runStates))}\n`);
   } else {
     io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
     io.stdout("  live R1/bandit/topology: off until Checkpoint F-PROD closes\n");
@@ -463,6 +582,9 @@ export async function doctorCommand(
     }
     for (const entry of locks.entries) {
       io.stdout(`    lock: ${lockEntryDetail(entry)}\n`);
+    }
+    for (const entry of runStates.entries) {
+      io.stdout(`    run: ${runStateEntryDetail(entry)}\n`);
     }
     for (const step of NEXT_STEPS) {
       io.stdout(`  next: ${step}\n`);
