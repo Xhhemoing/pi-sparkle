@@ -1,12 +1,11 @@
 import { createProvider, envApiKeyAuth, type Model, type MutableModels } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CustomProviderConfig } from "../config/providers-config.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import type { ModelRef } from "../config/model-ref.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
-import { PiAgentExecutor } from "./pi-executor.js";
+import { PiAgentExecutor, type SparkleThinkingLevel } from "./pi-executor.js";
 
 export interface PiRuntime {
   readonly models: MutableModels;
@@ -30,7 +29,7 @@ export async function createConfiguredPiExecutor(input: {
   readonly stateRoot: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly thinkingLevel?: ThinkingLevel;
+  readonly thinkingLevel?: SparkleThinkingLevel;
   readonly apiKey?: string;
   readonly aliases?: Readonly<Record<string, ModelRef>>;
   readonly customProviders?: readonly CustomProviderConfig[];

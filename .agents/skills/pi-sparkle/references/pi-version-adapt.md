@@ -1,0 +1,52 @@
+# Pi Version Bump Checklist
+
+Run this when Pi publishes a new version (or a compat check reports
+`behind`). Diagnostic overlay only: report findings and propose the smallest
+durable fix. Never auto-edit pins, register extensions, or invent usage data.
+
+## Checklist
+
+1. **Changelog.** Read the release notes for `@earendil-works/pi-coding-agent`
+   and the inherited `pi-agent-core` / `pi-ai`. Flag anything touching:
+   skill/prompt discovery, extension APIs (still out of scope — ADR-006
+   Proposed), thinking/model configuration, renamed or removed exports.
+2. **Pin vs latest.** Compare the `package.json` pins against
+   `pi --version` if a Pi binary is present; otherwise run
+   `pi-sparkle pi-compat --online` (fails closed: unreachable registry means
+   status `unknown`, exit 0) or `node scripts/pi-latest-check.mjs`
+   (`--strict` exits 1 on behind/unknown for automation). Record
+   `current | behind | ahead | unknown` — offline means `unknown`, never a
+   guess.
+3. **Skill discovery re-check.** After `pi install`, confirm this skill is
+   discoverable and `/sparkle` expands as a prompt template. On Pi ≥ 0.84.3
+   also confirm: nested Markdown skills inside `.agents/skills/` grouping
+   directories are discovered, and root `README.md` / `AGENTS.md` without
+   skill frontmatter are NOT flagged as broken skills. Probe with the
+   checked-in test data at `test/fixtures/pi-0843-skills/` — never add a
+   demo skill under `.agents/skills/`, which would read as skill bloat.
+   Retract stale broken-skill findings from older Pi versions instead of
+   repeating them.
+4. **Doctor / pi-compat.** Run `pi-sparkle doctor` — its `pi-packages` and
+   `pi-compat` checks must both read `ok` — and `pi-sparkle pi-compat`
+   (offline is the default; use `node scripts/pi-compat-probe.mjs` when the
+   CLI is unavailable). Adapter contract breakage (missing thinking levels,
+   legacy `GoogleThinkingLevel` import, unreadable pin) exits 1 — treat it
+   as blocking, not a footnote. Being behind latest exits 0: a finding, not
+   a failure.
+5. **Thinking config.** The Pi TUI `/thinking` selector is session-scoped
+   (Ctrl+S saves it); this package's runtime reads `PI_THINKING_LEVEL`
+   (off|minimal|low|medium|high|xhigh|max). The landed `run --thinking
+   <level>` flag wins over the env var for one run and never persists;
+   on every bump confirm the `pi-sparkle help` USAGE still lists it.
+   These are separate knobs. Verify the runtime value still maps to a
+   level the pinned `pi-ai` accepts; do not report one knob as drift of
+   another.
+6. **Record.** Update the dated adaptation section in `SKILL.md` and correct
+   any version claim that is now false. Do not add a new top-level skill for
+   a version bump — that is bloat, not adaptation.
+
+## Cap
+
+This file counts toward the load-at-most-1–2-references rule. If a bump also
+needs bloat or evidence analysis, finish this checklist first and run the
+other analysis as a separate invocation.

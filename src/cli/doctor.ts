@@ -11,8 +11,10 @@ import {
   listPiAgentProfilesFromDirs
 } from "../agents/dispatch-preflight.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
+import { readPinnedPiVersions } from "../pi-compat/check.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
 import { skillRouteLogCheck, unknownAgentDriftCheck } from "./doctor-overlay.js";
+import { buildOfflinePiCompatReport, piCompatBreakage, readSparklePackageJson } from "./pi-compat.js";
 
 export interface DoctorIo extends CliErrorIo {
   stdout(text: string): void;
@@ -163,6 +165,31 @@ function piDispatchCheck(projectRoot: string | undefined, agentsDir: string | un
   };
 }
 
+function piPackagesCheck(): DoctorCheck {
+  try {
+    const pinned = readPinnedPiVersions(readSparklePackageJson());
+    return {
+      name: "pi-packages",
+      ok: true,
+      detail: `agent-core=${pinned.agentCore} ai=${pinned.ai}`
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { name: "pi-packages", ok: false, detail: message };
+  }
+}
+
+function piCompatCheck(): DoctorCheck {
+  const report = buildOfflinePiCompatReport();
+  const breakage = piCompatBreakage(report);
+  const note = breakage ?? report.findings[0] ?? "ok";
+  return {
+    name: "pi-compat",
+    ok: breakage === undefined,
+    detail: `status=${report.status} (${note.length > 96 ? `${note.slice(0, 93)}...` : note})`
+  };
+}
+
 export async function doctorCommand(args: string[], io: DoctorIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -182,7 +209,9 @@ export async function doctorCommand(args: string[], io: DoctorIo): Promise<numbe
     await projectCheck(values.project),
     piDispatchCheck(values.project, values["agents-dir"]),
     skillRouteLogCheck(values.project),
-    unknownAgentDriftCheck(values.project)
+    unknownAgentDriftCheck(values.project),
+    piPackagesCheck(),
+    piCompatCheck()
   ];
   io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
   io.stdout("  live R1/bandit/topology: off until Checkpoint F-PROD closes\n");
