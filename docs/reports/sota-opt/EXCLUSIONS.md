@@ -301,6 +301,12 @@
 | S4-H-1 | checkCoverageGate own-key 换 Object.hasOwn | 非可枚举键 fail-open；2–9ns |
 | S4-H-2 | critique 与 detectConflicts 结果级去重 | 公开签名 + 223ns |
 | S4-H-3 | heuristicCritic omissions 就地变异免双拷贝 | 322–486ns/run |
+| S4-J-1 | host.spawn 深度/配额双重复核死分支删除 | 不可达；3.7–5.5ns；防御纵深 |
+| S4-J-2 | startTrackedRun catalog∥learned Promise.all | 双故障竞态 + 投机读；17–18µs |
+| S4-J-3 | deleteEpisodeRecords 双文件 stat/rm 并行 | 删除数据面 + 竞态；60–62µs |
+| S4-J-4 | packet omissions 双遍融合 | 9–87ns 抖动 |
+| S4-J-5 | mailbox claimRole box() 提升 | 76–92ns；mailbox 数据面 |
+| S4-J-6 | context/index 冗余 spread/slice 消除 | 70–81ns；一次性构建 |
 | S5-A-1 | ownershipEscape 与 prescore escaped 扫描跨函数去重 | 廉价变体发散；可靠变体公开类型 + 9.8–10ns |
 | S5-A-2 | hashAssessment JSON.stringify 换手写定长序列化 | 等价但慢 11–15% |
 | S5-A-3 | from-child PASSED 路径 check-coverage 死校验短路 | 需平行路径或公开旗标；21.6ns |
