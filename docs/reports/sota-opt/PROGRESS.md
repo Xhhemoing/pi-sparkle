@@ -25,7 +25,7 @@
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
 | 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](./round-09/PLAN.md) |
 | 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
-| 11 | 第 3 波进行中 | 7 / 10（A/B/D/E 已合入；C/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-11/PLAN.md](./round-11/PLAN.md) |
+| 11 | 第 3 波进行中 | 8 / 10（A/B/C/D/E 已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-11/PLAN.md](./round-11/PLAN.md) |
 
 ### Round 1 波次
 
@@ -121,9 +121,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R11-A 跟踪门控、R11-B live 路由、R11-C 离线路由 | A/B 完成已合入；C 运行中 |
+| 1 | R11-A 跟踪门控、R11-B live 路由、R11-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R11-D 自优化、R11-E 学习、R11-F 实验 | D/E 完成已合入；F 运行中 |
-| 3 | R11-G 运行时/图 | G 本波派出 |
+| 3 | R11-G 运行时/图、R11-H 评价/需求 | G 运行中；H 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -232,11 +232,12 @@
 | R10-J | `cursor/r10-j-persist-tenth-pass-83a1` | 已合入专属分支（仅 `R10-J.md`）。无新排除 ID；I/O 地板复核；切片关闭 |
 | R11-A | `cursor/r11-a-tracking-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-A.md`）。S11-A-1..2 淘汰；预算复核 60–74 µs/run |
 | R11-B | `cursor/r11-b-live-routing-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-B.md`）。S11-B-1 淘汰；天花板复核含 M=10+learned |
-| R11-C | `cursor/r11-c-offline-routing-eleventh-pass-83a1` | 已派出 |
+| R11-C | `cursor/r11-c-offline-routing-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-C.md`）。无新排除 ID；r1c–r7c 回归门绿；贴带不越带 |
 | R11-D | `cursor/r11-d-adaptation-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-D.md`）。S11-D-1..2 淘汰；eval 地板复核 3.58–4.41 ms |
 | R11-E | `cursor/r11-e-learning-eleventh-pass-83a1` | 已合入专属分支（仅 `R11-E.md`）。无新排除 ID；SLICE-CPU 复核 17.2–17.6 µs/run |
 | R11-F | `cursor/r11-f-experiments-eleventh-pass-83a1` | 已派出（首 VM 无分支 ERROR，已重派） |
 | R11-G | `cursor/r11-g-runtime-eleventh-pass-83a1` | 已派出 |
+| R11-H | `cursor/r11-h-eval-eleventh-pass-83a1` | 已派出 |
 
 ## 合并策略
 
