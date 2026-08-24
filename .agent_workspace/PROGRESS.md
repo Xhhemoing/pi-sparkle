@@ -43,5 +43,14 @@ If `kernel.ts` is missing when gpt-B tests, skip kernel tests and still add thin
 ## Round log
 
 ### Round 1 — in progress
+
+| ID | Focus | Task |
+|---|---|---|
+| R1-fable-A | kernel reuse audit + playbook | `bc-f4a10f69-f460-5fbe-8ca5-3db216cc1a67` |
+| R1-fable-B | overlay extender checklist | `bc-8382087f-263f-58db-84e4-de0ca9aebd32` |
+| R1-opus-A | SparkleKernel + live yield | `bc-8ddcca19-64d5-53d2-ba45-2df2d57dcd07` |
+| R1-opus-B | thinking_delta mapping | `bc-dc5ea9f2-9a41-5a2a-b77d-ac0b75da407d` |
+| R1-gpt-A | live-stream probe | `bc-947807f5-4030-59e9-9be3-9a81d79ba7be` |
+| R1-gpt-B | kernel/thinking tests | `bc-39dbcf25-e3b4-5029-8356-2ada5f58b53c` |
 ### Round 2 — pending
 ### Round 3 — pending
