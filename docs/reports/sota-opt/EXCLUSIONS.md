@@ -53,6 +53,7 @@
 - D1 offline-logit design 索引；E2 APC on-prob 提升；F1 IRLS 支撑列表；G1 prob-add 父格复用
 - H1 replayPolicy exclusions → Set
 - S1-F M6-T3 shadow/canary restore population 成员判断 → Set（fail-closed 全量重校验保留，O(A×P)→O(P+A)/次；见 round-01/R1-F.md）
+- J1 `evaluatePreferenceLoop` 每主体增量折叠 + O(1) 墓碑撤销（见 round-01/R1-J.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -61,6 +62,7 @@
 
 | ID | 方案 | 原因 |
 | --- | --- | --- |
+<<<<<<< HEAD
 | S1-A-1 | gate-apply `currentGateStatus` 反向扫描早退 | 等价但 E=41 每 run 省 318ns，噪声 |
 | S1-A-2 | from-child 复用外层 prescore | 噪声 + 公开注入口风险 |
 | S1-A-3 | human-score matchAll 早退/惰性「分」匹配 | 单句输入噪声 |
@@ -78,3 +80,10 @@
 | S1-F-6 | validateExperimentPlan 返回 population Set 复用 | 公开 void 签名变更 |
 | S1-F-7 | canary reversibleScopes Set 化 | scope 个位数 |
 | S1-F-8 | recordExperimentOutcome 查重/成本累加 Set/增量化 | 与 X1-1/X0-4/X3-3 同类 |
+| S1-J-1 | preferences `rebuildViews` 增量化（按 pair 局部更新） | 未受影响 view 的 `lastUpdated` 可见时间戳改变 |
+| S1-J-2 | preferences `applyObservation` recurrence 计数器化 | 同路径已是 O(N)；派生索引同步风险 |
+| S1-J-3 | episode `reduceEpisodeEvents` runIds Set 化 | 个位级；数据面强调区 |
+| S1-J-4 | cluster 役播 role→agent 目录索引 | P 小常数；mailbox 数据面 |
+| S1-J-5 | track/loop `assignments.find` 换 Map | C≤~6，live 面 |
+| S1-J-6 | context/index dirty×generated 前缀匹配索引化 | 一次性构建，噪声级 |
+| S1-J-7 | context/packet 首个 `omissions.sort` 冗余移除 | k 小，常数噪声 |
