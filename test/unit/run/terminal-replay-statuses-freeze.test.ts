@@ -13,6 +13,20 @@ test("terminal replay statuses stay exactly COMPLETED, FAILED and BLOCKED", () =
   assert.deepEqual([...TERMINAL_REPLAY_STATUSES].toSorted(), ["BLOCKED", "COMPLETED", "FAILED"]);
 });
 
+test("option (a) adds no fourth terminal RunStatus", () => {
+  const signedOffTerminalStatuses: ReadonlySet<RunStatus> = new Set(["COMPLETED", "FAILED", "BLOCKED"]);
+  const nonTerminalRunStatuses = RUN_STATUSES.filter((status) => !signedOffTerminalStatuses.has(status));
+
+  assert.ok(nonTerminalRunStatuses.length > 0, "the RunStatus census must include non-terminal statuses");
+  assert.deepEqual(
+    RUN_STATUSES.filter((status) => TERMINAL_REPLAY_STATUSES.has(status)).toSorted(),
+    [...signedOffTerminalStatuses].toSorted()
+  );
+  for (const status of nonTerminalRunStatuses) {
+    assert.equal(TERMINAL_REPLAY_STATUSES.has(status), false, `${status} must remain non-terminal`);
+  }
+});
+
 test("every RUN_UNBLOCKED event stays outside RunStatus and the terminal replay set", () => {
   const runUnblockedEvents = EVENT_TYPES.filter((type) => type.startsWith("RUN_UNBLOCKED"));
   const runStatuses: ReadonlySet<string> = new Set(RUN_STATUSES);
