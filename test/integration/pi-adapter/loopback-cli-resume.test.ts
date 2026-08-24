@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +13,10 @@ import type {
   AgentExecutor,
   ExecutionEvent
 } from "../../../src/execution/contract.js";
-import { EventStore, runLockPath } from "../../../src/run/event-store.js";
+import { createConfiguredPiExecutor } from "../../../src/pi-adapter/runtime.js";
+import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import { startParentRun } from "../../../src/run/coordinator.js";
+import { EventStore } from "../../../src/run/event-store.js";
 import { startSupervisedRun } from "../../../src/run/supervisor.js";
 import { loadInvocationsFromStateRoot } from "../../../src/routing/cost-calibration.js";
 import { invocationsLogPath } from "../../../src/telemetry/invocation-log.js";
@@ -23,6 +25,7 @@ import {
   type LoopbackOpenAiProvider
 } from "../../helpers/loopback-openai-provider.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+import { simulateProcessDeath } from "../../helpers/process-death.js";
 
 const PROVIDER_ID = "loopback";
 const MODEL_ID = "loopback-1";
@@ -120,6 +123,50 @@ class HangingExecutor implements AgentExecutor {
   }
 }
 
+/**
+ * Supplies the deterministic verifier verdict that a plain-text Pi response
+ * cannot carry, while delegating the model call itself to the real Pi executor.
+ */
+class CascadeVerificationExecutor implements AgentExecutor {
+  private attempts = 0;
+
+  constructor(private readonly delegate: AgentExecutor) {}
+
+  async *execute(
+    request: AgentExecutionRequest,
+    signal: AbortSignal
+  ): AsyncIterable<ExecutionEvent> {
+    this.attempts += 1;
+    const verificationFailed = this.attempts === 1;
+    for await (const event of this.delegate.execute(request, signal)) {
+      if (event.type !== "MESSAGE" || event.message.type !== "TASK_RESULT") {
+        yield event;
+        continue;
+      }
+      yield verificationFailed
+        ? {
+            type: "MESSAGE",
+            message: {
+              ...event.message,
+              outcome: "FAILURE",
+              summary: "deterministic verification failed",
+              verification: { kind: "FAILED", evidenceIds: [] },
+              failure: { category: "MODEL_ERROR", detail: "deterministic verification failed" }
+            }
+          }
+        : {
+            type: "MESSAGE",
+            message: {
+              ...event.message,
+              outcome: "SUCCESS",
+              summary: "deterministic verification passed",
+              verification: { kind: "PASSED", evidenceIds: [] }
+            }
+          };
+    }
+  }
+}
+
 function supervisedTask(): TaskNode {
   return {
     id: createTaskId(() => "wire"),
@@ -137,6 +184,29 @@ function supervisedTask(): TaskNode {
   };
 }
 
+function cascadeTask(): ChildTaskInput {
+  const role = "worker";
+  return {
+    taskId: createTaskId(() => "cascade-wire"),
+    role,
+    objective: "Prove the cascade model on the loopback wire",
+    profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve(role),
+    inputArtifactIds: [],
+    acceptanceCriteria: [
+      { id: "ac-cascade-wire", description: "the second request uses the next model tier" }
+    ],
+    limits: { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 120_000 },
+    assignedModel: CATALOG_ID,
+    cascade: {
+      highRisk: false,
+      tiers: [
+        { modelId: CATALOG_ID, version: `${MODEL_ID}-v1` },
+        { modelId: DEFAULT_CATALOG_ID, version: `${DEFAULT_MODEL_ID}-v1` }
+      ]
+    }
+  };
+}
+
 async function withHarness(
   run: (input: {
     stateRoot: string;
@@ -146,7 +216,9 @@ async function withHarness(
 ): Promise<void> {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-loopback-state-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-loopback-project-"));
-  const provider = await startLoopbackOpenAiProvider({ modelId: MODEL_ID });
+  const provider = await startLoopbackOpenAiProvider({
+    modelIds: [MODEL_ID, DEFAULT_MODEL_ID]
+  });
   try {
     await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
     await saveProvidersConfig(stateRoot, {
@@ -191,6 +263,58 @@ async function withHarness(
     await rm(projectRoot, { recursive: true, force: true });
   }
 }
+
+test("cascade retry sends the next tier's model on the second loopback request", async () => {
+  await withHarness(async ({ stateRoot, projectRoot, provider }) => {
+    const piExecutor = await createConfiguredPiExecutor({
+      stateRoot,
+      providerId: PROVIDER_ID,
+      modelId: MODEL_ID,
+      apiKey: API_KEY
+    });
+    const outcome = await startParentRun(
+      {
+        stateRoot,
+        executor: new CascadeVerificationExecutor(piExecutor),
+        registry: createAgentProfileRegistry(defaultAgentProfiles())
+      },
+      {
+        projectRoot,
+        objective: "Exercise a two-tier cascade over loopback",
+        children: [cascadeTask()]
+      }
+    ).done;
+
+    assert.equal(outcome.status, "COMPLETED");
+    const taskResults = outcome.events
+      .filter((event) => event.type === "CHILD_MESSAGE")
+      .map((event) => event.payload.message)
+      .filter((message) => message.type === "TASK_RESULT");
+    assert.deepEqual(
+      taskResults.map((message) => message.verification.kind),
+      ["FAILED", "PASSED"],
+      "the first deterministic failure is what drives the cascade retry"
+    );
+    const retry = outcome.events.find((event) => event.type === "TASK_RETRY");
+    assert.ok(retry);
+    assert.equal(retry.payload.previousModel, CATALOG_ID);
+    assert.equal(retry.payload.nextModel, DEFAULT_CATALOG_ID);
+
+    assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
+    assert.equal(provider.requests.length, 2, "the failed verification causes exactly one retry");
+    for (const request of provider.requests) {
+      assert.equal(request.method, "POST");
+      assert.equal(request.url, "/v1/chat/completions");
+      assert.equal(request.authorization, `Bearer ${API_KEY}`);
+      assert.ok(typeof request.body === "object" && request.body !== null);
+      assert.equal((request.body as Record<string, unknown>).stream, true);
+    }
+    const firstBody = provider.requests[0]!.body as Record<string, unknown>;
+    const secondBody = provider.requests[1]!.body as Record<string, unknown>;
+    assert.equal(firstBody.model, MODEL_ID);
+    assert.equal(secondBody.model, DEFAULT_MODEL_ID);
+  });
+});
 
 test("flowchart resume sends flagged executor config to the offline provider", async () => {
   await withHarness(async ({ stateRoot, projectRoot, provider }) => {
@@ -304,10 +428,7 @@ test("supervised resume overrides a distinct configured default on the HTTP requ
 
     try {
       await waitForTaskRunning(stateRoot, interrupted.runId);
-      // The fixture models process death by abandoning a live handle. The
-      // lifecycle lock stays held until the owner token is gone, so clear the
-      // sidecar the dead process would have left (same remedy as m2/resume).
-      rmSync(runLockPath(stateRoot, interrupted.runId), { force: true });
+      simulateProcessDeath(stateRoot, interrupted.runId);
       assert.equal(provider.requests.length, 0, "the interrupted fixture never contacted the provider");
 
       const resumed = capture();

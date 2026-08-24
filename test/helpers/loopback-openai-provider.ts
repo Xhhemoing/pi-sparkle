@@ -16,7 +16,7 @@ export interface LoopbackOpenAiProvider {
 }
 
 export interface LoopbackOpenAiProviderOptions {
-  readonly modelId: string;
+  readonly modelIds: readonly [string, ...string[]];
   readonly responseText?: (requestNumber: number) => string;
   readonly promptTokens?: number;
   readonly completionTokens?: number;
@@ -42,6 +42,7 @@ function sendJsonError(response: ServerResponse, status: number, message: string
 function sendCompletion(
   response: ServerResponse,
   requestNumber: number,
+  modelId: string,
   options: LoopbackOpenAiProviderOptions
 ): void {
   const id = `chatcmpl-loopback-${requestNumber}`;
@@ -54,14 +55,14 @@ function sendCompletion(
       id,
       object: "chat.completion.chunk",
       created,
-      model: options.modelId,
+      model: modelId,
       choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }]
     },
     {
       id,
       object: "chat.completion.chunk",
       created,
-      model: options.modelId,
+      model: modelId,
       choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
       usage: {
         prompt_tokens: promptTokens,
@@ -110,13 +111,18 @@ export async function startLoopbackOpenAiProvider(
       sendJsonError(response, 404, "not found");
       return;
     }
-    if (!isRecord(body) || body.model !== options.modelId || body.stream !== true) {
+    if (
+      !isRecord(body) ||
+      typeof body.model !== "string" ||
+      !options.modelIds.includes(body.model) ||
+      body.stream !== true
+    ) {
       protocolErrors.push("request did not contain the configured model and stream=true");
       sendJsonError(response, 400, "invalid chat-completions request");
       return;
     }
 
-    sendCompletion(response, requests.length, options);
+    sendCompletion(response, requests.length, body.model, options);
   });
 
   await new Promise<void>((resolve, reject) => {
