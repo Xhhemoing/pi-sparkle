@@ -1,4 +1,31 @@
-# Loop 2 — SOTA follow-on (2026-08-24)
+# Loop 3 — SOTA follow-on (2026-08-24)
+
+- **Branch:** `agent/sota-opt-loop3-7e63`
+- **Parent:** Cursor Grok 4.6 orchestrator
+- **Base:** `main` @ `2a921ee` (PR #6 merged)
+- **Request:** one more SOP round (6 concurrent agents), then PR + merge
+- **Previous loop:** archived below; reports in `docs/reports/2026-08-24-sota-loop2-*.md`
+
+## Remaining gaps this loop will close (from Loop 2 §3, code-closable only)
+
+1. Declare `INSPECT_SUMMARY` stability (additive-only freeze, like `DoctorJsonReport`) and add `test/integration/cli/` coverage.
+2. Cross-process invocation lock-timeout: one bounded retry, then still drop; probe that measures the residual drop.
+3. Adaptation-plane **transitive value-import** closure check (Loop 2 P2-4): pin runtime-prefix allowlist, not just the known eval-routing→assign→model-router chain.
+4. Feedback append vs `cascadeFeedbackTombstones` rewrite race (unlocked `appendJsonlLine` / `writeFile` in `src/feedback/store.ts`).
+5. Honesty in matrix/README/dictionary; no Outcome-supported; no live R1.
+
+Policy-gated leftovers stay open: P0 independent review, F-PROD sealed holdout, ADR-006 Proposed, unbounded retention default, Node engines `>=22.19.0`, `--children` skipContract (do not invent a contract), real-provider coverage stays `PI_SMOKE=1`.
+
+## Loop 3 Round 1 ownership
+
+See `.agent_workspace/OWNERSHIP.md`. Subagents do not git commit. Parent commits after the round.
+
+_Pending._
+
+
+---
+
+# Loop 2 archive — SOTA follow-on (2026-08-24)
 
 - **Branch:** `agent/sota-opt-next-7e63`
 - **Parent:** Cursor Grok 4.6 orchestrator
