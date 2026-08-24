@@ -41,6 +41,19 @@ export interface ReconstructedRun {
   agentOutcomes: AgentOutcomeRecord[];
   lastEventId?: EventId;
   anomalies: string[];
+  /**
+   * The `RUN_BLOCKED` a `RUN_UNBLOCKED` would have to name to clear this log,
+   * or `undefined` when the log is not currently blocked. Present so the
+   * unblock producer targets the *active* block rather than re-deriving which
+   * one that is.
+   */
+  activeBlockedEventId?: EventId;
+  /**
+   * The `RUN_UNBLOCKED` that currently holds the latch open, when one does.
+   * Restore uses it to tell an already-applied unblock from one the checkpoint
+   * has not seen yet.
+   */
+  clearingUnblockEventId?: EventId;
 }
 
 export interface FlowchartCheckpointState {
@@ -83,6 +96,11 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
   let sawCreated = false;
   let sawStarted = false;
   let sawTerminal = false;
+  // Which terminal is active, and — for BLOCKED — which event opened it. An
+  // unblock must name that exact event, so the pair travels together.
+  let activeTerminalType: "RUN_COMPLETED" | "RUN_FAILED" | "RUN_BLOCKED" | undefined;
+  let activeBlockedEventId: EventId | undefined;
+  let clearingUnblockEventId: EventId | undefined;
   let sawCancel = false;
   let sawWaiting = false;
   let unmatchedPause = false;
@@ -118,13 +136,46 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
       case "RUN_FAILED": {
         if (sawTerminal) anomalies.push("multiple terminal events");
         sawTerminal = true;
+        activeTerminalType = event.type;
+        activeBlockedEventId = undefined;
+        clearingUnblockEventId = undefined;
         status = event.type === "RUN_COMPLETED" ? "COMPLETED" : "FAILED";
         break;
       }
       case "RUN_BLOCKED": {
         if (sawTerminal) anomalies.push("RUN_BLOCKED after a terminal event");
         sawTerminal = true;
+        activeTerminalType = "RUN_BLOCKED";
+        activeBlockedEventId = event.id;
+        clearingUnblockEventId = undefined;
         status = "BLOCKED";
+        break;
+      }
+      case "RUN_UNBLOCKED": {
+        // Only an unblock that names the block currently in force clears the
+        // latch. Everything else is a fact the log keeps and an anomaly it
+        // reports: the terminal stays exactly where it was, so every writer
+        // that consults `replayedTerminalStatus` keeps refusing.
+        if (activeTerminalType === undefined) {
+          anomalies.push("RUN_UNBLOCKED without an active RUN_BLOCKED");
+          break;
+        }
+        if (activeTerminalType !== "RUN_BLOCKED") {
+          anomalies.push("RUN_UNBLOCKED after a terminal event");
+          break;
+        }
+        if (event.payload.blockedEventId !== activeBlockedEventId) {
+          anomalies.push("RUN_UNBLOCKED does not match the active RUN_BLOCKED");
+          break;
+        }
+        sawTerminal = false;
+        activeTerminalType = undefined;
+        activeBlockedEventId = undefined;
+        clearingUnblockEventId = event.id;
+        // Back to the pre-terminal ladder below: started, waiting, paused and
+        // cancelled are all decided there, so the unblocked status is whatever
+        // the rest of the log says rather than a second opinion held here.
+        status = "PLANNING";
         break;
       }
       case "RUN_CANCEL_REQUESTED": {
@@ -188,7 +239,9 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
     status,
     agentOutcomes,
     ...(lastEventId !== undefined ? { lastEventId } : {}),
-    anomalies
+    anomalies,
+    ...(activeBlockedEventId !== undefined ? { activeBlockedEventId } : {}),
+    ...(clearingUnblockEventId !== undefined ? { clearingUnblockEventId } : {})
   };
 }
 
@@ -198,6 +251,12 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
  * of them is an anomaly. `RUN_BLOCKED` is one of them — the tracking gate's
  * `queue_analysis` means "terminal BLOCKED until an explicit unblock", not "keep
  * going" — which is why it belongs here next to COMPLETED and FAILED.
+ *
+ * `RUN_UNBLOCKED` is not in this set and is not a status: it ends the active
+ * BLOCKED interval, after which the log has no terminal at all and the next
+ * COMPLETED, FAILED or BLOCKED is the new one. That is the whole integration
+ * seam — every writer that asks {@link replayedTerminalStatus} whether the log
+ * already ended opens again with no per-writer exception.
  */
 export const TERMINAL_REPLAY_STATUSES: ReadonlySet<RunStatus> = new Set([
   "COMPLETED",

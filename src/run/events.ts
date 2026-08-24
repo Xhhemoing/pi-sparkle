@@ -60,6 +60,7 @@ export const EVENT_TYPES = [
   "JUDGE_DECISION",
   "MODEL_ROUTED",
   "RUN_BLOCKED",
+  "RUN_UNBLOCKED",
   "PAUSE_REQUESTED",
   "PAUSE_CLEARED",
   "INJECTION_REQUESTED",
@@ -232,6 +233,27 @@ export interface RunBlockedPayload {
   requiredEvidence: string[];
 }
 
+/**
+ * The operator's authorization to end one specific block.
+ *
+ * `blockedEventId` names the exact `RUN_BLOCKED` this clears, which is what
+ * makes repeated BLOCKED → RUNNING → BLOCKED cycles unambiguous and stops a
+ * stale command from clearing a block it never saw. `reason` is the audit
+ * rationale; the event's own `actor` records who authorized it. No evidence is
+ * copied here — facts stay in the events that already carry them
+ * (`INJECTION_REQUESTED` above all), so this event cannot become a second,
+ * unverifiable evidence vocabulary.
+ *
+ * `retryNodeId` is absent for a run-level stall block and names the FAILED
+ * flowchart node to re-drive for a gate block. It is a flowchart node id, not a
+ * `TaskId`: the reopen is a `FlowNodeState` transition, not a DAG one.
+ */
+export interface RunUnblockedPayload {
+  blockedEventId: EventId;
+  reason: string;
+  retryNodeId?: string;
+}
+
 export interface PauseRequestedPayload {
   reason?: string;
 }
@@ -324,6 +346,7 @@ export type Event =
   | (EventBase & { type: "JUDGE_DECISION"; payload: JudgeDecisionPayload })
   | (EventBase & { type: "MODEL_ROUTED"; payload: ModelRoutedPayload })
   | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
+  | (EventBase & { type: "RUN_UNBLOCKED"; payload: RunUnblockedPayload })
   | (EventBase & { type: "PAUSE_REQUESTED"; payload: PauseRequestedPayload })
   | (EventBase & { type: "PAUSE_CLEARED"; payload: EmptyPayload })
   | (EventBase & { type: "INJECTION_REQUESTED"; payload: InjectionRequestedPayload })
@@ -680,6 +703,28 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       }
       if (!Array.isArray(payload.requiredEvidence) || !payload.requiredEvidence.every((e) => typeof e === "string" && e !== "")) {
         return "payload.requiredEvidence must be an array of non-empty strings";
+      }
+      return undefined;
+    }
+    case "RUN_UNBLOCKED": {
+      // Exact keys: an unblock is an authorization record, and a payload
+      // carrying anything the reader does not understand is not one.
+      const allowed = ["blockedEventId", "reason", "retryNodeId"];
+      const unknown = Object.keys(payload).filter((key) => !allowed.includes(key));
+      if (unknown.length > 0) {
+        return `payload may only include ${allowed.join(", ")}; unknown: ${unknown.join(", ")}`;
+      }
+      if (!isEventId(payload.blockedEventId)) {
+        return "payload.blockedEventId must be a valid EventId";
+      }
+      if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
+        return "payload.reason must be a non-empty string";
+      }
+      if (
+        payload.retryNodeId !== undefined &&
+        (typeof payload.retryNodeId !== "string" || payload.retryNodeId.trim() === "")
+      ) {
+        return "payload.retryNodeId must be a non-empty string when present";
       }
       return undefined;
     }

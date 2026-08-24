@@ -174,6 +174,24 @@ export type FlowchartInjection =
   | { readonly kind: "override"; readonly nodeId: string; readonly confidence: ConfidenceScore }
   | { readonly kind: "skip"; readonly nodeId: string };
 
+/**
+ * What an authorized `RUN_UNBLOCKED` asks the flowchart state machine to undo.
+ *
+ * `retryNodeId` names the FAILED node to re-drive for a gate block; a
+ * run-level stall unblock leaves it absent and only clears the ledger latch.
+ */
+export interface FlowchartReopenRequest {
+  readonly retryNodeId?: string;
+}
+
+/** Node states a reopen refuses to rewind, because they represent work already done. */
+const EXECUTED_NODE_STATES: ReadonlySet<FlowNodeState> = new Set([
+  "RUNNING",
+  "WAITING_FOR_USER",
+  "COMPLETED",
+  "FAILED"
+]);
+
 export interface AdvanceRoundResult {
   readonly round: number;
   readonly consecutiveStalls: number;
@@ -934,6 +952,87 @@ class FlowchartSupervisorImpl implements FlowchartSupervisor {
     this.roundEvent.completedTasks.push(this.node(nodeId).taskId);
   }
 
+  /**
+   * Undoes one block so the run can be driven again.
+   *
+   * This is the flowchart plane's own reopen and it is deliberately not the DAG
+   * scheduler's: that one moves a `TaskNode` from `TaskStatus` BLOCKED to READY
+   * and stays the sole producer of that transition, with its sole caller in
+   * `runSupervisorRounds`. This one moves a `FlowNodeState`, fabricates no
+   * `TaskNode`, and appends no `TASK_STATUS_CHANGED`. Two state machines, two
+   * transitions, no shared helper to blur them.
+   *
+   * The ledger latch is cleared for both block shapes, not only the stall one.
+   * A gate block leaves the ledger untouched (the failing round still recorded
+   * evidence, so it never stalled), which makes the clear a no-op there — but a
+   * run that is blocked in *both* senses must not have a reopened node
+   * immediately re-blocked by a ledger nobody authorized to stay set.
+   *
+   * With `retryNodeId` the node must be FAILED, its failed outcome fields and
+   * its stale active route go, and the consequences that failure had on nodes
+   * downstream are rewound to PENDING before the normal propagation fixpoint
+   * re-derives them. Rewinding a descendant that already executed would discard
+   * real work, so that fails closed instead: it needs its own contract, not a
+   * silent erase. Evidence counts and every logged event survive untouched —
+   * the old attempt stays visible, this only decides what runs next.
+   */
+  reopenAfterUnblock(request: FlowchartReopenRequest): void {
+    this.ledger = { ...this.ledger, isBlocked: false, consecutiveStalls: 0, requiredEvidence: [] };
+    const retryNodeId = request.retryNodeId;
+    if (retryNodeId === undefined) return;
+
+    const runtime = this.getRuntime(retryNodeId);
+    if (runtime.state !== "FAILED") {
+      throw new DomainValidationError(
+        `cannot reopen node ${retryNodeId} in state ${runtime.state}: only a FAILED node can be re-driven`
+      );
+    }
+    const consequences = this.downstreamConsequences(retryNodeId);
+    const executed = consequences.filter((nodeId) =>
+      EXECUTED_NODE_STATES.has(this.getRuntime(nodeId).state)
+    );
+    if (executed.length > 0) {
+      throw new DomainValidationError(
+        `cannot reopen node ${retryNodeId}: ${executed.join(", ")} already executed, and rewinding executed work is not authorized by an unblock`
+      );
+    }
+    for (const nodeId of consequences) {
+      const state = this.getRuntime(nodeId).state;
+      if (state === "READY" || state === "SKIPPED") this.setRuntime(nodeId, { state: "PENDING" });
+    }
+    this.runtime.set(retryNodeId, {
+      state: "READY",
+      evidenceCount: runtime.evidenceCount,
+      ...(runtime.model !== undefined ? { model: runtime.model } : {}),
+      ...(runtime.parallelGroup !== undefined ? { parallelGroup: runtime.parallelGroup } : {})
+    });
+    this.activeRoutes.delete(retryNodeId);
+    this.propagate();
+    this.assertWaiterInvariant();
+  }
+
+  /**
+   * The nodes whose state is a consequence of one node's result: everything
+   * reachable through outgoing edges that the destination's join actually
+   * reads. An edge a join policy does not require carries no consequence, so
+   * following it would rewind a node for a reason it never depended on.
+   */
+  private downstreamConsequences(nodeId: string): string[] {
+    const seen = new Set<string>();
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of this.outgoing.get(current) ?? []) {
+        if (edge.to === nodeId || seen.has(edge.to)) continue;
+        const join = this.joinPolicies.get(edge.to);
+        if (join !== undefined && !join.requiredNodeIds.includes(edge.from)) continue;
+        seen.add(edge.to);
+        queue.push(edge.to);
+      }
+    }
+    return [...seen];
+  }
+
   advanceRound(): AdvanceRoundResult {
     const event = this.roundEvent;
     const progress = classifyRoundProgress(event, this.ledger);
@@ -1014,4 +1113,25 @@ export function restoreFlowchartSupervisor(
   snapshot: FlowchartSupervisorSnapshot
 ): FlowchartSupervisor {
   return createFlowchartSupervisor({ ...config, snapshot });
+}
+
+/**
+ * The checkpoint transform an authorized unblock performs: snapshot in,
+ * reopened snapshot out.
+ *
+ * It runs through a restored supervisor rather than editing the JSON, so the
+ * reopen is checked by the same restore validation, the same waiter invariant
+ * and the same propagation fixpoint every other transition is. It is a pure
+ * function of its inputs and idempotent on an already-reopened snapshot in the
+ * only way that matters: a second call with the same `retryNodeId` refuses,
+ * because that node is no longer FAILED.
+ */
+export function reopenBlockedFlowchartSnapshot(
+  config: Omit<FlowchartSupervisorConfig, "snapshot">,
+  snapshot: FlowchartSupervisorSnapshot,
+  request: FlowchartReopenRequest = {}
+): FlowchartSupervisorSnapshot {
+  const impl = new FlowchartSupervisorImpl({ ...config, snapshot });
+  impl.reopenAfterUnblock(request);
+  return impl.snapshot();
 }

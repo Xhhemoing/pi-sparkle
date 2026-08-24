@@ -142,11 +142,22 @@ test("run prints a routed block when a flowchart run ends BLOCKED", async () => 
       ),
       started.err
     );
-    assert.match(started.err, /^ {2}note: resume re-runs this run but cannot unblock it/m);
+    assert.match(started.err, /^ {2}note: resume alone replays BLOCKED/m);
   });
 });
 
-test("the BLOCKED block names the three options that exist today, and no others", async () => {
+/**
+ * The honesty pin, and the reason it changed.
+ *
+ * Its previous form said no event clears a BLOCKED log and resume replays it
+ * "until an unblock ships". `RUN_UNBLOCKED` shipped, so both clauses became
+ * false, and a routing block that tells an operator a remedy does not exist is
+ * worse than one that omits it. The order the block prints is the order the
+ * operator works in: inspect the block, unblock it, then resume to run the
+ * reopened work. Resume keeps its note rather than a `next:` because on its own
+ * it still replays BLOCKED — that part was true before and is still true.
+ */
+test("the BLOCKED block names the four options that exist, in the order they are used", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const started = await runFlowchart(stateRoot, projectRoot);
     assert.equal(started.code, 1);
@@ -154,13 +165,20 @@ test("the BLOCKED block names the three options that exist today, and no others"
     const routed = started.err
       .split("\n")
       .filter((line) => line.startsWith("  next: ") || line.startsWith("  note: "));
-    assert.equal(routed.length, 3, `expected inspect, inject and the resume note: ${started.err}`);
-    assert.match(routed[0] ?? "", /pnpm cli inspect --run /);
-    assert.match(routed[1] ?? "", /pnpm cli inject --run .* --type fact /);
-    // Resume is listed for what it does, not for what an operator hopes it does:
-    // nothing clears a BLOCKED log yet, so it cannot be sold as the remedy.
-    assert.match(routed[2] ?? "", /no event clears a BLOCKED log today/);
-    assert.match(routed[2] ?? "", /replays BLOCKED until an unblock ships/);
+    assert.deepEqual(
+      routed,
+      [
+        `  next: pnpm cli inspect --run ${started.runId} --state-root ${stateRoot}`,
+        `  next: pnpm cli inject --run ${started.runId} --type fact --key <key> --value <text> --state-root ${stateRoot}`,
+        `  next: pnpm cli unblock --run ${started.runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}`,
+        `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${started.runId} --state-root ${stateRoot} executes the reopened work`
+      ],
+      started.err
+    );
+
+    // The retired claims, named so a revert cannot quietly reinstate them.
+    assert.ok(!started.err.includes("no event clears a BLOCKED log today"), started.err);
+    assert.ok(!started.err.includes("until an unblock ships"), started.err);
   });
 });
 
@@ -176,11 +194,11 @@ test("a COMPLETED run prints no BLOCKED block", async () => {
   });
 });
 
-test("resume leaves the run BLOCKED, which is what the note says it does", async () => {
+test("resume without an unblock leaves the run BLOCKED, and says so again", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const started = await runFlowchart(stateRoot, projectRoot);
     assert.equal(started.code, 1);
-    assert.match(started.err, /replays BLOCKED until an unblock ships/);
+    assert.match(started.err, /^ {2}note: resume alone replays BLOCKED/m);
 
     const resumed = capture();
     const code = await main(["resume", "--run", started.runId, "--state-root", stateRoot], resumed.io);
@@ -189,6 +207,16 @@ test("resume leaves the run BLOCKED, which is what the note says it does", async
       resumed.out.join(""),
       new RegExp(`Run ${started.runId}: BLOCKED`),
       "resume replays the block rather than clearing it"
+    );
+    // The block the operator needs is on the command they reached for, not only
+    // on the `run` that first produced it. Before this, resume printed the
+    // status and nothing else, which is how an operator ends up resuming twice.
+    assert.match(resumed.err.join(""), /^ {2}reason: no progress for too many rounds$/m);
+    assert.ok(
+      resumed.err.join("").includes(
+        `  next: pnpm cli unblock --run ${started.runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`
+      ),
+      resumed.err.join("")
     );
   });
 });
@@ -340,6 +368,75 @@ test("the wiring pin fails when the --children branch drops the BLOCKED block", 
     },
     assert.AssertionError,
     "the pin passed on a source that lost the children branch's BLOCKED block"
+  );
+});
+
+/**
+ * Every flowchart command that can end BLOCKED, not just the one that starts a
+ * run. `run` printed the block from the beginning; `resume` and `answer`
+ * printed a status line and nothing else, which is exactly the operator who
+ * resumes a second time hoping for a different answer.
+ *
+ * The check is on `flowchartExitCode`, the single function all four sites end
+ * at, so a fifth flowchart command cannot be added without routing BLOCKED too.
+ */
+function assertEveryFlowchartExitRoutesBlocked(source: string): void {
+  const exits = [...source.matchAll(/return flowchartExitCode\(outcome\.status\);/g)];
+  assert.equal(exits.length, 4, "run --flowchart, run --children, resume and answer report flowchart outcomes");
+  for (const exit of exits) {
+    assert.match(
+      source.slice(Math.max(0, exit.index - 200), exit.index),
+      /if \(outcome\.status === "BLOCKED"\) \{\s*reportBlockedRun\(io, outcome, stateRoot\);\s*\}/,
+      `a flowchart outcome exits without routing BLOCKED at index ${exit.index}`
+    );
+  }
+}
+
+test("resume and answer route BLOCKED alongside both run branches", () => {
+  assertEveryFlowchartExitRoutesBlocked(readFileSync(MAIN_PATH, "utf8"));
+});
+
+test("the four-site pin fails when resume drops the BLOCKED block", () => {
+  const source = readFileSync(MAIN_PATH, "utf8");
+  const needle = `      return reportFailedRun(io, "resume", "flowchart", outcome.runId, stateRoot, reason);
+    }`;
+  assert.ok(source.includes(needle), "mutation target not found in resumeCommand");
+  assert.throws(
+    () => {
+      assertEveryFlowchartExitRoutesBlocked(
+        source.replace(
+          `${needle}
+    // Same block \`run\` prints, on the command an operator reaches for after
+    // reading it. The supervised branch above is deliberately left alone: its
+    // stderr is byte-pinned, and a DAG resume has no flowchart node to reopen.
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }`,
+          needle
+        )
+      );
+    },
+    assert.AssertionError,
+    "the pin passed on a source where resume lost the BLOCKED block"
+  );
+});
+
+/**
+ * The branch that must stay silent. `resume --supervised` runs the DAG
+ * supervisor, whose BLOCKED stderr is byte-pinned by
+ * `loopback-cli-resume.test.ts`, and which has no flowchart node an unblock
+ * could reopen. Adding the block there would break a frozen pin and offer a
+ * remedy that does not apply.
+ */
+test("the supervised resume branch prints no BLOCKED block", () => {
+  const source = readFileSync(MAIN_PATH, "utf8");
+  const start = source.indexOf("  if (values.supervised === true) {");
+  assert.ok(start >= 0, "the supervised resume branch must remain identifiable");
+  const end = source.indexOf("\n  if (checkpointCarriesFlowchart(existing)) {", start);
+  assert.ok(end > start, "could not find the end of the supervised branch");
+  assert.ok(
+    !source.slice(start, end).includes("reportBlockedRun"),
+    "the supervised branch must not print the flowchart BLOCKED block"
   );
 });
 

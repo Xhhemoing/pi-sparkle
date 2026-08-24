@@ -177,12 +177,30 @@ export function executionAuthority(input: {
   return input.taskContext;
 }
 
+/**
+ * The gate's own view of the run status, reconstructed for the `from` field of
+ * the next transition.
+ *
+ * It tracks the active `RUN_BLOCKED` id for the same reason replay does: only
+ * an unblock that names the block in force clears it. A stale or unmatched
+ * `RUN_UNBLOCKED` leaves the gate BLOCKED, so the two reconstructions agree
+ * about which run is running — without that, an unblocked run's next
+ * transition would claim to start from a block that no longer exists.
+ */
 function currentGateStatus(events: readonly Event[]): GateRunStatus {
   let status: GateRunStatus = "RUNNING";
+  let blockedEventId: EventId | undefined;
   for (const event of events) {
     if (event.type === "GATE_TRANSITION") status = event.payload.to;
-    else if (event.type === "RUN_BLOCKED") status = "BLOCKED";
-    else if (event.type === "RUN_WAITING_FOR_USER") status = "WAITING_FOR_USER";
+    else if (event.type === "RUN_BLOCKED") {
+      status = "BLOCKED";
+      blockedEventId = event.id;
+    } else if (event.type === "RUN_UNBLOCKED") {
+      if (blockedEventId !== undefined && event.payload.blockedEventId === blockedEventId) {
+        status = "RUNNING";
+        blockedEventId = undefined;
+      }
+    } else if (event.type === "RUN_WAITING_FOR_USER") status = "WAITING_FOR_USER";
     else if (event.type === "USER_ANSWER" || event.type === "RUN_STARTED") status = "RUNNING";
   }
   return status;

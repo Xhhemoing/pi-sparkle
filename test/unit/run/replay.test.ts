@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   createAgentInstanceId,
+  createEventId,
   createProjectId,
   createRunId,
   createTaskId
@@ -161,13 +162,7 @@ test("all three flowchart terminal recorders refuse while replay names BLOCKED",
   );
 });
 
-test("current operator and scheduler signals cannot clear RUN_BLOCKED or its terminal latch", () => {
-  assert.equal(
-    (EVENT_TYPES as readonly string[]).includes("RUN_UNBLOCKED"),
-    false,
-    "adding persisted unblock schema requires parent sign-off and replacement of this current-behavior pin"
-  );
-
+test("operator and scheduler signals other than RUN_UNBLOCKED cannot clear the terminal latch", () => {
   const blocked = [
     makeEvent("RUN_CREATED", { run }),
     makeEvent("RUN_STARTED", {}),
@@ -218,6 +213,169 @@ test("current operator and scheduler signals cannot clear RUN_BLOCKED or its ter
       `${signal.type} must leave RUN_BLOCKED terminal for the next recorder`
     );
   }
+});
+
+/**
+ * The one event that does clear the latch, and the seam the whole unblock
+ * contract rests on.
+ *
+ * Three flowchart recorders, the parent-terminal guard and every other writer
+ * decide whether the log already ended by asking `replayedTerminalStatus`. So a
+ * matched `RUN_UNBLOCKED` reopening all of them is not five changes: it is this
+ * one, and the per-writer special case that would otherwise be needed at each
+ * site is what these cases exist to keep from ever being written.
+ */
+function blockedLog(id: string) {
+  return [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent(
+      "RUN_BLOCKED",
+      { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_x"] },
+      { id: createEventId(() => id) }
+    )
+  ];
+}
+
+function unblocking(id: string, retryNodeId?: string) {
+  return makeEvent(
+    "RUN_UNBLOCKED",
+    {
+      blockedEventId: createEventId(() => id),
+      reason: "operator reviewed the queued analysis",
+      ...(retryNodeId !== undefined ? { retryNodeId } : {})
+    },
+    { id: createEventId(() => `unblock-${id}`) }
+  );
+}
+
+test("a matched RUN_UNBLOCKED clears the latch, so every terminal recorder opens again", () => {
+  assert.ok(
+    (EVENT_TYPES as readonly string[]).includes("RUN_UNBLOCKED"),
+    "the unblock is a persisted event type, not a runtime-only signal"
+  );
+
+  const blocked = blockedLog("block-1");
+  const unblocked = [...blocked, unblocking("block-1", "node-a")];
+
+  assert.equal(replayRun(unblocked).status, "RUNNING", "the run is back on the pre-terminal ladder");
+  assert.equal(replayedTerminalStatus(unblocked), undefined, "the latch is open");
+  assert.deepEqual(replayRun(unblocked).anomalies, []);
+  assert.equal(replayRun(unblocked).activeBlockedEventId, undefined);
+  assert.equal(replayRun(unblocked).clearingUnblockEventId, unblocked[3]?.id);
+
+  // The point of clearing it: the next terminal is a first terminal, not a
+  // second one, at every recorder that consults the definition above.
+  const completed = [...unblocked, makeEvent("RUN_COMPLETED", {})];
+  assert.equal(replayRun(completed).status, "COMPLETED");
+  assert.deepEqual(replayRun(completed).anomalies, []);
+  assert.equal(replayedTerminalStatus(completed), "COMPLETED");
+
+  // And the latch closes behind it exactly as before.
+  assert.deepEqual(
+    replayRun([...completed, makeEvent("RUN_FAILED", { reason: "late" })]).anomalies,
+    ["multiple terminal events"]
+  );
+
+  // `RUN_UNBLOCKED` is not itself a status, so the set of terminals it opens is
+  // the same set it is not a member of.
+  assert.deepEqual([...TERMINAL_REPLAY_STATUSES].toSorted(), ["BLOCKED", "COMPLETED", "FAILED"]);
+});
+
+test("an unblocked run re-derives its status rather than asserting RUNNING", () => {
+  const unblocked = [...blockedLog("block-1"), unblocking("block-1")];
+  assert.equal(
+    replayRun([...unblocked, makeEvent("PAUSE_REQUESTED", { reason: "hold" })]).status,
+    "PAUSED"
+  );
+  assert.equal(replayRun([...unblocked, makeEvent("RUN_CANCEL_REQUESTED", {})]).status, "CANCELLED");
+  assert.equal(
+    replayRun([
+      ...unblocked,
+      makeEvent("RUN_WAITING_FOR_USER", { messageId: "msg_01234567-89ab-cdef-0123-456789abcdef" })
+    ]).status,
+    "WAITING_FOR_USER"
+  );
+});
+
+test("a stale RUN_UNBLOCKED is recorded as an anomaly and the block stays in force", () => {
+  const stale = [...blockedLog("block-1"), unblocking("block-other")];
+  const state = replayRun(stale);
+  assert.equal(state.status, "BLOCKED", "an unblock aimed at a different block clears nothing");
+  assert.equal(replayedTerminalStatus(stale), "BLOCKED");
+  assert.deepEqual(state.anomalies, ["RUN_UNBLOCKED does not match the active RUN_BLOCKED"]);
+  assert.equal(state.activeBlockedEventId, blockedLog("block-1")[2]?.id);
+  assert.equal(state.clearingUnblockEventId, undefined);
+  assert.deepEqual(
+    replayRun([...stale, makeEvent("RUN_FAILED", { reason: "late" })]).anomalies,
+    ["RUN_UNBLOCKED does not match the active RUN_BLOCKED", "multiple terminal events"],
+    "the recorders stay refused after a stale unblock"
+  );
+
+  // Replaying the same authorization twice is the same mismatch: the first one
+  // already retired the block it named.
+  const doubled = [...blockedLog("block-1"), unblocking("block-1"), unblocking("block-1")];
+  assert.deepEqual(replayRun(doubled).anomalies, ["RUN_UNBLOCKED without an active RUN_BLOCKED"]);
+  assert.equal(replayRun(doubled).status, "RUNNING", "the second is noise, not a re-block");
+});
+
+test("RUN_UNBLOCKED against a COMPLETED or unblocked log is anomalous and changes nothing", () => {
+  const completed = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_COMPLETED", {}),
+    unblocking("block-1")
+  ];
+  assert.equal(replayRun(completed).status, "COMPLETED", "an unblock cannot un-complete a run");
+  assert.equal(replayedTerminalStatus(completed), "COMPLETED");
+  assert.deepEqual(replayRun(completed).anomalies, ["RUN_UNBLOCKED after a terminal event"]);
+
+  const failed = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_FAILED", { reason: "executor crashed" }),
+    unblocking("block-1")
+  ];
+  assert.equal(replayRun(failed).status, "FAILED");
+  assert.deepEqual(replayRun(failed).anomalies, ["RUN_UNBLOCKED after a terminal event"]);
+
+  const neverBlocked = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    unblocking("block-1")
+  ];
+  assert.equal(replayRun(neverBlocked).status, "RUNNING");
+  assert.deepEqual(replayRun(neverBlocked).anomalies, ["RUN_UNBLOCKED without an active RUN_BLOCKED"]);
+});
+
+test("a run can cycle BLOCKED, RUNNING and BLOCKED again, each unblock naming its own block", () => {
+  const cycled = [
+    ...blockedLog("block-1"),
+    unblocking("block-1", "node-a"),
+    makeEvent(
+      "RUN_BLOCKED",
+      { reason: "no progress for too many rounds", requiredEvidence: ["evd_y"] },
+      { id: createEventId(() => "block-2") }
+    )
+  ];
+  assert.equal(replayRun(cycled).status, "BLOCKED", "the second block is a first terminal, not a second");
+  assert.deepEqual(replayRun(cycled).anomalies, []);
+  assert.equal(replayRun(cycled).activeBlockedEventId, createEventId(() => "block-2"));
+  assert.equal(replayRun(cycled).clearingUnblockEventId, undefined, "the earlier clear is spent");
+
+  // The first block's authorization does not carry over to the second block.
+  const reused = [...cycled, unblocking("block-1")];
+  assert.equal(replayRun(reused).status, "BLOCKED");
+  assert.deepEqual(replayRun(reused).anomalies, ["RUN_UNBLOCKED does not match the active RUN_BLOCKED"]);
+
+  const cleared = [...cycled, unblocking("block-2")];
+  assert.equal(replayRun(cleared).status, "RUNNING");
+  assert.deepEqual(replayRun(cleared).anomalies, []);
+  assert.equal(replayedTerminalStatus(cleared), undefined);
+
+  const finished = [...cleared, makeEvent("RUN_COMPLETED", {})];
+  assert.equal(replayRun(finished).status, "COMPLETED");
+  assert.deepEqual(replayRun(finished).anomalies, [], "two full cycles still end with one terminal");
 });
 
 test("replayedTerminalStatus names the terminal a log already carries", () => {

@@ -33,6 +33,7 @@ import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
   startFlowchartRun,
+  unblockFlowchartRun,
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
@@ -258,6 +259,7 @@ Usage:
   pi-sparkle pause --run <runId> [--reason <text>] [--state-root]
   pi-sparkle pause --clear --run <runId> [--state-root]
   pi-sparkle inject --run <runId> --type fact|override|skip [--key] [--value] [--node] [--confidence] [--actor] [--state-root]
+  pi-sparkle unblock --run <runId> --reason <text> [--retry-node <nodeId>] [--actor <who>] [--state-root <dir>]
   pi-sparkle auth status|login|logout [--state-root <dir>] ...
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
@@ -319,6 +321,12 @@ commit --allow-empty (optional --sign / --file for an edited JSON proposal).
 pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clears it
 and continues. inject records a typed fact/override/skip against DecisionPolicy
 without executing user strings.
+unblock is the only thing that ends a BLOCKED run: it records one RUN_UNBLOCKED
+naming the exact block it clears plus the operator's --reason, reopens the state
+the block left (--retry-node re-drives one FAILED flowchart node; a stall block
+takes no node), and executes nothing. resume runs the reopened work. A stale or
+repeated unblock is refused, and so is a --retry-node that is not the failed node
+the block names.
 inspect --episode prints the latest bound episode snapshot (inspect --run also
 prints the episode id when a run is attached). inspect --run --json stays a pure
 event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
@@ -501,10 +509,11 @@ function reportFailedRun(
  * ledger's outstanding evidence. Last writer wins, matching `inspectRun` — a
  * run can block more than once and only the newest demand is current.
  *
- * The remedies are the ones that exist today, resume included with what it
- * actually does: no event clears a blocked log, so a resumed BLOCKED run
- * re-runs and replays BLOCKED. That stays true until an unblock ships, and
- * saying so here is cheaper than an operator discovering it.
+ * The remedies are the ones that exist, and the order matters: inspect the
+ * block, unblock it, then resume. `unblock` is what ends the block — it records
+ * the authorization and reopens the state — and resume is what runs the
+ * reopened work. Resume on its own still replays BLOCKED, which is why the note
+ * says so rather than letting an operator find out by trying it.
  */
 export function formatBlockedRunReport(
   runId: RunId,
@@ -521,7 +530,8 @@ export function formatBlockedRunReport(
     `  required evidence: ${requiredEvidence.length === 0 ? "(none recorded)" : requiredEvidence.join(", ")}\n`,
     `  next: pnpm cli inspect --run ${runId} --state-root ${stateRoot}\n`,
     `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
-    `  note: resume re-runs this run but cannot unblock it — no event clears a BLOCKED log today, so pnpm cli resume --run ${runId} --state-root ${stateRoot} replays BLOCKED until an unblock ships\n`
+    `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`,
+    `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`
   ].join("");
 }
 
@@ -1377,6 +1387,12 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "resume", "flowchart", outcome.runId, stateRoot, reason);
     }
+    // Same block `run` prints, on the command an operator reaches for after
+    // reading it. The supervised branch above is deliberately left alone: its
+    // stderr is byte-pinned, and a DAG resume has no flowchart node to reopen.
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }
     return flowchartExitCode(outcome.status);
   }
   if (wantsFlowchartFlags || values.unpause === true) {
@@ -1388,6 +1404,78 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   await checkpointStore.write(checkpoint);
   io.stdout(`Run ${runId}: checkpoint rebuilt (${state.status}, ${read.events.length} events)\n`);
   return 0;
+}
+
+/**
+ * The one command that ends a BLOCKED run.
+ *
+ * It is separate from `inject` on purpose: injection adds a typed fact and
+ * deliberately holds no lifecycle lock because it may be aimed at a live run,
+ * while this changes what every writer thinks the run's terminal is and has to
+ * serialize against resume and delete. `unblockFlowchartRun` takes that lock,
+ * insists the run is actually blocked, and refuses a stale or repeated attempt.
+ *
+ * It executes nothing. `resume` is still the only surface that spends money, so
+ * the operator authorizes and runs in two separately auditable steps — which is
+ * also why the success output ends by naming the resume rather than doing it.
+ */
+async function unblockCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      run: { type: "string" },
+      reason: { type: "string" },
+      "retry-node": { type: "string" },
+      actor: { type: "string" },
+      "state-root": { type: "string" }
+    }
+  });
+  const reason = values.reason;
+  if (values.run === undefined || reason === undefined || reason.trim() === "") {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock requires --run <runId> and a non-empty --reason <text>",
+      next: "pass --run <runId> and --reason <text> recording why the block is cleared",
+      ...(values.run !== undefined ? { runId: values.run } : {})
+    });
+  }
+  const retryNode = values["retry-node"];
+  if (retryNode !== undefined && retryNode.trim() === "") {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock --retry-node requires a non-empty flowchart node id",
+      next: "pass --retry-node <nodeId> from the flowchart line of pi-sparkle inspect, or omit it",
+      runId: values.run
+    });
+  }
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const runId = parseRunId(values.run);
+  const outcome = await unblockFlowchartRun(
+    {
+      stateRoot,
+      router: await createCalibratedCliModelRouter(stateRoot),
+      pause: createFilePauseController(stateRoot)
+    },
+    runId,
+    {
+      reason,
+      ...(retryNode !== undefined ? { retryNodeId: retryNode } : {}),
+      ...(values.actor !== undefined ? { actor: values.actor } : {})
+    }
+  );
+  const nodes = Object.entries(outcome.snapshot.nodes)
+    .map(([id, node]) => `${id}=${node.state}`)
+    .join(" ");
+  io.stdout(`Run ${runId}: unblocked (${outcome.status})\n`);
+  io.stdout(`  reason: ${reason}\n`);
+  if (retryNode !== undefined) {
+    io.stdout(`  reopened: ${retryNode}\n`);
+  }
+  io.stdout(`  flowchart: ${outcome.snapshot.status}${nodes === "" ? "" : ` (${nodes})`}\n`);
+  io.stdout(`  resume: pnpm cli resume --run ${runId} --state-root ${stateRoot}\n`);
+  return CLI_EXIT.ok;
 }
 
 const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;
@@ -1496,6 +1584,9 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "answer", "flowchart", outcome.runId, stateRoot, reason);
+    }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
     }
     return flowchartExitCode(outcome.status);
   }
@@ -1861,6 +1952,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await pauseCommand(rest, io);
       case "inject":
         return await injectCommand(rest, io);
+      case "unblock":
+        return await unblockCommand(rest, io);
       case "doctor":
         return await doctorCommand(rest, io);
       case "pi-compat":

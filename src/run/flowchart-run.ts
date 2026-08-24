@@ -4,6 +4,7 @@ import {
   createEventId,
   createRunId,
   createTaskId,
+  type EventId,
   type IdGenerator,
   type RunId,
   type TaskId
@@ -57,6 +58,7 @@ import {
 } from "./flowchart-executor.js";
 import {
   createFlowchartSupervisor,
+  reopenBlockedFlowchartSnapshot,
   restoreFlowchartSupervisor,
   type ChildNodeResult,
   type FlowchartRunLimits,
@@ -1191,6 +1193,72 @@ async function startLockedFlowchartRun(
   return withRunTeardown(ctx, () => runFlowchartLoop(ctx));
 }
 
+/** Position of an event id in the log, or `-1` when it is not on it. */
+function eventIndex(events: readonly Event[], id: EventId | undefined): number {
+  return id === undefined ? -1 : events.findIndex((event) => event.id === id);
+}
+
+/**
+ * The unblock a durable checkpoint has not caught up with, if any.
+ *
+ * `unblockFlowchartRun` appends its authorization before it writes the reopened
+ * checkpoint, so a crash between the two leaves the log unblocked and the
+ * checkpoint still describing the block. Every restore path closes that window
+ * by re-deriving the same transform — and closes it *idempotently*, by
+ * comparing the clearing unblock's position with `checkpoint.lastEventId`
+ * rather than re-applying whenever the log carries one. A checkpoint that
+ * already includes the reopen is left exactly as it is.
+ */
+function unappliedUnblock(
+  events: readonly Event[],
+  replayed: ReconstructedRun,
+  checkpoint: RunCheckpoint
+): Extract<Event, { type: "RUN_UNBLOCKED" }> | undefined {
+  const at = eventIndex(events, replayed.clearingUnblockEventId);
+  if (at < 0 || eventIndex(events, checkpoint.lastEventId) >= at) return undefined;
+  const event = events[at];
+  return event !== undefined && event.type === "RUN_UNBLOCKED" ? event : undefined;
+}
+
+/**
+ * The supervisor a durable checkpoint describes, brought level with an unblock
+ * the checkpoint predates. Shared by every restore path so a pause or an
+ * inject taken in that crash window cannot checkpoint the reopen back out.
+ */
+async function restoreCheckpointedSupervisor(input: {
+  readonly deps: FlowchartRunDeps;
+  readonly runId: RunId;
+  readonly projectRoot: string;
+  readonly events: readonly Event[];
+  readonly replayed: ReconstructedRun;
+  readonly checkpoint: RunCheckpoint;
+  readonly flowchart: FlowchartCheckpointState;
+  readonly now: () => IsoTimestamp;
+  readonly generateId: IdGenerator | undefined;
+}): Promise<FlowchartSupervisor> {
+  const { definition, snapshot, limits } = input.flowchart;
+  const config = {
+    flowchart: await flowchartForSupervisor(input.deps.stateRoot, input.projectRoot, definition),
+    router: input.deps.router,
+    limits,
+    runId: input.runId,
+    ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
+    now: input.now
+  };
+  const pending = unappliedUnblock(input.events, input.replayed, input.checkpoint);
+  const restored =
+    pending === undefined
+      ? snapshot
+      : reopenBlockedFlowchartSnapshot(
+          config,
+          snapshot,
+          pending.payload.retryNodeId !== undefined
+            ? { retryNodeId: pending.payload.retryNodeId }
+            : {}
+        );
+  return restoreFlowchartSupervisor(config, restored);
+}
+
 export async function resumeFlowchartRun(
   deps: FlowchartRunDeps,
   runId: RunId,
@@ -1240,18 +1308,18 @@ async function resumeLockedFlowchartRun(
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
 
-  const { definition, snapshot, limits } = checkpoint.flowchart;
-  const supervisor = restoreFlowchartSupervisor(
-    {
-      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
-      router: deps.router,
-      limits,
-      runId,
-      ...(generateId !== undefined ? { generateId } : {}),
-      now
-    },
-    snapshot
-  );
+  const { definition, limits } = checkpoint.flowchart;
+  const supervisor = await restoreCheckpointedSupervisor({
+    deps,
+    runId,
+    projectRoot: replayed.project.rootPath,
+    events: read.events,
+    replayed,
+    checkpoint,
+    flowchart: checkpoint.flowchart,
+    now,
+    generateId
+  });
 
   const make = makeEventFactory(runId, now, generateId);
   const abort = new RunAbortScope();
@@ -1398,18 +1466,18 @@ async function restoreFlowchartSession(
   if (checkpoint.flowchart === undefined) {
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
-  const { definition, snapshot, limits } = checkpoint.flowchart;
-  const supervisor = restoreFlowchartSupervisor(
-    {
-      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
-      router: deps.router,
-      limits,
-      runId,
-      ...(generateId !== undefined ? { generateId } : {}),
-      now
-    },
-    snapshot
-  );
+  const { definition, limits } = checkpoint.flowchart;
+  const supervisor = await restoreCheckpointedSupervisor({
+    deps,
+    runId,
+    projectRoot: replayed.project.rootPath,
+    events: read.events,
+    replayed,
+    checkpoint,
+    flowchart: checkpoint.flowchart,
+    now,
+    generateId
+  });
   const ctx: FlowchartLoopContext = {
     supervisor,
     definition,
@@ -1499,4 +1567,195 @@ export async function injectFlowchartRun(
     await preserveResumableState(ctx);
     throw error;
   }
+}
+
+export interface FlowchartUnblockRequest {
+  /** The operator's audit rationale. Recorded verbatim; never derived. */
+  readonly reason: string;
+  /** The FAILED node to re-drive. Required when the block names one. */
+  readonly retryNodeId?: string;
+  /** Who authorized the transition; recorded as the event's actor. */
+  readonly actor?: string;
+}
+
+/**
+ * The node an unblock has to reopen, checked against the block it clears.
+ *
+ * A gate block records the turn it blocked on (`GATE_TRANSITION.turnId`, which
+ * tracking assessments set to the child task id). When that turn's node is
+ * FAILED, reopening anything else would spend the authorization while leaving
+ * the run stuck on the same failure, so the operator must name it exactly.
+ *
+ * Blocks with no failed node behind them take no target: the stall shape has
+ * none by construction, and demanding one for every gate block would leave
+ * those runs permanently unblockable — the defect this contract exists to
+ * remove.
+ */
+function gateBlockedFailedNode(
+  events: readonly Event[],
+  blockedEventId: EventId,
+  definition: Flowchart,
+  snapshot: FlowchartSupervisorSnapshot
+): string | undefined {
+  const at = eventIndex(events, blockedEventId);
+  if (at < 0) return undefined;
+  // `applyTrackingGate` writes the transition and the block in one apply, so
+  // the newest transition before the block is the one that caused it.
+  let turnId: string | undefined;
+  for (let index = at - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event === undefined || event.type !== "GATE_TRANSITION") continue;
+    if (event.payload.to === "BLOCKED") turnId = event.payload.turnId;
+    break;
+  }
+  if (turnId === undefined) return undefined;
+  const node = definition.nodes.find((entry) => entry.taskId === turnId);
+  if (node === undefined) return undefined;
+  return snapshot.nodes[node.id]?.state === "FAILED" ? node.id : undefined;
+}
+
+function resolveRetryTarget(
+  events: readonly Event[],
+  blockedEventId: EventId,
+  definition: Flowchart,
+  snapshot: FlowchartSupervisorSnapshot,
+  requested: string | undefined
+): string | undefined {
+  const expected = gateBlockedFailedNode(events, blockedEventId, definition, snapshot);
+  if (expected !== undefined && requested !== expected) {
+    throw new DomainValidationError(
+      requested === undefined
+        ? `this block names failed node ${expected}: pass --retry-node ${expected} to reopen it`
+        : `--retry-node ${requested} is not the failed node this block names (${expected})`
+    );
+  }
+  return requested;
+}
+
+/**
+ * Records the operator's authorization to end one block, and reopens the state
+ * that block left behind. It executes nothing.
+ *
+ * This is a dedicated command rather than a fourth injection kind for three
+ * reasons that all point the same way. Injection is a typed fact/override/skip
+ * side channel whose job is to add information; an unblock changes the run's
+ * lifecycle and how every writer reads its terminal. {@link injectFlowchartRun}
+ * deliberately takes no lifecycle lock because it may target a live run, while
+ * an unblock must serialize against resume and delete. And a separate command
+ * can insist on exactly one active block, one matched event, and a refusal for
+ * the second or stale attempt, without conflating that authorization with
+ * user-supplied facts.
+ *
+ * Execution stays with resume, the surface that spends money. The operator flow
+ * is inspect → unblock → resume, and each step is separately auditable because
+ * of it.
+ */
+export async function unblockFlowchartRun(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  request: FlowchartUnblockRequest
+): Promise<FlowchartRunOutcome> {
+  return withRunLifecycleLock(
+    deps.stateRoot,
+    runId,
+    () => unblockLockedFlowchartRun(deps, runId, request),
+    deps.runLock
+  );
+}
+
+async function unblockLockedFlowchartRun(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  request: FlowchartUnblockRequest
+): Promise<FlowchartRunOutcome> {
+  const now = deps.now ?? nowIso;
+  const generateId = deps.generateId;
+  const reason = request.reason.trim();
+  if (reason === "") {
+    throw new DomainValidationError("unblock requires a non-empty reason");
+  }
+  if (request.retryNodeId !== undefined && request.retryNodeId.trim() === "") {
+    throw new DomainValidationError("unblock retry node must be a non-empty node id");
+  }
+
+  const eventStore = new EventStore(deps.stateRoot, runId);
+  const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
+  const read = await eventStore.readAll();
+  if (read.events.length === 0) {
+    throw new DomainValidationError(`Run ${runId} not found`);
+  }
+  const replayed = replayRun(read.events);
+  if (replayed.project === undefined) {
+    throw new DomainValidationError(`Run ${runId} has no PROJECT_DISCOVERED event`);
+  }
+  // One active block, named by replay rather than re-derived here. A run that
+  // is not blocked — including one an earlier unblock already cleared — has
+  // nothing to authorize, and is refused before anything is written.
+  const blockedEventId = replayed.activeBlockedEventId;
+  if (replayed.status !== "BLOCKED" || blockedEventId === undefined) {
+    throw new DomainValidationError(
+      `cannot unblock a ${replayed.status} run: unblock clears one active RUN_BLOCKED`
+    );
+  }
+
+  const raw = await checkpointStore.read();
+  if (raw === undefined) {
+    throw new DomainValidationError(
+      `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
+    );
+  }
+  const checkpoint = validateCheckpoint(raw);
+  if (checkpoint.flowchart === undefined) {
+    throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
+  }
+  const { definition, snapshot, limits } = checkpoint.flowchart;
+  const retryNodeId = resolveRetryTarget(
+    read.events,
+    blockedEventId,
+    definition,
+    snapshot,
+    request.retryNodeId
+  );
+
+  // The transform runs before the append, so a refused reopen — an unknown
+  // node, a node that never failed, a descendant that already executed —
+  // leaves no authorization on a log that did not earn one.
+  const reopened = reopenBlockedFlowchartSnapshot(
+    {
+      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
+      router: deps.router,
+      limits,
+      runId,
+      ...(generateId !== undefined ? { generateId } : {}),
+      now
+    },
+    snapshot,
+    retryNodeId !== undefined ? { retryNodeId } : {}
+  );
+
+  const make = makeEventFactory(runId, now, generateId, request.actor ?? "operator");
+  // Append first. A crash after this leaves the authorization on the log with a
+  // checkpoint that still describes the block, which every restore path
+  // recovers; the reverse — a reopened checkpoint with nothing on the log
+  // authorizing it — is a state no reader could explain.
+  await eventStore.append(
+    make("RUN_UNBLOCKED", {
+      blockedEventId,
+      reason,
+      ...(retryNodeId !== undefined ? { retryNodeId } : {})
+    })
+  );
+  const after = await eventStore.readAll();
+  const nextCheckpoint = validateCheckpoint(
+    materializeCheckpoint(replayRun(after.events), now(), { definition, snapshot: reopened, limits })
+  );
+  await checkpointStore.write(nextCheckpoint);
+  return {
+    runId,
+    status: replayRun(after.events).status,
+    events: after.events,
+    checkpoint: nextCheckpoint,
+    project: replayed.project,
+    snapshot: reopened
+  };
 }

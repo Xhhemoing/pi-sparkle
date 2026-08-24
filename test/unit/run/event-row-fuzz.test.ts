@@ -7,6 +7,7 @@ import { DomainValidationError } from "../../../src/domain/errors.js";
 import {
   createAgentInstanceId,
   createEpisodeId,
+  createEventId,
   createMessageId,
   createProjectId,
   createRunId,
@@ -35,6 +36,7 @@ const TASK_ID = createTaskId(UUID);
 const MESSAGE_ID = createMessageId(UUID);
 const AGENT_ID = createAgentInstanceId(UUID);
 const EPISODE_ID = createEpisodeId(UUID);
+const BLOCKED_EVENT_ID = createEventId(() => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
 const PROJECT = {
   id: createProjectId(UUID),
@@ -214,6 +216,11 @@ const EVENT_SEEDS = {
   RUN_BLOCKED: makeEvent("RUN_BLOCKED", {
     reason: "needs evidence",
     requiredEvidence: ["evd_fuzz"]
+  }),
+  RUN_UNBLOCKED: makeEvent("RUN_UNBLOCKED", {
+    blockedEventId: BLOCKED_EVENT_ID,
+    reason: "operator reviewed the queued analysis",
+    retryNodeId: "node-fuzz"
   }),
   PAUSE_REQUESTED: makeEvent("PAUSE_REQUESTED", { reason: "inspect fuzz state" }),
   PAUSE_CLEARED: makeEvent("PAUSE_CLEARED", {}),
@@ -518,6 +525,56 @@ async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise
     await rm(stateRoot, { recursive: true, force: true });
   }
 }
+
+/**
+ * The named refusals behind the `RUN_UNBLOCKED` seed above.
+ *
+ * The fuzzer proves the row survives arbitrary mutation without escaping
+ * `DomainValidationError`; this proves the four specific payloads a hand-edited
+ * log or a future producer could plausibly write are each refused, and for the
+ * stated reason. An unblock is an authorization record: a row whose target is
+ * unreadable, whose rationale is blank, or which carries a field the reader
+ * does not understand is not one, and letting any of them replay would leave a
+ * run whose block was cleared by something nobody can account for.
+ */
+test("a RUN_UNBLOCKED row is refused unless its target, reason and node id are all sound", () => {
+  const seed = EVENT_SEEDS.RUN_UNBLOCKED;
+  assert.deepEqual(validateEvent(seed), seed);
+
+  const withPayload = (payload: unknown): unknown => ({ ...seed, payload });
+  const cases: readonly [unknown, RegExp][] = [
+    [
+      { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", evidenceIds: ["evd_x"] },
+      /payload may only include blockedEventId, reason, retryNodeId; unknown: evidenceIds/
+    ],
+    [{ reason: "reviewed" }, /payload\.blockedEventId must be a valid EventId/],
+    [
+      { blockedEventId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", reason: "reviewed" },
+      /payload\.blockedEventId must be a valid EventId/
+    ],
+    [{ blockedEventId: BLOCKED_EVENT_ID }, /payload\.reason must be a non-empty string/],
+    [
+      { blockedEventId: BLOCKED_EVENT_ID, reason: "   " },
+      /payload\.reason must be a non-empty string/
+    ],
+    [
+      { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", retryNodeId: "" },
+      /payload\.retryNodeId must be a non-empty string when present/
+    ],
+    [
+      { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", retryNodeId: 7 },
+      /payload\.retryNodeId must be a non-empty string when present/
+    ]
+  ];
+  for (const [payload, message] of cases) {
+    assert.throws(() => validateEvent(withPayload(payload)), message, JSON.stringify(payload));
+  }
+
+  // Omitting the optional node is the run-level stall shape, and is valid.
+  assert.doesNotThrow(() =>
+    validateEvent(withPayload({ blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed" }))
+  );
+});
 
 test("corrupt middle event-log lines fail with exactly DomainValidationError", async () => {
   await withStateRoot(async (stateRoot) => {
