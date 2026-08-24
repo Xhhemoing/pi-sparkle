@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   createModels,
   fauxAssistantMessage,
@@ -8,6 +10,7 @@ import {
   type Context,
   type FauxResponseStep
 } from "@earendil-works/pi-ai";
+import * as ts from "typescript";
 import type { AgentExecutionRequest, ExecutionEvent } from "../../../src/execution/contract.js";
 import type { AgentInstanceId, RunId, TaskId } from "../../../src/domain/ids.js";
 import { validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
@@ -26,6 +29,8 @@ import {
  * `assessChildObservation` refuses UNOBSERVED. `sparkle_report_task_result` is
  * the producer that closes that hole. These tests pin both halves — what a
  * reported verdict is allowed to say, and that silence still means UNOBSERVED.
+ * R10-6 strengthens the standing producer rules with adversarial identity,
+ * empty-evidence, same-verdict duplicate, and always-surfaced source pins.
  *
  * Everything here is offline: the faux provider scripts the tool call. No
  * PI_SMOKE gate, no live provider, no new skip.
@@ -34,6 +39,115 @@ import {
 const RUN_ID = "run_01234567-89ab-cdef-0123-456789abcdef" as RunId;
 const TASK_ID = "tsk_01234567-89ab-cdef-0123-456789abcdef" as TaskId;
 const AGENT_ID = "agt_01234567-89ab-cdef-0123-456789abcdef" as AgentInstanceId;
+const PI_EXECUTOR_PATH = fileURLToPath(
+  new URL("../../../src/pi-adapter/pi-executor.ts", import.meta.url)
+);
+const PI_EXECUTOR_SOURCE = readFileSync(PI_EXECUTOR_PATH, "utf8");
+
+function objectProperty(object: ts.ObjectLiteralExpression, name: string): ts.PropertyAssignment {
+  const matches = object.properties.filter(
+    (property): property is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === name) ||
+        (ts.isStringLiteralLike(property.name) && property.name.text === name))
+  );
+  assert.equal(matches.length, 1, `expected one ${name} property`);
+  const match = matches[0];
+  assert.ok(match);
+  return match;
+}
+
+function attemptToolsArray(source: string): {
+  readonly parsed: ts.SourceFile;
+  readonly tools: ts.ArrayLiteralExpression;
+} {
+  const parsed = ts.createSourceFile(
+    PI_EXECUTOR_PATH,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const agents: ts.NewExpression[] = [];
+  function visit(node: ts.Node): void {
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "Agent"
+    ) {
+      agents.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+
+  assert.equal(agents.length, 1, "PiAgentExecutor must construct one Agent");
+  const agent = agents[0];
+  const options = agent?.arguments?.[0];
+  assert.ok(options !== undefined && ts.isObjectLiteralExpression(options));
+  const initialState = objectProperty(options, "initialState").initializer;
+  assert.ok(ts.isObjectLiteralExpression(initialState));
+  const tools = objectProperty(initialState, "tools").initializer;
+  assert.ok(ts.isArrayLiteralExpression(tools));
+  return { parsed, tools };
+}
+
+function verdictToolBinding(parsed: ts.SourceFile): string {
+  const bindings: string[] = [];
+  function visit(node: ts.Node): void {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      ts.isCallExpression(node.initializer) &&
+      ts.isIdentifier(node.initializer.expression) &&
+      node.initializer.expression.text === "createTaskResultTool"
+    ) {
+      bindings.push(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  assert.equal(bindings.length, 1, "each attempt must build one verdict tool directly");
+  const binding = bindings[0];
+  assert.ok(binding);
+  return binding;
+}
+
+function assertVerdictToolAlwaysSurfaced(source: string): void {
+  const { parsed, tools } = attemptToolsArray(source);
+  const binding = verdictToolBinding(parsed);
+  const direct = tools.elements.filter(
+    (element) => ts.isIdentifier(element) && element.text === binding
+  );
+  const references: ts.Identifier[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isIdentifier(node) && node.text === binding) references.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(tools);
+
+  assert.equal(references.length, 1, "the attempt tools array must mention its verdict tool once");
+  assert.equal(
+    direct.length,
+    1,
+    "the verdict tool must be a direct tools-array element, never conditional on a runtime flag"
+  );
+}
+
+function gateVerdictToolBehindFlag(source: string): string {
+  const { parsed, tools } = attemptToolsArray(source);
+  const binding = verdictToolBinding(parsed);
+  const direct = tools.elements.find(
+    (element) => ts.isIdentifier(element) && element.text === binding
+  );
+  assert.ok(direct, "mutation target verdict tool must exist");
+  return (
+    source.slice(0, direct.getStart(parsed)) +
+    `...(this.options.reportTaskResult ? [${binding}] : [])` +
+    source.slice(direct.getEnd())
+  );
+}
 
 function request(): AgentExecutionRequest {
   return {
@@ -141,6 +255,25 @@ describe("sparkle_report_task_result", () => {
     assert.deepEqual(terminal.artifactIds, ["art_report-1"]);
   });
 
+  it("ignores model-supplied identity fields and stamps the leased request", async () => {
+    const harness = toolHarness();
+    await report(harness, {
+      verification: "PASSED",
+      summary: "ran the suite",
+      from: "agt_ffffffff-ffff-ffff-ffff-ffffffffffff",
+      runId: "run_ffffffff-ffff-ffff-ffff-ffffffffffff",
+      taskId: "tsk_ffffffff-ffff-ffff-ffff-ffffffffffff"
+    });
+
+    const terminal = harness.terminals()[0];
+    assert.ok(terminal);
+    assert.deepEqual(
+      { from: terminal.from, runId: terminal.runId, taskId: terminal.taskId },
+      { from: AGENT_ID, runId: RUN_ID, taskId: TASK_ID },
+      "model fields cannot impersonate another lease"
+    );
+  });
+
   it("derives the outcome from the verdict and honours an explicit one", async () => {
     const failed = toolHarness();
     await report(failed, {
@@ -193,6 +326,19 @@ describe("sparkle_report_task_result", () => {
       kind: "FAILED",
       evidenceIds: ["evd_run-7"]
     });
+  });
+
+  it("refuses an explicitly empty evidence list on a FAILED verdict", async () => {
+    const harness = toolHarness();
+    await assert.rejects(
+      harness.tool.execute("tool_call_1", {
+        verification: "FAILED",
+        summary: "it broke",
+        evidenceIds: []
+      }),
+      /a FAILED verdict must cite at least one evidenceId/
+    );
+    assert.deepEqual(harness.emitted, []);
   });
 
   it("refuses a malformed reference instead of dropping it", async () => {
@@ -259,6 +405,20 @@ describe("sparkle_report_task_result", () => {
     assert.equal(harness.terminals().length, 1);
     assert.equal(harness.terminals()[0]?.verification.kind, "PASSED");
   });
+
+  it("refuses a repeated identical verdict instead of double-emitting it", async () => {
+    const harness = toolHarness();
+    await report(harness, { verification: "PASSED", summary: "did the work" });
+
+    await assert.rejects(
+      harness.tool.execute("tool_call_2", {
+        verification: "PASSED",
+        summary: "reporting the same result twice"
+      }),
+      /this task already reported PASSED; a task carries exactly one verdict/
+    );
+    assert.equal(harness.terminals().length, 1);
+  });
 });
 
 describe("PiAgentExecutor verdict reporting", () => {
@@ -277,6 +437,17 @@ describe("PiAgentExecutor verdict reporting", () => {
       seen,
       [[REPORT_TASK_RESULT_TOOL]],
       "a request carrying no cluster still gets the verdict tool"
+    );
+  });
+
+  it("keeps the verdict tool unconditional in the attempt tools array", () => {
+    assertVerdictToolAlwaysSurfaced(PI_EXECUTOR_SOURCE);
+
+    const optInMutant = gateVerdictToolBehindFlag(PI_EXECUTOR_SOURCE);
+    assert.throws(
+      () => assertVerdictToolAlwaysSurfaced(optInMutant),
+      assert.AssertionError,
+      "the source pin must reject an opt-in runtime flag"
     );
   });
 
