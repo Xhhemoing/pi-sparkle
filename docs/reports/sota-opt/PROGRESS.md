@@ -19,6 +19,7 @@
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 第 4 波进行中 | 10（0 排队 / 8 完成 / 2 在跑） | claude-fable-5-thinking-xhigh | C 落地 S4-C；I/J 在跑。见 [round-04/PLAN.md](./round-04/PLAN.md) |
+| 5 | 第 1 波已派出 | 1 / 10（A 已派出；B–J 待 R4 空槽） | claude-fable-5-thinking-xhigh | [round-05/PLAN.md](./round-05/PLAN.md) |
 
 ### Round 1 波次
 
@@ -56,6 +57,12 @@
 | 3 | R4-G 运行时/图、R4-H 评价/需求 | G/H 完成已合入 |
 | 4 | R4-I CLI/适配器、R4-J cluster/privacy | I/J 本波派出 |
 
+### Round 5 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R5-A 跟踪门控 | A 已派出（等 R4-I/J 空槽后续派 B/C） |
+
 ## 待合并 PR / 分支
 
 | 来源 | 分支 | 处置 |
@@ -92,12 +99,13 @@
 | R3-J | `cursor/r3-j-persist-third-pass-83a1` | 已合入专属分支（仅 `R3-J.md`） |
 | R4-A | `cursor/r4-a-tracking-fourth-pass-83a1` | 已合入专属分支（仅 `R4-A.md`） |
 | R4-B | `cursor/r4-b-live-routing-fourth-pass-83a1` | 已合入专属分支（仅 `R4-B.md`） |
-| R4-C | `cursor/r4-c-offline-routing-fourth-pass-83a1` | 已合入专属分支（S4-C 代码 + 报告 + 仿真） |
+| R4-C | `cursor/r4-c-offline-routing-fourth-pass-83a1` | 已合入专属分支（S4-C 代码 + 报告 + 仿真）。父代理重跑 r1c/r2c/r3c/r4c 全绿（8028 / 14420 / 14730 / 24888 逐位）；r4c 生产 1126.3 ms vs 冻结 S3-C 2728.9 ms |
 | R4-D | `cursor/r4-d-adaptation-fourth-pass-83a1` | 已合入专属分支（仅 `R4-D.md`） |
 | R4-E | `cursor/r4-e-learning-fourth-pass-83a1` | 已合入专属分支（仅 `R4-E.md`） |
 | R4-F | `cursor/r4-f-experiments-fourth-pass-83a1` | 已合入专属分支（仅 `R4-F.md`） |
 | R4-G | `cursor/r4-g-runtime-fourth-pass-83a1` | 已合入专属分支（仅 `R4-G.md`） |
 | R4-H | `cursor/r4-h-eval-fourth-pass-83a1` | 已合入专属分支（仅 `R4-H.md`） |
+| R5-A | `cursor/r5-a-tracking-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
