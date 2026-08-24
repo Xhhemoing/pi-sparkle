@@ -76,3 +76,28 @@ test("the absence pin rejects scheduler imports and a reopen helper that calls a
     "a future reopen helper must not call the DAG scheduler retry transition"
   );
 });
+
+test("discard and reopen identifiers remain under the whole-file scheduler absence pin", () => {
+  const discardOrReopen = /discard|reopenAfterUnblock/i;
+  for (const relativePath of FLOWCHART_SOURCES) {
+    const path = fileURLToPath(new URL(relativePath, import.meta.url));
+    const source = readFileSync(path, "utf8");
+    const parsed = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const markers: string[] = [];
+    function visit(node: ts.Node): void {
+      if (
+        (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+        discardOrReopen.test(node.text)
+      ) {
+        markers.push(node.text);
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(parsed);
+    assert.ok(
+      markers.length > 0,
+      `${relativePath} must retain a discard / WITH_DISCARD / reopenAfterUnblock identifier`
+    );
+    assertNoSchedulerRetry(relativePath, source);
+  }
+});
