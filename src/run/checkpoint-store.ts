@@ -1,5 +1,6 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type { RunId } from "../domain/ids.js";
 
@@ -14,17 +15,7 @@ export class CheckpointStore {
   }
 
   async write(checkpoint: unknown): Promise<void> {
-    const serialized = `${JSON.stringify(checkpoint, null, 2)}\n`;
-    await mkdir(dirname(this.checkpointPath), { recursive: true });
-    const tempPath = `${this.checkpointPath}.tmp`;
-    const handle = await open(tempPath, "w");
-    try {
-      await handle.writeFile(serialized, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(tempPath, this.checkpointPath);
+    await writeFileAtomic(this.checkpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
   }
 
   async read(): Promise<unknown> {

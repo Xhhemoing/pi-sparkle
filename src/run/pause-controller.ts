@@ -1,5 +1,6 @@
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
@@ -20,27 +21,6 @@ export interface PauseController {
 
 function pausePath(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId, "pause.json");
-}
-
-async function writeAtomic(path: string, value: unknown): Promise<void> {
-  const serialized = `${JSON.stringify(value, null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.tmp`;
-  const handle = await open(tempPath, "w");
-  try {
-    await handle.writeFile(serialized, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tempPath, path);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EEXIST" && code !== "EACCES") throw error;
-    await unlink(path);
-    await rename(tempPath, path);
-  }
 }
 
 function parsePauseToken(raw: string): PauseToken {
@@ -80,7 +60,7 @@ export function createFilePauseController(
         requestedAt: now(),
         ...(reason !== undefined ? { reason } : {})
       };
-      await writeAtomic(pausePath(stateRoot, runId), token);
+      await writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`);
       return token;
     },
     async clearPause(runId) {

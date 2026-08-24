@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,12 @@ const CHECKPOINT_TIME = parseIsoTimestamp("2026-08-24T12:00:00.000Z");
 function checkpointPaths(stateRoot: string, runId: string) {
   const checkpoint = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
   return { checkpoint, temp: `${checkpoint}.tmp` };
+}
+
+/** Temp files the store itself left behind; abandoned temps planted by a test are named explicitly. */
+async function ownTempFiles(checkpointPath: string): Promise<string[]> {
+  const entries = await readdir(dirname(checkpointPath)).catch(() => [] as string[]);
+  return entries.filter((entry) => entry.endsWith(".tmp")).toSorted();
 }
 
 test("checkpoints write, read, and overwrite atomically", async () => {
@@ -32,9 +38,10 @@ test("checkpoints write, read, and overwrite atomically", async () => {
     assert.deepEqual(await store.read(), second);
 
     const paths = checkpointPaths(stateRoot, runId);
-    const onDisk = JSON.parse(await readFile(paths.checkpoint, "utf8"));
-    assert.deepEqual(onDisk, second);
-    await assert.rejects(() => readFile(paths.temp), { code: "ENOENT" });
+    const onDisk = await readFile(paths.checkpoint, "utf8");
+    assert.deepEqual(JSON.parse(onDisk), second);
+    assert.equal(onDisk, `${JSON.stringify(second, null, 2)}\n`);
+    assert.deepEqual(await ownTempFiles(paths.checkpoint), []);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
@@ -72,9 +79,12 @@ test("a crash after the temp write but before rename preserves the previous resu
     assert.deepEqual(recovered, previous);
     assert.deepEqual(JSON.parse(await readFile(paths.temp, "utf8")), pending);
 
-    await store.write(pending);
-    assert.deepEqual(validateCheckpoint(await store.read()), pending);
-    await assert.rejects(() => readFile(paths.temp), { code: "ENOENT" });
+    // The stranded temp is inert: the next write publishes its own bytes and never adopts it.
+    const resumed = { ...pending, status: "COMPLETED" as const };
+    await store.write(resumed);
+    assert.deepEqual(validateCheckpoint(await store.read()), resumed);
+    assert.deepEqual(JSON.parse(await readFile(paths.temp, "utf8")), pending);
+    assert.deepEqual(await ownTempFiles(paths.checkpoint), ["checkpoint.json.tmp"]);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
@@ -86,15 +96,48 @@ test("a partial temp file is ignored and does not poison the next checkpoint wri
     const runId = createRunId(UUID);
     const store = new CheckpointStore(stateRoot, runId);
     const paths = checkpointPaths(stateRoot, runId);
+    const abandonedTemp = `${paths.checkpoint}.999999.abandoned.tmp`;
     await mkdir(dirname(paths.temp), { recursive: true });
     await writeFile(paths.temp, '{"schemaVersion": 1, "status": "RUN', "utf8");
+    await writeFile(abandonedTemp, '{"schemaVersion": 1, "status": "PAU', "utf8");
 
     assert.equal(await store.read(), undefined);
 
     const checkpoint = { schemaVersion: 1, marker: "recovered" };
     await store.write(checkpoint);
     assert.deepEqual(await store.read(), checkpoint);
-    await assert.rejects(() => readFile(paths.temp), { code: "ENOENT" });
+    assert.equal(await readFile(paths.temp, "utf8"), '{"schemaVersion": 1, "status": "RUN');
+    assert.equal(await readFile(abandonedTemp, "utf8"), '{"schemaVersion": 1, "status": "PAU');
+    assert.deepEqual(await ownTempFiles(paths.checkpoint), [
+      "checkpoint.json.999999.abandoned.tmp",
+      "checkpoint.json.tmp"
+    ]);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("concurrent checkpoint writes publish exactly one complete document", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-test-"));
+  try {
+    const runId = createRunId(UUID);
+    const store = new CheckpointStore(stateRoot, runId);
+    const checkpoints = Array.from({ length: 8 }, (_unused, index) => ({
+      schemaVersion: 1 as const,
+      status: "RUNNING" as const,
+      agentOutcomes: [],
+      updatedAt: CHECKPOINT_TIME,
+      marker: String(index).repeat(100_000)
+    }));
+
+    await Promise.all(checkpoints.map((checkpoint) => store.write(checkpoint)));
+
+    const paths = checkpointPaths(stateRoot, runId);
+    const raw = await readFile(paths.checkpoint, "utf8");
+    const expected = checkpoints.map((checkpoint) => `${JSON.stringify(checkpoint, null, 2)}\n`);
+    assert.ok(expected.includes(raw), "published bytes are not any single writer's payload");
+    assert.deepEqual(await store.read(), JSON.parse(raw));
+    assert.deepEqual(await ownTempFiles(paths.checkpoint), []);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
