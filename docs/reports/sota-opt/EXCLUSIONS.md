@@ -278,3 +278,6 @@
 | S4-D-3 | evalRoutingPolicy registry/dataset 载入重叠 | 双故障/投机读发散；79–127µs |
 | S4-D-4 | 默认 approval-profile 跳过校验 | ~110ns；防御纵深 |
 | S4-D-5 | assertNoForbiddenFields entries→keys | ~2.6µs ×2/eval，占端到端 ~0.1% |
+| S4-E-1 | collectSignalsFromEvents 空事件快路径 | 534–542ns；被 ~10²µs I/O 支配 |
+| S4-E-2 | persistSignals∥updateProjectBandit 编排重叠 | 317–443µs；双故障错误非确定 |
+| S4-E-3 | baseSignal 隐藏类单态化 | 形状不等价；~180–230ns/run |
