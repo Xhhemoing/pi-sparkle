@@ -60,6 +60,8 @@ export interface AutoAdaptResult {
   readonly issues: readonly ModelProjectIssue[];
   readonly created: boolean;
   readonly promoted: boolean;
+  /** True when this call wrote the project's bandit file. False whenever the kill switch is off. */
+  readonly banditUpdated: boolean;
   readonly candidateId?: string | undefined;
   readonly promotedVersionId?: string | undefined;
   readonly reason: string;
@@ -70,7 +72,15 @@ export interface AutoAdaptResult {
  * issues, update the project bandit, and propose a routing-policy candidate.
  * Never CAS-promotes (`autoPromote` is ignored). Use `adapt promote --approve`.
  *
- * Does not mutate a live run. Kill switch: SPARKLE_AUTO_ADAPT=0 still collects.
+ * Does not mutate a live run.
+ *
+ * Kill switch (`SPARKLE_AUTO_ADAPT=0|false|off`): collection still happens —
+ * signals are parsed, persisted as feedback, and diagnosed, because that is
+ * observation, not adaptation. Everything that *learns* stops: no bandit
+ * update, no candidate proposal. The bandit is on the adaptation side of that
+ * line even though nothing live reads it back: it is per-project state that
+ * survives the run and shapes later analysis, so an operator who turned the
+ * switch off must not keep finding their reward aggregates moving.
  */
 export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdaptResult> {
   const context: SignalContext = {
@@ -86,9 +96,6 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
   );
   const signals = [...fromEvents, ...fromExtra, ...fromPi];
   await persistSignals(input.stateRoot, signals);
-  if (signals.some((signal) => signal.modelId !== undefined)) {
-    await updateProjectBandit(input.stateRoot, input.projectRoot, signals);
-  }
 
   const issues = diagnoseModelProjectIssues(signals);
   if (!isAutoAdaptEnabled()) {
@@ -97,8 +104,14 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
       issues,
       created: false,
       promoted: false,
-      reason: "auto-adapt disabled; collected only"
+      banditUpdated: false,
+      reason: "auto-adapt disabled; collected and diagnosed only, bandit not updated"
     };
+  }
+
+  const banditUpdated = signals.some((signal) => signal.modelId !== undefined);
+  if (banditUpdated) {
+    await updateProjectBandit(input.stateRoot, input.projectRoot, signals);
   }
   const failing = issues.filter(
     (issue) => issue.actionable && issue.modelId !== input.primaryModelId
@@ -116,6 +129,7 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
       issues,
       created: proposed.created,
       promoted: proposed.promoted,
+      banditUpdated,
       reason: proposed.reason,
       ...(proposed.candidateId !== undefined ? { candidateId: proposed.candidateId } : {}),
       ...(proposed.promotedVersionId !== undefined
@@ -129,6 +143,7 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
     issues,
     created: false,
     promoted: false,
+    banditUpdated,
     reason: signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue"
   };
 }
@@ -284,6 +299,7 @@ export async function runAutoAdaptFromEvents(input: {
       issues: [],
       created: false,
       promoted: false,
+      banditUpdated: false,
       reason: "run has no project snapshot"
     };
   }

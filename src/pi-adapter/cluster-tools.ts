@@ -2,6 +2,7 @@
  * Pi tool schemas are generic; this file is inside the adapter boundary. */
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
+import { DomainValidationError } from "../domain/errors.js";
 import { isAgentRole } from "../domain/roles.js";
 import { isAgentInstanceId } from "../domain/ids.js";
 import { preflightPiAgentName } from "../agents/dispatch-preflight.js";
@@ -30,6 +31,12 @@ export function createClusterTools(session: ClusterSessionView): AgentTool<any>[
       execute: async (_toolCallId: string, params: unknown) => {
         const record = params as { body?: string; addressRole?: string; to?: string };
         const body = typeof record.body === "string" ? record.body : "";
+        if (record.addressRole !== undefined && !isAgentRole(record.addressRole)) {
+          throw new DomainValidationError(`invalid address role ${String(record.addressRole)}`);
+        }
+        if (record.to !== undefined && !isAgentInstanceId(record.to)) {
+          throw new DomainValidationError(`invalid agent id ${String(record.to)}`);
+        }
         const addressRole =
           record.addressRole !== undefined && isAgentRole(record.addressRole) ? record.addressRole : undefined;
         const to = record.to !== undefined && isAgentInstanceId(record.to) ? record.to : undefined;

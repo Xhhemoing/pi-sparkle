@@ -7,6 +7,14 @@ import { createPiRuntime } from "./runtime.js";
 
 export interface SparkleAuthIo {
   stdout(text: string): void;
+  /**
+   * Optional line reader for login prompts. When absent, prompts fall back to
+   * a readline interface over stdin, created only once a prompt is actually
+   * reached — an OAuth flow that never prompts must not take stdin hostage,
+   * and a caller without a TTY (tests, embedders) can supply its own reader
+   * instead of one being forced on it.
+   */
+  question?(prompt: string): Promise<string>;
 }
 
 export interface SparkleAuthCheck {
@@ -30,12 +38,21 @@ export async function storeApiKeyCredential(
   providerId: string,
   key: string
 ): Promise<string> {
+  requireProviderId(providerId);
+  // An empty key is worse than no credential: the stored entry wins over the
+  // provider's ambient sources, so writing one silently disables a working
+  // environment variable and fails later, at request time.
+  if (key.trim() === "") {
+    throw new DomainValidationError(`api key for provider "${providerId}" must be non-empty`);
+  }
   const store = new FileCredentialStore(authStorePath(stateRoot));
   await store.modify(providerId, async () => ({ type: "api_key", key }));
   return authStorePath(stateRoot);
 }
 
+/** Idempotent: removing a provider that has no stored credential is a no-op. */
 export async function deleteStoredCredential(stateRoot: string, providerId: string): Promise<void> {
+  requireProviderId(providerId);
   await new FileCredentialStore(authStorePath(stateRoot)).delete(providerId);
 }
 
@@ -66,7 +83,10 @@ export async function loginProviderInteractive(
   io: SparkleAuthIo,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<string> {
+  requireProviderId(providerId);
   const runtime = await createPiRuntime({ stateRoot, customProviders });
+  // An unknown provider rejects here (Pi's `Unknown provider: …`) before any
+  // prompt is shown, so a typo can never write a credential file.
   await runtime.models.login(providerId, type as AuthType, cliAuthInteraction(io));
   return authStorePath(stateRoot);
 }
@@ -76,25 +96,40 @@ export async function listBuiltinProviderIds(): Promise<readonly string[]> {
   return listSparkleProviders();
 }
 
-function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+/**
+ * Terminal-side of a Pi login flow. Exported so it can be driven with an
+ * injected reader: the interactive paths are otherwise only reachable through
+ * a real stdin.
+ *
+ * Never echoes what the user typed — the answer to a `secret` prompt goes
+ * straight back to Pi, not to `io.stdout`.
+ */
+export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
+  // Opened on the first prompt and closed after it, rather than once per
+  // interaction: a flow that prompts twice (select an auth method, then enter
+  // the key) would otherwise ask its second question on a closed interface.
+  const ask = async (message: string): Promise<string> => {
+    if (io.question !== undefined) return io.question(message);
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return await question(rl, message);
+    } finally {
+      rl.close();
+    }
+  };
   return {
     async prompt(prompt) {
-      try {
-        if (prompt.type === "select") {
-          io.stdout(`${prompt.message}\n`);
-          prompt.options.forEach((option, index) => {
-            io.stdout(`  ${index + 1}. ${option.label}\n`);
-          });
-          const answer = await question(rl, `Enter number (1-${prompt.options.length}): `);
-          const selected = prompt.options[Number.parseInt(answer, 10) - 1];
-          if (selected === undefined) throw new DomainValidationError("invalid selection");
-          return selected.id;
-        }
-        return await question(rl, `${prompt.message}: `);
-      } finally {
-        rl.close();
+      if (prompt.type === "select") {
+        io.stdout(`${prompt.message}\n`);
+        prompt.options.forEach((option, index) => {
+          io.stdout(`  ${index + 1}. ${option.label}\n`);
+        });
+        const answer = await ask(`Enter number (1-${prompt.options.length}): `);
+        const selected = prompt.options[Number.parseInt(answer, 10) - 1];
+        if (selected === undefined) throw new DomainValidationError("invalid selection");
+        return selected.id;
       }
+      return await ask(`${prompt.message}: `);
     },
     notify(event) {
       if (event.type === "auth_url") {
@@ -111,6 +146,12 @@ function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
       }
     }
   };
+}
+
+function requireProviderId(providerId: string): void {
+  if (providerId.trim() === "") {
+    throw new DomainValidationError("provider id must be non-empty");
+  }
 }
 
 function question(rl: ReturnType<typeof createInterface>, message: string): Promise<string> {

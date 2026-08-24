@@ -36,7 +36,7 @@
     "pi-compat": "tsx src/cli/main.ts pi-compat",
     "pi:latest": "node scripts/pi-latest-check.mjs",
     "pi:probe": "node scripts/pi-compat-probe.mjs",
-    "test": "tsx --test",
+    "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",

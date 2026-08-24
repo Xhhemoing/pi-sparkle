@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { redactFeedback } from "../../../src/feedback/redaction.js";
+import { appendFeedback, feedbackLogPath, readFeedback } from "../../../src/feedback/store.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
 import {
   configurePreferencePersistence,
@@ -70,6 +71,10 @@ test("redaction to dataset export keeps secrets out and tombstones id-only", asy
     assert.ok(decision.decision.referenceOnly);
     assert.ok(decision.decision.classes.includes("secret"));
     assert.ok(decision.decision.classes.includes("oversized"));
+    // The seeded secret is gone from the summary by value, not by label: the
+    // `sk-` shape rule fires before the forbidden-substring strip, so the key
+    // body cannot survive on its own once the prefix is deleted.
+    assert.equal(decision.feedback.summary, "summary leaking [secret]");
 
     // 2. The observation derived from it lands in the store.
     recordObservation(observation("obs-to-delete"));
@@ -95,6 +100,45 @@ test("redaction to dataset export keeps secrets out and tombstones id-only", asy
     assert.ok(withTombstones.tombstones.includes("obs-to-delete"));
   } finally {
     resetPreferenceStore();
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("the persisted feedback log never contains the raw values on disk", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-redaction-store-"));
+  try {
+    const record: FeedbackRecord = {
+      ...feedback(),
+      id: "fb-store-1",
+      body: "reporter john.doe@example.com from 192.168.1.100 used sk-proj-abcdefghijklmnop1234567890",
+      summary: "escalation at /home/john/.ssh/id_rsa"
+    };
+    const stored = await appendFeedback(stateRoot, record);
+    assert.equal(stored.redacted, true);
+
+    const onDisk = await readFile(feedbackLogPath(stateRoot), "utf8");
+    for (const value of [
+      "john.doe@example.com",
+      "192.168.1.100",
+      "abcdefghijklmnop1234567890",
+      "/home/john/.ssh/id_rsa"
+    ]) {
+      assert.equal(onDisk.includes(value), false, `raw value persisted: ${value}`);
+    }
+    assert.match(onDisk, /\[email\]/);
+    assert.match(onDisk, /\[ipv4\]/);
+    assert.match(onDisk, /\[secret\]/);
+    assert.match(onDisk, /\[path\]/);
+
+    // The row also records *what* was removed, so an audit of the log does not
+    // have to re-derive it: `redacted: true` alone would only say the pass ran.
+    assert.deepEqual(JSON.parse(onDisk.trim()).redactionClasses, ["secret", "pii", "path"]);
+
+    const reloaded = await readFeedback(stateRoot);
+    assert.equal(reloaded.length, 1);
+    assert.equal(reloaded[0]?.body?.includes("john.doe@example.com"), false);
+    assert.deepEqual(reloaded[0]?.redactionClasses, ["secret", "pii", "path"]);
+  } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
 });

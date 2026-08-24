@@ -139,7 +139,9 @@ test("tracked routing writes calibrated catalog cost from invocations.jsonl into
         tokensIn: 1_000_000,
         tokensOut: 1_000_000,
         latencyMs: 8_000,
-        occurredAt: "2026-08-19T00:00:00.000Z"
+        occurredAt: "2026-08-19T00:00:00.000Z",
+        // Calibration only trusts a call the provider actually completed.
+        callOutcome: "ok"
       })}\n`,
       "utf8"
     );

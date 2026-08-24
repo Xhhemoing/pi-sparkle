@@ -1,0 +1,523 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { DomainValidationError } from "../../../src/domain/errors.js";
+import type { ProjectEpisode } from "../../../src/domain/episode.js";
+import {
+  createEpisodeId,
+  createEventId,
+  createProjectId,
+  createRunId,
+  type EpisodeId,
+  type RunId
+} from "../../../src/domain/ids.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { appendFeedback, readFeedback, readFeedbackRecordsRaw } from "../../../src/feedback/store.js";
+import {
+  clearAll,
+  configurePreferencePersistence,
+  inspectPreferences,
+  recordExplicitPreference
+} from "../../../src/preferences/service.js";
+import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import {
+  FREE_TEXT_FEEDBACK_FIELDS,
+  cascadeFeedbackTombstones,
+  deleteEpisodeRecords,
+  deleteRunRecords,
+  findResidualEpisodeText
+} from "../../../src/privacy/deletion.js";
+import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
+import {
+  invocationsLogPath,
+  loadInvocationsFromStateRoot
+} from "../../../src/routing/cost-calibration.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import type { Event } from "../../../src/run/events.js";
+import { EpisodeStore } from "../../../src/run/episode-store.js";
+
+let uuidCounter = 0;
+const UUID = (): string => `abcdef01-2345-6789-abcd-${String(uuidCounter++).padStart(12, "0")}`;
+
+async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise<void> {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-"));
+  try {
+    await run(stateRoot);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+}
+
+function invocationRow(runId: RunId, id: string): Record<string, unknown> {
+  return {
+    id,
+    taskId: "tsk_del",
+    runId,
+    agentInstanceId: "agt_del",
+    config: { provider: "fake", model: "cheap", modelVersion: "cheap-v1", parameterHash: "abc" },
+    responseHash: "def",
+    tokensIn: 1000,
+    tokensOut: 500,
+    latencyMs: 200,
+    occurredAt: "2026-08-24T00:00:00.000Z",
+    callOutcome: "ok"
+  };
+}
+
+async function writeInvocationLog(stateRoot: string, lines: readonly string[]): Promise<string> {
+  const path = invocationsLogPath(stateRoot);
+  await mkdir(join(stateRoot, "runtime"), { recursive: true });
+  await writeFile(path, lines.join(""), "utf8");
+  return path;
+}
+
+async function seedFeedback(
+  stateRoot: string,
+  episodeId: EpisodeId,
+  id: string,
+  free: { body?: string; summary?: string }
+): Promise<void> {
+  await appendFeedback(stateRoot, {
+    id,
+    episodeId,
+    kind: "human",
+    rubricVersion: "1",
+    score: 70,
+    evidenceRefs: [],
+    redacted: false,
+    createdAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z"),
+    ...(free.body !== undefined ? { body: free.body } : {}),
+    ...(free.summary !== undefined ? { summary: free.summary } : {})
+  });
+}
+
+const OBJECTIVE = "Ship the payroll importer for acme-corp";
+const ACCEPTANCE = "Imported rows match the Q3 payroll ledger";
+
+function episodeFixture(episodeId: EpisodeId): ProjectEpisode {
+  return {
+    id: episodeId,
+    projectId: createProjectId(UUID),
+    objective: OBJECTIVE,
+    contractVersion: 1,
+    runIds: [],
+    startedAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z"),
+    status: "COMPLETED",
+    acceptance: [{ id: "ac-1", description: ACCEPTANCE, observableCheck: "diff is empty" }],
+    evidenceRefs: []
+  };
+}
+
+function runEvent(runId: RunId, type: Event["type"], payload: unknown): Event {
+  return {
+    id: createEventId(UUID),
+    schemaVersion: 1,
+    occurredAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z"),
+    runId,
+    type,
+    actor: "deletion-test",
+    payload
+  } as Event;
+}
+
+/** A run whose event log opens the episode, i.e. embeds the whole snapshot. */
+async function seedRunOpeningEpisode(stateRoot: string, episodeId: EpisodeId): Promise<RunId> {
+  const runId = createRunId(UUID);
+  const store = new EventStore(stateRoot, runId);
+  await store.append(runEvent(runId, "EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
+  await store.append(
+    runEvent(runId, "RUN_ATTACHED", {
+      episodeId,
+      runId,
+      attachedAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z")
+    })
+  );
+  return runId;
+}
+
+test("delete --episode lists attached runs that still hold the objective, and rewrites none", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+    const runId = await seedRunOpeningEpisode(stateRoot, episodeId);
+    const logPath = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+    const before = await readFile(logPath, "utf8");
+
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, [runId]);
+    // Integrity: the append-only log is disclosed, never edited.
+    assert.equal(await readFile(logPath, "utf8"), before);
+    assert.match(before, new RegExp(OBJECTIVE));
+    assert.ok(
+      !result.removedPaths.includes(logPath),
+      "a run log the delete did not touch must not be reported as removed"
+    );
+
+    const findings = await findResidualEpisodeText(stateRoot, episodeId);
+    assert.deepEqual(findings, [{ runId, path: logPath, reason: "episode-opened" }]);
+  });
+});
+
+test("an episode with no attached runs reports an empty residual list", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+    // A run that exists but never references this episode.
+    const other = createRunId(UUID);
+    await new EventStore(stateRoot, other).append(
+      runEvent(other, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-000000000001",
+        kind: "TEXT_DELTA",
+        summary: "unrelated work"
+      })
+    );
+
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, []);
+    assert.deepEqual(await findResidualEpisodeText(stateRoot, episodeId), []);
+  });
+});
+
+test("a run that only names the episode without copying its text is not listed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+    const runId = createRunId(UUID);
+    await new EventStore(stateRoot, runId).append(
+      runEvent(runId, "RUN_ATTACHED", {
+        episodeId,
+        runId,
+        attachedAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z")
+      })
+    );
+
+    // An id is a reference, not episode text: reporting it would send the
+    // operator deleting runs that hold nothing of the deleted episode.
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, []);
+  });
+});
+
+test("an objective copy outside the open event is listed, including track-questions.json", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+
+    // This run never opens the episode; it names it and quotes the objective.
+    const quoting = createRunId(UUID);
+    const store = new EventStore(stateRoot, quoting);
+    await store.append(
+      runEvent(quoting, "RUN_ATTACHED", {
+        episodeId,
+        runId: quoting,
+        attachedAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z")
+      })
+    );
+    await store.append(
+      runEvent(quoting, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-000000000002",
+        kind: "TEXT_DELTA",
+        summary: `working on: ${OBJECTIVE}`
+      })
+    );
+    const questions = join(stateRoot, "runtime", "runs", quoting, "track-questions.json");
+    await writeFile(questions, JSON.stringify({ objective: OBJECTIVE, questions: [] }), "utf8");
+
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, [quoting]);
+    const findings = await findResidualEpisodeText(stateRoot, episodeId, [OBJECTIVE]);
+    assert.deepEqual(
+      findings.map((entry) => entry.path).sort(),
+      [join(stateRoot, "runtime", "runs", quoting, "events.jsonl"), questions].sort()
+    );
+    assert.ok(findings.every((entry) => entry.reason === "objective-copy"));
+  });
+});
+
+test("acceptance text counts as episode text even when the objective was never copied", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+    const runId = createRunId(UUID);
+    const store = new EventStore(stateRoot, runId);
+    await store.append(
+      runEvent(runId, "RUN_ATTACHED", {
+        episodeId,
+        runId,
+        attachedAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z")
+      })
+    );
+    await store.append(
+      runEvent(runId, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-000000000003",
+        kind: "TEXT_DELTA",
+        summary: `checking that ${ACCEPTANCE}`
+      })
+    );
+
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, [runId]);
+  });
+});
+
+test("the residual list survives a repeat delete by reading the run's own open event", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+    const runId = await seedRunOpeningEpisode(stateRoot, episodeId);
+
+    await deleteEpisodeRecords(stateRoot, episodeId);
+    // The episode's own records are gone now, so the second scan has no seed
+    // text: it must recover the objective from the run log itself.
+    const again = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(again.residualEpisodeTextRunIds, [runId]);
+  });
+});
+
+test("an attached run with an unparsable line is reported rather than assumed clean", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      join(runDir, "events.jsonl"),
+      `{"type":"EPISODE_OPENED","payload":{"episode":{"id":"${episodeId}","objectiv\n`,
+      "utf8"
+    );
+
+    const findings = await findResidualEpisodeText(stateRoot, episodeId);
+    assert.deepEqual(findings, [
+      { runId, path: join(runDir, "events.jsonl"), reason: "unreadable-log" }
+    ]);
+  });
+});
+
+test("delete --run never claims residual episode text", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    await mkdir(join(stateRoot, "runtime", "runs", runId), { recursive: true });
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(result.residualEpisodeTextRunIds, []);
+  });
+});
+
+/**
+ * Pins the non-goal documented in `deletion.ts`: an episode delete must not
+ * touch preferences. If a cascade is ever implemented, this test and the
+ * record-class dictionary have to change together — that is the point.
+ */
+test("deleting an episode does not delete preferences learned from it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+    const episodeId = createEpisodeId(UUID);
+    try {
+      configurePreferencePersistence(preferencesPath);
+      const observation = recordExplicitPreference(
+        "project",
+        "acme",
+        "require-tests",
+        true,
+        episodeId
+      );
+      const before = await readFile(preferencesPath, "utf8");
+
+      await new EpisodeStore(stateRoot, episodeId).append(episodeFixture(episodeId));
+      const result = await deleteEpisodeRecords(stateRoot, episodeId);
+      assert.ok(result.removedPaths.length > 0);
+
+      assert.equal(await readFile(preferencesPath, "utf8"), before, "preferences.json must not move");
+      // Reload from disk: the observation is still live, and its evidence
+      // pointer is left dangling on purpose.
+      clearAll();
+      configurePreferencePersistence(preferencesPath);
+      const reloaded = inspectPreferences().observations.find((row) => row.id === observation.id);
+      assert.ok(reloaded, "the preference must survive the episode delete");
+      assert.equal(reloaded.evidenceEpisodeId, episodeId);
+      assert.equal(reloaded.value, true);
+    } finally {
+      configurePreferencePersistence(undefined);
+      clearAll();
+    }
+  });
+});
+
+test("the episode cascade strips every declared free-text feedback field", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-both", {
+      body: "raw user body text",
+      summary: "user: I keep failing to log in with alice@example.com"
+    });
+
+    const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId);
+    assert.deepEqual(cascaded, ["fb-both"]);
+
+    // No free-text field may survive on the record shell...
+    const [record] = await readFeedbackRecordsRaw(stateRoot);
+    assert.ok(record);
+    for (const field of FREE_TEXT_FEEDBACK_FIELDS) {
+      assert.equal(record[field], undefined, `${field} must be stripped`);
+    }
+    // ...and none may survive as raw bytes in the log either.
+    const raw = await readFile(
+      join(stateRoot, "adaptation", "feedback", "records.jsonl"),
+      "utf8"
+    );
+    assert.doesNotMatch(raw, /raw user body text/);
+    assert.doesNotMatch(raw, /alice@example\.com/);
+    assert.doesNotMatch(raw, /"summary"/);
+    // The audit shell survives so the deletion itself stays inspectable.
+    assert.equal(record.id, "fb-both");
+    assert.equal(record.score, 70);
+  });
+});
+
+test("a summary-only record is cascaded even with no body present", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-summary-only", {
+      summary: "peer: the migration script drops the audit table"
+    });
+    await deleteEpisodeRecords(stateRoot, episodeId);
+
+    const [record] = await readFeedbackRecordsRaw(stateRoot);
+    assert.ok(record);
+    assert.equal(record.summary, undefined);
+    assert.deepEqual(await readFeedback(stateRoot), []);
+  });
+});
+
+test("a second cascade cannot resurrect a stripped summary", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-idempotent", {
+      body: "body text",
+      summary: "summary text"
+    });
+    await deleteEpisodeRecords(stateRoot, episodeId);
+    const again = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(again.cascadedFeedbackTombstones, ["fb-idempotent"]);
+
+    const raw = await readFile(join(stateRoot, "adaptation", "feedback", "records.jsonl"), "utf8");
+    assert.doesNotMatch(raw, /summary text/);
+    assert.doesNotMatch(raw, /body text/);
+  });
+});
+
+test("delete --episode removes the episode's cooperative lock", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const episodesDir = join(stateRoot, "runtime", "episodes");
+    await mkdir(episodesDir, { recursive: true });
+    await writeFile(join(episodesDir, `${episodeId}.jsonl`), "{}\n", "utf8");
+    const lockPath = join(episodesDir, `${episodeId}.lock`);
+    await writeFile(lockPath, JSON.stringify({ ownerToken: "t", pid: 1 }), "utf8");
+
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.equal(existsSync(lockPath), false, "episode lock must not outlive the episode");
+    assert.ok(result.removedPaths.includes(lockPath));
+    assert.equal(result.droppedInvocations, 0);
+  });
+});
+
+test("delete --run drops only that run's rows from the shared invocation log", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`,
+      `${JSON.stringify(invocationRow(doomed, "inv_c"))}\n`
+    ]);
+
+    const result = await deleteRunRecords(stateRoot, doomed);
+    assert.equal(result.droppedInvocations, 2);
+    assert.ok(result.removedPaths.some((line) => line.startsWith(path)));
+
+    const remaining = await loadInvocationsFromStateRoot(stateRoot);
+    assert.deepEqual(
+      remaining.map((inv) => inv.id),
+      ["inv_b"]
+    );
+    assert.doesNotMatch(await readFile(path, "utf8"), new RegExp(doomed));
+  });
+});
+
+test("delete --run leaves the invocation log untouched when the run has no rows", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const keeper = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`
+    ]);
+    const before = await readFile(path, "utf8");
+
+    const result = await deleteRunRecords(stateRoot, createRunId(UUID));
+    assert.equal(result.droppedInvocations, 0);
+    assert.deepEqual(result.removedPaths, []);
+    assert.equal(await readFile(path, "utf8"), before);
+  });
+});
+
+test("a corrupt middle line fails the run delete closed, before anything is unlinked", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      "{ this is not json\n",
+      `${JSON.stringify(invocationRow(doomed, "inv_c"))}\n`
+    ]);
+    const runDir = join(stateRoot, "runtime", "runs", doomed);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "events.jsonl"), "{}\n", "utf8");
+
+    await assert.rejects(
+      () => deleteRunRecords(stateRoot, doomed),
+      (error: unknown) => {
+        assert.ok(error instanceof DomainValidationError);
+        assert.match(error.message, /corrupt invocation jsonl at line 2/);
+        return true;
+      }
+    );
+    assert.equal(existsSync(runDir), true, "a failed delete must not half-delete the run");
+  });
+});
+
+test("a crash-truncated final line is dropped by the rewrite instead of being kept", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`,
+      '{"id":"inv_partial","runId":"run_'
+    ]);
+
+    const result = await deleteRunRecords(stateRoot, doomed);
+    assert.equal(result.droppedInvocations, 1);
+    const rewritten = await readFile(path, "utf8");
+    assert.doesNotMatch(rewritten, /inv_partial/);
+    assert.match(rewritten, /inv_b/);
+  });
+});
+
+test("run delete invalidates the derived observed snapshot only when rows were dropped", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const observed = catalogObservedPath(stateRoot);
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(observed, JSON.stringify({ versions: {} }), "utf8");
+
+    // No rows for this run: a delete must not touch an unrelated aggregate.
+    await deleteRunRecords(stateRoot, doomed);
+    assert.equal(existsSync(observed), true);
+
+    await writeInvocationLog(stateRoot, [`${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`]);
+    const result = await deleteRunRecords(stateRoot, doomed);
+    assert.equal(existsSync(observed), false, "stale p50 aggregate must not survive the delete");
+    assert.ok(result.removedPaths.includes(observed));
+  });
+});

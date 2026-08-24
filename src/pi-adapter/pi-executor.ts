@@ -27,8 +27,17 @@ import { createInvocationId, createMessageId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { SUPERVISOR } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
-import type { ModelInvocation } from "../telemetry/model-invocation.js";
+import type { InvocationCallOutcome, ModelInvocation } from "../telemetry/model-invocation.js";
 import { createClusterTools } from "./cluster-tools.js";
+import {
+  callOutcomeForFailure,
+  classifyProviderFailure,
+  decideRetry,
+  resolveRetryPolicy,
+  sleepWithAbort,
+  type ProviderFailure,
+  type RetryOptions
+} from "./provider-retry.js";
 
 /**
  * Thinking levels this runtime accepts, owned here rather than re-exported from
@@ -59,6 +68,13 @@ export interface PiExecutorOptions {
   /** Provider-pinned model version, recorded with each invocation when known. */
   modelVersion?: string;
   /**
+   * Bounded retry for transient provider failures (429, retryable 5xx).
+   * Defaults to three attempts with capped exponential backoff; a provider's
+   * Retry-After or remedy_hint overrides the computed wait. Auth rejections
+   * (401/403) are never retried.
+   */
+  retry?: RetryOptions;
+  /**
    * Optional sink receiving one validated invocation record per execute()
    * call: frozen configuration snapshot, response hash, usage, and latency.
    * The response body itself is never persisted — only its hash.
@@ -88,11 +104,12 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
       // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
       const message = event.message as { role?: string; usage?: { input?: number; output?: number } };
       const usage = message.role === "assistant" ? message.usage : undefined;
-      const rawInput = typeof usage?.input === "number" ? usage.input : undefined;
-      const rawOutput = typeof usage?.output === "number" ? usage.output : undefined;
+      const rawInput = usageCount(usage?.input);
+      const rawOutput = usageCount(usage?.output);
       // All-zero usage is what error payloads and stub providers report;
       // recording it would fabricate cost data ("undefined, never zero").
-      const allZero = rawInput === 0 && (rawOutput === undefined || rawOutput === 0);
+      const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
+      const allZero = reported.length > 0 && reported.every((value) => value === 0);
       const inputTokens = allZero ? undefined : rawInput;
       const outputTokens = allZero ? undefined : rawOutput;
       if (inputTokens === undefined && outputTokens === undefined) {
@@ -109,6 +126,30 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
     default:
       return undefined;
   }
+}
+
+/**
+ * Provider usage is only believable as a non-negative integer. Anything else
+ * (fractional, negative, NaN) is dropped rather than recorded, so the
+ * invocation validator never has to reject a whole record over one bad count.
+ */
+function usageCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** One agent run: the events it produced and how it ended. */
+interface AttemptRun {
+  readonly events: readonly ExecutionEvent[];
+  readonly failed: boolean;
+  readonly error: unknown;
+  readonly errorMessage: string | undefined;
+}
+
+interface RetriedRun {
+  /** 1-based number of the attempt whose events are returned. */
+  readonly attempt: number;
+  readonly events: readonly ExecutionEvent[];
+  readonly failure: ProviderFailure | undefined;
 }
 
 export class PiAgentExecutor implements AgentExecutor {
@@ -161,16 +202,17 @@ export class PiAgentExecutor implements AgentExecutor {
     return model === undefined ? undefined : { identity, model };
   }
 
-  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
-    const resolved = this.resolveModel(request);
-    if (resolved === undefined) {
-      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
-      return;
-    }
-    const { identity, model } = resolved;
-
-    const startedAtMs = Date.now();
-    const collected: ExecutionEvent[] = [];
+  /**
+   * Run the agent once. Failures are reported, not thrown: the agent loop
+   * folds stream errors into `state.errorMessage` and only surfaces an error
+   * object when the prompt call itself rejects, so both are captured.
+   */
+  private async runAttempt(
+    model: Model<Api>,
+    request: AgentExecutionRequest,
+    signal: AbortSignal
+  ): Promise<AttemptRun> {
+    const events: ExecutionEvent[] = [];
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
     const agent = new Agent({
@@ -189,32 +231,97 @@ export class PiAgentExecutor implements AgentExecutor {
         })
     });
 
+    let thrown: unknown;
     let runFailed = false;
     const onAbort = () => agent.abort();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
       agent.subscribe((event) => {
         const translated = translatePiEvent(event);
-        if (translated !== undefined) collected.push(translated);
+        if (translated !== undefined) events.push(translated);
       });
       await agent.prompt(`Working directory: ${request.workingDirectory}\n\n${request.prompt}`);
       await agent.waitForIdle();
-    } catch {
+    } catch (error) {
+      thrown = error;
       runFailed = !signal.aborted;
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
+    const errorMessage = agent.state.errorMessage;
+    return {
+      events,
+      failed: runFailed || errorMessage !== undefined,
+      error: thrown,
+      errorMessage
+    };
+  }
+
+  /**
+   * Drive `runAttempt` until it succeeds, the failure is terminal, or the
+   * attempt budget runs out. Each attempt uses a fresh agent so a failed turn
+   * never leaks into the retried transcript, and only the last attempt's
+   * events are surfaced.
+   */
+  private async runWithRetry(
+    model: Model<Api>,
+    request: AgentExecutionRequest,
+    signal: AbortSignal
+  ): Promise<RetriedRun> {
+    const options = this.options.retry;
+    const policy = resolveRetryPolicy(options);
+    const sleep = options?.sleep ?? sleepWithAbort;
+    const random = options?.random ?? Math.random;
+    for (let attempt = 1; ; attempt += 1) {
+      const run = await this.runAttempt(model, request, signal);
+      if (!run.failed || signal.aborted) {
+        return { attempt, events: run.events, failure: undefined };
+      }
+      const failure = classifyProviderFailure(run.error, run.errorMessage);
+      const decision = decideRetry(failure, attempt, policy, random);
+      if (!decision.retry) {
+        return { attempt, events: run.events, failure };
+      }
+      options?.onRetry?.({
+        attempt,
+        nextAttempt: attempt + 1,
+        delayMs: decision.delayMs,
+        reason: decision.reason,
+        failure
+      });
+      await sleep(decision.delayMs, signal);
+      if (signal.aborted) {
+        return { attempt, events: run.events, failure };
+      }
+    }
+  }
+
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    const resolved = this.resolveModel(request);
+    if (resolved === undefined) {
+      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+      return;
+    }
+    const { identity, model } = resolved;
+
+    const startedAtMs = Date.now();
+    const { attempt, events: collected, failure } = await this.runWithRetry(model, request, signal);
+    const callOutcome: InvocationCallOutcome = signal.aborted
+      ? "cancelled"
+      : failure === undefined
+        ? "ok"
+        : callOutcomeForFailure(failure);
 
     if (this.options.onInvocation !== undefined) {
-      this.options.onInvocation(recordInvocation(this.buildInvocation(request, identity, collected, startedAtMs)));
+      this.options.onInvocation(
+        recordInvocation(
+          this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
+        )
+      );
     }
 
     for (const event of collected) yield event;
-    const outcome = signal.aborted
-      ? "CANCELLED"
-      : runFailed || agent.state.errorMessage !== undefined
-        ? "FAILURE"
-        : "SUCCESS";
+    const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       yield {
         type: "MESSAGE",
@@ -241,14 +348,16 @@ export class PiAgentExecutor implements AgentExecutor {
   /**
    * Build the reference-only invocation record: frozen configuration hash,
    * response-body hash, provider usage when available (undefined, not zero,
-   * when unavailable), and wall-clock latency. No prompt or response body is
-   * retained.
+   * when unavailable), attempt number, terminal call outcome, and wall-clock
+   * latency. No prompt or response body is retained.
    */
   private buildInvocation(
     request: AgentExecutionRequest,
     identity: ModelRef,
     collected: readonly ExecutionEvent[],
-    startedAtMs: number
+    startedAtMs: number,
+    attempt: number,
+    callOutcome: InvocationCallOutcome
   ): ModelInvocation {
     let responseText = "";
     let tokensIn: number | undefined;
@@ -265,6 +374,10 @@ export class PiAgentExecutor implements AgentExecutor {
         }
       }
     }
+    // A failed, timed-out, or cancelled call has no trustworthy usage: error
+    // payloads carry a zeroed usage block, and a partial stream reports only
+    // what arrived before the failure. Cost aggregates must see undefined.
+    const usageIsTrustworthy = callOutcome === "ok";
     const toolNames = (this.options.tools ?? []).map((tool) => tool.name).sort();
     const parameterHash = hash32(
       `${identity.providerId}|${identity.modelId}|${this.options.thinkingLevel ?? "off"}|${toolNames.join(",")}|${this.options.systemPrompt ?? ""}`
@@ -281,10 +394,12 @@ export class PiAgentExecutor implements AgentExecutor {
         parameterHash,
       },
       responseHash: hashInvocationResponse(responseText),
-      tokensIn,
-      tokensOut,
+      tokensIn: usageIsTrustworthy ? tokensIn : undefined,
+      tokensOut: usageIsTrustworthy ? tokensOut : undefined,
       latencyMs: Date.now() - startedAtMs,
       occurredAt: nowIso(),
+      attempt,
+      callOutcome,
     };
   }
 }

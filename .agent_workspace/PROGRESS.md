@@ -1,183 +1,172 @@
-# Orchestrator progress — Pi adaptation + auxiliary features
+# pi-sparkle SOTA persistent optimization — orchestrator log
 
-**Goal:** Find related auxiliary features this project can add, and adapt pi-sparkle to current Pi as Pi updates.
+- **Branch:** `agent/sota-persistent-opt-7e63`
+- **SOP alias:** `agent/sota-persistent-opt`
+- **Started:** 2026-08-24
+- **Parent:** Cursor Grok 4.6 orchestrator (3-round × 6-agent loop)
+- **Goal:** Polish every plane of pi-sparkle to SOTA quality without claiming Outcome-supported, F-PROD, or live R1/bandit/topology. Never auto-promote. Keep ADR-004/005/006 honesty.
 
-**Branch:** `cursor/pi-adapt-aux-features-e1e3`  
-(Cloud Agent branch template is `cursor/<name>-e1e3`. User SOP `agent/<task-name>` is mapped to this branch.)
+## Loop protocol
 
-**Baseline (main @ 4a59949):**
-- Pinned: `@earendil-works/pi-agent-core` **0.84.1**, `@earendil-works/pi-ai` **0.84.1**
-- Latest published Pi (2026-08-24): **0.84.3** (`@earendil-works/pi-coding-agent`, inherited `pi-agent-core` / `pi-ai`)
-- Adapter lives in `src/pi-adapter/` (ADR-001). ADR-006: no inbound Pi extension.
+Each round dispatches **6 concurrent subagents** with exclusive file ownership:
 
-## Shared contract (all rounds)
-
-### New auxiliary: `pi-sparkle pi-compat`
-
-Offline-first compatibility report for the pinned Pi packages vs the adapter contract.
-
-```
-pi-sparkle pi-compat [--json] [--offline]
-```
-
-- Default: `--offline` (no network). Online latest-version fetch is opt-in (`--offline` omitted) and must fail closed (report `status: "unknown"`, exit 0 with a finding, never throw).
-- Exit 0 unless the adapter contract is broken (legacy `GoogleThinkingLevel` import, missing thinking levels, pin unreadable). Then exit 1 with `cliFail`.
-
-Library module (owned Round 1 by gpt-sol-B): `src/pi-compat/check.ts`
-
-```ts
-export interface PiPinnedVersions {
-  readonly agentCore: string;
-  readonly ai: string;
-}
-
-export interface PiCompatAdapterProbe {
-  readonly thinkingLevels: readonly string[];
-  readonly googleThinkingType: "GoogleApiThinkingLevel" | "legacy-GoogleThinkingLevel" | "absent";
-  readonly nestedSkillDiscovery: boolean;
-  readonly agentsMdNotBrokenSkill: boolean;
-}
-
-export interface PiCompatReport {
-  readonly generatedAt: string;
-  readonly offline: boolean;
-  readonly pinned: PiPinnedVersions;
-  readonly latest?: PiPinnedVersions;
-  readonly adapter: PiCompatAdapterProbe;
-  readonly status: "current" | "behind" | "ahead" | "unknown";
-  readonly findings: readonly string[];
-}
-
-export function readPinnedPiVersions(packageJson: unknown): PiPinnedVersions;
-export function comparePiVersions(pinned: string, latest: string): "current" | "behind" | "ahead";
-export function probeAdapterContract(): PiCompatAdapterProbe;
-export function buildPiCompatReport(input: {
-  readonly packageJson: unknown;
-  readonly offline: boolean;
-  readonly latest?: PiPinnedVersions;
-  readonly now?: string;
-}): PiCompatReport;
-```
-
-### Doctor additions (owned Round 1 by opus-fast-B)
-
-Append two checks (do not rename existing checks; doctor tests match names/prefix):
-
-- `pi-packages`: `agent-core=<pinned> ai=<pinned>`
-- `pi-compat`: `status=<current|behind|ahead|unknown> (<short finding or ok>)`
-
-### Probe scripts (owned Round 1 by gpt-sol-A)
-
-- `scripts/pi-compat-probe.mjs` — import adapter + `src/pi-compat/check.ts` (via tsx or static JSON parse of package.json); print report; exit 0/1 same policy as CLI.
-- `scripts/pi-latest-check.mjs` — fetch npm dist-tags for `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`; print pinned vs latest. Fail closed offline.
-
-Do **not** edit `package.json` scripts from gpt-sol-A (lockfile owner is opus-fast-A).
-
-### Pi 0.84.1 → 0.84.3 adapter notes
-
-Breaking / inherited (must not leak into domain):
-
-- `GoogleThinkingLevel` → `GoogleApiThinkingLevel` (+ `ResolvedGoogleThinkingLevel`)
-- `toolChoice` on simple stream requests (provider-neutral)
-- Nested Markdown skills under `.agents/skills/` grouping dirs are discovered
-- Root `README.md` / `AGENTS.md` in skill dirs are **not** broken skills
-- `session_compact_failed` extension events (we still do not register extensions)
-- PowerShell tool is Windows/coding-agent — do not add to our fake executor
-- `/thinking` is TUI; our equivalent is `PI_THINKING_LEVEL` (and later `--thinking` if Round 2)
-
-Target pin: **0.84.3** for both `pi-agent-core` and `pi-ai` if typecheck+tests pass. If 0.84.3 is unpublished for one package, pin both to the highest matching pair and document it.
-
-### File ownership — Round 1 (exclusive)
-
-| Agent | Model slug | Owns (write) | Must not touch |
-|---|---|---|---|
-| R1-fable-A | `claude-fable-5-thinking-xhigh` | `docs/how-to-adapt-to-pi.md`, `docs/reports/2026-08-24-pi-0843-gap-audit.md`, `.agent_workspace/round1-fable-a.md` | `src/`, `test/`, `package.json` |
-| R1-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**`, `prompts/sparkle.md`, `.agent_workspace/round1-fable-b.md` | `src/`, `package.json` |
-| R1-opus-A | `claude-opus-5-thinking-high-fast` | `package.json`, `pnpm-lock.yaml`, `src/pi-adapter/**`, `src/config/providers-config.ts` if needed, adapter tests under `test/integration/pi-adapter/**` / `test/unit/pi-adapter/**` if types break, `.agent_workspace/round1-opus-a.md` | `src/cli/`, `src/pi-compat/`, skills |
-| R1-opus-B | `claude-opus-5-thinking-high-fast` | `src/cli/pi-compat.ts` (new), `src/cli/main.ts` (USAGE + switch only), `src/cli/doctor.ts` (append checks), `README.md` (command row), `.agent_workspace/round1-opus-b.md` | `package.json`, `src/pi-adapter/`, `src/pi-compat/` (import only) |
-| R1-gpt-A | `gpt-5.6-sol-xhigh-fast` | `scripts/pi-compat-probe.mjs`, `scripts/pi-latest-check.mjs`, `.agent_workspace/round1-gpt-a.md` | `package.json`, `src/cli/` |
-| R1-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/**` (new), `test/unit/pi-compat/**`, `test/unit/cli/pi-compat.test.ts`, `.agent_workspace/round1-gpt-b.md` | `src/cli/main.ts`, `package.json` |
-
-Do **not** git commit. Parent orchestrator commits after the round.
-
-Every subagent report **must start with the actual model slug** on line 1.
-
-## Round log
-
-### Round 1 — complete (2026-08-24)
-
-All 6 subagents returned. Requested slugs vs reports: fable pair `claude-fable-5-thinking-xhigh`; opus pair `claude-opus-5-thinking-high-fast`; gpt pair `gpt-5.6-sol-xhigh-fast`. No silent downgrade recorded in reports.
-
-#### Shipped
-
-- **Pi pin 0.84.1 → 0.84.3** (`pi-agent-core` + `pi-ai`, matching pair). Adapter typecheck clean: consumed agent-core `.d.ts` is byte-identical; `GoogleThinkingLevel` rename was never imported; optional `toolChoice` already flows through the options spread. Adapter now exports `SparkleThinkingLevel` instead of leaking Pi's `ThinkingLevel` into CLI.
-- **Auxiliary `pi-sparkle pi-compat [--json] [--offline|--online]`** + doctor checks `pi-packages` / `pi-compat`. Library in `src/pi-compat/`. Offline-default; online fail-closed.
-- **Probes:** `scripts/pi-compat-probe.mjs`, `scripts/pi-latest-check.mjs` (offline / JSON / `--strict`).
-- **Docs:** `docs/how-to-adapt-to-pi.md`, `docs/reports/2026-08-24-pi-0843-gap-audit.md`.
-- **Overlay:** SKILL.md 0.84.3 section + `references/pi-version-adapt.md`; prompt `pi-bump` hint.
-- **Parent fix:** `test/unit/pi-boundary.test.ts` now matches import specifiers, not string mentions (unblocked `src/pi-compat` literals).
-
-#### Remaining defects
-
-- No CLI integration tests for `pi-compat` yet (library tests exist; `pnpm test -- test/unit/pi-compat` dir form hits Node `ERR_UNSUPPORTED_DIR_IMPORT`).
-- No `package.json` scripts wrapping the probe files.
-- No `--thinking` on `run` (env `PI_THINKING_LEVEL` only). Google models silently clamp `xhigh`/`max`.
-- Nested-skill 0.84.3 discovery is documented, not fixture-tested (must not look like a second skill under `.agents/skills/`).
-- `pi-ai` `ThinkingLevel` dropped `"off"` while agent-core kept it — watch on next bump.
-- Probe must stay adapter-source-only; do not re-widen to docs (legacy identifier in prose must not fail doctor).
-- This VM's Node may be 22.14 vs `engines >=22.19.0` — environmental doctor FAIL, not product.
-
-#### Round 2 focus (SOTA gap)
-
-1. CLI tests + npm script aliases + help/README/how-to flag alignment (`--online` vs contract).
-2. `--thinking` on `run`, documented vs TUI `/thinking`.
-3. Nested-skill + AGENTS.md discovery fixture under `test/`.
-4. Keep ADR-001/006: no extensions, no coding-agent dep, no PowerShell tool.
-5. Re-run `pnpm gate` after the boundary-test parent fix.
-
-### Round 2 — in progress (targeted refactor + deep optimization)
-
-Brief: `.agent_workspace/ROUND1-BRIEF.md` (inject into every R2 agent).
-
-| ID | Agent | Task id |
+| Slot | Model slug | Role |
 |---|---|---|
-| R2-fable-A | docs / SOTA remainder | `bc-35f62f6f-4574-5169-a5f2-20faa869fc3b` |
-| R2-fable-B | overlay polish | `bc-6dffdb01-cefb-5ec0-9875-f5a7b3e55ad4` |
-| R2-opus-A | `run --thinking` | `bc-00f6c6c9-ecf9-52db-87b1-7bf715759711` |
-| R2-opus-B | CLI tests + npm scripts | `bc-f79dace0-0fdd-525d-9a84-0692a1664278` |
-| R2-gpt-A | nested-skill fixtures | `bc-08ed8fc4-3182-5bfd-a743-b676eab458a4` |
-| R2-gpt-B | library hardening | `bc-2d231917-25e7-5b3e-a2da-ee15c1b8121f` |
+| fable-1 | `claude-fable-5-thinking-xhigh` | Global architecture / SOTA audit |
+| fable-2 | `claude-fable-5-thinking-xhigh` | Isolation, privacy-claim, ADR honesty review |
+| opus-1 | `claude-opus-5-thinking-high-fast` | Core implementation A |
+| opus-2 | `claude-opus-5-thinking-high-fast` | Core implementation B |
+| gpt-sol-1 | `gpt-5.6-sol-xhigh-fast` | Benchmarks / persist stress |
+| gpt-sol-2 | `gpt-5.6-sol-xhigh-fast` | Boundary probes / package hygiene |
 
-| Agent | Model slug | Owns (write) | Must not touch |
-|---|---|---|---|
-| R2-fable-A | `claude-fable-5-thinking-xhigh` | `docs/how-to-adapt-to-pi.md`, `docs/reports/**` (align flags, thinking, SOTA remainder), `.agent_workspace/round2-fable-a.md` | `src/`, `package.json` |
-| R2-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**`, `prompts/sparkle.md`, `.agent_workspace/round2-fable-b.md` | `src/`, `package.json` |
-| R2-opus-A | `claude-opus-5-thinking-high-fast` | `src/cli/main.ts` (`run --thinking` + USAGE), adapter runtime only if mapping required, `test/unit/cli/` tests for `--thinking`, `.agent_workspace/round2-opus-a.md` | `src/pi-compat/`, skills, `package.json` scripts |
-| R2-opus-B | `claude-opus-5-thinking-high-fast` | `test/unit/cli/pi-compat.test.ts`, doctor test appends, `package.json` scripts `pi-compat`/`pi:latest` only, `src/cli/pi-compat.ts` if export needed, `.agent_workspace/round2-opus-b.md` | `src/cli/main.ts`, `src/pi-adapter/` |
-| R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**` (nested + AGENTS.md fixtures), fixture tests, script edge cases under `scripts/`, `.agent_workspace/round2-gpt-a.md` | `src/cli/main.ts`, `package.json` |
-| R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/check.ts` (derive names from dep keys if still hardcoded; keep probe adapter-only), `test/unit/pi-compat/**`, `.agent_workspace/round2-gpt-b.md` | `src/cli/main.ts`, `src/pi-adapter/` |
+Subagents **do not git commit**. Parent commits, pushes, and updates the PR after each round.
 
-### Round 2 — complete (2026-08-24)
+## Known baseline (main @ `4a59949`)
 
-All 6 returned (`claude-fable-5-thinking-xhigh` ×2, `claude-opus-5-thinking-high-fast` ×2, `gpt-5.6-sol-xhigh-fast` ×2).
+Evidence from `docs/reports/2026-08-22-weak-areas-data-collection.md` and `docs/status-matrix.md`:
 
-Shipped: `run --thinking`, pi-compat CLI tests + npm aliases, adapter-only library probe, nested-skill fixtures, docs alignment. Overlay still labels `--thinking` as planned (Round 3 fix). SOTA remainder: README thinking line, Google clamp mirror test, `pnpm gate`, status-matrix row.
+1. `redactPII` labels only — email/IP/phone/card/path/secret *values* survive (`src/feedback/redaction.ts`).
+2. No 429 Retry-After / backoff at the Pi executor (`src/pi-adapter/`).
+3. Error invocations can record `tokensIn: 0` despite “unavailable is undefined, never zero”.
+4. Doctor output is prose-only — no frozen `--json` contract.
+5. Legacy flat state-root paths are invisible (fail-closed) with no migrate command or doctor warning.
+6. Published build inherits `sourceMap`/`declarationMap` from root tsconfig (pack bloat).
+7. Retention unbounded; doctor Node engine is `>=22.19.0` while some environments run 22.14.0.
+8. Real-provider coverage of `--children` / `--track` still thin. Checkpoint F-PROD stays open.
 
-Brief for Round 3: `.agent_workspace/ROUND2-BRIEF.md`.
+## Round 1 — initial build & baseline (in flight)
 
-### Round 3 — in progress (SOTA polish + final acceptance)
+Exclusive ownership (do not touch another slot’s files):
 
-| Agent | Model slug | Owns (write) | Must not touch |
-|---|---|---|---|
-| R3-fable-A | `claude-fable-5-thinking-xhigh` | `docs/**` (status-matrix, how-to leftover, SOTA gap close), `.agent_workspace/round3-fable-a.md` | `src/`, skills |
-| R3-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**`, `prompts/sparkle.md`, `README.md` (thinking + probe rows only), `.agent_workspace/round3-fable-b.md` | `src/` |
-| R3-opus-A | `claude-opus-5-thinking-high-fast` | thinking-mirror / clamp tests under `test/unit/`, USAGE one-liners in `src/cli/main.ts` only if tests require, `.agent_workspace/round3-opus-a.md` | `src/pi-compat/`, skills |
-| R3-opus-B | `claude-opus-5-thinking-high-fast` | `pnpm gate` failures in CLI tests / lint; optional `prerelease` including `pi:probe`; `.agent_workspace/round3-opus-b.md` | `src/pi-adapter/` |
-| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**`, discovery tests, probe script edges, `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
-| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/**` + its tests; prove docs spelling `GoogleThinkingLevel` does not fail doctor, `.agent_workspace/round3-gpt-b.md` | `src/cli/main.ts` |
+| Slot | Owns |
+|---|---|
+| fable-1 | `.agent_workspace/round1-fable1.md`, `docs/reports/2026-08-24-sota-architecture-audit.md`; may honesty-patch `docs/status-matrix.md`, `CONTRIBUTING.md` |
+| fable-2 | `.agent_workspace/round1-fable2.md`, `docs/reports/2026-08-24-sota-isolation-privacy.md`; may honesty-patch `docs/data-dictionary.md`, `docs/decisions/*.md` |
+| opus-1 | `src/feedback/redaction.ts`, `test/unit/feedback/**`, `test/unit/privacy/redaction.test.ts`, `test/integration/m3/redaction.test.ts`, `src/cli/doctor.ts`, `src/cli/doctor-overlay.ts`, `test/unit/cli/doctor*.ts` |
+| opus-2 | `src/pi-adapter/**`, `test/unit/pi-adapter/**`, `test/integration/pi-adapter/**`, `src/telemetry/**`, `test/unit/telemetry/**`, new `src/cli/migrate-legacy.ts` + its tests; **minimal** `src/cli/main.ts` switch/USAGE for `migrate-legacy` only |
+| gpt-sol-1 | `scripts/bench-runtime.mjs`, `test/unit/persist/**`, `src/persist/**` (bugfix only), `.agent_workspace/round1-gptsol1.md` |
+| gpt-sol-2 | `tsconfig.build.json` (strip maps), `scripts/security-probe.mjs`, `test/unit/domain/**` extra edges, `test/unit/graph/**` extra edges, `.agent_workspace/round1-gptsol2.md` |
 
-### Round 3 — complete (2026-08-24)
+**Forbidden to all Round 1 agents:** `README.md`, `package.json`, `pnpm-lock.yaml`, `.github/**`, live R1/bandit/topology on the execution path, Outcome-supported claims.
 
-All 6 returned. `pnpm gate` green (1213 pass, 1 skipped smoke). Overlay `--thinking` stale “planned” claim fixed. Status matrix updated. Google clamp characterized. No conflicts vs `origin/main`.
+## Round 1 结论简报
 
-See `.agent_workspace/ROUND3-BRIEF.md`.
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1282 pass / 0 fail / 1 skip**. `dist/` map files **0**. `security-probe` **14 passed, 0 open**. Bench `scripts/bench-runtime.mjs` ok (jsonlAppend ~85ms/1000, lock contended ~245ms).
+
+### 已实现功能
+
+| Slot | Model | Landed |
+|---|---|---|
+| fable-1 | `claude-fable-5-thinking-xhigh` | Architecture audit; `--children` is flowchart (matrix honesty); coverage-gate wiring precision; isolation-enforcement precision; CONTRIBUTING `preferences/` + `pnpm gate` |
+| fable-2 | `claude-fable-5-thinking-xhigh` | Isolation/privacy audit; ADR-004 follow-up contradiction fixed; ADR-005 enforcement note; dictionary delete-cascade holes disclosed |
+| opus-1 | `claude-opus-5-thinking-high-fast` | Real PII/secret/path redaction + ReDoS hardening; `doctor --json` frozen contract; informational `legacy-layout` check |
+| opus-2 | `claude-opus-5-thinking-high-fast` | 429/5xx retry with Retry-After/`remedy_hint`; usage `undefined` on failed calls; `costEligibleInvocations`; `migrate-legacy` dry-run/`--apply` |
+| gpt-sol-1 | `gpt-5.6-sol-xhigh-fast` | JSONL+lock benches; lock fd leak on metadata write; exclusive-lock tests; stale locks remain timeout-only (PID-reuse conservative) |
+| gpt-sol-2 | `gpt-5.6-sol-xhigh-fast` | Build maps stripped; security-probe expanded (Bearer/PEM/UNC); domain/graph edge tests |
+
+Parent post-collect honesty: USAGE lists `doctor --json`; status-matrix doctor row records the frozen JSON contract; fake-executor row mentions `migrate-legacy`.
+
+### 遗留缺陷
+
+1. `live-isolation.test.ts` is source-text over ten files — cannot see transitive `bandit.ts` (post-run write) or `topology.ts` (parked import).
+2. Episode-delete cascade strips `body` not `summary`; `delete --run` does not rewrite global `invocations.jsonl`; episode `.lock` survives.
+3. `calibrateCatalogFromState` still averages failed calls into per-token cost (helper exists, not wired).
+4. README / `m0-m2-architecture.md` still say `--children` is not the flowchart engine; seven CLI commands missing from README table.
+5. `pnpm test -- <dir>` throws `ERR_UNSUPPORTED_DIR_IMPORT` (tsx + package script).
+6. Orphan barrel `src/supervisor/flowchart.ts` (zero importers).
+7. `redacted: true` means “pass ran”, not “content removed”; decision classes not persisted.
+8. Prompt-injection class still unused (deliberate; false-positive risk).
+9. Node engines `>=22.19.0` vs some hosts on 22.14.0 (doctor fails closed — correct).
+
+### 性能瓶颈
+
+- JSONL append ~0.08ms/line locally; lock serial ~0.25ms/acquire. Not a CI gate.
+- Redaction ReDoS closed (~5ms at 32K vs seconds before). Size cap still after scan-of-redacted text (good).
+- Retry sleeps up to 8s backoff, refuses Retry-After > 30s (by design).
+- No stale-lock steal (PID reuse). Abandoned lock = timeout + manual cleanup.
+
+### 下轮攻坚重点 (Round 2)
+
+1. Transitive live-isolation test + plane-boundary prefix gap (`supervisor/`, `cli/`).
+2. Privacy cascade: strip `summary`, filter-rewrite invocations on `delete --run`, drop episode lock; align `record-classes`.
+3. Wire `costEligibleInvocations` into cost-calibration.
+4. README + architecture spec honesty; `adapt promote` USAGE form; doctor/migrate in command table.
+5. Test-runner directory glob; `bandit-store` units; evidence-invariant + checkpoint crash tests.
+6. Delete or justify orphan `flowchart.ts` barrel; fix `r0.ts` “not imported live” header.
+
+## Round 2 结论简报
+
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1314 pass / 0 fail / 1 skip** (was 1282). Directory form `pnpm test -- test/unit/persist` works (13/13). Security probe **14/14**.
+
+### 演进对比 (Round 1 → Round 2)
+
+| Area | Round 1 | Round 2 |
+|---|---|---|
+| Isolation test | 10-file source grep | Transitive closure from 4 live entries; pinned allowlist (bandit writer, parked topology) |
+| Plane-boundary | Missing supervisor/cli prefixes | Prefixes added; type-only `eval-routing` allowlisted |
+| Delete cascade | body-only; invocations leak; episode lock survives | Strips body+summary; filter-rewrites invocations.jsonl; invalidates catalog-observed; removes .lock |
+| Cost calibration | Helper unwired | `isCostEligible` gated; unattributed/not-ok excluded |
+| Docs | Matrix honesty | README `--children` truth; 22-row command table; doctor --json / migrate-legacy |
+| Tests | persist lock + redaction | bandit-store units; evidence-invariant; checkpoint crash windows |
+| Runner | `tsx --test` dir-import bug | `scripts/run-tests.mjs` expands directories |
+| USAGE | `adapt promote` bare | Parent: full required flags |
+
+`src/supervisor/flowchart.ts` is **not** an orphan — `flowchart-supervisor.ts` imports `./flowchart.js`. Do not delete.
+
+### 潜在边界风险
+
+1. Episode objective text can still survive in attached runs' `events.jsonl` (`EPISODE_OPENED` copy) after `delete --episode`.
+2. No preference cascade on episode delete.
+3. `redacted: true` still means “pass ran”; decision classes not persisted on `FeedbackRecord`.
+4. `SPARKLE_AUTO_ADAPT=0` still writes `bandit.json` before the kill-switch return (collects *and* updates the learner).
+5. Closure walker is regex-based (fails closed on comment false-positives; misses computed dynamic imports — none in src/).
+6. Delete-vs-live-appender race on shared `invocations.jsonl` (documented).
+7. Unbounded retention of invocations/episodes.
+
+### SOTA 验收差距 (Round 3)
+
+1. Persist optional `redactionClasses` (or split scanned/transformed) so on-disk records are honest.
+2. Kill-switch: skip `updateProjectBandit` when `SPARKLE_AUTO_ADAPT=0` (collect-only).
+3. Episode-delete: scrub or disclose remaining run-log copies; preference cascade or explicit non-goal.
+4. README `adapt promote` row + delete-cascade “summary too”; CONTRIBUTING test-runner.
+5. `auth-session` / `cluster-tools` direct units; retention probe.
+6. Final cross-audit: no Outcome-supported, no live R1, ADR-006 Proposed, P0 sign-off open.
+
+## Round 3 结论简报
+
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1363 pass / 0 fail / 1 skip** (R2: 1314). Security probe **14/14**. Retention probe `{ ok: true, unbounded: true, files: 33, bytes: 25856 }`. Directory tests 13/13.
+
+### 最终冲刺落地
+
+| Slot | Model | Landed |
+|---|---|---|
+| fable-1 | `claude-fable-5-thinking-xhigh` | SOTA acceptance report; README `adapt promote` + delete honesty; CONTRIBUTING test runner; matrix rows for cascade/calibration/retention |
+| fable-2 | `claude-fable-5-thinking-xhigh` | Isolation certification; dictionary residual-text + kill-switch + redactionClasses tri-state; ADR-006 stays Proposed |
+| opus-1 | `claude-opus-5-thinking-high-fast` | Persist `redactionClasses` (fail-closed unknown; old rows valid); auth-session units + lazy readline hardening |
+| opus-2 | `claude-opus-5-thinking-high-fast` | Kill-switch collect-only (no bandit write); episode-delete residual run listing (no event-log rewrite); preference cascade explicit non-goal |
+| gpt-sol-1 | `gpt-5.6-sol-xhigh-fast` | cluster-tools units; `scripts/retention-probe.mjs` |
+| gpt-sol-2 | `gpt-5.6-sol-xhigh-fast` | Help/USAGE promote flags assertion; evidence-invariant comment |
+
+Parent ratifies the one-line `src/cli/main.ts` residual-text print (required by `DeletionResult`). Round 2 residual items 1–4 and 3.1–3.5 above are closed or explicitly disclosed.
+
+### SOTA 收敛（developer preview 标准）
+
+Accepted for preview: fail-closed persistence, transitive live-isolation, documentation-exact privacy deletes, honest telemetry/calibration, proposal-first adaptation, dispatcher-matching docs. **Not** Outcome-supported. **Not** F-PROD. Live R1/bandit/topology stay off the execution path.
+
+### 仍为策略/人工门（不在本 loop 关闭）
+
+- P0 privacy independent-reviewer sign-off
+- Checkpoint F-PROD / sealed holdout
+- ADR-006 Proposed (no Pi extension import)
+- Unbounded retention (Q3 accepted; probe only)
+- Plane-boundary comment vs value-import of model-router through eval-routing (no FS leak)
+- Real-provider `--children`/`--track` coverage still smoke-only
+
+## Post-loop merge with `origin/main` (2026-08-24)
+
+`main` moved from `4a59949` to `2155743` (Pi 0.84.3 pin, `pi-compat` CLI, `run --thinking`, doctor `pi-packages`/`pi-compat` checks). This branch absorbed that work with conflict resolution:
+
+- Keep directory-expanding `scripts/run-tests.mjs` **and** `pi-compat` / `pi:latest` / `pi:probe` scripts
+- Doctor JSON contract + `legacy-layout` **and** `pi-packages` / `pi-compat` checks
+- `--thinking` on `run` **and** `migrate-legacy` / residual-delete disclosure
+- Adapter exports both `SparkleThinkingLevel` and retry types

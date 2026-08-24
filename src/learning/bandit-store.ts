@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isRecord } from "../domain/record.js";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { createBanditState, recordReward, type BanditState } from "../routing/bandit.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
@@ -10,6 +11,50 @@ function banditPath(stateRoot: string, projectRoot: string): string {
   return join(adaptationRoot(stateRoot), "learning", "projects", stableProjectKey(projectRoot), "bandit.json");
 }
 
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isBanditState(value: unknown): value is BanditState {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.arms) ||
+    !isNonNegativeInteger(value.explorationsUsed) ||
+    !isNonNegativeInteger(value.highRiskExplorations)
+  ) {
+    return false;
+  }
+
+  const arms = value.arms;
+  const pulls = value.pulls;
+  const rewardSum = value.rewardSum;
+  if (!isRecord(pulls) || !isRecord(rewardSum)) return false;
+  if (
+    !arms.every((arm): arm is string => typeof arm === "string" && arm.trim() !== "") ||
+    new Set(arms).size !== arms.length
+  ) {
+    return false;
+  }
+  const armSet = new Set(arms);
+  if (
+    Object.keys(pulls).some((arm) => !armSet.has(arm)) ||
+    Object.keys(rewardSum).some((arm) => !armSet.has(arm))
+  ) {
+    return false;
+  }
+  return arms.every((arm) => {
+    const armPulls = pulls[arm];
+    const armRewardSum = rewardSum[arm];
+    return (
+      isNonNegativeInteger(armPulls) &&
+      typeof armRewardSum === "number" &&
+      Number.isFinite(armRewardSum) &&
+      armRewardSum >= 0 &&
+      armRewardSum <= armPulls
+    );
+  });
+}
+
 async function readBanditFile(path: string): Promise<BanditState | undefined> {
   const raw = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return "";
@@ -17,7 +62,8 @@ async function readBanditFile(path: string): Promise<BanditState | undefined> {
   });
   if (raw === "") return undefined;
   try {
-    return JSON.parse(raw) as BanditState;
+    const parsed: unknown = JSON.parse(raw);
+    return isBanditState(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

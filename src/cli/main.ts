@@ -69,6 +69,7 @@ import { injectCommand } from "./inject.js";
 import { authCommand } from "./auth.js";
 import { modelsCommand } from "./models.js";
 import { doctorCommand } from "./doctor.js";
+import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
@@ -231,7 +232,7 @@ const USAGE = `pi-sparkle — project-development multi-agent runtime (developer
 
 Usage:
   pi-sparkle --version
-  pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>]
+  pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
@@ -252,10 +253,11 @@ Usage:
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
   pi-sparkle delete --run <runId> | --episode <epId> [--state-root <dir>]
+  pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
-  pi-sparkle adapt promote
+  pi-sparkle adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
   pi-sparkle help
@@ -264,8 +266,9 @@ State root defaults to ~/.pi-sparkle. The default executor is a deterministic
 fake. --children without --executor pi uses the child fake executor so the
 README example completes locally. Pass --executor pi after pi-sparkle models
 set-default (and/or PI_PROVIDER/PI_MODEL). doctor is a developer-preview
-preflight (Node, pnpm, state-root, providers, Pi dispatch contract); it is not a production
-capability until this output contract is frozen. Per-provider env keys (OPENAI_API_KEY, ...) and
+preflight (Node, pnpm, state-root, providers, Pi dispatch contract, legacy-layout).
+--json prints the frozen DoctorJsonReport contract (stdout is one object; not a
+production capability). Per-provider env keys (OPENAI_API_KEY, ...) and
 pi-sparkle auth login replace a single PI_API_KEY; PI_API_KEY remains a
 compatibility override for the default provider only. --thinking
 <off|minimal|low|medium|high|xhigh|max> sets the reasoning effort for this run
@@ -1436,6 +1439,7 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     values.run !== undefined
       ? await deleteRunRecords(stateRoot, parseRunId(values.run))
       : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string));
+  for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
     io.stderr(`${result.target}: nothing found under ${stateRoot}; refusing to report success\n`);
     return 1;
@@ -1472,6 +1476,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await episodeCommand(rest, io);
       case "delete":
         return await deleteCommand(rest, io);
+      case "migrate-legacy":
+        return await migrateLegacyCommand(rest, io);
       case "commits":
         return await commitsCommand(rest, io);
       case "pause":

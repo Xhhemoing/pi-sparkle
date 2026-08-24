@@ -74,3 +74,37 @@ not import R1, bandit, or shadow routers.
   positive probabilities to pass overlap checks is forbidden.
 - Importance-weighted ESS (π/μ) is required for OPE; raw propensity squares
   are not.
+
+## Enforcement status (2026-08-24 audit — informative, decision unchanged)
+
+The import ban above is enforced by
+`test/unit/routing/live-isolation.test.ts`. As of the Round 2 working tree
+(2026-08-24) that test builds the **transitive import closure** from the four
+live entry points and judges reachability, superseding the earlier version
+that only scanned the literal source text of a fixed ten-file list. The
+transitive import-closure audit
+(see `docs/reports/2026-08-24-sota-isolation-privacy.md`, re-verified in
+`docs/reports/2026-08-24-sota-r2-isolation.md`) found:
+
+- No live entry point (`src/cli/main.ts`, `src/run/flowchart-run.ts`,
+  `src/track/loop.ts`, `src/run/supervisor.ts`) reaches `routing/r1.ts`,
+  `routing/shadow.ts`, `routing/r1-shadow-report.ts`,
+  `experiments/shadow-compare.ts`, or `experiments/simulation-holdout.ts`.
+  The selection ban holds.
+- `routing/bandit.ts` **is** transitively loaded by the live track path, but
+  only via `learning/bandit-store.ts`'s post-run reward bookkeeping
+  (`createBanditState` / `recordReward`). The selector `selectArm` has no
+  caller outside `routing/shadow.ts` (unreachable from live entry points),
+  and no live module reads `bandit.json`.
+- `routing/topology.ts` is imported at module level by `run/supervisor.ts`
+  for the parked `planTaskTopology`, which the run loop does not call (pinned
+  by the isolation test). Topology is not named in this ADR's import ban; the
+  status-matrix phrase "must not import into live execution" is broader than
+  both this ADR and the code.
+
+Round 2 update (2026-08-24): the queued hardening shipped. The test now walks
+the module graph transitively, forbids the R1/shadow/holdout modules anywhere
+in the live closure, and pins the two reachable learned-routing modules
+(bandit via `learning/bandit-store.ts`, topology via `run/supervisor.ts`) to
+their exact importers, with symbol-level guards that `selectArm`,
+`loadProjectBandit`, and `planTaskTopology` gain no live caller.

@@ -7,6 +7,7 @@ import { authCommand } from "../../../src/cli/auth.js";
 import { modelsCommand } from "../../../src/cli/models.js";
 import { doctorCommand } from "../../../src/cli/doctor.js";
 import { adaptCommand } from "../../../src/cli/adapt.js";
+import { main } from "../../../src/cli/main.js";
 import type { CliIo } from "../../../src/cli/main.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
@@ -132,4 +133,14 @@ test("adapt promote refuses to mutate live policy without explicit review proven
       `refusal message missing: ${text}`
     );
   });
+});
+
+test("help lists the full adapt promote approval contract", async () => {
+  const help = capture();
+  assert.equal(await main(["help"], help.io), 0);
+  assert.deepEqual(help.err, []);
+
+  const promoteUsage =
+    "pi-sparkle adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]";
+  assert.ok(help.out.join("").includes(promoteUsage), `missing promote usage: ${promoteUsage}`);
 });

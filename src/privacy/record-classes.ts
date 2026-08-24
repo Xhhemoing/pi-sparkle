@@ -31,6 +31,14 @@ export interface DurableRecordClass {
   readonly sensitiveFields: readonly string[];
   readonly redaction: string;
   readonly deletion: DeletionStrategy;
+  /**
+   * Other record classes that the delete tooling actually reaches today when
+   * this class is deleted. This is a behavioral claim, not a roadmap: an entry
+   * here must be backed by code in `src/privacy/deletion.ts` (or the class's
+   * own store), and `record-classes.test.ts` pins the ones the deletion engine
+   * implements. Intended-but-unimplemented propagation belongs in
+   * `docs/data-dictionary.md`, not in this field.
+   */
   readonly deletionPropagatesTo: readonly string[];
   readonly migrationVersion: number;
   readonly recovery: string;
@@ -45,7 +53,11 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     sensitiveFields: ["prompt", "tool payloads", "model output text"],
     redaction: "event bodies are append-only; do not copy into optimization datasets",
     deletion: "delete-files",
-    deletionPropagatesTo: ["run-checkpoint", "episode"],
+    // deleteRunRecords removes the whole runtime/runs/<runId>/ subtree and
+    // then drops the run's rows from the shared invocation log. It does NOT
+    // propagate to episode: episodes outlive individual runs under multi-run
+    // attach, so a run delete must not take the episode with it.
+    deletionPropagatesTo: ["run-checkpoint", "run-pause", "track-questions", "model-invocation"],
     migrationVersion: 1,
     recovery: "truncated final JSONL line is ignored; a corrupt middle line fails closed"
   },
@@ -71,7 +83,10 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     deletion: "delete-files",
     deletionPropagatesTo: ["feedback"],
     migrationVersion: 1,
-    // variant file shape runtime/episodes/<id>.events.jsonl shares this class
+    // Variant file shapes sharing this class, all removed by delete --episode:
+    // runtime/episodes/<id>.events.jsonl (event log) and
+    // runtime/episodes/<id>.lock (the cooperative lock `episode close` takes;
+    // no user text, but a deleted episode must not keep a footprint).
     recovery: "duplicate open/attach/terminal must fail closed on the reducer"
   },
   {
@@ -91,12 +106,19 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     owner: "adaptation",
     path: "adaptation/feedback/records.jsonl (+ tombstones.json)",
     retention: "until-deleted",
-    sensitiveFields: ["body"],
-    redaction: "redactFeedback strips secrets, PII when enabled, and oversized bodies",
+    // summary is derived user text (learning/signals.ts truncates user
+    // answers, peer bodies, and subagent output into it), so it is exactly as
+    // sensitive as body: both are redacted on write and both are physically
+    // stripped by the episode-deletion cascade.
+    sensitiveFields: ["body", "summary"],
+    redaction: "redactFeedback strips secrets, PII when enabled, and oversized bodies from body and summary",
     deletion: "tombstone-ids",
-    deletionPropagatesTo: ["preference-dataset"],
+    // No implemented propagation: preference-dataset is a preference export
+    // and never reads feedback. The tombstone filter in readFeedback is what
+    // keeps deleted feedback out of anything downstream.
+    deletionPropagatesTo: [],
     migrationVersion: 1,
-    recovery: "corrupt JSONL line fails closed"
+    recovery: "corrupt JSONL line fails closed; tombstoned ids never reload through readFeedback"
   },
   {
     id: "preference",
@@ -129,10 +151,13 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     retention: "run-scoped",
     sensitiveFields: ["none stored — prompt/response bodies are hashed only"],
     redaction: "tokensIn/tokensOut unavailable stay undefined, never 0",
+    // One global append-only log, so a run-scoped delete filter-rewrites it
+    // rather than unlinking it, then invalidates the derived p50 snapshot.
     deletion: "delete-files",
     deletionPropagatesTo: ["catalog-observed"],
     migrationVersion: 1,
-    recovery: "malformed invocation records fail closed at validateInvocation"
+    recovery:
+      "malformed invocation records fail closed at validateInvocation; a corrupt middle line also fails the delete rewrite closed"
   },
   {
     id: "catalog-observed",
@@ -144,7 +169,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     deletion: "delete-files",
     deletionPropagatesTo: [],
     migrationVersion: 1,
-    recovery: "rebuild from invocations.jsonl"
+    recovery: "rebuild from invocations.jsonl; a run delete invalidates the snapshot instead of recomputing it"
   },
   {
     id: "candidate",
@@ -154,7 +179,10 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     sensitiveFields: ["content is stored as hash, not body"],
     redaction: "candidates stay proposed until adapt promote --approve",
     deletion: "tombstone-ids",
-    deletionPropagatesTo: ["experiment"],
+    // No implemented propagation: there is no live assignment store to
+    // propagate into (see the experiment class), so retiring a candidate
+    // cannot reach one.
+    deletionPropagatesTo: [],
     migrationVersion: 1,
     recovery: "CAS promotion records expected version; rollback requires the target version"
   },

@@ -27,15 +27,57 @@ const passed = [];
 
 // --- probe: pii-redaction + secret-bodies (against dist) -------------------
 const redactionSamples = [
-  { id: "pii-redaction", name: "email", body: "contact john.doe@example.com now" },
-  { id: "pii-redaction", name: "ipv4", body: "server 192.168.1.100 up" },
-  { id: "pii-redaction", name: "phone-intl", body: "call +1-555-123-4567" },
-  { id: "pii-redaction", name: "phone-cn", body: "phone 13812345678" },
-  { id: "pii-redaction", name: "credit-card", body: "card 4111111111111111" },
-  { id: "pii-redaction", name: "unix-path", body: "see /home/john/.ssh/id_rsa" },
-  { id: "pii-redaction", name: "windows-path", body: "saved C:\\Users\\john\\secret.txt" },
-  { id: "secret-bodies", name: "openai-key-body", body: "key sk-proj-abcdefghijklmnop1234567890" },
-  { id: "secret-bodies", name: "api-key-value", body: "api_key=supersecretvalue123" }
+  { id: "pii-redaction", name: "email", body: "contact john.doe@example.com now", core: "john.doe@example.com" },
+  { id: "pii-redaction", name: "ipv4", body: "server 192.168.1.100 up", core: "192.168.1.100" },
+  { id: "pii-redaction", name: "phone-intl", body: "call +1-555-123-4567", core: "+1-555-123-4567" },
+  { id: "pii-redaction", name: "phone-cn", body: "phone 13812345678", core: "13812345678" },
+  { id: "pii-redaction", name: "credit-card", body: "card 4111111111111111", core: "4111111111111111" },
+  { id: "pii-redaction", name: "unix-path", body: "see /home/john/.ssh/id_rsa", core: "/home/john/.ssh/id_rsa" },
+  {
+    id: "pii-redaction",
+    name: "macos-path",
+    body: "open /Users/alice/Library/Application Support/pi/auth.json",
+    core: "/Users/alice/Library/Application Support/pi/auth.json"
+  },
+  {
+    id: "pii-redaction",
+    name: "windows-path",
+    body: "saved C:\\Users\\john\\secret.txt",
+    core: "Users\\john\\secret.txt"
+  },
+  {
+    id: "pii-redaction",
+    name: "windows-unc-path",
+    body: "copied \\\\fileserver\\private\\alice\\credentials.json",
+    core: "\\\\fileserver\\private\\alice\\credentials.json"
+  },
+  {
+    id: "secret-bodies",
+    name: "openai-key-body",
+    body: "key sk-proj-abcdefghijklmnop1234567890",
+    core: "abcdefghijklmnop1234567890"
+  },
+  {
+    id: "secret-bodies",
+    name: "api-key-value",
+    body: "api_key=supersecretvalue123",
+    core: "supersecretvalue123"
+  },
+  {
+    id: "secret-bodies",
+    name: "bearer-token-body",
+    body: "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
+    core: "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature"
+  },
+  {
+    id: "secret-bodies",
+    name: "pem-private-key-body",
+    body:
+      "-----BEGIN PRIVATE KEY-----\n" +
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ\n" +
+      "-----END PRIVATE KEY-----",
+    core: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ"
+  }
 ];
 
 function loadDistRedaction() {
@@ -48,7 +90,7 @@ try {
   const policy = {
     redactPII: true,
     maxBodyChars: 400,
-    forbiddenSubstrings: ["sk-", "api_key", "API_KEY", "BEGIN PRIVATE"]
+    forbiddenSubstrings: ["sk-", "api_key", "API_KEY", "Bearer", "BEGIN PRIVATE"]
   };
   for (const sample of redactionSamples) {
     const record = {
@@ -65,19 +107,12 @@ try {
     const { feedback } = redactFeedback(record, policy);
     const out = feedback.body ?? "";
     // The sensitive payload must not survive verbatim anywhere in the output.
-    const core =
-      sample.name === "openai-key-body" ? "abcdefghijklmnop1234567890"
-      : sample.name === "api-key-value" ? "supersecretvalue123"
-      : sample.name === "email" ? "john.doe@example.com"
-      : sample.name === "ipv4" ? "192.168.1.100"
-      : sample.name === "phone-intl" ? "+1-555-123-4567"
-      : sample.name === "phone-cn" ? "13812345678"
-      : sample.name === "credit-card" ? "4111111111111111"
-      : sample.name === "unix-path" ? "/home/john/.ssh/id_rsa"
-      : sample.name === "windows-path" ? "Users\\john\\secret.txt"
-      : sample.body;
-    if (out.includes(core)) {
-      failures.push({ probe: sample.id, sample: sample.name, detail: `sensitive payload survives redaction: "${core}"` });
+    if (out.includes(sample.core)) {
+      failures.push({
+        probe: sample.id,
+        sample: sample.name,
+        detail: `sensitive payload survives redaction: "${sample.core}"`
+      });
     } else {
       passed.push({ probe: sample.id, sample: sample.name });
     }
