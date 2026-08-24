@@ -226,6 +226,13 @@ interface MessageBase {
   to: AgentInstanceId | "SUPERVISOR";
 }
 
+interface ChildRunLimits {
+  maxAttempts: number;
+  timeoutMs: number;
+  maxWallTimeMs: number;
+  maxCostUsd?: number;
+}
+
 interface TaskRequest extends MessageBase {
   type: "TASK_REQUEST";
   objective: string;
@@ -261,11 +268,20 @@ interface TaskResult extends MessageBase {
 
 An agent may emit many progress messages but exactly one terminal `TASK_RESULT`. The coordinator rejects terminal messages from an unleased agent, unknown task IDs, invalid artifact references, and illegal status transitions.
 
-### Cancellation and questions
+### Cancellation, questions, and child limits
 
 - Parent cancellation propagates an `AbortSignal` through each child adapter and persists `RUN_CANCEL_REQUESTED` before waiting for child settlement.
 - A child may request a user decision with `QUESTION`. The parent transitions to `WAITING_FOR_USER`; it may not invent a reply or resume automatically.
-- Timeout produces a `TASK_TIMEOUT` event and a `BLOCKED` task. Retry policy is supervisor-owned and must respect `maxAttempts`.
+- `maxAttempts` caps the child coordinator's attempt loop. `timeoutMs` is a
+  per-attempt deadline; expiry aborts that attempt, records `TASK_TIMEOUT`, and
+  may retry while attempts remain.
+- `maxWallTimeMs` is an enforced deadline across the child attempt/retry loop.
+  Expiry aborts an active attempt and deadline-driven termination yields a
+  `TIMEOUT` outcome even when the per-attempt deadline has not elapsed. A
+  terminal result or protocol violation that still arrives keeps its own
+  outcome.
+- `maxCostUsd` is validated as a positive protocol field when present, but the
+  child coordinator does not currently read usage or enforce this ceiling.
 
 ## Pi Adapter
 

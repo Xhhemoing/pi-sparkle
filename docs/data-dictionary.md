@@ -178,10 +178,30 @@ state root. Findings and resolutions:
   (learned-routing-policy; model ids and avoid-list patterns only).
 - `.doctor-write-probe` (doctor preflight) is written and unlinked within one
   call — transient, not durable; no class needed.
-- `pause.json.tmp` is an atomic-write temp file, renamed or discarded within
-  one call — transient.
-- `episodes/<id>.lock` is an operational lock beside the episode log; it
-  shares the episode class's plane and lifetime.
+- Pause and checkpoint atomic writes use unique same-directory temp names:
+  `pause.json.<pid>.<random>.tmp` and
+  `checkpoint.json.<pid>.<random>.tmp`. The shared writer opens a new temp
+  exclusively, fsyncs it, then renames it over the destination. A handled
+  failure removes its temp; an abrupt process exit can leave a stale temp, but
+  later writes generate a different name and never adopt it.
+- Other rename sidecars currently below the state root are
+  `providers.json.tmp`, `auth.json.tmp`, and
+  `registry.json.<pid>.<random>.tmp`; they are transient and do not get their
+  own durable classes.
+- Operational lock files currently written below the state root are:
+  - `runtime/invocations.jsonl.lock`, shared by invocation appends and the
+    run-deletion filter rewrite;
+  - `runtime/episodes/<id>.lock`, shared by CLI `episode close` and run-side
+    episode settlement;
+  - `runtime/auth.json.lock`, guarding credential changes;
+  - `adaptation/feedback/records.jsonl.lock`, shared by feedback appends and
+    the episode-deletion cascade rewrite;
+  - `adaptation/registry.json.lock`, guarding registry changes; and
+  - `adaptation/learning/projects/<stableProjectKey>/bandit.json.lock`,
+    guarding each project's bandit update.
+  These are transient operational sidecars, not durable record classes.
+  Normal release removes an owned lock; an abandoned lock is not stolen
+  automatically and may require manual cleanup.
 - `test/**` fixture writes are outside the state root and out of scope.
 
 The completeness guard lives in
