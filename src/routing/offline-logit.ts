@@ -25,6 +25,8 @@ const QUALITY_FLOOR = 0.55;
 interface Design {
   /** Column names, aligned with column indices. */
   readonly names: readonly string[];
+  /** name -> column index. Names are unique, so this equals `names.indexOf`. */
+  readonly columnIndex: ReadonlyMap<string, number>;
   /** Build one row's design vector; `skip` excludes one dummy column (for contrasts). */
   build(row: Row, skip?: string): number[];
   /** Reference levels dropped from the design; they report zero effects. */
@@ -84,6 +86,10 @@ function buildDesign(rows: readonly Row[]): Design {
     ...projectLevels.map((p) => `v:${p}`),
     ...interactionPairs.map((key) => `w:${key}`)
   ];
+  // All names are unique (deduped levels behind distinct prefixes), so a map
+  // lookup returns exactly what `names.indexOf` did.
+  const columnIndex = new Map(names.map((name, index) => [name, index] as const));
+  const interactionPairSet = new Set(interactionPairs);
 
   const referenceLevels: Array<{ factor: "a" | "u" | "v"; name: string }> = [];
   const lastModel = models[models.length - 1];
@@ -93,20 +99,21 @@ function buildDesign(rows: readonly Row[]): Design {
 
   return {
     names,
+    columnIndex,
     referenceLevels,
     build(row: Row, skip?: string): number[] {
       const vec = new Array<number>(names.length).fill(0);
       vec[0] = 1;
       const set = (name: string): void => {
         if (name === skip) return;
-        const index = names.indexOf(name);
-        if (index > 0) vec[index] = 1;
+        const index = columnIndex.get(name);
+        if (index !== undefined && index > 0) vec[index] = 1;
       };
       if (row.scenarioId !== scenarios[scenarios.length - 1]) set(`a:${row.scenarioId}`);
       if (row.modelVersion !== models[models.length - 1]) set(`u:${row.modelVersion}`);
       if (row.projectId !== projects[projects.length - 1]) set(`v:${row.projectId}`);
       const pairKey = `${row.modelVersion}|${row.projectId}`;
-      if (interactionPairs.includes(pairKey)) set(`w:${pairKey}`);
+      if (interactionPairSet.has(pairKey)) set(`w:${pairKey}`);
       return vec;
     }
   };
@@ -123,6 +130,16 @@ function irls(
   maxIter: number
 ): FitResult {
   const p = design.names.length;
+  // Non-zero column indices per row, computed once per fit. The accumulation
+  // below already skipped zero entries, so visiting only the support performs
+  // the identical float operations in the identical order on every iteration.
+  const supports = vectors.map((vector) => {
+    const active: number[] = [];
+    for (let j = 0; j < vector.length; j++) {
+      if (vector[j] !== 0) active.push(j);
+    }
+    return active;
+  });
   let beta = new Array<number>(p).fill(0);
   for (let iter = 0; iter < maxIter; iter++) {
     const eta = vectors.map((v) => dot(beta, v));
@@ -134,11 +151,10 @@ function irls(
       const w = Math.max(mu[i]! * (1 - mu[i]!)!, 1e-10);
       const xi = vectors[i]!;
       const z = eta[i]! + ((rows[i]!.y - mu[i]!) / w);
-      for (let a = 0; a < p; a++) {
-        if (xi[a] === 0) continue;
+      const active = supports[i]!;
+      for (const a of active) {
         xtwz[a] = xtwz[a]! + w * xi[a]! * z;
-        for (let b = 0; b < p; b++) {
-          if (xi[b] === 0) continue;
+        for (const b of active) {
           xtwx[a]![b] = xtwx[a]![b]! + w * xi[a]! * xi[b]!;
         }
       }
@@ -163,23 +179,40 @@ function dot(a: readonly number[], b: readonly number[]): number {
   return sum;
 }
 
+/** onProbabilities[i] = sigmoid(dot(coefficients, vectors[i])), shared across columns. */
+function onProbabilitiesFor(
+  vectors: readonly number[][],
+  coefficients: readonly number[]
+): number[] {
+  return vectors.map((vector) => sigmoid(dot(coefficients, vector)));
+}
+
 /**
  * Average predictive comparison on the probability scale: mean over training
  * rows of sigma(x*beta with dummy on) minus sigma(x*beta with dummy off).
+ *
+ * A row without the dummy has an off vector equal to its on vector, so its
+ * contribution is exactly +0.0 (IEEE x - x); skipping those rows and the
+ * columnless reference levels leaves every partial sum bitwise unchanged.
  */
 function averagePredictiveComparison(
   design: Design,
   rows: readonly Row[],
   vectors: readonly number[][],
   coefficients: readonly number[],
+  onProbabilities: readonly number[],
   column: string
 ): number {
   let sum = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const on = sigmoid(dot(coefficients, vectors[i]!));
-    const offVector = design.build(rows[i]!, column);
-    const off = sigmoid(dot(coefficients, offVector));
-    sum += on - off;
+  const columnIdx = design.columnIndex.get(column);
+  if (columnIdx !== undefined) {
+    for (let i = 0; i < rows.length; i++) {
+      if (vectors[i]![columnIdx] === 0) continue;
+      const on = onProbabilities[i]!;
+      const offVector = design.build(rows[i]!, column);
+      const off = sigmoid(dot(coefficients, offVector));
+      sum += on - off;
+    }
   }
   return rows.length === 0 ? 0 : sum / rows.length;
 }
@@ -228,10 +261,14 @@ export function fitLogitAdditive(
   }
 
   // Point effects via average predictive comparison.
+  const onProbabilities = onProbabilitiesFor(vectors, fit.coefficients);
   const pointEffects = new Map<string, number>();
   for (const name of design.names) {
     if (name === "intercept") continue;
-    pointEffects.set(name, averagePredictiveComparison(design, baseRows, vectors, fit.coefficients, name));
+    pointEffects.set(
+      name,
+      averagePredictiveComparison(design, baseRows, vectors, fit.coefficients, onProbabilities, name)
+    );
   }
   // Reference levels have no column; their contrast is identically zero.
   for (const ref of design.referenceLevels) {
@@ -256,8 +293,16 @@ export function fitLogitAdditive(
     const bootFit = irls(design, sample, sampleVectors, maxIter);
     if (bootFit.coefficients === null) continue;
     successful += 1;
+    const sampleOnProbabilities = onProbabilitiesFor(sampleVectors, bootFit.coefficients);
     for (const [name] of pointEffects.entries()) {
-      const value = averagePredictiveComparison(design, sample, sampleVectors, bootFit.coefficients, name);
+      const value = averagePredictiveComparison(
+        design,
+        sample,
+        sampleVectors,
+        bootFit.coefficients,
+        sampleOnProbabilities,
+        name
+      );
       pushValue(draws, name, value);
     }
   }
