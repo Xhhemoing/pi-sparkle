@@ -25,7 +25,7 @@
 | X1-4 | cheaperEstimate/costOf/tierIndex 换 Map | M≤10 噪声级 |
 | X1-5 | 合并 shadow-compare 与 r1-shadow-report | 契约不同 |
 | X1-6 | 跨 episode 记忆化整个 routeR1 决策 | 等价键不安全 |
-| X2-1 | eta/dot 按支撑求和（一般实值设计） | 一般实值设计下 ±0.0 号位不保逐位。当前 0/1 设计 + +0.0 起点 + 有限 β 已被 R7-C §3 证伪；表所有者已授权该形态专项落地（S7-C），禁止另起平行实现 |
+| X2-1 | eta/dot 按支撑求和（一般实值设计） | 一般实值设计下 ±0.0 号位不保逐位。当前 0/1 形态已落地为 S7-C；非 0/1 设计必须回退 full dot；禁止另起平行实现 |
 | X2-2 | APC 按 (row,column) 记忆化 | 隐藏状态/收益不足 |
 | X2-3 | 解析 delta/Newton/Cholesky 改数值路径 | 非逐位一致 |
 | X2-4 | gate-apply 单遍合并不改签名 | 已否决 |
@@ -64,6 +64,7 @@
 - S5-F `assertUniqueNonEmpty` 单探针去重（`add` + size 计数器代替 `has`+`add`；first-fault 与消息逐位不变；见 round-05/R5-F.md）
 - S5-I-1 CLI `main.ts` 12 条分支独占 dispatch 模块改为点用 `await import`（8 个一次性子命令 + `run/supervisor` + `track/loop` + `preferences/export` + `privacy/deletion`；主收益来自 Node v22.14 `getPackageScopeConfig` 在静态 `main.ts → track/loop.js` 边上的解析病理；见 round-05/R5-I.md）
 - S6-C `offline-logit.ts` IRLS 累加循环按支撑大小 s=2..5 直线化分派（滚动循环保留为 default；浮点装载/加法/存储目标与顺序不变；见 round-06/R6-C.md）
+- S7-C `offline-logit.ts` IRLS 去重键 eta 改为支撑升序直加 `beta[active[ai]]`（0/1 设计 + +0.0 起点 + 有限 β；`dot()` / APC / on-prob 未改；非 0/1 设计必须回退；见 round-07/R7-C.md 与 R7-C-LAND.md）
 - S6-F-1 shadow/canary restore 成员判断方向反转（pending assignment Set + population 扫描早退；validateExperimentPlan 与防御拷贝保留；见 round-06/R6-F.md）
 - S7-F-1 shadow/canary restore 对齐前缀快路径（同下标哈希相等即证非空+成员，失配后缀回退 S6-F-1，下标 0 失配改道原落地循环；见 round-07/R7-F.md）
 - S7-F-2 `assertUniqueNonEmpty` 可打印 ASCII 首字符卫（码点 33..126 跳过 trim；空串/非 ASCII 回落原探针；见 round-07/R7-F.md）
