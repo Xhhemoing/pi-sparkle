@@ -19,8 +19,10 @@ import { fileURLToPath } from "node:url";
  *   - `src/routing/bandit.ts` — reached through `src/learning/bandit-store.ts`,
  *     which the post-run adaptation loop uses to *write* per-project reward
  *     counters. Only the constructor/writer symbols are imported; `selectArm`
- *     (the exploratory selector) has no caller in the closure, and nothing in
- *     the closure reads the stored state back via `loadProjectBandit`.
+ *     (the exploratory selector) has no caller in the closure. `loadProjectBandit`
+ *     is called from `bandit-store.ts` itself and from `src/cli/doctor.ts` for
+ *     the read-only `learnedState` inventory (R6-4; parent sign-off: doctor
+ *     never feeds routing). No other live module may read the stored state back.
  *   - `src/routing/topology.ts` — reached through `src/run/supervisor.ts`, which
  *     defines the parked `planTaskTopology` wrapper. The run loop does not call
  *     it (M5-T5 / Checkpoint F owns that integration), which the pinned
@@ -248,11 +250,21 @@ test("bandit reaches the live closure as a reward writer, never as a selector", 
     .sort();
   assert.deepEqual(selectors, [], "selectArm gained a caller inside the live execution plane");
 
+  assert.match(
+    readModule("src/cli/doctor.ts"),
+    /\bloadProjectBandit\b/,
+    "doctor's signed-off exception is the learnedState inventory reader, not a selector"
+  );
   const readers = [...LIVE_CLOSURE.members]
     .filter((module) => module !== "src/learning/bandit-store.ts")
+    .filter((module) => module !== "src/cli/doctor.ts")
     .filter((module) => /\bloadProjectBandit\b/.test(readModule(module)))
     .sort();
-  assert.deepEqual(readers, [], "live code must not read learned bandit state back");
+  assert.deepEqual(
+    readers,
+    [],
+    "live execution must not read learned bandit state back (doctor inventory is the signed-off diagnostic exception)"
+  );
 });
 
 test("DAG supervisor parks topology routing instead of calling it per round", () => {
