@@ -456,6 +456,29 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     }
 
     let cancelWritten = false;
+    /**
+     * Records that someone asked this run to stop. Deliberately **not** routed
+     * through the terminal recorder below, and this is the owned decision, not
+     * an omission: a cancel request is an operator fact, not a status claim.
+     *
+     * It stays true whatever the log already says. It also claims nothing on
+     * its own — `replayRun` reads it as CANCELLED only on a log that carries no
+     * terminal, and reports the other case as the anomaly
+     * `RUN_CANCEL_REQUESTED after a terminal event`, so the ordering is visible
+     * without the fact being suppressed. Refusing to append it would make an
+     * already-finished run silently swallow the operator's request instead.
+     *
+     * No plane in the tree treats it as a status claim: the supervised plane's
+     * `recordCancel` appends it behind nothing but a once-only flag, and the
+     * flowchart plane writes none at all. R4-3's rule points the same way from
+     * the other side — `supervisor.ts` deliberately does *not* trip its abort
+     * controller on a crash, so that a cancellation nobody requested cannot
+     * stand in for the crash. The two vocabularies do not substitute for one
+     * another in either direction.
+     *
+     * Fires from the loop's cancelled exit and out of band from the abort
+     * listener; the flag is what keeps that pair to one event.
+     */
     const writeCancel = async (): Promise<void> => {
       if (cancelWritten) return;
       cancelWritten = true;
@@ -488,6 +511,42 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
      * or an event type this run has no schema for — and a blocked run an
      * operator can still clear is worth more than the reason a teardown that
      * came after the block fell over.
+     *
+     * ## Terminal-keyed, and that is the decision
+     *
+     * The refusal asks what terminal the log replays, not whether the log is
+     * still in flight. `recordCrashTerminal` asks the broader question and so
+     * withholds a crash terminal over a paused, cancelled or waiting log too;
+     * this recorder does not, and the difference is owned here rather than
+     * inherited: **a crash over a log replaying WAITING_FOR_USER still records
+     * `RUN_FAILED`**, and the wait goes under it.
+     *
+     * That is the honest record, not a hole left open. This plane carries its
+     * own wait in the loop's `waiting` flag, and that flag is exactly what
+     * breaks the loop out *before* it can reach these recorders — so a wait
+     * still on the log when the loop dies was written by the child machinery
+     * while the loop was turning, and the channel that would have answered it,
+     * `ChildCoordinator`'s in-memory `questionResolvers`, died with the
+     * process. `RUN_FAILED` says the true thing about a run that ended by
+     * falling over; leaving the log reading WAITING_FOR_USER would advertise a
+     * wait no live process is holding. `RUN_BLOCKED` is the opposite case, and
+     * is why the refusal exists at all: the gate wrote it deliberately, it is
+     * terminal by `TERMINAL_REPLAY_STATUSES`, and the operator — not this
+     * process — owns clearing it.
+     *
+     * The cost is stated rather than hidden. A `USER_ANSWER` appended out of
+     * band (the CLI's `answer` writes one straight to the log) would have
+     * cleared a wait left standing; under a recorded `RUN_FAILED` it cannot,
+     * because replay reads the terminal first. No production caller can reach
+     * that combination today — `startParentRun` is an embedder entry point,
+     * and the CLI drives the flowchart plane — but the trade is the decision's,
+     * not an accident of reachability.
+     *
+     * Widening to the in-flight rule was considered and refused twice over:
+     * reusing `recordCrashTerminal` would falsify that module's frozen "the
+     * caller always rethrows" clause, because this catch settles on purpose,
+     * and re-deriving its rule locally is precisely the drift
+     * {@link replayedTerminalStatus} exists to prevent.
      */
     const recordTerminal = async (
       type: "RUN_COMPLETED" | "RUN_FAILED",
@@ -605,7 +664,6 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     startReady();
 
     let status: RunStatus = "RUNNING";
-    let failureReason: string | undefined;
     let trackingBlocked = false;
 
     try {
@@ -668,11 +726,11 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
           status = "CANCELLED";
           await writeCancel();
         } else if (failures.length > 0 || remaining.length > 0) {
-          failureReason =
+          const reason =
             failures.length > 0
               ? failures.map((childOutcome) => `${childOutcome.taskId}: ${childOutcome.summary}`).join("; ")
               : `unstarted children: ${remaining.map((child) => child.taskId).join(", ")}`;
-          status = await recordTerminal("RUN_FAILED", { reason: failureReason }, "FAILED");
+          status = await recordTerminal("RUN_FAILED", { reason }, "FAILED");
         } else {
           status = await recordTerminal("RUN_COMPLETED", {}, "COMPLETED");
         }
