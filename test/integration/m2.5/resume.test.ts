@@ -21,11 +21,19 @@ import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { assignTasks } from "../../../src/routing/assign.js";
 import { cheapFirstTiers, liveCascadePlanFromAssignment } from "../../../src/routing/live-cascade.js";
+import { main, type CliIo } from "../../../src/cli/main.js";
 import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import type { Event } from "../../../src/run/events.js";
-import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import {
+  resumeFlowchartRun,
+  startFlowchartRun,
+  unblockFlowchartRun
+} from "../../../src/run/flowchart-run.js";
 import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
 import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
+import { validateCheckpoint } from "../../../src/run/replay.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
 
@@ -275,36 +283,74 @@ test("resume fails closed when the checkpoint is missing", async () => {
  * rests on — that the log really does carry every field.
  */
 
-test("the flowchart checkpoint and its writer currently carry no run contract", async () => {
+/**
+ * R8-2 landed three tripwires recording that no run contract was durable.
+ * These are their positive replacements: same four seams, now asserting the
+ * field is written, validated, restored and projected rather than absent. The
+ * one clause that did not flip is the episode rule — the contract must still
+ * never be reconstructed from the episode's acceptance criteria.
+ */
+test("the flowchart checkpoint, its validator, its writer and both restorers carry the run contract", async () => {
   const [replay, checkpointStore, flowchartRun] = await Promise.all([
     readFile(new URL("../../../src/run/replay.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../src/run/checkpoint-store.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../src/run/flowchart-run.ts", import.meta.url), "utf8")
   ]);
-  const checkpointState = replay.match(/export interface FlowchartCheckpointState \{[\s\S]*?^\}/m)?.[0];
+  const checkpointState = replay.match(/export interface FlowchartCheckpointState \{[\s\S]*?^\}$/m)?.[0];
   const checkpointValidator = replay.match(
-    /export function validateFlowchartCheckpointState[\s\S]*?^\}/m
+    /export function validateFlowchartCheckpointState[\s\S]*?^\}$/m
   )?.[0];
-  const checkpointWriter = flowchartRun.match(/async function persistCheckpoint[\s\S]*?^\}/m)?.[0];
-  const checkpointRestorer = flowchartRun.match(/async function restoreFlowchartSession[\s\S]*?^\}/m)?.[0];
+  const checkpointWriter = flowchartRun.match(/async function persistCheckpoint[\s\S]*?^\}$/m)?.[0];
+  const sessionRestorer = flowchartRun.match(/async function restoreFlowchartSession[\s\S]*?^\}$/m)?.[0];
+  const resumeRestorer = flowchartRun.match(/async function resumeLockedFlowchartRun[\s\S]*?^\}$/m)?.[0];
+  const unblockWriter = flowchartRun.match(/async function unblockLockedFlowchartRun[\s\S]*?^\}$/m)?.[0];
 
   assert.ok(checkpointState, "FlowchartCheckpointState remains structurally inspectable");
   assert.ok(checkpointValidator, "the flowchart checkpoint validator remains structurally inspectable");
   assert.ok(checkpointWriter, "the flowchart checkpoint writer remains structurally inspectable");
-  assert.ok(checkpointRestorer, "the pause/inject checkpoint restore remains structurally inspectable");
-  assert.doesNotMatch(checkpointState, /\bcontract\b/);
-  assert.doesNotMatch(checkpointValidator, /\bcontract\b/);
-  assert.doesNotMatch(checkpointWriter, /\bcontract\b/);
-  assert.doesNotMatch(checkpointRestorer, /\bcontract\b/);
+  assert.ok(sessionRestorer, "the pause/inject checkpoint restore remains structurally inspectable");
+  assert.ok(resumeRestorer, "the resume restore remains structurally inspectable");
+  assert.ok(unblockWriter, "the unblock checkpoint writer remains structurally inspectable");
+
+  assert.match(checkpointState, /contract\?: RequirementContract/);
+  assert.match(checkpointValidator, /validateRequirementContract/);
+  assert.match(checkpointValidator, /Invalid RunCheckpoint: flowchart\.contract/);
+  assert.match(checkpointWriter, /ctx\.contract !== undefined \? \{ contract: ctx\.contract \}/);
+  assert.match(sessionRestorer, /checkpoint\.flowchart\.contract/);
+  assert.match(
+    resumeRestorer,
+    /continuation\.contract \?\? checkpoint\.flowchart\.contract/,
+    "an explicit continuation stays authoritative over the run's durable value"
+  );
+  // The unblock is the one writer that rebuilds the flowchart payload from
+  // parts instead of from `ctx`, so it is the one that could silently drop the
+  // field. Authorizing a blocked run must not change what it was asked to honour.
+  assert.match(unblockWriter, /\.\.\.\(contract !== undefined \? \{ contract \} : \{\}\)/);
+
+  // The store is a crash-atomic JSON byte store and stays schema-agnostic: it
+  // learned nothing about this field, which is why no store change was needed.
   assert.doesNotMatch(checkpointStore, /\bcontract\b/);
+
+  // R8-4 §5.3 wants per-task acceptance criteria on this same seam later. The
+  // seam is reserved in prose only; implementing the field is option (a)'s own
+  // signed-off diff, so the type must not have grown it here.
+  assert.match(checkpointState, /Reserved: per-task acceptance criteria/);
+  assert.doesNotMatch(
+    checkpointState,
+    /acceptanceCriteria\??:/,
+    "the reserved sibling field stays reserved, not implemented"
+  );
 });
 
-test("episode binding currently retains acceptance criteria, not the run contract", async () => {
+test("episode binding still retains acceptance criteria, and never the run contract", async () => {
   const source = await readFile(new URL("../../../src/run/episode-bind.ts", import.meta.url), "utf8");
   const openedEpisode = source.match(/const opened = openEpisode\(\{[\s\S]*?^ {2}\}\);/m)?.[0];
 
   assert.ok(openedEpisode, "the episode projection remains structurally inspectable");
   assert.match(openedEpisode, /acceptance: contract\.acceptanceCriteria/);
+  // Unchanged by the durable contract, and load-bearing because of it: the
+  // episode is a lossy projection, so a resume that read its constraints back
+  // from here would present an empty list as the run's own.
   assert.doesNotMatch(
     openedEpisode,
     /\b(?:contract|constraints)\s*:/,
@@ -312,21 +358,43 @@ test("episode binding currently retains acceptance criteria, not the run contrac
   );
 });
 
-test("the CLI flowchart continuation currently cannot recover a run contract", async () => {
+test("the CLI flowchart continuation recovers the run contract from the checkpoint", async () => {
   const source = await readFile(new URL("../../../src/cli/main.ts", import.meta.url), "utf8");
-  const continuationBuilder = source.match(/function flowchartContinuation[\s\S]*?^\}/m)?.[0];
-  const resumeCommand = source.match(/async function resumeCommand[\s\S]*?^}\n\nconst PREFERENCE_SCOPES/m)?.[0];
+  const continuationBuilder = source.match(/function flowchartContinuation[\s\S]*?^\}$/m)?.[0];
+  // R8-2's version anchored the end of this region on `const PREFERENCE_SCOPES`,
+  // which R8-1's `unblockCommand` then slipped inside. The function's own
+  // column-zero closing brace is the boundary; the guard below keeps it one.
+  const resumeCommand = source.match(/async function resumeCommand\b[\s\S]*?^\}$/m)?.[0];
+  const answerCommand = source.match(/async function answerCommand\b[\s\S]*?^\}$/m)?.[0];
 
   assert.ok(continuationBuilder, "flowchartContinuation remains structurally inspectable");
   assert.ok(resumeCommand, "resumeCommand remains structurally inspectable");
-  assert.match(continuationBuilder, /checkpoint\?: RunCheckpoint/);
-  assert.doesNotMatch(continuationBuilder, /\bcontract\b/);
-  assert.match(
+  assert.ok(answerCommand, "answerCommand remains structurally inspectable");
+  assert.doesNotMatch(
     resumeCommand,
-    /resumeFlowchartRun\([\s\S]*?flowchartContinuation\(\{\s*checkpoint,/,
-    "CLI resume supplies the checkpoint to a continuation builder that currently projects no contract"
+    /\bunblockCommand\b/,
+    "the captured region is resumeCommand alone; a neighbouring command must not drift into it"
   );
-  assert.doesNotMatch(resumeCommand, /\bcontract\b/);
+
+  assert.match(continuationBuilder, /checkpoint\?: RunCheckpoint/);
+  assert.match(
+    continuationBuilder,
+    /const contract = opts\.checkpoint\?\.flowchart\?\.contract;/,
+    "the continuation projects the checkpoint's contract and reconstructs nothing"
+  );
+  assert.match(continuationBuilder, /\.\.\.\(contract !== undefined \? \{ contract \} : \{\}\)/);
+
+  // One projection, both production continuation paths.
+  for (const [name, region] of [
+    ["resumeCommand", resumeCommand],
+    ["answerCommand", answerCommand]
+  ] as const) {
+    assert.match(
+      region,
+      /resumeFlowchartRun\([\s\S]*?flowchartContinuation\(\{\s*checkpoint,/,
+      `${name} supplies its validated checkpoint to the continuation builder`
+    );
+  }
 });
 
 const CONTRACT_CRITERION = "crit-integration";
@@ -449,7 +517,8 @@ function dimensionVerdicts(events: readonly Event[], taskId: string): Record<str
  */
 async function pausedBeforeSecondChild(
   stateRoot: string,
-  projectRoot: string
+  projectRoot: string,
+  options: { readonly withContract?: boolean } = {}
 ): Promise<{ runId: RunId; contract: RequirementContract }> {
   const children = [testerChild("tsk_first"), testerChild("tsk_second")];
   const contract = contractCovering(CONTRACT_CRITERION);
@@ -468,11 +537,42 @@ async function pausedBeforeSecondChild(
   });
   const paused = await startFlowchartRun(
     { ...deps(stateRoot), executor: first, pause },
-    { projectRoot, flowchart, childTasks: children, contract }
+    {
+      projectRoot,
+      flowchart,
+      childTasks: children,
+      ...(options.withContract === false ? {} : { contract })
+    }
   );
   assert.equal(paused.status, "PAUSED");
   assert.deepEqual(first.taskIds, ["tsk_first"]);
   return { runId: paused.runId, contract };
+}
+
+function capture(): { io: CliIo; out: () => string; err: () => string } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
+    out: () => out.join(""),
+    err: () => err.join("")
+  };
+}
+
+/** The production command boundary: argv in, exit code out, no injected state. */
+async function cli(args: readonly string[]): Promise<{ code: number; out: string; err: string }> {
+  const captured = capture();
+  const code = await withIsolatedPiEnv(() => main([...args], captured.io));
+  return { code, out: captured.out(), err: captured.err() };
+}
+
+async function storedContract(stateRoot: string, runId: RunId): Promise<unknown> {
+  const raw = await new CheckpointStore(stateRoot, runId).read();
+  return validateCheckpoint(raw).flowchart?.contract;
+}
+
+async function eventsOf(stateRoot: string, runId: RunId): Promise<readonly Event[]> {
+  return (await new EventStore(stateRoot, runId).readAll()).events;
 }
 
 test("a node the resume has to substitute for gets a budget the caller authorised", async () => {
@@ -513,15 +613,67 @@ test("a node the resume has to substitute for gets a budget the caller authorise
 });
 
 /**
- * The half R7-1 could not close. A resume honours the contract it is handed,
- * but nothing durable hands it one: `startFlowchartRun` takes the contract as
- * input and only its acceptance criteria survive, on the bound episode, while
- * the constraints this dimension reads are on no record a run id can reach. So
- * a CLI resume — which has only a run id — still assesses against none. Making
- * the contract durable is a schema decision; this pin is what a future round
- * flips when it takes one.
+ * The half R7-1 could not close, now closed — and this is the pin it flips.
+ *
+ * **Disclosure.** Until this round the assertion here was the opposite one:
+ * `a resume that is handed no contract assesses its children against none`,
+ * with `tsk_second` pinned at `NOT_APPLICABLE` because the constraints lived
+ * on no record a run id could reach. That was honest and is no longer true:
+ * the contract is now written to the flowchart checkpoint, so a resume holding
+ * nothing but a run id recovers it. The pin is flipped, not deleted — and it is
+ * flipped through the *production CLI boundary*, `main(["resume", …])`, rather
+ * than another direct `resumeFlowchartRun` call that hand-feeds a contract. A
+ * direct call would only re-prove R7-1's seam; what had to be proved is that
+ * the durable record reaches a caller that has nothing else.
+ *
+ * The run is still seeded through the embedder API, because that is the only
+ * producer that takes a contract — no CLI command accepts one. Everything
+ * after the seed is the shipped command path: argv, the CLI's own router,
+ * pause controller, executor and checkpoint read.
  */
-test("a resume that is handed no contract assesses its children against none", async () => {
+test("a contract-ful run resumed through the CLI assesses its children against it", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
+
+    // The durable half, before anything reads it back.
+    assert.deepEqual(await storedContract(stateRoot, runId), contract);
+
+    const resumed = await cli([
+      "resume",
+      "--run",
+      runId,
+      "--state-root",
+      stateRoot,
+      "--executor",
+      "fake",
+      "--unpause"
+    ]);
+    assert.equal(resumed.code, 0, resumed.err);
+    assert.match(resumed.out, new RegExp(`Run ${runId}: COMPLETED`));
+
+    const events = await eventsOf(stateRoot, runId);
+    assert.equal(dimensionVerdicts(events, "tsk_first")["constraint-retention"], "PASS");
+    assert.equal(
+      dimensionVerdicts(events, "tsk_second")["constraint-retention"],
+      "PASS",
+      "the resumed leg is assessed against the run's own durable constraints"
+    );
+
+    // And the resume rewrote the checkpoint without dropping what it read.
+    assert.deepEqual(await storedContract(stateRoot, runId), contract);
+  });
+});
+
+/**
+ * The runner-side half of the precedence rule, on the call shape the retired
+ * pin used. `resumeFlowchartRun` is handed no contract and still has one,
+ * because `resumeLockedFlowchartRun` defaults it from the validated
+ * checkpoint. The CLI projection above and this default are deliberately two
+ * routes to the same value: the CLI one makes the recovery explicit at the
+ * boundary an operator uses, this one covers every embedder that resumes by
+ * run id alone.
+ */
+test("a direct resume handed no contract recovers the run's own durable one", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const { runId } = await pausedBeforeSecondChild(stateRoot, projectRoot);
 
@@ -531,12 +683,142 @@ test("a resume that is handed no contract assesses its children against none", a
       { unpause: true }
     );
     assert.equal(resumed.status, "COMPLETED");
+    assert.equal(dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"], "PASS");
+  });
+});
 
-    assert.equal(dimensionVerdicts(resumed.events, "tsk_first")["constraint-retention"], "PASS");
+/**
+ * ...and the order of the two. An embedder that names a contract meant that
+ * one, so `continuation.contract` wins: here it carries no constraints, and
+ * the resumed leg reports `NOT_APPLICABLE` even though the checkpoint's own
+ * contract carries two.
+ */
+test("an explicit continuation contract outranks the run's durable one", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
+    const unconstrained = { ...contract, constraints: [] } as unknown as RequirementContract;
+
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      runId,
+      { unpause: true, contract: unconstrained }
+    );
+    assert.equal(resumed.status, "COMPLETED");
     assert.equal(
       dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"],
       "NOT_APPLICABLE",
-      "the resumed leg was given no contract, so the constraint dimension stops applying"
+      "the caller's contract is the effective one, not the stored fallback"
+    );
+    assert.deepEqual(
+      await storedContract(stateRoot, runId),
+      unconstrained,
+      "and the effective contract is what the resume then checkpoints"
+    );
+  });
+});
+
+/**
+ * The other side of the same rule, and the reason the recovery is a projection
+ * rather than a reconstruction: a run that started without a contract must
+ * still be assessed against none. The bound episode carries acceptance
+ * criteria for every run, so a resume that built `{ acceptanceCriteria,
+ * constraints: [] }` out of it would report an empty constraint list as the
+ * run's own — turning missing evidence into `NOT_APPLICABLE` by way of a claim
+ * nobody made. That is the class of lie R7-1 removed.
+ */
+test("a CLI resume of a run that started without a contract invents none", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId } = await pausedBeforeSecondChild(stateRoot, projectRoot, { withContract: false });
+    assert.equal(await storedContract(stateRoot, runId), undefined);
+
+    const resumed = await cli([
+      "resume",
+      "--run",
+      runId,
+      "--state-root",
+      stateRoot,
+      "--executor",
+      "fake",
+      "--unpause"
+    ]);
+    assert.equal(resumed.code, 0, resumed.err);
+
+    const events = await eventsOf(stateRoot, runId);
+    for (const taskId of ["tsk_first", "tsk_second"]) {
+      assert.equal(
+        dimensionVerdicts(events, taskId)["constraint-retention"],
+        "NOT_APPLICABLE",
+        `${taskId} has no constraints to retain, and none were synthesized`
+      );
+    }
+    assert.equal(await storedContract(stateRoot, runId), undefined);
+  });
+});
+
+/**
+ * The unblock is the third writer of a flowchart checkpoint, and the only one
+ * that rebuilds the payload from parts rather than from the loop context — so
+ * it is the one that can drop the field without any restorer being wrong.
+ * Authorizing a blocked run changes what may execute, never what the run was
+ * asked to honour.
+ */
+test("unblocking a blocked run carries its contract onto the reopened checkpoint", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const contract = contractCovering(CONTRACT_CRITERION);
+    const blocked = await startFlowchartRun(deps(stateRoot), {
+      projectRoot,
+      flowchart: { id: "stall", nodes: [node("only", { models: ["cheap"] })], edges: [] },
+      objective: "Stall on purpose",
+      contract
+    });
+    assert.equal(blocked.status, "BLOCKED");
+    assert.deepEqual(await storedContract(stateRoot, blocked.runId), contract);
+
+    const unblocked = await unblockFlowchartRun(deps(stateRoot), blocked.runId, {
+      reason: "operator supplied the missing result out of band"
+    });
+    assert.equal(unblocked.status, "RUNNING");
+    assert.deepEqual(
+      await storedContract(stateRoot, blocked.runId),
+      contract,
+      "the reopen rewrote the checkpoint from parts and kept the contract among them"
+    );
+  });
+});
+
+/**
+ * A green CLI-resume test can coexist with a side command silently deleting the
+ * contract: `pause` and `inject` share `restoreFlowchartSession` and both end in
+ * a checkpoint write, so a restorer that dropped the field would erase it from
+ * the run on the next operator action. Proved end to end — pause through the
+ * shipped command, then resume, and the resumed leg is still assessed.
+ */
+test("a pause taken between the legs does not strip the run contract", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
+
+    const paused = await cli(["pause", "--run", runId, "--reason", "operator stepped away", "--state-root", stateRoot]);
+    assert.equal(paused.code, 0, paused.err);
+    assert.deepEqual(
+      await storedContract(stateRoot, runId),
+      contract,
+      "the pause rewrote the checkpoint and kept the contract on it"
+    );
+
+    const resumed = await cli([
+      "resume",
+      "--run",
+      runId,
+      "--state-root",
+      stateRoot,
+      "--executor",
+      "fake",
+      "--unpause"
+    ]);
+    assert.equal(resumed.code, 0, resumed.err);
+    assert.equal(
+      dimensionVerdicts(await eventsOf(stateRoot, runId), "tsk_second")["constraint-retention"],
+      "PASS"
     );
   });
 });

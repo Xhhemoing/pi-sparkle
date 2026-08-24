@@ -671,7 +671,11 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
   const flowchart: FlowchartCheckpointState = {
     definition: ctx.definition,
     snapshot,
-    limits: ctx.flowchartLimits
+    limits: ctx.flowchartLimits,
+    // Written on every checkpoint, not just the pre-loop one: a resume, a
+    // pause and an injection all rewrite this record, and a writer that
+    // omitted the contract would silently strip it from the run.
+    ...(ctx.contract !== undefined ? { contract: ctx.contract } : {})
   };
   const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, ctx.now(), flowchart));
   await ctx.checkpointStore.write(checkpoint);
@@ -1309,6 +1313,10 @@ async function resumeLockedFlowchartRun(
   }
 
   const { definition, limits } = checkpoint.flowchart;
+  // An explicit continuation stays authoritative — an embedder that hands the
+  // resume a contract meant that one — while an ordinary CLI resume, which has
+  // only a run id, recovers the run's own durable value.
+  const contract = continuation.contract ?? checkpoint.flowchart.contract;
   const supervisor = await restoreCheckpointedSupervisor({
     deps,
     runId,
@@ -1377,7 +1385,7 @@ async function resumeLockedFlowchartRun(
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
     ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
-    ...(continuation.contract !== undefined ? { contract: continuation.contract } : {})
+    ...(contract !== undefined ? { contract } : {})
   };
 
   return withRunTeardown(ctx, () => resumeRestoredRun(ctx, continuation));
@@ -1497,7 +1505,12 @@ async function restoreFlowchartSession(
     finishedChildren: new Map<TaskId, ChildRunOutcome>(),
     spawnHandles: [],
     ...(generateId !== undefined ? { generateId } : {}),
-    ...(deps.pause !== undefined ? { pause: deps.pause } : {})
+    ...(deps.pause !== undefined ? { pause: deps.pause } : {}),
+    // pause and inject both end in `finish` → `persistCheckpoint`. Without
+    // this the next side command would rewrite the checkpoint without the
+    // contract, and the run would lose it to an operator action that had
+    // nothing to do with it.
+    ...(checkpoint.flowchart.contract !== undefined ? { contract: checkpoint.flowchart.contract } : {})
   };
   return { ctx, replayed };
 }
@@ -1708,7 +1721,7 @@ async function unblockLockedFlowchartRun(
   if (checkpoint.flowchart === undefined) {
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
-  const { definition, snapshot, limits } = checkpoint.flowchart;
+  const { definition, snapshot, limits, contract } = checkpoint.flowchart;
   const retryNodeId = resolveRetryTarget(
     read.events,
     blockedEventId,
@@ -1747,7 +1760,15 @@ async function unblockLockedFlowchartRun(
   );
   const after = await eventStore.readAll();
   const nextCheckpoint = validateCheckpoint(
-    materializeCheckpoint(replayRun(after.events), now(), { definition, snapshot: reopened, limits })
+    materializeCheckpoint(replayRun(after.events), now(), {
+      definition,
+      snapshot: reopened,
+      limits,
+      // The reopen rewrites the checkpoint from parts, so it has to carry the
+      // run contract forward explicitly: authorizing a blocked run changes what
+      // may execute, never what the run was asked to honour.
+      ...(contract !== undefined ? { contract } : {})
+    })
   );
   await checkpointStore.write(nextCheckpoint);
   return {

@@ -11,6 +11,7 @@ import {
   createRunId,
   createTaskId
 } from "../../../src/domain/ids.js";
+import { validateFlowchart } from "../../../src/domain/flowchart.js";
 import { validateEpisodeEvent, type EpisodeEvent } from "../../../src/episode/events.js";
 import {
   feedbackLogPath,
@@ -23,6 +24,8 @@ import {
   type PauseToken
 } from "../../../src/run/pause-controller.js";
 import { validateCheckpoint, type RunCheckpoint } from "../../../src/run/replay.js";
+import { createFlowchartSupervisor } from "../../../src/supervisor/flowchart-supervisor.js";
+import { createModelRouter } from "../../../src/supervisor/model-router.js";
 import {
   isInvocation,
   validateInvocation,
@@ -98,6 +101,96 @@ const CHECKPOINT_SEED = {
   lastEventId: createEventId(UUID),
   updatedAt: NOW
 };
+
+/**
+ * A flowchart checkpoint carrying a durable run contract.
+ *
+ * The seed above is a non-flowchart M0/M2 checkpoint, so it has no
+ * `flowchart` object at all and the mutator would never reach — let alone
+ * corrupt — the contract a resume now reads its constraints from. This seed is
+ * what puts that field under the same fail-closed discipline as the rest of
+ * the row: a damaged durable contract must raise `DomainValidationError`, not
+ * a TypeError from inside the domain validator, and must never decode into a
+ * half-built contract a resume would then assess children against.
+ */
+function flowchartCheckpointSeed(): Record<string, unknown> {
+  const definition = {
+    id: "row-fuzz",
+    nodes: [
+      {
+        id: "only",
+        taskId: createTaskId(() => "only"),
+        role: "actor",
+        objective: "Do the work",
+        modelPolicy: { allowedModels: ["cheap"] },
+        confidenceThreshold: 0.7,
+        approvalRequired: false
+      }
+    ],
+    edges: []
+  };
+  const supervisor = createFlowchartSupervisor({
+    flowchart: validateFlowchart(definition),
+    router: createModelRouter({
+      policyVersion: "router-v1",
+      models: [
+        {
+          id: "cheap",
+          version: "cheap-v1",
+          roles: ["actor", "critic"],
+          maxComplexity: "MEDIUM",
+          estimatedCostUsd: 0.1,
+          estimatedDurationMs: 1_000
+        }
+      ]
+    })
+  });
+  supervisor.leaseReadyNodes();
+  return {
+    ...CHECKPOINT_SEED,
+    flowchart: {
+      definition,
+      snapshot: supervisor.snapshot(),
+      limits: {
+        maxConcurrentNodes: 4,
+        maxConsecutiveStalls: 3,
+        remainingTimeMs: Number.MAX_SAFE_INTEGER
+      },
+      contract: {
+        schemaVersion: 1,
+        objective: "fuzz the durable run contract",
+        deliverables: [
+          { id: "del-1", description: "a decoded checkpoint", artifactKind: "json" }
+        ],
+        constraints: [{ id: "con-1", description: "do not touch src/legacy", enforceable: true }],
+        nonGoals: ["rewriting the log"],
+        acceptanceCriteria: [
+          {
+            id: "accept-1",
+            description: "row decoders fail closed",
+            observableCheck: "pnpm test -- test/unit/persist/row-fuzz.test.ts"
+          }
+        ],
+        assumptions: [{ id: "asm-1", statement: "the state root is private", source: "operator" }],
+        questions: [],
+        authority: [{ scope: "repo", actions: ["edit"] }],
+        sourceRefs: [{ kind: "spec", ref: "loop4-r8-t2.md" }]
+      }
+    }
+  };
+}
+
+const CHECKPOINT_SEEDS: readonly Record<string, unknown>[] = [
+  CHECKPOINT_SEED,
+  flowchartCheckpointSeed()
+];
+
+/** The durable contract of a candidate checkpoint, however mangled it is. */
+function contractOf(candidate: unknown): unknown {
+  if (!isMutableRecord(candidate)) return undefined;
+  const flowchart = candidate.flowchart;
+  return isMutableRecord(flowchart) ? flowchart.contract : undefined;
+}
 
 const FEEDBACK_SEEDS: readonly Record<string, unknown>[] = [
   {
@@ -478,15 +571,24 @@ test(
       const store = new CheckpointStore(stateRoot, RUN_ID);
       const random = new XorShift32(DEFAULT_SEED ^ 0xc4ec_0017);
 
+      for (const [index, seed] of CHECKPOINT_SEEDS.entries()) {
+        assert.ok(validateCheckpoint(seed), `RunCheckpoint seedIndex=${index} must start valid`);
+      }
+      const pristineContract = jsonText(contractOf(CHECKPOINT_SEEDS[1]));
+      let contractsMutated = 0;
       for (let iteration = 0; iteration < FILE_ITERATIONS; iteration += 1) {
-        const candidate = mutate(CHECKPOINT_SEED, random, iteration);
+        const seedIndex = iteration % CHECKPOINT_SEEDS.length;
+        const candidate = mutate(CHECKPOINT_SEEDS[seedIndex], random, iteration);
+        if (seedIndex === 1 && jsonText(contractOf(candidate)) !== pristineContract) {
+          contractsMutated += 1;
+        }
         await writeFile(path, mutateJsonText(candidate, random, iteration), "utf8");
         let decoded: RunCheckpoint;
         try {
           decoded = validateCheckpoint(await store.read());
         } catch (error) {
           if (!isExactDomainValidationError(error) && !isExactSyntaxError(error)) {
-            failFuzz(`RunCheckpoint iteration=${iteration}`, error);
+            failFuzz(`RunCheckpoint iteration=${iteration} seedIndex=${seedIndex}`, error);
           }
           continue;
         }
@@ -494,9 +596,16 @@ test(
         try {
           assert.deepEqual(validateCheckpoint(decoded), decoded);
         } catch (error) {
-          failFuzz(`RunCheckpoint iteration=${iteration}, revalidation`, error);
+          failFuzz(`RunCheckpoint iteration=${iteration} seedIndex=${seedIndex}, revalidation`, error);
         }
       }
+      // The reason the flowchart seed exists: without it the mutator never
+      // touched a durable contract, so the arm would have been green for a
+      // field it never reached.
+      assert.ok(
+        contractsMutated > 0,
+        `the durable contract was never mutated (seed=${seedText()}); this arm would be vacuous`
+      );
     });
   }
 );

@@ -642,11 +642,18 @@ function flowchartContinuation(opts: {
     }
     approvalReply = approvalReplyFromCheckpoint(opts.checkpoint, opts.selectedActionIds);
   }
+  // The CLI has only a run id, so a run's contract can only come off its own
+  // validated checkpoint. Both flowchart continuation paths — resume and
+  // answer — build their continuation here, so this one projection is what
+  // keeps either from crossing the resume boundary contract-less. Nothing is
+  // reconstructed when the checkpoint carries none.
+  const contract = opts.checkpoint?.flowchart?.contract;
   return {
     ...(approvalReply !== undefined ? { approvalReply } : {}),
     ...(opts.answer !== undefined && opts.answer.trim() !== "" ? { answer: opts.answer } : {}),
     ...(opts.childResults !== undefined ? { childResults: opts.childResults } : {}),
-    ...(opts.unpause === true ? { unpause: true } : {})
+    ...(opts.unpause === true ? { unpause: true } : {}),
+    ...(contract !== undefined ? { contract } : {})
   };
 }
 
@@ -1102,6 +1109,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   if (summaryJson) {
     const summary = await inspectRun(stateRoot, runId);
     // One object, not a domain Event: --json stays a pure event NDJSON stream.
+    // These four keys are the frozen-additive INSPECT_SUMMARY contract: they
+    // never change name, type or meaning, and a fifth arrives only in a diff
+    // that also updates the pins in `test/unit/run/inspection.test.ts`.
     io.stdout(
       `${JSON.stringify({
         type: "INSPECT_SUMMARY",

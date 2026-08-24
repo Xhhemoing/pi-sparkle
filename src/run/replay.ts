@@ -7,6 +7,7 @@ import {
   type EventId,
   type TaskId
 } from "../domain/ids.js";
+import { validateRequirementContract, type RequirementContract } from "../domain/contract.js";
 import { validateFlowchart, type Flowchart } from "../domain/flowchart.js";
 import { validateProjectSnapshot, type ProjectSnapshot } from "../domain/project.js";
 import { isRecord } from "../domain/record.js";
@@ -60,6 +61,20 @@ export interface FlowchartCheckpointState {
   definition: Flowchart;
   snapshot: FlowchartSupervisorSnapshot;
   limits: FlowchartRunLimits;
+  /**
+   * The requirement contract the run started under, so a resume that has only
+   * a run id can assess its children against the same constraints the start
+   * did. Optional at `schemaVersion: 1` by necessity — every checkpoint written
+   * before this field existed, and every run started without a contract, is
+   * still valid — but it is never *synthesized*: the bound episode keeps only
+   * acceptance criteria, and presenting an empty constraint list as the run's
+   * would turn missing evidence into `NOT_APPLICABLE`.
+   *
+   * Reserved: per-task acceptance criteria are expected to ride this same seam
+   * as a sibling optional field (option (a), `.agent_workspace/loop4-r8-t4.md`
+   * §5.3). That field is design-gated and deliberately not implemented here.
+   */
+  contract?: RequirementContract;
 }
 
 export interface RunCheckpoint {
@@ -356,7 +371,14 @@ export function validateFlowchartCheckpointState(value: unknown): FlowchartCheck
       `Invalid RunCheckpoint: flowchart snapshot is not restorable: ${messageOf(error)}`
     );
   }
-  return { definition, snapshot, limits };
+  if (value.contract === undefined) return { definition, snapshot, limits };
+  let contract: RequirementContract;
+  try {
+    contract = validateRequirementContract(value.contract);
+  } catch (error) {
+    throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.contract: ${messageOf(error)}`);
+  }
+  return { definition, snapshot, limits, contract };
 }
 
 export function validateCheckpoint(value: unknown): RunCheckpoint {
