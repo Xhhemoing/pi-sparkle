@@ -310,3 +310,7 @@
 | S5-A-1 | ownershipEscape 与 prescore escaped 扫描跨函数去重 | 廉价变体发散；可靠变体公开类型 + 9.8–10ns |
 | S5-A-2 | hashAssessment JSON.stringify 换手写定长序列化 | 等价但慢 11–15% |
 | S5-A-3 | from-child PASSED 路径 check-coverage 死校验短路 | 需平行路径或公开旗标；21.6ns |
+| S5-B-1 | complexityOf 尾部死值谓词消除 | 22–46µs/批；意图文档 |
+| S5-B-2 | evaluateCandidate 无限预算短路 | 真实路径 29–56µs；deadline 姊妹发散 |
+| S5-B-3 | analyzeTask reason join 换模板字面量 | 301–323µs/批；S1-B/S4-B-5 同噪声带 |
+| S5-B-4 | ResolvedRouteRequest 中间对象内联 | 46–68µs/批 |
