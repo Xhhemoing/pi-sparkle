@@ -155,7 +155,7 @@
 | R7-C | `cursor/r7-c-offline-routing-seventh-pass-83a1` | 首次派出未推分支；本波重派 |
 | R7-D | `cursor/r7-d-adaptation-seventh-pass-83a1` | 已合入专属分支（仅 `R7-D.md`） |
 | R7-E | `cursor/r7-e-learning-seventh-pass-83a1` | 已合入专属分支（仅 `R7-E.md`） |
-| R7-F | `cursor/r7-f-experiments-seventh-pass-83a1` | 已合入专属分支（S7-F-1/S7-F-2 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f/r6f/r7f 待记 |
+| R7-F | `cursor/r7-f-experiments-seventh-pass-83a1` | 已合入专属分支（S7-F-1/S7-F-2 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f/r6f/r7f 全绿（2668 / 224 / 27 / 169 逐位）；r5f 全实验 P=2000/A=1000 = 122.51 ms；r6f 全实验 119.41 ms；r7f 全实验 129.58 ms；r7f 四次序 restore 同号为正（prefix +45.55 / half +28.29 / scattered +4.40 / reversed +5.29 ms） |
 | R7-J | `cursor/r7-j-persist-seventh-pass-83a1` | 已派出 |
 | R7-G | `cursor/r7-g-runtime-seventh-pass-83a1` | 已合入专属分支（仅 `R7-G.md`） |
 | R7-H | `cursor/r7-h-eval-seventh-pass-83a1` | 已合入专属分支（仅 `R7-H.md`） |
