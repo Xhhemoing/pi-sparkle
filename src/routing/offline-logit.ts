@@ -123,31 +123,50 @@ interface FitResult {
   readonly coefficients: readonly number[] | null;
 }
 
-function irls(
-  design: Design,
-  rows: readonly Row[],
-  vectors: readonly number[][],
-  maxIter: number
-): FitResult {
-  const p = design.names.length;
-  // Non-zero column indices per row, computed once per fit. The accumulation
-  // below already skipped zero entries, so visiting only the support performs
-  // the identical float operations in the identical order on every iteration.
-  const supports = vectors.map((vector) => {
+/**
+ * Non-zero column indices per row. The IRLS accumulation already skipped zero
+ * entries, so visiting only the support performs the identical float
+ * operations in the identical order on every iteration. Supports depend only
+ * on the vectors, so the base fit computes them once and bootstrap refits
+ * reuse them by row index.
+ */
+function computeSupports(vectors: readonly number[][]): number[][] {
+  return vectors.map((vector) => {
     const active: number[] = [];
     for (let j = 0; j < vector.length; j++) {
       if (vector[j] !== 0) active.push(j);
     }
     return active;
   });
+}
+
+function irls(
+  design: Design,
+  rows: readonly Row[],
+  vectors: readonly number[][],
+  supports: readonly (readonly number[])[],
+  maxIter: number
+): FitResult {
+  const p = design.names.length;
+  const n = rows.length;
+  // Per-iteration work buffers, allocated once per fit: eta/mu are fully
+  // overwritten and X'WX / X'Wz fully zeroed at the top of every iteration,
+  // so each iteration starts from the exact state a fresh allocation gives.
+  // solveSymmetric copies its inputs, so no buffer reference escapes.
+  const eta = new Array<number>(n).fill(0);
+  const mu = new Array<number>(n).fill(0);
+  const xtwx: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
+  const xtwz: number[] = new Array<number>(p).fill(0);
   let beta = new Array<number>(p).fill(0);
   for (let iter = 0; iter < maxIter; iter++) {
-    const eta = vectors.map((v) => dot(beta, v));
-    const mu = eta.map(sigmoid);
+    for (let i = 0; i < n; i++) {
+      eta[i] = dot(beta, vectors[i]!);
+      mu[i] = sigmoid(eta[i]!);
+    }
+    for (let d = 0; d < p; d++) xtwx[d]!.fill(0);
+    xtwz.fill(0);
     // W = mu(1-mu); X' W X and X' W z with working response z = eta + (y - mu)/W.
-    const xtwx: number[][] = Array.from({ length: p }, () => new Array<number>(p).fill(0));
-    const xtwz: number[] = new Array<number>(p).fill(0);
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < n; i++) {
       const w = Math.max(mu[i]! * (1 - mu[i]!)!, 1e-10);
       const xi = vectors[i]!;
       const z = eta[i]! + ((rows[i]!.y - mu[i]!) / w);
@@ -194,6 +213,13 @@ function onProbabilitiesFor(
  * A row without the dummy has an off vector equal to its on vector, so its
  * contribution is exactly +0.0 (IEEE x - x); skipping those rows and the
  * columnless reference levels leaves every partial sum bitwise unchanged.
+ *
+ * An active row's off vector is its on vector with the contrast column
+ * zeroed — copying the already-built on vector yields contents identical to
+ * `design.build(row, column)` without repaying the O(p) rebuild per
+ * (row, column). The intercept guard keeps the (unreachable) intercept
+ * contrast at the build-path value: build() never skips the intercept, so
+ * its off vector equals the on vector and the mean stays +0.0 either way.
  */
 function averagePredictiveComparison(
   design: Design,
@@ -205,11 +231,12 @@ function averagePredictiveComparison(
 ): number {
   let sum = 0;
   const columnIdx = design.columnIndex.get(column);
-  if (columnIdx !== undefined) {
+  if (columnIdx !== undefined && columnIdx !== 0) {
     for (let i = 0; i < rows.length; i++) {
       if (vectors[i]![columnIdx] === 0) continue;
       const on = onProbabilities[i]!;
-      const offVector = design.build(rows[i]!, column);
+      const offVector = vectors[i]!.slice();
+      offVector[columnIdx] = 0;
       const off = sigmoid(dot(coefficients, offVector));
       sum += on - off;
     }
@@ -255,7 +282,8 @@ export function fitLogitAdditive(
 
   const design = buildDesign(baseRows);
   const vectors = baseRows.map((r) => design.build(r));
-  const fit = irls(design, baseRows, vectors, maxIter);
+  const supports = computeSupports(vectors);
+  const fit = irls(design, baseRows, vectors, supports, maxIter);
   if (fit.coefficients === null) {
     return uncertainReport(baseRows.length, "INVALID_ESTIMATE: singular or non-finite Hessian");
   }
@@ -282,15 +310,22 @@ export function fitLogitAdditive(
   const draws = new Map<string, number[]>();
   let successful = 0;
   for (let draw = 0; draw < bootstrapDraws; draw++) {
+    // A resampled row is a base row, so its design vector and support are
+    // exactly the ones computed once for the base fit; reusing them by index
+    // removes the per-draw O(rows × p) rebuild without touching any float.
+    // Consumers only read the vectors, so the aliasing is unobservable.
     const sample: Row[] = [];
+    const sampleVectors: number[][] = [];
+    const sampleSupports: number[][] = [];
     for (let i = 0; i < baseRows.length; i++) {
       const index = Math.floor(random() * baseRows.length);
       sample.push(baseRows[index]!);
+      sampleVectors.push(vectors[index]!);
+      sampleSupports.push(supports[index]!);
     }
     // A resample can collapse to a single class; that draw is skipped.
     if (sample.every((r) => r.y === 0) || sample.every((r) => r.y === 1)) continue;
-    const sampleVectors = sample.map((r) => design.build(r));
-    const bootFit = irls(design, sample, sampleVectors, maxIter);
+    const bootFit = irls(design, sample, sampleVectors, sampleSupports, maxIter);
     if (bootFit.coefficients === null) continue;
     successful += 1;
     const sampleOnProbabilities = onProbabilitiesFor(sampleVectors, bootFit.coefficients);
