@@ -38,6 +38,12 @@ export interface RunInspection {
   pendingQuestions: AgentQuestion[];
   answers: AnswerRecord[];
   agentInstanceIds: AgentInstanceId[];
+  /**
+   * Evidence the latest STALL_DETECTED / RUN_BLOCKED event asked for, verbatim
+   * and in event order. Empty when the run never stalled or blocked; entries are
+   * never derived from anything but those payloads.
+   */
+  requiredEvidence: readonly string[];
 }
 
 interface ChildAccumulator {
@@ -69,6 +75,7 @@ export async function inspectRun(stateRoot: string, runId: RunId): Promise<RunIn
   const answers: AnswerRecord[] = [];
   const agentInstanceIds = new Set<AgentInstanceId>();
   const answeredQuestionIds = new Set<MessageId>();
+  let requiredEvidence: readonly string[] = [];
 
   // First pass: collect answers so pending questions exclude answered ones.
   for (const event of events) {
@@ -119,6 +126,12 @@ export async function inspectRun(stateRoot: string, runId: RunId): Promise<RunIn
         }
         break;
       }
+      case "STALL_DETECTED":
+      case "RUN_BLOCKED":
+        // Last writer wins: a run can stall repeatedly, and only the newest
+        // demand describes what it is still waiting for.
+        requiredEvidence = [...event.payload.requiredEvidence];
+        break;
       case "AGENT_STARTED":
         agentInstanceIds.add(event.payload.agentInstanceId);
         break;
@@ -144,7 +157,8 @@ export async function inspectRun(stateRoot: string, runId: RunId): Promise<RunIn
     })),
     pendingQuestions,
     answers,
-    agentInstanceIds: Array.from(agentInstanceIds)
+    agentInstanceIds: Array.from(agentInstanceIds),
+    requiredEvidence
   };
 }
 

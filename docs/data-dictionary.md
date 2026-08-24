@@ -30,6 +30,23 @@ current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
+> Precision note (2026-08-24, Loop 2 Round 1): the allowlist pin above is
+> **direct-import only** — it does not walk transitive imports. One transitive
+> value chain is known and pinned by a dedicated test in the same file:
+> `adaptation/eval-routing.ts` value-imports `routing/assign.ts`, which
+> value-imports `supervisor/model-router.ts` — so the live router **module is
+> loaded at runtime** by the adaptation plane even though eval-routing's own
+> model-router import is type-only. The boundary rule still holds because it
+> is a claim about *records*, not code loading: `model-router.ts` and its
+> entire value-import subtree are filesystem-free, so no runtime record is
+> reachable through the chain (the test pins the router file itself; the
+> subtree was verified by closure walk — see the
+> [Loop 2 R1 isolation report](reports/2026-08-24-sota-loop2-isolation.md)
+> §1). Transitive chains through module prefixes the test does not list
+> (e.g. shared `routing/` helpers) would not be flagged automatically; the
+> only runtime-record reader value-reachable from the adaptation plane is the
+> sanctioned `from-episode` pipe.
+
 > Layout note: this is a Developer Preview breaking change. Data written by
 > builds before 2026-08-22 sits at the legacy flat locations and is not
 > auto-migrated (per Q4 decision: migration planning deferred to v2).
@@ -90,13 +107,15 @@ of an already-deleted episode still re-discloses the copies. The CLI fails
 closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
 found") exits 1 rather than reporting success.
 
-### Known limits of the current delete commands (2026-08-24, Round 3 audit)
+### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 2 Round 1)
 
-Honest gaps that remain after the Round 2 cascade and Round 3 disclosure work
+Honest gaps that remain after the Round 2 cascade, Round 3 disclosure work,
+and the Loop 2 Round 1 invocation-lock fix
 ([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
 [Round 2](reports/2026-08-24-sota-r2-isolation.md),
-[Round 3](reports/2026-08-24-sota-r3-isolation.md) reports); none of these
-are covered by the claims above:
+[Round 3](reports/2026-08-24-sota-r3-isolation.md),
+[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md) reports); none of
+these are covered by the claims above:
 
 - **Episode text still physically survives inside attached runs** until each
   reported run is itself deleted. `delete --episode` now *names* those runs
@@ -111,10 +130,17 @@ are covered by the claims above:
   the deletion suite pins that an episode delete leaves
   `adaptation/preferences.json` byte-identical. Use `pref delete` per
   observation.
-- **Deleting a run that is still executing can race.** The invocation-log
-  rewrite serializes concurrent deletes via the log's lock, but the live
-  appender (`onInvocation`) appends without taking it. Delete a run after it
-  terminates; a delete during execution may leave (or drop) rows.
+- **Deleting a run that is still executing no longer risks clobbering, but
+  delete-after-terminate is still the supported flow.** Since Loop 2 Round 1
+  both writers of the shared log go through the same cooperative lock
+  (`src/telemetry/invocation-log.ts`): the live appender uses
+  `appendInvocationRecord` and the delete's read-filter-write cycle runs
+  inside `withInvocationLogLock`, so a live append lands wholly before or
+  wholly after the rewrite (test-pinned, including the cannot-clobber case
+  and the append-times-out-instead-of-writing-unlocked case). What remains
+  true: rows a still-running run appends *after* the rewrite completes are
+  new rows and survive the delete, and an appender that cannot take the lock
+  in time silently drops its telemetry row rather than fail the run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -133,6 +159,10 @@ root): episode deletes previously left run-log copies **silently** (now
 disclosed per delete, with remediation); the preference gap previously had no
 stated rationale or pin (now both); the cascade's interaction with persisted
 `redactionClasses` is verified (classes survive the strip).
+
+Closed in Loop 2 Round 1 (2026-08-24): the delete-vs-live-appender race on
+`invocations.jsonl` — the appender previously wrote without the lock the
+rewrite takes; both writers now share it (see the revised bullet above).
 
 ## Completeness audit (2026-08-22)
 

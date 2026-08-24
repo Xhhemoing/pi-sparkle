@@ -1,10 +1,61 @@
-# pi-sparkle SOTA persistent optimization — orchestrator log
+# Loop 2 — SOTA follow-on (2026-08-24)
+
+- **Branch:** `agent/sota-opt-next-7e63`
+- **Parent:** Cursor Grok 4.6 orchestrator
+- **Base:** `main` @ `b371e12` (PR #3 merged)
+- **Previous loop:** archived below; reports in `docs/reports/2026-08-24-sota-r3-*.md`
+
+## Remaining gaps this loop will close (from R3 P1/P2)
+
+1. `inspect --json` does not surface aggregated `requiredEvidence` from `STALL_DETECTED` / `RUN_BLOCKED` (only raw events).
+2. Invocation append (`src/cli/main.ts` `appendFile` to `invocations.jsonl`) is unlocked vs delete rewrite lock — delete-vs-live-appender race.
+3. Plane-boundary allowlist comment claims type-only `eval-routing → model-router` loads nothing supervisor-side; value chain via `routing/assign.ts` does.
+4. Plain `--children` starts `skipContract: true` — document honestly (do not silently invent a contract).
+5. Tests/probes for the above; no Outcome-supported; no live R1.
+
+## Loop 2 Round 1 ownership
+
+| Slot | Owns |
+|---|---|
+| fable-1 | `.agent_workspace/loop2-r1-fable1.md`, `docs/reports/2026-08-24-sota-loop2-architecture.md`, `README.md` skipContract/inspect honesty, `docs/status-matrix.md` |
+| fable-2 | `.agent_workspace/loop2-r1-fable2.md`, `docs/reports/2026-08-24-sota-loop2-isolation.md`, `docs/data-dictionary.md` |
+| opus-1 | `src/run/inspection.ts`, `test/unit/run/inspection.test.ts`, `src/cli/main.ts` **only** `inspectCommand` (additive `requiredEvidence` on inspect; do not change event NDJSON into a breaking single object — last-line `INSPECT_SUMMARY` or `--json` summary object documented in tests) |
+| opus-2 | NEW `src/telemetry/invocation-log.ts` (locked append+path helper), `src/privacy/deletion.ts` (use the helper’s lock), `src/cli/main.ts` **only** the `onInvocation` append (replace unlocked `appendFile`), tests under `test/unit/telemetry/` and deletion tests |
+| gpt-sol-1 | `test/unit/privacy/plane-boundary.test.ts` (fix overbroad comment; add transitive value-import assertion for eval-routing→assign→model-router; no FS leak still allowed) |
+| gpt-sol-2 | NEW tests: skipContract honesty (`test/unit/run/` or CLI children), inspect summary if landed; `.agent_workspace/loop2-r1-gptsol2.md`; `scripts/` probe for locked invocation append if helper exists |
+
+**Forbidden:** live R1/bandit/topology, Outcome-supported, ADR-006 Accepted, P0 sign-off, auto-promote, `package.json` deps bump.
+
+Subagents do not git commit. Parent commits after each round.
+
+## Loop 2 Round 1 结论简报
+
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1434 pass / 0 fail / 1 skip** (loop 1 close on main: 1408). Security probe **14/14**.
+
+| Slot | Landed |
+|---|---|
+| fable-1 | Loop2 architecture report; README skipContract + inspect `--summary-json`; matrix rows |
+| fable-2 | Isolation report; dictionary lock/boundary honesty |
+| opus-1 | `RunInspection.requiredEvidence`; prose inspect; `--summary-json` (`INSPECT_SUMMARY`); `--json` event stream unchanged |
+| opus-2 | `src/telemetry/invocation-log.ts` locked append; delete rewrite shares lock; CLI onInvocation uses it |
+| gpt-sol-1 | Plane-boundary comment + transitive eval-routing→assign→model-router + no-fs pin |
+| gpt-sol-2 | `--children` skipContract vs `--track` contract honesty test |
+
+This user request asked for **one** optimization round (6 concurrent agents). Loop 2 Round 1 closes the four carried P1/P2 items that are code-closable. Policy gates (P0, F-PROD, ADR-006, Outcome-supported) stay open.
+
+_Pending._
+
+
+---
+
+# Loop 1 archive — pi-sparkle SOTA persistent optimization — orchestrator log
 
 - **Branch:** `agent/sota-persistent-opt-7e63`
 - **SOP alias:** `agent/sota-persistent-opt`
 - **Started:** 2026-08-24
 - **Parent:** Cursor Grok 4.6 orchestrator (3-round × 6-agent loop)
 - **Goal:** Polish every plane of pi-sparkle to SOTA quality without claiming Outcome-supported, F-PROD, or live R1/bandit/topology. Never auto-promote. Keep ADR-004/005/006 honesty.
+
 
 ## Loop protocol
 

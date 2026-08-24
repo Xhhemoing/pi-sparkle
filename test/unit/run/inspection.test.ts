@@ -21,6 +21,7 @@ import { SUPERVISOR, validateAgentMessage, type TaskResult } from "../../../src/
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import { inspectRun } from "../../../src/run/inspection.js";
+import { main, type CliIo } from "../../../src/cli/main.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -140,6 +141,56 @@ async function seedParentRun(
       payload: {}
     });
   }
+}
+
+function capture(): { io: CliIo; out: string[]; err: string[] } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: {
+      stdout: (text: string) => {
+        out.push(text);
+      },
+      stderr: (text: string) => {
+        err.push(text);
+      }
+    },
+    out,
+    err
+  };
+}
+
+/** Seeds a run that stalls twice and then blocks, so only the newest demand stands. */
+async function seedStalledRun(stateRoot: string, runId: RunId, seq: () => string): Promise<void> {
+  await seedParentRun(stateRoot, runId, "RUNNING");
+  const store = new EventStore(stateRoot, runId);
+  const now = () => parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+  const base = { schemaVersion: 1 as const, occurredAt: now(), runId, actor: "supervisor" };
+  await store.append({
+    ...base,
+    id: createEventId(seq),
+    type: "STALL_DETECTED",
+    payload: { round: 1, consecutiveStalls: 1, requiredEvidence: ["stale: first round proof"] }
+  });
+  await store.append({
+    ...base,
+    id: createEventId(seq),
+    type: "STALL_DETECTED",
+    payload: {
+      round: 2,
+      consecutiveStalls: 2,
+      requiredEvidence: ["failing test output", "parser benchmark"]
+    }
+  });
+  await store.append({
+    ...base,
+    id: createEventId(seq),
+    type: "RUN_BLOCKED",
+    payload: {
+      reason: "no progress for too many rounds",
+      requiredEvidence: ["failing test output", "parser benchmark"]
+    }
+  });
 }
 
 test("inspectRun reports children, protocol messages, results, artifacts, and evidence", async () => {
@@ -272,4 +323,201 @@ test("inspectRun surfaces pending questions and supplied answers", async () => {
     assert.equal(resumed.answers[0]!.messageId, questionId);
     assert.equal(resumed.answers[0]!.answer, "Yes");
   });
+});
+
+test("inspectRun reports no requiredEvidence for a run that never stalled or blocked", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId);
+
+    const inspection = await inspectRun(stateRoot, runId);
+    assert.equal(inspection.status, "COMPLETED");
+    assert.deepEqual(
+      inspection.requiredEvidence,
+      [],
+      "no stall or block event means no evidence demand is invented"
+    );
+  });
+});
+
+test("inspectRun surfaces the latest stall/block requiredEvidence verbatim", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const inspection = await inspectRun(stateRoot, runId);
+    assert.equal(inspection.status, "BLOCKED");
+    assert.deepEqual(inspection.requiredEvidence, ["failing test output", "parser benchmark"]);
+    assert.ok(
+      !inspection.requiredEvidence.includes("stale: first round proof"),
+      "superseded stall demands are not merged into the latest one"
+    );
+  });
+});
+
+test("inspectRun keeps requiredEvidence from a stall that has not blocked the run yet", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+    const store = new EventStore(stateRoot, runId);
+    await store.append({
+      id: createEventId(seq),
+      schemaVersion: 1,
+      occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+      runId,
+      type: "STALL_DETECTED",
+      actor: "supervisor",
+      payload: { round: 3, consecutiveStalls: 1, requiredEvidence: ["repro log"] }
+    });
+
+    const inspection = await inspectRun(stateRoot, runId);
+    assert.notEqual(inspection.status, "BLOCKED");
+    assert.deepEqual(inspection.requiredEvidence, ["repro log"]);
+  });
+});
+
+test("inspect prose prints the required evidence of the latest stall/block", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const human = capture();
+    const code = await main(["inspect", "--run", runId, "--state-root", stateRoot], human.io);
+    assert.equal(code, 0, human.err.join(""));
+    const text = human.out.join("");
+    assert.match(text, /BLOCKED/);
+    assert.match(text, /required evidence \(2\):/);
+    assert.match(text, /- failing test output/);
+    assert.match(text, /- parser benchmark/);
+  });
+});
+
+test("inspect prose omits the required evidence block when nothing stalled", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId);
+
+    const human = capture();
+    const code = await main(["inspect", "--run", runId, "--state-root", stateRoot], human.io);
+    assert.equal(code, 0, human.err.join(""));
+    assert.doesNotMatch(human.out.join(""), /required evidence/);
+  });
+});
+
+// Contract: `inspect --run --json` stays a pure NDJSON stream of domain events.
+// The aggregated evidence view is opt-in via `--summary-json`, which prints one
+// INSPECT_SUMMARY object that is deliberately NOT an Event (no event id, and a
+// type outside the Event union), so existing --json consumers keep working.
+test("inspect --json stays a pure event stream with no summary line", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const json = capture();
+    const code = await main(["inspect", "--run", runId, "--state-root", stateRoot, "--json"], json.io);
+    assert.equal(code, 0, json.err.join(""));
+    const lines = json.out.join("").trim().split("\n");
+    assert.equal(lines.length, 5, "one line per persisted event, nothing appended");
+    const parsed = lines.map((line) => JSON.parse(line) as { id?: unknown; type?: unknown });
+    for (const event of parsed) {
+      assert.ok(typeof event.id === "string" && event.id !== "");
+      assert.ok(typeof event.type === "string" && event.type !== "");
+    }
+    assert.ok(!parsed.some((event) => event.type === "INSPECT_SUMMARY"));
+    assert.deepEqual(parsed.map((event) => event.type), [
+      "RUN_CREATED",
+      "RUN_STARTED",
+      "STALL_DETECTED",
+      "STALL_DETECTED",
+      "RUN_BLOCKED"
+    ]);
+  });
+});
+
+test("inspect --summary-json prints one INSPECT_SUMMARY object with requiredEvidence", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const json = capture();
+    const code = await main(
+      ["inspect", "--run", runId, "--state-root", stateRoot, "--summary-json"],
+      json.io
+    );
+    assert.equal(code, 0, json.err.join(""));
+    const lines = json.out.join("").trim().split("\n");
+    assert.equal(lines.length, 1);
+    const summary = JSON.parse(lines[0]!) as Record<string, unknown>;
+    assert.ok(!("id" in summary), "the summary is not a domain Event");
+    assert.deepEqual(summary, {
+      type: "INSPECT_SUMMARY",
+      runId,
+      status: "BLOCKED",
+      requiredEvidence: ["failing test output", "parser benchmark"]
+    });
+  });
+});
+
+test("inspect --summary-json reports an empty requiredEvidence list for a clean run", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId);
+
+    const json = capture();
+    const code = await main(
+      ["inspect", "--run", runId, "--state-root", stateRoot, "--summary-json"],
+      json.io
+    );
+    assert.equal(code, 0, json.err.join(""));
+    const summary = JSON.parse(json.out.join("").trim()) as {
+      status: string;
+      requiredEvidence: string[];
+    };
+    assert.equal(summary.status, "COMPLETED");
+    assert.deepEqual(summary.requiredEvidence, []);
+  });
+});
+
+test("inspect rejects --json together with --summary-json", async () => {
+  const { io, err, out } = capture();
+  const code = await main(
+    [
+      "inspect",
+      "--run",
+      "run_01234567-89ab-cdef-0123-456789abcdef",
+      "--state-root",
+      "/tmp/pi-sparkle-nonexistent",
+      "--json",
+      "--summary-json"
+    ],
+    io
+  );
+  assert.equal(code, 1);
+  assert.match(err.join(""), /either --json or --summary-json/);
+  assert.deepEqual(out, []);
+});
+
+test("inspect --summary-json is refused for --episode", async () => {
+  const { io, err } = capture();
+  const code = await main(
+    [
+      "inspect",
+      "--episode",
+      "ep_01234567-89ab-cdef-0123-456789abcdef",
+      "--state-root",
+      "/tmp/pi-sparkle-nonexistent",
+      "--summary-json"
+    ],
+    io
+  );
+  assert.equal(code, 1);
+  assert.match(err.join(""), /only available with --run/);
 });
