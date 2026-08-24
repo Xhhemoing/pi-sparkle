@@ -29,7 +29,7 @@
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
 | 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
-| 15 | 第 1–2 波进行中 | 5 / 10（A/B 已合入；C/D/E 本波派出） | claude-fable-5-thinking-xhigh | [round-15/PLAN.md](./round-15/PLAN.md) |
+| 15 | 第 1–2 波进行中 | 6 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-15/PLAN.md](./round-15/PLAN.md) |
 
 ### Round 1 波次
 
@@ -162,7 +162,7 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R15-A 跟踪门控、R15-B live 路由、R15-C 离线路由 | A/B 完成已合入；C 本波派出 |
-| 2 | R15-D 自优化、R15-E 学习 | D/E 本波派出 |
+| 2 | R15-D 自优化、R15-E 学习、R15-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -312,8 +312,9 @@
 | R15-A | `cursor/r15-a-tracking-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-A.md`）。无新排除 ID；预算复核 69–83 µs/run；C/R 越线 + GC/JIT 轴归档 |
 | R15-B | `cursor/r15-b-live-routing-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-B.md`）。无新排除 ID；天花板复核 M=2 9.5–10.9 / M=10 18.5–25.4 ms/eval；A/A 噪声地板 + 引擎代归档 |
 | R15-C | `cursor/r15-c-offline-routing-fifteenth-pass-83a1` | 已派出 |
-| R15-D | `cursor/r15-d-adaptation-fifteenth-pass-83a1` | 已派出 |
+| R15-D | `cursor/r15-d-adaptation-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-D.md`）。无新排除 ID；eval 地板复核 3.10–3.25 ms；分配/GC + A/A MDE 轴归档 |
 | R15-E | `cursor/r15-e-learning-fifteenth-pass-83a1` | 已派出 |
+| R15-F | `cursor/r15-f-experiments-fifteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
