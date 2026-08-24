@@ -140,3 +140,12 @@
 | S1-I-6 | parseCliErrorJson reverse 换反向索引 | ns 级噪声 |
 | S1-I-7 | buildInvocation += 换 parts+join | 实测慢 6.4× |
 | S1-I-8 | resolveListedModel 自定义路径先构建再 find | 每命令个位数次 |
+| S1-H-1 | checkCoverageGate Object.keys 提升为循环外 Set | C=2 实测更慢 |
+| S1-H-2 | assertCoverageAllowsStart 跳过 gated 合同拷贝 | ~80ns/run |
+| S1-H-3 | heuristic namedTargets/shouldScout 去重 | 单句噪声 |
+| S1-H-4 | assertAuthorityGrounding grounding.find 换 Map | 重复 authorityIndex 发散 |
+| S1-H-5 | applyPrecedence 双 filter + conflict.ids Set | ns/run 噪声 |
+| S1-H-6 | reconcileReviews 三遍 filter 融合 | n=2 亚噪声 |
+| S1-H-7 | createEvaluationRecord 聚合谓词融合 | test-only |
+| S1-H-8 | registerRubric copy-on-write 改就地写 | 污染 DEFAULT_REGISTRY |
+| S1-H-9 | changeSetsEqual 数组长度早退 | 集合相等语义发散 |

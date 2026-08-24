@@ -15,8 +15,8 @@
 
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | 第 4 波收尾 | 10（1 在跑 / 9 完成 / 0 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
-| 2 | 第 1 波进行中 | 10（1 在跑 / 1 本波派出 / 8 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
+| 1 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S1-F/J/C/I；其余区报告收口 |
+| 2 | 第 1 波进行中 | 10（2 在跑 / 1 本波派出 / 7 排队） | claude-fable-5-thinking-xhigh | [round-02/PLAN.md](./round-02/PLAN.md) |
 
 ### Round 1 波次
 
@@ -24,14 +24,14 @@
 | --- | --- | --- |
 | 1 | R1-A 跟踪门控、R1-F 实验门控、R1-J cluster/privacy/episode | A/F/J 完成已合入 |
 | 2 | R1-B live 路由、R1-C 离线路由、R1-D 自优化 | B/C/D 完成已合入 |
-| 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | E/G 完成已合入；H 在跑 |
+| 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | 全部完成已合入 |
 | 4 | R1-I CLI/适配器 | 完成已合入 |
 
 ### Round 2 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R2-A 跟踪门控、R2-B live 路由 | A 在跑；B 本波派出 |
+| 1 | R2-A 跟踪、R2-B live 路由、R2-C 离线路由 | A/B 在跑；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -46,6 +46,7 @@
 | R1-C | `cursor/r1c-offline-routing-a496` | 已合入专属分支（S1-C 代码 + 报告 + 仿真） |
 | R1-G | `cursor/r1-g-runtime-graph-domain-f48c` | 已合入专属分支（仅 `R1-G.md`） |
 | R1-I | `cursor/r1-i-cli-adapter-slice-f177` | 已合入专属分支（S1-I 代码 + 报告） |
+| R1-H | `cursor/r1-h-eval-req-review-rubric-038d` | 已合入专属分支（仅 `R1-H.md`） |
 
 ## 合并策略
 
