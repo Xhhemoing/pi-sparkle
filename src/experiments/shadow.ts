@@ -323,17 +323,54 @@ function restoreShadowState(serialized: ShadowState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
-  // One prebuilt membership Set keeps the fail-closed full re-validation of
-  // every assignment at O(A + P) per restore instead of O(A × P).
-  const population = new Set(serialized.plan.population);
+  // Reversed membership re-validation: index the (deduplicated) assignment
+  // hashes instead of the whole population, then scan the population — whose
+  // full content was already re-validated by validateExperimentPlan above —
+  // and stop once every pending hash is matched. Population entries are
+  // unique, so counting hits decides membership exactly. A structural fault
+  // is captured, not thrown, because a membership fault at an earlier index
+  // must still win the first-fault race; the failure path replays the exact
+  // per-assignment probe to name the first offender with the same message.
+  // Success-path cost per restore drops from P inserts + A probes to
+  // A inserts + first-match-prefix probes; the fail-closed Ω(P + A) content
+  // re-read is unchanged.
+  let structuralFault: DomainValidationError | undefined;
+  const pending = new Set<string>();
   for (const assignment of serialized.assignments) {
     if (assignment.liveAction !== "baseline" || assignment.changedLiveAction !== false) {
-      throw new DomainValidationError("shadow state must not change the live action");
+      structuralFault = new DomainValidationError("shadow state must not change the live action");
+      break;
     }
     if (assignment.shadowDecision !== "baseline" && assignment.shadowDecision !== "candidate") {
-      throw new DomainValidationError("invalid shadowDecision");
+      structuralFault = new DomainValidationError("invalid shadowDecision");
+      break;
     }
-    requirePopulationMember(population, assignment.episodeHash);
+    if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+      structuralFault = new DomainValidationError("episodeHash is required");
+      break;
+    }
+    pending.add(assignment.episodeHash);
+  }
+  const target = pending.size;
+  if (target > 0) {
+    let found = 0;
+    for (const hash of serialized.plan.population) {
+      if (pending.has(hash)) {
+        found += 1;
+        if (found === target) {
+          break;
+        }
+      }
+    }
+    if (found !== target) {
+      const population = new Set(serialized.plan.population);
+      for (const assignment of serialized.assignments) {
+        requirePopulationMember(population, assignment.episodeHash);
+      }
+    }
+  }
+  if (structuralFault !== undefined) {
+    throw structuralFault;
   }
   const haltReason = canonicalHaltReason(serialized.haltReason, serialized.halted);
   return {
