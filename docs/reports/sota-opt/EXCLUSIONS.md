@@ -356,3 +356,6 @@
 | S5-J-4 | mailbox enqueue 冗余 byRole.set | 6.2–6.6ns；mailbox 数据面 |
 | S5-J-5 | resolveFromMap 属性双读 CSE | ~10ns/查 |
 | S5-J-6 | 跨 child 共享 acceptanceForRole default | 身份别名；~80ns |
+| S6-A-1 | Number(x.toFixed(4)) 换 Math.round(x*1e4)/1e4 | 半格点 4419/10000 发散；~2.5µs |
+| S6-A-2 | from-child FAIL 守卫合取短路重排 | 10.0–10.5ns/子结果 |
+| S6-A-3 | from-child constraint-retention 死校验短路 | 需平行路径或公开旗标；22–24ns |

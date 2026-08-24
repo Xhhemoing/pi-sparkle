@@ -20,7 +20,7 @@
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S4-C / S4-I；其余区报告收口。见 [round-04/PLAN.md](./round-04/PLAN.md) |
 | 5 | 第 4 波进行中 | 10 / 10（A–H/J 完成；I 在跑） | claude-fable-5-thinking-xhigh | C 落地 S5-C；F 落地 S5-F。见 [round-05/PLAN.md](./round-05/PLAN.md) |
-| 6 | 第 1 波进行中 | 2 / 10（A 在跑；B 本波派出） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
+| 6 | 第 1 波进行中 | 3 / 10（A 完成；B 在跑；C 本波派出） | claude-fable-5-thinking-xhigh | [round-06/PLAN.md](./round-06/PLAN.md) |
 
 ### Round 1 波次
 
@@ -71,7 +71,7 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R6-A 跟踪门控、R6-B live 路由 | A 在跑；B 本波派出 |
+| 1 | R6-A 跟踪门控、R6-B live 路由、R6-C 离线路由 | A 完成已合入；B 在跑；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -125,7 +125,8 @@
 | R5-F | `cursor/r5-f-experiments-fifth-pass-83a1` | 已合入专属分支（S5-F 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f 全绿（2668 / 224 逐位）；r5f 全实验 P=2000/A=1000 = 259.73 ms |
 | R5-I | `cursor/r5-i-cli-fifth-pass-83a1` | 已派出 |
 | R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已合入专属分支（仅 `R5-G.md`） |
-| R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已派出 |
+| R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已合入专属分支（仅 `R6-A.md`） |
+| R6-C | `cursor/r6-c-offline-routing-sixth-pass-83a1` | 已派出 |
 | R5-H | `cursor/r5-h-eval-fifth-pass-83a1` | 已合入专属分支（仅 `R5-H.md`） |
 | R5-J | `cursor/r5-j-persist-fifth-pass-83a1` | 已合入专属分支（仅 `R5-J.md`） |
 | R6-B | `cursor/r6-b-live-routing-sixth-pass-83a1` | 已派出 |
