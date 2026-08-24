@@ -170,3 +170,10 @@
 | S2-C-3 | IRLS delta map+reduce 换融合循环 | 分配级抖动 |
 | S2-C-4 | APC 逐列扫描反转为按行累加 | 个位 ms 上界 |
 | S2-C-5 | bootstrap 采样循环融合塌缩检查 | 亚噪声 |
+| S2-E-1 | auto-loop 无变更路径跳过 saveAdaptationRegistry | 亚 ms + 侵蚀 X0-3 保存时机 |
+| S2-E-2 | proposeRoutingFromRoutedEvents 三遍扫描融合 | E=41 仅 114–142ns |
+| S2-E-3 | bandit 弃置 createBanditState 消除 | 305–331ns |
+| S2-E-4 | bandit 无变更跳写 | 亚 ms；持久化契约 |
+| S2-E-5 | truncate 流式 401 早退 | 现实短摘要实测更慢 |
+| S2-E-6 | optimizedPolicy filter+map 融合 | n=10 实测更慢 |
+| S2-E-7 | TASK_RESULT binding 双拷贝合一 | ~260ns；契约实施点 |
