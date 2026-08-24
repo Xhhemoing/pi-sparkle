@@ -459,6 +459,9 @@
 | S7-J-4 | rebuildViews 冗余 Map.set 条件化 | 8.8–10.5µs 被 saveToDisk 地板吞没 |
 | S7-J-5 | redaction 无文本时跳过 needles 预处理 | 稀有形态 1.37–1.40µs + I/O 支配 |
 | S7-J-6 | saveToDisk mkdir 缓存化 | 自愈语义收窄（外部删目录后 ENOENT）；1.08µs |
+| S8-A-1 | gate-apply fresh-seq 死幂等扫描跳过（变体 A 双 find 全跳 / 变体 B 仅跳 TRACKING_ASSESSMENT find） | A 不等价：idempotencyKey 跨字段不变式无处强制，schema 合法反例把幂等 no-op 变重复追加；B 等价但 61–65ns/gate（上界 ~0.3µs/run），e2e 符号不稳定，落地需公开签名或平行入口 |
+| S8-A-2 | analysis proposeFromAnomaly sanitize-then-project 塌缩 | 等价但零 src/ 生产调用方；sanitize 是不可信文本安全瓶颈；81–107ns/call |
+| S8-A-3 | GateInput 死字段 P/human 收窄 + 调用点删属性写 | 公开类型变更 + 规格意图文档；朴素基准 −7~−11ns 是 PIC 形状污染，真实稳态 ~1–2ns |
 | S8-B-1 | planAssignmentPolicy 双排序拷贝取极值换单遍扫描 | 每批一次 98–420ns |
 | S8-B-2 | liveRefusalMessage 双 .some 融合单遍 | R=40 实测更慢；V8 builtin 反例第四例 |
 | S8-B-3 | selectLiveModel 比较器调用展开 | 每 route ~10ns + 总序契约双份 |

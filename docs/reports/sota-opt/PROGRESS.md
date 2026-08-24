@@ -22,7 +22,7 @@
 | 5 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S5-C / S5-F / S5-I-1；其余区报告收口。见 [round-05/PLAN.md](./round-05/PLAN.md) |
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
-| 8 | 第 2 波进行中 | 4 / 10（B 完成已合入；A/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-08/PLAN.md](./round-08/PLAN.md) |
+| 8 | 第 2 波进行中 | 5 / 10（A/B 完成已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-08/PLAN.md](./round-08/PLAN.md) |
 
 ### Round 1 波次
 
@@ -91,8 +91,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R8-A 跟踪门控、R8-B live 路由、R8-C 离线路由 | B 完成已合入；A/C 运行中 |
-| 2 | R8-D 自优化 | D 本波派出 |
+| 1 | R8-A 跟踪门控、R8-B live 路由、R8-C 离线路由 | A/B 完成已合入；C 运行中 |
+| 2 | R8-D 自优化、R8-E 学习 | D 运行中；E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -169,10 +169,11 @@
 | R7-G | `cursor/r7-g-runtime-seventh-pass-83a1` | 已合入专属分支（仅 `R7-G.md`） |
 | R7-H | `cursor/r7-h-eval-seventh-pass-83a1` | 已合入专属分支（仅 `R7-H.md`） |
 | R7-I | `cursor/r7-i-cli-seventh-pass-83a1` | 已合入专属分支（S7-I-1 代码 + 报告 + 仿真）。父代理重跑 r4i/r5i/r7i 全绿（68 / 119 / 80） |
-| R8-A | `cursor/r8-a-tracking-eighth-pass-83a1` | 已派出 |
+| R8-A | `cursor/r8-a-tracking-eighth-pass-83a1` | 已合入专属分支（仅 `R8-A.md`）。S8-A-1..3 淘汰；预算锚点复核 88–90 µs/run |
 | R8-B | `cursor/r8-b-live-routing-eighth-pass-83a1` | 已合入专属分支（仅 `R8-B.md`） |
 | R8-C | `cursor/r8-c-offline-routing-eighth-pass-83a1` | 已派出 |
 | R8-D | `cursor/r8-d-adaptation-eighth-pass-83a1` | 已派出 |
+| R8-E | `cursor/r8-e-learning-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
