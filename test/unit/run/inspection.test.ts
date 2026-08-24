@@ -20,7 +20,12 @@ import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../..
 import { SUPERVISOR, validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import { inspectRun } from "../../../src/run/inspection.js";
+import {
+  buildInspectSummaryJson,
+  inspectRun,
+  type InspectSummaryJson,
+  type RunInspection
+} from "../../../src/run/inspection.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -520,4 +525,82 @@ test("inspect --summary-json is refused for --episode", async () => {
   );
   assert.equal(code, 1);
   assert.match(err.join(""), /only available with --run/);
+});
+
+// The frozen `--summary-json` contract. Consumers pin these four keys, so a key
+// may be added here only together with a deliberate update of this list — and
+// none of the four may be renamed, retyped, or dropped.
+const INSPECT_SUMMARY_KEYS = ["type", "runId", "status", "requiredEvidence"] as const;
+
+test("buildInspectSummaryJson emits exactly the frozen key set", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    assert.deepEqual(Object.keys(summary).sort(), [...INSPECT_SUMMARY_KEYS].sort());
+    assert.deepEqual(summary, {
+      type: "INSPECT_SUMMARY",
+      runId,
+      status: "BLOCKED",
+      requiredEvidence: ["failing test output", "parser benchmark"]
+    });
+    assert.ok(!("id" in summary), "the summary is not a domain Event");
+    assert.ok(!("preview" in summary), "inspect is a run inspection, not a preview surface");
+  });
+});
+
+test("buildInspectSummaryJson keeps the frozen key set for a clean run", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId);
+
+    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    assert.deepEqual(Object.keys(summary).sort(), [...INSPECT_SUMMARY_KEYS].sort());
+    assert.equal(summary.status, "COMPLETED");
+    assert.deepEqual(summary.requiredEvidence, [], "no stall means no invented demand");
+  });
+});
+
+test("buildInspectSummaryJson copies requiredEvidence instead of aliasing the inspection", () => {
+  const evidence = ["repro log"];
+  const inspection: RunInspection = {
+    runId: createRunId(UUID),
+    status: "BLOCKED",
+    children: [],
+    pendingQuestions: [],
+    answers: [],
+    agentInstanceIds: [],
+    requiredEvidence: evidence
+  };
+
+  const summary = buildInspectSummaryJson(inspection);
+  assert.deepEqual(summary.requiredEvidence, ["repro log"]);
+  evidence.push("mutated after the fact");
+  assert.deepEqual(summary.requiredEvidence, ["repro log"], "the summary snapshot is stable");
+});
+
+test("inspect --summary-json prints exactly the builder's frozen keys", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedStalledRun(stateRoot, runId, seq);
+
+    const json = capture();
+    const code = await main(
+      ["inspect", "--run", runId, "--state-root", stateRoot, "--summary-json"],
+      json.io
+    );
+    assert.equal(code, 0, json.err.join(""));
+    const printed = JSON.parse(json.out.join("").trim()) as Record<string, unknown>;
+    const built: InspectSummaryJson = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    assert.deepEqual(
+      Object.keys(printed).sort(),
+      [...INSPECT_SUMMARY_KEYS].sort(),
+      "the CLI adds no keys of its own on top of the builder"
+    );
+    assert.deepEqual(printed, JSON.parse(JSON.stringify(built)));
+  });
 });

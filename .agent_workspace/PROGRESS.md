@@ -20,7 +20,23 @@ Policy-gated leftovers stay open: P0 independent review, F-PROD sealed holdout, 
 
 See `.agent_workspace/OWNERSHIP.md`. Subagents do not git commit. Parent commits after the round.
 
-_Pending._
+## Loop 3 Round 1 结论简报
+
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1458 / 1457 pass / 0 fail / 1 skip** (Loop 2 close: 1434). Security probe **14/14**. Invocation lock probe `{"retries":1,"dropped":1,"landed":32,"ok":true}`.
+
+| Slot | Landed |
+|---|---|
+| fable-1 | Loop 3 architecture report; README + matrix freeze `INSPECT_SUMMARY` additive-only |
+| fable-2 | Isolation report; dictionary honesty (feedback lock, invocation retry, transitive plane pin) |
+| opus-1 | `InspectSummaryJson` + `buildInspectSummaryJson`; CLI uses builder; integration `inspect-summary.test.ts` |
+| opus-2 | Feedback `withFeedbackLogLock`; cascade rewrite + tombstones under one lock |
+| gpt-sol-1 | Invocation lock-timeout: one retry then drop; `pnpm invocation:probe` |
+| gpt-sol-2 | `adaptation-plane-closure.test.ts` value-import walker (10 runtime modules pinned; model-router subtree no-fs; no computed `import(expr)` in `src/`) |
+| parent | `persistSignals` absorbs feedback lock-timeout so a held delete lock drops one row instead of aborting the adapt pass / `--track` after a finished run |
+
+Policy gates stay open: P0 independent review, F-PROD sealed holdout, ADR-006 Proposed, unbounded retention default, Node engines `>=22.19.0`, `--children` skipContract, real-provider coverage `PI_SMOKE=1`.
+
+This user request asked for **one** optimization round (6 concurrent agents). Loop 3 Round 1 closes the four carried Loop 2 leftovers that are code-closable.
 
 
 ---

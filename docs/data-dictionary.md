@@ -2,8 +2,10 @@
 
 Source of truth: `src/privacy/record-classes.ts` (`DURABLE_RECORD_CLASSES`).
 Tests: `test/unit/privacy/record-classes.test.ts` (schema, required ids,
-**path-completeness**, sensitivity-class consistency, **plane layout**) and
-`test/unit/privacy/plane-boundary.test.ts` (**adaptation→runtime boundary**).
+**path-completeness**, sensitivity-class consistency, **plane layout**),
+`test/unit/privacy/plane-boundary.test.ts` (**adaptation→runtime boundary**,
+direct imports), and `test/unit/privacy/adaptation-plane-closure.test.ts`
+(the same boundary over the **transitive value-import closure**).
 
 This dictionary is a Developer Preview control. It does **not** close P0 privacy
 review by itself. The 2026-08-22 independent review returned **CONDITIONAL**:
@@ -30,22 +32,31 @@ current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
-> Precision note (2026-08-24, Loop 2 Round 1): the allowlist pin above is
-> **direct-import only** — it does not walk transitive imports. One transitive
-> value chain is known and pinned by a dedicated test in the same file:
-> `adaptation/eval-routing.ts` value-imports `routing/assign.ts`, which
-> value-imports `supervisor/model-router.ts` — so the live router **module is
-> loaded at runtime** by the adaptation plane even though eval-routing's own
-> model-router import is type-only. The boundary rule still holds because it
-> is a claim about *records*, not code loading: `model-router.ts` and its
-> entire value-import subtree are filesystem-free, so no runtime record is
-> reachable through the chain (the test pins the router file itself; the
-> subtree was verified by closure walk — see the
-> [Loop 2 R1 isolation report](reports/2026-08-24-sota-loop2-isolation.md)
-> §1). Transitive chains through module prefixes the test does not list
-> (e.g. shared `routing/` helpers) would not be flagged automatically; the
-> only runtime-record reader value-reachable from the adaptation plane is the
-> sanctioned `from-episode` pipe.
+> Precision note (2026-08-24, revised Loop 3 Round 1): the allowlist pin
+> above is **direct-import only**; since Loop 3 Round 1 a second, transitive
+> pin closes the gap that left.
+> `test/unit/privacy/adaptation-plane-closure.test.ts` walks the union
+> **value-import closure** (`import type` statements stripped, as
+> `verbatimModuleSyntax` erases them) of every adaptation-plane module and pins each
+> runtime-prefix module the closure reaches against an explicit, justified
+> allowlist — today the nine modules of the sanctioned `from-episode` pipe
+> plus `supervisor/model-router.ts`, which the plane loads at runtime through
+> `adaptation/eval-routing.ts -> routing/assign.ts` even though eval-routing's
+> own model-router import is type-only. A new transitive value edge from the
+> plane into any runtime prefix now fails the suite with its import chain
+> printed. The boundary rule still holds as stated because it is a claim
+> about *records*, not code loading: the suite also pins that
+> `model-router.ts`'s **entire value subtree** is filesystem-free (Loop 2 had
+> verified the subtree only by an out-of-suite closure walk; the shipped test
+> then covered the router file alone). Walker honesty: it is a fail-closed
+> regex walker, not a parser — comment text that looks like a value import
+> counts as an edge; only literal string specifiers are seen, and a repo-wide
+> companion test rejects any computed `import(expr)` in `src/` so that blind
+> spot cannot silently open; an `export type ... from` re-export would be
+> counted as a value edge (an over-approximation in the fail-closed
+> direction; none exist in `src/` today). See the
+> [Loop 3 R1 isolation report](reports/2026-08-24-sota-loop3-isolation.md)
+> §§1–2.
 
 > Layout note: this is a Developer Preview breaking change. Data written by
 > builds before 2026-08-22 sits at the legacy flat locations and is not
@@ -93,7 +104,12 @@ feedback record bound to that episode has **both free-text fields (`body` and
 its persisted `redactionClasses` — is kept). `readFeedback` filters
 tombstoned ids at the first layer, so a lingering shell is never re-surfaced
 **through that API**, and dataset exports keep listing tombstone ids without
-payloads. The episode delete also **discloses residual copies it is leaving
+payloads. Since Loop 3 Round 1 the cascade's read, rewrite, and tombstone
+write all run inside the feedback log's cooperative lock
+(`src/feedback/store.ts`) — the same lock the auto-adapt appender takes — so
+a live append lands wholly before or wholly after the cascade instead of
+being clobbered by it; a cascade that cannot take the lock throws rather than
+rewriting unlocked. The episode delete also **discloses residual copies it is leaving
 in place**: it reports every run whose records still hold the episode's text
 (`residualEpisodeTextRunIds`; the CLI prints one
 `residual episode text: run <id> …` line per run with the `delete --run`
@@ -107,14 +123,15 @@ of an already-deleted episode still re-discloses the copies. The CLI fails
 closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
 found") exits 1 rather than reporting success.
 
-### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 2 Round 1)
+### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 3 Round 1)
 
 Honest gaps that remain after the Round 2 cascade, Round 3 disclosure work,
-and the Loop 2 Round 1 invocation-lock fix
-([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
+the Loop 2 Round 1 invocation-lock fix, and the Loop 3 Round 1 feedback-lock
+and retry work ([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
 [Round 2](reports/2026-08-24-sota-r2-isolation.md),
 [Round 3](reports/2026-08-24-sota-r3-isolation.md),
-[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md) reports); none of
+[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md),
+[Loop 3 R1](reports/2026-08-24-sota-loop3-isolation.md) reports); none of
 these are covered by the claims above:
 
 - **Episode text still physically survives inside attached runs** until each
@@ -140,7 +157,21 @@ these are covered by the claims above:
   and the append-times-out-instead-of-writing-unlocked case). What remains
   true: rows a still-running run appends *after* the rewrite completes are
   new rows and survive the delete, and an appender that cannot take the lock
-  in time silently drops its telemetry row rather than fail the run.
+  in time — since Loop 3 Round 1 after **one bounded retry** with the same
+  timeout — still silently drops its telemetry row rather than fail the run.
+  The drop stays uncounted and unlogged; `pnpm invocation:probe` measures it.
+- **The feedback log's mirror of that race is closed the same way, with its
+  own residuals.** Since Loop 3 Round 1 `cascadeFeedbackTombstones` and
+  `appendFeedback` share the feedback log's cooperative lock (see the episode
+  paragraph above), so the cascade cannot clobber a concurrent append. What
+  remains true: a feedback row appended *after* the cascade and bound to the
+  deleted episode is a new row and keeps its text until `delete --episode` is
+  repeated (the tombstone filter is id-based; the new row's id is not
+  tombstoned). An appender lock-timeout is not retried — it rejects, and the
+  CLI absorbs the rejection at the whole-adaptation-pass boundary
+  (`adapt skipped: …` on stderr), dropping that pass's remaining signals
+  along with the row: coarser than the invocation drop, but disclosed rather
+  than silent.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -163,6 +194,12 @@ stated rationale or pin (now both); the cascade's interaction with persisted
 Closed in Loop 2 Round 1 (2026-08-24): the delete-vs-live-appender race on
 `invocations.jsonl` — the appender previously wrote without the lock the
 rewrite takes; both writers now share it (see the revised bullet above).
+
+Closed in Loop 3 Round 1 (2026-08-24): the same race on the feedback log —
+`cascadeFeedbackTombstones` previously rewrote `records.jsonl` and published
+tombstones with no lock against the auto-adapt appender; both writers now
+share the log's cooperative lock, and the cascade fails closed on a lock
+timeout (see the new bullet above).
 
 ## Completeness audit (2026-08-22)
 

@@ -248,7 +248,20 @@ async function persistSignals(stateRoot: string, signals: readonly ObservedSigna
       ...(signal.runId !== undefined ? { runId: signal.runId } : {}),
       ...(signal.taskId !== undefined ? { taskId: signal.taskId } : {})
     };
-    await appendFeedback(stateRoot, record);
+    try {
+      await appendFeedback(stateRoot, record);
+    } catch (error: unknown) {
+      // Lock timeout is a dropped adaptation sample, never a failed run.
+      // Other store failures (corrupt log, malformed tombstones) still abort
+      // the pass: those are not "one row could not serialize".
+      if (
+        error instanceof DomainValidationError &&
+        error.message.includes("timed out waiting for lock")
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
 }
 

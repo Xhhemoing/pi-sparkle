@@ -46,6 +46,33 @@ export interface RunInspection {
   requiredEvidence: readonly string[];
 }
 
+/**
+ * Frozen `--summary-json` contract. Additive changes only: consumers pin
+ * `type`/`runId`/`status`/`requiredEvidence`. New keys may be added; existing
+ * keys keep meaning. Not a domain Event (no `id`; `type` is outside the Event
+ * union). JSON mode stdout is exactly one object.
+ */
+export interface InspectSummaryJson {
+  readonly type: "INSPECT_SUMMARY";
+  readonly runId: RunId;
+  readonly status: RunStatus;
+  readonly requiredEvidence: readonly string[];
+}
+
+/**
+ * Projects a `RunInspection` onto the frozen summary shape. Pure: it copies
+ * `requiredEvidence` verbatim and derives nothing the inspection did not
+ * already collect from `STALL_DETECTED` / `RUN_BLOCKED`.
+ */
+export function buildInspectSummaryJson(inspection: RunInspection): InspectSummaryJson {
+  return {
+    type: "INSPECT_SUMMARY",
+    runId: inspection.runId,
+    status: inspection.status,
+    requiredEvidence: [...inspection.requiredEvidence]
+  };
+}
+
 interface ChildAccumulator {
   childRunId: RunId;
   taskId: TaskId;

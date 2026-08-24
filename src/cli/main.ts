@@ -28,7 +28,7 @@ import {
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
-import { inspectRun } from "../run/inspection.js";
+import { buildInspectSummaryJson, inspectRun } from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -991,16 +991,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     return 0;
   }
   if (summaryJson) {
-    const summary = await inspectRun(stateRoot, runId);
     // One object, not a domain Event: --json stays a pure event NDJSON stream.
-    io.stdout(
-      `${JSON.stringify({
-        type: "INSPECT_SUMMARY",
-        runId,
-        status: summary.status,
-        requiredEvidence: summary.requiredEvidence
-      })}\n`
-    );
+    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    io.stdout(`${JSON.stringify(summary)}\n`);
     return 0;
   }
   const state = replayRun(read.events);
