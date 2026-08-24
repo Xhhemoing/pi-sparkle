@@ -175,7 +175,14 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > directive today. `cappedByHardFail` / `displayPrescore` are display-only:
 > `combineScore` and `evaluateGates` receive uncapped `P`. In the sentence
 > above, "hard gate is the control path" refers to verifier/anomaly gate facts,
-> not to the display cap.
+> not to the display cap. Round 9 closed the fourth precondition that sat
+> before any per-criterion gate work: `PiAgentExecutor` now exposes
+> `sparkle_report_task_result`, which emits one whole-task protocol-v1
+> `TASK_RESULT` with `PASSED` or evidence-backed `FAILED`. The pinned real-input
+> cases now reach gate kind `none` for `PASSED` and hard
+> `deterministic-fail` for `FAILED`; silence or a refused report still
+> synthesizes `UNOBSERVED` and is not scored. This does not implement a
+> per-criterion result channel.
 
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 

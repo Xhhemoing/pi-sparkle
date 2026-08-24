@@ -139,7 +139,12 @@ active.
 The library/test-only parent plane follows the same first-terminal rule:
 `runParentRun` routes its completion, ordinary failure, and crash exits through
 one `recordTerminal`, which consults `replayedTerminalStatus` and refuses a
-second terminal append.
+second terminal append. Two residuals are explicit decisions. A crash over a
+log replaying `WAITING_FOR_USER` still records `RUN_FAILED`: the parent loop's
+in-memory answering channel died with the process, so preserving the buried
+wait would advertise a responder that no longer exists. `RUN_CANCEL_REQUESTED`
+stays unguarded because it records an operator fact, not a status claim; replay
+keeps any existing terminal and reports the ordering anomaly.
 
 On flowchart resume, a node with a logged `TASK_REQUEST` is reconstructed from
 the durable parent log rather than from the checkpoint definition's thin node
@@ -147,26 +152,39 @@ shape: the request restores objective, artifacts, criteria, and budget; the
 role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
 checkpointed edges restore dependencies. A never-requested node keeps empty
 criteria/artifacts and uses the earliest logged sibling budget or the run's
-declared per-task limits. `FlowchartContinuation.contract` is honoured when
-supplied, but the contract is not currently durable on the run log,
-checkpoint, or episode in a form a production resume caller can recover, so
-that seam has no production supplier.
+declared per-task limits. The optional run requirement contract is durable on
+`FlowchartCheckpointState`: validation, checkpoint writers, pause/inject
+restoration, and both CLI continuation paths preserve it. Resume honours an
+explicit `FlowchartContinuation.contract` first and otherwise recovers the
+checkpointed value. It never invents a contract from episode acceptance
+criteria.
+
+Each real Pi-executor attempt exposes `sparkle_report_task_result`. A valid
+call writes one leased-identity protocol-v1 `TASK_RESULT` with a whole-task
+`PASSED` or evidence-backed `FAILED` verdict into that attempt's transcript;
+the adapter does not append its fallback terminal over it. Silence, a refused
+report, or a retry whose surviving attempt reports nothing still produces
+`UNOBSERVED`, which child assessment does not score. The tool does not carry
+per-criterion results.
 
 For a BLOCKED `run --flowchart` or `run --children`, the CLI renders the newest
-recorded reason and required evidence plus `inspect`, `inject`, and `unblock`
-`next:` lines. Flowchart `resume` and `answer` render the same block. The note
-states that resume alone replays BLOCKED: the operator runs the locked
+recorded reason and required evidence plus exactly four routed lines:
+`inspect`, `inject`, and `unblock` `next:` lines followed by a `note:` that
+resume alone replays BLOCKED. Flowchart `resume` and `answer` render the same
+block. The operator runs the locked
 `unblock --reason <text> [--retry-node <nodeId>]` command first, then resumes
 the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
 requests are refused. A BLOCKED result still exits 1.
 
-> Round 8 docs-slot end sync (2026-08-24 21:50 UTC): these durability contracts
-> were re-checked against the working tree. R8-9's deletion of the unused
-> root-keyed `loadProjectBandit`, R8-8's test-only frozen-additive
-> `INSPECT_SUMMARY` declaration, and R8-1's unblock schema/replay/restore,
-> locked command, and rewritten BLOCKED note were present; R8-1's assigned
-> replay and BLOCKED-output pins were still being rewritten.
+> Round 9 docs-slot final working-tree sync (2026-08-24 22:36 UTC): R8-9's
+> root-keyed reader deletion (`ba0b2ce`), R8-8's frozen-additive
+> `INSPECT_SUMMARY` pins (`e47d693`), and R8-1's unblock implementation plus
+> four-line BLOCKED block and pins (`05051ac`) are committed. R9-1's durable
+> checkpoint contract and producer-side `INSPECT_SUMMARY` comment, and R9-2's
+> `sparkle_report_task_result` producer, were present but uncommitted in the
+> final working-tree census; the live descriptions above follow that observed
+> tree without claiming those changes are at HEAD.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
@@ -322,12 +340,14 @@ state root. Findings and resolutions:
   `absent`, `readable`, or `damaged`), and `remediation`; the inventory also
   carries `advisory` and `scanErrors`. Typed snapshot damage is advisory and
   does not fail doctor; only inventory scan/read errors fail
-  `learned-state-inventory`. The three typed command failures route to that
-  inventory by code: `BANDIT_STATE_UNREADABLE` says repair or move aside to
-  relearn the project from zero, `PREFERENCE_SNAPSHOT_UNREADABLE` says repair
-  or move aside to start from an empty store, and
-  `CATALOG_OBSERVED_CORRUPT` identifies derived state that may be deleted and
-  rebuilt from `runtime/invocations.jsonl`.
+  `learned-state-inventory`. The frozen route map has three typed entries:
+  `BANDIT_STATE_UNREADABLE` says repair or move aside to relearn the project
+  from zero, `PREFERENCE_SNAPSHOT_UNREADABLE` says repair or move aside to
+  start from an empty store, and `CATALOG_OBSERVED_CORRUPT` identifies derived
+  state that may be deleted and rebuilt from `runtime/invocations.jsonl`. The
+  catalog entry is defense-in-depth for a future command producer. No CLI
+  producer exists today: doctor is the only command-path reader and absorbs
+  the typed error into this inventory instead of propagating it.
 - `test/**` fixture writes are outside the state root and out of scope.
 
 ## Snapshot integrity and recovery
@@ -338,7 +358,9 @@ state root. Findings and resolutions:
   `runtime/invocations.jsonl`, so it can be rebuilt with
   `buildCatalogObservedFromStateRoot` plus `persistCatalogObserved`, or deleted
   to deliberately start from no observations. ENOENT is the only silent path;
-  parseable shape skew still degrades to empty observed stats.
+  parseable shape skew still degrades to empty observed stats. Its frozen CLI
+  route remains defense-in-depth; doctor absorbs this error into
+  `learnedState`, and no CLI producer currently reaches the route.
 - `adaptation/preferences.json` is also crash-atomically published, but it is
   learned behavior-bearing state with no source log from which to rebuild it.
   Invalid JSON or a damaged top-level snapshot shape throws

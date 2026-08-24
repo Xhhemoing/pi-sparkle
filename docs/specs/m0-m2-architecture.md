@@ -11,12 +11,14 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 8 docs-slot end sync (2026-08-24 21:50 UTC): the working tree includes
-> R8-9's deletion of the unused root-keyed `loadProjectBandit`; the keyed
-> doctor reader remains. R8-8's frozen-additive `INSPECT_SUMMARY` declaration
-> is present. R8-1's unblock schema, replay/restore path, locked command, and
-> rewritten BLOCKED operator note are also present and reflected below; its
-> assigned replay and BLOCKED-output pins were still being rewritten.
+> Round 9 docs-slot final working-tree sync (2026-08-24 22:36 UTC): all Round 8
+> work is committed. R8-9's root-keyed `loadProjectBandit` deletion landed in
+> `ba0b2ce`; R8-8's frozen-additive `INSPECT_SUMMARY` pins landed in `e47d693`;
+> R8-1's unblock implementation, four-line BLOCKED operator block, and pins
+> landed in `05051ac`. The final census also found R9-1's durable checkpoint
+> contract and `INSPECT_SUMMARY` producer comment plus R9-2's real-executor
+> verdict tool in the working tree. They were not HEAD commits at this census
+> and are described below as working-tree implementation facts.
 
 ## Milestone names
 
@@ -53,17 +55,26 @@ these files. The `lock-inventory` and `run-state-inventory` checks fail on
 their respective scan errors. Doctor never changes run state and never
 acquires, steals, or deletes a lock.
 
+`inspect --run --summary-json` emits one `INSPECT_SUMMARY` object with exactly
+`type`, `runId`, `status`, and `requiredEvidence`. This non-event contract is
+frozen additive: those keys do not change or disappear, any addition must
+update the exact-shape pins, and `INSPECT_SUMMARY` stays outside the domain
+`Event` union. `inspect --run --json` remains a pure event NDJSON stream.
+
 When a command fails with the frozen `LOCK_TIMEOUT` or
 `RUN_RECORDS_SURVIVED` code, its `next:` line routes to
 `pi-sparkle doctor --json --state-root <the failing command's root>` and names
-the answering `locks[]` and/or `runStates[]` inventory. Three adaptation-plane
-codes route to `learnedState[]`: `BANDIT_STATE_UNREADABLE` says repair or move
-aside to relearn the project from zero,
+the answering `locks[]` and/or `runStates[]` inventory. The frozen route map
+has three adaptation-plane entries naming `learnedState[]`:
+`BANDIT_STATE_UNREADABLE` says repair or move aside to relearn the project from zero,
 `PREFERENCE_SNAPSHOT_UNREADABLE` says repair or move aside to start from an
 empty store, and `CATALOG_OBSERVED_CORRUPT` identifies derived state that may
 be deleted and rebuilt from `runtime/invocations.jsonl`. This is code-based
 classification through a depth-bounded `cause` walk, not message matching;
-all other failures keep the generic `next:`.
+all other failures keep the generic `next:`. The catalog route is
+defense-in-depth for a future command producer: no CLI producer exists today,
+and doctor, the only command-path reader, absorbs the typed error into
+`learnedState` instead of propagating it.
 
 ## Objective
 
@@ -349,11 +360,12 @@ run's declared per-task limits when there is no sibling. This reconstruction is
 stable across repeated resumes because the latest request per task wins.
 
 `FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
-that supplies it gets the same child grounding and assessment as start.
-Production resume has only a run id, however, and the contract's constraints
-are not durable on any record it can reach. No production caller can currently
-fill the seam; the runtime does not invent an empty constraint set from the
-episode's acceptance criteria.
+that supplies it gets the same child grounding and assessment as start. The
+run requirement contract is also durable on `FlowchartCheckpointState`.
+Checkpoint validation, persistence, pause/inject restoration, and both CLI
+continuation paths preserve it; resume uses an explicit continuation contract
+first and otherwise recovers the checkpointed value. The runtime never invents
+an empty constraint set from the episode's acceptance criteria.
 
 ### Cluster role-cast dead letters
 
@@ -504,9 +516,10 @@ M1 adds child lifecycle and message events. M2 adds graph, lease, supervisor, re
 carry the run and project snapshots when present, overall status, agent
 outcomes, the last durable event ID, and update time. A flowchart checkpoint
 also carries the flowchart definition, validated supervisor snapshot (including
-node statuses and its ledger), and limits required for flowchart resume. It
-does not yet carry the run requirement contract, which is why production
-flowchart resume cannot supply `FlowchartContinuation.contract`. It also does
+node statuses and its ledger), limits required for flowchart resume, and the
+optional run requirement contract. Production flowchart resume projects that
+validated contract into `FlowchartContinuation`; pause and injection preserve
+the same field when they rewrite the checkpoint. The checkpoint still does
 **not** contain the M2 DAG supervisor's active leases. Supervised DAG
 resume reconstructs its graph, task statuses, attempts, ledger, and leases from
 the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
@@ -586,14 +599,25 @@ verifier is the sole gate. Criteria-shaped tracking dimensions may change the
 recorded verdicts and numeric prescore, but cannot change the directive:
 `check-coverage` has no `FAIL` outcome in production, while
 `constraint-retention` is fed the original constraints rather than an
-independent observation. `cappedByHardFail` and `displayPrescore` are display
-facts only; `combineScore` and `evaluateGates` consume the uncapped `P`.
+independent observation. A fourth precondition dominates any per-criterion
+change: the real executor needs a whole-task verdict producer before a
+per-criterion channel can be meaningful. That producer now exists.
+`PiAgentExecutor` exposes `sparkle_report_task_result` on every attempt; a
+child call emits a protocol-v1 `TASK_RESULT` with `PASSED` or evidence-backed
+`FAILED`. `PASSED` reaches scoring with no gate in the pinned case; `FAILED`
+reaches the existing hard `deterministic-fail` gate, so an `--executor pi` run
+can now block on the child verdict. Silence or a refused report still
+synthesizes `UNOBSERVED`, which child assessment refuses. The tool carries one
+whole-task verdict, not per-criterion results; that later protocol/gate work
+remains unimplemented.
+`cappedByHardFail` and `displayPrescore` are display facts only; `combineScore`
+and `evaluateGates` consume the uncapped `P`.
 
 When `run --flowchart` or `run --children` returns BLOCKED, stderr reports the
-newest `RUN_BLOCKED` reason and required evidence, then gives `inspect`,
-`inject`, and `unblock` `next:` lines. Flowchart `resume` and `answer` print the
-same block. The final note states the order honestly: resume alone replays
-BLOCKED; the operator first runs the locked
+newest `RUN_BLOCKED` reason and required evidence, then gives exactly four
+routed lines: `inspect`, `inject`, and `unblock` `next:` lines followed by the
+`note:` that resume alone replays BLOCKED. Flowchart `resume` and `answer`
+print the same block. The operator first runs the locked
 `unblock --reason <text> [--retry-node <nodeId>]` command, then resume executes
 the reopened work. `unblock` records a `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
@@ -615,7 +639,12 @@ is an anomaly and leaves the block in force.
 The library/test-only parent plane uses the same shared definition:
 `runParentRun` routes its completion, failure, and crash exits through one
 `recordTerminal`; that recorder asks `replayedTerminalStatus` first and refuses
-to append a second terminal over the replayed one.
+to append a second terminal over the replayed one. Its two residuals are
+settled decisions. A crash over a log replaying `WAITING_FOR_USER` records
+`RUN_FAILED` because the parent loop's in-memory answering channel died with
+the process. `RUN_CANCEL_REQUESTED` remains unguarded because it records an
+operator fact, not a status claim; replay preserves any existing terminal and
+reports the after-terminal ordering anomaly.
 
 If an error escapes supervised rounds while replay is PLANNING or RUNNING, the
 wrapper best-effort appends one `RUN_FAILED` with a bounded crash reason and
