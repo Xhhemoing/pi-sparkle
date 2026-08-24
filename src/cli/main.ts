@@ -28,7 +28,7 @@ import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../ex
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
-import type { Event } from "../run/events.js";
+import type { Event, RewoundDescendant } from "../run/events.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
@@ -260,6 +260,7 @@ Usage:
   pi-sparkle pause --clear --run <runId> [--state-root]
   pi-sparkle inject --run <runId> --type fact|override|skip [--key] [--value] [--node] [--confidence] [--actor] [--state-root]
   pi-sparkle unblock --run <runId> --reason <text> [--retry-node <nodeId>] [--actor <who>] [--state-root <dir>]
+  pi-sparkle unblock --run <runId> --reason <text> --retry-node <nodeId> --discard-executed [--actor <who>] [--state-root <dir>]
   pi-sparkle auth status|login|logout [--state-root <dir>] ...
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
@@ -327,6 +328,15 @@ the block left (--retry-node re-drives one FAILED flowchart node; a stall block
 takes no node), and executes nothing. resume runs the reopened work. A stale or
 repeated unblock is refused, and so is a --retry-node that is not the failed node
 the block names.
+Ordinary unblock refuses to rewind a descendant that already executed.
+--discard-executed is the stronger authorization for exactly that case: it
+records RUN_UNBLOCKED_WITH_DISCARD naming every descendant the reopen supersedes,
+its prior state, the routes and child runs behind it, and their charged
+estimates. The set is computed under the run lock, never listed by the operator;
+the flag needs a gate block and its exact --retry-node, and is refused when
+nothing downstream executed. Events and evidence survive; the discarded nodes
+lose their success/confidence outcome and go back to PENDING, and no budget is
+refunded — re-execution spends again.
 inspect --episode prints the latest bound episode snapshot (inspect --run also
 prints the episode id when a run is attached). inspect --run --json stays a pure
 event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
@@ -514,6 +524,14 @@ function reportFailedRun(
  * the authorization and reopens the state — and resume is what runs the
  * reopened work. Resume on its own still replays BLOCKED, which is why the note
  * says so rather than letting an operator find out by trying it.
+ *
+ * The discard note is appended rather than folded into the unblock line because
+ * `--discard-executed` is a different authorization, not a variant of that
+ * command: the ordinary four remain the remedies to try, in order, and this
+ * only says what the stronger one is for. It is unconditional because this
+ * report is built from the event log alone and cannot see the checkpoint that
+ * would say whether a descendant executed — so it states the precondition
+ * instead of implying the flag applies here.
  */
 export function formatBlockedRunReport(
   runId: RunId,
@@ -531,7 +549,8 @@ export function formatBlockedRunReport(
     `  next: pnpm cli inspect --run ${runId} --state-root ${stateRoot}\n`,
     `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
     `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`,
-    `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`
+    `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`,
+    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`
   ].join("");
 }
 
@@ -1428,6 +1447,14 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
  * It executes nothing. `resume` is still the only surface that spends money, so
  * the operator authorizes and runs in two separately auditable steps — which is
  * also why the success output ends by naming the resume rather than doing it.
+ *
+ * `--discard-executed` is the one flag that changes which authorization is
+ * recorded. It is boolean because the set it authorizes is computed under the
+ * run lock from the flowchart and the blocked checkpoint: an operator listing
+ * nodes could omit a consequential one and get a partially coherent rewind that
+ * still reads as authorized. Its output names every node discarded, the state
+ * it was in and what its attempts charged, because that is the record the
+ * operator is signing.
  */
 async function unblockCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
@@ -1436,6 +1463,7 @@ async function unblockCommand(args: string[], io: CliIo): Promise<number> {
       run: { type: "string" },
       reason: { type: "string" },
       "retry-node": { type: "string" },
+      "discard-executed": { type: "boolean" },
       actor: { type: "string" },
       "state-root": { type: "string" }
     }
@@ -1460,21 +1488,27 @@ async function unblockCommand(args: string[], io: CliIo): Promise<number> {
       runId: values.run
     });
   }
+  const discardExecuted = values["discard-executed"] === true;
+  if (discardExecuted && retryNode === undefined) {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock --discard-executed requires --retry-node <nodeId>",
+      next: "discarding is defined relative to one failed node: pass --retry-node <nodeId>, or drop --discard-executed",
+      runId: values.run
+    });
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);
-  const outcome = await unblockFlowchartRun(
-    {
-      stateRoot,
-      router: await createCalibratedCliModelRouter(stateRoot),
-      pause: createFilePauseController(stateRoot)
-    },
+  const outcome = await unblockRun(io, {
+    stateRoot,
     runId,
-    {
-      reason,
-      ...(retryNode !== undefined ? { retryNodeId: retryNode } : {}),
-      ...(values.actor !== undefined ? { actor: values.actor } : {})
-    }
-  );
+    reason,
+    discardExecuted,
+    ...(retryNode !== undefined ? { retryNode } : {}),
+    ...(values.actor !== undefined ? { actor: values.actor } : {})
+  });
+  if (typeof outcome === "number") return outcome;
   const nodes = Object.entries(outcome.snapshot.nodes)
     .map(([id, node]) => `${id}=${node.state}`)
     .join(" ");
@@ -1483,9 +1517,76 @@ async function unblockCommand(args: string[], io: CliIo): Promise<number> {
   if (retryNode !== undefined) {
     io.stdout(`  reopened: ${retryNode}\n`);
   }
+  for (const descendant of discardedDescendants(outcome.events)) {
+    io.stdout(
+      `  discarded: ${descendant.nodeId} (was ${descendant.previousState}; charged estimate ${descendant.chargedEstimatedCostUsd} USD / ${descendant.chargedEstimatedDurationMs} ms across ${descendant.modelRouteEventIds.length} route(s), not refunded)\n`
+    );
+  }
   io.stdout(`  flowchart: ${outcome.snapshot.status}${nodes === "" ? "" : ` (${nodes})`}\n`);
   io.stdout(`  resume: pnpm cli resume --run ${runId} --state-root ${stateRoot}\n`);
   return CLI_EXIT.ok;
+}
+
+/** What the stronger authorization on this log says it superseded, if it is one. */
+function discardedDescendants(events: readonly Event[]): readonly RewoundDescendant[] {
+  const discard = events.findLast(
+    (event): event is Extract<Event, { type: "RUN_UNBLOCKED_WITH_DISCARD" }> =>
+      event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+  );
+  return discard?.payload.rewoundDescendants ?? [];
+}
+
+/**
+ * The unblock call, with one refusal turned into routing.
+ *
+ * An operator who reopens a node whose downstream work already ran meets a
+ * refusal that is correct and, on its own, a dead end: it names the blocking
+ * nodes but not the command that can proceed. The refusal message itself is the
+ * state machine's and stays exactly as it is — this adds the `next:` line the
+ * operator needs beside it, at the only surface that knows the flag exists.
+ */
+async function unblockRun(
+  io: CliIo,
+  request: {
+    readonly stateRoot: string;
+    readonly runId: RunId;
+    readonly reason: string;
+    readonly discardExecuted: boolean;
+    readonly retryNode?: string;
+    readonly actor?: string;
+  }
+): Promise<FlowchartRunOutcome | number> {
+  try {
+    return await unblockFlowchartRun(
+      {
+        stateRoot: request.stateRoot,
+        router: await createCalibratedCliModelRouter(request.stateRoot),
+        pause: createFilePauseController(request.stateRoot)
+      },
+      request.runId,
+      {
+        reason: request.reason,
+        ...(request.retryNode !== undefined ? { retryNodeId: request.retryNode } : {}),
+        ...(request.actor !== undefined ? { actor: request.actor } : {}),
+        ...(request.discardExecuted ? { discardExecuted: true } : {})
+      }
+    );
+  } catch (error) {
+    if (
+      request.retryNode === undefined ||
+      !(error instanceof DomainValidationError) ||
+      !error.message.includes("rewinding executed work is not authorized by an unblock")
+    ) {
+      throw error;
+    }
+    return cliFail(io, {
+      command: "unblock",
+      stage: "validation",
+      message: error.message,
+      next: `re-run with --retry-node ${request.retryNode} --discard-executed to authorize discarding that executed work, or leave the run blocked`,
+      runId: request.runId
+    });
+  }
 }
 
 const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;

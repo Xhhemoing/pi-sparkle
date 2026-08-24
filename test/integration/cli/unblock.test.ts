@@ -5,8 +5,28 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { createCalibratedCliModelRouter } from "../../../src/cli/model-catalog.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import { parseRunId } from "../../../src/domain/ids.js";
+import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import { validateFlowchart, type Flowchart } from "../../../src/domain/flowchart.js";
+import {
+  parseRunId,
+  parseTaskId,
+  type ArtifactId,
+  type EvidenceId,
+  type MessageId
+} from "../../../src/domain/ids.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import type {
+  AgentExecutionRequest,
+  AgentExecutor,
+  ExecutionEvent
+} from "../../../src/execution/contract.js";
+import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import type { Event } from "../../../src/run/events.js";
+import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { replayRun, replayedTerminalStatus } from "../../../src/run/replay.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
@@ -293,4 +313,318 @@ test("help lists unblock, and an operator reading it is told it executes nothing
   );
   assert.match(help.out, /unblock is the only thing that ends a BLOCKED run/);
   assert.match(help.out, /executes nothing\. resume runs the reopened work/);
+
+  // The stronger form is its own usage line rather than an optional bracket on
+  // the ordinary one: it is a different authorization, not a modifier.
+  assert.match(
+    help.out,
+    /^ {2}pi-sparkle unblock --run <runId> --reason <text> --retry-node <nodeId> --discard-executed \[--actor <who>\] \[--state-root <dir>\]$/m
+  );
+  assert.match(help.out, /--discard-executed/);
+});
+
+/**
+ * The discard flag from the operator's side.
+ *
+ * Its precondition — a gate block whose failed node has an executed descendant
+ * — needs real children whose verification disagrees with them, which no
+ * offline CLI invocation produces. So the run is seeded through the API with
+ * the router the CLI itself builds, and every assertion below is then made
+ * against the shipped command. What is under test here is the command surface:
+ * what it refuses before touching the log, what it prints when it succeeds, and
+ * whether an operator who hits the ordinary refusal is told the flag exists.
+ */
+
+const TS = parseIsoTimestamp("2026-08-24T09:00:00.000Z");
+const SCOUT = "tsk_scout";
+const ROOT_CAUSE = "tsk_root_cause";
+const SUMMARY = "tsk_summarize";
+
+function result(request: AgentExecutionRequest, passed: boolean): ExecutionEvent {
+  const evidenceIds = [`evd_${request.taskId}` as EvidenceId];
+  return {
+    type: "MESSAGE",
+    message: {
+      protocolVersion: 1,
+      id: `msg_${request.agentInstanceId}` as MessageId,
+      occurredAt: TS,
+      runId: request.runId,
+      taskId: request.taskId,
+      from: request.agentInstanceId,
+      to: SUPERVISOR,
+      type: "TASK_RESULT",
+      outcome: "SUCCESS",
+      summary: passed ? "verification agreed" : "the child reported success; verification did not",
+      artifactIds: [`art_${request.taskId}` as ArtifactId],
+      evidenceIds,
+      verification: passed ? { kind: "PASSED", evidenceIds } : { kind: "FAILED", evidenceIds }
+    }
+  };
+}
+
+function investigationChild(taskId: string): ChildTaskInput {
+  return {
+    taskId: parseTaskId(taskId),
+    role: "implementer",
+    objective: `Do ${taskId}`,
+    profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+    inputArtifactIds: [],
+    acceptanceCriteria: [],
+    limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+  };
+}
+
+/** The summary joins on `any`, so it runs beside the analysis instead of after it. */
+function investigationFlowchart(): Flowchart {
+  const compiled = compileChildrenToFlowchart(
+    [
+      { taskId: parseTaskId(SCOUT), role: "implementer", objective: "Collect the logs" },
+      {
+        taskId: parseTaskId(ROOT_CAUSE),
+        role: "implementer",
+        objective: "Find the root cause",
+        dependsOn: [parseTaskId(SCOUT)]
+      },
+      {
+        taskId: parseTaskId(SUMMARY),
+        role: "implementer",
+        objective: "Summarize for the incident review",
+        dependsOn: [parseTaskId(SCOUT), parseTaskId(ROOT_CAUSE)]
+      }
+    ],
+    { allowedModels: ["cheap"], preferredModel: "cheap" }
+  );
+  return validateFlowchart({
+    ...compiled,
+    nodes: compiled.nodes.map((node) =>
+      node.id === SUMMARY
+        ? { ...node, joinPolicy: { mode: "any" as const, requiredNodeIds: [SCOUT, ROOT_CAUSE] } }
+        : node
+    )
+  });
+}
+
+async function withExecutedDescendantBlock(
+  body: (context: {
+    stateRoot: string;
+    runId: string;
+    events: readonly Event[];
+  }) => Promise<void>
+): Promise<void> {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-discard-state-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-discard-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await withIsolatedPiEnv(async () => {
+      const executor: AgentExecutor = {
+        async *execute(request: AgentExecutionRequest): AsyncIterable<ExecutionEvent> {
+          yield result(request, request.taskId !== ROOT_CAUSE);
+          yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+        }
+      };
+      const outcome = await startFlowchartRun(
+        {
+          stateRoot,
+          router: await createCalibratedCliModelRouter(stateRoot),
+          now: () => TS,
+          executor,
+          cluster: true
+        },
+        {
+          projectRoot,
+          flowchart: investigationFlowchart(),
+          childTasks: [
+            investigationChild(SCOUT),
+            investigationChild(ROOT_CAUSE),
+            investigationChild(SUMMARY)
+          ]
+        }
+      );
+      assert.equal(outcome.status, "BLOCKED");
+      assert.deepEqual(
+        Object.fromEntries(
+          Object.entries(outcome.snapshot.nodes).map(([id, node]) => [id, node.state])
+        ),
+        { [SCOUT]: "COMPLETED", [ROOT_CAUSE]: "FAILED", [SUMMARY]: "COMPLETED" }
+      );
+      await body({ stateRoot, runId: outcome.runId, events: outcome.events });
+    });
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+test("--discard-executed is refused before the log is touched when it names no node", async () => {
+  await withBlockedRun(async ({ stateRoot, runId }) => {
+    // Parse-time: the flag is defined relative to one failed node, so it cannot
+    // stand alone. This is caught without reading the run at all.
+    const bare = await cli([
+      "unblock",
+      "--run",
+      runId,
+      "--reason",
+      "reviewed",
+      "--discard-executed",
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(bare.code, 1);
+    assert.match(bare.err, /^error: unblock --discard-executed requires --retry-node <nodeId>$/m);
+    assert.match(bare.err, /^ {2}stage: parse-args$/m);
+    assert.match(
+      bare.err,
+      /^ {2}next: discarding is defined relative to one failed node: pass --retry-node <nodeId>, or drop --discard-executed$/m
+    );
+
+    // A stall block is run-level: it names no failed node, so even with a
+    // --retry-node there is no consequence set to authorize discarding.
+    const stall = await cli([
+      "unblock",
+      "--run",
+      runId,
+      "--reason",
+      "reviewed",
+      "--retry-node",
+      "only",
+      "--discard-executed",
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(stall.code, 1);
+    assert.match(stall.err, /this block names no failed node, so there is nothing to discard behind/);
+    assert.match(stall.err, /^ {2}stage: validation$/m);
+
+    const events = await eventsOf(stateRoot, runId);
+    assert.equal(
+      events.some(
+        (event) => event.type === "RUN_UNBLOCKED" || event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+      ),
+      false,
+      "neither refusal wrote an authorization"
+    );
+    assert.equal(replayedTerminalStatus(events), "BLOCKED");
+  });
+});
+
+test("the ordinary refusal names the flag that can proceed, and the flag then reports what it discarded", async () => {
+  await withExecutedDescendantBlock(async ({ stateRoot, runId, events: seeded }) => {
+    // Without the flag the operator gets the state machine's own refusal, plus
+    // the one line it cannot know to write: the command that can proceed.
+    const refused = await cli([
+      "unblock",
+      "--run",
+      runId,
+      "--reason",
+      "retry the analysis",
+      "--retry-node",
+      ROOT_CAUSE,
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(refused.code, 1);
+    assert.match(
+      refused.err,
+      new RegExp(
+        `^error: cannot reopen node ${ROOT_CAUSE}: ${SUMMARY} already executed, and rewinding executed work is not authorized by an unblock$`,
+        "m"
+      )
+    );
+    assert.match(refused.err, /^ {2}stage: validation$/m);
+    assert.match(
+      refused.err,
+      new RegExp(
+        `^ {2}next: re-run with --retry-node ${ROOT_CAUSE} --discard-executed to authorize discarding that executed work, or leave the run blocked$`,
+        "m"
+      )
+    );
+    assert.equal(
+      (await eventsOf(stateRoot, runId)).length,
+      seeded.length,
+      "the refusal appended nothing"
+    );
+
+    const discarded = await cli([
+      "unblock",
+      "--run",
+      runId,
+      "--reason",
+      "operator accepted losing the summary",
+      "--retry-node",
+      ROOT_CAUSE,
+      "--discard-executed",
+      "--actor",
+      "sre-oncall",
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(discarded.code, 0, discarded.err);
+    assert.match(discarded.out, new RegExp(`^Run ${runId}: unblocked \\(RUNNING\\)$`, "m"));
+    assert.match(discarded.out, /^ {2}reason: operator accepted losing the summary$/m);
+    assert.match(discarded.out, new RegExp(`^ {2}reopened: ${ROOT_CAUSE}$`, "m"));
+
+    // The discard line quotes the charged estimate off the routing row itself,
+    // so what the operator reads is what the log can actually support.
+    const events = await eventsOf(stateRoot, runId);
+    const authorizations = events.filter((event) => event.type === "RUN_UNBLOCKED_WITH_DISCARD");
+    assert.equal(authorizations.length, 1);
+    assert.equal(events.filter((event) => event.type === "RUN_UNBLOCKED").length, 0);
+    assert.equal(authorizations[0]?.actor, "sre-oncall", "--actor records who authorized it");
+    const rewound = authorizations[0]!.payload.rewoundDescendants;
+    assert.deepEqual(
+      rewound.map((entry) => `${entry.nodeId}:${entry.previousState}`),
+      [`${SUMMARY}:COMPLETED`]
+    );
+    const summaryRoute = events.find(
+      (event) => event.type === "MODEL_ROUTED" && event.payload.taskId === SUMMARY
+    );
+    assert.ok(summaryRoute?.type === "MODEL_ROUTED");
+    assert.equal(rewound[0]?.chargedEstimatedCostUsd, summaryRoute.payload.estimatedCostUsd);
+    assert.ok(
+      discarded.out.includes(
+        `  discarded: ${SUMMARY} (was COMPLETED; charged estimate ${summaryRoute.payload.estimatedCostUsd} USD / ${summaryRoute.payload.estimatedDurationMs} ms across 1 route(s), not refunded)\n`
+      ),
+      discarded.out
+    );
+    assert.ok(
+      discarded.out.includes(`  resume: pnpm cli resume --run ${runId} --state-root ${stateRoot}\n`),
+      discarded.out
+    );
+
+    assert.equal(replayedTerminalStatus(events), undefined, "the latch is open");
+    assert.deepEqual(replayRun(events).anomalies, []);
+    assert.equal(
+      events.at(-1)?.type,
+      "RUN_UNBLOCKED_WITH_DISCARD",
+      "the stronger authorization executes nothing either"
+    );
+  });
+});
+
+test("--discard-executed on a block with nothing executed behind it is refused, and the ordinary form still works", async () => {
+  await withExecutedDescendantBlock(async ({ stateRoot, runId }) => {
+    // The scout completed, but it is not a consequence of the failed node, so
+    // reopening the scout — which never failed — is refused on its own state
+    // before the discard set is ever considered.
+    const wrongNode = await cli([
+      "unblock",
+      "--run",
+      runId,
+      "--reason",
+      "wrong node",
+      "--retry-node",
+      SCOUT,
+      "--discard-executed",
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(wrongNode.code, 1);
+    assert.match(wrongNode.err, new RegExp(`${SCOUT} is not the failed node this block names`));
+    assert.deepEqual(
+      (await eventsOf(stateRoot, runId)).filter(
+        (event) => event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+      ),
+      []
+    );
+  });
 });

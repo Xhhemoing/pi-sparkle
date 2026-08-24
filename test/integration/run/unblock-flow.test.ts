@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import type { RequirementContract } from "../../../src/domain/contract.js";
+import { validateFlowchart, type Flowchart } from "../../../src/domain/flowchart.js";
 import {
   parseTaskId,
   type ArtifactId,
@@ -27,7 +29,8 @@ import type { Event } from "../../../src/run/events.js";
 import {
   resumeFlowchartRun,
   startFlowchartRun,
-  unblockFlowchartRun
+  unblockFlowchartRun,
+  type FlowchartRunOutcome
 } from "../../../src/run/flowchart-run.js";
 import { replayRun, replayedTerminalStatus, type RunCheckpoint } from "../../../src/run/replay.js";
 import { reopenBlockedFlowchartSnapshot } from "../../../src/supervisor/flowchart-supervisor.js";
@@ -548,5 +551,456 @@ test("reopening a node whose descendant already executed fails closed", async ()
       () => reopenBlockedFlowchartSnapshot(config, reopened, { retryNodeId: "tsk_first" }),
       /only a FAILED node can be re-driven/
     );
+  });
+});
+
+/**
+ * The authorization the refusal above says is missing: `--discard-executed`.
+ *
+ * These cases need a block an operator can actually reach with executed work
+ * behind it, so the seed is a three-node investigation rather than a mutated
+ * snapshot. A scout completes; root-cause analysis and the summary that reads
+ * it both become ready, because the summary joins on `any` — one real reason a
+ * flowchart author writes a summary that can run on partial input. They lease
+ * in the same round, the summary passes, root-cause analysis fails
+ * verification, and the gate blocks. The run is now BLOCKED with a FAILED node
+ * whose descendant is COMPLETED, which is precisely the shape ordinary unblock
+ * cannot end.
+ */
+
+const SCOUT = "tsk_scout";
+const ROOT_CAUSE = "tsk_root_cause";
+const SUMMARY = "tsk_summarize";
+
+/** Covered by every child spec below, so the coverage gate lets the run start. */
+const CRITERION = { id: "crit-root-cause", description: "the summary cites the root cause" };
+
+function investigationContract(): RequirementContract {
+  return {
+    schemaVersion: 1,
+    objective: "Explain the outage",
+    deliverables: [],
+    constraints: [{ id: "con-no-prod", description: "do not touch prod" }],
+    nonGoals: [],
+    acceptanceCriteria: [CRITERION],
+    assumptions: [],
+    questions: [],
+    authority: [],
+    sourceRefs: []
+  } as unknown as RequirementContract;
+}
+
+function investigationChild(taskId: string): ChildTaskInput {
+  return { ...childSpec(taskId), acceptanceCriteria: [CRITERION] };
+}
+
+/**
+ * `compileChildrenToFlowchart` compiles two dependencies into an all-join, so
+ * the summary's `any` join is declared directly on the node. Everything else —
+ * ids, edges, model policy — stays exactly what the compiler produces.
+ */
+function investigationFlowchart(): Flowchart {
+  const compiled = compileChildrenToFlowchart([
+    { taskId: parseTaskId(SCOUT), role: "implementer", objective: "Collect the logs" },
+    {
+      taskId: parseTaskId(ROOT_CAUSE),
+      role: "implementer",
+      objective: "Find the root cause",
+      dependsOn: [parseTaskId(SCOUT)]
+    },
+    {
+      taskId: parseTaskId(SUMMARY),
+      role: "implementer",
+      objective: "Summarize for the incident review",
+      dependsOn: [parseTaskId(SCOUT), parseTaskId(ROOT_CAUSE)]
+    }
+  ]);
+  return validateFlowchart({
+    ...compiled,
+    nodes: compiled.nodes.map((node) =>
+      node.id === SUMMARY
+        ? { ...node, joinPolicy: { mode: "any" as const, requiredNodeIds: [SCOUT, ROOT_CAUSE] } }
+        : node
+    )
+  });
+}
+
+/** Fails verification for the named tasks and passes for every other one. */
+function executorFailing(failing: readonly string[]): AgentExecutor & { readonly taskIds: string[] } {
+  return executorYielding((request) =>
+    failing.includes(request.taskId) ? verificationFailedResult(request) : passingResult(request)
+  );
+}
+
+async function blockedWithExecutedDescendant(
+  stateRoot: string,
+  projectRoot: string,
+  generateId: () => string
+): Promise<FlowchartRunOutcome> {
+  const outcome = await startFlowchartRun(
+    {
+      stateRoot,
+      router: router(),
+      now: () => TS,
+      generateId,
+      executor: executorFailing([ROOT_CAUSE]),
+      cluster: true
+    },
+    {
+      projectRoot,
+      flowchart: investigationFlowchart(),
+      childTasks: [
+        investigationChild(SCOUT),
+        investigationChild(ROOT_CAUSE),
+        investigationChild(SUMMARY)
+      ],
+      contract: investigationContract(),
+      limits: { remainingCostUsd: 9, remainingTimeMs: 900_000 }
+    }
+  );
+  assert.equal(outcome.status, "BLOCKED");
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(outcome.snapshot.nodes).map(([id, node]) => [id, node.state])),
+    { [SCOUT]: "COMPLETED", [ROOT_CAUSE]: "FAILED", [SUMMARY]: "COMPLETED" },
+    "the summary really executed behind the node that failed"
+  );
+  return outcome;
+}
+
+function discardEvents(
+  events: readonly Event[]
+): Extract<Event, { type: "RUN_UNBLOCKED_WITH_DISCARD" }>[] {
+  return events.filter((event) => event.type === "RUN_UNBLOCKED_WITH_DISCARD");
+}
+
+test("--discard-executed authorizes the rewind ordinary unblock refuses, and resume re-runs both nodes", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    const { runId } = blocked;
+    const blockedEventId = blocked.events.find((event) => event.type === "RUN_BLOCKED")!.id;
+    const summaryRoute = blocked.events.find(
+      (event) => event.type === "MODEL_ROUTED" && event.payload.taskId === SUMMARY
+    )!;
+    const summaryChildRun = blocked.events.find(
+      (event) => event.type === "CHILD_RUN_CREATED" && event.payload.childRun.rootTaskId === SUMMARY
+    )!;
+    const deps = { stateRoot, router: router(), now: () => TS, generateId };
+
+    // Without the flag the operator gets today's refusal, naming the node in
+    // the way — the R9-3 fail-closed pin, reached through the shipped command.
+    await assert.rejects(
+      unblockFlowchartRun(deps, runId, { reason: "retry the analysis", retryNodeId: ROOT_CAUSE }),
+      new RegExp(
+        `cannot reopen node ${ROOT_CAUSE}: ${SUMMARY} already executed, and rewinding executed work is not authorized by an unblock`
+      )
+    );
+    assert.equal(
+      (await new EventStore(stateRoot, runId).readAll()).events.length,
+      blocked.events.length,
+      "a refused transform appends nothing at all"
+    );
+
+    const executor = executorFailing([]);
+    const discarded = await unblockFlowchartRun(
+      { ...deps, executor },
+      runId,
+      {
+        reason: "operator accepted losing the summary to re-derive the root cause",
+        retryNodeId: ROOT_CAUSE,
+        discardExecuted: true,
+        actor: "sre-oncall"
+      }
+    );
+
+    // One event, of the stronger type only. A second ordinary RUN_UNBLOCKED
+    // would mean the authorization was split across a crash window.
+    assert.equal(unblockEvents(discarded.events).length, 0, "the ordinary event is not also written");
+    assert.equal(discardEvents(discarded.events).length, 1);
+    const authorization = discardEvents(discarded.events)[0]!;
+    assert.equal(authorization.actor, "sre-oncall");
+    assert.deepEqual(authorization.payload, {
+      blockedEventId,
+      reason: "operator accepted losing the summary to re-derive the root cause",
+      retryNodeId: ROOT_CAUSE,
+      rewoundDescendants: [
+        {
+          nodeId: SUMMARY,
+          taskId: parseTaskId(SUMMARY),
+          previousState: "COMPLETED",
+          modelRouteEventIds: [summaryRoute.id],
+          childRunIds: [summaryChildRun.type === "CHILD_RUN_CREATED" ? summaryChildRun.payload.childRun.id : ""],
+          chargedEstimatedCostUsd: 0.1,
+          chargedEstimatedDurationMs: 1_000
+        }
+      ]
+    });
+    assert.deepEqual(
+      summaryRoute.type === "MODEL_ROUTED"
+        ? [summaryRoute.payload.estimatedCostUsd, summaryRoute.payload.estimatedDurationMs]
+        : [],
+      [0.1, 1_000],
+      "the charged estimate is the routed row's own number, not a figure the event invented"
+    );
+
+    // Authorization only: the latch is open and both nodes are drivable again,
+    // and not one model call was spent proving it.
+    assert.equal(discarded.status, "RUNNING");
+    assert.deepEqual(replayRun(discarded.events).anomalies, []);
+    assert.equal(discarded.snapshot.nodes[ROOT_CAUSE]?.state, "READY");
+    assert.equal(discarded.snapshot.nodes[SUMMARY]?.state, "READY", "the discarded node is re-derivable");
+    assert.equal(discarded.snapshot.nodes[SCOUT]?.state, "COMPLETED", "an unrelated node is untouched");
+    assert.deepEqual(executor.taskIds, [], "unblock authorizes; it does not spend a single model call");
+
+    // Discard is a control-state operation, so the facts survive and the money
+    // does not come back.
+    assert.equal(discarded.snapshot.nodes[SUMMARY]?.evidenceCount, 1, "its evidence still counts");
+    assert.equal(discarded.snapshot.nodes[SUMMARY]?.success, undefined, "but its stale success cannot satisfy an edge");
+    assert.equal(discarded.snapshot.nodes[SUMMARY]?.confidence, undefined);
+    assert.equal(discarded.snapshot.remainingCostUsd, blocked.snapshot.remainingCostUsd, "no refund");
+    assert.equal(discarded.snapshot.remainingTimeMs, blocked.snapshot.remainingTimeMs, "no refund");
+    assert.equal(
+      discarded.events.filter((event) => event.type === "CHILD_MESSAGE" && event.taskId === SUMMARY).length,
+      blocked.events.filter((event) => event.type === "CHILD_MESSAGE" && event.taskId === SUMMARY).length,
+      "every row the discarded attempt wrote is still on the log"
+    );
+
+    // The fourth flowchart checkpoint writer carries the run contract forward.
+    assert.deepEqual(
+      discarded.checkpoint.flowchart?.contract,
+      investigationContract(),
+      "authorizing a blocked run changes what may execute, never what the run was asked to honour"
+    );
+
+    // Resume is the execution surface, and it re-runs the target and the work
+    // the operator agreed to lose.
+    const resumed = await resumeFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId, executor, cluster: true },
+      runId
+    );
+    assert.deepEqual(executor.taskIds, [ROOT_CAUSE, SUMMARY], "both re-executed; the scout did not");
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(terminals(resumed.events), ["RUN_BLOCKED", "RUN_COMPLETED"]);
+    assert.deepEqual(replayRun(resumed.events).anomalies, []);
+    assert.deepEqual(
+      resumed.checkpoint.flowchart?.contract,
+      investigationContract(),
+      "and the resumed leg still has it"
+    );
+  });
+});
+
+test("--discard-executed is refused when the block has nothing executed behind it, and when it names no node", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const deps = { stateRoot, router: router(), now: () => TS, generateId };
+
+    // A gate block whose failed node has no executed descendant: the flag would
+    // record a discard that discarded nothing, so it is refused rather than
+    // written.
+    const ordinary = await blockedRun(stateRoot, projectRoot, generateId);
+    await assert.rejects(
+      unblockFlowchartRun(deps, ordinary.runId, {
+        reason: "belt and braces",
+        retryNodeId: NODE,
+        discardExecuted: true
+      }),
+      /no descendant of it has executed; nothing to discard; omit --discard-executed/
+    );
+    // And the ordinary path still ends that same block, which is the proof the
+    // refusal wrote nothing that could have spent it.
+    const cleared = await unblockFlowchartRun(deps, ordinary.runId, {
+      reason: "retry it",
+      retryNodeId: NODE
+    });
+    assert.equal(unblockEvents(cleared.events).length, 1);
+    assert.equal(discardEvents(cleared.events).length, 0);
+
+    // A stall block is run-level: it names no failed node, so there is no
+    // consequence set for the flag to authorize.
+    const stalled = await startFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId },
+      {
+        projectRoot,
+        flowchart: compileChildrenToFlowchart([
+          { taskId: parseTaskId(NODE), role: "implementer", objective: "Do the work" }
+        ])
+      }
+    );
+    assert.equal(stalled.status, "BLOCKED");
+    await assert.rejects(
+      unblockFlowchartRun(deps, stalled.runId, { reason: "supplied out of band", discardExecuted: true }),
+      /this block names no failed node, so there is nothing to discard behind/
+    );
+    assert.deepEqual(
+      discardEvents((await new EventStore(stateRoot, stalled.runId).readAll()).events),
+      [],
+      "the targetless refusal wrote nothing"
+    );
+  });
+});
+
+test("a crash between the appended discard authorization and its checkpoint is recovered once", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    const { runId } = blocked;
+
+    await unblockFlowchartRun({ stateRoot, router: router(), now: () => TS, generateId }, runId, {
+      reason: "operator accepted losing the summary",
+      retryNodeId: ROOT_CAUSE,
+      discardExecuted: true
+    });
+
+    // The window the append-before-checkpoint order leaves open, for the
+    // stronger authorization too: the event is durable, the rewound checkpoint
+    // is not.
+    const store = new CheckpointStore(stateRoot, runId);
+    await store.write(blocked.checkpoint);
+    assert.equal(
+      ((await store.read()) as RunCheckpoint).flowchart?.snapshot.nodes[SUMMARY]?.state,
+      "COMPLETED"
+    );
+
+    const executor = executorFailing([]);
+    const recovered = await resumeFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId, executor, cluster: true },
+      runId
+    );
+    assert.equal(recovered.status, "COMPLETED", "resume re-derived the discard the checkpoint had lost");
+    assert.deepEqual(executor.taskIds, [ROOT_CAUSE, SUMMARY], "and applied it exactly once");
+    assert.deepEqual(replayRun(recovered.events).anomalies, []);
+    assert.deepEqual(terminals(recovered.events), ["RUN_BLOCKED", "RUN_COMPLETED"]);
+    assert.deepEqual(
+      recovered.checkpoint.flowchart?.contract,
+      investigationContract(),
+      "the recovered write carries the contract too"
+    );
+  });
+});
+
+/**
+ * Restore recomputes the consequence set rather than trusting the list it is
+ * handed. Without that, anyone who could append a row could name an unrelated
+ * COMPLETED node and have the next resume rewind it — the audit record would
+ * become the authorization instead of describing one.
+ */
+test("a discard authorization whose node list the checkpoint cannot justify fails closed", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    const blockedEventId = blocked.events.find((event) => event.type === "RUN_BLOCKED")!.id;
+
+    // Well-formed by the schema — it validates, it is ordered, and it claims an
+    // executed prior state — but it names the scout, which is not a consequence
+    // of the failed node at all.
+    await new EventStore(stateRoot, blocked.runId).append({
+      id: `evt_${generateId()}`,
+      schemaVersion: 1,
+      occurredAt: TS,
+      runId: blocked.runId,
+      type: "RUN_UNBLOCKED_WITH_DISCARD",
+      actor: "hand-edited",
+      payload: {
+        blockedEventId,
+        reason: "rewind something this block never touched",
+        retryNodeId: ROOT_CAUSE,
+        rewoundDescendants: [
+          {
+            nodeId: SCOUT,
+            taskId: parseTaskId(SCOUT),
+            previousState: "COMPLETED",
+            modelRouteEventIds: [],
+            childRunIds: [],
+            chargedEstimatedCostUsd: 0,
+            chargedEstimatedDurationMs: 0
+          }
+        ]
+      }
+    } as unknown as Event);
+
+    await assert.rejects(
+      resumeFlowchartRun(
+        {
+          stateRoot,
+          router: router(),
+          now: () => TS,
+          generateId,
+          executor: executorFailing([]),
+          cluster: true
+        },
+        blocked.runId
+      ),
+      new RegExp(
+        `authorized rewinding ${SCOUT}:${SCOUT}:COMPLETED, but this checkpoint's consequence set is ${SUMMARY}:${SUMMARY}:COMPLETED`
+      )
+    );
+  });
+});
+
+/**
+ * The gate writes each transition's `from` by reconstructing the run's status
+ * from the log, separately from replay. If `currentGateStatus` did not read the
+ * specialized event as clearing, this second block would record
+ * `from: "BLOCKED"` — one run whose two reconstructions disagree in writing
+ * about whether it was ever unblocked.
+ */
+test("a discard-unblocked run that fails again re-blocks from RUNNING, and the second block needs its own authorization", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    const firstBlockId = blocked.events.find((event) => event.type === "RUN_BLOCKED")!.id;
+    const deps = { stateRoot, router: router(), now: () => TS, generateId };
+
+    await unblockFlowchartRun(deps, blocked.runId, {
+      reason: "operator believes the analysis will land this time",
+      retryNodeId: ROOT_CAUSE,
+      discardExecuted: true
+    });
+
+    const stillFailing = executorFailing([ROOT_CAUSE]);
+    const reblocked = await resumeFlowchartRun(
+      { ...deps, executor: stillFailing, cluster: true },
+      blocked.runId
+    );
+    assert.equal(reblocked.status, "BLOCKED");
+    assert.deepEqual(
+      reblocked.events
+        .filter((event) => event.type === "GATE_TRANSITION")
+        .map((event) => ({ from: event.payload.from, to: event.payload.to })),
+      [
+        { from: "RUNNING", to: "BLOCKED" },
+        { from: "RUNNING", to: "BLOCKED" }
+      ],
+      "the gate saw the specialized event clear the first block"
+    );
+    assert.deepEqual(terminals(reblocked.events), ["RUN_BLOCKED", "RUN_BLOCKED"]);
+    assert.deepEqual(replayRun(reblocked.events).anomalies, []);
+
+    // The first authorization is spent; the new block is a new one to clear.
+    // The summary re-ran and completed again, so the second block carries the
+    // same executed descendant and needs the same strength of authorization —
+    // the flag is per-block permission, not a mode the run stays in.
+    const active = replayRun(reblocked.events).activeBlockedEventId;
+    assert.notEqual(active, firstBlockId);
+    await assert.rejects(
+      unblockFlowchartRun(deps, blocked.runId, {
+        reason: "escalated to a human reviewer",
+        retryNodeId: ROOT_CAUSE
+      }),
+      new RegExp(`${SUMMARY} already executed`)
+    );
+    const second = await unblockFlowchartRun(deps, blocked.runId, {
+      reason: "escalated to a human reviewer",
+      retryNodeId: ROOT_CAUSE,
+      discardExecuted: true
+    });
+    assert.equal(unblockEvents(second.events).length, 0);
+    assert.deepEqual(
+      discardEvents(second.events).map((event) => event.payload.blockedEventId),
+      [firstBlockId, active],
+      "each authorization names the block it actually cleared"
+    );
+    assert.deepEqual(replayRun(second.events).anomalies, []);
   });
 });

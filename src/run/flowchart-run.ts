@@ -59,19 +59,28 @@ import {
 import {
   createFlowchartSupervisor,
   reopenBlockedFlowchartSnapshot,
+  reopenBlockedFlowchartSnapshotWithDiscard,
   restoreFlowchartSupervisor,
   type ChildNodeResult,
   type FlowchartRunLimits,
   type FlowchartRunStatus,
   type FlowchartSupervisor,
+  type FlowchartSupervisorConfig,
   type FlowchartSupervisorSnapshot,
-  type PendingApproval
+  type PendingApproval,
+  type RewoundNodeRecord
 } from "../supervisor/flowchart-supervisor.js";
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
-import { routingContextFields, type Event, type ModelRoutedPayload } from "./events.js";
+import {
+  routingContextFields,
+  type Event,
+  type ModelRoutedPayload,
+  type RewoundDescendant,
+  type RunUnblockedWithDiscardPayload
+} from "./events.js";
 import { injectionEventPayload, validateInjection } from "./injection.js";
 import { createFilePauseController, type PauseController } from "./pause-controller.js";
 import {
@@ -1202,6 +1211,9 @@ function eventIndex(events: readonly Event[], id: EventId | undefined): number {
   return id === undefined ? -1 : events.findIndex((event) => event.id === id);
 }
 
+/** Either event that ends a block: the ordinary authorization, or the stronger one. */
+type ClearingEvent = Extract<Event, { type: "RUN_UNBLOCKED" | "RUN_UNBLOCKED_WITH_DISCARD" }>;
+
 /**
  * The unblock a durable checkpoint has not caught up with, if any.
  *
@@ -1217,11 +1229,14 @@ function unappliedUnblock(
   events: readonly Event[],
   replayed: ReconstructedRun,
   checkpoint: RunCheckpoint
-): Extract<Event, { type: "RUN_UNBLOCKED" }> | undefined {
+): ClearingEvent | undefined {
   const at = eventIndex(events, replayed.clearingUnblockEventId);
   if (at < 0 || eventIndex(events, checkpoint.lastEventId) >= at) return undefined;
   const event = events[at];
-  return event !== undefined && event.type === "RUN_UNBLOCKED" ? event : undefined;
+  if (event === undefined) return undefined;
+  return event.type === "RUN_UNBLOCKED" || event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+    ? event
+    : undefined;
 }
 
 /**
@@ -1250,16 +1265,7 @@ async function restoreCheckpointedSupervisor(input: {
     now: input.now
   };
   const pending = unappliedUnblock(input.events, input.replayed, input.checkpoint);
-  const restored =
-    pending === undefined
-      ? snapshot
-      : reopenBlockedFlowchartSnapshot(
-          config,
-          snapshot,
-          pending.payload.retryNodeId !== undefined
-            ? { retryNodeId: pending.payload.retryNodeId }
-            : {}
-        );
+  const restored = pending === undefined ? snapshot : applyClearingEvent(config, snapshot, pending);
   return restoreFlowchartSupervisor(config, restored);
 }
 
@@ -1589,6 +1595,19 @@ export interface FlowchartUnblockRequest {
   readonly retryNodeId?: string;
   /** Who authorized the transition; recorded as the event's actor. */
   readonly actor?: string;
+  /**
+   * Also discard the executed consequences of {@link retryNodeId}, recording
+   * the stronger `RUN_UNBLOCKED_WITH_DISCARD` authorization instead of the
+   * ordinary one.
+   *
+   * A boolean, never a node list. The set is computed here under the lifecycle
+   * lock from the flowchart definition, its join policies and the blocked
+   * checkpoint, because an operator who omitted one consequential node would
+   * produce a partially coherent rewind that still looks authorized. Requires a
+   * gate block naming a FAILED node and the matching `retryNodeId`, and is
+   * refused when nothing downstream of it executed.
+   */
+  readonly discardExecuted?: boolean;
 }
 
 /**
@@ -1627,14 +1646,7 @@ function gateBlockedFailedNode(
   return snapshot.nodes[node.id]?.state === "FAILED" ? node.id : undefined;
 }
 
-function resolveRetryTarget(
-  events: readonly Event[],
-  blockedEventId: EventId,
-  definition: Flowchart,
-  snapshot: FlowchartSupervisorSnapshot,
-  requested: string | undefined
-): string | undefined {
-  const expected = gateBlockedFailedNode(events, blockedEventId, definition, snapshot);
+function resolveRetryTarget(expected: string | undefined, requested: string | undefined): string | undefined {
   if (expected !== undefined && requested !== expected) {
     throw new DomainValidationError(
       requested === undefined
@@ -1643,6 +1655,194 @@ function resolveRetryTarget(
     );
   }
   return requested;
+}
+
+/**
+ * The attempt references and charged estimates the log already holds for one
+ * task, assembled for the audit record.
+ *
+ * Everything here is read off rows the run wrote at the time; nothing is
+ * synthesized. The `MODEL_ROUTED` rows are the routing decisions recorded for
+ * the task and their `estimated*` fields are what the run plane can honestly
+ * state about its cost. Provider invocation telemetry is deliberately not
+ * consulted: its sink is best-effort and asynchronous and its usage may be
+ * absent, so folding it in here would turn "unknown" into "zero" inside an
+ * authorization record.
+ */
+function chargedAttempts(
+  events: readonly Event[],
+  taskId: TaskId
+): Pick<
+  RewoundDescendant,
+  "modelRouteEventIds" | "childRunIds" | "chargedEstimatedCostUsd" | "chargedEstimatedDurationMs"
+> {
+  const modelRouteEventIds: EventId[] = [];
+  const childRunIds: RunId[] = [];
+  let chargedEstimatedCostUsd = 0;
+  let chargedEstimatedDurationMs = 0;
+  for (const event of events) {
+    if (event.type === "MODEL_ROUTED" && event.payload.taskId === taskId) {
+      modelRouteEventIds.push(event.id);
+      chargedEstimatedCostUsd += event.payload.estimatedCostUsd;
+      chargedEstimatedDurationMs += event.payload.estimatedDurationMs;
+    } else if (event.type === "CHILD_RUN_CREATED" && event.payload.childRun.rootTaskId === taskId) {
+      childRunIds.push(event.payload.childRun.id);
+    }
+  }
+  return { modelRouteEventIds, childRunIds, chargedEstimatedCostUsd, chargedEstimatedDurationMs };
+}
+
+/**
+ * The audit payload for one computed rewind plan.
+ *
+ * A `READY` or `SKIPPED` descendant gets empty references and zeroes by
+ * construction rather than by lookup. Those states never held a route, so any
+ * row the log happens to carry for the task — a pre-run assignment, say —
+ * charged nothing for the state being discarded, and citing it would claim the
+ * authorization superseded an attempt that never ran.
+ */
+function discardAuditRecords(
+  events: readonly Event[],
+  rewound: readonly RewoundNodeRecord[]
+): RewoundDescendant[] {
+  return rewound.map((entry) => ({
+    nodeId: entry.nodeId,
+    taskId: entry.taskId,
+    previousState: entry.previousState,
+    ...(entry.previousState === "READY" || entry.previousState === "SKIPPED"
+      ? {
+          modelRouteEventIds: [],
+          childRunIds: [],
+          chargedEstimatedCostUsd: 0,
+          chargedEstimatedDurationMs: 0
+        }
+      : chargedAttempts(events, entry.taskId))
+  }));
+}
+
+/**
+ * Fail-closed check that the audit record says only what the log supports.
+ *
+ * The producer derives these numbers from the same rows it cites, so this
+ * cannot fail on the happy path — which is the point. Duplicating derivable
+ * sums into the authorization buys a self-contained audit record and creates
+ * exactly one new failure class in exchange: a payload whose totals no longer
+ * match the rows it names. This is where that class is caught, before the
+ * append, so the mismatch refuses and the log stays as it was rather than
+ * gaining a record nobody can reconcile.
+ */
+function assertDiscardAuditMatchesLog(
+  events: readonly Event[],
+  descendants: readonly RewoundDescendant[]
+): void {
+  const routes = new Map<EventId, ModelRoutedPayload>();
+  const childTasks = new Map<RunId, TaskId>();
+  for (const event of events) {
+    if (event.type === "MODEL_ROUTED") routes.set(event.id, event.payload);
+    else if (event.type === "CHILD_RUN_CREATED") {
+      childTasks.set(event.payload.childRun.id, event.payload.childRun.rootTaskId);
+    }
+  }
+  for (const descendant of descendants) {
+    let cost = 0;
+    let duration = 0;
+    for (const routeId of descendant.modelRouteEventIds) {
+      const route = routes.get(routeId);
+      if (route === undefined) {
+        throw new DomainValidationError(
+          `discard audit for ${descendant.nodeId} cites MODEL_ROUTED ${routeId}, which is not on this run's log`
+        );
+      }
+      if (route.taskId !== descendant.taskId) {
+        throw new DomainValidationError(
+          `discard audit for ${descendant.nodeId} cites MODEL_ROUTED ${routeId}, which routed ${route.taskId}, not ${descendant.taskId}`
+        );
+      }
+      cost += route.estimatedCostUsd;
+      duration += route.estimatedDurationMs;
+    }
+    if (
+      cost !== descendant.chargedEstimatedCostUsd ||
+      duration !== descendant.chargedEstimatedDurationMs
+    ) {
+      throw new DomainValidationError(
+        `discard audit for ${descendant.nodeId} claims ${descendant.chargedEstimatedCostUsd} USD / ${descendant.chargedEstimatedDurationMs} ms, but the MODEL_ROUTED rows it cites total ${cost} USD / ${duration} ms`
+      );
+    }
+    for (const childRunId of descendant.childRunIds) {
+      const taskId = childTasks.get(childRunId);
+      if (taskId !== descendant.taskId) {
+        throw new DomainValidationError(
+          `discard audit for ${descendant.nodeId} cites child run ${childRunId}, which this log does not record for ${descendant.taskId}`
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Everything the stronger authorization needs, computed and checked before a
+ * byte is written: the reopened snapshot, and the event that records it.
+ */
+function discardAuthorization(
+  config: Omit<FlowchartSupervisorConfig, "snapshot">,
+  snapshot: FlowchartSupervisorSnapshot,
+  events: readonly Event[],
+  blockedEventId: EventId,
+  reason: string,
+  retryNodeId: string
+): {
+  readonly reopened: FlowchartSupervisorSnapshot;
+  readonly type: "RUN_UNBLOCKED_WITH_DISCARD";
+  readonly payload: RunUnblockedWithDiscardPayload;
+} {
+  const plan = reopenBlockedFlowchartSnapshotWithDiscard(config, snapshot, { retryNodeId });
+  const rewoundDescendants = discardAuditRecords(events, plan.rewound);
+  assertDiscardAuditMatchesLog(events, rewoundDescendants);
+  return {
+    reopened: plan.snapshot,
+    type: "RUN_UNBLOCKED_WITH_DISCARD",
+    payload: { blockedEventId, reason, retryNodeId, rewoundDescendants }
+  };
+}
+
+/**
+ * The checkpoint transform a recorded clearing event asks for.
+ *
+ * Both events reach every restore path through here, so the crash window is one
+ * window rather than one per event type. The stronger one is additionally
+ * checked against what it claimed: restore recomputes the consequence set from
+ * the durable definition and the blocked checkpoint and refuses if it differs
+ * from `rewoundDescendants`, because a hand-edited list must not be able to
+ * authorize rewinding state the transform never selected.
+ */
+function applyClearingEvent(
+  config: Omit<FlowchartSupervisorConfig, "snapshot">,
+  snapshot: FlowchartSupervisorSnapshot,
+  clearing: ClearingEvent
+): FlowchartSupervisorSnapshot {
+  if (clearing.type === "RUN_UNBLOCKED") {
+    return reopenBlockedFlowchartSnapshot(
+      config,
+      snapshot,
+      clearing.payload.retryNodeId !== undefined ? { retryNodeId: clearing.payload.retryNodeId } : {}
+    );
+  }
+  const plan = reopenBlockedFlowchartSnapshotWithDiscard(config, snapshot, {
+    retryNodeId: clearing.payload.retryNodeId
+  });
+  const recomputed = plan.rewound.map(
+    (entry) => `${entry.nodeId}:${entry.taskId}:${entry.previousState}`
+  );
+  const authorized = clearing.payload.rewoundDescendants.map(
+    (entry) => `${entry.nodeId}:${entry.taskId}:${entry.previousState}`
+  );
+  if (recomputed.length !== authorized.length || recomputed.some((entry, at) => entry !== authorized[at])) {
+    throw new DomainValidationError(
+      `${clearing.type} ${clearing.id} authorized rewinding ${authorized.join(", ")}, but this checkpoint's consequence set is ${recomputed.join(", ")}`
+    );
+  }
+  return plan.snapshot;
 }
 
 /**
@@ -1722,42 +1922,56 @@ async function unblockLockedFlowchartRun(
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
   const { definition, snapshot, limits, contract } = checkpoint.flowchart;
-  const retryNodeId = resolveRetryTarget(
-    read.events,
-    blockedEventId,
-    definition,
-    snapshot,
-    request.retryNodeId
-  );
+  const gateFailedNode = gateBlockedFailedNode(read.events, blockedEventId, definition, snapshot);
+  const retryNodeId = resolveRetryTarget(gateFailedNode, request.retryNodeId);
+  const discardExecuted = request.discardExecuted === true;
+  // The stronger authorization is defined relative to one failed node's
+  // consequences, so a block that names no such node — the run-level stall
+  // shape above all — has nothing for it to authorize.
+  if (discardExecuted && gateFailedNode === undefined) {
+    throw new DomainValidationError(
+      "--discard-executed discards the executed consequences of one failed node: this block names no failed node, so there is nothing to discard behind"
+    );
+  }
+
+  const config = {
+    flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
+    router: deps.router,
+    limits,
+    runId,
+    ...(generateId !== undefined ? { generateId } : {}),
+    now
+  };
 
   // The transform runs before the append, so a refused reopen — an unknown
-  // node, a node that never failed, a descendant that already executed —
-  // leaves no authorization on a log that did not earn one.
-  const reopened = reopenBlockedFlowchartSnapshot(
-    {
-      flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
-      router: deps.router,
-      limits,
-      runId,
-      ...(generateId !== undefined ? { generateId } : {}),
-      now
-    },
-    snapshot,
-    retryNodeId !== undefined ? { retryNodeId } : {}
-  );
+  // node, a node that never failed, a descendant that already executed, or a
+  // discard whose audit record the log cannot support — leaves no
+  // authorization on a log that did not earn one.
+  const authorization = discardExecuted
+    ? discardAuthorization(config, snapshot, read.events, blockedEventId, reason, gateFailedNode!)
+    : {
+        reopened: reopenBlockedFlowchartSnapshot(
+          config,
+          snapshot,
+          retryNodeId !== undefined ? { retryNodeId } : {}
+        ),
+        type: "RUN_UNBLOCKED" as const,
+        payload: {
+          blockedEventId,
+          reason,
+          ...(retryNodeId !== undefined ? { retryNodeId } : {})
+        }
+      };
+  const reopened = authorization.reopened;
 
   const make = makeEventFactory(runId, now, generateId, request.actor ?? "operator");
-  // Append first. A crash after this leaves the authorization on the log with a
-  // checkpoint that still describes the block, which every restore path
-  // recovers; the reverse — a reopened checkpoint with nothing on the log
-  // authorizing it — is a state no reader could explain.
-  await eventStore.append(
-    make("RUN_UNBLOCKED", {
-      blockedEventId,
-      reason,
-      ...(retryNodeId !== undefined ? { retryNodeId } : {})
-    })
-  );
+  // Append first, and exactly once whichever authorization this is. A crash
+  // after this leaves the authorization on the log with a checkpoint that still
+  // describes the block, which every restore path recovers; the reverse — a
+  // reopened checkpoint with nothing on the log authorizing it — is a state no
+  // reader could explain. Two appends for one operator act would add a third
+  // state: half an authorization, durable.
+  await eventStore.append(make(authorization.type, authorization.payload));
   const after = await eventStore.readAll();
   const nextCheckpoint = validateCheckpoint(
     materializeCheckpoint(replayRun(after.events), now(), {

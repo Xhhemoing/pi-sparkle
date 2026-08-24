@@ -61,6 +61,7 @@ export const EVENT_TYPES = [
   "MODEL_ROUTED",
   "RUN_BLOCKED",
   "RUN_UNBLOCKED",
+  "RUN_UNBLOCKED_WITH_DISCARD",
   "PAUSE_REQUESTED",
   "PAUSE_CLEARED",
   "INJECTION_REQUESTED",
@@ -254,6 +255,83 @@ export interface RunUnblockedPayload {
   retryNodeId?: string;
 }
 
+/** The node states a discard authorization may supersede, ordered as the transform reports them. */
+export const REWOUND_DESCENDANT_STATES = [
+  "READY",
+  "SKIPPED",
+  "RUNNING",
+  "WAITING_FOR_USER",
+  "COMPLETED",
+  "FAILED"
+] as const;
+
+export type RewoundDescendantState = (typeof REWOUND_DESCENDANT_STATES)[number];
+
+/** The four states that mean work actually happened, so discarding one needs authorizing. */
+const EXECUTED_DESCENDANT_STATES: readonly RewoundDescendantState[] = [
+  "RUNNING",
+  "WAITING_FOR_USER",
+  "COMPLETED",
+  "FAILED"
+];
+
+/**
+ * One node whose control-state result a discard authorization supersedes.
+ *
+ * `nodeId` plus `taskId` pins both identities: the reopen moves a
+ * `FlowNodeState`, while everything the attempt left on the log is keyed by
+ * task. `modelRouteEventIds` and `childRunIds` name the exact attempts being
+ * superseded — the original rows stay on the log and stay factual, so this
+ * event makes the supersession queryable rather than deleting history.
+ *
+ * The charged estimates are the sums of `estimatedCostUsd` and
+ * `estimatedDurationMs` over exactly the `MODEL_ROUTED` rows referenced above,
+ * and the producer re-derives them from those rows and refuses on any mismatch.
+ * They are deliberately not a provider bill: invocation telemetry is
+ * best-effort and asynchronous, so a missing usage record means unknown, not
+ * zero, and this event may not claim complete actual spend. A `READY` or
+ * `SKIPPED` descendant carries no references and zeroes, which mean "no route
+ * was charged for this state" — not "the run cost nothing".
+ */
+export interface RewoundDescendant {
+  nodeId: string;
+  taskId: TaskId;
+  previousState: RewoundDescendantState;
+  modelRouteEventIds: readonly EventId[];
+  childRunIds: readonly RunId[];
+  chargedEstimatedCostUsd: number;
+  chargedEstimatedDurationMs: number;
+}
+
+/**
+ * The operator's authorization to end one block *and* discard the executed work
+ * downstream of the node being re-driven.
+ *
+ * This is a distinct event rather than a fourth key on
+ * {@link RunUnblockedPayload}, for two reasons that both outlive the flag. The
+ * ordinary authorization is exact-key frozen and deliberately narrow: a
+ * strength field on it would make every existing reader branch on how much the
+ * operator was permitted to erase, and would retire the refusals that freeze
+ * says. And keeping the whole authorization in one append means no crash window
+ * can leave half of it durable — the alternative, a discard event followed by
+ * an ordinary `RUN_UNBLOCKED`, would need cross-event pairing and orphan rules
+ * to represent a single operator act.
+ *
+ * `retryNodeId` is required here: discarding downstream work is only meaningful
+ * relative to the node being re-driven, so the targetless stall shape cannot
+ * carry this event at all. `rewoundDescendants` is the full consequence set the
+ * transform computed under the run lifecycle lock — never an operator-supplied
+ * list — and excludes the retry target, which `retryNodeId` already names. At
+ * least one entry must record an executed prior state; without one there was
+ * nothing to authorize and the ordinary event is the honest record.
+ */
+export interface RunUnblockedWithDiscardPayload {
+  blockedEventId: EventId;
+  reason: string;
+  retryNodeId: string;
+  rewoundDescendants: readonly RewoundDescendant[];
+}
+
 export interface PauseRequestedPayload {
   reason?: string;
 }
@@ -347,6 +425,10 @@ export type Event =
   | (EventBase & { type: "MODEL_ROUTED"; payload: ModelRoutedPayload })
   | (EventBase & { type: "RUN_BLOCKED"; payload: RunBlockedPayload })
   | (EventBase & { type: "RUN_UNBLOCKED"; payload: RunUnblockedPayload })
+  | (EventBase & {
+      type: "RUN_UNBLOCKED_WITH_DISCARD";
+      payload: RunUnblockedWithDiscardPayload;
+    })
   | (EventBase & { type: "PAUSE_REQUESTED"; payload: PauseRequestedPayload })
   | (EventBase & { type: "PAUSE_CLEARED"; payload: EmptyPayload })
   | (EventBase & { type: "INJECTION_REQUESTED"; payload: InjectionRequestedPayload })
@@ -430,6 +512,68 @@ export function routingContextFields(source: {
 
 function isEmptyPayload(payload: Record<string, unknown>): boolean {
   return Object.keys(payload).length === 0;
+}
+
+/**
+ * One `rewoundDescendants` entry, checked exactly.
+ *
+ * The entry is an audit claim about work that is being superseded, so every
+ * field it carries has to be readable on its own: an unresolvable node or task,
+ * a state outside the transform's vocabulary, or a reference that names no
+ * event makes the claim unauditable rather than merely imprecise. The
+ * `READY`/`SKIPPED` rule is the same discipline pointed the other way — those
+ * states never held a route, so a non-empty reference or a non-zero charge
+ * there would be an invented one.
+ */
+function rewoundDescendantError(value: unknown, index: number): string | undefined {
+  const at = `payload.rewoundDescendants[${index}]`;
+  if (!isRecord(value)) return `${at} must be an object`;
+  const allowed = [
+    "nodeId",
+    "taskId",
+    "previousState",
+    "modelRouteEventIds",
+    "childRunIds",
+    "chargedEstimatedCostUsd",
+    "chargedEstimatedDurationMs"
+  ];
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) {
+    return `${at} may only include ${allowed.join(", ")}; unknown: ${unknown.join(", ")}`;
+  }
+  if (typeof value.nodeId !== "string" || value.nodeId.trim() === "") {
+    return `${at}.nodeId must be a non-empty string`;
+  }
+  if (!isTaskId(value.taskId)) return `${at}.taskId must be a valid TaskId`;
+  if (
+    typeof value.previousState !== "string" ||
+    !(REWOUND_DESCENDANT_STATES as readonly string[]).includes(value.previousState)
+  ) {
+    return `${at}.previousState must be one of ${REWOUND_DESCENDANT_STATES.join(", ")}`;
+  }
+  if (!Array.isArray(value.modelRouteEventIds) || !value.modelRouteEventIds.every(isEventId)) {
+    return `${at}.modelRouteEventIds must be an array of EventIds`;
+  }
+  if (!Array.isArray(value.childRunIds) || !value.childRunIds.every(isRunId)) {
+    return `${at}.childRunIds must be an array of RunIds`;
+  }
+  for (const key of ["chargedEstimatedCostUsd", "chargedEstimatedDurationMs"] as const) {
+    const charged = value[key];
+    if (typeof charged !== "number" || !Number.isFinite(charged) || charged < 0) {
+      return `${at}.${key} must be a non-negative finite number`;
+    }
+  }
+  const executed = (EXECUTED_DESCENDANT_STATES as readonly string[]).includes(value.previousState);
+  if (
+    !executed &&
+    (value.modelRouteEventIds.length > 0 ||
+      value.childRunIds.length > 0 ||
+      value.chargedEstimatedCostUsd !== 0 ||
+      value.chargedEstimatedDurationMs !== 0)
+  ) {
+    return `${at} is ${value.previousState}, which never held a route: it must carry no references and zero charged estimates`;
+  }
+  return undefined;
 }
 
 function payloadError(type: M0EventType, payload: unknown): string | undefined {
@@ -725,6 +869,51 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
         (typeof payload.retryNodeId !== "string" || payload.retryNodeId.trim() === "")
       ) {
         return "payload.retryNodeId must be a non-empty string when present";
+      }
+      return undefined;
+    }
+    case "RUN_UNBLOCKED_WITH_DISCARD": {
+      // Exact keys again, and for the same reason: the stronger authorization
+      // is still an authorization record, so a reader that cannot account for
+      // every field it carries must not honour it.
+      const allowed = ["blockedEventId", "reason", "retryNodeId", "rewoundDescendants"];
+      const unknown = Object.keys(payload).filter((key) => !allowed.includes(key));
+      if (unknown.length > 0) {
+        return `payload may only include ${allowed.join(", ")}; unknown: ${unknown.join(", ")}`;
+      }
+      if (!isEventId(payload.blockedEventId)) {
+        return "payload.blockedEventId must be a valid EventId";
+      }
+      if (typeof payload.reason !== "string" || payload.reason.trim() === "") {
+        return "payload.reason must be a non-empty string";
+      }
+      if (typeof payload.retryNodeId !== "string" || payload.retryNodeId.trim() === "") {
+        return "payload.retryNodeId must be a non-empty string";
+      }
+      if (!Array.isArray(payload.rewoundDescendants) || payload.rewoundDescendants.length === 0) {
+        return "payload.rewoundDescendants must be a non-empty array";
+      }
+      let previousNodeId: string | undefined;
+      let sawExecuted = false;
+      for (const [index, entry] of payload.rewoundDescendants.entries()) {
+        const reason = rewoundDescendantError(entry, index);
+        if (reason !== undefined) return reason;
+        const descendant = entry as RewoundDescendant;
+        if (descendant.nodeId === payload.retryNodeId) {
+          return `payload.rewoundDescendants must not repeat the retry target ${payload.retryNodeId}`;
+        }
+        // Canonical order also settles uniqueness: a duplicate cannot be
+        // strictly greater than the entry before it.
+        if (previousNodeId !== undefined && descendant.nodeId <= previousNodeId) {
+          return "payload.rewoundDescendants must be unique and ordered by nodeId";
+        }
+        previousNodeId = descendant.nodeId;
+        if ((EXECUTED_DESCENDANT_STATES as readonly string[]).includes(descendant.previousState)) {
+          sawExecuted = true;
+        }
+      }
+      if (!sawExecuted) {
+        return `payload.rewoundDescendants must include at least one descendant in ${EXECUTED_DESCENDANT_STATES.join(", ")}`;
       }
       return undefined;
     }

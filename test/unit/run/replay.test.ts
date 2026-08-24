@@ -378,6 +378,154 @@ test("a run can cycle BLOCKED, RUNNING and BLOCKED again, each unblock naming it
   assert.deepEqual(replayRun(finished).anomalies, [], "two full cycles still end with one terminal");
 });
 
+/**
+ * The second clearing event, held to exactly the first one's rules.
+ *
+ * `RUN_UNBLOCKED_WITH_DISCARD` authorizes a wider checkpoint *transform* — it
+ * may rewind executed descendants, which the ordinary event refuses. It
+ * authorizes nothing wider here. If matching were laxer for it, an operator
+ * could clear a block the ordinary event could not simply by asking to discard
+ * more, which inverts what the stronger authorization means; and if it were
+ * stricter, a log carrying one would replay as still-blocked while the
+ * checkpoint had already reopened. So the whole of the difference is which
+ * transform the restore path runs, and none of it is here.
+ */
+function discardUnblocking(id: string, retryNodeId = "node-a") {
+  return makeEvent(
+    "RUN_UNBLOCKED_WITH_DISCARD",
+    {
+      blockedEventId: createEventId(() => id),
+      reason: "operator authorized discarding the executed branch",
+      retryNodeId,
+      rewoundDescendants: [
+        {
+          nodeId: "node-b",
+          taskId: TASK,
+          previousState: "COMPLETED",
+          modelRouteEventIds: [createEventId(() => "route-b")],
+          childRunIds: [createRunId(() => "11111111-2222-3333-4444-555555555555")],
+          chargedEstimatedCostUsd: 0.5,
+          chargedEstimatedDurationMs: 4_000
+        }
+      ]
+    },
+    { id: createEventId(() => `discard-${id}`) }
+  );
+}
+
+test("a matched RUN_UNBLOCKED_WITH_DISCARD clears the latch exactly as the ordinary one does", () => {
+  assert.ok(
+    (EVENT_TYPES as readonly string[]).includes("RUN_UNBLOCKED_WITH_DISCARD"),
+    "the stronger authorization is a persisted event type of its own"
+  );
+
+  const unblocked = [...blockedLog("block-1"), discardUnblocking("block-1")];
+  assert.equal(replayRun(unblocked).status, "RUNNING");
+  assert.equal(replayedTerminalStatus(unblocked), undefined, "the latch is open");
+  assert.deepEqual(replayRun(unblocked).anomalies, []);
+  assert.equal(replayRun(unblocked).activeBlockedEventId, undefined);
+  assert.equal(replayRun(unblocked).clearingUnblockEventId, unblocked[3]?.id);
+
+  const completed = [...unblocked, makeEvent("RUN_COMPLETED", {})];
+  assert.equal(replayRun(completed).status, "COMPLETED");
+  assert.deepEqual(replayRun(completed).anomalies, []);
+  assert.deepEqual(
+    replayRun([...completed, makeEvent("RUN_FAILED", { reason: "late" })]).anomalies,
+    ["multiple terminal events"],
+    "and the latch closes behind it"
+  );
+
+  // It is an event, not a status: the set of terminals it opens is the same set
+  // neither clearing event is a member of.
+  assert.deepEqual([...TERMINAL_REPLAY_STATUSES].toSorted(), ["BLOCKED", "COMPLETED", "FAILED"]);
+});
+
+test("an unblocked-with-discard run re-derives its status from the rest of the log", () => {
+  const unblocked = [...blockedLog("block-1"), discardUnblocking("block-1")];
+  assert.equal(
+    replayRun([...unblocked, makeEvent("PAUSE_REQUESTED", { reason: "hold" })]).status,
+    "PAUSED"
+  );
+  assert.equal(replayRun([...unblocked, makeEvent("RUN_CANCEL_REQUESTED", {})]).status, "CANCELLED");
+  assert.equal(
+    replayRun([
+      ...unblocked,
+      makeEvent("RUN_WAITING_FOR_USER", { messageId: "msg_01234567-89ab-cdef-0123-456789abcdef" })
+    ]).status,
+    "WAITING_FOR_USER"
+  );
+});
+
+test("a stale, doubled or post-terminal discard authorization clears nothing and names itself", () => {
+  const stale = [...blockedLog("block-1"), discardUnblocking("block-other")];
+  assert.equal(replayRun(stale).status, "BLOCKED");
+  assert.equal(replayedTerminalStatus(stale), "BLOCKED");
+  assert.deepEqual(replayRun(stale).anomalies, [
+    "RUN_UNBLOCKED_WITH_DISCARD does not match the active RUN_BLOCKED"
+  ]);
+  assert.equal(replayRun(stale).clearingUnblockEventId, undefined);
+
+  const doubled = [...blockedLog("block-1"), discardUnblocking("block-1"), discardUnblocking("block-1")];
+  assert.deepEqual(replayRun(doubled).anomalies, [
+    "RUN_UNBLOCKED_WITH_DISCARD without an active RUN_BLOCKED"
+  ]);
+  assert.equal(replayRun(doubled).status, "RUNNING");
+
+  const afterCompleted = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_COMPLETED", {}),
+    discardUnblocking("block-1")
+  ];
+  assert.equal(replayRun(afterCompleted).status, "COMPLETED", "no authorization un-completes a run");
+  assert.deepEqual(replayRun(afterCompleted).anomalies, [
+    "RUN_UNBLOCKED_WITH_DISCARD after a terminal event"
+  ]);
+
+  const neverBlocked = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    discardUnblocking("block-1")
+  ];
+  assert.deepEqual(replayRun(neverBlocked).anomalies, [
+    "RUN_UNBLOCKED_WITH_DISCARD without an active RUN_BLOCKED"
+  ]);
+});
+
+test("the two clearing events interleave over a re-block cycle without either inheriting the other's block", () => {
+  const cycled = [
+    ...blockedLog("block-1"),
+    discardUnblocking("block-1"),
+    makeEvent(
+      "RUN_BLOCKED",
+      { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_y"] },
+      { id: createEventId(() => "block-2") }
+    )
+  ];
+  assert.equal(replayRun(cycled).status, "BLOCKED", "the second block is a first terminal");
+  assert.deepEqual(replayRun(cycled).anomalies, []);
+  assert.equal(replayRun(cycled).activeBlockedEventId, createEventId(() => "block-2"));
+
+  // A discard spent on the first block does not carry over to the second, and
+  // neither does an ordinary authorization aimed at the first.
+  assert.deepEqual(replayRun([...cycled, discardUnblocking("block-1")]).anomalies, [
+    "RUN_UNBLOCKED_WITH_DISCARD does not match the active RUN_BLOCKED"
+  ]);
+  assert.deepEqual(replayRun([...cycled, unblocking("block-1")]).anomalies, [
+    "RUN_UNBLOCKED does not match the active RUN_BLOCKED"
+  ]);
+
+  // Either event may clear either block: the strength is about the transform,
+  // not about which block it is allowed to name.
+  const clearedOrdinary = [...cycled, unblocking("block-2", "node-a")];
+  assert.equal(replayRun(clearedOrdinary).status, "RUNNING");
+  assert.deepEqual(replayRun(clearedOrdinary).anomalies, []);
+
+  const finished = [...cycled, discardUnblocking("block-2"), makeEvent("RUN_COMPLETED", {})];
+  assert.equal(replayRun(finished).status, "COMPLETED");
+  assert.deepEqual(replayRun(finished).anomalies, [], "two cycles, two authorizations, one terminal");
+});
+
 test("replayedTerminalStatus names the terminal a log already carries", () => {
   const started = [makeEvent("RUN_CREATED", { run }), makeEvent("RUN_STARTED", {})];
   assert.equal(replayedTerminalStatus([]), undefined);

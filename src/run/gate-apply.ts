@@ -210,9 +210,15 @@ export function executionAuthority(input: {
  *
  * It tracks the active `RUN_BLOCKED` id for the same reason replay does: only
  * an unblock that names the block in force clears it. A stale or unmatched
- * `RUN_UNBLOCKED` leaves the gate BLOCKED, so the two reconstructions agree
+ * clearing event leaves the gate BLOCKED, so the two reconstructions agree
  * about which run is running — without that, an unblocked run's next
  * transition would claim to start from a block that no longer exists.
+ *
+ * Both clearing events count, and identically. `RUN_UNBLOCKED_WITH_DISCARD`
+ * authorizes a wider checkpoint transform, not a different lifecycle: reading
+ * only the ordinary one here would leave the gate recording `from: "BLOCKED"`
+ * for a run replay calls RUNNING, which is exactly the disagreement between the
+ * two reconstructions this function exists to prevent.
  *
  * Writing that field is its whole job: this reconstruction never decides
  * anything. In production it is observable only through the `from` field of a
@@ -232,7 +238,7 @@ function currentGateStatus(events: readonly Event[]): GateRunStatus {
     else if (event.type === "RUN_BLOCKED") {
       status = "BLOCKED";
       blockedEventId = event.id;
-    } else if (event.type === "RUN_UNBLOCKED") {
+    } else if (event.type === "RUN_UNBLOCKED" || event.type === "RUN_UNBLOCKED_WITH_DISCARD") {
       if (blockedEventId !== undefined && event.payload.blockedEventId === blockedEventId) {
         status = "RUNNING";
         blockedEventId = undefined;

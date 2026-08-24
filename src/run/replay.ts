@@ -43,16 +43,18 @@ export interface ReconstructedRun {
   lastEventId?: EventId;
   anomalies: string[];
   /**
-   * The `RUN_BLOCKED` a `RUN_UNBLOCKED` would have to name to clear this log,
+   * The `RUN_BLOCKED` a clearing event would have to name to clear this log,
    * or `undefined` when the log is not currently blocked. Present so the
    * unblock producer targets the *active* block rather than re-deriving which
    * one that is.
    */
   activeBlockedEventId?: EventId;
   /**
-   * The `RUN_UNBLOCKED` that currently holds the latch open, when one does.
+   * The clearing event that currently holds the latch open, when one does —
+   * either an ordinary `RUN_UNBLOCKED` or a `RUN_UNBLOCKED_WITH_DISCARD`.
    * Restore uses it to tell an already-applied unblock from one the checkpoint
-   * has not seen yet.
+   * has not seen yet, and reads the event itself to learn which transform the
+   * authorization asked for.
    */
   clearingUnblockEventId?: EventId;
 }
@@ -166,21 +168,29 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
         status = "BLOCKED";
         break;
       }
-      case "RUN_UNBLOCKED": {
+      case "RUN_UNBLOCKED":
+      case "RUN_UNBLOCKED_WITH_DISCARD": {
         // Only an unblock that names the block currently in force clears the
         // latch. Everything else is a fact the log keeps and an anomaly it
         // reports: the terminal stays exactly where it was, so every writer
         // that consults `replayedTerminalStatus` keeps refusing.
+        //
+        // Both clearing events answer to exactly these rules. The stronger one
+        // authorizes a wider *transform*, not a wider replay: if matching were
+        // laxer for it, an operator could clear a block the ordinary event
+        // could not by asking for more, which is the opposite of what the
+        // stronger authorization means. The anomaly names the event that
+        // caused it so a log reader can tell the two apart.
         if (activeTerminalType === undefined) {
-          anomalies.push("RUN_UNBLOCKED without an active RUN_BLOCKED");
+          anomalies.push(`${event.type} without an active RUN_BLOCKED`);
           break;
         }
         if (activeTerminalType !== "RUN_BLOCKED") {
-          anomalies.push("RUN_UNBLOCKED after a terminal event");
+          anomalies.push(`${event.type} after a terminal event`);
           break;
         }
         if (event.payload.blockedEventId !== activeBlockedEventId) {
-          anomalies.push("RUN_UNBLOCKED does not match the active RUN_BLOCKED");
+          anomalies.push(`${event.type} does not match the active RUN_BLOCKED`);
           break;
         }
         sawTerminal = false;
@@ -267,11 +277,12 @@ export function replayRun(events: readonly Event[]): ReconstructedRun {
  * `queue_analysis` means "terminal BLOCKED until an explicit unblock", not "keep
  * going" — which is why it belongs here next to COMPLETED and FAILED.
  *
- * `RUN_UNBLOCKED` is not in this set and is not a status: it ends the active
- * BLOCKED interval, after which the log has no terminal at all and the next
- * COMPLETED, FAILED or BLOCKED is the new one. That is the whole integration
- * seam — every writer that asks {@link replayedTerminalStatus} whether the log
- * already ended opens again with no per-writer exception.
+ * Neither clearing event — `RUN_UNBLOCKED` nor `RUN_UNBLOCKED_WITH_DISCARD` —
+ * is in this set, and neither is a status: they end the active BLOCKED
+ * interval, after which the log has no terminal at all and the next COMPLETED,
+ * FAILED or BLOCKED is the new one. That is the whole integration seam — every
+ * writer that asks {@link replayedTerminalStatus} whether the log already ended
+ * opens again with no per-writer exception.
  */
 export const TERMINAL_REPLAY_STATUSES: ReadonlySet<RunStatus> = new Set([
   "COMPLETED",

@@ -37,6 +37,7 @@ const MESSAGE_ID = createMessageId(UUID);
 const AGENT_ID = createAgentInstanceId(UUID);
 const EPISODE_ID = createEpisodeId(UUID);
 const BLOCKED_EVENT_ID = createEventId(() => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+const ROUTE_EVENT_ID = createEventId(() => "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
 
 const PROJECT = {
   id: createProjectId(UUID),
@@ -221,6 +222,31 @@ const EVENT_SEEDS = {
     blockedEventId: BLOCKED_EVENT_ID,
     reason: "operator reviewed the queued analysis",
     retryNodeId: "node-fuzz"
+  }),
+  RUN_UNBLOCKED_WITH_DISCARD: makeEvent("RUN_UNBLOCKED_WITH_DISCARD", {
+    blockedEventId: BLOCKED_EVENT_ID,
+    reason: "operator authorized discarding the executed branch",
+    retryNodeId: "node-fuzz",
+    rewoundDescendants: [
+      {
+        nodeId: "node-fuzz-left",
+        taskId: TASK_ID,
+        previousState: "COMPLETED",
+        modelRouteEventIds: [ROUTE_EVENT_ID],
+        childRunIds: [CHILD_RUN_ID],
+        chargedEstimatedCostUsd: 0.5,
+        chargedEstimatedDurationMs: 4_000
+      },
+      {
+        nodeId: "node-fuzz-right",
+        taskId: TASK_ID,
+        previousState: "SKIPPED",
+        modelRouteEventIds: [],
+        childRunIds: [],
+        chargedEstimatedCostUsd: 0,
+        chargedEstimatedDurationMs: 0
+      }
+    ]
   }),
   PAUSE_REQUESTED: makeEvent("PAUSE_REQUESTED", { reason: "inspect fuzz state" }),
   PAUSE_CLEARED: makeEvent("PAUSE_CLEARED", {}),
@@ -537,6 +563,195 @@ type RunUnblockedPayloadKeysAreExact =
 test("RUN_UNBLOCKED payload type is frozen to its three allowed keys", () => {
   const exactKeySet: RunUnblockedPayloadKeysAreExact = true;
   assert.equal(exactKeySet, true);
+});
+
+type DiscardPayload = Extract<Event, { type: "RUN_UNBLOCKED_WITH_DISCARD" }>["payload"];
+type DiscardPayloadKeys = keyof DiscardPayload;
+type DiscardPayloadKeysAreExact =
+  [DiscardPayloadKeys] extends ["blockedEventId" | "reason" | "retryNodeId" | "rewoundDescendants"]
+    ? ["blockedEventId" | "reason" | "retryNodeId" | "rewoundDescendants"] extends [DiscardPayloadKeys]
+      ? true
+      : false
+    : false;
+
+type RewoundKeys = keyof DiscardPayload["rewoundDescendants"][number];
+type RewoundKeysAreExact =
+  [RewoundKeys] extends [
+    | "nodeId"
+    | "taskId"
+    | "previousState"
+    | "modelRouteEventIds"
+    | "childRunIds"
+    | "chargedEstimatedCostUsd"
+    | "chargedEstimatedDurationMs"
+  ]
+    ? [
+        | "nodeId"
+        | "taskId"
+        | "previousState"
+        | "modelRouteEventIds"
+        | "childRunIds"
+        | "chargedEstimatedCostUsd"
+        | "chargedEstimatedDurationMs"
+      ] extends [RewoundKeys]
+      ? true
+      : false
+    : false;
+
+/**
+ * The same freeze R9-10 put on the ordinary authorization, extended to the
+ * stronger one at both levels it has.
+ *
+ * The runtime exact-key refusals below catch a hand-written row; these catch
+ * the other direction — a future field added to the interface, which would
+ * otherwise compile happily and only fail once someone wrote one. Freezing the
+ * nested entry matters as much as the envelope: `rewoundDescendants` is where
+ * an "actualCostUsd" or a copied evidence id would want to be added, and the
+ * reason it must not be is a schema decision, not a drive-by.
+ */
+test("RUN_UNBLOCKED_WITH_DISCARD is type-frozen at its payload and its descendant entry", () => {
+  const payloadKeys: DiscardPayloadKeysAreExact = true;
+  const rewoundKeys: RewoundKeysAreExact = true;
+  assert.equal(payloadKeys, true);
+  assert.equal(rewoundKeys, true);
+});
+
+/**
+ * The refusals behind the seed above, each naming the claim the row could not
+ * support.
+ *
+ * A discard authorization is the strongest thing an operator can write to a run
+ * log: it says specific executed work no longer counts. So every part of it has
+ * to be checkable in isolation — an unreadable target, a state outside the
+ * transform's vocabulary, a duplicate or out-of-order entry, a discard that
+ * discards nothing, or a `READY`/`SKIPPED` entry claiming a route it never had.
+ * Each of those would leave a reader unable to say what was superseded, which
+ * is the only thing this event exists to say.
+ */
+test("a RUN_UNBLOCKED_WITH_DISCARD row is refused unless every claim it makes is auditable", () => {
+  const seed = EVENT_SEEDS.RUN_UNBLOCKED_WITH_DISCARD;
+  assert.deepEqual(validateEvent(seed), seed);
+
+  const executed = {
+    nodeId: "node-fuzz-left",
+    taskId: TASK_ID,
+    previousState: "COMPLETED",
+    modelRouteEventIds: [ROUTE_EVENT_ID],
+    childRunIds: [CHILD_RUN_ID],
+    chargedEstimatedCostUsd: 0.5,
+    chargedEstimatedDurationMs: 4_000
+  };
+  const base = { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", retryNodeId: "node-fuzz" };
+  const withPayload = (payload: unknown): unknown => ({ ...seed, payload });
+  const cases: readonly [unknown, RegExp][] = [
+    [
+      { ...base, rewoundDescendants: [executed], discardExecuted: true },
+      /payload may only include blockedEventId, reason, retryNodeId, rewoundDescendants; unknown: discardExecuted/
+    ],
+    [{ ...base, blockedEventId: "nope", rewoundDescendants: [executed] }, /payload\.blockedEventId must be a valid EventId/],
+    [{ ...base, reason: "  ", rewoundDescendants: [executed] }, /payload\.reason must be a non-empty string/],
+    // The ordinary event's node is optional; this one's is not — a targetless
+    // stall block has no consequences to discard.
+    [
+      { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", rewoundDescendants: [executed] },
+      /payload\.retryNodeId must be a non-empty string/
+    ],
+    [{ ...base, rewoundDescendants: [] }, /payload\.rewoundDescendants must be a non-empty array/],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, actualCostUsd: 1 }] },
+      /payload\.rewoundDescendants\[0\] may only include nodeId, taskId, previousState, modelRouteEventIds, childRunIds, chargedEstimatedCostUsd, chargedEstimatedDurationMs; unknown: actualCostUsd/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, taskId: "node-fuzz-left" }] },
+      /payload\.rewoundDescendants\[0\]\.taskId must be a valid TaskId/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, previousState: "PENDING" }] },
+      /payload\.rewoundDescendants\[0\]\.previousState must be one of READY, SKIPPED, RUNNING, WAITING_FOR_USER, COMPLETED, FAILED/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, modelRouteEventIds: ["not-an-event"] }] },
+      /payload\.rewoundDescendants\[0\]\.modelRouteEventIds must be an array of EventIds/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, childRunIds: [TASK_ID] }] },
+      /payload\.rewoundDescendants\[0\]\.childRunIds must be an array of RunIds/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, chargedEstimatedCostUsd: -1 }] },
+      /payload\.rewoundDescendants\[0\]\.chargedEstimatedCostUsd must be a non-negative finite number/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, chargedEstimatedDurationMs: Number.NaN }] },
+      /payload\.rewoundDescendants\[0\]\.chargedEstimatedDurationMs must be a non-negative finite number/
+    ],
+    // Absence is not zero, and zero is not a route: a state that never held one
+    // may not cite one either.
+    [
+      {
+        ...base,
+        rewoundDescendants: [
+          { ...executed, previousState: "SKIPPED", childRunIds: [], chargedEstimatedCostUsd: 0, chargedEstimatedDurationMs: 0 }
+        ]
+      },
+      /payload\.rewoundDescendants\[0\] is SKIPPED, which never held a route: it must carry no references and zero charged estimates/
+    ],
+    [
+      {
+        ...base,
+        rewoundDescendants: [
+          { ...executed, previousState: "READY", modelRouteEventIds: [], childRunIds: [], chargedEstimatedDurationMs: 0 }
+        ]
+      },
+      /payload\.rewoundDescendants\[0\] is READY, which never held a route/
+    ],
+    // The retry target is named once, by `retryNodeId`.
+    [
+      { ...base, rewoundDescendants: [{ ...executed, nodeId: "node-fuzz" }] },
+      /payload\.rewoundDescendants must not repeat the retry target node-fuzz/
+    ],
+    [
+      { ...base, rewoundDescendants: [executed, executed] },
+      /payload\.rewoundDescendants must be unique and ordered by nodeId/
+    ],
+    [
+      { ...base, rewoundDescendants: [{ ...executed, nodeId: "zzz" }, executed] },
+      /payload\.rewoundDescendants must be unique and ordered by nodeId/
+    ],
+    // A discard that discarded nothing executed is not a discard; the ordinary
+    // event is the honest record of that act.
+    [
+      {
+        ...base,
+        rewoundDescendants: [
+          {
+            nodeId: "node-fuzz-right",
+            taskId: TASK_ID,
+            previousState: "READY",
+            modelRouteEventIds: [],
+            childRunIds: [],
+            chargedEstimatedCostUsd: 0,
+            chargedEstimatedDurationMs: 0
+          }
+        ]
+      },
+      /payload\.rewoundDescendants must include at least one descendant in RUNNING, WAITING_FOR_USER, COMPLETED, FAILED/
+    ]
+  ];
+  for (const [payload, message] of cases) {
+    assert.throws(() => validateEvent(withPayload(payload)), message, JSON.stringify(payload));
+  }
+
+  // And the ordinary event keeps its own exact keys: the new one is a separate
+  // type, not a widening of that payload.
+  assert.throws(
+    () =>
+      validateEvent({
+        ...EVENT_SEEDS.RUN_UNBLOCKED,
+        payload: { blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed", rewoundDescendants: [executed] }
+      }),
+    /payload may only include blockedEventId, reason, retryNodeId; unknown: rewoundDescendants/
+  );
 });
 
 /**

@@ -165,15 +165,36 @@ test("the BLOCKED block names the four options that exist, in the order they are
     const routed = started.err
       .split("\n")
       .filter((line) => line.startsWith("  next: ") || line.startsWith("  note: "));
+    const ordinary = [
+      `  next: pnpm cli inspect --run ${started.runId} --state-root ${stateRoot}`,
+      `  next: pnpm cli inject --run ${started.runId} --type fact --key <key> --value <text> --state-root ${stateRoot}`,
+      `  next: pnpm cli unblock --run ${started.runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}`,
+      `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${started.runId} --state-root ${stateRoot} executes the reopened work`
+    ];
+    // The four the operator works through, byte-for-byte and in order, as the
+    // prefix of the block. A stronger authorization exists now, and disclosing
+    // it must not cost the ordinary path a single line: nothing below may
+    // reword, reorder or absorb one of these four.
+    assert.deepEqual(routed.slice(0, ordinary.length), ordinary, started.err);
+
     assert.deepEqual(
       routed,
       [
-        `  next: pnpm cli inspect --run ${started.runId} --state-root ${stateRoot}`,
-        `  next: pnpm cli inject --run ${started.runId} --type fact --key <key> --value <text> --state-root ${stateRoot}`,
-        `  next: pnpm cli unblock --run ${started.runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}`,
-        `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${started.runId} --state-root ${stateRoot} executes the reopened work`
+        ...ordinary,
+        `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded`
       ],
       started.err
+    );
+
+    // The disclosure is honest about the two things an operator would otherwise
+    // have to discover by being refused twice.
+    const disclosure = routed[ordinary.length] ?? "";
+    assert.match(disclosure, /--discard-executed/);
+    assert.match(disclosure, /computed, not listed/, "the operator does not choose the set");
+    assert.match(disclosure, /no budget is refunded/, "discarding work does not buy the money back");
+    assert.ok(
+      !disclosure.startsWith("  next: "),
+      "it is not a fifth remedy to try in order; it is the stronger form of the third"
     );
 
     // The retired claims, named so a revert cannot quietly reinstate them.
