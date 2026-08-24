@@ -122,6 +122,21 @@ function childOutcome(kind: "PASSED" | "FAILED"): ChildRunOutcome {
 }
 
 describe("what a criteria-gating design has to move (option (a) preconditions)", () => {
+  it("keeps the deferred option (a) pins 1, 3, 4, and 5 named exactly", async () => {
+    const source = await readFile(fileURLToPath(import.meta.url), "utf8");
+    const declaredTitles = [...source.matchAll(/^\s*it\("([^"]+)"/gm)].map((match) => match[1]);
+    const protectedTitles = [
+      "criteria reach the prescore for exactly one role",
+      "scoring the capped prescore would move 54 of 270 cells, none of them about criteria",
+      "the recorded assessment vocabulary has no criterion-shaped anomaly code",
+      "the protocol carries one verdict per task and no per-criterion channel"
+    ];
+
+    for (const title of protectedTitles) {
+      assert.ok(declaredTitles.includes(title), `R8-4 protected pin is missing or renamed: ${title}`);
+    }
+  });
+
   it("criteria reach the prescore for exactly one role", () => {
     // `observationFromChild` is where a task's acceptance criteria become
     // `requiredChecks`, and it consults the role first: a non-tester child's

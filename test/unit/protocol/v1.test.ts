@@ -26,7 +26,8 @@ import {
   validateApprovalReplyForPlan,
   type AgentMessage,
   type TaskRequest,
-  type TaskResult
+  type TaskResult,
+  type VerificationResult
 } from "../../../src/protocol/v1.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -36,6 +37,7 @@ const taskId: TaskId = createTaskId(UUID);
 const parent: AgentInstanceId = createAgentInstanceId(UUID);
 const child: AgentInstanceId = createAgentInstanceId(() => "abcdef01-2345-6789-abcd-ef0123456789");
 const occurredAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+const verificationResultCriteriaIsDeferred: "criteria" extends keyof VerificationResult ? never : true = true;
 
 function base(overrides: Partial<Record<"id" | "runId" | "taskId" | "from" | "to", unknown>> = {}): Record<string, unknown> {
   return {
@@ -268,6 +270,19 @@ test("TASK_RESULT payload validation rejects bad outcome, verification, and fail
   assert.throws(
     () => validateAgentMessage({ ...validResult(), failure: { category: "WHATEVER" } }),
     /failure/
+  );
+});
+
+test("VerificationResult keeps per-criterion reporting deferred", async () => {
+  assert.equal(verificationResultCriteriaIsDeferred, true);
+
+  const source = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
+  const region = /export interface VerificationResult\s*\{([\s\S]*?)\n\}/.exec(source);
+  assert.ok(region, "VerificationResult must remain a declared protocol interface");
+  assert.doesNotMatch(
+    region[1] ?? "",
+    /^\s*(?:readonly\s+)?criteria\??\s*:/m,
+    "option (a) is deferred: VerificationResult must not declare criteria"
   );
 });
 
