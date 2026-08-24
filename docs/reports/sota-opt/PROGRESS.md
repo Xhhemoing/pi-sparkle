@@ -27,7 +27,7 @@
 | 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
-| 13 | 第 2 波进行中 | 6 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-13/PLAN.md](./round-13/PLAN.md) |
+| 13 | 第 3 波进行中 | 7 / 10（A/B/D/E 已合入；C/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-13/PLAN.md](./round-13/PLAN.md) |
 
 ### Round 1 波次
 
@@ -142,7 +142,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R13-A 跟踪门控、R13-B live 路由、R13-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R13-D 自优化、R13-E 学习、R13-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
+| 2 | R13-D 自优化、R13-E 学习、R13-F 实验 | D/E 完成已合入；F 运行中 |
+| 3 | R13-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -273,8 +274,9 @@
 | R13-B | `cursor/r13-b-live-routing-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-B.md`）。S13-B-1 淘汰；天花板复核含 learned-size 格；S12-B-2 重开条件未触发 |
 | R13-C | `cursor/r13-c-offline-routing-thirteenth-pass-83a1` | 已派出 |
 | R13-D | `cursor/r13-d-adaptation-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-D.md`）。无新排除 ID；eval 地板复核 3.83–4.05 ms；整命令 21 相位剖面归档 |
-| R13-E | `cursor/r13-e-learning-thirteenth-pass-83a1` | 已派出 |
+| R13-E | `cursor/r13-e-learning-thirteenth-pass-83a1` | 已合入专属分支（仅 `R13-E.md`）。无新排除 ID；SLICE-CPU 复核 13.5–15.9 µs/run；S13-B-1 辖区未重提 |
 | R13-F | `cursor/r13-f-experiments-thirteenth-pass-83a1` | 已派出 |
+| R13-G | `cursor/r13-g-runtime-thirteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
