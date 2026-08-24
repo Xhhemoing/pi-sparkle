@@ -10,7 +10,12 @@ import {
 } from "../supervisor/model-router.js";
 import { analyzeTask, type TaskAnalysis } from "./analyze-task.js";
 import { applyLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
-import { pickFromPublicPrior, type PublicPriorSnapshot } from "./public-prior.js";
+import {
+  pickPreferredModel,
+  planAssignmentPolicy,
+  type AssignmentPolicyPlan
+} from "./assign-plan.js";
+import type { PublicPriorSnapshot } from "./public-prior.js";
 import { ASSIGN_FEATURE_VERSION } from "./feature-version.js";
 
 export interface AssignableTask {
@@ -50,17 +55,19 @@ const DEFAULT_LIMITS: RoutingLimits = {
  * Live assignment: analyze each task, then apply the R0-equivalent ModelRouter.
  * High-risk / high-complexity / planner work prefers the primary model. Other
  * work uses a frozen public-scene prior when provided, otherwise the cheapest
- * eligible catalog entry.
+ * eligible catalog entry. The catalog-invariant policy plan (allow-list and
+ * preferred-model tiers) is computed once per batch, not once per task.
  */
 export function assignTasks(input: AssignTasksInput): readonly TaskAssignment[] {
   const router = createModelRouter(input.catalog);
   const catalogIds = input.catalog.models.map((model) => model.id);
+  const plan = planAssignmentPolicy(router.config.models, catalogIds);
   const limits: RoutingLimits = {
     remainingTimeMs: input.remainingTimeMs ?? DEFAULT_LIMITS.remainingTimeMs,
     ...(input.remainingCostUsd !== undefined ? { remainingCostUsd: input.remainingCostUsd } : {})
   };
   return input.tasks.map((task) =>
-    assignOne(router, catalogIds, task, limits, input.learned, input.prior)
+    assignPlanned(router, plan, task, limits, input.learned, input.prior)
   );
 }
 
@@ -72,15 +79,25 @@ export function assignOne(
   learned?: LearnedRoutingPolicy,
   prior?: PublicPriorSnapshot
 ): TaskAssignment {
+  const plan = planAssignmentPolicy(router.config.models, catalogIds);
+  return assignPlanned(router, plan, task, limits, learned, prior);
+}
+
+function assignPlanned(
+  router: ModelRouter,
+  plan: AssignmentPolicyPlan,
+  task: AssignableTask,
+  limits: RoutingLimits,
+  learned?: LearnedRoutingPolicy,
+  prior?: PublicPriorSnapshot
+): TaskAssignment {
   const analysis = analyzeTask(task.objective, task.role, {
     ...(task.contractRisk !== undefined ? { contractRisk: task.contractRisk } : {}),
     ...(task.contextTokens !== undefined ? { contextTokens: task.contextTokens } : {}),
     ...(task.outputTokens !== undefined ? { outputTokens: task.outputTokens } : {})
   });
-  let allowedModels = catalogIds.filter((id) =>
-    router.config.models.some((model) => model.id === id)
-  );
-  let preferredModel = preferredFrom(analysis, catalogIds, router, prior);
+  let allowedModels: readonly string[] = [...plan.allowedIds];
+  let preferredModel = pickPreferredModel(plan, analysis, prior);
   if (learned !== undefined) {
     const applied = applyLearnedRouting(analysis.family, allowedModels, preferredModel, learned);
     allowedModels = [...applied.allowedModels];
@@ -109,31 +126,4 @@ export function assignOne(
     allowedModels,
     preferredModel
   };
-}
-
-function preferredFrom(
-  analysis: TaskAnalysis,
-  catalogIds: readonly string[],
-  router: ModelRouter,
-  prior?: PublicPriorSnapshot
-): string {
-  if (catalogIds.length === 1) return catalogIds[0]!;
-  if (analysis.preferPrimary) {
-    const primary = [...router.config.models].sort(
-      (left, right) => right.estimatedCostUsd - left.estimatedCostUsd
-    )[0];
-    if (primary !== undefined && catalogIds.includes(primary.id)) return primary.id;
-  }
-  if (prior !== undefined) {
-    const picked = pickFromPublicPrior(
-      prior,
-      analysis.family,
-      router.config.models.filter((model) => catalogIds.includes(model.id))
-    );
-    if (picked !== undefined) return picked.modelId;
-  }
-  const cheapest = [...router.config.models]
-    .filter((model) => catalogIds.includes(model.id))
-    .sort((left, right) => left.estimatedCostUsd - right.estimatedCostUsd)[0];
-  return cheapest?.id ?? catalogIds[0]!;
 }
