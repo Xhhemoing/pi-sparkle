@@ -492,3 +492,7 @@
 | S8-J-1 | context sourcedFact 跨调用 CSE（复用 resolveHash 的 sourceHashes 探针） | 等价但 8–47ns/调用、446–614ns/构建；sourcedFact 分解闭合 |
 | S8-J-2 | jsonl appendJsonlLine fsync 路径单句柄合并 | 符号不稳（fsync 抖动）+ 外扰 unlink 窗口面发散；≤2 次/run |
 | S9-A-1 | from-child 生产路径死 turn 输出尾跳过 | 等价但落地需平行 turn 路径或公开旗标 + 类型变更；~3.5–4.5µs/run |
+| S9-B-1 | validateConfig 查重 has+add 换 add+size 单探针 | 每批一次 33–69ns；S5-F 镜像在 N≤10 每批一次站点不达线 |
+| S9-B-2 | validateInput per-id trim 可打印 ASCII 首字符卫 | 等价但 3–22ns/route；S7-F-2 / S8-F-2 镜像 |
+| S9-B-3 | assignPlanned 三字段全 undefined 时共享冻结空 AnalyzeTaskOptions | 身份不可观察但三口径九次符号翻转＝抖动 |
+| S9-B-4 | route() unknown-model 预扫描下沉进 partitionLiveCandidates | 错误类优先级发散；修正版自败 |
