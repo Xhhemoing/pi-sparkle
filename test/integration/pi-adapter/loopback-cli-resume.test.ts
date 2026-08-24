@@ -3,8 +3,18 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { saveProvidersConfig } from "../../../src/config/providers-config.js";
+import { createTaskId, type RunId } from "../../../src/domain/ids.js";
+import type { TaskNode } from "../../../src/domain/task.js";
+import type {
+  AgentExecutionRequest,
+  AgentExecutor,
+  ExecutionEvent
+} from "../../../src/execution/contract.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { startSupervisedRun } from "../../../src/run/supervisor.js";
 import { loadInvocationsFromStateRoot } from "../../../src/routing/cost-calibration.js";
 import { invocationsLogPath } from "../../../src/telemetry/invocation-log.js";
 import {
@@ -16,6 +26,8 @@ import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 const PROVIDER_ID = "loopback";
 const MODEL_ID = "loopback-1";
 const CATALOG_ID = `${PROVIDER_ID}/${MODEL_ID}`;
+const DEFAULT_MODEL_ID = "loopback-2";
+const DEFAULT_CATALOG_ID = `${PROVIDER_ID}/${DEFAULT_MODEL_ID}`;
 const API_KEY = "loopback-test-key";
 
 const FLOWCHART = {
@@ -80,6 +92,50 @@ async function waitForInvocationRows(stateRoot: string, expected: number): Promi
   assert.fail(`expected ${expected} invocation rows, found ${await invocationRowCount(stateRoot)}`);
 }
 
+async function waitForTaskRunning(stateRoot: string, runId: RunId): Promise<void> {
+  const store = new EventStore(stateRoot, runId);
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const read = await store.readAll();
+    const running = read.events.some(
+      (event) => event.type === "TASK_STATUS_CHANGED" && event.payload.status === "RUNNING"
+    );
+    if (running) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`supervised run ${runId} did not persist a running task`);
+}
+
+class HangingExecutor implements AgentExecutor {
+  async *execute(
+    _request: AgentExecutionRequest,
+    signal: AbortSignal
+  ): AsyncIterable<ExecutionEvent> {
+    if (!signal.aborted) {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
+    yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+  }
+}
+
+function supervisedTask(): TaskNode {
+  return {
+    id: createTaskId(() => "wire"),
+    title: "wire",
+    objective: "Witness the resumed executor request",
+    role: "worker",
+    dependencies: [],
+    acceptanceCriteria: [{ id: "ac-wire", description: "the provider receives the request" }],
+    status: "PENDING",
+    attempt: 0,
+    maxAttempts: 3,
+    timeoutMs: 60_000,
+    artifactIds: [],
+    evidenceIds: []
+  };
+}
+
 async function withHarness(
   run: (input: {
     stateRoot: string;
@@ -94,9 +150,9 @@ async function withHarness(
     await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
     await saveProvidersConfig(stateRoot, {
       version: 1,
-      enabled: [CATALOG_ID],
-      primary: CATALOG_ID,
-      fast: CATALOG_ID,
+      enabled: [CATALOG_ID, DEFAULT_CATALOG_ID],
+      primary: DEFAULT_CATALOG_ID,
+      fast: DEFAULT_CATALOG_ID,
       customProviders: [
         {
           id: PROVIDER_ID,
@@ -105,6 +161,16 @@ async function withHarness(
             {
               id: MODEL_ID,
               name: "Loopback One",
+              contextWindow: 8_192,
+              maxTokens: 256,
+              inputCostPerMTok: 0.25,
+              outputCostPerMTok: 1,
+              reasoning: true,
+              compat: { supportsReasoningEffort: true }
+            },
+            {
+              id: DEFAULT_MODEL_ID,
+              name: "Loopback Default",
               contextWindow: 8_192,
               maxTokens: 256,
               inputCostPerMTok: 0.25,
@@ -125,7 +191,7 @@ async function withHarness(
   }
 }
 
-test("offline custom provider persists run and resume invocations for calibration", async () => {
+test("flowchart resume sends flagged executor config to the offline provider", async () => {
   await withHarness(async ({ stateRoot, projectRoot, provider }) => {
     const flowchartPath = join(projectRoot, "flowchart.json");
     await writeFile(flowchartPath, `${JSON.stringify(FLOWCHART, null, 2)}\n`, "utf8");
@@ -163,17 +229,21 @@ test("offline custom provider persists run and resume invocations for calibratio
         `route:${CATALOG_ID}`,
         "--executor",
         "pi",
+        "--primary-model",
+        CATALOG_ID,
+        "--thinking",
+        "high",
         "--state-root",
         stateRoot
       ],
       resumed.io
     );
     assert.equal(resumeCode, 0, resumed.err.join(""));
-    // R4-6: a flag-free `--executor pi` resume rebuilds on defaults and says so.
-    // Other stderr remains a failure; this is the one disclosed line.
+    // R4-6: this was the pinned default-rebuild warning from 74daff3. Adding
+    // flags intentionally changes that sole allowed stderr line to disclosure.
     assert.equal(
       resumed.err.join(""),
-      "warning: resume rebuilt the pi executor on defaults (the default primary model, thinking off); the run's own --primary-model/--thinking are not recorded, so pass them again if it did not start on defaults\n"
+      "note: resume rebuilt the pi executor with primary model loopback/loopback-1 and thinking high; the run's own executor configuration is not recorded, so this is what you asked for now, not what it started with\n"
     );
     assert.match(resumed.out.join(""), /COMPLETED/);
     await waitForInvocationRows(stateRoot, 2);
@@ -188,6 +258,10 @@ test("offline custom provider persists run and resume invocations for calibratio
       assert.equal((request.body as Record<string, unknown>).model, MODEL_ID);
       assert.equal((request.body as Record<string, unknown>).stream, true);
     }
+    const startedBody = provider.requests[0]!.body as Record<string, unknown>;
+    const resumedBody = provider.requests[1]!.body as Record<string, unknown>;
+    assert.equal(startedBody.reasoning_effort, undefined);
+    assert.equal(resumedBody.reasoning_effort, "high");
 
     // This is the production calibration reader, not a direct JSONL parse.
     // It also executes the fail-closed invocation decoder over both rows.
@@ -208,6 +282,72 @@ test("offline custom provider persists run and resume invocations for calibratio
       assert.equal(row.callOutcome, "ok");
       assert.equal(row.tokensIn, 11);
       assert.equal(row.tokensOut, 5);
+    }
+  });
+});
+
+test("supervised resume overrides a distinct configured default on the HTTP request", async () => {
+  await withHarness(async ({ stateRoot, projectRoot, provider }) => {
+    const interrupted = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new HangingExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles())
+      },
+      {
+        projectRoot,
+        objective: "Exercise supervised resume over loopback",
+        tasks: [supervisedTask()]
+      }
+    );
+
+    try {
+      await waitForTaskRunning(stateRoot, interrupted.runId);
+      assert.equal(provider.requests.length, 0, "the interrupted fixture never contacted the provider");
+
+      const resumed = capture();
+      const resumeCode = await main(
+        [
+          "resume",
+          "--run",
+          interrupted.runId,
+          "--supervised",
+          "--executor",
+          "pi",
+          "--primary-model",
+          CATALOG_ID,
+          "--thinking",
+          "high",
+          "--state-root",
+          stateRoot
+        ],
+        resumed.io
+      );
+
+      // Pi synthesizes UNOBSERVED verification for plain text, so the
+      // deterministic supervised judge blocks after the witnessed call.
+      assert.equal(resumeCode, 1, resumed.err.join(""));
+      assert.match(resumed.out.join(""), /resumed \(BLOCKED\)/);
+      assert.equal(
+        resumed.err.join(""),
+        "note: resume rebuilt the pi executor with primary model loopback/loopback-1 and thinking high; the run's own executor configuration is not recorded, so this is what you asked for now, not what it started with\n"
+      );
+
+      assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
+      assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+      const request = provider.requests[0]!;
+      assert.equal(request.method, "POST");
+      assert.equal(request.url, "/v1/chat/completions");
+      assert.equal(request.authorization, `Bearer ${API_KEY}`);
+      assert.ok(typeof request.body === "object" && request.body !== null);
+      const body = request.body as Record<string, unknown>;
+      assert.equal(body.model, MODEL_ID);
+      assert.notEqual(body.model, DEFAULT_MODEL_ID);
+      assert.equal(body.reasoning_effort, "high");
+      assert.equal(body.stream, true);
+    } finally {
+      interrupted.cancel();
+      await interrupted.done.catch(() => undefined);
     }
   });
 });
