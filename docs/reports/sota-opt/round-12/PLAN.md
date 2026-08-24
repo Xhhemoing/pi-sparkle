@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–11 已对各区做过十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S11-* 条目以及已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2（含 R9-I / R10-E / R10-F / R10-H / R10-I / R10-J / R11-C / R11-E / R11-F / R11-H / R11-I / R11-J / R12-A / R12-E 的空枚举收口与已合入的 S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–11 已对各区做过十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S11-* 条目以及已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2（含 R9-I / R10-E / R10-F / R10-H / R10-I / R10-J / R11-C / R11-E / R11-F / R11-H / R11-I / R11-J / R12-A / R12-E / R12-F 的空枚举收口与已合入的 S11-A-1..2 / S11-B-1 / S11-D-1..2 / S11-G-1..3）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R12-A … R12-J），报告写入 `docs/reports/sota-opt/round-12/`。
 
-状态：第 3 波 H 本波派出；A/B/C/D/E 已合入（A/E 空枚举；B 铸 S12-B-1..2；C 铸 S12-C-1；D 铸 S12-D-1..2，均淘汰）；F/G 运行中。
+状态：第 4 波 I 本波派出；A/B/C/D/E/F 已合入（A/E/F 空枚举；B 铸 S12-B-1..2；C 铸 S12-C-1；D 铸 S12-D-1..2，均淘汰）；G/H 运行中。
 
 C 切片已合入：S12-C-1（solveSymmetric 消元嵌套序交换 FORM，逐位但稳定 ~3.6× 负优化；嵌套序×布局空间由 S4-C-2 + S5-C-1..4 + 本条封闭）。生产中位复核 658–663 ms/报告。不要重开 S12-C-1 / S10-C-1..3 / RID/CNT / CMB restack。必须站在 S7-C 之上。噪声带 ±35 ms；贴带不越带。r1c–r7c 回归门 8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193。最后生产改动仍为 `183df9b`。
 
@@ -20,8 +20,10 @@ A 切片已合入：空枚举，未铸 S12-A-*。预算复核 70–92 µs/run。
 
 D 切片已合入：S12-D-1（边界闸 JSON.parse 预探针省略；健全形态 9.1–10.4µs once-per-command；便宜形态 U+ 转义键 fail-open，S9-D-4 同族）/ S12-D-2（eval 回放链四遍融两遍；E=200 双形态稳定负优化）。eval 地板复核 3.72–4.07 ms。不要重开 S12-D-1..2 / S11-D-1..2 / S10-D-1..2 / S9-D-4。禁止去 fsync / 完整性再哈希。
 
-F 切片 = `src/experiments/` 全部 15 文件。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2 之上。不要重开 S1-F-1..8 / S2-F-* / S3-F-* / S4-F-* / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-1..3 / S9-F-1..3。S7-F-1 不是 S6-F-5（禁止 O(P) two-pointer）。S9-F-3 scratch-Set 稳定负优化。R10-F 与 R11-F 空枚举、未铸 ID。全实验锚点 ~120–126 ms；`outcomes.some` 记账为 1.63–1.73 ms（S1-F-8）。基线 `519101f` 预期空 diff。
+F 切片已合入：空枚举，未铸 S12-F-*。全实验锚点本轮复核 121–133 ms；账目最后一行时钟/预算/返回 spread 残差直测 8–204 µs。S7-F-1 ≠ S6-F-5 维持。`outcomes.some` 仍为 1.63–1.73 ms（S1-F-8）。基线 `519101f` 空 diff 再确认。
 
 G 切片 = 42 文件：`src/run/` 除 `child-tracking.ts`/`gate-apply.ts` 外 17 文件；`src/supervisor/` 除 `model-router.ts` 外 4 文件；`src/graph/` 全部 4 文件；`src/domain/` 全部 17 文件。不要重开 S1-G-1..9 / S2-G-1..8 / S3-G-1..5 / S4-G-1..7 / S5-G-1..6 / S6-G-1..7 / S7-G-1..5 / S8-G-1..2 / S9-G-1..3 / S10-G-1 / S11-G-1..3。禁止去 fsync / 完整性再哈希 / 增量读镜像。S11-G-1 切片内惰性 import 生产收益恒 0（`main.ts` 静态钉死）。S11-G-2 相同字节写跳过 0/27 命中。S11-G-3 inspectRun 尾扫 fail-closed。计算顶 ~0.30 ms vs I/O 地板 ~92–102 ms。基线 `4efee23` 预期空 diff。
 
 H 切片 = 21 文件：`src/evaluation/` 8 + `src/requirement/` 7 + `src/review/` 4 + `src/rubric/` 2。不要重开 S1-H-1..9 / S2-H-1..7 / S3-H-1..4 / S4-H-1..3 / S5-H-1..3 / S6-H-1..4 / S7-H-1..3 / S8-H-1..3 / S9-H-1..2。R10-H 与 R11-H 空枚举、未铸 ID。S5-H-1 维持。S8-H-1 PIC 形状污染。热层默认 ~8.5–9.1 µs/run，配置态仍更便宜。基线 `fd437a9` 预期空 diff。
+
+I 切片 = **25 文件**（cli 13 / pi-adapter 9 / config 2 / telemetry 1；R8-I「~28 / cli 16」是头部笔误）。必须站在已落地 S1-I / S4-I / S5-I-1 / S7-I-1 之上。不要重开 S1-I-1..8 / S2-I-1..6 / S3-I-1..6 / S4-I-2..5（无 S4-I-1）/ S5-I-2..5 / S6-I-1..3 / S7-I-2..4 / S8-I-1..3。R9-I / R10-I / R11-I 空枚举、未铸 ID。S8-I-1 跳过回退不健全；重开物是 pi-ai 自身 ship 的 `models.generated` / `./providers/all.models` 导出（0.84.1 仍 7 exports，三种 specifier 均不可达）。自制 39 表 union @22.22 净约 10 ms，低于落地线且三重围栏。凭据面只读。基线 `8dee7fb` 预期空 diff。custom−builtin 复核约 +23~+48 ms。
