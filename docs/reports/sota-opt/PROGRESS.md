@@ -28,7 +28,7 @@
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
-| 14 | 第 1–4 波进行中 | 9 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
+| 14 | 第 1–4 波进行中 | 10 / 10（A–F/I 已合入；G/H 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-14/PLAN.md](./round-14/PLAN.md) |
 
 ### Round 1 波次
 
@@ -154,7 +154,7 @@
 | 1 | R14-A 跟踪门控、R14-B live 路由、R14-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R14-D 自优化、R14-E 学习、R14-F 实验 | D/E/F 完成已合入 |
 | 3 | R14-G 运行时/图、R14-H 评价/需求 | G/H 运行中 |
-| 4 | R14-I CLI/适配器 | I 本波派出 |
+| 4 | R14-I CLI/适配器、R14-J cluster/privacy | I 完成已合入；J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -299,7 +299,8 @@
 | R14-F | `cursor/r14-f-experiments-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-F.md`）。无新排除 ID；全实验锚点复核 121–129 ms；GC/出处/deopt 轴归档 |
 | R14-G | `cursor/r14-g-runtime-fourteenth-pass-83a1` | 已派出 |
 | R14-H | `cursor/r14-h-eval-fourteenth-pass-83a1` | 已派出 |
-| R14-I | `cursor/r14-i-cli-fourteenth-pass-83a1` | 已派出 |
+| R14-I | `cursor/r14-i-cli-fourteenth-pass-83a1` | 已合入专属分支（仅 `R14-I.md`）。无新排除 ID；custom−builtin 复核 +23.7~+55.1 ms；肥配置态交叉不存在；六连空 |
+| R14-J | `cursor/r14-j-persist-fourteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
