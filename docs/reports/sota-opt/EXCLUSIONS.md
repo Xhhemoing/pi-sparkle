@@ -459,3 +459,7 @@
 | S7-J-4 | rebuildViews 冗余 Map.set 条件化 | 8.8–10.5µs 被 saveToDisk 地板吞没 |
 | S7-J-5 | redaction 无文本时跳过 needles 预处理 | 稀有形态 1.37–1.40µs + I/O 支配 |
 | S7-J-6 | saveToDisk mkdir 缓存化 | 自愈语义收窄（外部删目录后 ENOENT）；1.08µs |
+| S8-B-1 | planAssignmentPolicy 双排序拷贝取极值换单遍扫描 | 每批一次 98–420ns |
+| S8-B-2 | liveRefusalMessage 双 .some 融合单遍 | R=40 实测更慢；V8 builtin 反例第四例 |
+| S8-B-3 | selectLiveModel 比较器调用展开 | 每 route ~10ns + 总序契约双份 |
+| S8-B-4 | assignPlanned learned 路径第一次防御拷贝省略 | 符号翻转；全批共享 allowedIds 裸传护栏 |
