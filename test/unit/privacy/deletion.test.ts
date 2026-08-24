@@ -41,6 +41,8 @@ import {
   deleteRunRecords,
   findResidualEpisodeText
 } from "../../../src/privacy/deletion.js";
+import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { episodeLockPath } from "../../../src/run/episode-bind.js";
 import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
 import {
   invocationsLogPath,
@@ -596,20 +598,161 @@ test("an episode delete with no feedback log is a no-op, not an adaptation-plane
   });
 });
 
-test("delete --episode removes the episode's cooperative lock", async () => {
+/**
+ * The episode lock is the file both episode writers serialize on (CLI
+ * `episode close` and the run-side settle). A delete that unlinks the records
+ * without holding it — or that unlinks the lock out from under a live holder —
+ * reopens the interleaving the lock exists to prevent, so these tests pin the
+ * acquire-then-unlink discipline rather than the old "remove the lock file
+ * too" behaviour.
+ */
+async function seedEpisodeRecords(stateRoot: string, episodeId: EpisodeId): Promise<string[]> {
+  const episodesDir = join(stateRoot, "runtime", "episodes");
+  await mkdir(episodesDir, { recursive: true });
+  const paths = [
+    join(episodesDir, `${episodeId}.jsonl`),
+    join(episodesDir, `${episodeId}.events.jsonl`)
+  ];
+  await writeFile(paths[0] as string, `${JSON.stringify(episodeFixture(episodeId))}\n`, "utf8");
+  await writeFile(
+    paths[1] as string,
+    `${JSON.stringify({ type: "EPISODE_OPENED", episode: episodeFixture(episodeId) })}\n`,
+    "utf8"
+  );
+  return paths;
+}
+
+test("delete --episode waits for a live holder before unlinking the episode records", async () => {
   await withStateRoot(async (stateRoot) => {
     const episodeId = createEpisodeId(UUID);
-    const episodesDir = join(stateRoot, "runtime", "episodes");
-    await mkdir(episodesDir, { recursive: true });
-    await writeFile(join(episodesDir, `${episodeId}.jsonl`), "{}\n", "utf8");
-    const lockPath = join(episodesDir, `${episodeId}.lock`);
-    await writeFile(lockPath, JSON.stringify({ ownerToken: "t", pid: 1 }), "utf8");
+    const paths = await seedEpisodeRecords(stateRoot, episodeId);
+    const lockPath = episodeLockPath(stateRoot, episodeId);
+    let pending: Promise<{ removedPaths: readonly string[] }> | undefined;
+
+    await withExclusiveFileLock(lockPath, async () => {
+      pending = deleteEpisodeRecords(stateRoot, episodeId);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      for (const path of paths) {
+        assert.equal(
+          existsSync(path),
+          true,
+          "records must not be unlinked while another writer holds the episode lock"
+        );
+      }
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual((await pending).removedPaths, paths);
+    for (const path of paths) assert.equal(existsSync(path), false);
+    assert.equal(existsSync(lockPath), false, "the delete releases the lock it took");
+  });
+});
+
+test("an episode delete that cannot take the episode lock fails closed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const paths = await seedEpisodeRecords(stateRoot, episodeId);
+    const before = await Promise.all(paths.map(async (path) => readFile(path, "utf8")));
+    await seedFeedback(stateRoot, episodeId, "fb-lock-timeout", { body: "text to strip" });
+    const lockPath = episodeLockPath(stateRoot, episodeId);
+    let outcome: unknown;
+
+    await withExclusiveFileLock(lockPath, async () => {
+      outcome = await deleteEpisodeRecords(stateRoot, episodeId, {
+        timeoutMs: 40,
+        retryMs: 5
+      }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+    });
+
+    assert.ok(outcome instanceof DomainValidationError, "a lock timeout must reject the delete");
+    assert.match(outcome.message, /timed out waiting for lock/);
+    assert.ok(outcome.message.includes(lockPath), "the failure must name the episode lock");
+    for (const [index, path] of paths.entries()) {
+      assert.equal(await readFile(path, "utf8"), before[index], "episode records must be intact");
+    }
+    // The disclosed half-way point: the cascade ran before the episode lock was
+    // attempted, so the feedback text is already gone. That is the privacy-safe
+    // direction, and the re-delete below is idempotent about it.
+    assert.doesNotMatch(await readFile(feedbackLogPath(stateRoot), "utf8"), /text to strip/);
+    const retry = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(retry.removedPaths, paths);
+    assert.deepEqual(retry.cascadedFeedbackTombstones, ["fb-lock-timeout"]);
+  });
+});
+
+test("a completed episode delete leaves no lock behind and does not report one", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const paths = await seedEpisodeRecords(stateRoot, episodeId);
+    const lockPath = episodeLockPath(stateRoot, episodeId);
 
     const result = await deleteEpisodeRecords(stateRoot, episodeId);
     assert.equal(existsSync(lockPath), false, "episode lock must not outlive the episode");
-    assert.ok(result.removedPaths.includes(lockPath));
+    assert.deepEqual(result.removedPaths, paths);
+    assert.ok(
+      !result.removedPaths.includes(lockPath),
+      "the lock this delete created itself is not an episode record it removed"
+    );
     assert.equal(result.droppedInvocations, 0);
+
+    // Idempotent: the second delete finds nothing, takes no lock, and leaves
+    // no new lock file behind.
+    const again = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(again.removedPaths, []);
+    assert.equal(existsSync(lockPath), false);
   });
+});
+
+test("a delete of an episode with nothing on disk creates neither the directory nor a lock", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.removedPaths, []);
+    assert.equal(
+      existsSync(join(stateRoot, "runtime", "episodes")),
+      false,
+      "a delete must not create the directory it deletes from just to take a lock"
+    );
+  });
+});
+
+/**
+ * A lock with no records next to it is still a live writer: waiting for it is
+ * what stops the delete from reporting "nothing found" a millisecond before
+ * the holder writes the episode back to disk.
+ */
+test("a delete that waits on a live writer removes the records that writer just wrote", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const recordPath = join(stateRoot, "runtime", "episodes", `${episodeId}.jsonl`);
+    let pending: Promise<{ removedPaths: readonly string[] }> | undefined;
+
+    await withExclusiveFileLock(episodeLockPath(stateRoot, episodeId), async () => {
+      pending = deleteEpisodeRecords(stateRoot, episodeId);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await writeFile(recordPath, `${JSON.stringify(episodeFixture(episodeId))}\n`, "utf8");
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual((await pending).removedPaths, [recordPath]);
+    assert.equal(existsSync(recordPath), false);
+  });
+});
+
+test("the delete serializes on the same lock file the episode writers take", async () => {
+  const episodeId = createEpisodeId(UUID);
+  assert.equal(
+    episodeLockPath("/state", episodeId),
+    join("/state", "runtime", "episodes", `${episodeId}.lock`)
+  );
+  // Source pin: the delete must reuse the shared path helper. Rebuilding the
+  // template here would let the two sides drift onto different lock files.
+  const source = await readFile(new URL("../../../src/privacy/deletion.ts", import.meta.url), "utf8");
+  assert.match(source, /import \{ episodeLockPath \} from "\.\.\/run\/episode-bind\.js";/);
+  assert.doesNotMatch(source, /`\$\{episodeId\}\.lock`/);
 });
 
 test("delete --run drops only that run's rows from the shared invocation log", async () => {

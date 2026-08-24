@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { runtimeRoot } from "./state-layout.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
+import { episodeLockPath } from "../run/episode-bind.js";
 import {
   invocationsLogPath,
   readInvocationRecords,
@@ -18,7 +19,7 @@ import {
   withFeedbackLogLock,
   writeFeedbackRecords
 } from "../feedback/store.js";
-import type { FileLockOptions } from "../persist/file-lock.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 
 export function tombstoneIds(ids: readonly string[]): ReadonlySet<string> {
   return new Set(ids);
@@ -36,11 +37,12 @@ export function materializeWithoutTombstones<T extends { id: string }>(
  *
  * Deleting a run removes its runtime subtree AND filter-rewrites the shared
  * `runtime/invocations.jsonl` so the run's rows stop backing derived routing
- * numbers. Deleting an episode removes its runtime records (including the
- * operational lock that sits next to them) and cascades into the adaptation
- * plane: every feedback record bound to that episode loses all of its
- * free-text fields and its id is persisted as a tombstone, so dataset exports
- * and materialized views can never resurrect it.
+ * numbers. Deleting an episode removes its runtime records — under the
+ * episode's own cooperative lock, so no live writer is operating on them
+ * while they go — and cascades into the adaptation plane: every feedback
+ * record bound to that episode loses all of its free-text fields and its id
+ * is persisted as a tombstone, so dataset exports and materialized views can
+ * never resurrect it.
  *
  * What an episode delete deliberately does NOT do is edit an attached run's
  * append-only event log, which can hold its own copy of the objective. Those
@@ -151,49 +153,110 @@ export async function deleteRunRecords(
  * Delete one episode's runtime records and cascade into feedback. Idempotent:
  * deleting an already-deleted episode succeeds and re-asserts the tombstones.
  *
- * The episode's own text is read before the unlink so the residual scan can
- * recognise copies of it in attached runs; those runs are reported, never
- * rewritten (see `findResidualEpisodeText`).
+ * `options` bounds every cooperative lock this delete takes (the feedback log
+ * and the episode); the defaults are `withExclusiveFileLock`'s.
  *
  * The feedback cascade runs first and fails closed, for the same reason the
  * invocation rewrite does in `deleteRunRecords`: if the free text bound to
  * this episode cannot be stripped, the operator must see a failed delete with
  * the records still in place, not a successful one that removed the episode's
  * own files and left its feedback text on disk.
+ *
+ * The two locks are taken one after the other, never nested. The cascade
+ * rewrites the feedback log and touches nothing under `runtime/episodes/`, so
+ * holding the episode lock across it would only make `episode close` wait on
+ * an unrelated file — and would fix a lock order that no other writer is
+ * bound by. The cost is disclosed: a delete that strips the feedback text and
+ * then cannot take the episode lock leaves the episode's own files in place.
+ * That is the privacy-safe half to have completed, and the re-delete is
+ * idempotent.
  */
 export async function deleteEpisodeRecords(
   stateRoot: string,
-  episodeId: EpisodeId
+  episodeId: EpisodeId,
+  options: FileLockOptions = {}
 ): Promise<DeletionResult> {
-  const episodesDir = join(runtimeRoot(stateRoot), "episodes");
-  const episodeText = await readEpisodeText(episodesDir, episodeId);
-  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId);
-  const removed: string[] = [];
-  // Three episode-scoped files can sit under runtime/episodes/: the
-  // project-episode log (`<id>.jsonl`), the episode event log
-  // (`<id>.events.jsonl`), and the cooperative lock `episode close` takes
-  // (`<id>.lock`). The lock holds no user text, but leaving it behind means a
-  // deleted episode still has a footprint on disk — and any holder of it is
-  // operating on records that no longer exist.
-  for (const file of [
-    join(episodesDir, `${episodeId}.jsonl`),
-    join(episodesDir, `${episodeId}.events.jsonl`),
-    join(episodesDir, `${episodeId}.lock`)
-  ]) {
-    if (await statExists(file)) {
-      await rm(file, { force: true });
-      removed.push(file);
-    }
-  }
+  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId, options);
+  const unlinked = await unlinkEpisodeFiles(stateRoot, episodeId, options);
 
-  const residual = await findResidualEpisodeText(stateRoot, episodeId, episodeText);
+  const residual = await findResidualEpisodeText(stateRoot, episodeId, unlinked.episodeText);
   return {
     target: `episode:${episodeId}`,
-    removedPaths: removed,
+    removedPaths: unlinked.removed,
     cascadedFeedbackTombstones: cascaded,
     droppedInvocations: 0,
     residualEpisodeTextRunIds: [...new Set(residual.map((entry) => entry.runId))].sort()
   };
+}
+
+interface EpisodeUnlink {
+  /** Episode-scoped record files this delete unlinked, in listing order. */
+  readonly removed: readonly string[];
+  /** The episode's own text, read under the lock that guards the unlink. */
+  readonly episodeText: readonly string[];
+}
+
+/**
+ * Unlink the episode's runtime records while holding its cooperative lock.
+ *
+ * Two record files can sit under `runtime/episodes/`: the project-episode log
+ * (`<id>.jsonl`) and the episode event log (`<id>.events.jsonl`). Both are
+ * written by `episode close` and by the run-side settle, and both writers
+ * serialize on `<id>.lock` (`episodeLockPath`). Deleting the records from
+ * outside that lock — which is what this used to do, lock file included —
+ * lets a settle that is mid read-decide-append write its snapshot back after
+ * the delete, resurrecting the episode; unlinking the lock itself while a
+ * holder was alive additionally let a second writer acquire it and reopen the
+ * interleaving the lock exists to prevent.
+ *
+ * Contract details:
+ *  - Acquisition is bounded and fails closed: `withExclusiveFileLock` throws
+ *    `DomainValidationError` on timeout and nothing is unlinked. Locks are
+ *    never stolen here either, so a lock left behind by a killed holder makes
+ *    the delete fail until an operator removes it — the same posture (and the
+ *    same manual recovery) every other holder of this lock has. Failing is
+ *    the honest outcome: from the outside a stale lock is indistinguishable
+ *    from a live writer that is about to write the records back.
+ *  - The lock file is not unlinked by this function. Releasing the lock
+ *    removes it, so a completed delete still leaves no `<id>.lock` behind,
+ *    but it is a file this delete created rather than an episode record it
+ *    found, so it is not reported in `removedPaths`.
+ *  - Nothing on disk for this id — no records and no lock — is a genuine
+ *    no-op: no lock is taken and `runtime/episodes/` is not created just to
+ *    delete from it. A lock with no records still means a live writer, so it
+ *    is waited on: whatever it writes is then found and removed.
+ *  - The episode's own text is read inside the lock and before the unlink, so
+ *    the residual scan sees exactly the text that is being deleted.
+ */
+async function unlinkEpisodeFiles(
+  stateRoot: string,
+  episodeId: EpisodeId,
+  options: FileLockOptions
+): Promise<EpisodeUnlink> {
+  const episodesDir = join(runtimeRoot(stateRoot), "episodes");
+  const records = [
+    join(episodesDir, `${episodeId}.jsonl`),
+    join(episodesDir, `${episodeId}.events.jsonl`)
+  ];
+  const lockPath = episodeLockPath(stateRoot, episodeId);
+  const onDisk = await Promise.all([...records, lockPath].map(statExists));
+  if (!onDisk.includes(true)) return { removed: [], episodeText: [] };
+
+  return withExclusiveFileLock(
+    lockPath,
+    async () => {
+      const episodeText = await readEpisodeText(episodesDir, episodeId);
+      const removed: string[] = [];
+      for (const file of records) {
+        if (await statExists(file)) {
+          await rm(file, { force: true });
+          removed.push(file);
+        }
+      }
+      return { removed, episodeText };
+    },
+    options
+  );
 }
 
 /**
