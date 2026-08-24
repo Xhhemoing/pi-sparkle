@@ -1113,6 +1113,15 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     });
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  // Same telemetry sink `runCommand` builds: a resumed run makes real model
+  // calls, so without this its invocations never reach `invocations.jsonl` and
+  // cost calibration under-counts every run that was resumed rather than
+  // completed in one go. Shared across both executors this command may build.
+  const invocationSink = createInvocationSink(stateRoot, {
+    onDrop: (reason) => {
+      io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
+    }
+  });
   const runId = parseRunId(values.run);
   const eventStore = new EventStore(stateRoot, runId);
   const read = await eventStore.readAll();
@@ -1127,7 +1136,11 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     const running = resumeSupervisedRun(
       {
         stateRoot,
-        executor: await createExecutor(executorKind, stateRoot),
+        executor: await createExecutor(executorKind, stateRoot, {
+          onInvocation: (invocation) => {
+            void invocationSink(invocation);
+          }
+        }),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
       runId
@@ -1164,7 +1177,11 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     }
     const executor =
       values.executor !== undefined
-        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot)
+        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
+            onInvocation: (invocation) => {
+              void invocationSink(invocation);
+            }
+          })
         : undefined;
     const outcome = await resumeFlowchartRun(
       {
