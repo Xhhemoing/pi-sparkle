@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -143,7 +143,7 @@ test("doctor fails closed when --project has no package.json", async () => {
 // engine-dependent — so `ok` is only ever asserted against the checks
 // themselves and against the exit code.
 
-const CONTRACT_KEYS = ["version", "preview", "liveAdaptive", "ok", "checks", "next"];
+const CONTRACT_KEYS = ["version", "preview", "liveAdaptive", "ok", "checks", "next", "locks"];
 
 async function runDoctorJson(
   args: string[]
@@ -172,6 +172,10 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
     assert.equal(typeof report.ok, "boolean");
     assert.ok(Array.isArray(report.checks));
     assert.ok(report.next.every((step) => typeof step === "string"));
+    assert.deepEqual(Object.keys(report.locks), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.locks.advisory, "string");
+    assert.ok(Array.isArray(report.locks.entries));
+    assert.ok(Array.isArray(report.locks.scanErrors));
 
     for (const check of report.checks) {
       assert.deepEqual(Object.keys(check), ["name", "ok", "detail"]);
@@ -192,7 +196,8 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "skill-route",
         "agent-drift",
         "pi-packages",
-        "pi-compat"
+        "pi-compat",
+        "lock-inventory"
       ]
     );
   } finally {
@@ -290,6 +295,133 @@ test("doctor --json reports a legacy state root without failing the preflight", 
     const { io, out } = capture();
     await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
     assert.match(out.join(""), /ok {2}legacy-layout: pre-plane state/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories nested locks with additive JSON diagnostics and never removes them", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-locks-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-locks-proj-"));
+  const nowMs = Date.parse("2026-08-24T18:00:00.000Z");
+  const acquiredAt = "2026-08-24T17:59:50.000Z";
+  const validLock = join(stateRoot, "runtime", "episodes", "episode-1.lock");
+  const emptyLock = join(stateRoot, "adaptation", "feedback", "records.jsonl.lock");
+  const invalidLock = join(stateRoot, "runtime", "invocations.jsonl.lock");
+  const validRaw = JSON.stringify({ ownerToken: "owner-1", pid: 4242, acquiredAt });
+  const invalidRaw = "{not json";
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime", "episodes"), { recursive: true });
+    await mkdir(join(stateRoot, "adaptation", "feedback"), { recursive: true });
+    await writeFile(validLock, validRaw, "utf8");
+    await writeFile(emptyLock, "", "utf8");
+    await writeFile(invalidLock, invalidRaw, "utf8");
+    await writeFile(join(stateRoot, "runtime", "ignored.lock.tmp"), "not a lock", "utf8");
+    await utimes(emptyLock, new Date(nowMs - 30_000), new Date(nowMs - 30_000));
+
+    const checkedPids: number[] = [];
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs,
+        pidLiveness: (pid) => {
+          checkedPids.push(pid);
+          return "not-running";
+        }
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.match(report.locks.advisory, /PID reuse/);
+    assert.match(report.locks.advisory, /never steals or deletes locks/);
+    assert.deepEqual(report.locks.scanErrors, []);
+    assert.equal(report.locks.entries.length, 3);
+    const valid = report.locks.entries.find((entry) => entry.path === validLock);
+    assert.deepEqual(valid, {
+      path: validLock,
+      ageMs: 10_000,
+      ageSource: "acquiredAt",
+      acquiredAt,
+      pid: 4242,
+      pidLiveness: "not-running",
+      metadata: "valid"
+    });
+    const empty = report.locks.entries.find((entry) => entry.path === emptyLock);
+    assert.equal(empty?.metadata, "empty");
+    assert.equal(empty?.ageSource, "mtime");
+    assert.ok(
+      empty?.ageMs !== null && empty?.ageMs !== undefined && Math.abs(empty.ageMs - 30_000) <= 1,
+      `unexpected mtime-derived age: ${empty?.ageMs}`
+    );
+    assert.equal(empty?.pid, null);
+    assert.equal(empty?.pidLiveness, "not-recorded");
+    const invalid = report.locks.entries.find((entry) => entry.path === invalidLock);
+    assert.equal(invalid?.metadata, "invalid");
+    assert.equal(invalid?.pid, null);
+    assert.equal(invalid?.pidLiveness, "not-recorded");
+    assert.deepEqual(checkedPids, [4242]);
+
+    const lockCheck = report.checks.find((check) => check.name === "lock-inventory");
+    assert.equal(lockCheck?.ok, true, "empty and invalid metadata are diagnostics, not stale proof");
+    assert.match(lockCheck?.detail ?? "", /3 lock file\(s\) found/);
+    assert.match(lockCheck?.detail ?? "", /advisory only/);
+
+    assert.equal(await readFile(validLock, "utf8"), validRaw);
+    assert.equal(await readFile(emptyLock, "utf8"), "");
+    assert.equal(await readFile(invalidLock, "utf8"), invalidRaw);
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs,
+        pidLiveness: () => "not-running"
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}lock-inventory: 3 lock file\(s\) found/);
+    assert.match(text, /episode-1\.lock: age=10000ms source=acquiredAt pid=4242/);
+    assert.match(text, /records\.jsonl\.lock: age=30000ms source=mtime pid=not-recorded/);
+    assert.match(text, /metadata=empty/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports the current local PID as running but only advisory", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-live-lock-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-live-lock-proj-"));
+  const lockPath = join(stateRoot, "runtime", "active.lock");
+  const raw = JSON.stringify({
+    ownerToken: "active-owner",
+    pid: process.pid,
+    acquiredAt: new Date().toISOString()
+  });
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(lockPath, raw, "utf8");
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(report.locks.entries[0]?.pid, process.pid);
+    assert.equal(report.locks.entries[0]?.pidLiveness, "running");
+    assert.match(report.locks.advisory, /cannot prove a lock is stale/);
+    assert.equal(await readFile(lockPath, "utf8"), raw);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
