@@ -2,7 +2,9 @@
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit.
 
-## Round 3 (active) — final SOTA pass
+## Round 3 (closed) — final SOTA pass
+
+Do not start extra edits on this branch except parent merge hygiene.
 
 | Slot | Owns |
 |---|---|

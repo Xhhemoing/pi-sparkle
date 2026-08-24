@@ -130,9 +130,14 @@ test("the persisted feedback log never contains the raw values on disk", async (
     assert.match(onDisk, /\[secret\]/);
     assert.match(onDisk, /\[path\]/);
 
+    // The row also records *what* was removed, so an audit of the log does not
+    // have to re-derive it: `redacted: true` alone would only say the pass ran.
+    assert.deepEqual(JSON.parse(onDisk.trim()).redactionClasses, ["secret", "pii", "path"]);
+
     const reloaded = await readFeedback(stateRoot);
     assert.equal(reloaded.length, 1);
     assert.equal(reloaded[0]?.body?.includes("john.doe@example.com"), false);
+    assert.deepEqual(reloaded[0]?.redactionClasses, ["secret", "pii", "path"]);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

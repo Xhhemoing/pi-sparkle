@@ -27,6 +27,8 @@ test("a fake-executor run cannot close COMPLETED without terminal-status evidenc
     const snapshots = await new EpisodeStore(stateRoot, attachment.payload.episodeId).readAll();
     const terminal = snapshots.episodes.at(-1);
     assert.equal(terminal?.status, "COMPLETED");
+    // outcomeId mirrors terminal run status here; this is not Outcome-supported evidence.
+    assert.equal(terminal?.outcomeId, "COMPLETED");
     assert.ok(
       (terminal?.evidenceRefs.length ?? 0) >= 1,
       "the durable COMPLETED terminal record must carry at least one evidence reference"

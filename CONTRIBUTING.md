@@ -20,11 +20,8 @@ cd pi-sparkle
 corepack enable
 pnpm install
 
-# Run quality gates
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
+# Run the merge-time quality gate (typecheck + lint + test + build)
+pnpm gate
 ```
 
 ## Project Structure
@@ -43,6 +40,18 @@ docs/          # Specifications, ADRs, research
 tasks/         # Planning and task tracking
 ```
 
+## Running Tests
+
+`pnpm test` wraps `tsx --test` through `scripts/run-tests.mjs`, which expands
+directory arguments into their `*.test.ts` files (plain `tsx --test` cannot
+import a directory). All three forms work:
+
+```bash
+pnpm test                                        # full suite
+pnpm test -- test/unit/privacy                   # one directory, recursively
+pnpm test -- test/unit/privacy/deletion.test.ts  # one file
+```
+
 ## Quality Gates
 
 All contributions must pass:
@@ -51,9 +60,10 @@ All contributions must pass:
 |---------|---------|
 | `pnpm typecheck` | TypeScript strict mode validation |
 | `pnpm lint` | ESLint checks |
-| `pnpm test` | Unit and integration tests (tsx --test) |
+| `pnpm test` | Unit and integration tests (see Running Tests above) |
 | `pnpm build` | Production build (tsconfig.build.json) |
 | `pnpm gate` | All four in sequence (merge-time gate) |
+| `pnpm prerelease` | `pnpm gate` plus `pnpm security:probe` (static secret/boundary probes). Run before tagging a preview build |
 
 ## Commit Guidelines
 

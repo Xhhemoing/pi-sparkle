@@ -26,6 +26,9 @@ import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { deleteRunRecords } from "../../../src/privacy/deletion.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import type { Event } from "../../../src/run/events.js";
+import { createEventId } from "../../../src/domain/ids.js";
 
 // Distinct ids per call: each fixture episode/feedback must be unique.
 let uuidCounter = 0;
@@ -190,6 +193,87 @@ test("deleted episode text cannot be resurrected from disk or through the read A
       second.err.join("")
     );
     assert.doesNotMatch(await readFile(feedbackLogPath(stateRoot), "utf8"), /recovery phrase/);
+  });
+});
+
+/**
+ * A run attached to the episode whose append-only event log embeds the whole
+ * episode snapshot — the copy `delete --episode` refuses to rewrite.
+ */
+async function attachRunHoldingEpisodeText(
+  stateRoot: string,
+  episodeId: EpisodeId
+): Promise<RunId> {
+  const runId = createRunId(UUID);
+  const event = (type: Event["type"], payload: unknown): Event =>
+    ({
+      id: createEventId(UUID),
+      schemaVersion: 1,
+      occurredAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z"),
+      runId,
+      type,
+      actor: "delete-cli-test",
+      payload
+    }) as Event;
+  const store = new EventStore(stateRoot, runId);
+  await store.append(event("EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
+  await store.append(
+    event("RUN_ATTACHED", {
+      episodeId,
+      runId,
+      attachedAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z")
+    })
+  );
+  return runId;
+}
+
+test("delete --episode tells the operator which runs still hold a copy of the text", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const seed = await seedEpisodeWithFeedback(stateRoot);
+    const runId = await attachRunHoldingEpisodeText(stateRoot, seed.episodeId);
+    const logPath = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+    const before = await readFile(logPath, "utf8");
+
+    const io = capture();
+    assert.equal(
+      await deleteCommand(["--episode", seed.episodeId, "--state-root", stateRoot], io.io),
+      0,
+      io.err.join("")
+    );
+
+    const out = io.out.join("");
+    assert.match(out, new RegExp(`residual episode text: run ${runId}`));
+    assert.match(out, new RegExp(`delete --run ${runId}`), "the notice must name the remedy");
+    // Disclosed, not rewritten: the event log is byte-identical.
+    assert.equal(await readFile(logPath, "utf8"), before);
+    assert.match(before, /fixture objective/);
+  });
+});
+
+test("delete --episode prints no residual line when no run holds the text", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const seed = await seedEpisodeWithFeedback(stateRoot);
+    const io = capture();
+    assert.equal(
+      await deleteCommand(["--episode", seed.episodeId, "--state-root", stateRoot], io.io),
+      0,
+      io.err.join("")
+    );
+    assert.doesNotMatch(io.out.join(""), /residual episode text/);
+  });
+});
+
+test("residual copies are disclosed even when the episode itself has nothing left to delete", async () => {
+  await withStateRoot(async (stateRoot) => {
+    // No episode records, no bound feedback: the delete finds nothing and
+    // fails closed, but the operator still has to learn about the copy.
+    const episodeId = createEpisodeId(UUID);
+    const runId = await attachRunHoldingEpisodeText(stateRoot, episodeId);
+
+    const io = capture();
+    assert.equal(await deleteCommand(["--episode", episodeId, "--state-root", stateRoot], io.io), 1);
+    assert.match(io.err.join(""), /nothing found/);
+    assert.match(io.out.join(""), new RegExp(`residual episode text: run ${runId}`));
   });
 });
 

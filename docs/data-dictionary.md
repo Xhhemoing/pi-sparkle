@@ -57,7 +57,7 @@ allowlist entry with a justification.
 | providers-config | runtime | `runtime/providers.json` | until-deleted | delete-files | 1 |
 | auth-credential | runtime | `runtime/auth.json` | until-deleted | delete-files | 1 |
 
-## Deletion tooling (Q2 remediation, extended 2026-08-24 Round 2)
+## Deletion tooling (Q2 remediation, extended 2026-08-24 Rounds 2–3)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
 `runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
@@ -72,27 +72,45 @@ missing file as "no observations").
 operational `<id>.lock`, **and cascades into the adaptation plane**: every
 feedback record bound to that episode has **both free-text fields (`body` and
 `summary`) physically stripped from disk** and its id persisted to
-`adaptation/feedback/tombstones.json`. `readFeedback` filters tombstoned ids
-at the first layer, so a lingering shell is never re-surfaced **through that
-API**, and dataset exports keep listing tombstone ids without payloads. The CLI
-fails closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
+`adaptation/feedback/tombstones.json` (the record's audit shell — including
+its persisted `redactionClasses` — is kept). `readFeedback` filters
+tombstoned ids at the first layer, so a lingering shell is never re-surfaced
+**through that API**, and dataset exports keep listing tombstone ids without
+payloads. The episode delete also **discloses residual copies it is leaving
+in place**: it reports every run whose records still hold the episode's text
+(`residualEpisodeTextRunIds`; the CLI prints one
+`residual episode text: run <id> …` line per run with the `delete --run`
+remediation). Only runs that *name* the episode are scanned; reasons are
+`episode-opened` (the run log carries the `EPISODE_OPENED` snapshot),
+`objective-copy` (objective/acceptance text found elsewhere in the run's
+event log or `track-questions.json`), and `unreadable-log` (a corrupt line
+names the episode, so the log cannot be declared clean). Run event logs are
+append-only evidence and are deliberately **not rewritten**; a repeat delete
+of an already-deleted episode still re-discloses the copies. The CLI fails
+closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
 found") exits 1 rather than reporting success.
 
-### Known limits of the current delete commands (2026-08-24, Round 2 audit)
+### Known limits of the current delete commands (2026-08-24, Round 3 audit)
 
-Honest gaps that remain after the Round 2 cascade work
-([Round 1 report](reports/2026-08-24-sota-isolation-privacy.md),
-[Round 2 report](reports/2026-08-24-sota-r2-isolation.md)); none of these are
-covered by the claims above:
+Honest gaps that remain after the Round 2 cascade and Round 3 disclosure work
+([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
+[Round 2](reports/2026-08-24-sota-r2-isolation.md),
+[Round 3](reports/2026-08-24-sota-r3-isolation.md) reports); none of these
+are covered by the claims above:
 
-- **Episode text survives inside attached runs.** `bindEpisodeToRun` appends
-  an `EPISODE_OPENED` event carrying the full episode (including the
-  objective text) into each attached run's
-  `runtime/runs/<runId>/events.jsonl`. `delete --episode` does not touch run
-  event logs; that copy is removed only when the run itself is deleted.
-- **Preferences are not cascaded.** Observations whose `evidenceEpisodeId`
-  references a deleted episode keep their payload and the episode link; use
-  `pref delete` per observation.
+- **Episode text still physically survives inside attached runs** until each
+  reported run is itself deleted. `delete --episode` now *names* those runs
+  (see above) but never edits their append-only event logs. The residual scan
+  covers run event logs and `track-questions.json` only — a copy quoted in
+  `checkpoint.json` (flowchart snapshot) or `pause.json` (free-text reason)
+  would not be reported.
+- **Preferences are not cascaded — a documented non-goal, not an oversight.**
+  Observations whose `evidenceEpisodeId` references a deleted episode keep
+  their payload and the (now dangling) episode link; the id is not episode
+  text. The three-reason rationale lives in `src/privacy/deletion.ts`, and
+  the deletion suite pins that an episode delete leaves
+  `adaptation/preferences.json` byte-identical. Use `pref delete` per
+  observation.
 - **Deleting a run that is still executing can race.** The invocation-log
   rewrite serializes concurrent deletes via the log's lock, but the live
   appender (`onInvocation`) appends without taking it. Delete a run after it
@@ -109,6 +127,12 @@ the cascade previously stripped only `body` and left derived user text in
 `catalog-observed.json`; the episode `.lock` previously survived deletion; and
 `record-classes.ts` previously declared an unimplemented `run-event → episode`
 propagation (now reconciled — `deletionPropagatesTo` is a behavioral claim).
+
+Closed in Round 3 (2026-08-24, verified on-disk against a scratch state
+root): episode deletes previously left run-log copies **silently** (now
+disclosed per delete, with remediation); the preference gap previously had no
+stated rationale or pin (now both); the cascade's interaction with persisted
+`redactionClasses` is verified (classes survive the strip).
 
 ## Completeness audit (2026-08-22)
 
@@ -142,10 +166,25 @@ fails.
 - The persisted `redacted: true` flag on a feedback record means the redaction
   pass **ran** over it (the write-path policy sets `redactPII: true`
   unconditionally), not that sensitive content was necessarily found and
-  removed. The per-call `RedactionDecision.classes` distinguishes matches
-  (`secret`/`path` fire only on a hit), but classes are not persisted with the
-  record. The declared `prompt-injection` class is deliberately not detected
+  removed. Since 2026-08-24 (Round 3) the record additionally persists
+  `redactionClasses`, which does distinguish the cases — three states, all
+  meaningful: **`undefined`** = the row predates the field (unknown, not
+  "clean"); **a list without `secret`/`path`/`oversized`** (the store's shape
+  is `["pii"]`) = the pass ran and found nothing; **`secret`/`path`/
+  `oversized` present** = that class was found and removed. Readers fail
+  closed on an unrecognised class string and never hand back a `body` on a
+  row whose classes say it was dropped (`oversized`). The feedback class
+  keeps `migrationVersion: 1`: the field is optional and legacy rows stay
+  valid, a compatibility choice the pending P0 re-review should ratify. The
+  declared `prompt-injection` class is deliberately never emitted
   (see the rationale in `src/feedback/redaction.ts`).
+- The auto-adapt kill switch (`SPARKLE_AUTO_ADAPT=0|false|off`) gates the
+  **automatic post-run loop only**: with the switch off, signals are still
+  collected into `adaptation/feedback/records.jsonl` (observation), but the
+  `learning-bandit` file is not written and no candidate is proposed
+  (verified on disk, 2026-08-24 Round 3). Explicit commands (`adapt learn`,
+  preference tooling) are user intent and are not gated by it. Any value
+  other than the three listed strings leaves the loop enabled.
 - Missing provider usage is `undefined`, never `0`.
 - Preference dataset export always lists tombstone ids and never the deleted
   payloads (`exportForDataset`).

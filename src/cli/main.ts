@@ -1389,6 +1389,7 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     values.run !== undefined
       ? await deleteRunRecords(stateRoot, parseRunId(values.run))
       : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string));
+  for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
     io.stderr(`${result.target}: nothing found under ${stateRoot}; refusing to report success\n`);
     return 1;

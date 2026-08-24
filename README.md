@@ -145,17 +145,19 @@ pnpm cli run \
 | `pnpm cli inject --run <runId> --type fact\|override\|skip` | Record a typed fact/override/skip against the run's decision policy; user strings are recorded, never executed |
 | `pnpm cli episode events\|close --episode <epId>` | Print the episode event view, or close an episode with an acceptance-gated status (`COMPLETED`/`FAILED`/`ABANDONED`) |
 | `pnpm cli pref list\|correct\|export\|delete` | Inspect, correct, export, or delete recorded preferences. Export is tombstone-aware and drops deleted payloads |
-| `pnpm cli delete --run <runId> \| --episode <epId>` | Delete runtime records. Episode delete cascades: bound feedback bodies are stripped and their ids tombstoned |
+| `pnpm cli delete --run <runId> \| --episode <epId>` | Delete runtime records. Run delete also filter-rewrites the shared `invocations.jsonl` (dropping that run's rows, fail-closed on a corrupt log) and invalidates the observed-rate snapshot. Episode delete removes the episode files **and lock**, strips both free-text fields (`body` and `summary`) from bound feedback, tombstones their ids, and reports any attached runs whose append-only logs still hold a copy of the episode text (delete those runs to remove it) |
 | `pnpm cli commits preview\|apply --run <runId>` | Emit conventional commit messages from a completed flowchart run's ledger with evidence refs; `apply` writes them via `git commit --allow-empty` |
 | `pnpm cli auth status\|login\|logout` | Manage stored per-provider credentials (stored credentials win over env keys) |
 | `pnpm cli models list\|enable\|disable\|set-default` | Manage the enabled model catalog and the default primary/fast models |
 | `pnpm cli adapt status` | Show the proposal-first adaptation plane (never mutates a live run) |
 | `pnpm cli adapt learn --run <runId>` | Propose a routing-policy candidate from MODEL_ROUTED events |
-| `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` still collects) |
+| `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` collects and diagnoses only — no bandit update, no proposal) |
+| `pnpm cli adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]` | The **only** promotion path (CAS: `--expected` must name the active version). All five flags are required — promote refuses without explicit approval and persisted independent-review provenance. Nothing in the runtime promotes on its own |
 | `pnpm cli doctor [--project <path>] [--json]` | Developer-preview preflight (Node, pnpm, state-root, providers, legacy layout). `--json` emits the frozen additive-only `DoctorJsonReport` (`preview: true`, `liveAdaptive: false`). Not a production capability |
 | `pnpm cli migrate-legacy [--apply]` | Copy pre-plane flat state into `runtime/` + `adaptation/`. Dry run by default; `--apply` copies — never moves, deletes, or overwrites |
-| `pnpm test` | Run the full test suite |
+| `pnpm test` | Run the full test suite. `pnpm test -- test/unit/<area>` runs one directory (expanded to its `*.test.ts` files); a single file path also works |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
+| `pnpm prerelease` | `pnpm gate` plus `pnpm security:probe` (static secret/boundary probes) — run before tagging a preview build |
 
 State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 
@@ -169,7 +171,7 @@ State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 - Persists resumable checkpoints, JSONL event logs, and an episode bound to each run. A truncated final JSONL line is recovered, not treated as a corrupt log
 - `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start
 - Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
-- Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects. Other resource kinds stay proposal-first.
+- Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
 
 ## Project Status
 
@@ -197,6 +199,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [Status matrix](docs/status-matrix.md)
 - [Data dictionary](docs/data-dictionary.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
+- [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
 - [Architecture](docs/specs/m0-m2-architecture.md)
 - [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
 - [ADRs](docs/decisions/)

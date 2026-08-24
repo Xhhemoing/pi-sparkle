@@ -1,6 +1,6 @@
-import type { FeedbackRecord } from "./types.js";
+import { REDACTION_CLASSES, type FeedbackRecord, type RedactionClass } from "./types.js";
 
-export type RedactionClass = "secret" | "pii" | "path" | "prompt-injection" | "oversized";
+export type { RedactionClass };
 
 export interface RedactionPolicy {
   readonly redactPII: boolean;
@@ -10,6 +10,11 @@ export interface RedactionPolicy {
 
 export interface RedactionDecision {
   readonly redacted: boolean;
+  /**
+   * What *this* pass matched, canonically ordered. The returned record carries
+   * the same classes in `redactionClasses` (unioned with any an earlier pass
+   * already recorded), which is what `appendFeedback` persists.
+   */
   readonly classes: readonly RedactionClass[];
   readonly droppedFields: readonly string[];
   readonly referenceOnly: boolean;
@@ -29,14 +34,6 @@ export interface TextRedaction {
   readonly text: string;
   readonly classes: readonly RedactionClass[];
 }
-
-const CLASS_ORDER: readonly RedactionClass[] = [
-  "secret",
-  "pii",
-  "path",
-  "prompt-injection",
-  "oversized"
-];
 
 interface TextRule {
   readonly pattern: RegExp;
@@ -285,25 +282,52 @@ export function redactFeedback(
 
   const redacted = classes.size > 0;
   if (!redacted) {
+    // Nothing to record: the input is returned untouched, including whatever
+    // classes an earlier pass already stamped on it.
     return {
       feedback,
       decision: { redacted: false, classes: [], droppedFields: [], referenceOnly: false }
     };
   }
 
+  const passClasses = REDACTION_CLASSES.filter((entry) => classes.has(entry));
   return {
     feedback: copyFeedback(feedback, {
       redacted: true,
+      redactionClasses: mergeRedactionClasses(
+        feedback.redactionClasses,
+        passClasses,
+        body !== undefined
+      ),
       ...(body !== undefined ? { body } : { omitBody: true }),
       ...(summary !== undefined ? { summary } : {})
     }),
     decision: {
       redacted: true,
-      classes: CLASS_ORDER.filter((entry) => classes.has(entry)),
+      classes: passClasses,
       droppedFields,
       referenceOnly
     }
   };
+}
+
+/**
+ * `decision.classes` reports this pass; the class list stamped on the record
+ * describes the record as it now stands, so re-redacting a stored record keeps
+ * the provenance of the pass that first stripped it.
+ *
+ * The one subtraction: `oversized` asserts that the body was dropped. A record
+ * that still has a body must not claim it, because readers treat the class as
+ * authority to refuse a body (see `src/feedback/store.ts`).
+ */
+function mergeRedactionClasses(
+  prior: readonly RedactionClass[] | undefined,
+  pass: readonly RedactionClass[],
+  hasBody: boolean
+): readonly RedactionClass[] {
+  const merged = new Set<RedactionClass>([...(prior ?? []), ...pass]);
+  if (hasBody) merged.delete("oversized");
+  return REDACTION_CLASSES.filter((entry) => merged.has(entry));
 }
 
 function stripForbidden(text: string, needles: readonly string[]): string {
@@ -318,6 +342,7 @@ function copyFeedback(
   feedback: FeedbackRecord,
   patch: {
     redacted: boolean;
+    redactionClasses: readonly RedactionClass[];
     body?: string | undefined;
     summary?: string | undefined;
     omitBody?: boolean | undefined;
@@ -333,6 +358,7 @@ function copyFeedback(
     score: feedback.score,
     evidenceRefs: feedback.evidenceRefs,
     redacted: patch.redacted,
+    redactionClasses: patch.redactionClasses,
     createdAt: feedback.createdAt,
     ...(feedback.runId !== undefined ? { runId: feedback.runId } : {}),
     ...(feedback.taskId !== undefined ? { taskId: feedback.taskId } : {}),

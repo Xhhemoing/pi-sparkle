@@ -134,8 +134,31 @@ Parent post-collect honesty: USAGE lists `doctor --json`; status-matrix doctor r
 
 ## Round 3 结论简报
 
-_Not started._
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1363 pass / 0 fail / 1 skip** (R2: 1314). Security probe **14/14**. Retention probe `{ ok: true, unbounded: true, files: 33, bytes: 25856 }`. Directory tests 13/13.
 
-## Round 3 结论简报
+### 最终冲刺落地
 
-_Not started._
+| Slot | Model | Landed |
+|---|---|---|
+| fable-1 | `claude-fable-5-thinking-xhigh` | SOTA acceptance report; README `adapt promote` + delete honesty; CONTRIBUTING test runner; matrix rows for cascade/calibration/retention |
+| fable-2 | `claude-fable-5-thinking-xhigh` | Isolation certification; dictionary residual-text + kill-switch + redactionClasses tri-state; ADR-006 stays Proposed |
+| opus-1 | `claude-opus-5-thinking-high-fast` | Persist `redactionClasses` (fail-closed unknown; old rows valid); auth-session units + lazy readline hardening |
+| opus-2 | `claude-opus-5-thinking-high-fast` | Kill-switch collect-only (no bandit write); episode-delete residual run listing (no event-log rewrite); preference cascade explicit non-goal |
+| gpt-sol-1 | `gpt-5.6-sol-xhigh-fast` | cluster-tools units; `scripts/retention-probe.mjs` |
+| gpt-sol-2 | `gpt-5.6-sol-xhigh-fast` | Help/USAGE promote flags assertion; evidence-invariant comment |
+
+Parent ratifies the one-line `src/cli/main.ts` residual-text print (required by `DeletionResult`). Round 2 residual items 1–4 and 3.1–3.5 above are closed or explicitly disclosed.
+
+### SOTA 收敛（developer preview 标准）
+
+Accepted for preview: fail-closed persistence, transitive live-isolation, documentation-exact privacy deletes, honest telemetry/calibration, proposal-first adaptation, dispatcher-matching docs. **Not** Outcome-supported. **Not** F-PROD. Live R1/bandit/topology stay off the execution path.
+
+### 仍为策略/人工门（不在本 loop 关闭）
+
+- P0 privacy independent-reviewer sign-off
+- Checkpoint F-PROD / sealed holdout
+- ADR-006 Proposed (no Pi extension import)
+- Unbounded retention (Q3 accepted; probe only)
+- Plane-boundary comment vs value-import of model-router through eval-routing (no FS leak)
+- Real-provider `--children`/`--track` coverage still smoke-only
+

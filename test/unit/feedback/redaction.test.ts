@@ -346,6 +346,67 @@ test("decision classes report what actually matched, on top of the policy flag",
   assert.deepEqual(dirty.decision.classes, ["secret", "pii", "path"]);
 });
 
+test("the redacted record carries the same classes the decision reported", () => {
+  const clean = redactFeedback(feedback({ body: "all good" }), { redactPII: true });
+  assert.deepEqual(clean.feedback.redactionClasses, ["pii"]);
+  assert.deepEqual(clean.feedback.redactionClasses, clean.decision.classes);
+
+  const dirty = redactFeedback(
+    feedback({ body: "mail john.doe@example.com from /home/john/.ssh/id_rsa with sk-abcdefghij" }),
+    { redactPII: true }
+  );
+  assert.deepEqual(dirty.feedback.redactionClasses, ["secret", "pii", "path"]);
+  // The class list is what separates the two: both records are `redacted`, and
+  // only one of them ever held a secret.
+  assert.equal(clean.feedback.redacted, true);
+  assert.equal(dirty.feedback.redacted, true);
+  assert.equal(clean.feedback.redactionClasses?.includes("secret"), false);
+  assert.equal(dirty.feedback.redactionClasses?.includes("secret"), true);
+});
+
+test("a pass that matches nothing leaves the record — and its classes — alone", () => {
+  const original = feedback({ body: "nothing sensitive here", redactionClasses: ["secret", "pii"] });
+  const result = redactFeedback(original, { redactPII: false });
+  assert.equal(result.feedback, original);
+  assert.deepEqual(result.decision.classes, []);
+  assert.deepEqual(result.feedback.redactionClasses, ["secret", "pii"]);
+
+  const fresh = redactFeedback(feedback({ body: "nothing sensitive here" }), { redactPII: false });
+  assert.equal(fresh.feedback.redactionClasses, undefined);
+});
+
+test("re-redacting a stored record unions the classes instead of overwriting them", () => {
+  const first = redactFeedback(feedback({ body: "leak sk-seeded-secret-value tail" }), {
+    redactPII: false,
+    forbiddenSubstrings: ["sk-seeded-secret-value"]
+  });
+  assert.deepEqual(first.feedback.redactionClasses, ["secret"]);
+
+  // Second pass finds nothing new, but the record must not forget that a
+  // secret was once removed from it.
+  const second = redactFeedback(first.feedback, { redactPII: true });
+  assert.deepEqual(second.decision.classes, ["pii"], "the decision describes this pass only");
+  assert.deepEqual(second.feedback.redactionClasses, ["secret", "pii"]);
+});
+
+test("oversized is not claimed by a record that still carries a body", () => {
+  // `oversized` is a reader's authority to refuse a body, so a record that has
+  // one may not keep the class from an earlier, larger version of itself.
+  const result = redactFeedback(
+    feedback({ body: "short enough now", redactionClasses: ["oversized", "pii"] }),
+    { redactPII: true, maxBodyChars: 400 }
+  );
+  assert.equal(result.feedback.body, "short enough now");
+  assert.deepEqual(result.feedback.redactionClasses, ["pii"]);
+
+  const dropped = redactFeedback(feedback({ body: "x".repeat(50) }), {
+    redactPII: true,
+    maxBodyChars: 10
+  });
+  assert.equal(dropped.feedback.body, undefined);
+  assert.deepEqual(dropped.feedback.redactionClasses, ["pii", "oversized"]);
+});
+
 test("redactPII disabled leaves values alone (opt-in transform)", () => {
   const body = "contact john.doe@example.com at 192.168.1.100";
   const result = redactFeedback(feedback({ body }), { redactPII: false });
