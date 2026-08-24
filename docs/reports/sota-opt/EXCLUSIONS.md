@@ -534,3 +534,6 @@
 | S11-B-1 | route() 内融合 partitionLiveCandidates 硬过滤与 selectLiveModel 最小扫描 | 等价；M=2 +19–48µs/批低于 S4-B-4 噪声；M=7 符号翻转；M=10 符号稳定负优化 −100~−225µs |
 | S11-D-1 | rollback identityEquals 守卫消除（键编码单射性） | 校验域可证死，内存面管道注入键碰撞 fail-open；上界 5.3–9.3ns/op。非 S9-D-3 |
 | S11-D-2 | load 链 parse→restore 单遍融合 | 上界 72–74µs/load；落地撞 X1-2/X0-4。非 S1-D-5 |
+| S11-G-1 | 切片内跨界 import 边惰性化（flowchart-run→learned-routing 等） | 冷子树 10–23ms 但 main.ts 静态钉死，生产收益恒 0；可剪位在 D/I |
+| S11-G-2 | CheckpointStore 相同字节写跳过 | 14 格普查 0/27 命中（3 种子稳定）；写必带推进状态。非 S8-G-2 |
+| S11-G-3 | inspectRun 尾扫部分读 | 0.516–0.532ms/次；跳过早段 fail-closed 复验。非 S2-G-6 |
