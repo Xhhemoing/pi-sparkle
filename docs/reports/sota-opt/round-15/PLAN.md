@@ -2,19 +2,19 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–14 已对各区做过十四遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S14-* 条目（含已合入的 S13-B-1 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I / R13-J / R14-A / R14-B / R14-C / R14-D / R14-E / R14-F / R14-G / R14-H / R14-I / R14-J / R15-A / R15-B / R15-D / R15-E 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–14 已对各区做过十四遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S14-* 条目（含已合入的 S13-B-1 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I / R13-J / R14-A / R14-B / R14-C / R14-D / R14-E / R14-F / R14-G / R14-H / R14-I / R14-J / R15-A / R15-B / R15-C / R15-D / R15-E 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R15-A … R15-J），报告写入 `docs/reports/sota-opt/round-15/`。
 
-状态：第 3 波 G 本波派出；A/B/D/E 已合入（空枚举）；C/F 运行中。Round 14 已收口 10/10。
+状态：第 3 波 H 本波派出；A/B/C/D/E 已合入（空枚举）；F/G 运行中。Round 14 已收口 10/10。
 
 A 切片已合入：空枚举，未铸 S15-A-*。预算复核 69–83 µs/run（锚点 13.8–16.5 µs/gate，与 R14-A 69–81 同带）。本轮新增 per-turn 集合规模越线（C≈996–1,015 / R≈1,020–1,037 达 10 ms/run）、GC/分配格（~22 KB/gate，摊销 ~1.2 µs/run）与 JIT 档（14–15/16 turbofan，200k 门 0 deopt）。5 项换名拒绝不铸 ID。基线 `7acb666` 空 diff 再确认。
 
 B 切片已合入：空枚举，未铸 S15-B-*。天花板复核 M=2 9.5–10.9、M=10 18.5–25.4、replay 7.3–9.9、10× 109.7–140.9 ms/eval。S12-B-2 重开条件未触发。本轮新增 A/A 噪声地板（N=2000 窗 max-abs 762–2346 µs，可出 5/5 伪稳）与引擎代敏感（Node 24 vs 22 稳态快 15–30%，无越线）。Live = R0。基线 `94ed3d9` 空 diff 再确认。
 
-C 切片 = 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S7-C。最后生产改动 `183df9b`；预期 `git diff 183df9b..HEAD --` 对本切片为空。不要重开 S1-C-1..10 / S2-C-1..5 / S3-C-1..3 / S4-C-1..6 / S5-C-1..7 / S6-C-1..7 / S7-C-1..4 / S8-C-1..4 / S9-C-1..4 / S10-C-1..3 / S12-C-1。R11-C / R13-C / R14-C 空枚举（无 S11-C-* / S13-C-* / S14-C-*）。RID/CNT 已关。禁止 CMB 重排。S12-C-1 nest×layout 已关（重开条件：无）。R13-C 无名微观（PIVCSE / FINTAIL / REFZ / TSORT / DEG）与 R14-C 无名微观（SWORD / XF64 / IRLSDP / CMPH）不补铸。噪声带 ±35 ms；贴带不落地。r1c–r7c 必须保持绿：8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193。生产中位 R14-C：657.6–689.3 ms/报告。若落地代码：重跑 r1c–r7c + 新 r15c 仿真。
+C 切片已合入：空枚举，未铸 S15-C-*。生产中位复核 660.6–667.1 ms/报告（与 R14-C 657.6–689.3 同带）。两处从未点名微观（STORD / RIDGE）关闭探针不铸 ID。本轮新增 A/A 决斗地板（AAFLR，中位 ±1.5 ms）与 GC 停顿轴（GCAX，5.89–5.93 ms/报告）。R13-C / R14-C 无名微观不补铸。r1c–r7c 回归门绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）。基线 `183df9b` 空 diff 再确认。
 
 D 切片已合入：空枚举，未铸 S15-D-*。eval 地板复核配置态 3.10–3.25 ms（本 VM 偏快，与 R14-D 4.05–4.21 同跨 VM 带）。本轮新增分配/GC 剖面（eval ~4.4–4.5 MB，切片内可寻址 1024 KB 全钉已关 ID；全清分配 GC 侧上界 37–43 µs）与 A/A 噪声地板（窗中位伪差 |263–435| µs，可寻址池 0.53–0.54 ms ≈ 1× MDE）。8 项换名映射已关 ID。基线 `82bef36` 空 diff 再确认。
 
@@ -23,3 +23,5 @@ E 切片已合入：空枚举，未铸 S15-E-*。SLICE-CPU 复核 20.9–22.4 µ
 F 切片 = `src/experiments/`（15 文件）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F / R11-F / R12-F / R13-F / R14-F 空枚举、未铸 ID。全实验锚点 ~121–129 ms。R14-F 已归档 GC 占比（2.0%）、字符串出处格（+7.1–7.2 ms）与 deopt 审计，不补铸。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r15f 仿真。基线 `519101f` 预期空 diff。
 
 G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G / R13-G / R14-G 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希。计算顶 ~0.288–0.295 ms vs I/O ~94–101 ms。R14-G 引擎态/规模轴（线性/亚线性、N\*≈574、JIT 9/9 健康、GC 1.91 ms）与 14 格 digest `06cbcf92c098c8f0` 不补铸。基线 `4efee23` 预期空 diff。
+
+H 切片 = 21 文件：`src/evaluation/` **8** + `src/requirement/` 7 + `src/review/` 4 + `src/rubric/` 2（先前「evaluation 9」为计数笔误）。不要重开 S1-H-1..9 / S5-H-1 / S8-H-1 / S9-H-1..2。R10-H / R11-H / R12-H / R13-H / R14-H 空枚举、未铸 ID。热层默认 9.27–9.38 µs/run。**S5-H-1 保持**（字节级 + 三项语义 attestation）。R14-H 引擎底 GC/JIT 轴（热链 11,458 B/run、GC 8.1–9.0%、摊销 265–278 ns；JIT 27/27 零 deopt）与 throw 路径消息装配不补铸。基线 `fd437a9` 预期空 diff。
