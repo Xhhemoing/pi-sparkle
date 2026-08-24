@@ -17,7 +17,20 @@ Loop 3 draft (`agent/sota-opt-loop3-7e63`) claimed but has not landed: INSPECT_S
 
 ## Round 1 — in flight
 
-Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. Dispatching T1–T10 (6 opus-fast + 4 gpt-sol). Exclusive ownership in `OWNERSHIP.md`.
+Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. T1–T10 dispatched (6 opus-fast + 4 gpt-sol). Exclusive ownership in `OWNERSHIP.md`.
+
+| Slot | Agent | Model |
+|---|---|---|
+| T1 | bc-1dd89357-b04d-5d7f-a849-37c2be55eb9f | opus-fast |
+| T2 | bc-2a25b067-1389-58ae-a1e2-f9b0c8d0861f | opus-fast |
+| T3 | bc-bd35c3f0-45e3-50e1-84f7-dc0f6072cedf | opus-fast |
+| T4 | bc-39199fe8-0b42-51fa-a291-3dd6d602bfbc | opus-fast |
+| T5 | bc-6637a686-1796-50e1-856a-3919d246be91 | opus-fast |
+| T6 | bc-5a5390cc-42fe-5b80-99c2-f5d90bf5bf3d | opus-fast |
+| T7 | bc-6dc4f05c-9629-5df2-96ef-7fe793150b2d | gpt-sol |
+| T8 | bc-b9ea274b-2222-584d-a2c6-d2eb5a6a7432 | gpt-sol |
+| T9 | bc-85399aab-2a9e-5502-b83e-cb2f61f8e765 | gpt-sol |
+| T10 | bc-6d529890-48af-5198-b9c8-95366843ef2f | gpt-sol |
 
 **Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back. Fable re-measured jsonlAppend 68.264ms; T7 must record its own same-VM baseline before optimizing. Two host-dependent doctor test failures are T9's to hermeticize.
 
