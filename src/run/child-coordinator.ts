@@ -187,6 +187,19 @@ class AttemptTranscript {
 /** Delays above this are clamped by setTimeout and would fire immediately. */
 const MAX_TIMER_MS = 2_147_483_647;
 
+/** The child-run events that close a child's own log. */
+const TERMINAL_CHILD_EVENT_TYPES: ReadonlySet<Event["type"]> = new Set([
+  "RUN_COMPLETED",
+  "RUN_FAILED",
+  "RUN_CANCEL_REQUESTED"
+]);
+
+/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
+function crashReason(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).trim();
+  return `child run crashed: ${bounded(message === "" ? "unknown error" : message)}`;
+}
+
 const realSchedule = (fn: () => void, ms: number): { cancel(): void } => {
   const handle = setTimeout(fn, ms);
   return { cancel: () => clearTimeout(handle) };
@@ -297,6 +310,9 @@ export class ChildCoordinator {
     const done = this.gate.acquire().then(async () => {
       try {
         return await this.runTask(input, childRunId, parentSignal);
+      } catch (error) {
+        await this.recordCrashTerminal(childRunId, taskId, error);
+        throw error;
       } finally {
         settled = true;
         this.cancelledChildren.delete(childRunId);
@@ -350,6 +366,23 @@ export class ChildCoordinator {
     taskId?: TaskId
   ): Promise<void> {
     return this.childStore(childRunId).append(this.makeEvent(type, payload, childRunId, taskId));
+  }
+
+  /**
+   * Closes the log of a child whose run threw instead of settling. Without it
+   * the child's own event log stops wherever the throw landed — replay sees a
+   * child that never ended, even though nothing is running it any more. The
+   * append is best effort: the error escaping to the parent is the one worth
+   * reporting, and a child that already recorded a terminal event keeps it.
+   */
+  private async recordCrashTerminal(childRunId: RunId, taskId: TaskId, error: unknown): Promise<void> {
+    try {
+      const read = await this.childStore(childRunId).readAll();
+      if (read.events.some((event) => TERMINAL_CHILD_EVENT_TYPES.has(event.type))) return;
+      await this.appendChildEvent(childRunId, "RUN_FAILED", { reason: crashReason(error) }, taskId);
+    } catch {
+      // Swallowed on purpose: see the method contract.
+    }
   }
 
   private buildTaskRequest(input: ChildTaskInput, childRunId: RunId, childAgentId: AgentInstanceId): TaskRequest {

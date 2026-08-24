@@ -704,10 +704,44 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
   return finish(ctx);
 }
 
+const CRASH_REASON_LIMIT = 500;
+
+/** The escaping error, as a bounded non-empty `RUN_FAILED` reason. */
+function crashReason(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).trim();
+  const detail = message === "" ? "unknown error" : message;
+  const bounded = detail.length <= CRASH_REASON_LIMIT ? detail : `${detail.slice(0, CRASH_REASON_LIMIT)}…`;
+  return `run crashed: ${bounded}`;
+}
+
+/**
+ * Records the terminal event for a run that died by an escaping error, so
+ * replay sees a failure instead of a log that just stops. Two deliberate
+ * limits:
+ *
+ * - Only a log still reading as in flight gets one. A run already recorded as
+ *   paused, waiting, blocked, cancelled or finished has an honest status of its
+ *   own, and a crash while tearing that down must neither duplicate the
+ *   terminal event nor bury a state its operator can still resume.
+ * - Every failure here is swallowed. This runs while the run is already
+ *   unwinding, and the error on its way out is the one worth reporting.
+ */
+async function recordCrashTerminal(ctx: FlowchartLoopContext, error: unknown): Promise<void> {
+  try {
+    const read = await ctx.eventStore.readAll();
+    const status = replayRun(read.events).status;
+    if (status !== "PLANNING" && status !== "RUNNING") return;
+    await ctx.append(ctx.make("RUN_FAILED", { reason: crashReason(error) }));
+  } catch {
+    // Best effort: an append that cannot land must not mask the original error.
+  }
+}
+
 /**
  * Tears the run down when an error escapes. A throw from mid node (a child that
  * fails to launch, a rejected append) never reaches {@link finish}, so without
- * this the children started for that node keep running with nobody awaiting them.
+ * this the children started for that node keep running with nobody awaiting
+ * them and the log ends mid-flight with no terminal event.
  */
 async function withRunTeardown(
   ctx: FlowchartLoopContext,
@@ -716,7 +750,9 @@ async function withRunTeardown(
   try {
     return await body();
   } catch (error) {
+    // Same order as persistFailed: stop paying for children, then record.
     await ctx.abort.cancelAndSettle();
+    await recordCrashTerminal(ctx, error);
     throw error;
   }
 }

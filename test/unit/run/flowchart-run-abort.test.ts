@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { validateConfidenceScore, type Flowchart, type FlowEdge, type FlowNode } from "../../../src/domain/flowchart.js";
-import { createTaskId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
+import { createTaskId, parseRunId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
+import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
-import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
+import { replayRun } from "../../../src/run/replay.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 
 const TS: IsoTimestamp = parseIsoTimestamp("2026-08-24T09:00:00.000Z");
@@ -255,5 +258,138 @@ test("a coordinator child runs on the run-level signal, and teardown aborts it",
       true,
       "the child attempt signal composes the run signal, so teardown reaches a live child"
     );
+  });
+});
+
+/**
+ * A pause controller whose token read blows up, which is the cheapest way to
+ * make an error escape the run loop from inside {@link startFlowchartRun}: the
+ * thin executor path swallows its own throws, so a node cannot produce one.
+ */
+class ThrowingPauseController implements PauseController {
+  calls = 0;
+
+  constructor(private readonly beforeThrow?: (runId: RunId) => Promise<void>) {}
+
+  async requestPause(runId: RunId): Promise<PauseToken> {
+    return this.token(runId);
+  }
+
+  async clearPause(): Promise<void> {}
+
+  async token(runId: RunId): Promise<PauseToken> {
+    this.calls += 1;
+    await this.beforeThrow?.(runId);
+    throw new Error("pause token unreadable");
+  }
+}
+
+/** The one run directory the state root holds; a crashed run never returns its id. */
+async function soleRunId(stateRoot: string): Promise<RunId> {
+  const ids = await readdir(join(runtimeRoot(stateRoot), "runs"));
+  assert.equal(ids.length, 1, "exactly one run under the state root");
+  return parseRunId(ids[0]);
+}
+
+function eventsPath(stateRoot: string, runId: RunId): string {
+  return join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl");
+}
+
+test("an error escaping the run records RUN_FAILED naming the escaping error", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const executor = new RecordingExecutor();
+    await assert.rejects(
+      startFlowchartRun(deps(stateRoot, executor, new ThrowingPauseController()), {
+        projectRoot,
+        flowchart: chain("crash-terminal", ["only"])
+      }),
+      /pause token unreadable/
+    );
+
+    const runId = await soleRunId(stateRoot);
+    const read = await new EventStore(stateRoot, runId).readAll();
+    const failed = read.events.filter((event) => event.type === "RUN_FAILED");
+    assert.equal(failed.length, 1, "the crashed run records exactly one terminal event");
+    assert.equal(
+      (failed[0]?.payload as { reason: string }).reason,
+      "run crashed: pause token unreadable",
+      "the reason names the error that killed the run, not an invented node failure"
+    );
+    assert.deepEqual(executor.taskIds, [], "the run died before any node ran");
+  });
+});
+
+test("a run that crashed replays as FAILED and resume redoes no work", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    await assert.rejects(
+      startFlowchartRun(deps(stateRoot, new RecordingExecutor(), new ThrowingPauseController()), {
+        projectRoot,
+        flowchart: chain("crash-replay", ["only"])
+      }),
+      /pause token unreadable/
+    );
+
+    const runId = await soleRunId(stateRoot);
+    const crashed = await new EventStore(stateRoot, runId).readAll();
+    const replayed = replayRun(crashed.events);
+    assert.equal(replayed.status, "FAILED", "replay sees a failure, not a run that just stops");
+    assert.deepEqual(replayed.anomalies, [], "the appended terminal is the log's only one");
+
+    const afterCrash = new RecordingExecutor();
+    const resumed = await resumeFlowchartRun(deps(stateRoot, afterCrash), runId);
+    assert.equal(resumed.status, "FAILED", "resuming a crashed run reports the failure");
+    assert.deepEqual(afterCrash.taskIds, [], "a crashed run is not silently restarted");
+  });
+});
+
+test("a crash while resuming a paused run leaves the pause resumable", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const pause = new FakePauseController();
+    const executor = new RecordingExecutor({
+      onExecute: () => {
+        pause.paused = true;
+      }
+    });
+    const paused = await startFlowchartRun(deps(stateRoot, executor, pause), {
+      projectRoot,
+      flowchart: chain("pause-then-crash", ["first", "second"])
+    });
+    assert.equal(paused.status, "PAUSED");
+
+    await assert.rejects(
+      resumeFlowchartRun(deps(stateRoot, new RecordingExecutor(), new ThrowingPauseController()), paused.runId),
+      /pause token unreadable/
+    );
+
+    const read = await new EventStore(stateRoot, paused.runId).readAll();
+    assert.equal(
+      read.events.some((event) => event.type === "RUN_FAILED"),
+      false,
+      "a crash during teardown must not bury a state the operator can still resume"
+    );
+    assert.equal(replayRun(read.events).status, "PAUSED");
+  });
+});
+
+test("a terminal append that cannot land still rethrows the original error", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    // The log is torn just before the run dies, so the best-effort terminal
+    // append fails on the read it needs first.
+    const pause = new ThrowingPauseController(async (runId) => {
+      await appendFile(eventsPath(stateRoot, runId), "{not json\n", "utf8");
+    });
+
+    await assert.rejects(
+      startFlowchartRun(deps(stateRoot, new RecordingExecutor(), pause), {
+        projectRoot,
+        flowchart: chain("crash-unwritable", ["only"])
+      }),
+      /pause token unreadable/,
+      "the append failure is swallowed, the escaping error is not"
+    );
+
+    const runId = await soleRunId(stateRoot);
+    const raw = await readFile(eventsPath(stateRoot, runId), "utf8");
+    assert.equal(raw.includes("RUN_FAILED"), false, "nothing was appended to the torn log");
   });
 });

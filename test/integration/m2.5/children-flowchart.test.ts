@@ -11,6 +11,7 @@ import {
 } from "../../../src/agents/registry.js";
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
 import {
+  parseRunId,
   parseTaskId,
   type ArtifactId,
   type EvidenceId,
@@ -25,7 +26,7 @@ import type {
 } from "../../../src/execution/contract.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
-import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { inspectRun } from "../../../src/run/inspection.js";
 import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { createModelRouter } from "../../../src/supervisor/model-router.js";
@@ -234,19 +235,35 @@ class SpawningExecutor implements AgentExecutor {
   }
 }
 
-async function eventTypesByRun(stateRoot: string): Promise<Map<string, string[]>> {
+interface LoggedEvent {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+async function eventsByRun(stateRoot: string): Promise<Map<string, LoggedEvent[]>> {
   const runsRoot = join(runtimeRoot(stateRoot), "runs");
   const runIds = await readdir(runsRoot);
-  const byRun = new Map<string, string[]>();
+  const byRun = new Map<string, LoggedEvent[]>();
   for (const runId of runIds) {
     const raw = await readFile(join(runsRoot, runId, "events.jsonl"), "utf8").catch(() => "");
-    const types = raw
+    const events = raw
       .split("\n")
       .filter((line) => line.trim() !== "")
-      .map((line) => (JSON.parse(line) as { type: string }).type);
-    byRun.set(runId, types);
+      .map((line) => JSON.parse(line) as LoggedEvent);
+    byRun.set(runId, events);
   }
   return byRun;
+}
+
+async function eventTypesByRun(stateRoot: string): Promise<Map<string, string[]>> {
+  const byRun = await eventsByRun(stateRoot);
+  return new Map([...byRun].map(([runId, events]) => [runId, events.map((event) => event.type)]));
+}
+
+const TERMINAL_TYPES = ["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL_REQUESTED"];
+
+function terminalsOf(events: readonly LoggedEvent[]): LoggedEvent[] {
+  return events.filter((event) => TERMINAL_TYPES.includes(event.type));
 }
 
 test("an error escaping a node cancels the peer that is still running", async () => {
@@ -275,5 +292,71 @@ test("an error escaping a node cancels the peer that is still running", async ()
     const byRun = await eventTypesByRun(stateRoot);
     const cancelled = [...byRun.values()].filter((types) => types.includes("RUN_CANCEL_REQUESTED"));
     assert.equal(cancelled.length, 1, "the live peer settles as a cancelled child run");
+  });
+});
+
+test("an error escaping a node closes both the run's log and the crashed child's", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const spawner = child("spawner", "worker");
+    const flowchart = compileChildrenToFlowchart([
+      { taskId: spawner.taskId, role: "worker", objective: spawner.objective }
+    ]);
+
+    await assert.rejects(
+      startFlowchartRun(
+        {
+          stateRoot,
+          router: router(),
+          executor: new SpawningExecutor(),
+          registry: registryFailingFor("tester"),
+          generateId: sequenceGenerator()
+        },
+        { projectRoot, flowchart, objective: "Spawn peers", childTasks: [spawner] }
+      ),
+      /profile lookup failed for tester/
+    );
+
+    const byRun = await eventsByRun(stateRoot);
+    for (const [runId, events] of byRun) {
+      assert.equal(terminalsOf(events).length, 1, `run ${runId} ends with exactly one terminal event`);
+    }
+
+    const parent = [...byRun].find(([, events]) => events.some((event) => event.type === "PROJECT_DISCOVERED"));
+    assert.ok(parent, "the parent run is the one that recorded the project");
+    assert.equal(
+      terminalsOf(parent[1])[0]?.payload.reason,
+      "run crashed: profile lookup failed for tester",
+      "the run that died mid-node records why, instead of just stopping"
+    );
+
+    const crashedChild = [...byRun.values()].find((events) =>
+      events.some(
+        (event) =>
+          event.type === "RUN_FAILED" &&
+          String(event.payload.reason).startsWith("child run crashed:")
+      )
+    );
+    assert.ok(crashedChild, "the child that threw instead of settling closes its own log");
+    assert.equal(
+      terminalsOf(crashedChild)[0]?.payload.reason,
+      "child run crashed: profile lookup failed for tester"
+    );
+    assert.equal(
+      crashedChild.some((event) => event.type === "AGENT_STARTED"),
+      false,
+      "this child died launching its first attempt, which is why nothing else closed it"
+    );
+
+    const parentRunId = parseRunId(parent[0]);
+    const resumed = await resumeFlowchartRun(
+      {
+        stateRoot,
+        router: router(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        generateId: sequenceGenerator()
+      },
+      parentRunId
+    );
+    assert.equal(resumed.status, "FAILED", "the crashed run resumes as a failure, not as more work");
   });
 });
