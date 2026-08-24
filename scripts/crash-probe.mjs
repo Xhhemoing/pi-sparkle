@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, open, readFile, rename, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,6 +81,34 @@ async function runChild(mode, payload) {
     await withExclusiveFileLock(payload.lockPath, async () => {
       await signalAndKill(payload.sentinelPath);
     });
+    return;
+  }
+
+  if (mode === "run-lifecycle") {
+    const { startRun } = await tsImport("../src/run/coordinator.ts", import.meta.url);
+    const running = startRun(
+      {
+        stateRoot: payload.stateRoot,
+        executor: {
+          async *execute(request) {
+            await signalAndKill(
+              payload.sentinelPath,
+              `${JSON.stringify({
+                pid: process.pid,
+                phase: "run-executing",
+                runId: request.runId
+              })}\n`
+            );
+            yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+          }
+        }
+      },
+      {
+        projectRoot: payload.projectRoot,
+        objective: "hold the lifecycle lock until SIGKILL"
+      }
+    );
+    await running.done;
     return;
   }
 
@@ -261,6 +289,30 @@ async function runCase(name, iterations, operation) {
   }
 }
 
+async function snapshotDirectory(root) {
+  const snapshot = [];
+  async function visit(directory, relativeDirectory) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      const relativePath =
+        relativeDirectory === "" ? entry.name : join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        snapshot.push({ path: `${relativePath}/`, contents: null });
+        await visit(path, relativePath);
+      } else if (entry.isFile()) {
+        snapshot.push({
+          path: relativePath,
+          contents: (await readFile(path)).toString("base64")
+        });
+      }
+    }
+  }
+  await visit(root, "");
+  return snapshot;
+}
+
 function parseIterations(args) {
   if (args.length === 0) return DEFAULT_ITERATIONS;
   if (args.length !== 2 || args[0] !== "--iterations") {
@@ -278,8 +330,13 @@ async function runProbe(iterations) {
     "../src/persist/jsonl.ts",
     import.meta.url
   );
-  const { withExclusiveFileLock } = await tsImport(
+  const { LOCK_TIMEOUT_CODE, withExclusiveFileLock } = await tsImport(
     "../src/persist/file-lock.ts",
+    import.meta.url
+  );
+  const { doctorCommand } = await tsImport("../src/cli/doctor.ts", import.meta.url);
+  const { deleteRunRecords, verifyRunRecordsRemoved } = await tsImport(
+    "../src/privacy/deletion.ts",
     import.meta.url
   );
   const { CheckpointStore } = await tsImport(
@@ -329,6 +386,10 @@ async function runProbe(iterations) {
   );
   const { EpisodeEventStore } = await tsImport(
     "../src/episode/store.ts",
+    import.meta.url
+  );
+  const { runLockPath } = await tsImport(
+    "../src/run/event-store.ts",
     import.meta.url
   );
 
@@ -432,6 +493,84 @@ async function runProbe(iterations) {
           { timeoutMs: 120, retryMs: 5 }
         );
         assert.equal(recovered, "recovered");
+      })
+    );
+
+    cases.push(
+      await runCase("sigkill-run-lock-operator-recovery", iterations, async (iteration) => {
+        const caseDir = join(root, "run-lifecycle", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const projectRoot = join(caseDir, "project");
+        const sentinelPath = join(caseDir, "child-ready");
+        await mkdir(projectRoot, { recursive: true });
+
+        await runKilledChild("run-lifecycle", {
+          projectRoot,
+          sentinelPath,
+          stateRoot
+        });
+
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "run-executing");
+        assert.equal(typeof sentinel.runId, "string");
+        assert.equal(Number.isSafeInteger(sentinel.pid), true);
+        assert.notEqual(sentinel.pid, process.pid);
+
+        const lockPath = runLockPath(stateRoot, sentinel.runId);
+        const lock = JSON.parse(await readFile(lockPath, "utf8"));
+        assert.equal(lock.pid, sentinel.pid, "the abandoned run lock must record the dead child PID");
+        let pidError;
+        try {
+          process.kill(lock.pid, 0);
+        } catch (error) {
+          pidError = error;
+        }
+        assert.equal(pidError?.code, "ESRCH", "the PID recorded in the run lock must be dead");
+
+        const runDir = join(runtimeRoot(stateRoot), "runs", sentinel.runId);
+        const beforeDelete = await snapshotDirectory(runDir);
+        assert.ok(
+          beforeDelete.some((entry) => entry.path === "events.jsonl"),
+          "the child must reach a persisted real run before SIGKILL"
+        );
+        const refused = await deleteRunRecords(stateRoot, sentinel.runId, {
+          timeoutMs: 120,
+          retryMs: 5
+        }).then(
+          () => assert.fail("deleteRunRecords must not steal the SIGKILLed run's lock"),
+          (error) => error
+        );
+        assert.equal(refused?.code, LOCK_TIMEOUT_CODE);
+        assert.deepEqual(
+          await snapshotDirectory(runDir),
+          beforeDelete,
+          "a LOCK_TIMEOUT must leave every run record untouched"
+        );
+
+        const stdout = [];
+        await doctorCommand(
+          ["--json", "--state-root", stateRoot],
+          {
+            stdout: (text) => stdout.push(text),
+            stderr: () => {}
+          }
+        );
+        const report = JSON.parse(stdout.join(""));
+        const inventoryEntry = report.locks.entries.find((entry) => entry.path === lockPath);
+        assert.ok(inventoryEntry, "doctor must inventory the abandoned run lock");
+        assert.equal(inventoryEntry.pid, sentinel.pid);
+        assert.equal(inventoryEntry.pidLiveness, "not-running");
+        assert.equal(inventoryEntry.metadata, "valid");
+        assert.match(inventoryEntry.remediation, /inspect and remove manually; never automatic/);
+        assert.ok(
+          inventoryEntry.remediation.includes(lockPath),
+          "the remediation must name the lock the operator should inspect"
+        );
+
+        await rm(lockPath);
+        const deleted = await deleteRunRecords(stateRoot, sentinel.runId);
+        assert.deepEqual(deleted.removedPaths, [runDir]);
+        await verifyRunRecordsRemoved(stateRoot, sentinel.runId);
       })
     );
 
