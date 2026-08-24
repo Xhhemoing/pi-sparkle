@@ -253,3 +253,9 @@
 | S3-H-2 | critiqueContract 去中间数组保双 some 早退 | 真实 C=2 仅 ~100ns/run |
 | S3-H-3 | q-tests 补问子集正则短路 | 34–45ns |
 | S3-H-4 | changeSetsEqual 引用相等快路径 | ≤85ns；零生产流量 |
+| S3-I-1 | invocationError 元组数组循环改直线检查 | V8 已标量替换；±0.02–0.12ms@50k 抖动 |
+| S3-I-2 | --children 双 createAgentProfileRegistry 去重 | 8.4µs/运行 |
+| S3-I-3 | 普通 run 死载荷 loadProvidersConfig 下沉 | 损坏 providers.json 时 exit 1→成功 |
+| S3-I-4 | inspect --json 每事件 stdout 批量合并 | 实测慢 85–86µs；CliIo 调用次数可观测 |
+| S3-I-5 | setDefaultModels 每字段双 parseModelRef 消除 | ~25ns，一次性配置 |
+| S3-I-6 | answer/pause 预检查 readAll 换 stat 探针 | 损坏日志 fail-closed 被绕过 |
