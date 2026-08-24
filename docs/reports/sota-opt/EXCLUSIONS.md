@@ -56,6 +56,7 @@
 - J1 `evaluatePreferenceLoop` 每主体增量折叠 + O(1) 墓碑撤销（见 round-01/R1-J.md）
 - S1-C offline-logit：bootstrap 工件复用 + APC copy-derive + IRLS 缓冲每 fit 一次分配（见 round-01/R1-C.md）
 - S1-I `run --children` 复用 `smartChildPlan` 已校准 live 目录（见 round-01/R1-I.md）
+- S2-C offline-logit IRLS 规范键 eta/mu 去重（见 round-02/R2-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -164,3 +165,8 @@
 | S2-B-2 | createModelRouter 跳过二次 catalogModel | ~150ns/批；检测通道撞排除 |
 | S2-B-3 | routeR0 高风险过滤内联 Set（S1-B-6 姊妹） | 拖慢常见路径或 ns 级 |
 | S2-B-4 | assignTasks 全目录 plan 特化 | 每批 300–950ns + 切片外改动 |
+| S2-C-1 | on-prob 站点规范键去重 | 2.5–3.6ms 噪声 |
+| S2-C-2 | APC off 点积虚零列 | 上界即 S1-C-1 噪声带 |
+| S2-C-3 | IRLS delta map+reduce 换融合循环 | 分配级抖动 |
+| S2-C-4 | APC 逐列扫描反转为按行累加 | 个位 ms 上界 |
+| S2-C-5 | bootstrap 采样循环融合塌缩检查 | 亚噪声 |
