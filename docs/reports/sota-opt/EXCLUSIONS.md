@@ -177,3 +177,9 @@
 | S2-E-5 | truncate 流式 401 早退 | 现实短摘要实测更慢 |
 | S2-E-6 | optimizedPolicy filter+map 融合 | n=10 实测更慢 |
 | S2-E-7 | TASK_RESULT binding 双拷贝合一 | ~260ns；契约实施点 |
+| S2-F-1 | shadowDecisionAt mulberry32 闭式 O(1) 跳转 | 逐位精确但仅占全实验 ~1% |
+| S2-F-2 | replayPolicy 双 manifestHash 消除 | 无生产调用方 |
+| S2-F-3 | assertIsolatedOutput workspace 去重 | 90µs 低于否决线 |
+| S2-F-4 | assign 复用 restore 已建 Set | 全实验仅 ~0.8% |
+| S2-F-5 | splitFromManifest 尾部双验消除 | fail-closed 防御纵深 |
+| S2-F-6 | pairedEvaluationCard 多遍融合 | N=40 仅 13µs |
