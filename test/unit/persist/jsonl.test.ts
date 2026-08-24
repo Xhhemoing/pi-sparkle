@@ -34,55 +34,125 @@ test("readJsonlObjects treats missing and empty files as empty logs", async () =
   });
 });
 
-test("appendJsonlLine creates parent directories and exercises the fsync path", async () => {
+test("appendJsonlLine creates missing parent directories for both durability modes", async () => {
+  await withTempFile(async (path) => {
+    for (const fsync of [false, true]) {
+      const nestedPath = join(path, "..", fsync ? "durable" : "buffered", "log.jsonl");
+      await appendJsonlLine(nestedPath, JSON.stringify({ fsync }), fsync);
+      assert.equal(await readFile(nestedPath, "utf8"), `${JSON.stringify({ fsync })}\n`);
+    }
+  });
+});
+
+test("appendJsonlLine writes and syncs through the same file handle", async () => {
   await withTempFile(async (path) => {
     const probe = await open(path, "w");
     type Handle = typeof probe;
-    type HandlePrototype = { sync: Handle["sync"] };
+    type HandlePrototype = {
+      appendFile: Handle["appendFile"];
+      sync: Handle["sync"];
+    };
     const prototype = Object.getPrototypeOf(probe) as HandlePrototype;
+    const originalAppendFile = prototype.appendFile;
     const originalSync = prototype.sync;
     await probe.close();
     await rm(path);
 
-    let syncCalls = 0;
+    const writtenHandles = new WeakSet<Handle>();
+    let writeCalls = 0;
+    let sameHandleSyncCalls = 0;
+    prototype.appendFile = (async function (this: Handle, ...args: unknown[]): Promise<void> {
+      writeCalls += 1;
+      writtenHandles.add(this);
+      await Reflect.apply(originalAppendFile, this, args);
+    }) as Handle["appendFile"];
     prototype.sync = (async function (this: Handle): Promise<void> {
-      syncCalls += 1;
+      if (writtenHandles.has(this)) sameHandleSyncCalls += 1;
       await Reflect.apply(originalSync, this, []);
     }) as Handle["sync"];
-    const nestedPath = join(path, "..", "nested", "durable.jsonl");
     try {
-      await appendJsonlLine(nestedPath, JSON.stringify({ durable: true }), true);
+      await appendJsonlLine(path, JSON.stringify({ durable: true }), true);
     } finally {
+      prototype.appendFile = originalAppendFile;
       prototype.sync = originalSync;
     }
 
-    assert.equal(syncCalls, 1);
-    assert.equal(await readFile(nestedPath, "utf8"), '{"durable":true}\n');
-    const read = await readJsonlObjects(
-      nestedPath,
-      (lineNumber) => new Error(`corrupt ${lineNumber}`)
-    );
-    assert.deepEqual(read, { values: [{ durable: true }], recovery: {} });
+    assert.equal(writeCalls, 1);
+    assert.equal(sameHandleSyncCalls, 1);
+    assert.equal(await readFile(path, "utf8"), '{"durable":true}\n');
   });
 });
 
 test("readJsonlObjects recovers a truncated last line", async () => {
   await withTempFile(async (path) => {
-    await writeFile(path, '{"ok":true}\n{"partial', "utf8");
+    const bytes = Buffer.from('{"ok":true}\n{"partial', "utf8");
+    await writeFile(path, bytes);
+    const before = await readFile(path);
     const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
-    assert.deepEqual(read.values, [{ ok: true }]);
-    assert.equal(read.recovery.incompleteLine, '{"partial');
-    assert.equal(read.recovery.lineNumber, 2);
+    assert.deepEqual(read, {
+      values: [{ ok: true }],
+      recovery: { incompleteLine: '{"partial', lineNumber: 2 }
+    });
+    assert.deepEqual(await readFile(path), before);
+  });
+});
+
+test("parallel in-process appends preserve complete 1 KB lines", async () => {
+  await withTempFile(async (path) => {
+    const workers = 8;
+    const appendsPerWorker = 32;
+    const lineBytes = 1_023;
+
+    for (const fsync of [false, true]) {
+      const appendPath = join(path, "..", fsync ? "parallel-fsync.jsonl" : "parallel.jsonl");
+      const expected = Array.from({ length: workers * appendsPerWorker }, (_, ordinal) => {
+        const id = `caller-${Math.floor(ordinal / appendsPerWorker)}-${ordinal % appendsPerWorker}`;
+        const empty = JSON.stringify({ id, payload: "" });
+        const line = JSON.stringify({
+          id,
+          payload: "x".repeat(lineBytes - Buffer.byteLength(empty))
+        });
+        assert.equal(Buffer.byteLength(line), lineBytes);
+        return line;
+      });
+
+      await Promise.all(
+        Array.from({ length: workers }, async (_, worker) => {
+          for (let index = 0; index < appendsPerWorker; index += 1) {
+            await appendJsonlLine(
+              appendPath,
+              expected[worker * appendsPerWorker + index] as string,
+              fsync
+            );
+          }
+        })
+      );
+
+      const raw = await readFile(appendPath, "utf8");
+      assert.equal(Buffer.byteLength(raw), expected.length * (lineBytes + 1));
+      assert.ok(raw.endsWith("\n"));
+      const actual = raw.slice(0, -1).split("\n");
+      assert.equal(actual.length, expected.length);
+      assert.ok(actual.every((line) => Buffer.byteLength(line) === lineBytes));
+      assert.deepEqual(new Set(actual), new Set(expected));
+    }
   });
 });
 
 test("readJsonlObjects fails closed on a corrupt mid-file line", async () => {
   await withTempFile(async (path) => {
     await writeFile(path, '{"first":true}\nNOT JSON\n{"last":true}\n', "utf8");
+    const injected = new Error("injected corruption");
+    let corruptLine: number | undefined;
     await assert.rejects(
-      () => readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`)),
-      /corrupt 2/
+      () =>
+        readJsonlObjects(path, (lineNumber) => {
+          corruptLine = lineNumber;
+          return injected;
+        }),
+      (error) => error === injected
     );
+    assert.equal(corruptLine, 2);
   });
 });
 

@@ -11,14 +11,28 @@ export interface JsonlRecovery {
  * Callers own schema validation; this module serializes lines and recovers a truncated tail.
  */
 export async function appendJsonlLine(filePath: string, line: string, fsync: boolean): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
-  await appendFile(filePath, `${line}\n`, "utf8");
-  if (!fsync) return;
-  const handle = await open(filePath, "a");
+  const contents = `${line}\n`;
+  const append = async (): Promise<void> => {
+    if (!fsync) {
+      await appendFile(filePath, contents, "utf8");
+      return;
+    }
+
+    const handle = await open(filePath, "a");
+    try {
+      await handle.appendFile(contents, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  };
+
   try {
-    await handle.sync();
-  } finally {
-    await handle.close();
+    await append();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await mkdir(dirname(filePath), { recursive: true });
+    await append();
   }
 }
 

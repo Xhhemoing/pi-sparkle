@@ -36,6 +36,12 @@ try {
       await appendJsonlLine(jsonlPath, JSON.stringify({ index, ok: true }), false);
     }
   });
+  const jsonlFsyncPath = join(dir, "events-fsync.jsonl");
+  const jsonlAppendFsyncMs = await measure(async () => {
+    for (let index = 0; index < SAMPLES; index += 1) {
+      await appendJsonlLine(jsonlFsyncPath, JSON.stringify({ index, ok: true }), true);
+    }
+  });
 
   let values;
   const jsonlReadMs = await measure(async () => {
@@ -88,6 +94,7 @@ try {
       ok: true,
       samples: SAMPLES,
       jsonlAppendMs: milliseconds(jsonlAppendMs),
+      jsonlAppendFsyncMs: milliseconds(jsonlAppendFsyncMs),
       jsonlReadMs: milliseconds(jsonlReadMs),
       lockSerialMs: milliseconds(lockSerialMs),
       lockContendedMs: milliseconds(lockContendedMs)
@@ -99,6 +106,7 @@ try {
       ok: false,
       samples: SAMPLES,
       jsonlAppendMs: null,
+      jsonlAppendFsyncMs: null,
       jsonlReadMs: null,
       lockSerialMs: null,
       lockContendedMs: null,
