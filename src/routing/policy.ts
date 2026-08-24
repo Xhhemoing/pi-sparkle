@@ -151,18 +151,10 @@ export function evaluateLiveCandidate(model: CatalogModel, request: LiveRouteReq
       detail: `maxComplexity ${model.maxComplexity} < ${request.complexity}`
     });
   }
-  const rest = evaluateCandidate(toModelDescriptor(model), {
-    taskFamily: request.taskFamily,
-    privacyRequired: request.privacyRequired,
-    requiredCapabilities: request.requiredCapabilities,
-    contextNeeded: request.contextNeeded,
-    outputNeeded: request.outputNeeded,
-    budgetUsd: request.budgetUsd,
-    deadlineMs: request.deadlineMs,
-    highRisk: request.highRisk,
-    ...(request.fixedCostUsd !== undefined ? { fixedCostUsd: request.fixedCostUsd } : {}),
-    ...(request.fixedLatencyMs !== undefined ? { fixedLatencyMs: request.fixedLatencyMs } : {})
-  });
+  // LiveRouteRequest extends RouteRequest, so the shared matrix reads the same
+  // request object directly. A per-candidate field copy here would silently
+  // drop any future RouteRequest constraint from the live path.
+  const rest = evaluateCandidate(toModelDescriptor(model), request);
   const merged = [...failures, ...rest.failures];
   return { modelId: model.id, eligible: merged.length === 0, failures: merged };
 }
