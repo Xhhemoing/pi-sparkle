@@ -403,3 +403,9 @@
 | S6-H-2 | 门控组合内 taskToChecks 死计算跳过 | 127–166ns/run；落地需平行构建器或收窄公开 CoverageMatrix。重开：调用图出现每 turn 热路径 |
 | S6-H-3 | assertCoverageAllowsStart 无条件消除 gated 拷贝 | 21–45ns/run；门逻辑须复制一份。重开：checkCoverageGate 单实现被正式拆分 |
 | S6-H-4 | extractor/critic 角色对象模块级单例化 | 466–853ns/run；偏好档仍须新建。重开：提取链进入每 turn 热路径 |
+| S6-J-1 | 删除级联尾部 records 重写 ∥ tombstones 写并行化 | 单故障使「墓碑已更新而 body 未剥除」可达；双故障错误竞态；199–308µs |
+| S6-J-2 | loop-eval subject 字符串键换嵌套 Map | 无生产调用方；极端夹具 495–760µs 仍低于落地线 |
+| S6-J-3 | collapseFacts keys 排序+重查换 entries 直迭 | 现实 F=40 稳定负优化（慢 421–688ns） |
+| S6-J-4 | waitForClarification 五次追加攒批落盘 | S5-G-5 同型 + read-your-writes 屏障（settle 读 5→0）；175–181µs |
+| S6-J-5 | reduceEpisodeEvents 无拒绝快路径返回输入别名 | 可观察身份改变；19–20ns |
+| S6-J-6 | generatedHints 第三处冗余 spread 就地 sort | 12–14ns；S4-J-6 同函数第三站点 |
