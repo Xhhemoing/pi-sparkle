@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createRunId, createTaskId, type TaskId } from "../../../src/domain/ids.js";
 import type { TaskNode } from "../../../src/domain/task.js";
 import type { TaskStatus } from "../../../src/domain/status.js";
+import type { IsoTimestamp } from "../../../src/domain/timestamp.js";
 import { validateTaskGraph } from "../../../src/graph/validate.js";
 import {
   applyRetry,
@@ -69,20 +72,93 @@ test("planRound respects the concurrency cap and skips leased tasks", () => {
   assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_b", "tsk_c"]);
 });
 
-test("LeaseRegistry enforces one lease per task and expiry", () => {
+test("LeaseRegistry enforces exactly one active lease per task", () => {
   let now = 0;
   const leases = new LeaseRegistry(() => now);
   const taskId = createTaskId(() => "a");
   const lease = leases.lease(taskId, createRunId(UUID), 5_000);
   assert.equal(lease.taskId, taskId);
-  assert.equal(leases.isExpired(lease), false);
+  // The timestamps are derived from the injected clock and are what the
+  // TASK_LEASED event carries.
+  assert.equal(lease.leasedAt, new Date(0).toISOString());
+  assert.equal(lease.expiresAt, new Date(5_000).toISOString());
+  assert.deepEqual(leases.list(), [lease]);
   assert.throws(() => leases.lease(taskId, createRunId(UUID), 5_000), /leased/i);
 
   now = 5_001;
-  assert.equal(leases.isExpired(lease), true);
-  assert.equal(leases.expired().length, 1);
   leases.release(taskId);
+  assert.equal(leases.active(taskId), undefined);
+  assert.deepEqual(leases.list(), []);
   assert.throws(() => leases.release(taskId), /not leased|lease/i);
+});
+
+/**
+ * Honesty pin for R2-9. `expired()` / `isExpired()` had no production caller,
+ * so the registry advertised an expiry enforcement that never ran. They are
+ * gone; a lease is released by its owner or recovered on resume, never swept.
+ * Re-adding a sweep API without a live caller must go red here.
+ */
+test("leases do not expire: no sweep API, and planRound still skips a lease past expiresAt", () => {
+  for (const name of ["expired", "isExpired"]) {
+    assert.equal(
+      name in (LeaseRegistry.prototype as unknown as Record<string, unknown>),
+      false,
+      `LeaseRegistry.${name}() is dead code; an expiry API needs a live caller first`
+    );
+  }
+
+  let now = 0;
+  const leases = new LeaseRegistry(() => now);
+  const graph = validateTaskGraph([task("a"), task("b")]);
+  const statuses = statusMap(graph);
+  const taskId = createTaskId(() => "a");
+  const lease = leases.lease(taskId, createRunId(UUID), 5_000);
+  setStatuses(statuses, { a: "RUNNING" });
+  assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_b"]);
+
+  // Well past expiresAt: the lease is still active and still blocks planning.
+  now = Date.parse(lease.expiresAt) + 60_000;
+  assert.deepEqual(leases.active(taskId), lease, "nothing reclaims a stale lease");
+  assert.deepEqual(
+    planRound(graph, statuses, 2, 1_000, leases),
+    ["tsk_b"],
+    "planning ignores expiresAt; only release() or resume recovery frees the task"
+  );
+
+  leases.release(taskId);
+  setStatuses(statuses, { a: "READY" });
+  assert.deepEqual(planRound(graph, statuses, 2, 1_000, leases), ["tsk_a", "tsk_b"]);
+});
+
+/** Comments removed so a commented-out call cannot satisfy a source pin. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+const SUPERVISOR_SOURCE = stripComments(
+  readFileSync(fileURLToPath(new URL("../../../src/run/supervisor.ts", import.meta.url)), "utf8")
+);
+
+test("restore rebuilds a resume lease and keeps mutual exclusion", () => {
+  const leases = new LeaseRegistry(() => 1_000);
+  const taskId = createTaskId(() => "a");
+  const lease = {
+    taskId,
+    runId: createRunId(UUID),
+    leasedAt: new Date(0).toISOString() as IsoTimestamp,
+    expiresAt: new Date(300_000).toISOString() as IsoTimestamp
+  };
+  leases.restore(lease);
+  assert.deepEqual(leases.active(taskId), lease, "restore keeps the persisted timestamps");
+  assert.throws(() => leases.restore(lease), /leased/i);
+  assert.throws(() => leases.lease(taskId, createRunId(UUID), 5_000), /leased/i);
+
+  // restore() is not dead code: reconstructSupervisorState rebuilds RUNNING
+  // leases from TASK_LEASED events and runSupervisorRounds recovers all of
+  // them immediately, which is why no expiry check is involved.
+  assert.match(SUPERVISOR_SOURCE, /leases\.restore\(/, "src/run/supervisor.ts must still restore leases");
+  assert.match(SUPERVISOR_SOURCE, /for \(const lease of leases\.list\(\)\)/, "resume must recover every restored lease");
+  assert.doesNotMatch(SUPERVISOR_SOURCE, /\.(isExpired|expired)\(/, "no caller may resurrect the removed expiry sweep");
 });
 
 test("applyTaskOutcome follows the declared state machine", () => {

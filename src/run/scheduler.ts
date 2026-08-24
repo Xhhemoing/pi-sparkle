@@ -13,10 +13,26 @@ export interface TaskLease {
   taskId: TaskId;
   runId: RunId;
   leasedAt: IsoTimestamp;
+  /** Descriptive only: nothing reclaims a lease when this passes. See LeaseRegistry. */
   expiresAt: IsoTimestamp;
 }
 
-/** Exactly one active lease per task; expiry never silently duplicates work. */
+/**
+ * In-memory, single-process mutual exclusion: at most one active lease per
+ * task, cleared only by `release()`.
+ *
+ * Leases do **not** expire. `leasedAt` / `expiresAt` are descriptive metadata —
+ * recorded on the `TASK_LEASED` event and rebuilt by
+ * `reconstructSupervisorState` — but nothing sweeps them, and `planRound` skips
+ * a leased task regardless of `expiresAt`. A lease that outlives its stated
+ * window keeps its task unschedulable until its owner releases it. Bounding the
+ * work itself belongs to the child coordinator (per-attempt `timeoutMs` and
+ * `maxWallTimeMs`), not to this registry.
+ *
+ * Resume does not depend on expiry either: `runSupervisorRounds` recovers every
+ * restored lease unconditionally, because a reconstructed RUNNING lease has no
+ * live worker.
+ */
 export class LeaseRegistry {
   private readonly leases = new Map<TaskId, TaskLease>();
   private readonly nowMs: () => number;
@@ -49,7 +65,11 @@ export class LeaseRegistry {
     }
   }
 
-  /** Restores a previously persisted lease (used by resume). */
+  /**
+   * Restores a lease reconstructed from `TASK_LEASED` events. Live caller:
+   * `reconstructSupervisorState` in `run/supervisor.ts`, whose restored leases
+   * are then recovered by `runSupervisorRounds` — not awaited.
+   */
   restore(lease: TaskLease): void {
     if (this.leases.has(lease.taskId)) {
       throw new DomainValidationError(`Task ${lease.taskId} is already leased`);
@@ -61,15 +81,6 @@ export class LeaseRegistry {
     return this.leases.get(taskId);
   }
 
-  isExpired(lease: TaskLease): boolean {
-    return this.nowMs() >= Date.parse(lease.expiresAt);
-  }
-
-  /** Returns leases whose expiry time has passed, without releasing them. */
-  expired(): TaskLease[] {
-    return Array.from(this.leases.values()).filter((lease) => this.isExpired(lease));
-  }
-
   list(): TaskLease[] {
     return Array.from(this.leases.values());
   }
@@ -79,6 +90,9 @@ export class LeaseRegistry {
  * Plans one scheduling round: ready tasks in deterministic topological order,
  * capped at maxConcurrentTasks, excluding currently leased tasks. Both PENDING
  * and READY (retried) tasks are schedulable.
+ *
+ * `_leaseDurationMs` is accepted for call-site symmetry and is unread: planning
+ * never consults lease expiry, only whether a lease is currently held.
  */
 export function planRound(
   graph: TaskGraph,
