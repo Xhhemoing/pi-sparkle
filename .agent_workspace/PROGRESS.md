@@ -225,16 +225,16 @@ Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI fl
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R10-1 | pending | ship `RUN_UNBLOCKED_WITH_DISCARD` |
-| R10-2 | pending | freeze option-(a) unimplemented |
-| R10-3 | pending | Round 9 docs truth-up |
-| R10-4 | pending | CLI `--track` contract retention + writer census |
-| R10-5 | pending | `independentEvidence` + `applyChildThreeLine` posture |
-| R10-6 | pending | freeze verdict-producer rules (probe deferred) |
-| R10-7 | pending | freeze never-synthesize-from-episode |
-| R10-8 | pending | keep `applyRetry` AST pin over discard path |
-| R10-9 | pending | keep `runStatus` ledger no-reader pin |
-| R10-10 | pending | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
+| R10-1 | bc-8d7c884e-6da9-545d-871b-605a7f741b50 | ship `RUN_UNBLOCKED_WITH_DISCARD` |
+| R10-2 | bc-64c0af54-0446-5ec0-a3ea-b4171207450f | freeze option-(a) unimplemented |
+| R10-3 | bc-bdae1351-6b79-56c4-8400-04696de7ffd2 | Round 9 docs truth-up |
+| R10-4 | bc-1f578743-69b2-59bb-a5e7-90b537a57860 | CLI `--track` contract retention + writer census |
+| R10-5 | bc-98bf40a8-1a82-5b06-b361-192f22bb7378 | `independentEvidence` + `applyChildThreeLine` posture |
+| R10-6 | bc-2cb4c60a-9d36-5365-9d14-e5f5dff2c916 | freeze verdict-producer rules (probe deferred) |
+| R10-7 | bc-f0ce5a46-674b-5598-b95a-485c83f8056c | freeze never-synthesize-from-episode |
+| R10-8 | bc-c2395186-968e-5e87-be28-66f89f4d0b55 | keep `applyRetry` AST pin over discard path |
+| R10-9 | bc-33009d74-85e5-5914-8616-76c9d244c74c | keep `runStatus` ledger no-reader pin |
+| R10-10 | bc-179325e9-b579-5eaa-9d28-17af209d4a6f | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
 
 ---
 

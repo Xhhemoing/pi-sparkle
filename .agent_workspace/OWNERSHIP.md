@@ -6,7 +6,7 @@ Lists are binding. **Hard contention:** R10-1 owns `events.ts` + `replay.ts` + `
 
 Injection brief: `.agent_workspace/ROUND9-BRIEF.md`. Review: `.agent_workspace/loop4-r9-review.md`. Discard design: `.agent_workspace/loop4-r9-t3.md`. Option-(a) design stays frozen at `.agent_workspace/loop4-r8-t4.md` (Round 11).
 
-Dispatch ids: pending first commit of this file; parent records them immediately after launch.
+Dispatch ids: R10-1 `bc-8d7c884e-6da9-545d-871b-605a7f741b50`; R10-2 `bc-64c0af54-0446-5ec0-a3ea-b4171207450f`; R10-3 `bc-bdae1351-6b79-56c4-8400-04696de7ffd2`; R10-4 `bc-1f578743-69b2-59bb-a5e7-90b537a57860`; R10-5 `bc-98bf40a8-1a82-5b06-b361-192f22bb7378`; R10-6 `bc-2cb4c60a-9d36-5365-9d14-e5f5dff2c916`; R10-7 `bc-f0ce5a46-674b-5598-b95a-485c83f8056c`; R10-8 `bc-c2395186-968e-5e87-be28-66f89f4d0b55`; R10-9 `bc-33009d74-85e5-5914-8616-76c9d244c74c`; R10-10 `bc-179325e9-b579-5eaa-9d28-17af209d4a6f`.
 
 | Slot | Model | Owns |
 |---|---|---|
