@@ -124,7 +124,8 @@
 | R5-E | `cursor/r5-e-learning-fifth-pass-83a1` | 已合入专属分支（仅 `R5-E.md`） |
 | R5-F | `cursor/r5-f-experiments-fifth-pass-83a1` | 已合入专属分支（S5-F 代码 + 报告 + 仿真）。父代理重跑 r1f/r5f 全绿（2668 / 224 逐位）；r5f 全实验 P=2000/A=1000 = 259.73 ms |
 | R5-I | `cursor/r5-i-cli-fifth-pass-83a1` | 已派出 |
-| R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已派出 |
+| R5-G | `cursor/r5-g-runtime-fifth-pass-83a1` | 已合入专属分支（仅 `R5-G.md`） |
+| R6-A | `cursor/r6-a-tracking-sixth-pass-83a1` | 已派出 |
 | R5-H | `cursor/r5-h-eval-fifth-pass-83a1` | 已合入专属分支（仅 `R5-H.md`） |
 | R5-J | `cursor/r5-j-persist-fifth-pass-83a1` | 已派出 |
 
