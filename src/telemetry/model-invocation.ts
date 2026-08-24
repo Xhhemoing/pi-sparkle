@@ -69,50 +69,93 @@ export function hashInvocationResponse(body: string): string {
   return hash32(body);
 }
 
-export function invocationError(inv: ModelInvocation): string | undefined {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Message-safe rendering of a rejected value. A persisted row can hold
+ * anything JSON can express, and `String()` on an object is free to throw, so
+ * shapes are named rather than coerced.
+ */
+function describe(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "object" && value !== null) return "object";
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return "function";
+  return String(value);
+}
+
+/**
+ * Total validator: every input, including a `null` row or a row whose `config`
+ * or `pricing` is the wrong shape, yields a message. It never throws, because
+ * `isInvocation` — a type predicate that read-side callers apply per row
+ * without a catch — is built on it.
+ */
+export function invocationError(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return `invocation must be an object: ${describe(value)}`;
+  }
+  const inv = value;
   if (!isInvocationId(inv.id)) {
-    return `invalid invocation id: ${String(inv.id)}`;
+    return `invalid invocation id: ${describe(inv.id)}`;
   }
   if (!isTaskId(inv.taskId)) {
-    return `invalid taskId: ${String(inv.taskId)}`;
+    return `invalid taskId: ${describe(inv.taskId)}`;
   }
   if (!isRunId(inv.runId)) {
-    return `invalid runId: ${String(inv.runId)}`;
+    return `invalid runId: ${describe(inv.runId)}`;
   }
   if (!isAgentInstanceId(inv.agentInstanceId)) {
-    return `invalid agentInstanceId: ${String(inv.agentInstanceId)}`;
+    return `invalid agentInstanceId: ${describe(inv.agentInstanceId)}`;
   }
-  const { config } = inv;
+  const config = inv.config;
+  if (!isRecord(config)) {
+    return `config must be an object: ${describe(config)}`;
+  }
   if (typeof config.provider !== "string" || config.provider.trim() === "") {
     return "config.provider is required";
   }
   if (typeof config.model !== "string" || config.model.trim() === "") {
     return "config.model is required";
   }
-  if (config.modelVersion !== undefined && config.modelVersion.trim() === "") {
-    return "config.modelVersion must not be empty when present";
+  if (config.modelVersion !== undefined) {
+    if (typeof config.modelVersion !== "string") {
+      return `invalid config.modelVersion: ${describe(config.modelVersion)}`;
+    }
+    if (config.modelVersion.trim() === "") {
+      return "config.modelVersion must not be empty when present";
+    }
   }
   if (typeof config.parameterHash !== "string" || !HASH_PATTERN.test(config.parameterHash)) {
-    return `invalid parameterHash: ${String(config.parameterHash)}`;
+    return `invalid parameterHash: ${describe(config.parameterHash)}`;
   }
   if (typeof inv.responseHash !== "string" || !HASH_PATTERN.test(inv.responseHash)) {
-    return `invalid responseHash: ${String(inv.responseHash)}`;
+    return `invalid responseHash: ${describe(inv.responseHash)}`;
   }
-  for (const [name, value] of [
+  for (const [name, field] of [
     ["tokensIn", inv.tokensIn],
     ["tokensOut", inv.tokensOut],
   ] as const) {
-    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+    if (field !== undefined && (typeof field !== "number" || !Number.isInteger(field) || field < 0)) {
       return `${name} must be a non-negative integer when present`;
     }
   }
-  if (!Number.isFinite(inv.latencyMs) || inv.latencyMs < 0) {
+  if (
+    typeof inv.latencyMs !== "number" ||
+    !Number.isFinite(inv.latencyMs) ||
+    inv.latencyMs < 0
+  ) {
     return "latencyMs must be a non-negative finite number";
   }
   if (!isIsoTimestamp(inv.occurredAt)) {
     return "occurredAt must be an ISO timestamp";
   }
-  if (inv.attempt !== undefined && (!Number.isInteger(inv.attempt) || inv.attempt < 1)) {
+  if (
+    inv.attempt !== undefined &&
+    (typeof inv.attempt !== "number" || !Number.isInteger(inv.attempt) || inv.attempt < 1)
+  ) {
     return "attempt must be an integer >= 1 when present";
   }
   if (inv.cacheHit !== undefined && typeof inv.cacheHit !== "boolean") {
@@ -120,19 +163,23 @@ export function invocationError(inv: ModelInvocation): string | undefined {
   }
   if (
     inv.callOutcome !== undefined &&
-    !INVOCATION_CALL_OUTCOMES.includes(inv.callOutcome)
+    !(INVOCATION_CALL_OUTCOMES as readonly unknown[]).includes(inv.callOutcome)
   ) {
-    return `invalid callOutcome: ${String(inv.callOutcome)}`;
+    return `invalid callOutcome: ${describe(inv.callOutcome)}`;
   }
-  if (inv.pricing !== undefined) {
-    if (typeof inv.pricing.catalogVersion !== "string" || inv.pricing.catalogVersion.trim() === "") {
+  const pricing = inv.pricing;
+  if (pricing !== undefined) {
+    if (!isRecord(pricing)) {
+      return `pricing must be an object when present: ${describe(pricing)}`;
+    }
+    if (typeof pricing.catalogVersion !== "string" || pricing.catalogVersion.trim() === "") {
       return "pricing.catalogVersion is required when pricing is present";
     }
-    for (const [name, value] of [
-      ["inputUsdPerMTok", inv.pricing.inputUsdPerMTok],
-      ["outputUsdPerMTok", inv.pricing.outputUsdPerMTok]
+    for (const [name, rate] of [
+      ["inputUsdPerMTok", pricing.inputUsdPerMTok],
+      ["outputUsdPerMTok", pricing.outputUsdPerMTok]
     ] as const) {
-      if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      if (rate !== undefined && (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0)) {
         return `pricing.${name} must be a non-negative finite number when present`;
       }
     }
@@ -140,6 +187,7 @@ export function invocationError(inv: ModelInvocation): string | undefined {
   return undefined;
 }
 
+/** Throws exactly `DomainValidationError` for any malformed input. */
 export function validateInvocation(inv: ModelInvocation): void {
   const error = invocationError(inv);
   if (error !== undefined) {
@@ -147,11 +195,9 @@ export function validateInvocation(inv: ModelInvocation): void {
   }
 }
 
+/** Never throws: a corrupt row is `false`, so per-row readers can skip it. */
 export function isInvocation(value: unknown): value is ModelInvocation {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  return invocationError(value as ModelInvocation) === undefined;
+  return invocationError(value) === undefined;
 }
 
 /** Validate-and-return: recording a malformed invocation fails closed. */

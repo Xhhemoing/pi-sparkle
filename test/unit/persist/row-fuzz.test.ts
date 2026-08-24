@@ -24,6 +24,7 @@ import {
 } from "../../../src/run/pause-controller.js";
 import { validateCheckpoint, type RunCheckpoint } from "../../../src/run/replay.js";
 import {
+  isInvocation,
   validateInvocation,
   type ModelInvocation
 } from "../../../src/telemetry/model-invocation.js";
@@ -551,30 +552,41 @@ test(
 test(
   "seeded row mutations preserve invocation-row validator error discipline",
   { timeout: FUZZ_TIMEOUT_MS },
-  (context) => {
+  () => {
     const random = new XorShift32(DEFAULT_SEED ^ 0x1a70_c471);
     for (let iteration = 0; iteration < SYNC_ITERATIONS; iteration += 1) {
       const candidate = mutate(INVOCATION_SEED, random, iteration);
+      let accepted: boolean;
       try {
         validateInvocation(candidate as ModelInvocation);
+        accepted = true;
       } catch (error) {
         if (!isExactDomainValidationError(error)) {
-          skipUnowned(context, "invocation-row validator", `iteration=${iteration}`, error);
-          return;
+          failFuzz(`invocation-row validator iteration=${iteration}`, error);
         }
-        continue;
+        accepted = false;
       }
+
+      // The type predicate is what read-side callers apply per row without a
+      // catch, so it must agree with the validator and never throw.
+      let predicate: boolean;
+      try {
+        predicate = isInvocation(candidate);
+      } catch (error) {
+        failFuzz(`invocation-row predicate iteration=${iteration}`, error);
+      }
+      if (predicate !== accepted) {
+        failFuzz(
+          `invocation-row predicate iteration=${iteration}`,
+          new Error(`isInvocation=${predicate} disagrees with validateInvocation=${accepted}`)
+        );
+      }
+      if (!accepted) continue;
 
       try {
         validateInvocation(candidate as ModelInvocation);
       } catch (error) {
-        skipUnowned(
-          context,
-          "invocation-row validator",
-          `iteration=${iteration}, revalidation`,
-          error
-        );
-        return;
+        failFuzz(`invocation-row validator iteration=${iteration}, revalidation`, error);
       }
     }
   }

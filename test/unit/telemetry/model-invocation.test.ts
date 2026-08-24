@@ -15,6 +15,7 @@ import {
   createRunId,
   createTaskId,
 } from "../../../src/domain/ids.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { hash32 } from "../../../src/domain/hash.js";
 import type { IsoTimestamp } from "../../../src/domain/timestamp.js";
 
@@ -158,6 +159,95 @@ it("retries, cache hits, timeouts, and cancellations are attributable", () => {
   assert.equal(cacheHit.cacheHit, true);
   assert.equal(timeout.callOutcome, "timeout");
   assert.equal(cancelled.callOutcome, "cancelled");
+});
+
+/**
+ * Regression for the R2-7 fuzz finding (seed 0x4f320007, iteration 11): a row
+ * whose `config` or `pricing` is the wrong shape used to escape as a TypeError
+ * from both the validator and the type predicate. `isInvocation` is applied
+ * per row by uncaught read-side callers, so a throw there is a crash, not a
+ * rejection.
+ */
+describe("malformed invocation rows fail closed rather than throwing TypeError", () => {
+  const nonRows: readonly [string, unknown][] = [
+    ["null", null],
+    ["undefined", undefined],
+    ["number", -1],
+    ["string", "row"],
+    ["boolean", true],
+    ["array", []],
+  ];
+
+  const malformedRows: readonly [string, unknown, RegExp][] = [
+    ["config: null", { ...invocation(), config: null }, /config must be an object/],
+    [
+      "config missing",
+      (() => {
+        const { config: _config, ...rest } = invocation();
+        return rest;
+      })(),
+      /config must be an object/,
+    ],
+    ["config: string", { ...invocation(), config: "faux" }, /config must be an object/],
+    ["config: array", { ...invocation(), config: [] }, /config must be an object/],
+    ["config: number", { ...invocation(), config: 1 }, /config must be an object/],
+    [
+      "config.modelVersion: number",
+      { ...invocation(), config: { ...invocation().config, modelVersion: 1 } },
+      /invalid config\.modelVersion/,
+    ],
+    [
+      "config.modelVersion: null",
+      { ...invocation(), config: { ...invocation().config, modelVersion: null } },
+      /invalid config\.modelVersion/,
+    ],
+    ["pricing: null", { ...invocation(), pricing: null }, /pricing must be an object when present/],
+    [
+      "pricing: string",
+      { ...invocation(), pricing: "catalog-1" },
+      /pricing must be an object when present/,
+    ],
+    ["pricing: number", { ...invocation(), pricing: 1 }, /pricing must be an object when present/],
+    ["pricing: array", { ...invocation(), pricing: [] }, /pricing must be an object when present/],
+  ];
+
+  for (const [label, value] of nonRows) {
+    it(`rejects a non-object row (${label})`, () => {
+      assert.match(invocationError(value) ?? "", /invocation must be an object/);
+      assert.equal(isInvocation(value), false);
+      assert.throws(
+        () => validateInvocation(value as ModelInvocation),
+        (error: unknown) => {
+          assert.equal((error as Error).constructor, DomainValidationError);
+          return true;
+        }
+      );
+    });
+  }
+
+  for (const [label, value, pattern] of malformedRows) {
+    it(`rejects ${label} with a message, not a TypeError`, () => {
+      const error = invocationError(value);
+      assert.ok(error !== undefined && pattern.test(error), `expected ${pattern}, got ${error}`);
+      assert.equal(isInvocation(value), false);
+      assert.throws(
+        () => validateInvocation(value as ModelInvocation),
+        (thrown: unknown) => {
+          assert.equal(
+            (thrown as Error).constructor,
+            DomainValidationError,
+            `${label} threw ${(thrown as Error).name}`
+          );
+          return true;
+        }
+      );
+    });
+  }
+
+  it("accepts an absent pricing block, present-but-undefined included", () => {
+    assert.equal(invocationError({ ...invocation(), pricing: undefined }), undefined);
+    assert.equal(isInvocation({ ...invocation(), pricing: undefined }), true);
+  });
 });
 
 it("invalid attribution fields fail closed", () => {
