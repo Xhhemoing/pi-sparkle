@@ -54,6 +54,7 @@
 - H1 replayPolicy exclusions → Set
 - S1-F M6-T3 shadow/canary restore population 成员判断 → Set（fail-closed 全量重校验保留，O(A×P)→O(P+A)/次；见 round-01/R1-F.md）
 - J1 `evaluatePreferenceLoop` 每主体增量折叠 + O(1) 墓碑撤销（见 round-01/R1-J.md）
+- S1-C offline-logit：bootstrap 工件复用 + APC copy-derive + IRLS 缓冲每 fit 一次分配（见 round-01/R1-C.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -111,3 +112,13 @@
 | S1-E-6 | diagnose 组内多遍融合单遍 | 真实规模亚噪声，10× 更慢 |
 | S1-E-7 | attributeToBoundary 排序换单遍 min | test-only，无生产调用方 |
 | S1-E-8 | detectRepeatedPatterns keys 预取 | 小规模更慢；无生产调用方 |
+| S1-C-1 | APC off 对共享 on 向量原位置零+恢复 | 别名可变危险；边际在噪声内 |
+| S1-C-2 | mergePreparedR1Observations 跨索引播种备忘录 | merge 路径仓内不可达 |
+| S1-C-3 | merge overlay/持久索引免 Map 拷贝 | 公开 ReadonlyMap 形状 |
+| S1-C-4 | estimateFingerprint 提升/缓存 | 模块缓存或公开面变更 |
+| S1-C-5 | prepareR1Observations 过滤+分组单遍融合 | 小数组融合可更慢 |
+| S1-C-6 | prob-add kappaS 与主循环 cell 双算合一 | 常数噪声 |
+| S1-C-7 | prob-add betaInterval 按 (n,mean) 记忆化 | 亚 ms + 缓存状态 |
+| S1-C-8 | propensity 三遍改单遍计数 | 常数遍数噪声 |
+| S1-C-9 | bandit/shadow 微观分配 | arms 个位数 |
+| S1-C-10 | r1 微观常数 / request spread 省略 | M≤10 或对象身份改变 |
