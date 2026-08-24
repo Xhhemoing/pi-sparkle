@@ -610,6 +610,18 @@ export class ChildCoordinator {
           taskId
         );
         return undefined;
+      case "THINKING_DELTA":
+        await this.appendChildEvent(
+          childRunId,
+          "AGENT_EVENT",
+          {
+            agentInstanceId: childAgentId,
+            kind: "THINKING_DELTA",
+            summary: `thinking delta (${event.bytes} bytes)`
+          },
+          taskId
+        );
+        return undefined;
       case "TOOL_STARTED":
         await this.appendChildEvent(
           childRunId,

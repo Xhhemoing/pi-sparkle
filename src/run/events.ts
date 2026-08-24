@@ -73,7 +73,13 @@ export const EVENT_TYPES = [
 
 export type M0EventType = (typeof EVENT_TYPES)[number];
 
-export const AGENT_EVENT_KINDS = ["TEXT_DELTA", "TOOL_STARTED", "TOOL_FINISHED", "TURN_FINISHED"] as const;
+export const AGENT_EVENT_KINDS = [
+  "TEXT_DELTA",
+  "THINKING_DELTA",
+  "TOOL_STARTED",
+  "TOOL_FINISHED",
+  "TURN_FINISHED"
+] as const;
 export type AgentEventKind = (typeof AGENT_EVENT_KINDS)[number];
 
 export const AGENT_OUTCOMES = ["SUCCESS", "FAILURE", "CANCELLED"] as const;

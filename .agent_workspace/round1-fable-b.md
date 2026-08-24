@@ -1,65 +1,81 @@
 MODEL_SLUG: claude-fable-5-thinking-xhigh
 
-# Round 1 report — R1-fable-B (skill overlay, Pi 0.84.3 re-review)
+# Round 1 report — R1-fable-B (skill overlay, kernel-reuse reference)
 
 ## Files changed
 
-- `.agents/skills/pi-sparkle/SKILL.md`
-  - New dated section **"Pi 0.84.3 Adaptation (2026-08-24)"**: nested skill
-    discovery in grouping dirs (flat layout unchanged; do not split the
-    overlay), root `README.md`/`AGENTS.md` no longer broken-skill findings
-    (stale findings on ≥0.84.3 must be re-probed), TUI `/thinking`
-    (session-scoped, Ctrl+S) vs runtime `PI_THINKING_LEVEL` are separate
-    knobs, still no extension (ADR-006 Proposed; `session_compact_failed`
-    events out of scope). Prose defers to `package.json` /
-    `pi-sparkle pi-compat` for the live pin so the section cannot go stale
-    when R1-opus-A bumps 0.84.1 → 0.84.3.
-  - Routing to References table gained one row:
-    `references/pi-version-adapt.md`.
-- `.agents/skills/pi-sparkle/references/pi-version-adapt.md` (new) — 6-step
-  version-bump checklist: changelog → pin vs `pi --version` (fallback
-  `scripts/pi-latest-check.mjs`, fail-closed offline) → skill discovery
-  re-check (nested + AGENTS.md behaviors on ≥0.84.3) → doctor / pi-compat
-  (contract breakage = blocking) → thinking-config sanity → record in the
-  dated SKILL.md section. Explicitly states it counts toward the
-  1–2-reference cap and forbids adding a top-level skill for a bump.
-- `prompts/sparkle.md` — one-line change: `pi-bump` added to the
-  `argument-hint` focus list so the new checklist is routable. Still a plain
-  prompt template; no extension, no other changes.
+- `.agents/skills/pi-sparkle/references/kernel-reuse.md` (new) — extender
+  checklist for secondary development on the slim kernel. Six items:
+  (1) implement on the `SparkleKernel` facade, never on Pi's `Agent`, with
+  a merge-gate grep for Pi imports outside `src/pi-adapter/**`;
+  (2) verify wiring before claiming it — capability claims fail closed
+  without a `src/` grep hit plus a test; (3) consume live events — first
+  `TEXT_DELTA` must arrive before idle resolves, abort still maps to
+  `agent.abort()`; (4) never persist thinking text — `THINKING_DELTA`
+  carries bytes only, mirroring the response-hash telemetry rule;
+  (5) pin stays 0.84.3, bumps go through `pi-version-adapt.md`, prose is
+  never the source of truth for the pin; (6) retry uses a fresh Agent per
+  attempt, so steering/follow-up queues do not survive retries and
+  `sessionId` is advisory. Plus anti-patterns and a pre-report
+  verification block (`wired | not wired | unknown`, never a guess).
+- `.agents/skills/pi-sparkle/SKILL.md` — exactly one new row in Routing to
+  References for `references/kernel-reuse.md`. Activation Rule (1–2
+  reference cap) untouched.
+- `.agent_workspace/round1-fable-b.md` — this report (replaces the prior
+  cycle's 0.84.3-adaptation report, per this round's ownership table).
 
-## Task 4 (false 0.84.1-latest claims)
+## Evidence gathered before writing
 
-None found. Grepped `.agents/skills/pi-sparkle/**` for `0.84`, `latest`,
-`/thinking`, `PI_THINKING` (case-insensitive) — zero matches before my edits,
-so there was nothing to correct. The new dated section is now the only place
-version facts appear, and it points at live sources rather than asserting a pin.
+- **`steer` wiring: two observations, both grep-verified.** At the start of
+  my work, `rg -n "steer|followUp|SparkleKernel|thinking_delta|THINKING_DELTA" src/`
+  returned zero matches and `src/pi-adapter/kernel.ts` did not exist — the
+  reference's item-2 worked example records that moment. Re-grepped at end
+  of round after parallel agents landed: `steerText` is now wired
+  (`src/pi-adapter/kernel.ts:165` calls `agent.steer(userMessage(text))`)
+  and exercised by `test/unit/pi-adapter/kernel.test.ts` ("builds user
+  messages for steering and follow-ups", asserting the forwarded message's
+  role/content/timestamp). `THINKING_DELTA` also landed in
+  `src/run/events.ts` and `src/run/coordinator.ts`, persisting bytes only
+  — consistent with checklist item 4. The reference's example remains
+  accurate as a dated observation and demonstrates exactly why the rule
+  exists: the same claim flipped from false to true within one round.
+- **Kernel capability confirmed at the source.** 0.84.3's installed
+  `agent.d.ts` shows `steer(message)`, `followUp(message)`,
+  `steeringMode`/`followUpMode` queue modes; `thinking_delta` appears in
+  `pi-ai` type declarations. Capability exists in the kernel; wiring does
+  not exist in `src/` — the reference keeps those two claims separate.
+- **Live-yield gap confirmed.** `PiAgentExecutor.runAttempt` pushes
+  translated events into an array and `execute()` yields only after
+  `runWithRetry` (post-`waitForIdle`) returns; `translatePiEvent` ignores
+  `thinking_delta`. Checklist items 3–4 are written against this observed
+  behavior, and item 6's retry caveat comes from `runWithRetry` creating
+  a fresh `Agent` per attempt with only the last attempt's events
+  surfaced.
+- **Pin confirmed 0.84.3** for both `@earendil-works/pi-agent-core` and
+  `@earendil-works/pi-ai` in `package.json` (lines 48–49).
 
 ## Verification
 
-- `tsx --test test/unit/package/pi-manifest.test.ts` — 4/4 pass (reference
-  regex picks up `pi-version-adapt.md` and the file exists; refs ≥ 6 holds;
-  prompt frontmatter intact; no `pi.extensions`).
-- No usage JSONL invented, no `USED` persisted, no new top-level skill,
-  diagnostic-overlay-only language kept throughout.
-- Did not commit (parent orchestrator commits). Did not touch `src/`,
-  `test/`, `package.json`, or `docs/`.
+- `npx tsx --test test/unit/package/pi-manifest.test.ts` — 4/4 pass. The
+  reference-scan test picks up `references/kernel-reuse.md` from the new
+  SKILL.md row and confirms the file exists; refs ≥ 6 holds; frontmatter
+  and no-extension checks unchanged.
+- Did not touch `src/`, `docs/`, `test/`, `package.json`, or `prompts/`.
+  No new top-level skill; no nested sub-skill. Did not commit (parent
+  commits after the round).
 
-## Leftover overlay gaps for Round 2
+## Notes for later rounds
 
-1. **Nested grouping-dir demo, test-side only.** A discovery fixture (e.g.
-   `test/fixtures/skills/group/nested-skill/SKILL.md` exercised by whoever
-   owns pi-compat/adapter tests) would prove the ≥0.84.3 nested-discovery
-   claim without shipping anything under `.agents/skills/` that reads as a
-   second skill. Do NOT place the demo inside the package skill tree.
-2. **Pin-bump follow-up.** After R1-opus-A lands 0.84.3 pins, no SKILL.md
-   edit is needed (the dated section intentionally defers to live sources),
-   but Round 2 should re-run the pi-version-adapt checklist end-to-end once
-   `pi-sparkle pi-compat` exists and confirm the command names in the
-   checklist match the shipped CLI.
-3. **`--thinking` flag.** If Round 2 adds a CLI `--thinking` mapping onto
-   `PI_THINKING_LEVEL` (flagged in PROGRESS.md), step 5 of
-   `pi-version-adapt.md` should mention the flag alongside the env var.
-4. **AGENTS.md placement.** The overlay could now safely carry a root
-   `AGENTS.md` inside the skill directory on ≥0.84.3 (no broken-skill
-   report), but installed copies on older Pi would regress — hold until the
-   pin floor is ≥0.84.3 everywhere the package is installed.
+1. `kernel.ts` landed within this round (see evidence above). Item 2's
+   worked example stays valid as history; a Round-2 pass may add a
+   one-line "verified wired 2026-08-24 (kernel.ts:165 + kernel.test.ts)"
+   annotation to the reference if the orchestrator wants live status in
+   the doc rather than in reports.
+2. `THINKING_DELTA` landed persisting a byte count only
+   (`coordinator.ts:163`), matching item 4's `{ type, bytes }` example —
+   no reference update needed. If the shape is later hashed instead,
+   update the example; the no-raw-text rule itself does not change.
+3. If the facade grows methods beyond the PROGRESS.md list (`prompt`,
+   `abort`, `steerText`, `followUpText`, `reset`, `waitForIdle`,
+   `sessionId`), item 1's surface enumeration should be refreshed from
+   the exported type, not from PROGRESS prose.

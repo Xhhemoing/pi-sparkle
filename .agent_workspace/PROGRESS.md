@@ -52,5 +52,23 @@ If `kernel.ts` is missing when gpt-B tests, skip kernel tests and still add thin
 | R1-opus-B | thinking_delta mapping | `bc-dc5ea9f2-9a41-5a2a-b77d-ac0b75da407d` |
 | R1-gpt-A | live-stream probe | `bc-947807f5-4030-59e9-9be3-9a81d79ba7be` |
 | R1-gpt-B | kernel/thinking tests | `bc-39dbcf25-e3b4-5029-8356-2ada5f58b53c` |
-### Round 2 — pending
+### Round 1 — complete (2026-08-24)
+
+All 6 delivered (fable-A retried after dispatch error `bc-3363607a-52c2-5177-8b2b-b4433e7be06a`). Live yield, SparkleKernel, bytes-only THINKING_DELTA, probe/tests/docs. Brief: `.agent_workspace/R1-KERNEL-BRIEF.md`.
+
+P0 leftover: inject→steer still unwired. P1: shouldStopAfterTurn / maxCostUsd live enforcement. Spec union stale.
+
+### Round 2 — in progress
+
+Read `.agent_workspace/R1-KERNEL-BRIEF.md`. No commit.
+
+| Agent | Model | Owns | Must not touch |
+|---|---|---|---|
+| R2-fable-A | `claude-fable-5-thinking-xhigh` | `docs/specs/m0-m2-architecture.md` (ExecutionEvent union), `docs/kernel-reuse.md` leftover, `docs/reports/**` addendum, `.agent_workspace/round2-fable-a.md` | `src/` |
+| R2-fable-B | `claude-fable-5-thinking-xhigh` | overlay kernel-reuse ref (steer exposed vs product-wired), `.agent_workspace/round2-fable-b.md` | `src/` |
+| R2-opus-A | `claude-opus-5-thinking-high-fast` | `AgentExecutor.steerText?`, `PiAgentExecutor` live kernel ref, `RunningRun.steer`, event log for steer text+actor, `.agent_workspace/round2-opus-a.md` | skills, docs/specs |
+| R2-opus-B | `claude-opus-5-thinking-high-fast` | adapter `shouldStopAfterTurn` from accumulated invocation cost vs `maxCostUsd` (no invented prices), `.agent_workspace/round2-opus-b.md` | `src/run/coordinator.ts` steer API |
+| R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | tests for in-flight steer on faux blocked-tool run, `.agent_workspace/round2-gpt-a.md` | `src/cli/main.ts` unless a 5-line `steer` command is required by tests |
+| R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | tests for cost stop-after-turn; update probe if needed, `.agent_workspace/round2-gpt-b.md` | `src/pi-adapter/kernel.ts` public surface |
+
 ### Round 3 — pending

@@ -142,6 +142,7 @@ On any Pi version bump, run the checklist in references/pi-version-adapt.md
 - references/prompt-tuning.md — scenario-similarity router, dynamic composition, fit guardrails
 - references/agent-config.md — drift detection, tool-allowlist enforcement, subagent error patterns
 - references/pi-version-adapt.md — checklist for Pi version bumps (changelog, pin vs `pi --version`, skill discovery, doctor/pi-compat)
+- references/kernel-reuse.md — extender checklist for the slim-kernel facade: build on SparkleKernel not Agent, consume live events, never persist thinking text, pin stays 0.84.3
 
 ## Activation Rule
 Only load 1-2 references per invocation. After analysis, propose the smallest durable fix (new reference, router update, or meta-skill) rather than one-off patches.

@@ -1,191 +1,102 @@
 MODEL_SLUG: claude-opus-5-thinking-high-fast
 
-# Round 1 — R1-opus-A (core adapter + Pi dependency bump)
+# Round 1 — R1-opus-A
 
-Branch: `cursor/pi-adapt-aux-features-e1e3`. Nothing committed (per instructions); all
-changes are left in the working tree.
+## Delivered
 
-## 1. Published versions (checked 2026-08-24)
+### `src/pi-adapter/kernel.ts` (new) — `SparkleKernel`
 
-| Package | Latest on npm | Pinned before | Pinned after |
-| --- | --- | --- | --- |
-| `@earendil-works/pi-agent-core` | 0.84.3 | 0.84.1 | **0.84.3** |
-| `@earendil-works/pi-ai` | 0.84.3 | 0.84.1 | **0.84.3** |
-| `@earendil-works/pi-coding-agent` | 0.84.3 | not a dependency | not a dependency |
+A sparkle-owned facade over the Pi `Agent`. Nothing on its public surface names
+Pi's `Agent` or `AgentEvent`:
 
-0.84.3 is published for both packages, so the matching pair was available and no
-fallback pin was needed. `@earendil-works/pi-telemetry` is pulled transitively and
-also resolved to 0.84.3, so the whole Pi tree is on one version.
-`pi-sparkle doctor` confirms: `ok pi-packages: agent-core=0.84.3 ai=0.84.3`.
+- The agent is accepted **structurally** as `SparkleKernelAgent` (`sessionId`,
+  `state.{isStreaming,errorMessage}`, `subscribe`, `prompt`, `abort`,
+  `waitForIdle`, `reset`, `steer`, `followUp`). `new Agent(...)` satisfies it
+  without the Pi type appearing in an exported signature, and a stub satisfies
+  it without a provider, so the facade is testable on its own.
+- Events come back as `SparkleKernelEvent` (`{ readonly type: string }`) —
+  opaque, routable by `type`, translated only inside the adapter.
+- Construction: `new SparkleKernel(agent, options?)` /
+  `SparkleKernel.fromAgent(agent, options?)` for an existing agent, and
+  `SparkleKernel.fromFactory(create, options?)` (factory runs immediately) for
+  the path the executor uses.
+- Methods: `prompt(text)`, `abort()`, `waitForIdle()`, `reset()`,
+  `steerText(text)`, `followUpText(text)`, `subscribe(listener)`, plus
+  `sessionId` getter/setter and `errorMessage` / `isStreaming` getters.
+  `steerText` / `followUpText` build `{ role: "user", content, timestamp }`,
+  matching the shape Pi's own `prompt` normalizes text into.
+- `subscribe` deliberately takes a **synchronous** listener and discards its
+  result. Pi awaits listener promises as part of run settlement, so an async
+  listener that waited on a consumer would deadlock `waitForIdle`. The doc
+  comment points at `AsyncEventQueue` as the hand-off.
+- `AsyncEventQueue<T>`: unbounded, single-consumer bridge from a push listener
+  to `for await`. Unbounded on purpose — a listener that blocked on a slow
+  consumer would stall the run it is reporting on. Buffered values are drained
+  after `close()`; pushes after `close()` are dropped.
 
-## 2. Type deltas 0.84.1 → 0.84.3
+### `src/pi-adapter/pi-executor.ts` — live yield
 
-Compared the shipped `.d.ts` of both packages at both versions (`npm pack` of each,
-then diff), rather than trusting release prose.
+`runAttempt` and `runWithRetry` are now async generators, and `execute` pulls
+them with `yield*`, so the generator return value carries the run summary while
+the events flow straight through to the consumer:
 
-**`@earendil-works/pi-agent-core` — nothing we consume changed.** `types.d.ts` and
-`agent.d.ts` are byte-identical between 0.84.1 and 0.84.3. In particular:
+- `runAttempt` subscribes, starts `prompt()` + `waitForIdle()` **without
+  awaiting them**, and drains an `AsyncEventQueue` that the subscription feeds.
+  Each translated event is yielded as the agent emits it. The run promise
+  closes the queue in its `finally`, which is the only thing that ends the
+  stream; `await running` then happens before the attempt summary is returned,
+  so `waitForIdle` is still on the critical path.
+- Abort still maps to the agent: `signal` → `kernel.abort()`. Added case — if
+  the consumer abandons the iterator mid-run, the `finally` unsubscribes and
+  aborts rather than leaving the agent streaming into a queue nobody reads.
+- `AttemptRun.events` is now exactly what was yielded (accumulated in the drain
+  loop, not in the listener), so the invocation record can never diverge from
+  the observed stream.
+- `translatePiEvent`'s switch is untouched — imported and called, not rewritten
+  (R1-opus-B owns it). The discriminators in this file (`message_update`,
+  `tool_execution_start/end`, `turn_end`) match installed 0.84.3 and typecheck.
 
-```
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-```
+### `src/pi-adapter/index.ts`
 
-is unchanged and still matches the CLI's `THINKING_LEVELS` list exactly, so **Pi did
-not narrow the union** and no runtime remapping was required. The only public-surface
-change is that `harness/session/search.ts` moved to `search/index.ts`; we never
-imported it. Session/JSONL internals changed a lot (`parseHeader`/`parseMutation` now
-return `Result`, `setName` accepts `undefined`, new `JsonlDecodeError`) — we do not use
-Pi's session harness at all.
+Exports `SparkleKernel`, `AsyncEventQueue`, and the facade types
+(`SparkleKernelAgent`, `SparkleKernelAgentFactory`, `SparkleKernelEvent`,
+`SparkleKernelOptions`, `SparkleKernelUserMessage`).
 
-**`@earendil-works/pi-ai` — two changes touch our surface, neither breaking.**
+## Retry trade-off (deliberate, please review)
 
-1. `GoogleThinkingLevel` → `GoogleApiThinkingLevel`, plus a new
-   `ResolvedGoogleThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max">` and a
-   `resolveGoogleThinkingLevel()` helper. Grepped the whole repo after the bump: the
-   legacy identifier appears only in the pi-compat probe/checker and its fixtures
-   (another owner's deliberate detection strings) and in workspace notes. No file
-   under `src/pi-adapter/` references either Google alias, so the rename is a no-op
-   for us and `scripts/pi-compat-probe.mjs` still reports the adapter clean.
-2. `SimpleStreamOptions` gained `toolChoice?: ToolChoice` where
-   `ToolChoice = "auto" | "none"`. See the decision below.
+Retry semantics used to be "only the last attempt's events are surfaced",
+which was free while everything was buffered. It is not free once events are
+live: a consumer that already saw a partial stream cannot unsee it. The split
+now is:
 
-Also new but unused by us: `thinkingBudgetForLevel`, `clampThinkingBudgetToAnswerRoom`,
-`DEFAULT_THINKING_BUDGETS`, an `openai-completions` `compat.thinkingTokenBudgetField`,
-and a `deferredToolsMode: "additional-tools" | "tool-search"` option.
-`Usage` and `models.d.ts` (including `streamSimple`) are unchanged, so telemetry
-extraction in `translatePiEvent` needs no adjustment.
+- **Streamed to the consumer:** every attempt's events, in the order they
+  actually happened.
+- **Recorded in the `ModelInvocation`:** the last attempt's events only —
+  response hash and usage still describe the call the run ended on.
 
-### `toolChoice` — deliberately not plumbed
+In practice the failed attempts in the retry tests emit nothing before the
+provider error, so the existing assertion (`textOf(events) === "recovered after
+backoff"`) still holds; the divergence only appears if a stream fails partway
+through and is then retried.
 
-The field is optional, so its absence is not a type error, and `pnpm typecheck` is
-clean without it. More importantly the adapter's `streamFn` already forwards Pi's
-options object verbatim:
+## Verification
 
-```ts
-streamFn: (streamModel, context, options?) =>
-  this.models.streamSimple(streamModel, context, { ...options, ...apiKeyMaybe })
-```
+- `pnpm exec tsx --test test/integration/pi-adapter/faux-smoke.test.ts test/unit/pi-adapter/translate-usage.test.ts` — **PASS** (4/4).
+- `pnpm exec tsx --test test/{unit,integration}/pi-adapter/*.test.ts` — **PASS** (78 pass, 1 skipped: the network provider smoke test).
+- `test/integration/pi-adapter/live-stream.test.ts` (R1-gpt-A's, written independently) — **PASS**: a `TEXT_DELTA` reaches the consumer while a scripted tool is still blocked mid-run, and its 500 ms anti-deadlock fallback is never reached. That is the round's target-1 evidence, from a test I did not write.
+- `pnpm test` (full suite) — **PASS** (1413 pass, 1 skipped, 0 fail), including the retry, coordinator, and invocation-recording suites.
+- `pnpm typecheck` — **PASS**; `pnpm exec eslint src/pi-adapter` — **PASS**.
+- `test/unit/pi-adapter/kernel.test.ts` (R1-gpt-B's, landed after the facade) — **PASS** (3/3), driving `SparkleKernel` through a structural stub with no Pi `Agent` involved, which is the "testable on its own" claim above holding up against someone else's test.
+- Facade smoke-checked against a real `Agent` on the faux provider (throwaway
+  script, deleted): `sessionId` round-trips, `followUpText` produced a genuine
+  second `turn_start`/`turn_end` pair through the queue, `reset` and
+  `errorMessage` behave.
 
-so anything Pi sets — including `toolChoice` when it starts setting it — reaches the
-provider without the adapter naming the field. I verified empirically what Pi 0.84.3
-hands us on this path (faux provider, one turn):
+## Notes for the next round
 
-```
-{ model, reasoning: "low", transport: "auto", toolExecution: "parallel", signal }
-```
-
-`toolChoice` is not currently set by `Agent`, so exposing it as a `PiExecutorOptions`
-knob would add product surface with no compatibility win. Instead I added a regression
-test (below) that locks the verbatim pass-through, so a future refactor that hand-copies
-fields cannot silently drop `toolChoice`.
-
-## 3. Files changed (all inside my exclusive paths)
-
-| File | Change |
-| --- | --- |
-| `package.json` | both Pi deps 0.84.1 → 0.84.3 |
-| `pnpm-lock.yaml` | regenerated by `pnpm install` (incl. transitive `pi-telemetry` 0.84.3) |
-| `src/pi-adapter/pi-executor.ts` | own the thinking-level union at the boundary (see below) |
-| `src/pi-adapter/runtime.ts` | `createConfiguredPiExecutor` input now takes `SparkleThinkingLevel`; dropped the `@earendil-works/pi-agent-core` type import |
-| `src/pi-adapter/index.ts` | export the `SparkleThinkingLevel` type |
-| `test/integration/pi-adapter/stream-options.test.ts` | new: stream-option pass-through regression test |
-
-`src/config/providers-config.ts` needed no change: no custom-provider compat field in
-0.84.3 requires `supportsFinishReason` or a thinking-budget type, and the existing
-`compat` passthrough still typechecks.
-
-### ADR-001 gap closed while here
-
-`src/pi-adapter/runtime.ts` was exporting Pi's own `ThinkingLevel` type in the input
-interface that `src/cli/main.ts` calls, i.e. a Pi type was structurally leaking into the
-CLI. The repo's `test/unit/pi-boundary.test.ts` cannot see this because it only greps
-for the `@earendil-works/` string. The adapter now declares its own union:
-
-```ts
-export type SparkleThinkingLevel =
-  | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-```
-
-Assignability to Pi's union is enforced where the `Agent` is constructed
-(`const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";`). The
-members are identical to Pi 0.84.3 and to the CLI's `THINKING_LEVELS`, so no mapping
-code is needed today and `src/cli/main.ts` typechecks untouched. If a future Pi release
-does narrow the union, the error lands on that one line in `pi-executor.ts` — inside
-the adapter, where the explicit map belongs — instead of in CLI code. I verified the
-guard fires by temporarily adding a bogus level:
-
-```
-src/pi-adapter/pi-executor.ts(176,11): error TS2322:
-  Type 'SparkleThinkingLevel' is not assignable to type 'ThinkingLevel'.
-    Type '"ludicrous"' is not assignable to type 'ThinkingLevel'.
-```
-
-## 4. Commands and results
-
-Note on baselines: this VM's working tree is shared with the other Round 1 agents, so
-the tree moved under me during the round (`src/cli/main.ts`, `src/cli/doctor.ts`,
-`src/pi-compat/`, `scripts/`, skills, README). Test totals below therefore grow between
-runs for reasons unrelated to the bump.
-
-| Command | Result |
-| --- | --- |
-| `pnpm install` | clean, both deps at 0.84.3 |
-| `pnpm typecheck` | **pass**, no errors — no adapter type fixes were required by the bump |
-| `pnpm test -- "test/integration/pi-adapter/**/*.test.ts"` | **6 tests, 5 pass, 1 skipped, 0 fail** (the skip is `provider-smoke`, which needs live credentials) |
-| `pnpm test -- "test/integration/pi-adapter/**/*.test.ts" "test/unit/**/*.test.ts"` | 990 tests, 988 pass, 1 skipped, **1 fail** (not mine, see §5) |
-| `pnpm test -- "test/**/*.test.ts"` (full suite) | 1178 tests, 1176 pass, 1 skipped, **1 fail** (same one) |
-| `npx eslint src/pi-adapter test/integration/pi-adapter` | clean |
-| `pnpm build` | pass |
-
-Baseline before the bump (0.84.1, same globs) was 978 tests with 1 failure, so the bump
-introduced no new adapter failures and the new integration test adds one passing case.
-
-## 5. Failures that belong to other owners
-
-**`no Pi package imports outside src/pi-adapter`** (`test/unit/pi-boundary.test.ts:23`)
-is the only remaining failure in the whole suite. It is not caused by the version bump —
-the test never reads `package.json` or `node_modules`, it greps `src/**/*.ts` for the
-literal string `@earendil-works/`. Two files added by the pi-compat work trip it:
-
-```
-/workspace/src/cli/pi-compat.ts      (lines 30-31)
-/workspace/src/pi-compat/check.ts    (lines 68-69, 153-154, 172-173)
-```
-
-In both cases these are string literals naming the packages for a version comparison,
-not imports of Pi code, so ADR-001 is not actually violated in spirit. Owner of
-`src/pi-compat/` needs to decide between relaxing the boundary test to look for real
-import/`from` statements rather than any occurrence of the string, or sourcing the
-package names indirectly. Both files are outside my write paths so I left them alone.
-
-**Resolved during the round, for the record:** `doctor reports developer preview and
-fake-executor next steps` failed at my 0.84.1 baseline because this VM had Node 22.14.0
-against `engines: >=22.19.0`. It was an environment artifact, never a code fault, and it
-went green once the VM's Node moved to 22.22.2 mid-round.
-
-## 6. Risks for Round 2
-
-- **The two `ThinkingLevel` types in Pi are diverging.** `pi-agent-core` still exports
-  the 7-member union including `"off"`, but `pi-ai` now defines
-  `ThinkingLevel = "minimal" | ... | "max"` (no `"off"`) with `ModelThinkingLevel =
-  "off" | ThinkingLevel` as the wider one. The adapter imports the core version, so we
-  are fine today, but if a later Pi aligns core with `pi-ai`, `"off"` stops being a
-  valid `ThinkingLevel`. That is now a single-line compile error in `pi-executor.ts`
-  with the fix site obvious; whoever hits it should map `"off"` at that point rather
-  than change the CLI list.
-- **`toolChoice` relies on the spread staying a spread.** If anyone rewrites the
-  `streamFn` to build options field-by-field, `toolChoice` and any future Pi option are
-  dropped silently at runtime with no type error. `test/integration/pi-adapter/stream-options.test.ts`
-  is the guard; keep it.
-- **The boundary test is the last red.** Until the pi-compat owner resolves it,
-  `pnpm gate` fails, which blocks `prerelease`. Worth sequencing early in Round 2.
-- **Google thinking-level rename is only half-checked by grep.** We do not use the
-  alias, but `resolveGoogleThinkingLevel` now clamps `xhigh`/`max` down for Gemini
-  (`ResolvedGoogleThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max">`). Our CLI
-  advertises `xhigh` and `max` for every provider, so on Google models those two levels
-  silently degrade to `high`. Not a type error and not a regression from this bump, but
-  if Round 2 touches thinking-level UX it should decide whether to surface that clamp.
-- **Shared working tree.** Several agents edited `/workspace` concurrently this round,
-  so anyone re-running my numbers on a different tree state will see different totals.
-  The bump itself is confined to `package.json` + `pnpm-lock.yaml`; the adapter edits
-  are confined to `src/pi-adapter/`.
+- The kernel exposes `steer`/`followUp`/`reset`/`sessionId` but nothing calls
+  them yet outside tests. Sparkle `inject` writing policy facts instead of
+  steering a live agent is the obvious next consumer.
+- `continue()` and `thinkingBudgets` are still unwrapped; both fit the facade
+  without changing its shape.
+- No commit created. `src/execution/` and `.agents/skills/**` untouched.

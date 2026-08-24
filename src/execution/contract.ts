@@ -17,6 +17,11 @@ export interface AgentExecutionRequest {
 
 export type ExecutionEvent =
   | { type: "TEXT_DELTA"; text: string }
+  /**
+   * Reasoning progress carried as a size only. Chain-of-thought text never
+   * enters the execution stream, so it can never reach the event log.
+   */
+  | { type: "THINKING_DELTA"; bytes: number }
   | { type: "TOOL_STARTED"; toolCallId: string; toolName: string }
   | { type: "TOOL_FINISHED"; toolCallId: string; isError: boolean; summary: string }
   | { type: "TURN_FINISHED"; usage?: { inputTokens?: number; outputTokens?: number } }

@@ -159,6 +159,9 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
           case "TEXT_DELTA":
             await append(agentEvent("TEXT_DELTA", `text delta (${executionEvent.text.length} chars)`));
             break;
+          case "THINKING_DELTA":
+            await append(agentEvent("THINKING_DELTA", `thinking delta (${executionEvent.bytes} bytes)`));
+            break;
           case "TOOL_STARTED":
             await append(agentEvent("TOOL_STARTED", bounded(executionEvent.toolName)));
             break;
