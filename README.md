@@ -47,8 +47,16 @@ This executes a deterministic fake agent, writes JSONL events, and produces a ch
 ```bash
 pnpm cli inspect --run <runId>
 pnpm cli inspect --run <runId> --json
+pnpm cli inspect --run <runId> --summary-json
 pnpm cli inspect --episode <epId>
 ```
+
+`--json` prints the raw event stream, one event per line, with nothing
+appended. `--summary-json` prints exactly one `INSPECT_SUMMARY` object with
+the run status and the evidence the latest stall/block asked for
+(`requiredEvidence`, empty for a run that never stalled); it is not a domain
+event and the two flags are mutually exclusive. A stalled or blocked run also
+shows its `required evidence` list in the default prose view.
 
 ### Resume an interrupted run
 
@@ -83,6 +91,13 @@ Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low`
 ### Parent + children
 
 Provide a child spec JSON file. Task ids must be `tsk_<suffix>`. Roles must be one of `worker`, `scout`, `planner`, `implementer`, `reviewer`, `tester`, `debugger`. `--children` compiles the spec through `compileChildrenToFlowchart` and executes it on the same flowchart engine as `--flowchart`; the child coordinator preserves parent/child protocol semantics inside that run (bounded children, peer mail, exactly one terminal `TASK_RESULT` per task). The original M1 entry `startParentRun` remains a library/test-only path.
+
+Honesty note: plain `--children` starts **without a requirement contract** —
+the run records `skipContract: true` and the coverage gate does not run on
+this path. Per-task `acceptanceCriteria` still gate each child's
+`TASK_RESULT`, but they are not compiled into a run-level contract, and the
+runtime deliberately does not invent one from them. For a coverage-gated
+start (refusing while mandatory criteria are uncovered), use `--track`.
 
 ```json
 {
@@ -137,7 +152,7 @@ pnpm cli run \
 | `pnpm cli version` | Print `0.1.0` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
-| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, and evidence. A crash-truncated JSONL tail is ignored and warned on stderr |
+| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` (mutually exclusive with `--json`). A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
 | `pnpm cli resume --run <runId>` | Resume a paused or interrupted run (`--supervised` for M2 DAG checkpoints; `--unpause` to clear a pause token) |
 | `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |
@@ -173,7 +188,7 @@ State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 - `--track` asks clarifying questions from the objective and recorded habits, plans scout → implement → review → test, executes, and tracks the episode
 - Validates flowcharts and DAGs, prevents cycles, and schedules joins deterministically
 - Persists resumable checkpoints, JSONL event logs, and an episode bound to each run. A truncated final JSONL line is recovered, not treated as a corrupt log
-- `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start
+- `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start. Plain `--children` is a skip-contract start (`skipContract: true`) — no coverage gate on that path
 - Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
 - Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
 

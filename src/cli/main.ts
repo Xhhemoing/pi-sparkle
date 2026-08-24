@@ -6,7 +6,7 @@ import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
 import { deleteRunRecords, deleteEpisodeRecords } from "../privacy/deletion.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { appendFile, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
@@ -50,6 +50,7 @@ import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-
 import { createModelRouter } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
+import { appendInvocationRecord } from "../telemetry/invocation-log.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { assignTasks } from "../routing/assign.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
@@ -238,7 +239,7 @@ Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
-  pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
+  pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
@@ -308,8 +309,11 @@ pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clear
 and continues. inject records a typed fact/override/skip against DecisionPolicy
 without executing user strings.
 inspect --episode prints the latest bound episode snapshot (inspect --run also
-prints the episode id when a run is attached). episode close/events provide the
-acceptance-gated closure and event views. adapt collects user and subagent
+prints the episode id when a run is attached). inspect --run --json stays a pure
+event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
+object with the status and the evidence the latest stall/block asked for.
+episode close/events provide the acceptance-gated closure and event views.
+adapt collects user and subagent
 feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
@@ -674,7 +678,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     stateRoot,
     {
       onInvocation: (invocation) => {
-        void appendFile(join(runtimeRoot(stateRoot), "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
+        // Fire-and-forget, but through the log's exclusive lock so a
+        // concurrent `delete --run` rewrite cannot clobber this row (see
+        // src/telemetry/invocation-log.ts). Errors — a lock timeout while a
+        // delete holds it, or a record that fails validation — drop the
+        // telemetry row rather than fail the run the executor is mid-way
+        // through.
+        void appendInvocationRecord(stateRoot, invocation).catch(() => undefined);
       }
     },
     flaggedPrimary,
@@ -926,7 +936,8 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       run: { type: "string" },
       episode: { type: "string" },
       "state-root": { type: "string" },
-      json: { type: "boolean", default: false }
+      json: { type: "boolean", default: false },
+      "summary-json": { type: "boolean", default: false }
     }
   });
   if (values.run !== undefined && values.episode !== undefined) {
@@ -937,8 +948,25 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass only --run or only --episode"
     });
   }
+  const summaryJson = values["summary-json"] === true;
+  if (summaryJson && values.json === true) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect accepts either --json or --summary-json, not both",
+      next: "pass --json for the event stream or --summary-json for one summary object"
+    });
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.episode !== undefined) {
+    if (summaryJson) {
+      return cliFail(io, {
+        command: "inspect",
+        stage: "parse-args",
+        message: "inspect --summary-json is only available with --run",
+        next: "pass --run <runId> --summary-json, or --episode --json for the snapshot"
+      });
+    }
     return inspectEpisode(stateRoot, values.episode, values.json === true, io);
   }
   if (values.run === undefined) {
@@ -960,6 +988,19 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     for (const event of read.events) {
       io.stdout(`${JSON.stringify(event)}\n`);
     }
+    return 0;
+  }
+  if (summaryJson) {
+    const summary = await inspectRun(stateRoot, runId);
+    // One object, not a domain Event: --json stays a pure event NDJSON stream.
+    io.stdout(
+      `${JSON.stringify({
+        type: "INSPECT_SUMMARY",
+        runId,
+        status: summary.status,
+        requiredEvidence: summary.requiredEvidence
+      })}\n`
+    );
     return 0;
   }
   const state = replayRun(read.events);
@@ -992,6 +1033,12 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     }
   }
   const inspection = await inspectRun(stateRoot, runId);
+  if (inspection.requiredEvidence.length > 0) {
+    io.stdout(`  required evidence (${inspection.requiredEvidence.length}):\n`);
+    for (const item of inspection.requiredEvidence) {
+      io.stdout(`    - ${item}\n`);
+    }
+  }
   if (inspection.children.length > 0) {
     io.stdout(`  children: ${inspection.children.length}\n`);
     for (const child of inspection.children) {

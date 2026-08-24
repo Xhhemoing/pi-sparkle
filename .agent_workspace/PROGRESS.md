@@ -1,5 +1,7 @@
 # Orchestrator — Pi slim-kernel reuse & effectiveness
 
+`main` also contains Loop 2 SOTA follow-on (PR #6). That loop’s orchestrator log is not this file; this branch tracks kernel reuse only.
+
 **Goal:** On the slim Pi kernel (`@earendil-works/pi-agent-core` + `pi-ai` behind `src/pi-adapter/`), reuse unused Agent capabilities for secondary development and improve runtime effectiveness. Do **not** take a dependency on `pi-coding-agent`. ADR-001 / ADR-006 stay in force.
 
 **Branch:** `cursor/pi-kernel-reuse-e1e3` (from `origin/main` @ persistent-opt merge). Cloud naming; maps user SOP `agent/<task>`.
@@ -42,16 +44,6 @@ If `kernel.ts` is missing when gpt-B tests, skip kernel tests and still add thin
 
 ## Round log
 
-### Round 1 — in progress
-
-| ID | Focus | Task |
-|---|---|---|
-| R1-fable-A | kernel reuse audit + playbook | `bc-f4a10f69-f460-5fbe-8ca5-3db216cc1a67` |
-| R1-fable-B | overlay extender checklist | `bc-8382087f-263f-58db-84e4-de0ca9aebd32` |
-| R1-opus-A | SparkleKernel + live yield | `bc-8ddcca19-64d5-53d2-ba45-2df2d57dcd07` |
-| R1-opus-B | thinking_delta mapping | `bc-dc5ea9f2-9a41-5a2a-b77d-ac0b75da407d` |
-| R1-gpt-A | live-stream probe | `bc-947807f5-4030-59e9-9be3-9a81d79ba7be` |
-| R1-gpt-B | kernel/thinking tests | `bc-39dbcf25-e3b4-5029-8356-2ada5f58b53c` |
 ### Round 1 — complete (2026-08-24)
 
 All 6 delivered (fable-A retried after dispatch error `bc-3363607a-52c2-5177-8b2b-b4433e7be06a`). Live yield, SparkleKernel, bytes-only THINKING_DELTA, probe/tests/docs. Brief: `.agent_workspace/R1-KERNEL-BRIEF.md`.

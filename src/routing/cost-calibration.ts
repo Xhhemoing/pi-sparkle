@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
 import type { ModelRouterConfig } from "../supervisor/model-router.js";
+import { INVOCATIONS_LOG, invocationsLogPath } from "../telemetry/invocation-log.js";
 import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";
 import { isCostEligible, isUnattributed } from "../telemetry/usage-aggregate.js";
 import { catalogModel, type CatalogModel } from "./catalog-model.js";
@@ -22,11 +21,14 @@ export interface CalibratedRates {
 }
 
 const SMOOTH = 0.3;
-export const INVOCATIONS_LOG = "invocations.jsonl";
 
-export function invocationsLogPath(stateRoot: string): string {
-  return join(runtimeRoot(stateRoot), INVOCATIONS_LOG);
-}
+/**
+ * Re-exported from the invocation-log module, which owns the path and the
+ * write lock over it. Calibration only ever reads, but it must not carry a
+ * second copy of the location: a writer and a reader that disagree on the path
+ * is the failure this indirection removes.
+ */
+export { INVOCATIONS_LOG, invocationsLogPath };
 
 /**
  * Exponential-smooth catalog token/latency rates from invocations of the same
