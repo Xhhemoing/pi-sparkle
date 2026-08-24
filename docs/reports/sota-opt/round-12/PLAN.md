@@ -24,7 +24,7 @@ F 切片已合入：空枚举，未铸 S12-F-*。全实验锚点本轮复核 121
 
 G 切片 = 42 文件：`src/run/` 除 `child-tracking.ts`/`gate-apply.ts` 外 17 文件；`src/supervisor/` 除 `model-router.ts` 外 4 文件；`src/graph/` 全部 4 文件；`src/domain/` 全部 17 文件。不要重开 S1-G-1..9 / S2-G-1..8 / S3-G-1..5 / S4-G-1..7 / S5-G-1..6 / S6-G-1..7 / S7-G-1..5 / S8-G-1..2 / S9-G-1..3 / S10-G-1 / S11-G-1..3。禁止去 fsync / 完整性再哈希 / 增量读镜像。S11-G-1 切片内惰性 import 生产收益恒 0（`main.ts` 静态钉死）。S11-G-2 相同字节写跳过 0/27 命中。S11-G-3 inspectRun 尾扫 fail-closed。计算顶 ~0.30 ms vs I/O 地板 ~92–102 ms。基线 `4efee23` 预期空 diff。
 
-H 切片已合入：空枚举，未铸 S12-H-*。热层默认复核 8.5–8.9 µs/run；配置态仍无悬崖。热链剖面 decompositon：`validateRequirementContract`×2 仅 4.0–4.8%。S5-H-1 维持。基线 `fd437a9` 空 diff 再确认。
+H 切片已合入：空枚举，未铸 S12-H-*。热层默认复核 8.5–8.9 µs/run；配置态仍无悬崖。热链剖面 decomposition：`validateRequirementContract`×2 仅 4.0–4.8%。S5-H-1 维持。基线 `fd437a9` 空 diff 再确认。
 
 I 切片 = **25 文件**（cli 13 / pi-adapter 9 / config 2 / telemetry 1；R8-I「~28 / cli 16」是头部笔误）。必须站在已落地 S1-I / S4-I / S5-I-1 / S7-I-1 之上。不要重开 S1-I-1..8 / S2-I-1..6 / S3-I-1..6 / S4-I-2..5（无 S4-I-1）/ S5-I-2..5 / S6-I-1..3 / S7-I-2..4 / S8-I-1..3。R9-I / R10-I / R11-I 空枚举、未铸 ID。S8-I-1 跳过回退不健全；重开物是 pi-ai 自身 ship 的 `models.generated` / `./providers/all.models` 导出（0.84.1 仍 7 exports，三种 specifier 均不可达）。自制 39 表 union @22.22 净约 10 ms，低于落地线且三重围栏。凭据面只读。基线 `8dee7fb` 预期空 diff。custom−builtin 复核约 +23~+48 ms。
 
