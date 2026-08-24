@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { createTaskId } from "../../../src/domain/ids.js";
+import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import { createTaskId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import type { RequirementContract } from "../../../src/domain/contract.js";
+import type { AcceptanceCriterion } from "../../../src/domain/task.js";
 import {
   validateConfidenceScore,
   type Flowchart,
@@ -13,7 +16,15 @@ import {
   type FlowNode,
   type JoinPolicy
 } from "../../../src/domain/flowchart.js";
+import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { assignTasks } from "../../../src/routing/assign.js";
+import { cheapFirstTiers, liveCascadePlanFromAssignment } from "../../../src/routing/live-cascade.js";
+import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import type { Event } from "../../../src/run/events.js";
 import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
 import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
@@ -252,6 +263,257 @@ test("resume fails closed when the checkpoint is missing", async () => {
       () => resumeFlowchartRun(deps(stateRoot), first.runId),
       /no durable checkpoint|refusing to invent/
     );
+  });
+});
+
+/**
+ * R6-2's investigation: `childTasksFromDefinition` rebuilds every resumed child
+ * spec from the checkpointed flowchart, so a resumed run's children are not the
+ * children the run started. The two tests below pin the two halves that decide
+ * what Round 7 can do about it: what a resume actually loses, and the fact that
+ * the parent log already carries enough to rebuild the spec faithfully.
+ *
+ * Measured at HEAD: the loss does not change any gate verdict today (see
+ * `test/unit/run/flowchart-run-abort.test.ts`), so this is honesty and cost,
+ * not a false-accept. The pins exist so that stays true by observation.
+ */
+
+const CONTRACT_CRITERION = "crit-integration";
+
+function contractCovering(criterionId: string): RequirementContract {
+  return {
+    schemaVersion: 1,
+    objective: "Ship the migration",
+    deliverables: [],
+    constraints: [
+      { id: "con-no-legacy", description: "do not touch src/legacy" },
+      { id: "con-stable-api", description: "keep the public API stable" }
+    ],
+    nonGoals: [],
+    acceptanceCriteria: [{ id: criterionId, description: "the integration suite passes" }],
+    assumptions: [],
+    questions: [],
+    authority: [],
+    sourceRefs: []
+  } as unknown as RequirementContract;
+}
+
+function testerChild(taskId: string): ChildTaskInput {
+  const registry = createAgentProfileRegistry(defaultAgentProfiles());
+  return {
+    taskId: parseTaskId(taskId),
+    role: "tester",
+    objective: `Verify ${taskId}`,
+    profile: registry.resolve("tester"),
+    inputArtifactIds: ["art_seed" as ArtifactId],
+    acceptanceCriteria: [{ id: CONTRACT_CRITERION, description: "the integration suite passes" }],
+    limits: { maxAttempts: 3, timeoutMs: 45_000, maxWallTimeMs: 900_000 }
+  };
+}
+
+/** Reports SUCCESS + verification PASSED for every task it is given. */
+class PassingExecutor implements AgentExecutor {
+  readonly taskIds: string[] = [];
+  constructor(private readonly onExecute?: () => void) {}
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.taskIds.push(request.taskId);
+    this.onExecute?.();
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    yield {
+      type: "MESSAGE",
+      message: {
+        protocolVersion: 1,
+        id: `msg_${request.agentInstanceId}` as MessageId,
+        occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        runId: request.runId,
+        taskId: request.taskId,
+        from: request.agentInstanceId,
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "all acceptance checks passed",
+        artifactIds: [`art_done_${request.taskId}` as ArtifactId],
+        evidenceIds: [`evd_done_${request.taskId}` as EvidenceId],
+        verification: { kind: "PASSED", evidenceIds: [`evd_done_${request.taskId}` as EvidenceId] }
+      }
+    };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+}
+
+/** In-memory pause, so a run can stop between nodes without touching disk. */
+class TogglePause implements PauseController {
+  paused = false;
+  async requestPause(_runId: RunId): Promise<PauseToken> {
+    this.paused = true;
+    return this.token();
+  }
+  async clearPause(): Promise<void> {
+    this.paused = false;
+  }
+  async token(): Promise<PauseToken> {
+    if (!this.paused) return { paused: false };
+    return { paused: true, requestedAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z") };
+  }
+}
+
+interface LoggedTaskRequest {
+  readonly taskId: string;
+  readonly objective: string;
+  readonly inputArtifactIds: readonly string[];
+  readonly acceptanceCriteria: readonly AcceptanceCriterion[];
+  readonly limits: Readonly<Record<string, number>>;
+}
+
+function loggedTaskRequests(events: readonly Event[]): LoggedTaskRequest[] {
+  return events.flatMap((event) => {
+    if (event.type !== "CHILD_MESSAGE") return [];
+    const message = event.payload.message as unknown as LoggedTaskRequest & { type: string };
+    return message.type === "TASK_REQUEST" ? [message] : [];
+  });
+}
+
+function dimensionVerdicts(events: readonly Event[], taskId: string): Record<string, string> {
+  for (const event of events) {
+    if (event.type !== "TRACKING_ASSESSMENT") continue;
+    const assessment = event.payload.assessment as unknown as {
+      turnId: string;
+      dimensions: readonly { id: string; verdict: string }[];
+    };
+    if (assessment.turnId !== taskId) continue;
+    return Object.fromEntries(assessment.dimensions.map((entry) => [entry.id, entry.verdict]));
+  }
+  return {};
+}
+
+test("a resumed node loses the caller's child spec and the run's contract", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const children = [testerChild("tsk_first"), testerChild("tsk_second")];
+    const contract = contractCovering(CONTRACT_CRITERION);
+    const flowchart = compileChildrenToFlowchart(
+      children.map((child, index) => ({
+        taskId: child.taskId,
+        role: "tester" as const,
+        objective: child.objective,
+        ...(index > 0 ? { dependsOn: [children[index - 1]!.taskId] } : {})
+      }))
+    );
+
+    // Leg 1 stops after the first node, so the second is only ever run by a resume.
+    const pause = new TogglePause();
+    const first = new PassingExecutor(() => {
+      pause.paused = true;
+    });
+    const paused = await startFlowchartRun(
+      { ...deps(stateRoot), executor: first, pause },
+      { projectRoot, flowchart, childTasks: children, contract }
+    );
+    assert.equal(paused.status, "PAUSED");
+    assert.deepEqual(first.taskIds, ["tsk_first"]);
+
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      paused.runId,
+      { unpause: true }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+
+    const requests = loggedTaskRequests(resumed.events);
+    const started = requests.find((request) => request.taskId === "tsk_first");
+    const restarted = requests.find((request) => request.taskId === "tsk_second");
+    assert.ok(started, "the first node ran under the caller's spec");
+    assert.ok(restarted, "the second node ran under the rebuilt spec");
+
+    // What the caller wrote, and what a resume substitutes for it.
+    assert.deepEqual(started.acceptanceCriteria.map((criterion) => criterion.id), [CONTRACT_CRITERION]);
+    assert.deepEqual(started.limits, { maxAttempts: 3, timeoutMs: 45_000, maxWallTimeMs: 900_000 });
+    assert.deepEqual(restarted.acceptanceCriteria, [], "the resumed child is told no acceptance criteria");
+    assert.deepEqual(restarted.inputArtifactIds, []);
+    assert.deepEqual(restarted.limits, { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 });
+
+    // The contract goes the same way: `resumeLockedFlowchartRun` never threads it
+    // into the loop context, so a resumed child is assessed with no constraints.
+    assert.equal(dimensionVerdicts(resumed.events, "tsk_first")["constraint-retention"], "PASS");
+    assert.equal(
+      dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"],
+      "NOT_APPLICABLE",
+      "the resumed leg has no contract, so the constraint dimension stops applying"
+    );
+  });
+});
+
+/**
+ * The premise Round 7's fix rests on. R4-6 refused to persist executor config
+ * because the log did not carry it; that reason does not apply here. Everything
+ * `ChildTaskInput` needs is already durable: `TASK_REQUEST` carries the
+ * objective, artifacts, criteria and limits, and the assignment-sourced
+ * `MODEL_ROUTED` carries the true `agentRole` plus the `highRisk` and
+ * `eligibleModels` that regenerate the cascade through the shipped planner.
+ *
+ * If a schema change ever drops one of these, a faithful rebuild stops being
+ * possible without one — and this test is where that shows up.
+ */
+test("the parent log already carries what a faithful child-spec rebuild needs", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const catalog = { policyVersion: routerConfig.policyVersion, models: routerConfig.models };
+    const base = testerChild("tsk_verify");
+    const assignments = assignTasks({
+      tasks: [{ taskId: base.taskId, role: "tester", objective: base.objective }],
+      catalog
+    });
+    const assignment = assignments[0]!;
+    // Exactly the production shape `smartChildPlan` builds in cli/main.ts.
+    const spec: ChildTaskInput = {
+      ...base,
+      assignedModel: assignment.decision.model,
+      cascade: liveCascadePlanFromAssignment(assignment, catalog)
+    };
+
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      {
+        projectRoot,
+        flowchart: compileChildrenToFlowchart([
+          { taskId: spec.taskId, role: "tester", objective: spec.objective }
+        ]),
+        childTasks: [spec],
+        assignments
+      }
+    );
+    assert.equal(outcome.status, "COMPLETED");
+
+    const request = loggedTaskRequests(outcome.events).find((entry) => entry.taskId === spec.taskId);
+    assert.ok(request, "the log carries the task request");
+
+    const routes = outcome.events.flatMap((event) =>
+      event.type === "MODEL_ROUTED"
+        ? [event.payload as unknown as { taskId: string; role: string; agentRole?: string; model: string; highRisk: boolean; eligibleModels: readonly string[] }]
+        : []
+    );
+    // Two producers write MODEL_ROUTED: the pre-run assignment, which knows the
+    // AgentRole, and the supervisor's per-node routing, which only knows the
+    // coarser flowchart role. A rebuild must select the one that carries it.
+    const routed = routes.find((route) => route.agentRole !== undefined);
+    assert.ok(routed, "at least one MODEL_ROUTED carries the agent role");
+    assert.equal(routed.agentRole, "tester");
+    assert.equal(routed.role, "actor", "the flowchart role alone would coarsen tester to actor");
+
+    const registry = createAgentProfileRegistry(defaultAgentProfiles());
+    const rebuiltFromLog: ChildTaskInput = {
+      taskId: parseTaskId(request.taskId),
+      role: routed.agentRole,
+      objective: request.objective,
+      profile: registry.resolve("tester"),
+      inputArtifactIds: [...request.inputArtifactIds] as ArtifactId[],
+      acceptanceCriteria: [...request.acceptanceCriteria],
+      limits: request.limits as unknown as ChildTaskInput["limits"],
+      assignedModel: routed.model,
+      cascade: { highRisk: routed.highRisk, tiers: cheapFirstTiers(routed.eligibleModels, catalog.models) }
+    };
+    assert.deepEqual(rebuiltFromLog, spec, "the log alone rebuilds the spec the run started with");
   });
 });
 

@@ -12,11 +12,15 @@ import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../..
 import { compileChildrenToFlowchart } from "../../../src/graph/compile-children.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
-import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import type { ChildRunOutcome, ChildTaskInput } from "../../../src/run/child-coordinator.js";
+import { observationFromChild } from "../../../src/run/child-tracking.js";
 import { EventStore } from "../../../src/run/event-store.js";
+import type { Event } from "../../../src/run/events.js";
 import { injectFlowchartRun, resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
 import { replayRun } from "../../../src/run/replay.js";
+import { prescoreInputFromObservation } from "../../../src/tracking/from-child.js";
+import { computePrescore } from "../../../src/tracking/prescore.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 
 const TS: IsoTimestamp = parseIsoTimestamp("2026-08-24T09:00:00.000Z");
@@ -839,4 +843,242 @@ test("a terminal append that cannot land still rethrows the original error", asy
     const raw = await readFile(eventsPath(stateRoot, runId), "utf8");
     assert.equal(raw.includes("RUN_FAILED"), false, "nothing was appended to the torn log");
   });
+});
+
+/**
+ * R6-2's investigation: `childTasksFromDefinition` rebuilds every resumed child
+ * spec from the checkpointed flowchart, so a resumed node runs under a spec the
+ * caller never wrote. The three tests below pin what that costs today — the
+ * exact rebuilt shape, the gate verdict it produces, and the invariant that
+ * currently keeps the shape change away from the verdict.
+ *
+ * Measured at HEAD over all 240 observations a routed child can produce: the
+ * gate directive never differs between the original and the rebuilt spec, so
+ * the re-specification is not a false-accept vector *today*. It is inert, not
+ * harmless — see the third test for the invariant that makes it inert.
+ */
+
+/** A production-shaped tester child: real criteria, a routed model, a cascade. */
+function testerSpecWithCriteria(taskId: string): ChildTaskInput {
+  const registry = createAgentProfileRegistry(defaultAgentProfiles());
+  return {
+    taskId: parseTaskId(taskId),
+    role: "tester",
+    objective: `Verify ${taskId}`,
+    profile: registry.resolve("tester"),
+    inputArtifactIds: ["art_seed" as ArtifactId],
+    acceptanceCriteria: [
+      { id: "crit-integration", description: "the integration suite passes" },
+      { id: "crit-regression", description: "no perf regression" }
+    ],
+    assignedModel: "premium",
+    cascade: {
+      highRisk: true,
+      tiers: [
+        { modelId: "cheap", version: "cheap-v1" },
+        { modelId: "premium", version: "premium-v1" }
+      ]
+    },
+    limits: { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 }
+  };
+}
+
+interface RecordedTaskRequest {
+  readonly taskId: string;
+  readonly inputArtifactIds: readonly string[];
+  readonly acceptanceCriteria: readonly { readonly id: string }[];
+  readonly limits: Readonly<Record<string, number>>;
+}
+
+/** Every TASK_REQUEST the parent log recorded for one task, in order. */
+function taskRequestsFor(events: readonly Event[], taskId: string): RecordedTaskRequest[] {
+  return events.flatMap((event) => {
+    if (event.type !== "CHILD_MESSAGE") return [];
+    const message = event.payload.message as unknown as RecordedTaskRequest & { type: string };
+    if (message.type !== "TASK_REQUEST" || message.taskId !== taskId) return [];
+    return [message];
+  });
+}
+
+interface RecordedAssessment {
+  readonly turnId: string;
+  readonly prescore: number;
+  readonly gate: { readonly kind: string; readonly codes: readonly string[] };
+  readonly dimensions: readonly { readonly id: string; readonly verdict: string }[];
+}
+
+function assessmentFor(events: readonly Event[], taskId: string): RecordedAssessment | undefined {
+  for (const event of events) {
+    if (event.type !== "TRACKING_ASSESSMENT") continue;
+    const assessment = event.payload.assessment as unknown as RecordedAssessment;
+    if (assessment.turnId === taskId) return assessment;
+  }
+  return undefined;
+}
+
+/**
+ * A two-node tester run whose second node is re-executed on resume: node `a` is
+ * accepted under the caller's spec before the crash, node `b` under the rebuilt
+ * one after it. Both nodes see identical executor behaviour, so any difference
+ * between their assessments is the re-specification and nothing else.
+ */
+async function resumedAfterCrashBeforeAcceptance(
+  stateRoot: string,
+  projectRoot: string
+): Promise<{ runId: RunId; events: readonly Event[]; reexecuted: readonly string[] }> {
+  const specs = [testerSpecWithCriteria("tsk_a"), testerSpecWithCriteria("tsk_b")];
+  const flowchart = compileChildrenToFlowchart(
+    specs.map((spec, index) => ({
+      taskId: spec.taskId,
+      role: "tester" as const,
+      objective: spec.objective,
+      ...(index > 0 ? { dependsOn: [specs[index - 1]!.taskId] } : {})
+    }))
+  );
+
+  // Leg 1: node a lands and is accepted; the pause stops the run before node b.
+  const pause = new FakePauseController();
+  const first = new RecordingExecutor({
+    onExecute: () => {
+      pause.paused = true;
+    }
+  });
+  const paused = await startFlowchartRun(deps(stateRoot, first, pause), {
+    projectRoot,
+    flowchart,
+    childTasks: specs
+  });
+  assert.equal(paused.status, "PAUSED");
+
+  // Leg 2: node b's result lands, then the process dies before acceptance.
+  await crashResumingPausedRun(stateRoot, paused.runId, 2);
+
+  // Leg 3: the real resume, which re-executes node b under the rebuilt spec.
+  const after = new RecordingExecutor();
+  const resumed = await resumeFlowchartRun(deps(stateRoot, after, new FakePauseController()), paused.runId);
+  assert.equal(resumed.status, "COMPLETED");
+  return { runId: paused.runId, events: resumed.events, reexecuted: after.taskIds };
+}
+
+test("a resumed node is re-specified: the rebuilt child spec's exact shape", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const { events, reexecuted } = await resumedAfterCrashBeforeAcceptance(stateRoot, projectRoot);
+    assert.deepEqual(reexecuted, ["tsk_b"], "only the in-flight node is redone");
+
+    // Node a ran once, under the caller's spec, and the log proves it.
+    const original = taskRequestsFor(events, "tsk_a");
+    assert.equal(original.length, 1);
+    assert.deepEqual(
+      original[0]?.acceptanceCriteria.map((criterion) => criterion.id),
+      ["crit-integration", "crit-regression"],
+      "the caller's criteria reached the child the run started"
+    );
+    assert.deepEqual(original[0]?.inputArtifactIds, ["art_seed"]);
+    assert.deepEqual(original[0]?.limits, { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 });
+
+    // Node b was still unstarted when the crash landed, so every attempt it ever
+    // got came from a resume — and none of them is the task the caller wrote.
+    // This is the gap, pinned field by field so it cannot change silently.
+    const rebuilt = taskRequestsFor(events, "tsk_b");
+    assert.equal(rebuilt.length, 2, "node b was attempted twice, both times from a resume");
+    for (const attempt of rebuilt) {
+      assert.deepEqual(attempt.acceptanceCriteria, [], "the caller's criteria are gone");
+      assert.deepEqual(attempt.inputArtifactIds, [], "so are the input artifacts");
+      assert.deepEqual(
+        attempt.limits,
+        { maxAttempts: 2, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 },
+        "and the caller's budget is replaced by childTasksFromDefinition's hard-coded one"
+      );
+    }
+  });
+});
+
+test("the re-specification does not change the gate's verdict", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const { events } = await resumedAfterCrashBeforeAcceptance(stateRoot, projectRoot);
+
+    // Node a was gated under the caller's spec, node b under the rebuilt one,
+    // on identical child behaviour. R6-2's measurement, pinned: the recorded
+    // dimensions differ, the decision does not.
+    const specified = assessmentFor(events, "tsk_a");
+    const respecified = assessmentFor(events, "tsk_b");
+    assert.ok(specified, "node a was accepted under the caller's spec");
+    assert.ok(respecified, "node b was accepted under the rebuilt spec");
+
+    const verdict = (assessment: RecordedAssessment): { kind: string; codes: readonly string[] } => ({
+      kind: assessment.gate.kind,
+      codes: assessment.gate.codes
+    });
+    assert.deepEqual(verdict(respecified), verdict(specified), "same gate decision either way");
+    assert.deepEqual(verdict(specified), { kind: "none", codes: [] });
+    assert.equal(
+      events.some((event) => event.type === "GATE_TRANSITION"),
+      false,
+      "a passing child transitions neither run, so there is no false accept to find here"
+    );
+
+    // What *did* change: the criteria the caller wrote decided a dimension for
+    // node a and were absent for node b. The gap is real; it just stops here.
+    const verdictOf = (assessment: RecordedAssessment, id: string): string | undefined =>
+      assessment.dimensions.find((dimension) => dimension.id === id)?.verdict;
+    assert.equal(verdictOf(specified, "check-coverage"), "PASS");
+    assert.equal(verdictOf(respecified, "check-coverage"), "NOT_APPLICABLE");
+  });
+});
+
+/**
+ * Why the re-specification cannot currently reach the verdict, stated as the
+ * invariant it depends on. `prescoreInputFromObservation` derives
+ * `completedChecks` from `requiredChecks` itself, so check-coverage compares a
+ * list against a copy of itself: acceptance criteria are never checked against
+ * anything the child did, and the dimension cannot FAIL.
+ *
+ * This is the tripwire for R6-2's decision. The moment check-coverage becomes a
+ * real check, a resumed node — whose criteria are empty — is gated more weakly
+ * than the node the run started, and the re-specification becomes a
+ * false-accept vector. Whoever makes that change must fix
+ * `childTasksFromDefinition` in the same diff; this test is where they find out.
+ */
+test("check-coverage cannot fail, which is what keeps the rebuilt spec off the verdict", () => {
+  const registry = createAgentProfileRegistry(defaultAgentProfiles());
+  const spec: ChildTaskInput = {
+    taskId: parseTaskId("tsk_probe"),
+    role: "tester",
+    objective: "Verify",
+    profile: registry.resolve("tester"),
+    inputArtifactIds: [],
+    acceptanceCriteria: [{ id: "crit-only", description: "the one criterion" }],
+    limits: { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 }
+  };
+
+  const reachable = new Set<string>();
+  for (const kind of ["PASSED", "FAILED"] as const) {
+    for (const outcome of ["SUCCESS", "PARTIAL", "FAILURE", "CANCELLED", "TIMEOUT"] as const) {
+      const child = {
+        childRunId: parseRunId("run_00000000-0000-4000-8000-000000000000"),
+        taskId: parseTaskId("tsk_probe"),
+        outcome,
+        attempts: 1,
+        summary: "all checks passed and verified",
+        messages: [],
+        artifactIds: ["art_one" as ArtifactId],
+        evidenceIds: ["evd_one" as EvidenceId],
+        terminalResult: { verification: { kind, evidenceIds: ["evd_one" as EvidenceId] } }
+      } as unknown as ChildRunOutcome;
+      const observation = observationFromChild(child, spec);
+      // The child never reports which criteria it met, so the shipped
+      // derivation can only echo the ones it was asked for.
+      const input = prescoreInputFromObservation(observation);
+      assert.deepEqual(
+        input.completedChecks,
+        kind === "PASSED" ? input.requiredChecks : [],
+        "completedChecks is a copy of requiredChecks, never an independent observation"
+      );
+      const dimension = computePrescore(input).dimensions.find((entry) => entry.id === "check-coverage");
+      assert.ok(dimension);
+      reachable.add(dimension.outcome);
+    }
+  }
+  assert.equal(reachable.has("FAIL"), false, "no acceptance criterion can fail a child");
+  assert.deepEqual([...reachable].toSorted(), ["PASS", "UNOBSERVED"]);
 });
