@@ -504,3 +504,6 @@
 | S9-D-2 | assertReplayIsolated roots 构造融合 | 等价但 725–746ns/eval；≠ S3-D-3 内容去重 |
 | S9-D-3 | preparePromotion 第二次 review.candidateId 比较消除 | 死码可证，上界 3.1–3.7ns；零成本保留为防御纵深 |
 | S9-D-4 | assertNoForbiddenFields 逐键 toLowerCase 消除 | 便宜形态 U+212A fail-open；健全形态更慢 1.4–1.8µs/walk |
+| S9-F-1 | restore 对齐见证经私有通道 → assign O(1) 成员+唯一性双证明 | 等价但联合天花板 2.77–2.86 ms/实验；assign 站点三机制收口完成 |
+| S9-F-2 | recordOutcome assignments.some 末元素正向见证 | 等价无 fail-open，但 1.54–1.57 ms/实验；缺席证明仍属 S1-F-8 |
+| S9-F-3 | validateExperimentPlan 三站点共享 scratch Set | 等价但稳定负优化 0.96–1.86 ms；clear-reuse 反超新生代分配 |
