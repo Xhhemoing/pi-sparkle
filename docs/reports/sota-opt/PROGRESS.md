@@ -19,7 +19,7 @@
 | 2 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S2-C；其余区报告收口 |
 | 3 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S3-C；其余区报告收口 |
 | 4 | 第 4 波进行中 | 10（0 排队 / 8 完成 / 2 在跑） | claude-fable-5-thinking-xhigh | C 落地 S4-C；I/J 在跑。见 [round-04/PLAN.md](./round-04/PLAN.md) |
-| 5 | 第 1 波已派出 | 1 / 10（A 已派出；B–J 待 R4 空槽） | claude-fable-5-thinking-xhigh | [round-05/PLAN.md](./round-05/PLAN.md) |
+| 5 | 第 1 波进行中 | 2 / 10（A 完成；B 本波派出；C–J 待空槽） | claude-fable-5-thinking-xhigh | [round-05/PLAN.md](./round-05/PLAN.md) |
 
 ### Round 1 波次
 
@@ -61,7 +61,7 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R5-A 跟踪门控 | A 已派出（等 R4-I/J 空槽后续派 B/C） |
+| 1 | R5-A 跟踪门控、R5-B live 路由 | A 完成已合入；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -105,7 +105,8 @@
 | R4-F | `cursor/r4-f-experiments-fourth-pass-83a1` | 已合入专属分支（仅 `R4-F.md`） |
 | R4-G | `cursor/r4-g-runtime-fourth-pass-83a1` | 已合入专属分支（仅 `R4-G.md`） |
 | R4-H | `cursor/r4-h-eval-fourth-pass-83a1` | 已合入专属分支（仅 `R4-H.md`） |
-| R5-A | `cursor/r5-a-tracking-fifth-pass-83a1` | 已派出 |
+| R5-A | `cursor/r5-a-tracking-fifth-pass-83a1` | 已合入专属分支（仅 `R5-A.md`） |
+| R5-B | `cursor/r5-b-live-routing-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
