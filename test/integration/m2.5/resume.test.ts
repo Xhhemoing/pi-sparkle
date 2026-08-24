@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { createTaskId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
@@ -153,6 +155,74 @@ function deps(stateRoot: string) {
     now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
     generateId: sequenceGenerator()
   };
+}
+
+async function sourceModules(directory: string): Promise<string[]> {
+  const modules: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) modules.push(...(await sourceModules(path)));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) modules.push(path);
+  }
+  return modules.sort();
+}
+
+function enclosingFunction(node: ts.Node): ts.SignatureDeclaration | undefined {
+  for (let parent = node.parent; parent !== undefined; parent = parent.parent) {
+    if (ts.isFunctionLike(parent)) return parent;
+  }
+  return undefined;
+}
+
+function resolvePayloadInitializer(
+  parsed: ts.SourceFile,
+  call: ts.CallExpression,
+  payload: ts.Expression
+): ts.Expression {
+  if (!ts.isIdentifier(payload)) return payload;
+  const payloadName = payload.text;
+  const scope = enclosingFunction(call);
+  assert.ok(scope, "materializeCheckpoint flowchart payload is written inside a function");
+  const declarations: ts.VariableDeclaration[] = [];
+
+  function visit(node: ts.Node): void {
+    if (node !== scope && ts.isFunctionLike(node)) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === payloadName &&
+      node.initializer !== undefined &&
+      node.getStart(parsed) < call.getStart(parsed)
+    ) {
+      declarations.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(scope);
+  declarations.sort((left, right) => right.getStart(parsed) - left.getStart(parsed));
+  const initializer = declarations[0]?.initializer;
+  assert.ok(
+    initializer,
+    `flowchart payload ${payloadName} must have an inspectable local initializer`
+  );
+  return initializer;
+}
+
+function carriesContractProperty(payload: ts.Expression): boolean {
+  let carries = false;
+  function visit(node: ts.Node): void {
+    if (
+      (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+      ((ts.isIdentifier(node.name) && node.name.text === "contract") ||
+        (ts.isStringLiteralLike(node.name) && node.name.text === "contract"))
+    ) {
+      carries = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(payload);
+  return carries;
 }
 
 function routedCount(events: readonly { type: string }[]): number {
@@ -340,6 +410,42 @@ test("the flowchart checkpoint, its validator, its writer and both restorers car
     /acceptanceCriteria\??:/,
     "the reserved sibling field stays reserved, not implemented"
   );
+});
+
+test("every flowchart-payload writer carries contract", async () => {
+  const sourceRoot = fileURLToPath(new URL("../../../src/", import.meta.url));
+  const writers: Array<{ readonly location: string; readonly carriesContract: boolean }> = [];
+
+  for (const path of await sourceModules(sourceRoot)) {
+    const source = await readFile(path, "utf8");
+    const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    function visit(node: ts.Node): void {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "materializeCheckpoint" &&
+        node.arguments[2] !== undefined
+      ) {
+        const line = parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1;
+        const payload = resolvePayloadInitializer(parsed, node, node.arguments[2]);
+        writers.push({
+          location: `${relative(sourceRoot, path)}:${line}`,
+          carriesContract: carriesContractProperty(payload)
+        });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(parsed);
+  }
+
+  assert.ok(writers.length > 0, "the source census must find flowchart-payload writers");
+  for (const writer of writers) {
+    assert.equal(
+      writer.carriesContract,
+      true,
+      `${writer.location}: every flowchart-payload writer carries contract`
+    );
+  }
 });
 
 test("episode binding still retains acceptance criteria, and never the run contract", async () => {
