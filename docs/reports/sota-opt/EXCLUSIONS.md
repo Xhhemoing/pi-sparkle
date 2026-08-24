@@ -341,6 +341,11 @@
 | S5-F-1 | dataset/simulation-holdout 探针去重镜像 | test-only 链；U=2000 仅 15µs |
 | S5-F-2 | assertUniqueNonEmpty 换 new Set(values).size | 无法命名重复项 + first-fault 重排 |
 | S5-F-3 | S5-F 赢家的索引循环形式 | 1.6–3.1ms 形式抖动 |
-| S5-H-1 | detectConflicts 分配前守卫 | 121–132ns；冲突侧负优化 |
+| S5-G-1 | CheckpointStore/pause 每写 mkdir 提升 | 外部清理后自愈 vs ENOENT；1.8ms |
+| S5-G-2 | TRACKING_ASSESSMENT 读侧复验按事件 id memoize | 篡改字节静默接受；7.3–7.5ms |
+| S5-G-3 | ReconstructedRun 暴露 unmatchedPause | ≤3.7µs；需拓宽公开类型 |
+| S5-G-4 | 跨 store 相邻追加 Promise.all | parent⟹child 崩溃前缀违例 |
+| S5-G-5 | AGENT_EVENT 攒批合并落盘 | 逐消息持久性 + 实时可见性 |
+| S5-G-6 | edgeStatus→conditionHolds 双 getRuntime 合一 | 4.7–6.3ns/边 |
 | S5-H-2 | 切片生产子树惰性 import | 2.2–2.4ms once-per-process CLI 噪声 |
 | S5-H-3 | hashArtifact 免拼接增量 hash32 折叠 | 零生产调用方；需复制集中化哈希 |
