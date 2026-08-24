@@ -198,3 +198,9 @@
 | S2-H-5 | selectHighestPrecedence 折叠权重携带 | 9–13ns，test-only |
 | S2-H-6 | registerRubric 外层冗余 spread 移除 | 7–20ns，test-only |
 | S2-H-7 | normalizeSources 默认 origin 守卫跳过 | 防御纵深保留 |
+| S2-I-1 | 普通 run 死载荷 loadLearnedRouting 下沉 children 分支 | 损坏 registry 时错误路径发散 |
+| S2-I-2 | pause/inject 换未校准/惰性 router | inject 真实消费 router；亚感知 |
+| S2-I-3 | buildInvocation toolNames/后缀提升 | 实测慢 2.2–2.7× |
+| S2-I-4 | resume/answer/inspect CLI 预读去重 | 需改 run 公开签名 |
+| S2-I-5 | doctor 检查 Promise.all 并行 | 53–75µs |
+| S2-I-6 | parseProvidersConfig 双遍融合 | 错误选择发散 |
