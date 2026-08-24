@@ -344,7 +344,15 @@ M1 adds child lifecycle and message events. M2 adds graph, lease, supervisor, re
 
 ### Checkpoints
 
-`checkpoint.json` is an atomically replaced materialized view. It contains the run, task statuses, active leases, most recent ledger revision, and last durable event ID. Resume reconstructs state from the checkpoint then replays later valid events. Event replay is the source of truth; the checkpoint is an optimization.
+`checkpoint.json` is an atomically replaced materialized view. Its base fields
+carry the run and project snapshots when present, overall status, agent
+outcomes, the last durable event ID, and update time. A flowchart checkpoint
+also carries the flowchart definition, validated supervisor snapshot (including
+node statuses and its ledger), and limits required for flowchart resume. It
+does **not** contain the M2 DAG supervisor's active leases. Supervised DAG
+resume reconstructs its graph, task statuses, attempts, ledger, and leases from
+the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
+task is recovered as orphaned because no worker survives process restart.
 
 ### Evidence and artifacts
 

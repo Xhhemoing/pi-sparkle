@@ -85,12 +85,12 @@ delete as success), and — when rows were dropped — **invalidates the derived
 the class's recovery is "rebuild from invocations.jsonl" and readers treat a
 missing file as "no observations").
 
-`pi-sparkle delete --episode <id>` removes both episode file shapes plus the
-operational `<id>.lock`, **and cascades into the adaptation plane**: every
-feedback record bound to that episode has **both free-text fields (`body` and
-`summary`) physically stripped from disk** and its id persisted to
-`adaptation/feedback/tombstones.json` (the record's audit shell — including
-its persisted `redactionClasses` — is kept). `readFeedback` filters
+`pi-sparkle delete --episode <id>` removes both episode file shapes while
+holding the operational `<id>.lock`, **and cascades into the adaptation
+plane**: every feedback record bound to that episode has **both free-text
+fields (`body` and `summary`) physically stripped from disk** and its id
+persisted to `adaptation/feedback/tombstones.json` (the record's audit shell —
+including its persisted `redactionClasses` — is kept). `readFeedback` filters
 tombstoned ids at the first layer, so a lingering shell is never re-surfaced
 **through that API**, and dataset exports keep listing tombstone ids without
 payloads. The episode delete also **discloses residual copies it is leaving
@@ -105,7 +105,10 @@ names the episode, so the log cannot be declared clean). Run event logs are
 append-only evidence and are deliberately **not rewritten**; a repeat delete
 of an already-deleted episode still re-discloses the copies. The CLI fails
 closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
-found") exits 1 rather than reporting success.
+found") exits 1 rather than reporting success. The delete does not unlink or
+report the lock as an episode record; normal owned lock release removes the
+sidecar. An abandoned lock is not stolen, so acquisition times out and the
+episode files remain for manual lock cleanup and a retry.
 
 ### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 2 Round 1)
 
@@ -150,7 +153,8 @@ these are covered by the claims above:
 Closed in Round 2 (2026-08-24, verified on-disk against a scratch state root):
 the cascade previously stripped only `body` and left derived user text in
 `summary`; `delete --run` previously never touched `invocations.jsonl` or
-`catalog-observed.json`; the episode `.lock` previously survived deletion; and
+`catalog-observed.json`; episode record unlinking moved inside the cooperative
+`<id>.lock` (the delete no longer hand-unlinks or reports that sidecar); and
 `record-classes.ts` previously declared an unimplemented `run-event → episode`
 propagation (now reconciled — `deletionPropagatesTo` is a behavioral claim).
 
