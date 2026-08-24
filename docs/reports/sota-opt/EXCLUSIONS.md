@@ -341,3 +341,6 @@
 | S5-F-1 | dataset/simulation-holdout 探针去重镜像 | test-only 链；U=2000 仅 15µs |
 | S5-F-2 | assertUniqueNonEmpty 换 new Set(values).size | 无法命名重复项 + first-fault 重排 |
 | S5-F-3 | S5-F 赢家的索引循环形式 | 1.6–3.1ms 形式抖动 |
+| S5-H-1 | detectConflicts 分配前守卫 | 121–132ns；冲突侧负优化 |
+| S5-H-2 | 切片生产子树惰性 import | 2.2–2.4ms once-per-process CLI 噪声 |
+| S5-H-3 | hashArtifact 免拼接增量 hash32 折叠 | 零生产调用方；需复制集中化哈希 |
