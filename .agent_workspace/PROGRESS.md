@@ -190,6 +190,8 @@ Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (AD
 | R8-9 | bc-fa848108-24c4-5b92-8430-a0dc6683f100 | delete unused `loadProjectBandit` |
 | R8-10 | bc-6d55b575-e843-5581-bac0-6370415d16ac | re-seed bound-episode pre-rounds settle |
 
+Landed (pre-gate): R8-1 `RUN_UNBLOCKED` + locked `unblock` + honesty repair on BLOCKED `next:`; R8-2 contract-absence pins (schema deferred); R8-3 flowchart `applyRetry` absence pin; R8-4 option-(a) design (no live verdict producer); R8-5 Round 7 docs (ADR-006 Proposed); R8-6 catalog posture (b) + bandit `adapt auto` pin; R8-7 WAITING_FOR_USER crash / cancel-request decisions; R8-8 `INSPECT_SUMMARY` frozen-additive; R8-9 deleted `loadProjectBandit`; R8-10 bound-episode pre-rounds settle reseed.
+
 ---
 
 # Loop 2 — SOTA follow-on (2026-08-24)
