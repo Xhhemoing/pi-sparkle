@@ -249,3 +249,7 @@
 | S3-G-3 | handleExecutionEvent 增量终结计数 | ~0.35µs/尝试 |
 | S3-G-4 | finish() 跳过末次 persistCheckpoint | 把 RUNNING 陈旧态当终态落盘 |
 | S3-G-5 | isId 前缀模块级提升 | ~33ns/查；外推仅 ~13ms/run |
+| S3-H-1 | 生产链双 validateRequirementContract 去重 | 134–185ns；删防御纵深 |
+| S3-H-2 | critiqueContract 去中间数组保双 some 早退 | 真实 C=2 仅 ~100ns/run |
+| S3-H-3 | q-tests 补问子集正则短路 | 34–45ns |
+| S3-H-4 | changeSetsEqual 引用相等快路径 | ≤85ns；零生产流量 |
