@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 export interface PiPinnedVersions {
   readonly agentCore: string;
@@ -26,25 +26,6 @@ export interface PiCompatReport {
 }
 
 type ComparableStatus = "current" | "behind" | "ahead";
-
-interface AdapterInspection {
-  readonly probe: PiCompatAdapterProbe;
-  readonly assumedNestedSkillDiscovery: boolean;
-}
-
-/**
- * The levels supported by the pi-sparkle adapter boundary. This local string
- * contract deliberately avoids importing Pi types across ADR-001.
- */
-const SPARKLE_THINKING_LEVELS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max"
-] as const;
 
 const VERSION_PATTERN =
   /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -89,11 +70,11 @@ export function comparePiVersions(pinned: string, latest: string): ComparableSta
 export function probeAdapterContract(input?: {
   readonly readAdapterSource?: () => string;
 }): PiCompatAdapterProbe {
-  if (input?.readAdapterSource !== undefined) {
-    const source = input.readAdapterSource();
-    return inspectAdapterSource(source, source).probe;
-  }
-  return inspectAdapterSource(readDefaultAdapterSource(), readDefaultNestedSkillEvidence()).probe;
+  const adapterSource =
+    input?.readAdapterSource === undefined
+      ? readDefaultAdapterSource()
+      : input.readAdapterSource();
+  return inspectAdapterSource(adapterSource);
 }
 
 export function buildPiCompatReport(input: {
@@ -101,6 +82,7 @@ export function buildPiCompatReport(input: {
   readonly offline: boolean;
   readonly latest?: PiPinnedVersions;
   readonly now?: string;
+  readonly readAdapterSource?: () => string;
 }): PiCompatReport {
   const findings: string[] = [];
 
@@ -117,11 +99,11 @@ export function buildPiCompatReport(input: {
     pinsComparable = validatePinnedVersions(pinned, findings);
   }
 
-  const adapterInspection = inspectAdapterForReport(findings);
-  if (adapterInspection.assumedNestedSkillDiscovery) {
-    findings.push("assumed nested skill discovery (Pi 0.84.3)");
+  const adapterProbe = inspectAdapterForReport(findings, input.readAdapterSource);
+  if (adapterProbe.thinkingLevels.length === 0) {
+    findings.push("BROKEN: adapter exposes no thinking levels");
   }
-  if (adapterInspection.probe.googleThinkingType === "legacy-GoogleThinkingLevel") {
+  if (adapterProbe.googleThinkingType === "legacy-GoogleThinkingLevel") {
     findings.push("BROKEN: adapter references legacy GoogleThinkingLevel");
   }
 
@@ -141,7 +123,7 @@ export function buildPiCompatReport(input: {
     offline: input.offline,
     pinned,
     ...(input.latest !== undefined ? { latest: input.latest } : {}),
-    adapter: adapterInspection.probe,
+    adapter: adapterProbe,
     status,
     findings
   };
@@ -196,88 +178,74 @@ function comparePackage(
   }
 }
 
-function inspectAdapterForReport(findings: string[]): AdapterInspection {
+function inspectAdapterForReport(
+  findings: string[],
+  readAdapterSource: (() => string) | undefined
+): PiCompatAdapterProbe {
   try {
-    return inspectAdapterSource(readDefaultAdapterSource(), readDefaultNestedSkillEvidence());
+    return readAdapterSource === undefined
+      ? probeAdapterContract()
+      : probeAdapterContract({ readAdapterSource });
   } catch (error: unknown) {
     findings.push(`BROKEN: unable to read Pi adapter sources: ${errorText(error)}`);
     return {
-      probe: {
-        thinkingLevels: [...SPARKLE_THINKING_LEVELS],
-        googleThinkingType: "absent",
-        nestedSkillDiscovery: true,
-        agentsMdNotBrokenSkill: true
-      },
-      assumedNestedSkillDiscovery: true
+      thinkingLevels: [],
+      googleThinkingType: "absent",
+      nestedSkillDiscovery: true,
+      agentsMdNotBrokenSkill: true
     };
   }
 }
 
-function inspectAdapterSource(adapterSource: string, nestedSkillEvidence: string): AdapterInspection {
+function inspectAdapterSource(adapterSource: string): PiCompatAdapterProbe {
   const hasLegacyGoogleThinkingType = /\bGoogleThinkingLevel\b/.test(adapterSource);
   const hasApiGoogleThinkingType = /\bGoogleApiThinkingLevel\b/.test(adapterSource);
-  const hasNestedSkillEvidence =
-    /\bnested\b[\s\S]{0,100}\b(?:skill|group(?:ing|ed|s)?)\b/i.test(nestedSkillEvidence) ||
-    /\b(?:skill|group(?:ing|ed|s)?)\b[\s\S]{0,100}\bnested\b/i.test(nestedSkillEvidence);
 
   return {
-    probe: {
-      thinkingLevels: [...SPARKLE_THINKING_LEVELS],
-      googleThinkingType: hasLegacyGoogleThinkingType
-        ? "legacy-GoogleThinkingLevel"
-        : hasApiGoogleThinkingType
-          ? "GoogleApiThinkingLevel"
-          : "absent",
-      nestedSkillDiscovery: true,
-      agentsMdNotBrokenSkill: true
-    },
-    assumedNestedSkillDiscovery: !hasNestedSkillEvidence
+    thinkingLevels: readSparkleThinkingLevels(adapterSource),
+    googleThinkingType: hasLegacyGoogleThinkingType
+      ? "legacy-GoogleThinkingLevel"
+      : hasApiGoogleThinkingType
+        ? "GoogleApiThinkingLevel"
+        : "absent",
+    nestedSkillDiscovery: true,
+    agentsMdNotBrokenSkill: true
   };
 }
 
 function readDefaultAdapterSource(): string {
-  const requiredSources: ReadonlyArray<{
-    readonly label: string;
-    readonly candidates: readonly URL[];
-  }> = [
-    {
-      label: "pi-executor",
-      candidates: [
-        new URL("../pi-adapter/pi-executor.ts", import.meta.url),
-        new URL("../pi-adapter/pi-executor.js", import.meta.url)
-      ]
-    },
-    {
-      label: "runtime",
-      candidates: [
-        new URL("../pi-adapter/runtime.ts", import.meta.url),
-        new URL("../pi-adapter/runtime.js", import.meta.url)
-      ]
+  const adapterDirectory = new URL("../pi-adapter/", import.meta.url);
+  const sourceNames = readdirSync(adapterDirectory, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        (entry.name.endsWith(".ts") || entry.name.endsWith(".js"))
+    )
+    .map((entry) => entry.name)
+    .sort();
+  if (sourceNames.length === 0) {
+    throw new Error(`No Pi adapter sources were found relative to ${import.meta.url}`);
+  }
+  return sourceNames
+    .map((sourceName) => readFileSync(new URL(sourceName, adapterDirectory), "utf8"))
+    .join("\n");
+}
+
+function readSparkleThinkingLevels(adapterSource: string): string[] {
+  const levels: string[] = [];
+  const aliases = adapterSource.matchAll(
+    /\btype\s+SparkleThinkingLevel\s*=\s*([\s\S]*?);/g
+  );
+  for (const alias of aliases) {
+    const union = alias[1];
+    if (union === undefined) continue;
+    for (const member of union.split("|")) {
+      const literal = /^\s*["']([^"']+)["']\s*$/.exec(member);
+      const level = literal?.[1];
+      if (level !== undefined && !levels.includes(level)) levels.push(level);
     }
-  ];
-  return requiredSources.map(({ candidates, label }) =>
-    readFirstExistingSource(candidates, label)
-  ).join("\n");
-}
-
-function readDefaultNestedSkillEvidence(): string {
-  const optionalEvidenceSources = [
-    new URL("../../.agents/skills/pi-sparkle/SKILL.md", import.meta.url),
-    new URL("../../docs/how-to-adapt-to-pi.md", import.meta.url)
-  ];
-  const sourceParts: string[] = [];
-  for (const path of optionalEvidenceSources) {
-    if (existsSync(path)) sourceParts.push(readFileSync(path, "utf8"));
   }
-  return sourceParts.join("\n");
-}
-
-function readFirstExistingSource(paths: readonly URL[], label: string): string {
-  const path = paths.find((candidate) => existsSync(candidate));
-  if (path === undefined) {
-    throw new Error(`Pi adapter source ${label} was not found relative to ${import.meta.url}`);
-  }
-  return readFileSync(path, "utf8");
+  return levels;
 }
 
 function parseVersion(version: string): readonly [bigint, bigint, bigint] {

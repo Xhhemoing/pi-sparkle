@@ -87,22 +87,43 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 
 Latest published Pi as of this date is **0.84.3**. Do not trust prose for the
 live pin — read `package.json` (`@earendil-works/pi-agent-core` /
-`@earendil-works/pi-ai`) or run `pi-sparkle pi-compat --offline`. Behavior
-changes in 0.84.3 that matter to this overlay:
+`@earendil-works/pi-ai`) or run the shipped commands:
+
+- `pi-sparkle pi-compat [--json]` — offline by default (pins + adapter
+  source probe). `--online` also reads npm dist-tags and fails closed: an
+  unreachable registry means status `unknown`, exit 0. Exit 1 is reserved
+  for a broken adapter contract (legacy `GoogleThinkingLevel`, no thinking
+  levels, unreadable pin) and is blocking.
+- `pi-sparkle doctor` — its `pi-packages` check prints both pins and its
+  `pi-compat` check embeds the offline report. A FAIL on either is blocking,
+  same as pi-compat exit 1.
+- `node scripts/pi-latest-check.mjs` — pins vs npm dist-tags for agent-core,
+  ai, and `pi-coding-agent`; `--offline` prints pins only, `--strict` turns
+  behind/unknown into exit 1 for automation.
+
+Behavior changes in 0.84.3 that matter to this overlay:
 
 - **Nested skill discovery:** Markdown skills inside `.agents/skills/`
   grouping directories are now discovered. Our flat layout
   (`.agents/skills/pi-sparkle/SKILL.md`) is unchanged and still discovered.
-  Do not split this overlay into nested sub-skills — that is skill bloat,
-  not adaptation.
+  Do not split this overlay into nested sub-skills, and never park a
+  demo/fixture skill under `.agents/skills/` to "prove" discovery — both
+  read as skill bloat, not adaptation. The discovery proof belongs in test
+  data: `test/fixtures/pi-0843-skills/` (a grouping dir with a nested
+  `SKILL.md` plus root `README.md` / `AGENTS.md` without frontmatter).
 - **Root Markdown no longer "broken skills":** `README.md` / `AGENTS.md` at
   the root of a skill directory are no longer reported as broken skills
   unless they declare skill frontmatter. Any audit finding on Pi ≥ 0.84.3
   that flags such files as broken is stale — re-probe before reporting it.
-- **Thinking level:** the Pi TUI now has a `/thinking` selector
-  (session-scoped; Ctrl+S saves it). This package's runtime is configured via
-  `PI_THINKING_LEVEL`. They are separate knobs; do not report one as drift of
-  the other.
+- **Thinking level — three knobs, never conflated:**
+  1. Pi TUI `/thinking` — session-scoped selector; Ctrl+S saves it. Owned by
+     the Pi TUI, invisible to this package's runtime.
+  2. `PI_THINKING_LEVEL` — this package's runtime env var
+     (off|minimal|low|medium|high|xhigh|max; default off).
+  3. `run --thinking <level>` — planned CLI flag with precedence over the
+     env var. It does NOT exist until the `pi-sparkle help` USAGE lists it;
+     verify there before citing the flag in any finding.
+  Do not report one knob as drift of another.
 - **Still no extension:** ADR-006 remains Proposed. `/sparkle` stays a prompt
   template; this overlay registers no extension commands or session
   listeners, so 0.84.3 extension-event additions (e.g.

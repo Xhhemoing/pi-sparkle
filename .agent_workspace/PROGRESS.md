@@ -157,6 +157,25 @@ Brief: `.agent_workspace/ROUND1-BRIEF.md` (inject into every R2 agent).
 | R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**` (nested + AGENTS.md fixtures), fixture tests, script edge cases under `scripts/`, `.agent_workspace/round2-gpt-a.md` | `src/cli/main.ts`, `package.json` |
 | R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/check.ts` (derive names from dep keys if still hardcoded; keep probe adapter-only), `test/unit/pi-compat/**`, `.agent_workspace/round2-gpt-b.md` | `src/cli/main.ts`, `src/pi-adapter/` |
 
+### Round 2 — complete (2026-08-24)
+
+All 6 returned (`claude-fable-5-thinking-xhigh` ×2, `claude-opus-5-thinking-high-fast` ×2, `gpt-5.6-sol-xhigh-fast` ×2).
+
+Shipped: `run --thinking`, pi-compat CLI tests + npm aliases, adapter-only library probe, nested-skill fixtures, docs alignment. Overlay still labels `--thinking` as planned (Round 3 fix). SOTA remainder: README thinking line, Google clamp mirror test, `pnpm gate`, status-matrix row.
+
+Brief for Round 3: `.agent_workspace/ROUND2-BRIEF.md`.
+
+### Round 3 — in progress (SOTA polish + final acceptance)
+
+| Agent | Model slug | Owns (write) | Must not touch |
+|---|---|---|---|
+| R3-fable-A | `claude-fable-5-thinking-xhigh` | `docs/**` (status-matrix, how-to leftover, SOTA gap close), `.agent_workspace/round3-fable-a.md` | `src/`, skills |
+| R3-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**`, `prompts/sparkle.md`, `README.md` (thinking + probe rows only), `.agent_workspace/round3-fable-b.md` | `src/` |
+| R3-opus-A | `claude-opus-5-thinking-high-fast` | thinking-mirror / clamp tests under `test/unit/`, USAGE one-liners in `src/cli/main.ts` only if tests require, `.agent_workspace/round3-opus-a.md` | `src/pi-compat/`, skills |
+| R3-opus-B | `claude-opus-5-thinking-high-fast` | `pnpm gate` failures in CLI tests / lint; optional `prerelease` including `pi:probe`; `.agent_workspace/round3-opus-b.md` | `src/pi-adapter/` |
+| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | `test/fixtures/pi-0843-skills/**`, discovery tests, probe script edges, `.agent_workspace/round3-gpt-a.md` | `src/cli/main.ts` |
+| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `src/pi-compat/**` + its tests; prove docs spelling `GoogleThinkingLevel` does not fail doctor, `.agent_workspace/round3-gpt-b.md` | `src/cli/main.ts` |
+
 Do not git commit. Parent commits after the round.
 
-### Round 3 — pending
+### Round 3 leftover tracker — pending reports

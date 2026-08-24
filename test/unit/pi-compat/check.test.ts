@@ -8,6 +8,14 @@ import {
 } from "../../../src/pi-compat/index.js";
 
 const NOW = "2026-08-24T14:00:00.000Z";
+const THINKING_LEVEL_TYPE = `export type SparkleThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";`;
 
 function packageJson(agentCore = "0.84.1", ai = "0.84.1"): unknown {
   return {
@@ -101,7 +109,7 @@ describe("Pi compatibility checks", () => {
   it("detects the legacy GoogleThinkingLevel without importing Pi", () => {
     const probe = probeAdapterContract({
       readAdapterSource: () =>
-        "import type { GoogleThinkingLevel, GoogleApiThinkingLevel } from 'pi';\nNested skill grouping is supported."
+        `import type { GoogleThinkingLevel, GoogleApiThinkingLevel } from "pi";\n${THINKING_LEVEL_TYPE}`
     });
     assert.equal(probe.googleThinkingType, "legacy-GoogleThinkingLevel");
     assert.deepEqual(probe.thinkingLevels, [
@@ -122,6 +130,45 @@ describe("Pi compatibility checks", () => {
       readAdapterSource: () => "type Level = GoogleApiThinkingLevel;"
     });
     assert.equal(probe.googleThinkingType, "GoogleApiThinkingLevel");
+  });
+
+  it("probes adapter source only and ignores a fake documentation legacy identifier", () => {
+    const sources = {
+      adapter: `type Level = GoogleApiThinkingLevel;\n${THINKING_LEVEL_TYPE}`,
+      documentation: "Migration note: GoogleThinkingLevel was the legacy name."
+    };
+    assert.match(sources.documentation, /\bGoogleThinkingLevel\b/);
+
+    const probe = probeAdapterContract({
+      readAdapterSource: () => sources.adapter
+    });
+    assert.equal(probe.googleThinkingType, "GoogleApiThinkingLevel");
+  });
+
+  it("marks an adapter with empty thinking levels as broken", () => {
+    const report = buildPiCompatReport({
+      packageJson: packageJson(),
+      offline: true,
+      now: NOW,
+      readAdapterSource: () => "export type SparkleThinkingLevel = never;"
+    });
+    assert.deepEqual(report.adapter.thinkingLevels, []);
+    assert.ok(report.findings.includes("BROKEN: adapter exposes no thinking levels"));
+  });
+
+  it("turns a missing adapter reader into a broken finding", () => {
+    const report = buildPiCompatReport({
+      packageJson: packageJson(),
+      offline: true,
+      now: NOW,
+      readAdapterSource: () => {
+        throw new Error("adapter fixture is missing");
+      }
+    });
+    assert.match(
+      report.findings.join("\n"),
+      /^BROKEN: unable to read Pi adapter sources: adapter fixture is missing$/m
+    );
   });
 
   it("returns a JSON-serializable report with exact optional fields", () => {

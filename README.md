@@ -145,6 +145,9 @@ pnpm cli run \
 | `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` still collects) |
 | `pnpm cli doctor [--project <path>]` | Developer-preview preflight (Node, pnpm, state-root, providers, plus `pi-packages` / `pi-compat`). Not a production capability |
 | `pnpm cli pi-compat [--json] [--offline]` | Offline-first report of the pinned Pi packages against the adapter contract; `--online` adds npm dist-tags and fails closed. Exit 1 only on a broken adapter contract |
+| `pnpm pi-compat [--json] [--online]` | Shorthand for `pnpm cli pi-compat` |
+| `pnpm pi:latest [--json] [--offline] [--strict]` | Compare the pinned Pi packages against the npm `latest` dist-tags |
+| `pnpm pi:probe` | Probe `src/pi-adapter` for the ADR-001 boundary and the legacy `GoogleThinkingLevel` symbol |
 | `pnpm test` | Run the full test suite |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
 

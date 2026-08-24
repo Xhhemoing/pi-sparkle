@@ -65,6 +65,25 @@ test("doctor fails closed when a declared Pi profile is missing from --agents-di
   }
 });
 
+test("doctor reports the pinned Pi packages and the offline compat status", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-pi-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-pi-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const { io, out, err } = capture();
+    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    assert.equal(code, 0, err.join(""));
+    const text = out.join("");
+    assert.match(text, /ok {2}pi-packages: agent-core=\d+\.\d+\.\d+ ai=\d+\.\d+\.\d+/);
+    assert.match(text, /ok {2}pi-compat: status=(?:current|behind|ahead|unknown)/);
+    assert.doesNotMatch(text, /FAIL {2}pi-(?:packages|compat):/);
+    assert.deepEqual(err, []);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("doctor fails closed when --project has no package.json", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-miss-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-empty-"));

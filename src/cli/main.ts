@@ -85,7 +85,34 @@ const defaultIo: CliIo = {
   stderr: (text) => process.stderr.write(text)
 };
 
+// Mirrors SparkleThinkingLevel on the adapter boundary (assignability is
+// checked where the level is passed to createConfiguredPiExecutor). Google
+// models silently clamp "xhigh"/"max" down; that is provider behaviour, not
+// something this CLI rewrites.
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+type CliThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+function isThinkingLevel(value: string): value is CliThinkingLevel {
+  return (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+/**
+ * Resolves the thinking level for one run: --thinking wins over
+ * PI_THINKING_LEVEL, which wins over "off". Per-run only — Pi's TUI /thinking
+ * selector is session-scoped and persisted there, and this flag never writes it.
+ */
+export function resolveThinkingLevel(
+  flag: string | undefined,
+  env: string | undefined = process.env.PI_THINKING_LEVEL
+): CliThinkingLevel {
+  const requested = flag ?? env ?? "off";
+  if (!isThinkingLevel(requested)) {
+    const source = flag !== undefined ? "--thinking" : "PI_THINKING_LEVEL";
+    throw new DomainValidationError(`${source} must be one of ${THINKING_LEVELS.join(", ")}`);
+  }
+  return requested;
+}
 
 /** Fake executor that speaks protocol v1: emits a terminal TASK_RESULT. */
 class ChildFakeExecutor implements AgentExecutor {
@@ -128,7 +155,9 @@ async function createExecutor(
   stateRoot: string,
   hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void },
   /** Explicit --primary-model wins over ambient env vars and providers.json. */
-  modelOverride?: { readonly providerId: string; readonly modelId: string }
+  modelOverride?: { readonly providerId: string; readonly modelId: string },
+  /** Already-resolved --thinking level; falls back to PI_THINKING_LEVEL here. */
+  thinkingLevel?: CliThinkingLevel
 ): Promise<AgentExecutor> {
   if (kind === "fake") {
     return new FakeExecutor([
@@ -154,10 +183,7 @@ async function createExecutor(
         "--executor pi requires an enabled primary model (pi-sparkle models set-default) or PI_PROVIDER and PI_MODEL"
       );
     }
-    const requestedLevel = process.env.PI_THINKING_LEVEL ?? "off";
-    if (!(THINKING_LEVELS as readonly string[]).includes(requestedLevel)) {
-      throw new DomainValidationError(`PI_THINKING_LEVEL must be one of ${THINKING_LEVELS.join(", ")}`);
-    }
+    const requestedLevel = thinkingLevel ?? resolveThinkingLevel(undefined);
     const fast = config.fast !== undefined ? parseModelRef(config.fast) : undefined;
     const envRef = envProvider !== undefined && envModel !== undefined
       ? { providerId: envProvider, modelId: envModel }
@@ -169,7 +195,7 @@ async function createExecutor(
       stateRoot,
       providerId,
       modelId,
-      thinkingLevel: requestedLevel as (typeof THINKING_LEVELS)[number],
+      thinkingLevel: requestedLevel,
       customProviders: config.customProviders,
       ...(process.env.PI_API_KEY !== undefined ? { apiKey: process.env.PI_API_KEY } : {}),
       ...(cheapAlias !== undefined || premiumAlias !== undefined
@@ -208,9 +234,9 @@ Usage:
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
-  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
-  pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
-  pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--state-root <dir>]
+  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
+  pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
+  pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -241,7 +267,11 @@ set-default (and/or PI_PROVIDER/PI_MODEL). doctor is a developer-preview
 preflight (Node, pnpm, state-root, providers, Pi dispatch contract); it is not a production
 capability until this output contract is frozen. Per-provider env keys (OPENAI_API_KEY, ...) and
 pi-sparkle auth login replace a single PI_API_KEY; PI_API_KEY remains a
-compatibility override for the default provider only. --children runs the
+compatibility override for the default provider only. --thinking
+<off|minimal|low|medium|high|xhigh|max> sets the reasoning effort for this run
+only and wins over PI_THINKING_LEVEL (default off); it is the headless
+counterpart of Pi's session-scoped /thinking TUI selector and never persists.
+Google models silently clamp xhigh/max. --children runs the
 parent as a coordinator over the child tasks in
 the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 --track clarifies the objective (using recorded habits), sends it through a
@@ -535,7 +565,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       "assume-defaults": { type: "boolean", default: false },
       answers: { type: "string" },
       "public-prior": { type: "string" },
-      "require-public-prior": { type: "boolean", default: false }
+      "require-public-prior": { type: "boolean", default: false },
+      thinking: { type: "string" }
     }
   });
   const projectRoot = values.project;
@@ -572,6 +603,15 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --flowchart <file.json> with --results"
     });
   }
+  if (values.thinking !== undefined && !isThinkingLevel(values.thinking)) {
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message: `--thinking must be one of ${THINKING_LEVELS.join(", ")}`,
+      next: `pass --thinking ${THINKING_LEVELS.join("|")}`
+    });
+  }
+  const thinkingLevel = resolveThinkingLevel(values.thinking);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.flowchart !== undefined) {
     const liveCatalog = await buildLiveCatalogConfig(stateRoot);
@@ -583,7 +623,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       values.results !== undefined ? await parseChildNodeResultsFile(values.results) : undefined;
     const executor =
       values.executor !== undefined
-        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot)
+        ? await createExecutor(
+            flowchartExecutorKind(values.executor),
+            stateRoot,
+            undefined,
+            undefined,
+            thinkingLevel
+          )
         : undefined;
     const outcome = await startFlowchartRun(
       {
@@ -628,7 +674,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         void appendFile(join(runtimeRoot(stateRoot), "invocations.jsonl"), `${JSON.stringify(invocation)}\n`);
       }
     },
-    flaggedPrimary
+    flaggedPrimary,
+    thinkingLevel
   );
   bindPreferenceStore(stateRoot);
   const envCatalogId =

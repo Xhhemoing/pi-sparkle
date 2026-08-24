@@ -1,8 +1,9 @@
 # How to adapt pi-sparkle to a new Pi release
 
 A repeatable operator playbook for every Pi version bump. Run it whenever
-`pi-sparkle pi-compat --online`, `scripts/pi-latest-check.mjs`, or a Pi
-release announcement reports the pins behind latest.
+`pi-sparkle pi-compat --online`, `pnpm pi:latest`
+(`scripts/pi-latest-check.mjs`), or a Pi release announcement reports the
+pins behind latest.
 
 Policy anchors (do not re-litigate them per bump):
 
@@ -45,10 +46,23 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
   (with `assistantMessageEvent.type === "text_delta"`),
   `tool_execution_start`, `tool_execution_end`, `turn_end` (usage on the
   assistant message).
-- `ThinkingLevel` union. The CLI mirrors it as a local string list
-  (`THINKING_LEVELS` in `src/cli/main.ts`) and `src/pi-compat/check.ts`
-  mirrors it as `SPARKLE_THINKING_LEVELS`. If Pi adds or removes a level,
-  both mirrors must be updated in the same PR as the pin.
+- `ThinkingLevel` union — the **agent-core** one, which is what the adapter
+  imports. The CLI mirrors it as a local string list (`THINKING_LEVELS` in
+  `src/cli/main.ts`, backing `run --thinking` and `PI_THINKING_LEVEL`) and
+  `src/pi-compat/check.ts` mirrors it as `SPARKLE_THINKING_LEVELS`. If Pi
+  adds or removes a level, both mirrors must be updated in the same PR as
+  the pin. Two watch items as of 0.84.3:
+  - pi-ai narrowed its own `ThinkingLevel` to exclude `"off"` and moved
+    `"off"` into `ModelThinkingLevel = "off" | ThinkingLevel`
+    (`pi-ai/dist/types.d.ts`); agent-core's union still includes `"off"`
+    (`pi-agent-core/dist/types.d.ts`). If a future agent-core aligns with
+    pi-ai, the CLI default level `"off"` breaks — check this union first at
+    every bump.
+  - Google APIs silently clamp `xhigh`/`max` down: pi-ai's
+    `GoogleApiThinkingLevel` tops out at `HIGH`, and
+    `ResolvedGoogleThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max">`
+    (`pi-ai/dist/api/google-shared.d.ts`). The CLI forwards the requested
+    level unchanged; the clamp is provider behavior, not drift in this repo.
 - `MutableModels.streamSimple(model, context, options)` — the adapter spreads
   caller options through, so additive `SimpleStreamOptions` fields (for
   example `toolChoice`, added in 0.84.3) flow transparently.
@@ -96,7 +110,7 @@ and can still change runtime behavior (for example a new `AgentEvent` variant
 that `translatePiEvent` should translate instead of dropping).
 
 ```bash
-node scripts/pi-compat-probe.mjs   # pins present, no legacy Google import, ThinkingLevel from agent-core only
+pnpm pi:probe    # scripts/pi-compat-probe.mjs — pins present, no legacy Google import, ThinkingLevel from agent-core only
 pnpm typecheck
 ```
 
@@ -129,11 +143,17 @@ ADR-001 requires an exact reviewed pin. Commit `package.json` and
 ### 5. Refresh the compat surfaces
 
 ```bash
-pnpm cli pi-compat            # offline report; exit 1 only on adapter-contract breakage
-pnpm cli pi-compat --online   # adds npm dist-tags; fails closed to status=unknown offline
+pnpm cli pi-compat            # offline is the default; exit 1 only on adapter-contract breakage
+pnpm cli pi-compat --online   # opt-in npm dist-tags; fails closed to status=unknown when unreachable
+pnpm cli pi-compat --json     # machine-readable PiCompatReport (combines with --online)
 pnpm cli doctor               # pi-packages + pi-compat check lines must be ok
-node scripts/pi-latest-check.mjs
+pnpm pi:latest                # scripts/pi-latest-check.mjs
 ```
+
+`--offline` is accepted as an explicit form of the default; passing
+`--offline` and `--online` together is a parse-args error. `pnpm pi-compat`
+is a package-script shorthand for `pnpm cli pi-compat`. The doctor
+`pi-compat` check always uses the offline report, so it never needs network.
 
 Expected after a clean bump: `pinned` equals the new version,
 `google-thinking=absent`, all seven thinking levels listed
@@ -155,6 +175,13 @@ rules (Pi ≥ 0.84.3):
   supporting material, not a discoverable skill — `pi-sparkle/` is a skill
   directory because it holds `SKILL.md`.
 
+These rules are pinned as a regression fixture:
+`test/fixtures/pi-0843-skills/grouping/` holds a grouping directory with a
+plain `README.md`/`AGENTS.md` plus a nested `nested-skill/SKILL.md`, and
+`test/unit/pi-compat/skill-discovery-0843.test.ts` asserts the frontmatter
+shapes. When a release changes discovery rules, update the fixture together
+with the rule list above.
+
 If a release changes these rules: re-run `pi install <repo>` and `pi list`,
 confirm `/skill:pi-sparkle` and `/sparkle` still resolve, and update
 `.agents/skills/pi-sparkle/references/pi-version-adapt.md` plus the dated
@@ -165,7 +192,9 @@ discovery change never justifies touching `src/`.
 
 `test/unit/pi-boundary.test.ts` enforces this, and
 `docs/specs/m0-m2-architecture.md` states it: only `src/pi-adapter/` may
-import Pi packages. New Pi capabilities are absorbed by *extending the
+import Pi packages. The tripwire matches import/require *specifiers*
+(`from "…"`, `import("…")`, `require("…")`), not raw string mentions, so
+naming a Pi package as data does not trip it. New Pi capabilities are absorbed by *extending the
 adapter's pi-sparkle-owned interfaces* (`AgentExecutor`, `ExecutionEvent`,
 `SparkleListedModel`), never by importing Pi types into domain, CLI, or
 adaptation code. Modules like `src/pi-compat/` may mention the package
@@ -177,9 +206,10 @@ them.
 Deliberate non-goals. Revisit only with a new ADR, not during a routine bump:
 
 - **TUI features** (`/thinking` selector, Ctrl+S persistence, theming). This
-  runtime is headless; the equivalent knob is `PI_THINKING_LEVEL` (and a
-  possible future `--thinking` CLI flag). Do not report the TUI knob as drift
-  of ours or vice versa.
+  runtime is headless; the equivalent knob is `run --thinking <level>`
+  (wins over `PI_THINKING_LEVEL`; default `off`; per-run, never persisted),
+  whereas Pi's `/thinking` is session-scoped and persisted by the TUI. Do
+  not report the TUI knob as drift of ours or vice versa.
 - **PowerShell tool.** Windows/coding-agent surface. The fake executor and
   the adapter tool set stay platform-neutral; do not add a fake PowerShell.
 - **Inbound extension events** (`session_compact_failed` and friends).
@@ -193,19 +223,22 @@ Deliberate non-goals. Revisit only with a new ADR, not during a routine bump:
 ## Maintainer notes
 
 - `src/pi-compat/check.ts` reads **this file** (and
-  `.agents/skills/pi-sparkle/SKILL.md`) as prose evidence for its
-  nested-skill-discovery probe, and its report-body scan currently also greps
-  the combined text for the *legacy* Google thinking-level identifier — the
-  pre-0.84.3 export name without the `Api` infix. That identifier is
-  therefore deliberately never spelled contiguously in this document: naming
-  it verbatim would flip the printed `pi-compat` report to
-  `legacy-…` / `BROKEN` even though the exit code stays 0 (the exit-code
-  probe in `src/cli/pi-compat.ts` scans adapter sources only). If the
-  report-body scan is later narrowed the same way, this constraint can be
-  dropped.
+  `.agents/skills/pi-sparkle/SKILL.md`) only as prose evidence for its
+  nested-skill-discovery probe — keep the "nested … skills" wording in
+  step 6, or the report gains an "assumed nested skill discovery" finding.
+  The legacy-identifier probe (`GoogleThinkingLevel`, the pre-0.84.3 export
+  name) runs over adapter sources only (`src/pi-adapter/pi-executor.ts`,
+  `runtime.ts`) on both the exit-code path and the printed/JSON report, so
+  naming the legacy identifier in documentation — as this bullet just did —
+  no longer flips the report. The Round 1 constraint of never spelling it
+  contiguously in this document is retired; this bullet doubles as the
+  regression probe for that.
 - The thinking-level list appears in three places that must stay in sync:
-  agent-core's `ThinkingLevel`, `THINKING_LEVELS` in `src/cli/main.ts`, and
-  `SPARKLE_THINKING_LEVELS` in `src/pi-compat/check.ts`.
+  agent-core's `ThinkingLevel`, `THINKING_LEVELS` in `src/cli/main.ts`
+  (validates both `run --thinking` and `PI_THINKING_LEVEL`), and
+  `SPARKLE_THINKING_LEVELS` in `src/pi-compat/check.ts`. There is no
+  automated drift test yet, so checking the union is a manual part of
+  step 2 at every bump.
 - Version bumps are one commit (pin + lockfile), verification evidence goes
   in the PR description, and any newly absorbed capability is a separate
   commit with its own tests.
