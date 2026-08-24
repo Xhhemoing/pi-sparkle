@@ -47,7 +47,7 @@ import { exportAuthorizedPreferences } from "../preferences/export.js";
 import { getMaterializedView } from "../preferences/materialize.js";
 import type { PreferenceScope } from "../preferences/types.js";
 import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-catalog.js";
-import { createModelRouter } from "../supervisor/model-router.js";
+import { createModelRouter, type ModelRouterConfig } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
@@ -357,7 +357,12 @@ async function smartChildPlan(
   stateRoot: string,
   learned?: LearnedRoutingPolicy,
   prior?: PublicPriorSnapshot
-): Promise<{ children: ChildTaskInput[]; assignments: ReturnType<typeof assignTasks> }> {
+): Promise<{
+  children: ChildTaskInput[];
+  assignments: ReturnType<typeof assignTasks>;
+  /** The calibrated catalog the assignments were routed against; callers reuse it instead of rebuilding. */
+  catalog: ModelRouterConfig;
+}> {
   const catalog = await calibrateCatalogFromState(
     await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
     stateRoot
@@ -382,7 +387,7 @@ async function smartChildPlan(
       cascade: liveCascadePlanFromAssignment(assignment, catalog)
     };
   });
-  return { children: routed, assignments };
+  return { children: routed, assignments, catalog };
 }
 
 /** Hashed CLI load: fail-soft on DomainValidationError / missing file unless required. */
@@ -723,10 +728,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         );
       }
     }
-    const catalog = await calibrateCatalogFromState(
-      await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
-      stateRoot
-    );
+    // Reuse the calibrated catalog smartChildPlan already built with these
+    // exact arguments: assignments, cascade plans, and the router now share
+    // one snapshot instead of re-reading providers.json + invocations.jsonl.
+    const catalog = planned.catalog;
     const catalogIds = catalog.models.map((model) => model.id);
     const preferredFast = catalogIds.includes(fastModelId) ? fastModelId : catalogIds[0]!;
     const flowchart = compileChildrenToFlowchart(
