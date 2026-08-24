@@ -23,7 +23,7 @@
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
-| 9 | 第 2 波进行中 | 5 / 10（A/B 完成已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
+| 9 | 第 2–3 波进行中 | 7 / 10（A/B/C/D 完成已合入；E 运行中；F/G 本波派出） | claude-fable-5-thinking-xhigh | [round-09/PLAN.md](./round-09/PLAN.md) |
 
 ### Round 1 波次
 
@@ -101,8 +101,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R9-A 跟踪门控、R9-B live 路由、R9-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R9-D 自优化、R9-E 学习 | D 运行中；E 本波派出 |
+| 1 | R9-A 跟踪门控、R9-B live 路由、R9-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R9-D 自优化、R9-E 学习、R9-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
+| 3 | R9-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -191,9 +192,11 @@
 | R8-J | `cursor/r8-j-persist-eighth-pass-83a1` | 已合入专属分支（仅 `R8-J.md`）。S8-J-1..2 淘汰；删除级联配置态锚点 666–717µs |
 | R9-A | `cursor/r9-a-tracking-ninth-pass-83a1` | 已合入专属分支（仅 `R9-A.md`）。S9-A-1 淘汰；预算复核 60–76 µs/run |
 | R9-B | `cursor/r9-b-live-routing-ninth-pass-83a1` | 已合入专属分支（仅 `R9-B.md`）。S9-B-1..4 淘汰；天花板复核含配置态 M=7+learned |
-| R9-C | `cursor/r9-c-offline-routing-ninth-pass-83a1` | 已派出 |
-| R9-D | `cursor/r9-d-adaptation-ninth-pass-83a1` | 已派出 |
+| R9-C | `cursor/r9-c-offline-routing-ninth-pass-83a1` | 已合入专属分支（仅 `R9-C.md`）。S9-C-1..4 淘汰；r1c–r7c 回归门绿；贴带不越带 |
+| R9-D | `cursor/r9-d-adaptation-ninth-pass-83a1` | 已合入专属分支（仅 `R9-D.md`）。S9-D-1..4 淘汰；配置态 × 命令类矩阵闭合 |
 | R9-E | `cursor/r9-e-learning-ninth-pass-83a1` | 已派出 |
+| R9-F | `cursor/r9-f-experiments-ninth-pass-83a1` | 已派出 |
+| R9-G | `cursor/r9-g-runtime-ninth-pass-83a1` | 已派出 |
 
 ## 合并策略
 

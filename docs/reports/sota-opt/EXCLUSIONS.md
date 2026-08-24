@@ -496,3 +496,11 @@
 | S9-B-2 | validateInput per-id trim 可打印 ASCII 首字符卫 | 等价但 3–22ns/route；S7-F-2 / S8-F-2 镜像 |
 | S9-B-3 | assignPlanned 三字段全 undefined 时共享冻结空 AnalyzeTaskOptions | 身份不可观察但三口径九次符号翻转＝抖动 |
 | S9-B-4 | route() unknown-model 预扫描下沉进 partitionLiveCandidates | 错误类优先级发散；修正版自败 |
+| S9-C-1 | bootstrap 重拟合 worker_threads 并行化 | 契约级不可行：公开同步签名（X0-4）、模块级隐藏状态（X1-1）、单线程确定性是逐位审计基底 |
+| S9-C-2 | solve/irls 内核迁移 WASM/SIMD | 构建面 + 平台面变更（S6-I-2 同族）；SIMD 归约顺序破坏逐位契约 |
+| S9-C-3 | irls eta/mu 行缓冲消除（etaByKey/muByKey 直读） | 逐位但整池上界 ~14 ms < ±35 ms 带；三次干净两路符号翻转 |
+| S9-C-4 | w 钳制 Math.max 改三元 | 逐位但 0.73–2.31 ms/报告深度亚带；重开条件：无 |
+| S9-D-1 | parseEpisode 输出形状单态化（可选键恒在） | 下游字节面等价，合计 12.8–13.9µs/eval；PIC 观察项在 D 的正面解答 |
+| S9-D-2 | assertReplayIsolated roots 构造融合 | 等价但 725–746ns/eval；≠ S3-D-3 内容去重 |
+| S9-D-3 | preparePromotion 第二次 review.candidateId 比较消除 | 死码可证，上界 3.1–3.7ns；零成本保留为防御纵深 |
+| S9-D-4 | assertNoForbiddenFields 逐键 toLowerCase 消除 | 便宜形态 U+212A fail-open；健全形态更慢 1.4–1.8µs/walk |
