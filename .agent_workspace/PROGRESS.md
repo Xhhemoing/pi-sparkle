@@ -129,9 +129,11 @@ Parent joints: loopback supervised resume clears abandoned lock (`a770a24`).
 
 Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R5-2 supervised lock-before-preflight; R5-7 stale snapshots). 0 ROLLBACK. Brief: `.agent_workspace/ROUND5-BRIEF.md`.
 
-## Round 6 — in flight
+## Round 6 — landings (parent gate GREEN)
 
-10 slots from `.agent_workspace/ROUND5-BRIEF.md`. Sole owners: `flowchart-run.ts` R6-1; `main.ts` R6-5; `supervisor.ts`+`track/loop.ts` R6-3; `doctor.ts` R6-4. Stay on `agent/opt-continuous`.
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1769 / 1768 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **9 cases × 3**. Sole owners held. ADR-006 stays Proposed.
+
+10 slots from `.agent_workspace/ROUND5-BRIEF.md`. Stay on `agent/opt-continuous`.
 
 Parent sign-off: R6-1 option (a) — loop respects the gate (BLOCKED stays BLOCKED).
 
