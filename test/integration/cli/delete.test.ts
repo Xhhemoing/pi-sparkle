@@ -25,7 +25,9 @@ import {
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { deleteRunRecords, verifyRunRecordsRemoved } from "../../../src/privacy/deletion.js";
-import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
+import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { episodeLockPath } from "../../../src/run/episode-bind.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
 import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
@@ -471,6 +473,167 @@ test("delete --run issued against a live run waits for the run, then removes it"
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * `--lock-wait-ms` is the operator's answer to the wait above: a delete aimed
+ * at a live run waits for the run to finish, and until this flag the bound was
+ * `withExclusiveFileLock`'s fixed 5s with no way to say "I would rather wait".
+ *
+ * Three properties, and the first is the one that matters most: an unflagged
+ * delete is byte-identical to the delete that shipped before the flag existed.
+ */
+test("--lock-wait-ms bounds the delete's wait; omitting it changes nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "events.jsonl"), "{}\n", "utf8");
+
+    // An uncontended delete takes the same path with and without the flag, and
+    // says the same thing: the flag bounds a wait, it does not change output.
+    const flagged = capture();
+    assert.equal(
+      await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "60000", "--state-root", stateRoot],
+        flagged.io
+      ),
+      0,
+      flagged.err.join("")
+    );
+    assert.deepEqual(flagged.out, [`removed: ${runDir}\n`]);
+    assert.deepEqual(flagged.err, []);
+
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "events.jsonl"), "{}\n", "utf8");
+    const bare = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], bare.io),
+      0,
+      bare.err.join("")
+    );
+    assert.deepEqual(bare.out, flagged.out, "the flag is not an output change");
+    assert.deepEqual(bare.err, flagged.err);
+  });
+});
+
+/**
+ * The short end of the range: `--lock-wait-ms 0` refuses a held lock at once
+ * instead of waiting out a default the operator did not choose. This is the
+ * offline witness that the flag reaches `withExclusiveFileLock` at all — the
+ * pre-flag command could only produce this refusal by paying 5s of wall time
+ * (see `command-error-doctor.test.ts`, which still pays it on purpose to
+ * witness the default).
+ */
+test("--lock-wait-ms 0 refuses a held lock immediately, having removed nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(
+      runEvent(runId, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-00000000000c",
+        kind: "TEXT_DELTA",
+        summary: "work the delete must not destroy"
+      })
+    );
+
+    const io = capture();
+    let refusal: unknown;
+    let elapsedMs = 0;
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      const startedAt = Date.now();
+      refusal = await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "0", "--state-root", stateRoot],
+        io.io
+      ).then(
+        () => assert.fail("a held lock with a zero wait must refuse"),
+        (error: unknown) => error
+      );
+      elapsedMs = Date.now() - startedAt;
+    });
+
+    assert.equal((refusal as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    // Well inside the 5s default: the bound came from the flag, not the lock.
+    assert.ok(elapsedMs < 2_000, `the zero wait must not sit on the default: ${elapsedMs}ms`);
+    // Fail-closed, exactly as the default-bounded refusal is.
+    assert.equal(existsSync(runDir), true, "a refused delete removes nothing");
+    assert.deepEqual(io.out, []);
+  });
+});
+
+test("--lock-wait-ms refuses a value it cannot honour exactly", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    await mkdir(join(stateRoot, "runtime", "runs", runId), { recursive: true });
+
+    // Spellings Number() would silently accept as something else, plus the
+    // typo the ceiling exists for. `-1` goes through the `=` form because
+    // parseArgs refuses a dash-led value before this validator ever sees it.
+    for (const flag of [
+      "--lock-wait-ms=",
+      "--lock-wait-ms= ",
+      "--lock-wait-ms=-1",
+      "--lock-wait-ms=1.5",
+      "--lock-wait-ms=1e4",
+      "--lock-wait-ms=0x10",
+      "--lock-wait-ms= 5 ",
+      "--lock-wait-ms=abc",
+      "--lock-wait-ms=8640000001"
+    ]) {
+      const io = capture();
+      await assert.rejects(
+        deleteCommand(["--run", runId, flag, "--state-root", stateRoot], io.io),
+        (error: unknown) => {
+          assert.ok(error instanceof DomainValidationError);
+          assert.match(error.message, /^--lock-wait-ms must be a whole number of milliseconds/);
+          return true;
+        },
+        `${flag} must be refused`
+      );
+      assert.deepEqual(io.out, [], "a refused flag deletes nothing and says nothing");
+    }
+    // The refusal is a parse failure, so the records are still there.
+    assert.equal(existsSync(join(stateRoot, "runtime", "runs", runId)), true);
+    // The ceiling itself is honoured, not merely asserted about.
+    const io = capture();
+    assert.equal(
+      await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "86400000", "--state-root", stateRoot],
+        io.io
+      ),
+      0,
+      io.err.join("")
+    );
+  });
+});
+
+/**
+ * The wait is the target's, not the run plane's: `delete --episode` takes the
+ * episode's cooperative lock (and the feedback log's) through the same options
+ * object, so one flag covers both targets rather than only the one R5-1's
+ * disclosure named.
+ */
+test("--lock-wait-ms bounds delete --episode too", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const seed = await seedEpisodeWithFeedback(stateRoot);
+    const io = capture();
+    let refusal: unknown;
+    await withExclusiveFileLock(episodeLockPath(stateRoot, seed.episodeId), async () => {
+      refusal = await deleteCommand(
+        ["--episode", seed.episodeId, "--lock-wait-ms", "0", "--state-root", stateRoot],
+        io.io
+      ).then(
+        () => assert.fail("a held episode lock with a zero wait must refuse"),
+        (error: unknown) => error
+      );
+    });
+    assert.equal((refusal as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.equal(
+      existsSync(join(stateRoot, "runtime", "episodes", `${seed.episodeId}.jsonl`)),
+      true,
+      "the episode records survive the refusal"
+    );
   });
 });
 

@@ -1,18 +1,31 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { commandFailureNext, main, type CliIo } from "../../../src/cli/main.js";
-import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { errorCodeOf, parseCliErrorJson } from "../../../src/cli/errors.js";
 import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
 import { createEventId, createRunId, type RunId } from "../../../src/domain/ids.js";
+import {
+  BANDIT_STATE_UNREADABLE_CODE,
+  BanditStateUnreadableError
+} from "../../../src/learning/bandit-store.js";
 import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import {
+  PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+  PreferenceSnapshotUnreadableError,
+  configurePreferencePersistence
+} from "../../../src/preferences/store.js";
 import {
   RUN_RECORDS_SURVIVED_CODE,
   verifyRunRecordsRemoved
 } from "../../../src/privacy/deletion.js";
+import {
+  CATALOG_OBSERVED_CORRUPT_CODE,
+  CatalogObservedCorruptError
+} from "../../../src/routing/catalog-observed.js";
 import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import { makeEvent, makeRun } from "../../helpers/event-factory.js";
 
@@ -191,11 +204,128 @@ test("an unrouted failure keeps the generic next line", async () => {
 });
 
 /**
+ * The adaptation plane's three fail-closed reads route to `learnedState[]`.
+ *
+ * Each refuses rather than reading damaged bytes as "nothing learned yet",
+ * and none of them is fixed by retrying. What separates them from the two run
+ * -plane routes is that the remedy is not the same for all three: bandit
+ * state and the preference snapshot are *learned* — no log replays them, so
+ * the move is repair-or-move-aside-and-relearn — while the observed catalog
+ * is *derived* and is simply rebuilt. Doctor's inventory draws that line per
+ * entry, so each `next:` names the half its own plane needs.
+ */
+const GENERIC_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
+
+test("the adaptation plane's fail-closed codes route to doctor's learnedState inventory", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const errors = [
+      new BanditStateUnreadableError(join(stateRoot, "bandit.json"), "not valid JSON"),
+      new PreferenceSnapshotUnreadableError(join(stateRoot, "preferences.json"), "not valid JSON"),
+      new CatalogObservedCorruptError(join(stateRoot, "catalog-observed.json"))
+    ];
+    assert.deepEqual(
+      errors.map((error) => error.code),
+      [
+        BANDIT_STATE_UNREADABLE_CODE,
+        PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+        CATALOG_OBSERVED_CORRUPT_CODE
+      ]
+    );
+
+    for (const error of errors) {
+      const next = commandFailureNext(error, ["--state-root", stateRoot]);
+      assert.ok(
+        next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`),
+        `${error.code} must name the doctor command for this state root: ${next}`
+      );
+      assert.match(next, /learnedState\[\]/, "the remedy must name the field that answers it");
+    }
+
+    // Learned and derived do not get the same advice — the distinction is the
+    // reason these are three entries and not one.
+    const [bandit, preferences, catalog] = errors.map((error) =>
+      commandFailureNext(error, ["--state-root", stateRoot])
+    );
+    assert.match(bandit ?? "", /relearn this project from zero/);
+    assert.match(preferences ?? "", /start from an empty store/);
+    assert.match(catalog ?? "", /rebuild from runtime\/invocations\.jsonl/);
+    assert.match(catalog ?? "", /derived-state remediation/);
+    assert.doesNotMatch(catalog ?? "", /relearn/, "derived state is never relearned");
+
+    // A wrapper must not drop these routes either.
+    assert.match(
+      commandFailureNext(new Error("adapt failed", { cause: errors[0] }), []),
+      /learnedState\[\]/
+    );
+    assert.equal(errorCodeOf(errors[0]), BANDIT_STATE_UNREADABLE_CODE);
+  });
+});
+
+/**
+ * The route answers, end to end through the real CLI: a damaged
+ * `adaptation/preferences.json` makes `pref list` fail closed, its `next:`
+ * names doctor, and doctor's `learnedState[]` really does carry that file as
+ * damaged with the learned-state remediation attached.
+ */
+test("pref list over a damaged snapshot routes to an inventory that lists it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const snapshot = join(stateRoot, "adaptation", "preferences.json");
+    await mkdir(dirname(snapshot), { recursive: true });
+    await writeFile(snapshot, "{ truncated", "utf8");
+
+    const io = capture();
+    const doctor = capture();
+    try {
+      assert.equal(await main(["pref", "list", "--state-root", stateRoot], io.io), 1);
+      const parsed = parseCliErrorJson(io.err.join(""));
+      assert.equal(parsed?.command, "pref");
+      assert.equal(parsed?.stage, "validation");
+      assert.match(parsed?.message ?? "", /preference snapshot at .* is unreadable/);
+      assert.notEqual(parsed?.next, GENERIC_NEXT);
+      assert.ok(parsed?.next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`));
+
+      await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+      const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+      const entry = report.learnedState.entries.find(
+        (candidate) => candidate.path === snapshot
+      );
+      assert.ok(entry, "doctor must inventory the snapshot the pref read refused");
+      assert.equal(entry.status, "damaged");
+      assert.equal(entry.stateClass, "learned");
+      assert.match(entry.remediation, /move it aside/);
+    } finally {
+      // The store binds a process global; leave it where the suite found it.
+      configurePreferencePersistence(undefined);
+    }
+  });
+});
+
+/**
+ * The negative control extends to the new routes: the frozen generic line is
+ * still what an untyped failure gets, and the two run-plane routes are
+ * unchanged by three neighbours arriving in the same table.
+ */
+test("adding routes did not move the generic line or the run-plane ones", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const impostor = new Error(
+      "bandit state at /tmp/bandit.json is unreadable (not valid JSON); repair the file"
+    );
+    assert.equal(commandFailureNext(impostor, ["--state-root", stateRoot]), GENERIC_NEXT);
+
+    const lock = await lockTimeout(runLockPath(stateRoot, createRunId(nextId)));
+    const next = commandFailureNext(lock, ["--state-root", stateRoot]);
+    assert.match(next, /locks\[\]/);
+    assert.doesNotMatch(next, /learnedState\[\]/);
+  });
+});
+
+/**
  * End-to-end through the real CLI: `delete --run` against a lock held by
- * someone else. The wait is `withExclusiveFileLock`'s 5s default, which the
- * `delete` command does not parameterise, so this case costs that wall time
- * on purpose — it is the only offline way to make the shipped command produce
- * a real `LOCK_TIMEOUT`.
+ * someone else, on the default bound. `delete --lock-wait-ms` can now produce
+ * this refusal in milliseconds (`delete.test.ts` does), but this case pays
+ * `withExclusiveFileLock`'s 5s on purpose: what it witnesses is that the
+ * unflagged command an operator actually types still fails closed and still
+ * routes.
  */
 test("delete --run refused by a held lock tells the operator to run doctor", async () => {
   await withStateRoot(async (stateRoot) => {

@@ -8,7 +8,10 @@ import {
   deleteEpisodeRecords,
   RUN_RECORDS_SURVIVED_CODE
 } from "../privacy/deletion.js";
-import { LOCK_TIMEOUT_CODE } from "../persist/file-lock.js";
+import { LOCK_TIMEOUT_CODE, type FileLockOptions } from "../persist/file-lock.js";
+import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
+import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
+import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -258,7 +261,7 @@ Usage:
   pi-sparkle auth status|login|logout [--state-root <dir>] ...
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
-  pi-sparkle delete --run <runId> | --episode <epId> [--state-root <dir>]
+  pi-sparkle delete --run <runId> | --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
   pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
@@ -1600,14 +1603,52 @@ async function prefCommand(args: string[], io: CliIo): Promise<number> {
 }
 
 const DELETE_USAGE = `Usage:
-  pi-sparkle delete --run <runId> [--state-root <dir>]
-  pi-sparkle delete --episode <epId> [--state-root <dir>]
+  pi-sparkle delete --run <runId> [--lock-wait-ms <ms>] [--state-root <dir>]
+  pi-sparkle delete --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
 
 Deletes the target's runtime records. Deleting an episode also cascades into
 the adaptation plane: feedback bound to that episode is tombstoned and its
 free-text body is stripped (see docs/data-dictionary.md). Exactly one of
 --run / --episode must be given.
+
+--lock-wait-ms bounds how long the delete waits for the cooperative lock its
+target is under (default 5000). A live run holds its lock for as long as it
+runs, so a larger value is how an operator says "wait for that run to finish"
+instead of stopping it; 0 refuses immediately rather than waiting at all. The
+delete fails closed either way: a wait that runs out removes nothing.
 `;
+
+/**
+ * Upper bound on `--lock-wait-ms`, in milliseconds (24 hours).
+ *
+ * The flag exists to let an operator wait out a long run, so the ceiling is
+ * deliberately far above any real one. What it buys is that a typo — an extra
+ * digit on an otherwise reasonable value — is refused at parse time instead of
+ * presenting as a CLI that hung.
+ */
+const MAX_LOCK_WAIT_MS = 86_400_000;
+
+/**
+ * `--lock-wait-ms` as `withExclusiveFileLock` options.
+ *
+ * An absent flag yields an empty object rather than an explicit default, so an
+ * unflagged delete makes exactly the call it made before this flag existed:
+ * the 5s bound stays the lock's own, in one place, and cannot drift here.
+ *
+ * Only whole non-negative decimal milliseconds are accepted. `Number` would
+ * also take `1e4`, `0x10` and ` 5 `; a delete that waits a different amount of
+ * time than the operator typed is worse than one that refuses the spelling.
+ */
+function lockWaitOptions(raw: string | undefined): FileLockOptions {
+  if (raw === undefined) return {};
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value > MAX_LOCK_WAIT_MS) {
+    throw new DomainValidationError(
+      `--lock-wait-ms must be a whole number of milliseconds between 0 and ${MAX_LOCK_WAIT_MS}, got: ${raw}`
+    );
+  }
+  return { timeoutMs: value };
+}
 
 export async function deleteCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
@@ -1615,6 +1656,7 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     options: {
       run: { type: "string" },
       episode: { type: "string" },
+      "lock-wait-ms": { type: "string" },
       "state-root": { type: "string" }
     }
   });
@@ -1625,10 +1667,11 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     io.stderr(DELETE_USAGE);
     return 1;
   }
+  const lock = lockWaitOptions(values["lock-wait-ms"]);
   const result =
     values.run !== undefined
-      ? await deleteRunRecords(stateRoot, parseRunId(values.run))
-      : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string));
+      ? await deleteRunRecords(stateRoot, parseRunId(values.run), lock)
+      : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string), lock);
   for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
     io.stderr(`${result.target}: nothing found under ${stateRoot}; refusing to report success\n`);
@@ -1655,6 +1698,14 @@ const GENERIC_FAILURE_NEXT = "fix the reported error, then retry; use pi-sparkle
  *
  * Keyed by the frozen error codes only. The messages name paths, ids and
  * timeouts and are not a classification surface.
+ *
+ * The adaptation plane's three fail-closed reads join them, for the same
+ * reason and under the same precondition: each refuses rather than reading
+ * damaged bytes as "nothing learned yet", and `doctor`'s `learnedState[]`
+ * inventory now lists those files with a remediation that distinguishes
+ * learned state (repair or move aside and relearn) from derived state (delete
+ * and rebuild). A route is a promise that the named field answers the
+ * refusal, so each `next:` names the distinction its own plane needs.
  */
 const DOCTOR_ROUTED_NEXT: ReadonlyMap<string, (doctor: string) => string> = new Map([
   [
@@ -1666,6 +1717,21 @@ const DOCTOR_ROUTED_NEXT: ReadonlyMap<string, (doctor: string) => string> = new 
     RUN_RECORDS_SURVIVED_CODE,
     (doctor: string): string =>
       `the run's records are still on disk: run ${doctor} and read runStates[] for a live run and locks[] for its lock, stop that run, then delete again`
+  ],
+  [
+    BANDIT_STATE_UNREADABLE_CODE,
+    (doctor: string): string =>
+      `this project's learned bandit state is damaged and no log can recompute it: run ${doctor} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to relearn this project from zero`
+  ],
+  [
+    PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+    (doctor: string): string =>
+      `the learned preference snapshot is damaged and has no second copy on disk: run ${doctor} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to start from an empty store`
+  ],
+  [
+    CATALOG_OBSERVED_CORRUPT_CODE,
+    (doctor: string): string =>
+      `the observed catalog snapshot is damaged, and it is derived state: run ${doctor} and read learnedState[] for the file and its derived-state remediation, then delete it and let it rebuild from runtime/invocations.jsonl`
   ]
 ]);
 
