@@ -217,15 +217,25 @@ function irls(
     for (let d = 0; d < p; d++) xtwx[d]!.fill(0);
     xtwz.fill(0);
     // W = mu(1-mu); X' W X and X' W z with working response z = eta + (y - mu)/W.
+    // Every design-vector entry on a support list is exactly 1 (build() only
+    // writes 1s and computeSupports selects the non-zeros), and IEEE-754
+    // multiplication by 1.0 is an identity, so the addends w * xi[a] * xi[b]
+    // and w * xi[a] * z equal w and w * z bit for bit. Adding those values
+    // directly — with w * z hoisted once per row — keeps every term, every
+    // value, and the accumulation order unchanged; it only drops the
+    // redundant multiplications and vector reads.
     for (let i = 0; i < n; i++) {
       const w = Math.max(mu[i]! * (1 - mu[i]!)!, 1e-10);
-      const xi = vectors[i]!;
       const z = eta[i]! + ((rows[i]!.y - mu[i]!) / w);
+      const wz = w * z;
       const active = supports[i]!;
-      for (const a of active) {
-        xtwz[a] = xtwz[a]! + w * xi[a]! * z;
-        for (const b of active) {
-          xtwx[a]![b] = xtwx[a]![b]! + w * xi[a]! * xi[b]!;
+      for (let ai = 0; ai < active.length; ai++) {
+        const a = active[ai]!;
+        xtwz[a] = xtwz[a]! + wz;
+        const rowA = xtwx[a]!;
+        for (let bi = 0; bi < active.length; bi++) {
+          const b = active[bi]!;
+          rowA[b] = rowA[b]! + w;
         }
       }
     }
