@@ -72,22 +72,22 @@ Saturated after Round 1: `persist/jsonl`, `protocol/v1` parse.
 
 Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 
-## Round 3 — in flight
+## Round 3 landings (parent gate GREEN)
 
-10 slots from `.agent_workspace/ROUND2-BRIEF.md`. Ownership in `OWNERSHIP.md`. `withExclusiveFileLock` re-frozen. P1: invocation decoder TypeError (crashes `run`/`resume` via `isInvocation`).
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0 after all R3 commits (recovered off a stray `cursor/r3-4-event-fuzz-e2ad` onto `agent/opt-continuous`).
 
-| Slot | Agent | Focus |
-|---|---|---|
-| R3-1 | bc-4b9d7208-3d91-5117-ba00-4ef5fb60ed18 | invocation fail-closed |
-| R3-2 | bc-e5f99d92-3744-5bb4-9f53-c53f66c6505e | atomic privacy rewrites |
-| R3-3 | bc-7b0faac0-5ae9-54ca-af4c-b09b966b56f2 | delete-run resurrection |
-| R3-4 | bc-8522e607-4232-5186-879f-d2f3362ce2ad | event log fuzz |
-| R3-5 | bc-c3b56d3f-b949-5a76-9531-40f88e50576d | terminal on escape |
-| R3-6 | bc-55b3ae6b-e6a0-5a36-82ed-c623a3d31f62 | stale-lock doctor |
-| R3-7 | bc-c38196f8-4797-5ae7-b775-52d23763047f | dead-letter operator |
-| R3-8 | bc-08b6e349-6eb0-5d42-b64b-699be1153989 | scheduler leftovers |
-| R3-9 | bc-c7ec4365-69a1-5d9a-8407-d58e2164ccdc | resume invocation sink |
-| R3-10 | bc-3c336c83-e9c5-5cc2-ad2c-9f1a66f0303e | docs truth-up |
+| Slot | Result |
+|---|---|
+| R3-1 | Invocation decoders fail closed; `isInvocation` never throws |
+| R3-2 | Atomic feedback/invocation rewrites; crash-probe 8×3 |
+| R3-3 | `delete --run` verifies removal (`RunRecordsSurvivedError`) |
+| R3-4 | Event log `DomainValidationError` + row fuzz |
+| R3-5 | Escaping errors append `RUN_FAILED` |
+| R3-6 | Doctor stale-lock inventory (no steal) |
+| R3-7 | Host `deadLetterReport` / `onDeadLetter` (CLI embedders not yet wired) |
+| R3-8 | Dropped `applySkipped` and unread `_leaseDurationMs` |
+| R3-9 | Resume `createExecutor` shares invocation sink |
+| R3-10 | Docs: no checkpoint leases; episode lock honesty |
 
 ---
 
