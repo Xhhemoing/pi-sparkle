@@ -93,6 +93,19 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 
 10 slots from `.agent_workspace/ROUND3-BRIEF.md`. Region-shared: `main.ts` (R4-2 summary vs R4-6 resume), `flowchart-run.ts` (R4-2 host vs R4-4 teardown). Stay on `agent/opt-continuous`.
 
+| Slot | Agent | Focus |
+|---|---|---|
+| R4-1 | bc-1fe0656f-0956-535e-91f1-fa19820b2a50 | run delete lock |
+| R4-2 | bc-9b839647-0b49-561e-b3bb-94be6a9e9ac8 | dead-letter CLI hop |
+| R4-3 | bc-61dbcf06-a46c-5490-bbc9-50fa6a2b6048 | supervised crash + applyRetry |
+| R4-4 | bc-c8de446e-5b28-5a75-aeb9-e9b6ac25eb99 | paused-crash contract |
+| R4-5 | bc-4ec18dc8-5a9a-5554-a44e-a96c8b21ad69 | doctor remedy |
+| R4-6 | bc-49d6afd1-80a8-5f4c-b72d-062da27240d9 | resume flags |
+| R4-7 | bc-e202135c-16c4-5d87-9a83-79df1598c297 | atomic tombstones |
+| R4-8 | bc-ee55ba3e-9887-53af-a146-a76f23ea7f58 | docs |
+| R4-9 | bc-4aef1845-c7aa-5ddc-b00d-9b73adee0153 | catalog/prefs atomic |
+| R4-10 | bc-b3ee3ffc-faa1-53fc-95f7-32988a2ee9b3 | pi loopback |
+
 ---
 
 # Loop 2 — SOTA follow-on (2026-08-24)
