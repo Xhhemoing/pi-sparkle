@@ -1,11 +1,16 @@
-import { dirname, join } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { isRedactionClass, REDACTION_CLASSES } from "./types.js";
 import type { FeedbackRecord, RedactionClass } from "./types.js";
 import { redactFeedback, type RedactionPolicy } from "./redaction.js";
-import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
+import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import { DomainValidationError } from "../domain/errors.js";
 
 export function feedbackLogPath(stateRoot: string): string {
@@ -155,20 +160,18 @@ const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * True only for `withExclusiveFileLock`'s timeout on *this* log's lock.
+ * True only for `withExclusiveFileLock`'s typed timeout.
  *
- * Deliberately exact, and the same string coupling `telemetry/invocation-log.ts`
- * discloses: a redaction or row-validation failure is also a
+ * Deliberately exact: a redaction or row-validation failure is also a
  * `DomainValidationError`, and retrying one would only re-reject. An
- * unrecognized message fails closed to "not a lock timeout", so the error
- * propagates instead of looping. Matching the message rather than the error
- * class keeps this scoped to *this* lock; a typed discriminator carrying the
- * lock path would replace this classifier and the invocation log's together.
+ * unrecognized error fails closed to "not a lock timeout", so the error
+ * propagates instead of looping.
  */
-function isLockTimeout(error: unknown, lockPath: string): boolean {
+function isLockTimeout(error: unknown): boolean {
   return (
     error instanceof DomainValidationError &&
-    error.message === `timed out waiting for lock at ${lockPath}`
+    "code" in error &&
+    error.code === LOCK_TIMEOUT_CODE
   );
 }
 
@@ -215,7 +218,7 @@ export async function appendFeedbackWithRetry(
       try {
         return { status: "persisted", record: await appendFeedback(stateRoot, record, lockOptions) };
       } catch (error: unknown) {
-        if (!isLockTimeout(error, lockPath)) throw error;
+        if (!isLockTimeout(error)) throw error;
         if (attempt >= tries) {
           const reason = `feedback ${record.id} dropped: lock timeout after ${tries} attempts on ${lockPath}`;
           // A reporter that throws would turn a disclosed drop back into the
@@ -274,12 +277,12 @@ export async function readFeedbackRecordsRaw(
  */
 export async function writeFeedbackRecords(
   stateRoot: string,
-  records: readonly FeedbackRecord[]
+  records: readonly FeedbackRecord[],
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   const path = feedbackLogPath(stateRoot);
-  await mkdir(dirname(path), { recursive: true });
   const body = records.map((record) => JSON.stringify(record)).join("\n");
-  await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
+  await writeFileAtomic(path, body === "" ? "" : `${body}\n`, options);
 }
 
 export async function readFeedback(stateRoot: string): Promise<readonly FeedbackRecord[]> {

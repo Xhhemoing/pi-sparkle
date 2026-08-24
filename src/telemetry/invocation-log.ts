@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
+import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import {
   LOCK_TIMEOUT_CODE,
   withExclusiveFileLock,
@@ -252,10 +252,10 @@ export async function readInvocationRecords(
  */
 export async function writeInvocationRecords(
   stateRoot: string,
-  rows: readonly unknown[]
+  rows: readonly unknown[],
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   const path = invocationsLogPath(stateRoot);
   const body = rows.map((row) => JSON.stringify(row)).join("\n");
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
+  await writeFileAtomic(path, body === "" ? "" : `${body}\n`, options);
 }

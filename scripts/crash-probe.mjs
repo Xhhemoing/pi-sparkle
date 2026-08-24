@@ -36,6 +36,18 @@ async function signalAndKill(sentinelPath, contents) {
   throw new Error("SIGKILL did not terminate crash-probe child");
 }
 
+function crashBeforeRenameOptions(payload, phase) {
+  return {
+    uniqueSuffix: () => payload.uniqueSuffix,
+    rename: async (source, destination) => {
+      await signalAndKill(
+        payload.sentinelPath,
+        `${JSON.stringify({ pid: process.pid, phase, source, destination })}\n`
+      );
+    }
+  };
+}
+
 async function runChild(mode, payload) {
   if (mode === "jsonl-tail") {
     const handle = await open(payload.filePath, "a");
@@ -101,8 +113,8 @@ async function runChild(mode, payload) {
             );
           }
         } catch {
-          // A lock-free read may overlap writeFile's truncate/write interval.
-          // Retry until the complete stripped row is publicly readable.
+          // Retry a transient lock-free read failure until the complete
+          // stripped row is publicly readable.
         }
         await sleep(2);
       }
@@ -115,6 +127,36 @@ async function runChild(mode, payload) {
       }),
       monitor
     ]);
+    return;
+  }
+
+  if (mode === "feedback-rewrite") {
+    const { withFeedbackLogLock, writeFeedbackRecords } = await tsImport(
+      "../src/feedback/store.ts",
+      import.meta.url
+    );
+    await withFeedbackLogLock(payload.stateRoot, () =>
+      writeFeedbackRecords(
+        payload.stateRoot,
+        payload.records,
+        crashBeforeRenameOptions(payload, "before-feedback-rewrite-rename")
+      )
+    );
+    return;
+  }
+
+  if (mode === "invocation-rewrite") {
+    const { withInvocationLogLock, writeInvocationRecords } = await tsImport(
+      "../src/telemetry/invocation-log.ts",
+      import.meta.url
+    );
+    await withInvocationLogLock(payload.stateRoot, () =>
+      writeInvocationRecords(
+        payload.stateRoot,
+        payload.rows,
+        crashBeforeRenameOptions(payload, "before-invocation-rewrite-rename")
+      )
+    );
     return;
   }
 
@@ -291,10 +333,18 @@ async function runProbe(iterations) {
   const {
     appendFeedback,
     feedbackLogLockPath,
+    feedbackLogPath,
     feedbackTombstonesPath,
     readFeedbackRecordsRaw,
     readFeedbackTombstoneIds
   } = await tsImport("../src/feedback/store.ts", import.meta.url);
+  const {
+    invocationLogLockPath,
+    invocationsLogPath,
+    readInvocationRecords,
+    withInvocationLogLock,
+    writeInvocationRecords
+  } = await tsImport("../src/telemetry/invocation-log.ts", import.meta.url);
   const { writeFileAtomic } = await tsImport(
     "../src/persist/atomic-file.ts",
     import.meta.url
@@ -493,6 +543,112 @@ async function runProbe(iterations) {
         }
         assert.equal(tombstones.has(target.id), false);
         await rm(feedbackLogLockPath(stateRoot));
+      })
+    );
+
+    cases.push(
+      await runCase("feedback-rewrite-kill-before-rename", iterations, async (iteration) => {
+        const caseDir = join(root, "feedback-rewrite", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const target = await appendFeedback(stateRoot, {
+          id: `feedback-rewrite-target-${iteration}`,
+          episodeId: createEpisodeId(() => `rewrite_target_${iteration}`),
+          kind: "human",
+          rubricVersion: "1",
+          score: 80,
+          evidenceRefs: [],
+          redacted: false,
+          createdAt: nowIso(),
+          body: `target body ${iteration}`
+        });
+        const unrelated = await appendFeedback(stateRoot, {
+          id: `feedback-rewrite-unrelated-${iteration}`,
+          episodeId: createEpisodeId(() => `rewrite_unrelated_${iteration}`),
+          kind: "peer",
+          rubricVersion: "1",
+          score: 70,
+          evidenceRefs: [],
+          redacted: false,
+          createdAt: nowIso(),
+          body: `unrelated body ${iteration}`
+        });
+        const beforeRecords = await readFeedbackRecordsRaw(stateRoot);
+        const rewritten = beforeRecords.filter((record) => record.id !== target.id);
+        const path = feedbackLogPath(stateRoot);
+        const beforeBytes = await readFile(path, "utf8");
+        const rewrittenBytes = `${rewritten.map((record) => JSON.stringify(record)).join("\n")}\n`;
+        const sentinelPath = join(caseDir, "child-ready");
+
+        await runKilledChild("feedback-rewrite", {
+          records: rewritten,
+          sentinelPath,
+          stateRoot,
+          uniqueSuffix: `feedback-rewrite-${iteration}`
+        });
+
+        await access(feedbackLogLockPath(stateRoot));
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "before-feedback-rewrite-rename");
+        assert.equal(sentinel.destination, path);
+        assert.notEqual(sentinel.source, path);
+        assert.equal(await readFile(path, "utf8"), beforeBytes);
+        assert.deepEqual(await readFeedbackRecordsRaw(stateRoot), beforeRecords);
+        assert.ok(
+          beforeRecords.some((record) => record.id === unrelated.id),
+          "the unrelated feedback row must survive the interrupted rewrite"
+        );
+        assert.equal(await readFile(sentinel.source, "utf8"), rewrittenBytes);
+        await rm(feedbackLogLockPath(stateRoot));
+        await rm(sentinel.source);
+      })
+    );
+
+    cases.push(
+      await runCase("invocation-rewrite-kill-before-rename", iterations, async (iteration) => {
+        const caseDir = join(root, "invocation-rewrite", String(iteration));
+        const stateRoot = join(caseDir, "state");
+        const target = {
+          id: `invocation-rewrite-target-${iteration}`,
+          runId: `run_rewrite_target_${iteration}`,
+          futureField: { preserve: "target" }
+        };
+        const unrelated = {
+          id: `invocation-rewrite-unrelated-${iteration}`,
+          runId: `run_rewrite_unrelated_${iteration}`,
+          futureField: { preserve: "unrelated" }
+        };
+        const beforeRows = [target, unrelated];
+        await withInvocationLogLock(stateRoot, () =>
+          writeInvocationRecords(stateRoot, beforeRows)
+        );
+        const path = invocationsLogPath(stateRoot);
+        const beforeBytes = await readFile(path, "utf8");
+        const rewrittenBytes = `${JSON.stringify(unrelated)}\n`;
+        const sentinelPath = join(caseDir, "child-ready");
+
+        await runKilledChild("invocation-rewrite", {
+          rows: [unrelated],
+          sentinelPath,
+          stateRoot,
+          uniqueSuffix: `invocation-rewrite-${iteration}`
+        });
+
+        await access(invocationLogLockPath(stateRoot));
+        const sentinel = JSON.parse(await readFile(sentinelPath, "utf8"));
+        assert.equal(sentinel.phase, "before-invocation-rewrite-rename");
+        assert.equal(sentinel.destination, path);
+        assert.notEqual(sentinel.source, path);
+        assert.equal(await readFile(path, "utf8"), beforeBytes);
+        assert.deepEqual((await readInvocationRecords(stateRoot)).values, beforeRows);
+        assert.ok(
+          (await readInvocationRecords(stateRoot)).values.some(
+            (row) => row?.id === unrelated.id
+          ),
+          "the unrelated invocation row must survive the interrupted rewrite"
+        );
+        assert.equal(await readFile(sentinel.source, "utf8"), rewrittenBytes);
+        await rm(invocationLogLockPath(stateRoot));
+        await rm(sentinel.source);
       })
     );
 

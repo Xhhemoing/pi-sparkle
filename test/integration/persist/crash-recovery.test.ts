@@ -77,6 +77,8 @@ test("real process kills preserve persistence recovery invariants", { timeout: 1
       { iterations: 1, name: "checkpoint-old-then-next-write", ok: true },
       { iterations: 1, name: "stale-lock-no-steal", ok: true },
       { iterations: 1, name: "feedback-cascade-strip-before-tombstone", ok: true },
+      { iterations: 1, name: "feedback-rewrite-kill-before-rename", ok: true },
+      { iterations: 1, name: "invocation-rewrite-kill-before-rename", ok: true },
       { iterations: 1, name: "episode-settle-stale-lock-recovery", ok: true },
       { iterations: 1, name: "atomic-write-stale-unique-temp", ok: true }
     ]

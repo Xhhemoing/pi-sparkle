@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -178,6 +178,49 @@ test("a rewrite under the lock cannot clobber a concurrent append", async () => 
     assert.ok(pending !== undefined);
     await pending;
     assert.deepEqual(idsOf(await readLines(stateRoot)), [keeper.id, live.id]);
+  });
+});
+
+test("a rewrite keeps the old log visible until its atomic rename publishes", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const oldA = invocation();
+    const oldB = invocation();
+    await appendInvocationRecord(stateRoot, oldA);
+    await appendInvocationRecord(stateRoot, oldB);
+    const path = invocationsLogPath(stateRoot);
+    const before = await readFile(path, "utf8");
+    const expected = `${JSON.stringify(oldB)}\n`;
+    let enterRename = (): void => undefined;
+    const renameEntered = new Promise<void>((resolve) => {
+      enterRename = resolve;
+    });
+    let releaseRename = (): void => undefined;
+    const renameReleased = new Promise<void>((resolve) => {
+      releaseRename = resolve;
+    });
+    let sourcePath = "";
+
+    await withInvocationLogLock(stateRoot, async () => {
+      const pending = writeInvocationRecords(stateRoot, [oldB], {
+        uniqueSuffix: () => "invocation-rewrite-test",
+        rename: async (source, destination) => {
+          sourcePath = source;
+          assert.equal(destination, path);
+          enterRename();
+          await renameReleased;
+          await rename(source, destination);
+        }
+      });
+
+      await renameEntered;
+      assert.equal(await readFile(path, "utf8"), before, "the destination is never truncated");
+      assert.equal(await readFile(sourcePath, "utf8"), expected, "the complete rewrite is staged");
+      releaseRename();
+      await pending;
+    });
+
+    assert.equal(await readFile(path, "utf8"), expected);
+    assert.deepEqual(idsOf(await readLines(stateRoot)), [oldB.id]);
   });
 });
 

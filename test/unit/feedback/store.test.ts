@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -317,6 +317,49 @@ test("a rewrite under the lock cannot clobber a concurrent append", async () => 
   });
 });
 
+test("a rewrite keeps the old log visible until its atomic rename publishes", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await appendFeedback(stateRoot, feedback({ id: "fb-old-a", body: "first" }));
+    await appendFeedback(stateRoot, feedback({ id: "fb-old-b", body: "second" }));
+    const path = feedbackLogPath(stateRoot);
+    const before = await readFile(path, "utf8");
+    const records = await readFeedbackRecordsRaw(stateRoot);
+    const rewritten = records.filter((record) => record.id !== "fb-old-a");
+    const expected = `${rewritten.map((record) => JSON.stringify(record)).join("\n")}\n`;
+    let enterRename = (): void => undefined;
+    const renameEntered = new Promise<void>((resolve) => {
+      enterRename = resolve;
+    });
+    let releaseRename = (): void => undefined;
+    const renameReleased = new Promise<void>((resolve) => {
+      releaseRename = resolve;
+    });
+    let sourcePath = "";
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      const pending = writeFeedbackRecords(stateRoot, rewritten, {
+        uniqueSuffix: () => "feedback-rewrite-test",
+        rename: async (source, destination) => {
+          sourcePath = source;
+          assert.equal(destination, path);
+          enterRename();
+          await renameReleased;
+          await rename(source, destination);
+        }
+      });
+
+      await renameEntered;
+      assert.equal(await readFile(path, "utf8"), before, "the destination is never truncated");
+      assert.equal(await readFile(sourcePath, "utf8"), expected, "the complete rewrite is staged");
+      releaseRename();
+      await pending;
+    });
+
+    assert.equal(await readFile(path, "utf8"), expected);
+    assert.deepEqual((await readRawLines(stateRoot)).map((row) => row.id), ["fb-old-b"]);
+  });
+});
+
 test("appendFeedback honours a caller's lock timeout instead of waiting the default out", async () => {
   await withStateRoot(async (stateRoot) => {
     let rejection: unknown = "never rejected";
@@ -333,6 +376,49 @@ test("appendFeedback honours a caller's lock timeout instead of waiting the defa
     assert.ok(rejection instanceof DomainValidationError);
     assert.equal(rejection.message, `timed out waiting for lock at ${feedbackLogLockPath(stateRoot)}`);
     assert.equal(existsSync(feedbackLogPath(stateRoot)), false, "a timed-out append writes nothing");
+  });
+});
+
+test("a message-only imitation of a lock timeout is never retried or dropped", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const probePath = join(stateRoot, "probe");
+    const probe = await open(probePath, "w");
+    type Handle = typeof probe;
+    type HandlePrototype = {
+      writeFile: Handle["writeFile"];
+    };
+    const prototype = Object.getPrototypeOf(probe) as HandlePrototype;
+    const originalWriteFile = prototype.writeFile;
+    await probe.close();
+    await rm(probePath);
+
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let metadataWrites = 0;
+    const lockPath = feedbackLogLockPath(stateRoot);
+    prototype.writeFile = (async function (): Promise<void> {
+      metadataWrites += 1;
+      throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
+    }) as Handle["writeFile"];
+
+    let outcome: unknown;
+    try {
+      outcome = await appendFeedbackWithRetry(stateRoot, feedback({ id: "fb-message-only" }), {
+        onDrop: (reason) => drops.push(reason),
+        maxAttempts: 3,
+        retryBackoffMs: 1,
+        sleep: async (ms) => {
+          backoffs.push(ms);
+        }
+      }).catch((error: unknown) => error);
+    } finally {
+      prototype.writeFile = originalWriteFile;
+    }
+
+    assert.ok(outcome instanceof DomainValidationError);
+    assert.equal(metadataWrites, 1, "an error without LOCK_TIMEOUT is attempted only once");
+    assert.deepEqual(backoffs, [], "message text alone must not enter the retry path");
+    assert.deepEqual(drops, [], "a non-timeout failure rejects instead of becoming a drop");
   });
 });
 
