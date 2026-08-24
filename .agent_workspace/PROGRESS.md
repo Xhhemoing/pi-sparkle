@@ -248,16 +248,16 @@ Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-execut
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R11-1 | pending | implement option (a) |
-| R11-2 | pending | discard crash-probe eleventh case |
-| R11-3 | pending | tracked-run pause controller |
-| R11-4 | pending | restore-path discard audit validation |
-| R11-5 | pending | Round 10 docs truth-up |
-| R11-6 | pending | keep live-isolation pins |
-| R11-7 | pending | keep INSPECT_SUMMARY + BLOCKED prefix |
-| R11-8 | pending | keep `applyRetry` AST pin |
-| R11-9 | pending | keep `TERMINAL_REPLAY_STATUSES` freeze |
-| R11-10 | pending | keep never-synthesize-from-episode |
+| R11-1 | bc-bac929b5-19fa-5a19-b5cf-fc7af45eed6e | implement option (a) |
+| R11-2 | bc-3be62857-82a1-5523-9ef1-cae7b3339bb7 | discard crash-probe eleventh case |
+| R11-3 | bc-52d9f74c-f0f1-593a-9372-24ee72f4f2fc | tracked-run pause controller |
+| R11-4 | bc-e3adef72-a50c-5c80-b871-70aee430ac51 | restore-path discard audit validation |
+| R11-5 | bc-7096a9fa-0d14-5551-98e7-a5af5ce05f22 | Round 10 docs truth-up |
+| R11-6 | bc-8b43b955-c413-54c7-b9f1-094ec7a911de | keep live-isolation pins |
+| R11-7 | bc-37fcffbf-7f45-5103-8de6-3a5d15860354 | keep INSPECT_SUMMARY + BLOCKED prefix |
+| R11-8 | bc-6b194f70-5131-591a-bc46-c2bc3793cb50 | keep `applyRetry` AST pin |
+| R11-9 | bc-9b740fbd-b914-5ee5-8aed-9ce8e9c09f14 | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R11-10 | bc-63703673-58ec-55f2-b9ad-9595d7b2e887 | keep never-synthesize-from-episode |
 
 ---
 

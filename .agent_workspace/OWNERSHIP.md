@@ -6,7 +6,7 @@ Lists are binding. **Hard contention:** R11-1 owns `protocol/v1.ts` + `tracking/
 
 Injection brief: `.agent_workspace/ROUND10-BRIEF.md`. Review: `.agent_workspace/loop4-r10-review.md`. Option-(a) design: `.agent_workspace/loop4-r8-t4.md`. Discard design: `.agent_workspace/loop4-r9-t3.md`.
 
-Dispatch ids: pending first commit of this file; parent records them immediately after launch.
+Dispatch ids: R11-1 `bc-bac929b5-19fa-5a19-b5cf-fc7af45eed6e`; R11-2 `bc-3be62857-82a1-5523-9ef1-cae7b3339bb7`; R11-3 `bc-52d9f74c-f0f1-593a-9372-24ee72f4f2fc`; R11-4 `bc-e3adef72-a50c-5c80-b871-70aee430ac51`; R11-5 `bc-7096a9fa-0d14-5551-98e7-a5af5ce05f22`; R11-6 `bc-8b43b955-c413-54c7-b9f1-094ec7a911de`; R11-7 `bc-37fcffbf-7f45-5103-8de6-3a5d15860354`; R11-8 `bc-6b194f70-5131-591a-bc46-c2bc3793cb50`; R11-9 `bc-9b740fbd-b914-5ee5-8aed-9ce8e9c09f14`; R11-10 `bc-63703673-58ec-55f2-b9ad-9595d7b2e887`.
 
 | Slot | Model | Owns |
 |---|---|---|
