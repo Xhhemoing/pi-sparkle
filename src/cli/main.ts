@@ -3,7 +3,6 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
-import { deleteRunRecords, deleteEpisodeRecords } from "../privacy/deletion.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
@@ -30,8 +29,6 @@ import {
 import { inspectRun } from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
-import { adaptCommand } from "./adapt.js";
-import { episodeCommand } from "./episode.js";
 import {
   checkpointCarriesFlowchart,
   eventsLookLikeFlowchartRun,
@@ -40,9 +37,7 @@ import {
   validateCheckpoint,
   type RunCheckpoint
 } from "../run/replay.js";
-import { resumeSupervisedRun } from "../run/supervisor.js";
 import { configurePreferencePersistence, correctPreference, deletePreference, inspectPreferences } from "../preferences/service.js";
-import { exportAuthorizedPreferences } from "../preferences/export.js";
 import { getMaterializedView } from "../preferences/materialize.js";
 import type { PreferenceScope } from "../preferences/types.js";
 import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-catalog.js";
@@ -56,18 +51,11 @@ import { type PublicPriorSnapshot } from "../routing/public-prior.js";
 import { loadPublicPriorSnapshot } from "../routing/public-prior-store.js";
 import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
-import { startTrackedRun } from "../track/loop.js";
 import {
   collectSelectedActionIds,
   parseChildNodeResultsFile,
   parseFlowchartFile
 } from "./flowchart-io.js";
-import { commitsCommand } from "./commits.js";
-import { pauseCommand } from "./pause.js";
-import { injectCommand } from "./inject.js";
-import { authCommand } from "./auth.js";
-import { modelsCommand } from "./models.js";
-import { doctorCommand } from "./doctor.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
@@ -673,6 +661,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, String(value)])
       );
     }
+    // Loaded at the point of use (S5-I): the track plane is reachable only
+    // from this --track branch, and keeping this edge out of main's static
+    // import list avoids a measured ~15-20ms package-scope-resolution penalty
+    // that every command paid when track/loop was a direct static dependency.
+    const { startTrackedRun } = await import("../track/loop.js");
     const outcome = await startTrackedRun({
       projectRoot,
       objective,
@@ -1024,6 +1017,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   requireDurableFlowchartCheckpoint(runId, read.events, existing);
   if (values.supervised === true) {
     const executorKind = values.executor ?? "fake-children";
+    // Loaded at the point of use: only --supervised resumes need the M2 DAG plane.
+    const { resumeSupervisedRun } = await import("../run/supervisor.js");
     const running = resumeSupervisedRun(
       {
         stateRoot,
@@ -1319,6 +1314,7 @@ async function prefExport(args: string[], io: CliIo): Promise<number> {
     }
     scopes = [values.scope];
   }
+  const { exportAuthorizedPreferences } = await import("../preferences/export.js");
   const result = exportAuthorizedPreferences(scopes !== undefined ? { scopes } : {});
   io.stdout(`${result.data}\n`);
   return 0;
@@ -1389,6 +1385,7 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     io.stderr(DELETE_USAGE);
     return 1;
   }
+  const { deleteRunRecords, deleteEpisodeRecords } = await import("../privacy/deletion.js");
   const result =
     values.run !== undefined
       ? await deleteRunRecords(stateRoot, parseRunId(values.run))
@@ -1417,26 +1414,45 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await resumeCommand(rest, io);
       case "answer":
         return await answerCommand(rest, io);
-      case "auth":
+      // One-shot subcommand handlers are loaded at their dispatch site
+      // (S4-I pattern): each module subtree is dead weight for every other
+      // command, and the ESM cache keeps the singleton identical.
+      case "auth": {
+        const { authCommand } = await import("./auth.js");
         return await authCommand(rest, io);
-      case "models":
+      }
+      case "models": {
+        const { modelsCommand } = await import("./models.js");
         return await modelsCommand(rest, io);
+      }
       case "pref":
         return await prefCommand(rest, io);
-      case "adapt":
+      case "adapt": {
+        const { adaptCommand } = await import("./adapt.js");
         return await adaptCommand(rest, io);
-      case "episode":
+      }
+      case "episode": {
+        const { episodeCommand } = await import("./episode.js");
         return await episodeCommand(rest, io);
+      }
       case "delete":
         return await deleteCommand(rest, io);
-      case "commits":
+      case "commits": {
+        const { commitsCommand } = await import("./commits.js");
         return await commitsCommand(rest, io);
-      case "pause":
+      }
+      case "pause": {
+        const { pauseCommand } = await import("./pause.js");
         return await pauseCommand(rest, io);
-      case "inject":
+      }
+      case "inject": {
+        const { injectCommand } = await import("./inject.js");
         return await injectCommand(rest, io);
-      case "doctor":
+      }
+      case "doctor": {
+        const { doctorCommand } = await import("./doctor.js");
         return await doctorCommand(rest, io);
+      }
       case "version":
       case "--version":
       case "-V":
