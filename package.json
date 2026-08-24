@@ -33,7 +33,7 @@
     "dev": "tsx src/cli/main.ts",
     "cli": "tsx src/cli/main.ts",
     "pi-sparkle": "node dist/cli/main.js",
-    "test": "tsx --test",
+    "test": "node scripts/run-tests.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",

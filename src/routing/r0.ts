@@ -59,9 +59,15 @@ function eligibleCandidates(
  * fail closed when nothing is eligible. High-risk requests only ever consider
  * models explicitly approved for high-risk work.
  *
- * Live flowchart execution does not import this module. The public orchestrator
- * uses `createModelRouter`, which is the R0-equivalent cheapest-eligible catalog
- * policy plus a static `preferredModel` override. R1 and bandit stay shadow-only.
+ * Reachability (module-graph fact, pinned by `live-isolation.test.ts`): this
+ * module IS inside the live import closure — `run/child-coordinator.ts` reaches
+ * it through `routing/live-cascade.ts` -> `routing/cascade-evidence.ts`, which
+ * imports `applyCascade`. What live execution does *not* do is call `routeR0`:
+ * its only caller is the shadow-only `r1-shadow-report.ts`, and the sole
+ * `applyCascade` caller (`applyEvidenceCascade`) is exercised by tests only.
+ * Live model selection goes through `createModelRouter`, the R0-equivalent
+ * cheapest-eligible catalog policy plus a static `preferredModel` override.
+ * R1 and bandit selection stay shadow-only.
  */
 export function routeR0(
   config: R0Config,

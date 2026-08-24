@@ -96,6 +96,44 @@ Parent post-collect honesty: USAGE lists `doctor --json`; status-matrix doctor r
 
 ## Round 2 结论简报
 
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1314 pass / 0 fail / 1 skip** (was 1282). Directory form `pnpm test -- test/unit/persist` works (13/13). Security probe **14/14**.
+
+### 演进对比 (Round 1 → Round 2)
+
+| Area | Round 1 | Round 2 |
+|---|---|---|
+| Isolation test | 10-file source grep | Transitive closure from 4 live entries; pinned allowlist (bandit writer, parked topology) |
+| Plane-boundary | Missing supervisor/cli prefixes | Prefixes added; type-only `eval-routing` allowlisted |
+| Delete cascade | body-only; invocations leak; episode lock survives | Strips body+summary; filter-rewrites invocations.jsonl; invalidates catalog-observed; removes .lock |
+| Cost calibration | Helper unwired | `isCostEligible` gated; unattributed/not-ok excluded |
+| Docs | Matrix honesty | README `--children` truth; 22-row command table; doctor --json / migrate-legacy |
+| Tests | persist lock + redaction | bandit-store units; evidence-invariant; checkpoint crash windows |
+| Runner | `tsx --test` dir-import bug | `scripts/run-tests.mjs` expands directories |
+| USAGE | `adapt promote` bare | Parent: full required flags |
+
+`src/supervisor/flowchart.ts` is **not** an orphan — `flowchart-supervisor.ts` imports `./flowchart.js`. Do not delete.
+
+### 潜在边界风险
+
+1. Episode objective text can still survive in attached runs' `events.jsonl` (`EPISODE_OPENED` copy) after `delete --episode`.
+2. No preference cascade on episode delete.
+3. `redacted: true` still means “pass ran”; decision classes not persisted on `FeedbackRecord`.
+4. `SPARKLE_AUTO_ADAPT=0` still writes `bandit.json` before the kill-switch return (collects *and* updates the learner).
+5. Closure walker is regex-based (fails closed on comment false-positives; misses computed dynamic imports — none in src/).
+6. Delete-vs-live-appender race on shared `invocations.jsonl` (documented).
+7. Unbounded retention of invocations/episodes.
+
+### SOTA 验收差距 (Round 3)
+
+1. Persist optional `redactionClasses` (or split scanned/transformed) so on-disk records are honest.
+2. Kill-switch: skip `updateProjectBandit` when `SPARKLE_AUTO_ADAPT=0` (collect-only).
+3. Episode-delete: scrub or disclose remaining run-log copies; preference cascade or explicit non-goal.
+4. README `adapt promote` row + delete-cascade “summary too”; CONTRIBUTING test-runner.
+5. `auth-session` / `cluster-tools` direct units; retention probe.
+6. Final cross-audit: no Outcome-supported, no live R1, ADR-006 Proposed, P0 sign-off open.
+
+## Round 3 结论简报
+
 _Not started._
 
 ## Round 3 结论简报

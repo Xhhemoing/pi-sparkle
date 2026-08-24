@@ -57,50 +57,58 @@ allowlist entry with a justification.
 | providers-config | runtime | `runtime/providers.json` | until-deleted | delete-files | 1 |
 | auth-credential | runtime | `runtime/auth.json` | until-deleted | delete-files | 1 |
 
-## Deletion tooling (Q2 remediation)
+## Deletion tooling (Q2 remediation, extended 2026-08-24 Round 2)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
-`runtime/runs/<id>/`. `pi-sparkle delete --episode <id>` removes both episode
-file shapes **and cascades into the adaptation plane**: every feedback record
-bound to that episode has its free-text `body` stripped and its id persisted to
+`runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
+so the run's rows are dropped (under the log's cooperative lock; a corrupt
+middle line fails the whole rewrite closed rather than reporting a partial
+delete as success), and — when rows were dropped — **invalidates the derived
+`runtime/routing/catalog-observed.json` snapshot** (unlinked, not recomputed;
+the class's recovery is "rebuild from invocations.jsonl" and readers treat a
+missing file as "no observations").
+
+`pi-sparkle delete --episode <id>` removes both episode file shapes plus the
+operational `<id>.lock`, **and cascades into the adaptation plane**: every
+feedback record bound to that episode has **both free-text fields (`body` and
+`summary`) physically stripped from disk** and its id persisted to
 `adaptation/feedback/tombstones.json`. `readFeedback` filters tombstoned ids
-at the first layer, so a lingering payload is never re-surfaced **through that
+at the first layer, so a lingering shell is never re-surfaced **through that
 API**, and dataset exports keep listing tombstone ids without payloads. The CLI
 fails closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
 found") exits 1 rather than reporting success.
 
-### Known limits of the current delete commands (2026-08-24 audit)
+### Known limits of the current delete commands (2026-08-24, Round 2 audit)
 
-Honest gaps found by the isolation/privacy audit
-([report](reports/2026-08-24-sota-isolation-privacy.md)); none of these are
+Honest gaps that remain after the Round 2 cascade work
+([Round 1 report](reports/2026-08-24-sota-isolation-privacy.md),
+[Round 2 report](reports/2026-08-24-sota-r2-isolation.md)); none of these are
 covered by the claims above:
 
-- **Cascade strips `body`, not `summary`.** The auto-adapt loop writes derived
-  user text into feedback `summary` (truncated user answers as
-  `user: <answer>`, peer-message bodies, subagent assistant text — up to
-  400 chars, `src/learning/signals.ts`). The episode cascade leaves `summary`
-  on disk in `records.jsonl`; it is hidden by the tombstone filter but not
-  physically removed. `src/privacy/record-classes.ts` also lists only `body`
-  as a sensitive feedback field — `summary` should be treated as equally
-  sensitive until the source of truth is corrected.
 - **Episode text survives inside attached runs.** `bindEpisodeToRun` appends
   an `EPISODE_OPENED` event carrying the full episode (including the
   objective text) into each attached run's
   `runtime/runs/<runId>/events.jsonl`. `delete --episode` does not touch run
   event logs; that copy is removed only when the run itself is deleted.
-- **`delete --run` does not reach `runtime/invocations.jsonl`.** Invocations
-  are one global append-only file; a deleted run's rows (hashes, usage
-  numbers, ids — no prompt/response text) survive, as do its aggregates in
-  `runtime/routing/catalog-observed.json`. This under-delivers the
-  `model-invocation` class's declared run-scoped `delete-files` behavior.
-- **Declared propagation `run-event → episode` is not implemented** — by
-  design (`src/privacy/deletion.ts`: episodes can outlive runs under
-  multi-run attach), but `src/privacy/record-classes.ts` still declares it.
 - **Preferences are not cascaded.** Observations whose `evidenceEpisodeId`
   references a deleted episode keep their payload and the episode link; use
   `pref delete` per observation.
-- **`runtime/episodes/<id>.lock`** (operational lock, no user text) is not
-  removed by `delete --episode`.
+- **Deleting a run that is still executing can race.** The invocation-log
+  rewrite serializes concurrent deletes via the log's lock, but the live
+  appender (`onInvocation`) appends without taking it. Delete a run after it
+  terminates; a delete during execution may leave (or drop) rows.
+- **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
+  class declares `delete-files`, but the log is one global file shared by all
+  runs, so a run-scoped delete rewrites it without the run's rows instead of
+  removing the file. The CLI output makes this visible
+  (`removed: …/invocations.jsonl (N invocation row(s))`).
+
+Closed in Round 2 (2026-08-24, verified on-disk against a scratch state root):
+the cascade previously stripped only `body` and left derived user text in
+`summary`; `delete --run` previously never touched `invocations.jsonl` or
+`catalog-observed.json`; the episode `.lock` previously survived deletion; and
+`record-classes.ts` previously declared an unimplemented `run-event → episode`
+propagation (now reconciled — `deletionPropagatesTo` is a behavioral claim).
 
 ## Completeness audit (2026-08-22)
 

@@ -15,14 +15,19 @@ not.
 
 This document's **M0–M2** are the runtime execution spine (CLI, events, children, DAG/flowchart supervisor). The adaptive work-loop spec's **M3–M6** are the adaptive library plane (episode review, R0/R1 routing, preferences, promotion). They are not later stages of the same CLI product line.
 
-Runtime **M2.5** is flowchart-as-public-orchestrator (`--flowchart`). `--children`
-remains the parent coordinator in the CLI; `compileChildrenToFlowchart` is a
-library helper and is not the live `--children` path. `--flowchart` may take
+Runtime **M2.5** is flowchart-as-public-orchestrator (`--flowchart`). Since
+M2.5 the CLI `--children` path compiles its child spec through
+`compileChildrenToFlowchart` and executes it on the flowchart engine; the
+child coordinator preserves the M1 parent/child protocol semantics inside
+that run, and the original M1 entry `startParentRun` is a library/test-only
+path (corrected 2026-08-24 — this paragraph previously claimed the compiler
+was not the live `--children` path). `--flowchart` may take
 `--executor fake|pi` to run leased nodes; `--results` remains the explicit
 override. Topology, R1, and bandit must not attach to the live run loop until
 Checkpoint F. Web UI remains last.
-`pi-sparkle doctor` exists as a developer-preview diagnostic; it is not a
-production capability until its output contract is frozen.
+`pi-sparkle doctor` exists as a developer-preview diagnostic. Its `--json`
+output contract (`DoctorJsonReport`) is frozen additive-only; doctor itself
+remains a preview capability, not a production one.
 
 ## Objective
 

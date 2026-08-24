@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type { ModelRouterConfig } from "../supervisor/model-router.js";
 import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";
+import { isCostEligible, isUnattributed } from "../telemetry/usage-aggregate.js";
 import { catalogModel, type CatalogModel } from "./catalog-model.js";
 
 export interface CalibratedRates {
@@ -12,30 +13,62 @@ export interface CalibratedRates {
   readonly estimatedCostUsd: number;
   readonly estimatedDurationMs: number;
   readonly samples: number;
+  /** Version-matched rows dropped because the call did not end `ok`. */
+  readonly excludedNotOk: number;
+  /** Version-matched rows dropped for carrying no terminal outcome at all. */
+  readonly excludedUnattributed: number;
+  /** Cost-eligible rows the provider reported no usable usage for. */
+  readonly skippedMissingUsage: number;
 }
 
 const SMOOTH = 0.3;
 export const INVOCATIONS_LOG = "invocations.jsonl";
 
+export function invocationsLogPath(stateRoot: string): string {
+  return join(runtimeRoot(stateRoot), INVOCATIONS_LOG);
+}
+
 /**
  * Exponential-smooth catalog token/latency rates from invocations of the same
- * model version. Missing usage is skipped — never treated as zero.
+ * model version.
+ *
+ * Only cost-eligible rows move a rate. A timed-out, cancelled, or errored call
+ * carries the provider's zeroed usage block or a partial stream's counts, so
+ * folding it in drags the per-token averages toward zero (2026-08-22 weak-area
+ * report §1.2). A row with no `callOutcome` at all predates outcome
+ * attribution: it is not a known failure, but it is not a known success
+ * either, and calibration will not attribute spend it cannot prove. Both
+ * exclusions are counted so "calibration stopped moving" is diagnosable rather
+ * than silent.
+ *
+ * Missing or zeroed usage on an eligible row is still skipped — never treated
+ * as zero tokens.
  */
 export function calibrateCatalogRates(
   model: CatalogModel,
   invocations: readonly ModelInvocation[]
 ): CalibratedRates {
-  let inputCost = model.inputCostPerMTok;
-  let outputCost = model.outputCostPerMTok;
+  const inputCost = model.inputCostPerMTok;
+  const outputCost = model.outputCostPerMTok;
   let latency = model.latencyMsPer1K;
   let estimatedCostUsd = model.estimatedCostUsd;
   let estimatedDurationMs = model.estimatedDurationMs;
   let samples = 0;
+  let excludedNotOk = 0;
+  let excludedUnattributed = 0;
+  let skippedMissingUsage = 0;
   for (const inv of invocations) {
     if (inv.config.model !== model.id) continue;
     if (inv.config.modelVersion !== model.version) continue;
-    if (inv.tokensIn === undefined || inv.tokensOut === undefined) continue;
-    if (inv.tokensOut <= 0) continue;
+    if (!isCostEligible(inv)) {
+      if (isUnattributed(inv)) excludedUnattributed += 1;
+      else excludedNotOk += 1;
+      continue;
+    }
+    if (inv.tokensIn === undefined || inv.tokensOut === undefined || inv.tokensOut <= 0) {
+      skippedMissingUsage += 1;
+      continue;
+    }
     const impliedLatency = (inv.latencyMs / inv.tokensOut) * 1000;
     const impliedCost =
       (inv.tokensIn / 1_000_000) * model.inputCostPerMTok +
@@ -51,7 +84,10 @@ export function calibrateCatalogRates(
     latencyMsPer1K: latency,
     estimatedCostUsd,
     estimatedDurationMs,
-    samples
+    samples,
+    excludedNotOk,
+    excludedUnattributed,
+    skippedMissingUsage
   };
 }
 
@@ -88,7 +124,7 @@ export function calibrateCatalogConfig(
 export async function loadInvocationsFromStateRoot(stateRoot: string): Promise<ModelInvocation[]> {
   let raw: string;
   try {
-    raw = await readFile(join(runtimeRoot(stateRoot), INVOCATIONS_LOG), "utf8");
+    raw = await readFile(invocationsLogPath(stateRoot), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;

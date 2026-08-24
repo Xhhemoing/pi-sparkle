@@ -82,7 +82,7 @@ Optional: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `hi
 
 ### Parent + children
 
-Provide a child spec JSON file. Task ids must be `tsk_<suffix>`. Roles must be one of `worker`, `scout`, `planner`, `implementer`, `reviewer`, `tester`, `debugger`. `--children` runs a parent coordinator over those tasks (it is not the `--flowchart` engine).
+Provide a child spec JSON file. Task ids must be `tsk_<suffix>`. Roles must be one of `worker`, `scout`, `planner`, `implementer`, `reviewer`, `tester`, `debugger`. `--children` compiles the spec through `compileChildrenToFlowchart` and executes it on the same flowchart engine as `--flowchart`; the child coordinator preserves parent/child protocol semantics inside that run (bounded children, peer mail, exactly one terminal `TASK_RESULT` per task). The original M1 entry `startParentRun` remains a library/test-only path.
 
 ```json
 {
@@ -118,7 +118,7 @@ Real providers remain opt-in: add `--executor pi` after `models set-default` (an
 
 ### Flowchart
 
-`--flowchart` is a DAG supervisor, not `--children`. Task ids must be `tsk_<suffix>`. Catalog aliases are `cheap` / `premium`. Do not combine with `--children` or `--track`.
+`--flowchart` takes an explicit flowchart JSON — the same DAG engine `--children` compiles onto, driven directly. Task ids must be `tsk_<suffix>`. Catalog aliases are `cheap` / `premium`. The flags are mutually exclusive: do not combine with `--children` or `--track`.
 
 Without `--results` or `--executor`, leased nodes stay RUNNING until stall. `--results` is an explicit nodeId → outcome map and wins over `--executor` for those nodes. `--executor fake` runs remaining RUNNING nodes through the protocol child fake (no API keys). `--executor pi` is opt-in.
 
@@ -139,11 +139,21 @@ pnpm cli run \
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
 | `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, and evidence. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
-| `pnpm cli resume --run <runId>` | Resume a paused or interrupted run |
+| `pnpm cli resume --run <runId>` | Resume a paused or interrupted run (`--supervised` for M2 DAG checkpoints; `--unpause` to clear a pause token) |
+| `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |
+| `pnpm cli pause --run <runId> [--reason <text>]` | Write a pause token and `PAUSE_REQUESTED`; `pause --clear` removes the token, `resume --unpause` clears it and continues |
+| `pnpm cli inject --run <runId> --type fact\|override\|skip` | Record a typed fact/override/skip against the run's decision policy; user strings are recorded, never executed |
+| `pnpm cli episode events\|close --episode <epId>` | Print the episode event view, or close an episode with an acceptance-gated status (`COMPLETED`/`FAILED`/`ABANDONED`) |
+| `pnpm cli pref list\|correct\|export\|delete` | Inspect, correct, export, or delete recorded preferences. Export is tombstone-aware and drops deleted payloads |
+| `pnpm cli delete --run <runId> \| --episode <epId>` | Delete runtime records. Episode delete cascades: bound feedback bodies are stripped and their ids tombstoned |
+| `pnpm cli commits preview\|apply --run <runId>` | Emit conventional commit messages from a completed flowchart run's ledger with evidence refs; `apply` writes them via `git commit --allow-empty` |
+| `pnpm cli auth status\|login\|logout` | Manage stored per-provider credentials (stored credentials win over env keys) |
+| `pnpm cli models list\|enable\|disable\|set-default` | Manage the enabled model catalog and the default primary/fast models |
 | `pnpm cli adapt status` | Show the proposal-first adaptation plane (never mutates a live run) |
 | `pnpm cli adapt learn --run <runId>` | Propose a routing-policy candidate from MODEL_ROUTED events |
 | `pnpm cli adapt auto [--run] [--project]` | Collect user + subagent feedback and propose routing-policy candidates (never auto-promotes; `SPARKLE_AUTO_ADAPT=0` still collects) |
-| `pnpm cli doctor [--project <path>]` | Developer-preview preflight (Node, pnpm, state-root, providers). Not a production capability |
+| `pnpm cli doctor [--project <path>] [--json]` | Developer-preview preflight (Node, pnpm, state-root, providers, legacy layout). `--json` emits the frozen additive-only `DoctorJsonReport` (`preview: true`, `liveAdaptive: false`). Not a production capability |
+| `pnpm cli migrate-legacy [--apply]` | Copy pre-plane flat state into `runtime/` + `adaptation/`. Dry run by default; `--apply` copies — never moves, deletes, or overwrites |
 | `pnpm test` | Run the full test suite |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
 
@@ -169,9 +179,9 @@ authoritative grid is [docs/status-matrix.md](docs/status-matrix.md).
 **Runtime (CLI spine, Developer Preview)**
 
 - M0: single-run CLI + event persistence — Wired + Exercised on the fake path
-- M1: `--children` parent coordinator (fake child executor by default)
+- M1: parent/child protocol + bounded child runs (fake child executor by default); its `startParentRun` entry is now library/test-only
 - M2: DAG supervisor (`--supervised` resume still uses this path)
-- M2.5: `--flowchart` is the public orchestrator; optional `--executor` runs nodes; `--children` is still the parent coordinator, not compiled into flowchart
+- M2.5: `--flowchart` is the public orchestrator; optional `--executor` runs nodes; `--children` compiles onto the same flowchart engine (`compileChildrenToFlowchart`) with child-protocol semantics preserved
 
 **Adaptive library (spec M3–M6; not a later CLI rewrite)**
 

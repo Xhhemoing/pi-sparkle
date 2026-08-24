@@ -31,6 +31,7 @@ function invocation(overrides: Partial<ModelInvocation> = {}): ModelInvocation {
     tokensOut: 500,
     latencyMs: 200,
     occurredAt: parseIsoTimestamp("2026-08-19T00:00:00.000Z"),
+    callOutcome: "ok",
     ...overrides
   };
 }
@@ -41,7 +42,74 @@ test("missing token usage is skipped, never treated as zero", () => {
     invocation({ tokensIn: undefined, tokensOut: undefined })
   ]);
   assert.equal(rates.samples, 0);
+  assert.equal(rates.skippedMissingUsage, 1);
   assert.equal(rates.latencyMsPer1K, model.latencyMsPer1K);
+});
+
+test("a failed call cannot move per-token cost even when it reports usage", () => {
+  const model = cheapCatalogModel();
+  // The provider's error payload carries a zeroed usage block; a partial
+  // stream reports only what arrived. Both would drag the averages down.
+  for (const callOutcome of ["error", "timeout", "cancelled"] as const) {
+    const zeroed = calibrateCatalogRates(model, [
+      invocation({ callOutcome, tokensIn: 0, tokensOut: 0, latencyMs: 30_000 })
+    ]);
+    assert.equal(zeroed.samples, 0, callOutcome);
+    assert.equal(zeroed.excludedNotOk, 1, callOutcome);
+    assert.equal(zeroed.skippedMissingUsage, 0, callOutcome);
+    assert.equal(zeroed.estimatedCostUsd, model.estimatedCostUsd, callOutcome);
+    assert.equal(zeroed.estimatedDurationMs, model.estimatedDurationMs, callOutcome);
+    assert.equal(zeroed.latencyMsPer1K, model.latencyMsPer1K, callOutcome);
+
+    const partial = calibrateCatalogRates(model, [
+      invocation({ callOutcome, tokensIn: 900_000, tokensOut: 3, latencyMs: 45_000 })
+    ]);
+    assert.equal(partial.samples, 0, callOutcome);
+    assert.equal(partial.latencyMsPer1K, model.latencyMsPer1K, callOutcome);
+  }
+});
+
+test("one failed call cannot dilute the rate a successful call established", () => {
+  const model = cheapCatalogModel();
+  const heavy = invocation({ tokensIn: 1_000_000, tokensOut: 1_000_000, latencyMs: 8_000 });
+  const okOnly = calibrateCatalogRates(model, [heavy]);
+  const withFailure = calibrateCatalogRates(model, [
+    heavy,
+    invocation({ id: "inv_2" as ModelInvocation["id"], callOutcome: "error", tokensIn: 0, tokensOut: 0, latencyMs: 1 })
+  ]);
+  assert.equal(withFailure.samples, okOnly.samples);
+  assert.equal(withFailure.estimatedCostUsd, okOnly.estimatedCostUsd);
+  assert.equal(withFailure.estimatedDurationMs, okOnly.estimatedDurationMs);
+  assert.equal(withFailure.excludedNotOk, 1);
+});
+
+test("a record with no terminal outcome is excluded rather than assumed successful", () => {
+  const model = cheapCatalogModel();
+  const rates = calibrateCatalogRates(model, [
+    invocation({ callOutcome: undefined, tokensIn: 1_000_000, tokensOut: 1_000_000 })
+  ]);
+  assert.equal(rates.samples, 0);
+  assert.equal(rates.excludedUnattributed, 1);
+  assert.equal(rates.excludedNotOk, 0);
+  assert.equal(rates.estimatedCostUsd, model.estimatedCostUsd);
+  // Excluding it must leave the catalog row untouched, not zeroed.
+  assert.equal(withCalibratedRates(model, rates), model);
+});
+
+test("exclusion counts are scoped to the model version being calibrated", () => {
+  const model = cheapCatalogModel();
+  const rates = calibrateCatalogRates(model, [
+    invocation({ callOutcome: "error" }),
+    invocation({
+      callOutcome: "error",
+      config: { provider: "fake", model: "cheap", modelVersion: "cheap-v9", parameterHash: "abc" }
+    }),
+    invocation({
+      callOutcome: "error",
+      config: { provider: "fake", model: "premium", modelVersion: "cheap-v1", parameterHash: "abc" }
+    })
+  ]);
+  assert.equal(rates.excludedNotOk, 1);
 });
 
 test("latency is exponentially smoothed from invocations of the same version", () => {
@@ -99,6 +167,15 @@ test("budget filter uses calibrated estimates on the next route", () => {
       return true;
     }
   );
+});
+
+test("a catalog calibrated only from failed calls stays uncalibrated", () => {
+  const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+  const calibrated = calibrateCatalogConfig(catalog, [
+    invocation({ callOutcome: "error", tokensIn: 1_000_000, tokensOut: 1_000_000, latencyMs: 8_000 })
+  ]);
+  assert.equal(calibrated.policyVersion, catalog.policyVersion);
+  assert.doesNotMatch(calibrated.policyVersion, /calibrated/);
 });
 
 test("loadInvocationsFromStateRoot skips a missing file and malformed or incomplete rows", async () => {

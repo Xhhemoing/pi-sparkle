@@ -78,9 +78,13 @@ not import R1, bandit, or shadow routers.
 ## Enforcement status (2026-08-24 audit — informative, decision unchanged)
 
 The import ban above is enforced by
-`test/unit/routing/live-isolation.test.ts`, which scans the literal source
-text of a fixed ten-file live-plane list. A transitive import-closure audit
-(see `docs/reports/2026-08-24-sota-isolation-privacy.md`) found:
+`test/unit/routing/live-isolation.test.ts`. As of the Round 2 working tree
+(2026-08-24) that test builds the **transitive import closure** from the four
+live entry points and judges reachability, superseding the earlier version
+that only scanned the literal source text of a fixed ten-file list. The
+transitive import-closure audit
+(see `docs/reports/2026-08-24-sota-isolation-privacy.md`, re-verified in
+`docs/reports/2026-08-24-sota-r2-isolation.md`) found:
 
 - No live entry point (`src/cli/main.ts`, `src/run/flowchart-run.ts`,
   `src/track/loop.ts`, `src/run/supervisor.ts`) reaches `routing/r1.ts`,
@@ -98,5 +102,9 @@ text of a fixed ten-file live-plane list. A transitive import-closure audit
   status-matrix phrase "must not import into live execution" is broader than
   both this ADR and the code.
 
-The source-text test does not detect transitive imports; hardening it into a
-closure check is queued follow-up work.
+Round 2 update (2026-08-24): the queued hardening shipped. The test now walks
+the module graph transitively, forbids the R1/shadow/holdout modules anywhere
+in the live closure, and pins the two reachable learned-routing modules
+(bandit via `learning/bandit-store.ts`, topology via `run/supervisor.ts`) to
+their exact importers, with symbol-level guards that `selectArm`,
+`loadProjectBandit`, and `planTaskTopology` gain no live caller.
