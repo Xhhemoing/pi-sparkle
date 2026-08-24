@@ -470,3 +470,6 @@
 | S8-C-2 | APC off 值改支撑求和跳 contrast 列（免 slice 拷贝 + 免 O(p) off 点积） | 逐位等价但 22.2–23.6 ms/报告、决斗 +14.3/+15.6/+18.3 ms 全部带内（贴带不越带） |
 | S8-C-3 | irls 收敛侧 beta.every(Number.isFinite) 死代码消除 | 恒真可证但 0.40 ms/报告；跨函数不变量第二证人 |
 | S8-C-4 | solveSymmetric 回代对角 eps 卫死代码消除 | 恒不触发可证但删除侧稳定更慢（布局伪影）；fail-closed 数值卫 |
+| S8-E-1 | tracked/children run 每 run 双重 loadLearnedRouting 去重 | 亚 ms 一次性（80–85µs）；去重须公开签名或 X1-1 缓存；并发 promote 新鲜性发散 |
+| S8-E-2 | baseSignal 条件 spread 改后置条件赋值 | 等价且混合形状 171–212ns/call，上界 ~2.6–3.2µs/run；收益大半为 PIC 敏感项 |
+| S8-E-3 | applyLearnedToNode 与 applyLearnedRouting 的 prefer.find 跨界去重 | 15–16ns/节点；落地须拓宽公开返回形状或复制回退逻辑 |
