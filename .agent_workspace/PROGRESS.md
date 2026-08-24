@@ -179,16 +179,16 @@ Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (AD
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R8-1 | pending | ship `RUN_UNBLOCKED` + folded resume/answer BLOCKED `next:` |
-| R8-2 | pending | durable-contract design + absence pins (no src) |
-| R8-3 | pending | flowchart `applyRetry` absence pin (no src) |
-| R8-4 | pending | option (a) design-only |
-| R8-5 | pending | Round 7 docs truth-up |
-| R8-6 | pending | catalog route posture (b) + bandit producer pin |
-| R8-7 | pending | parent-plane crash residuals (no crash-terminal edit) |
-| R8-8 | pending | freeze `INSPECT_SUMMARY` additive |
-| R8-9 | pending | delete unused `loadProjectBandit` |
-| R8-10 | pending | re-seed bound-episode pre-rounds settle |
+| R8-1 | bc-04e9b0fd-7eac-5257-99ec-80f014de2983 | ship `RUN_UNBLOCKED` + folded resume/answer BLOCKED `next:` |
+| R8-2 | bc-e54c339d-20d2-599e-89ca-e9e129dcecad | durable-contract design + absence pins (no src) |
+| R8-3 | bc-6f365607-85cc-5b6f-94bc-ccb7a9424536 | flowchart `applyRetry` absence pin (no src) |
+| R8-4 | bc-4f1f0ff5-4040-5760-a667-45e9554bfa73 | option (a) design-only |
+| R8-5 | bc-d3903dd3-62a2-5c09-9715-4288654bb589 | Round 7 docs truth-up |
+| R8-6 | bc-0909b159-52b0-5839-ab9e-dc4aef25892e | catalog route posture (b) + bandit producer pin |
+| R8-7 | bc-5ac3620f-d1e6-552f-8d6f-2511b8b8c97a | parent-plane crash residuals (no crash-terminal edit) |
+| R8-8 | bc-faed627a-27aa-592a-abaf-747f13f608fc | freeze `INSPECT_SUMMARY` additive |
+| R8-9 | bc-fa848108-24c4-5b92-8430-a0dc6683f100 | delete unused `loadProjectBandit` |
+| R8-10 | bc-6d55b575-e843-5581-bac0-6370415d16ac | re-seed bound-episode pre-rounds settle |
 
 ---
 

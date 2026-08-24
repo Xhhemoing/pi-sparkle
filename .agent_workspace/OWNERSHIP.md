@@ -6,6 +6,8 @@ Lists are binding. **Hard contention resolved at dispatch:** R8-1 owns `replay.t
 
 Injection brief: `.agent_workspace/ROUND7-BRIEF.md`. Review: `.agent_workspace/loop4-r7-review.md`. R7-3 design: `.agent_workspace/loop4-r7-t3.md`.
 
+Dispatch ids: R8-1 `bc-04e9b0fd-7eac-5257-99ec-80f014de2983`; R8-2 `bc-e54c339d-20d2-599e-89ca-e9e129dcecad`; R8-3 `bc-6f365607-85cc-5b6f-94bc-ccb7a9424536`; R8-4 `bc-4f1f0ff5-4040-5760-a667-45e9554bfa73`; R8-5 `bc-d3903dd3-62a2-5c09-9715-4288654bb589`; R8-6 `bc-0909b159-52b0-5839-ab9e-dc4aef25892e`; R8-7 `bc-5ac3620f-d1e6-552f-8d6f-2511b8b8c97a`; R8-8 `bc-faed627a-27aa-592a-abaf-747f13f608fc`; R8-9 `bc-fa848108-24c4-5b92-8430-a0dc6683f100`; R8-10 `bc-6d55b575-e843-5581-bac0-6370415d16ac`.
+
 | Slot | Model | Owns |
 |---|---|---|
 | R8-1 | opus | `src/run/events.ts`, `src/run/replay.ts`, `src/run/gate-apply.ts`, `src/run/flowchart-run.ts`, `src/supervisor/flowchart-supervisor.ts`, `src/cli/main.ts` (all sole); `test/unit/run/replay.test.ts`; `test/unit/run/event-row-fuzz.test.ts`; `test/integration/cli/blocked-next.test.ts` (the note-line pin); additive integration tests. Ship `RUN_UNBLOCKED`. Fold brief R8-3: flowchart `resume`/`answer` BLOCKED reports. Leave the supervised-resume loopback byte-pin **untouched**. |
