@@ -18,7 +18,15 @@ import {
   type RunId
 } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
-import { appendFeedback, readFeedback, readFeedbackRecordsRaw } from "../../../src/feedback/store.js";
+import {
+  appendFeedback,
+  feedbackLogLockPath,
+  feedbackLogPath,
+  feedbackTombstonesPath,
+  readFeedback,
+  readFeedbackRecordsRaw,
+  withFeedbackLogLock
+} from "../../../src/feedback/store.js";
 import {
   clearAll,
   configurePreferencePersistence,
@@ -415,6 +423,176 @@ test("a second cascade cannot resurrect a stripped summary", async () => {
     const raw = await readFile(join(stateRoot, "adaptation", "feedback", "records.jsonl"), "utf8");
     assert.doesNotMatch(raw, /summary text/);
     assert.doesNotMatch(raw, /body text/);
+  });
+});
+
+/**
+ * The cascade rewrites the whole feedback log, so an append landing between
+ * its read and its write used to be erased — and an append landing after the
+ * write used to put free text back on disk under an id that was just
+ * tombstoned. Both writers now take `records.jsonl.lock`.
+ */
+test("the episode cascade waits for the feedback log lock", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-locked", { body: "text to strip" });
+    const path = feedbackLogPath(stateRoot);
+    const before = await readFile(path, "utf8");
+    let pending: Promise<{ cascadedFeedbackTombstones: readonly string[] }> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = deleteEpisodeRecords(stateRoot, episodeId);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(
+        await readFile(path, "utf8"),
+        before,
+        "the cascade must not start while another writer holds the lock"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual((await pending).cascadedFeedbackTombstones, ["fb-locked"]);
+    assert.doesNotMatch(await readFile(path, "utf8"), /text to strip/);
+    assert.equal(existsSync(feedbackLogLockPath(stateRoot)), false, "lock is released");
+  });
+});
+
+test("a cascade that cannot take the feedback lock fails closed and changes nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-contended", { body: "still here" });
+    const path = feedbackLogPath(stateRoot);
+    const before = await readFile(path, "utf8");
+    let outcome: unknown;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      outcome = await cascadeFeedbackTombstones(stateRoot, episodeId, {
+        timeoutMs: 40,
+        retryMs: 5
+      }).then(
+        (cascaded) => cascaded,
+        (error: unknown) => error
+      );
+    });
+
+    assert.ok(outcome instanceof DomainValidationError, "a lock timeout must reject the cascade");
+    assert.match(outcome.message, /timed out waiting for lock/);
+    assert.equal(await readFile(path, "utf8"), before, "the log must be byte-identical");
+    assert.equal(
+      existsSync(feedbackTombstonesPath(stateRoot)),
+      false,
+      "a cascade that never ran must not claim a tombstone"
+    );
+  });
+});
+
+test("feedback appended while the episode cascade runs survives whole", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createEpisodeId(UUID);
+    const other = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, doomed, "fb-doomed", {
+      body: "doomed body",
+      summary: "doomed summary"
+    });
+
+    const [result] = await Promise.all([
+      deleteEpisodeRecords(stateRoot, doomed),
+      appendFeedback(stateRoot, {
+        id: "fb-live",
+        episodeId: other,
+        kind: "human",
+        rubricVersion: "1",
+        score: 55,
+        evidenceRefs: [],
+        redacted: false,
+        createdAt: parseIsoTimestamp("2026-08-24T00:00:05.000Z"),
+        body: "live note written mid-delete"
+      })
+    ]);
+
+    assert.deepEqual(result.cascadedFeedbackTombstones, ["fb-doomed"]);
+    const records = await readFeedbackRecordsRaw(stateRoot);
+    const live = records.find((record) => record.id === "fb-live");
+    assert.ok(live, "the append must not be clobbered by the rewrite");
+    assert.equal(live.body, "live note written mid-delete");
+    const stripped = records.find((record) => record.id === "fb-doomed");
+    assert.ok(stripped);
+    assert.equal(stripped.body, undefined);
+    assert.equal(stripped.summary, undefined);
+    // Whichever order the two writers ran in, no torn line reached the log.
+    assert.equal(records.length, 2);
+  });
+});
+
+/**
+ * The other side of the race: an append that lands *after* the cascade. That
+ * row is a new fact, not a resurrected one — the tombstone keeps it out of
+ * `readFeedback`, and the operator has to delete again to clear the bytes.
+ */
+test("a late append cannot resurrect stripped text through the read API", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-late", { body: "first body" });
+    await deleteEpisodeRecords(stateRoot, episodeId);
+
+    await seedFeedback(stateRoot, episodeId, "fb-late", { body: "second body" });
+    assert.deepEqual(await readFeedback(stateRoot), [], "the tombstone still hides the id");
+
+    const second = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(second.cascadedFeedbackTombstones, ["fb-late", "fb-late"]);
+    assert.doesNotMatch(await readFile(feedbackLogPath(stateRoot), "utf8"), /second body/);
+  });
+});
+
+test("a corrupt feedback line fails the episode delete closed, before anything is unlinked", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    await seedFeedback(stateRoot, episodeId, "fb-first", { body: "text that must not survive" });
+    const path = feedbackLogPath(stateRoot);
+    // A corrupt middle line: the reader cannot prove whose row it is, so the
+    // cascade cannot prove it stripped every row bound to this episode.
+    await writeFile(path, `${await readFile(path, "utf8")}{ not json\n{"id":"fb-third"}\n`, "utf8");
+    const before = await readFile(path, "utf8");
+    const episodesDir = join(stateRoot, "runtime", "episodes");
+    await mkdir(episodesDir, { recursive: true });
+    await writeFile(join(episodesDir, `${episodeId}.jsonl`), "{}\n", "utf8");
+
+    await assert.rejects(
+      () => deleteEpisodeRecords(stateRoot, episodeId),
+      (error: unknown) => {
+        assert.ok(error instanceof DomainValidationError);
+        assert.match(error.message, /corrupt feedback jsonl at line 2 /);
+        assert.match(error.message, /refusing to cascade an episode delete through it/);
+        return true;
+      }
+    );
+
+    assert.equal(await readFile(path, "utf8"), before, "no partial rewrite");
+    assert.equal(
+      existsSync(feedbackTombstonesPath(stateRoot)),
+      false,
+      "a delete that could not strip the text must not claim a tombstone"
+    );
+    assert.equal(
+      existsSync(join(episodesDir, `${episodeId}.jsonl`)),
+      true,
+      "a failed delete must not half-delete the episode"
+    );
+    assert.equal(existsSync(feedbackLogLockPath(stateRoot)), false, "lock is released");
+  });
+});
+
+test("an episode delete with no feedback log is a no-op, not an adaptation-plane write", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = createEpisodeId(UUID);
+    const result = await deleteEpisodeRecords(stateRoot, episodeId);
+    assert.deepEqual(result.cascadedFeedbackTombstones, []);
+    assert.deepEqual(await cascadeFeedbackTombstones(stateRoot, episodeId), []);
+    assert.equal(
+      existsSync(adaptationRoot(stateRoot)),
+      false,
+      "a delete must not create the plane it deletes from"
+    );
   });
 });
 

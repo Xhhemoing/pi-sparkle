@@ -11,11 +11,14 @@ import {
 } from "../telemetry/invocation-log.js";
 import type { FeedbackRecord } from "../feedback/types.js";
 import {
+  feedbackLogPath,
   feedbackTombstonesPath,
   readFeedbackRecordsRaw,
   readFeedbackTombstoneIds,
+  withFeedbackLogLock,
   writeFeedbackRecords
 } from "../feedback/store.js";
+import type { FileLockOptions } from "../persist/file-lock.js";
 
 export function tombstoneIds(ids: readonly string[]): ReadonlySet<string> {
   return new Set(ids);
@@ -151,6 +154,12 @@ export async function deleteRunRecords(
  * The episode's own text is read before the unlink so the residual scan can
  * recognise copies of it in attached runs; those runs are reported, never
  * rewritten (see `findResidualEpisodeText`).
+ *
+ * The feedback cascade runs first and fails closed, for the same reason the
+ * invocation rewrite does in `deleteRunRecords`: if the free text bound to
+ * this episode cannot be stripped, the operator must see a failed delete with
+ * the records still in place, not a successful one that removed the episode's
+ * own files and left its feedback text on disk.
  */
 export async function deleteEpisodeRecords(
   stateRoot: string,
@@ -158,6 +167,7 @@ export async function deleteEpisodeRecords(
 ): Promise<DeletionResult> {
   const episodesDir = join(runtimeRoot(stateRoot), "episodes");
   const episodeText = await readEpisodeText(episodesDir, episodeId);
+  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId);
   const removed: string[] = [];
   // Three episode-scoped files can sit under runtime/episodes/: the
   // project-episode log (`<id>.jsonl`), the episode event log
@@ -176,7 +186,6 @@ export async function deleteEpisodeRecords(
     }
   }
 
-  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId);
   const residual = await findResidualEpisodeText(stateRoot, episodeId, episodeText);
   return {
     target: `episode:${episodeId}`,
@@ -420,29 +429,61 @@ async function readTextFile(path: string): Promise<string> {
  * their ids as tombstones. The record shell (id, score, kind, timestamps) is
  * kept for audit; `body` and `summary` — the only user-text fields — are
  * removed from disk, not just hidden behind the tombstone filter.
+ *
+ * Contract details:
+ *  - Read, filter, rewrite, and tombstone-write all happen inside the feedback
+ *    log's cooperative lock (`withFeedbackLogLock`), the same lock
+ *    `appendFeedback` takes. A live auto-adapt append therefore lands either
+ *    wholly before the read or wholly after the write, instead of into the
+ *    window between them where the rewrite would clobber it — or after it,
+ *    putting text back on disk under an id that was just tombstoned.
+ *  - A corrupt line throws. Reading it as "no records" is how this cascade
+ *    used to report a successful delete while the episode's feedback text sat
+ *    on disk untouched; a log we cannot parse is a log whose rows we cannot
+ *    prove we stripped, so the delete fails closed instead.
+ *  - No log at all is a genuine no-op: nothing is read, no lock is taken, and
+ *    the adaptation plane is not created just to delete from it.
+ *  - The text is stripped before the tombstones are persisted. A crash between
+ *    the two leaves stripped shells that are not yet tombstoned, which is the
+ *    privacy-safe direction: the text is already gone.
  */
 export async function cascadeFeedbackTombstones(
   stateRoot: string,
-  episodeId: EpisodeId
+  episodeId: EpisodeId,
+  options: FileLockOptions = {}
 ): Promise<string[]> {
-  const records = await readFeedbackRecordsRaw(stateRoot).catch(() => []);
-  if (records.length === 0) return [];
+  if (!(await statExists(feedbackLogPath(stateRoot)))) return [];
+  return withFeedbackLogLock(
+    stateRoot,
+    async () => {
+      const records = await readFeedbackRecordsRaw(
+        stateRoot,
+        "refusing to cascade an episode delete through it"
+      );
+      if (records.length === 0) return [];
 
-  const tombstones = await readFeedbackTombstoneIds(stateRoot);
-  const cascaded: string[] = [];
-  const updated = records.map((record) => {
-    if (record.episodeId !== episodeId) return record;
-    cascaded.push(record.id);
-    tombstones.add(record.id);
-    return stripFreeText(record);
-  });
-  if (cascaded.length === 0) return [];
+      const tombstones = await readFeedbackTombstoneIds(stateRoot);
+      const cascaded: string[] = [];
+      const updated = records.map((record) => {
+        if (record.episodeId !== episodeId) return record;
+        cascaded.push(record.id);
+        tombstones.add(record.id);
+        return stripFreeText(record);
+      });
+      if (cascaded.length === 0) return [];
 
-  await writeFeedbackRecords(stateRoot, updated);
-  const tombstonePath = feedbackTombstonesPath(stateRoot);
-  await mkdir(dirname(tombstonePath), { recursive: true });
-  await writeFile(tombstonePath, `${JSON.stringify([...tombstones].sort(), null, 2)}\n`, "utf8");
-  return cascaded.sort();
+      await writeFeedbackRecords(stateRoot, updated);
+      const tombstonePath = feedbackTombstonesPath(stateRoot);
+      await mkdir(dirname(tombstonePath), { recursive: true });
+      await writeFile(
+        tombstonePath,
+        `${JSON.stringify([...tombstones].sort(), null, 2)}\n`,
+        "utf8"
+      );
+      return cascaded.sort();
+    },
+    options
+  );
 }
 
 /**

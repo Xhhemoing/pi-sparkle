@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   appendFeedback,
+  feedbackLogLockPath,
   feedbackLogPath,
   FEEDBACK_REDACTION_POLICY,
   readFeedback,
-  readFeedbackRecordsRaw
+  readFeedbackRecordsRaw,
+  withFeedbackLogLock,
+  writeFeedbackRecords
 } from "../../../src/feedback/store.js";
 import { redactFeedback } from "../../../src/feedback/redaction.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
@@ -52,6 +56,8 @@ async function writeRawRows(stateRoot: string, rows: readonly unknown[]): Promis
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf8");
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function readRawLines(stateRoot: string): Promise<Record<string, unknown>[]> {
   const raw = await readFile(feedbackLogPath(stateRoot), "utf8");
@@ -236,6 +242,103 @@ test("an oversized body is dropped on append and cannot come back on re-append",
     const reappended = await appendFeedback(stateRoot, reloaded);
     assert.equal(reappended.body, undefined);
     assert.deepEqual(reappended.redactionClasses, ["pii", "oversized"]);
+  });
+});
+
+test("the write lock sits beside the log it guards", () => {
+  const stateRoot = join(tmpdir(), "pi-sparkle-feedback-path-check");
+  assert.equal(feedbackLogLockPath(stateRoot), `${feedbackLogPath(stateRoot)}.lock`);
+  assert.match(feedbackLogLockPath(stateRoot), /records\.jsonl\.lock$/);
+});
+
+test("an append waits for the log lock instead of writing under another writer", async () => {
+  await withStateRoot(async (stateRoot) => {
+    let pending: Promise<FeedbackRecord> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = appendFeedback(stateRoot, feedback({ id: "fb-queued", body: "note" }));
+      await sleep(80);
+      assert.equal(
+        existsSync(feedbackLogPath(stateRoot)),
+        false,
+        "the append must not touch the log while another writer holds the lock"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    await pending;
+    assert.deepEqual((await readRawLines(stateRoot)).map((line) => line.id), ["fb-queued"]);
+    assert.equal(existsSync(feedbackLogLockPath(stateRoot)), false, "lock is released");
+  });
+});
+
+test("concurrent appends from one process all land, whole and in call order", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const ids = Array.from({ length: 12 }, (_, index) => `fb-concurrent-${index}`);
+    await Promise.all(ids.map((id) => appendFeedback(stateRoot, feedback({ id, body: "note" }))));
+
+    assert.deepEqual(
+      (await readRawLines(stateRoot)).map((line) => line.id),
+      ids,
+      "every row lands exactly once, in the order the appends were issued"
+    );
+  });
+});
+
+/**
+ * The shape of the deletion cascade's rewrite — read, filter, write — with an
+ * append issued right inside that window. Unlocked, the write erased the
+ * appended row; locked, the append is still queued when the rewrite finishes.
+ */
+test("a rewrite under the lock cannot clobber a concurrent append", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await appendFeedback(stateRoot, feedback({ id: "fb-kept", body: "keep me" }));
+    await appendFeedback(stateRoot, feedback({ id: "fb-dropped", body: "drop me" }));
+    let pending: Promise<FeedbackRecord> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      const records = await readFeedbackRecordsRaw(stateRoot);
+      pending = appendFeedback(stateRoot, feedback({ id: "fb-live", body: "live note" }));
+      await sleep(50);
+      await writeFeedbackRecords(
+        stateRoot,
+        records.filter((record) => record.id !== "fb-dropped")
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    await pending;
+    const rows = await readRawLines(stateRoot);
+    assert.deepEqual(rows.map((row) => row.id), ["fb-kept", "fb-live"]);
+    // Whole, not merely present: a torn line would not have survived JSON.parse
+    // in readRawLines, and the payload has to be the one that was appended.
+    assert.equal(rows[1]?.body, "live note");
+  });
+});
+
+test("the writer-side read names the corrupt line and what it is refusing to do", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackLogPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify(feedback({ id: "fb-ok" }))}\n{ not json\n${JSON.stringify(feedback({ id: "fb-late" }))}\n`,
+      "utf8"
+    );
+
+    await assert.rejects(
+      () => readFeedbackRecordsRaw(stateRoot, "refusing to rewrite it for a delete"),
+      (error: unknown) => {
+        assert.ok(error instanceof DomainValidationError);
+        assert.equal(
+          error.message,
+          `corrupt feedback jsonl at line 2 of ${path}; refusing to rewrite it for a delete`
+        );
+        return true;
+      }
+    );
+    // readFeedback keeps failing closed too, with its own default refusal.
+    await assert.rejects(() => readFeedback(stateRoot), DomainValidationError);
   });
 });
 

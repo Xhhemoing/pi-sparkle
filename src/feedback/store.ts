@@ -4,12 +4,60 @@ import { adaptationRoot } from "../privacy/state-layout.js";
 import { isRedactionClass, REDACTION_CLASSES } from "./types.js";
 import type { FeedbackRecord, RedactionClass } from "./types.js";
 import { redactFeedback, type RedactionPolicy } from "./redaction.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
 import { DomainValidationError } from "../domain/errors.js";
 
 export function feedbackLogPath(stateRoot: string): string {
   return join(adaptationRoot(stateRoot), "feedback", "records.jsonl");
 }
+
+/**
+ * Cooperative lock guarding every write to the feedback log.
+ *
+ * The log has two writers with incompatible shapes: the auto-adapt loop
+ * appends one row at a time, and the episode-deletion cascade
+ * (`privacy/deletion.ts`) read-filter-rewrites the whole file to strip free
+ * text. An append that lands between the cascade's read and its write is
+ * silently clobbered; an append that lands after the write puts user text back
+ * on disk under an id the cascade just tombstoned — hidden from `readFeedback`
+ * by the tombstone filter, but present in the bytes, which is exactly what the
+ * cascade promises not to leave behind. Both writers therefore go through
+ * `records.jsonl.lock`, the treatment `invocations.jsonl.lock` already gives
+ * the shared invocation log. Anything that appends to or rewrites this log
+ * outside `appendFeedback` / `withFeedbackLogLock` reopens that race.
+ *
+ * Readers are deliberately lock-free: they fail closed on a corrupt line
+ * rather than needing to exclude a live writer.
+ */
+export function feedbackLogLockPath(stateRoot: string): string {
+  return `${feedbackLogPath(stateRoot)}.lock`;
+}
+
+/**
+ * Run `operation` while holding the feedback log's exclusive lock. The
+ * deletion cascade uses this so a live append cannot interleave with its
+ * read-filter-write cycle.
+ */
+export async function withFeedbackLogLock<T>(
+  stateRoot: string,
+  operation: () => Promise<T>,
+  options: FileLockOptions = {}
+): Promise<T> {
+  return withExclusiveFileLock(feedbackLogLockPath(stateRoot), operation, options);
+}
+
+/**
+ * In-process append queue, keyed by log path.
+ *
+ * The file lock alone is correct but polls: N concurrent appends in one
+ * process would each spin on `EEXIST` until their turn, and a busy auto-adapt
+ * batch could burn the lock timeout waiting on its own siblings. Chaining
+ * appends per path means the process asks for the lock once at a time and
+ * queued callers wait in JS, which also preserves call order within the
+ * process.
+ */
+const appendQueues = new Map<string, Promise<void>>();
 
 /** Sidecar listing deleted feedback ids; payloads of these ids never reload. */
 export function feedbackTombstonesPath(stateRoot: string): string {
@@ -46,25 +94,52 @@ export const FEEDBACK_REDACTION_POLICY = {
  * reported. Storing the classes is what makes the log auditable after the
  * fact: `redacted: true` only says the pass ran, while the class list says
  * whether anything was actually found and removed.
+ *
+ * The append happens under the log's exclusive lock, so it lands either wholly
+ * before or wholly after a deletion cascade's rewrite, never inside it.
  */
 export async function appendFeedback(stateRoot: string, record: FeedbackRecord): Promise<FeedbackRecord> {
   const { feedback } = redactFeedback(record, FEEDBACK_REDACTION_POLICY);
-  await appendJsonlLine(feedbackLogPath(stateRoot), JSON.stringify(feedback), false);
+  const path = feedbackLogPath(stateRoot);
+  const line = JSON.stringify(feedback);
+  const previous = appendQueues.get(path) ?? Promise.resolve();
+  const queued = previous
+    .catch(() => undefined)
+    .then(async () => withFeedbackLogLock(stateRoot, () => appendJsonlLine(path, line, false)));
+  appendQueues.set(path, queued);
+  try {
+    await queued;
+  } finally {
+    if (appendQueues.get(path) === queued) appendQueues.delete(path);
+  }
   return feedback;
 }
 
 /**
  * Unfiltered record access for the deletion engine (privacy/deletion.ts).
  * Same corruption contract as readFeedback: a bad line fails closed.
+ *
+ * `refusal` completes the error message with what the caller is declining to
+ * do, so a corrupt log reads as a named refusal rather than an anonymous parse
+ * failure the caller might be tempted to swallow.
  */
-export async function readFeedbackRecordsRaw(stateRoot: string): Promise<FeedbackRecord[]> {
-  const { values } = await readJsonlObjects(feedbackLogPath(stateRoot), (line) => {
-    return new DomainValidationError(`corrupt feedback jsonl at line ${line}`);
+export async function readFeedbackRecordsRaw(
+  stateRoot: string,
+  refusal = "refusing to use it"
+): Promise<FeedbackRecord[]> {
+  const path = feedbackLogPath(stateRoot);
+  const { values } = await readJsonlObjects(path, (line) => {
+    return new DomainValidationError(`corrupt feedback jsonl at line ${line} of ${path}; ${refusal}`);
   });
   return loadFeedbackRows(values);
 }
 
-/** Rewrite the whole feedback log (used by the episode-deletion cascade). */
+/**
+ * Rewrite the whole feedback log (used by the episode-deletion cascade).
+ * Callers must already hold the lock (`withFeedbackLogLock`) — this is the
+ * write half of a read-filter-write rewrite, and running it unlocked is
+ * exactly the race the lock exists for.
+ */
 export async function writeFeedbackRecords(
   stateRoot: string,
   records: readonly FeedbackRecord[]
