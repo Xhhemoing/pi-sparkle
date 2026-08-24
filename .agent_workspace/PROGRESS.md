@@ -51,11 +51,11 @@ Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. 
 | T9 | Doctor `nodeVersion` inject; adaptation-plane transitive value-import closure |
 | T10 | SIGKILL crash probe: jsonl tail, checkpoint old-then-next, no-steal lock |
 
-Saturated this round: `persist/jsonl`, `protocol/v1` parse. Round 2 tilts to I/O, races, protocol honesty, disaster recovery. Brief: `.agent_workspace/ROUND1-BRIEF.md`.
+Saturated after Round 1: `persist/jsonl`, `protocol/v1` parse.
 
 ## Round 2 landings (parent gate GREEN)
 
-**Parent verification (Node v22.14.0):** `pnpm gate` exit 0 after all R2 commits. Ranked leftovers from Round 1 closed except invocation-row TypeError (R2-7 found; R2-2 was classifier-only).
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1550 / 1548 pass / 0 fail / 2 skip**. Fable: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R2-4, R2-10), 0 ROLLBACK. Lock perf independently re-verified (−14.4% / −12.0%). Crash-probe 6×3 `ok: true`.
 
 | Slot | Result |
 |---|---|
@@ -69,6 +69,12 @@ Saturated this round: `persist/jsonl`, `protocol/v1` parse. Round 2 tilts to I/O
 | R2-8 | Sender-only role-cast requeues dead-lettered after bound |
 | R2-9 | Dropped dead `expired()`; kept `restore()` for resume |
 | R2-10 | Dictionary: unique temps, lock inventory, wall vs cost honesty |
+
+Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
+
+## Round 3 — in flight
+
+10 slots from `.agent_workspace/ROUND2-BRIEF.md`. Ownership in `OWNERSHIP.md`. `withExclusiveFileLock` re-frozen. P1: invocation decoder TypeError (crashes `run`/`resume` via `isInvocation`).
 
 ---
 
