@@ -3,7 +3,6 @@ import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import type { CustomProviderConfig } from "../config/providers-config.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
-import { createPiRuntime } from "./runtime.js";
 
 export interface SparkleAuthIo {
   stdout(text: string): void;
@@ -50,6 +49,7 @@ export async function checkProviderAuth(
   providerId: string,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<SparkleAuthCheck | undefined> {
+  const { createPiRuntime } = await import("./runtime.js");
   const runtime = await createPiRuntime({ stateRoot, customProviders });
   const check = await runtime.models.checkAuth(providerId);
   if (check === undefined) return undefined;
@@ -66,6 +66,7 @@ export async function loginProviderInteractive(
   io: SparkleAuthIo,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<string> {
+  const { createPiRuntime } = await import("./runtime.js");
   const runtime = await createPiRuntime({ stateRoot, customProviders });
   await runtime.models.login(providerId, type as AuthType, cliAuthInteraction(io));
   return authStorePath(stateRoot);

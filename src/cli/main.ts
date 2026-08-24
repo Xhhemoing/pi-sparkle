@@ -8,7 +8,6 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
-import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
@@ -157,6 +156,9 @@ async function createExecutor(
     if (!(THINKING_LEVELS as readonly string[]).includes(requestedLevel)) {
       throw new DomainValidationError(`PI_THINKING_LEVEL must be one of ${THINKING_LEVELS.join(", ")}`);
     }
+    // Loaded at the point of use: the Pi runtime subtree (pi-ai + agent-core)
+    // dominates CLI start-up, and only "--executor pi" ever needs it.
+    const { createConfiguredPiExecutor } = await import("../pi-adapter/runtime.js");
     const fast = config.fast !== undefined ? parseModelRef(config.fast) : undefined;
     const envRef = envProvider !== undefined && envModel !== undefined
       ? { providerId: envProvider, modelId: envModel }
