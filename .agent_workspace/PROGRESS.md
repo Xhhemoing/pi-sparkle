@@ -108,24 +108,24 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 
 Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R4-8 stale snapshots; R4-10 empty-stderr joint). 0 ROLLBACK. Brief: `.agent_workspace/ROUND4-BRIEF.md`.
 
-## Round 5 — in flight
+## Round 5 landings (parent gate GREEN; fable review in flight)
 
-10 slots from `.agent_workspace/ROUND4-BRIEF.md`. Sole owners: `flowchart-run.ts` R5-1; `main.ts` R5-9; `supervisor.ts` R5-2. Stay on `agent/opt-continuous`.
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1725 / 1724 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe 8×3 `ok: true`. Lifecycle lock +0.148 ms/run (inside 5% bar).
 
-Parent sign-offs: R5-1 SIGKILL-leaves-lock accepted; R5-6 mailbox option (b) only.
+| Slot | Result |
+|---|---|
+| R5-1 | CLI-reachable lifecycles hold `runLockPath`; delete waits; pause-on-live times out |
+| R5-2 | Shared `crash-terminal.ts`; supervised crash settles episode + FAILED checkpoint |
+| R5-3 | Bandit store atomic; torn read `BANDIT_STATE_UNREADABLE` |
+| R5-4 | Providers/credentials/adaptation registry through `writeFileAtomic` |
+| R5-5 | Resume-time adoption declined; unaccepted-result window pinned as accepted cost |
+| R5-6 | Role-holder requeue count; `dead-lettered=` reachable in production-shaped runs |
+| R5-7 | Docs truth-up (R5-6 reachability landed after; may be stale) |
+| R5-8 | Loopback wire witness for resume model/thinking |
+| R5-9 | `LOCK_TIMEOUT` / `RUN_RECORDS_SURVIVED` `next:` routes to doctor |
+| R5-10 | Unused episode replay deleted; checkpoint parse typed |
 
-| Slot | Agent | Focus |
-|---|---|---|
-| R5-1 | bc-1a6ab9de-39cc-5f08-90c9-e9eaebad8a91 | once-per-run lifecycle lock (delete waits) |
-| R5-2 | bc-b0d58dc8-b281-563b-9770-25281a41c9a0 | shared crash-terminal + supervised settle tail |
-| R5-3 | bc-6b3b6bac-82a6-57a8-8e59-83a7bac7ae88 | bandit store fail-closed atomic |
-| R5-4 | bc-837972d7-3ff9-56f6-8a6d-18dc8a5b5ff0 | delete private temp+rename copies |
-| R5-5 | bc-08756ecf-0ac2-5fc2-9844-5af25a3a947c | resume adopt unaccepted child results? (invest.) |
-| R5-6 | bc-bc4c8832-dd50-5df2-ae0c-25f0b76802ca | dead-letter reachability (option b) |
-| R5-7 | bc-a3e3353e-8a60-5fdf-89b4-fa5310c7a934 | docs truth-up |
-| R5-8 | bc-71a7c01c-e04b-513b-b8ed-ddfbbcd1d455 | loopback witness for resume model |
-| R5-9 | bc-df501b27-1dd1-53e1-9684-6b1f195186f7 | command error → doctor next |
-| R5-10 | bc-41636f2c-62c7-51aa-bceb-0132b54bf77b | episode replay dead code + last bare parses |
+Parent joints: loopback supervised resume clears abandoned lock (`a770a24`).
 
 ---
 
