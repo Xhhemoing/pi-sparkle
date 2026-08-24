@@ -11,6 +11,12 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
+> Round 6 coordination snapshot (2026-08-24 20:25 UTC): R6-1 (terminal
+> semantics), R6-2 (resume child-spec reconstruction), and R6-3 (remaining
+> lifecycle-lock corners) were in flight. This specification records the
+> landed Round 5 source observed at that timestamp and does not predict those
+> slots' final decisions.
+
 ## Milestone names
 
 This document's **M0–M2** are the runtime execution spine (CLI, events, children, DAG/flowchart supervisor). The adaptive work-loop spec's **M3–M6** are the adaptive library plane (episode review, R0/R1 routing, preferences, promotion). They are not later stages of the same CLI product line.
@@ -37,7 +43,12 @@ lists PLANNING/RUNNING logs with age and inspect/resume/delete guidance. Those
 are advisory crash candidates because another process may still own the run.
 The `lock-inventory` and `run-state-inventory` checks fail on their respective
 scan errors. Doctor never changes run state and never acquires, steals, or
-deletes a lock.
+deletes a lock. When a command fails with the frozen `LOCK_TIMEOUT` or
+`RUN_RECORDS_SURVIVED` code, its `next:` line routes to
+`pi-sparkle doctor --json --state-root <the failing command's root>` and names
+the answering `locks[]` and/or `runStates[]` inventory. This is code-based
+classification through a depth-bounded `cause` walk, not message matching;
+all other failures keep the generic `next:`.
 
 ## Objective
 
@@ -310,10 +321,19 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
 
 ### Cluster role-cast dead letters
 
-The process-local cluster mailbox bounds sender-only role-cast requeues by
-claim attempts. When the bound is exceeded, the host exposes the drop through
-two library surfaces: `deadLetterReport()` returns mailbox-derived totals,
-counts by role and reason, ordered entries, and observer-error count; optional
+The process-local cluster mailbox bounds a role's own role-cast mail by claim
+opportunities on that role. `claimRole` learns holders by role and skips queued
+mail when its sender holds the addressed role; it does not compare only the
+sender and claimant instance ids. Production retries mint fresh instance ids,
+so role-level skipping is what makes the bound reachable: a self-role-cast
+may survive `DEFAULT_MAX_ROLE_REQUEUES` claim opportunities and is dropped on
+the next claim of that role. Same-role late delivery is deliberately
+unavailable. A cast addressed to a role its sender does not hold is unchanged:
+it is delivered to the first claimant of that other role, however late.
+
+When the bound is exceeded, the host exposes the drop through two library
+surfaces: `deadLetterReport()` returns mailbox-derived totals, counts by role
+and reason, ordered entries, and observer-error count; optional
 `onDeadLetter` push notification reports each newly observed drop when an
 agent registers. An observer throw is tallied and does not fail registration.
 There is no wall-clock TTL or persistence, and a role queue with no later
@@ -322,21 +342,17 @@ registration does not advance toward the bound.
 At run end both cluster embedders pull the host/mailbox state into
 `ClusterMailReport`. When any mail remains, the CLI emits one stderr line:
 `warning: cluster role-cast mail undelivered: pending=…, dead-lettered=…`,
-including role and reason counts for nonzero groups. `pending=` is the
-production-reachable signal that a role queue was never drained before the
-process-local mailbox disappeared.
-
-> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-6 was still in
-> flight. At this timestamp `claimRole` increments a requeue only when the
-> claimant has the same id as the sender, while every production child attempt
-> registers a fresh agent id. A production run therefore cannot reach the
-> requeue bound: its CLI line can report pending mail, but `dead-lettered=`
-> remains 0 unless the mailbox/host API is driven directly. This records current
-> source and does not predict R5-6's decision.
+including role and reason counts for nonzero groups. Both counters are
+production-reachable: `dead-lettered=` records a self-role-cast that crossed
+the registration bound, while `pending=` records mail for a role that nobody
+claimed before the process-local mailbox disappeared.
 
 ## Pi Adapter
 
-Only `src/pi-adapter/` may import Pi packages. The adapter exposes pi-sparkle-owned interfaces:
+Only `src/pi-adapter/` currently imports Pi packages. ADR-006 stays Proposed,
+so `extensions/pi-sparkle/` remains unimplemented and unregistered; domain,
+learning, adaptation, and CLI modules remain outside the import boundary.
+The outbound adapter exposes pi-sparkle-owned interfaces:
 
 ```ts
 interface AgentExecutor {
@@ -392,19 +408,28 @@ appends per `EventStore` instance and fsyncs at terminal transitions. Readers
 ignore a final incomplete JSONL line created by a process crash and report it as
 recovery evidence.
 
-The sidecar is a cooperative run-plane lock shared by `delete --run`, pause
-writes, and track-question writes. Run deletion holds it across subtree removal
-and a first verification, then verifies again after release. Event appends and
-checkpoint writes deliberately do not acquire it because measured per-step
-locking exceeded the end-to-end regression bar; if either recreates records
-during deletion, the double verification fails closed with
-`RUN_RECORDS_SURVIVED`. A write after the final verification is a new write, so
-operators should delete after termination.
+The sidecar is a cooperative run-plane lock. The M0, parent, flowchart, and
+supervised start/resume paths acquire it before their first record and hold it
+through teardown. Run deletion takes the same lock across subtree removal and
+a first verification, then verifies again after release. A delete aimed at
+one of those live runs therefore waits for teardown; if the run outlives the
+5 s default wait, delete fails with `LOCK_TIMEOUT` and removes nothing. A
+cross-process pause takes the same lock and likewise fails closed while the
+locked run is live, rather than settling its episode/checkpoint from
+underneath the driver.
 
-> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-1 was still in
-> flight. At this timestamp the run lifecycle does not hold the sidecar for its
-> duration; deletion racing a live run refuses rather than waiting for clean
-> teardown. This paragraph does not predict R5-1's final contract.
+Normal teardown releases the owned sidecar. SIGKILL cannot run teardown and
+therefore leaves the lock behind. The lock implementation never steals one:
+delete, pause, and track-question writes stay blocked until an operator uses
+doctor's PID/liveness, age, remediation, and run-state evidence, stops any live
+owner, and manually removes a confirmed abandoned lock.
+
+Event appends and checkpoint writes deliberately do not acquire the sidecar
+because measured per-step locking exceeded the end-to-end regression bar. A
+direct/out-of-lifecycle writer can therefore recreate records during deletion;
+the double verification fails closed with `RUN_RECORDS_SURVIVED`. A write after
+the final verification is a new write, so operators should still delete after
+termination.
 
 Required M0 event types:
 
@@ -441,6 +466,21 @@ replacement, but their recovery contracts differ. Invalid catalog JSON throws
 snapshot shape throws `PREFERENCE_SNAPSHOT_UNREADABLE`; preferences are learned
 state with no rebuild source, and persistence binds only after a successful
 load so damaged bytes are not silently reset or overwritten.
+
+The per-project `bandit.json` is learned state too. It publishes through the
+shared atomic writer; ENOENT is the only silent path. Empty, invalid JSON, or
+invalid core counters throw `BanditStateUnreadableError` (a
+`DomainValidationError`) with code `BANDIT_STATE_UNREADABLE`, leave the bytes
+untouched, and instruct the operator to repair the file or explicitly move it
+aside to relearn from zero. Unknown extra keys on an otherwise valid core are
+tolerated version skew and are dropped at the read boundary. Under
+`run --children`, failure of the automatic post-run update is disclosed as
+`adapt skipped: …` without replacing the run's status; `adapt auto` and the
+tracked-run path propagate the same typed error to the CLI's
+`stage: "validation"` surface. The bandit remains off live selection.
+
+`CheckpointStore.read()` is also fail-closed: ENOENT returns `undefined`, but
+malformed checkpoint JSON throws a path-naming `DomainValidationError`.
 
 ### Evidence and artifacts
 
@@ -491,8 +531,13 @@ The M2 judge is a pluggable verifier that produces `APPROVED`, `REJECTED`, or `N
 
 If an error escapes supervised rounds while replay is PLANNING or RUNNING, the
 wrapper best-effort appends one `RUN_FAILED` with a bounded crash reason and
-rethrows the original error. It does not overwrite a blocked, cancelled, or
-already-terminal log, and round work is settled before the wrapper returns.
+settles launched round-mates. The crash path then re-reads the log, closes the
+bound episode, materializes a checkpoint at the status replay honestly reports
+(`FAILED` when the crash terminal landed), and rethrows the original error.
+Episode close and checkpoint write are independent best-effort steps: failure
+of either does not suppress the other or mask the escaping error. On the
+ordinary path, only `EPISODE_CLOSED` follows the crash terminal. The wrapper
+does not overwrite a blocked, cancelled, or already-terminal log.
 
 Flowchart teardown first cancels and settles child work, applies the same
 in-flight-only terminal posture, and rethrows. PAUSED, WAITING_FOR_USER, and
@@ -501,13 +546,6 @@ statuses `preserveResumableState` best-effort flushes a checkpoint from the
 event log so the durable resume point is not behind already-applied results.
 Work still in flight at the crash remains at-least-once and may execute again
 on resume.
-
-> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-2 was still in
-> flight. At this timestamp flowchart, supervised, and child crash-terminal
-> helpers remain separate. A supervised crash records `RUN_FAILED` and rethrows
-> before its outer episode/outcome/checkpoint settlement tail runs. This
-> describes current source and does not predict R5-2's extraction or settlement
-> changes.
 
 ## Security and Workspace Boundaries
 
@@ -562,9 +600,13 @@ pnpm build
   `test/helpers/loopback-openai-provider.ts` as a local OpenAI-compatible SSE
   server through `customProviders[].baseUrl`.
   `test/integration/pi-adapter/loopback-cli-resume.test.ts` drives the exported
-  CLI through run, approval, and resume, verifies both HTTP requests, and
-  decodes both invocation rows with the production calibration reader. It
-  requires no external provider or network.
+  CLI through run, approval, and resume. Its wire witness verifies that the
+  server receives requested model `loopback-1` rather than configured default
+  `loopback-2`, `stream: true`, and flagged
+  `reasoning_effort: "high"` (absent from the unflagged request). The supervised
+  resume path carries the same request witness and intentionally settles
+  BLOCKED. Both invocation rows are decoded with the production calibration
+  reader. It requires no external provider or network.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
 - M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
   on resume, legal/illegal transitions, resume replay, stall blocking, and

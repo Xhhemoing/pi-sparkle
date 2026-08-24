@@ -94,12 +94,23 @@ do not take this lock and can recreate the subtree. A write after the final
 verification is a new write, so deletion after termination remains the
 supported flow.
 
-> Round 5 coordination snapshot (2026-08-24 19:34 UTC): R5-1 was still in
-> flight. At this timestamp `delete --run`, pause writes, and track-question
-> writes take the run lock, but the run lifecycle itself does not hold it.
-> A delete racing a live event/checkpoint writer therefore fails closed with
-> `RUN_RECORDS_SURVIVED`; this records the source at the timestamp and does not
-> predict R5-1's final lifecycle-lock contract.
+The M0, parent, flowchart, and supervised start/resume paths take
+`runtime/runs/<runId>.lock` once for the whole record-writing lifecycle and
+release it after teardown. `delete --run` aimed at one of those live runs
+therefore waits for clean teardown (bounded by the lock's 5 s default) instead
+of removing records underneath it; if the run outlives that wait, deletion
+fails with `LOCK_TIMEOUT` and removes nothing. The same exclusion means a
+cross-process pause aimed at a live locked run fails closed with
+`LOCK_TIMEOUT`. A process killed by SIGKILL cannot release its lock; locks are
+never stolen, so pause/delete/track-question writes remain blocked until an
+operator inspects the recorded PID and run state with `pi-sparkle doctor`,
+stops any live owner, and manually removes a confirmed abandoned lock.
+
+> Round 6 coordination snapshot (2026-08-24 20:25 UTC): R6-1 (terminal
+> semantics), R6-2 (resume child-spec reconstruction), and R6-3 (remaining
+> lifecycle-lock corners) were in flight. The paragraph above records the
+> landed Round 5 lifecycle contract observed at this timestamp; it does not
+> predict those slots' final decisions.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
@@ -155,16 +166,17 @@ these are covered by the claims above:
   `appendInvocationRecord` and the delete's read-filter-write cycle runs
   inside `withInvocationLogLock`, so a live append lands wholly before or
   wholly after the rewrite (test-pinned, including the cannot-clobber case
-  and the append-times-out-instead-of-writing-unlocked case). The separate
-  run-plane lock covers the subtree removal plus its first verification, and
-  the delete re-verifies after release. Pause and track-question writes take
-  that lock; event appends and checkpoint writes remain lock-free for measured
-  end-to-end cost reasons. A live event/checkpoint writer can therefore make
-  deletion refuse with `RUN_RECORDS_SURVIVED`; a write after the final check
-  is a new row and may recreate the directory after success. Invocation rows
-  appended after their rewrite likewise survive, while an appender that
-  cannot take the invocation lock in time silently drops its telemetry row
-  rather than fail the run.
+  and the append-times-out-instead-of-writing-unlocked case). The run-plane
+  lifecycle lock now prevents the locked M0, parent, flowchart, and supervised
+  paths and their deletion from overlapping: deletion waits for teardown or
+  times out having removed nothing. The subtree removal still verifies once
+  while holding that lock and once after release. Event appends and checkpoint
+  writes remain lock-free for measured end-to-end cost reasons, so a
+  direct/out-of-lifecycle writer can still make deletion refuse with
+  `RUN_RECORDS_SURVIVED`; a write after the final check is a new row and may
+  recreate the directory after success. Invocation rows appended after their
+  rewrite likewise survive, while an appender that cannot take the invocation
+  lock in time silently drops its telemetry row rather than fail the run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -214,7 +226,8 @@ state root. Findings and resolutions:
   `registry.json.<pid>.<random>.tmp`; they are transient and do not get their
   own durable classes.
 - Operational lock files currently written below the state root are:
-  - `runtime/runs/<runId>.lock`, shared by run deletion, pause writes, and
+  - `runtime/runs/<runId>.lock`, held by M0, parent, flowchart, and supervised
+    run lifecycles and shared with run deletion, pause writes, and
     track-question writes (not per-step event/checkpoint writes);
   - `runtime/invocations.jsonl.lock`, shared by invocation appends and the
     run-deletion filter rewrite;
@@ -240,7 +253,12 @@ state root. Findings and resolutions:
   Doctor additionally exposes additive `runStates`: PLANNING/RUNNING event
   logs with age, path, and inspect/resume/delete guidance. They are advisory
   crash candidates, not proof of abandonment; `run-state-inventory` fails only
-  when a run-log scan fails.
+  when a run-log scan fails. Command failures carrying the frozen
+  `LOCK_TIMEOUT` or `RUN_RECORDS_SURVIVED` code route their `next:` line to
+  `pi-sparkle doctor --json --state-root <the command's root>` and name the
+  answering `locks[]` and/or `runStates[]` inventory. Routing is by code
+  through a depth-bounded `cause` walk, never by message text; other failures
+  retain the generic `next:`.
 - `test/**` fixture writes are outside the state root and out of scope.
 
 ## Snapshot integrity and recovery
@@ -260,6 +278,22 @@ state root. Findings and resolutions:
   load, so the unreadable file is not silently replaced by empty state. Repair
   it from a backup, or move it aside only as an explicit decision to start
   over.
+- `adaptation/learning/projects/<stableProjectKey>/bandit.json` is learned
+  state too and is crash-atomically published. ENOENT is the only silent
+  absence. Empty, invalid JSON, or invalid core counters throw
+  `BanditStateUnreadableError` (a `DomainValidationError`) with code
+  `BANDIT_STATE_UNREADABLE`; the damaged bytes are left untouched because
+  pulls and rewards cannot be recomputed. Repair the file, or explicitly move
+  it aside to relearn that project from zero. A readable core with unknown
+  extra keys is version skew rather than damage: it loads, and unknown keys
+  are dropped at the read boundary. Under `run --children`, the automatic
+  post-run wrapper reports this as `adapt skipped: …` without changing the
+  run's own result; `adapt auto` and the tracked-run path propagate the typed
+  error to the CLI's `stage: "validation"` failure surface.
+- `runtime/runs/<runId>/checkpoint.json` remains a crash-atomic materialized
+  view. `CheckpointStore.read()` returns `undefined` only for ENOENT; malformed
+  JSON throws `DomainValidationError` and names the damaged checkpoint path
+  instead of leaking a raw `SyntaxError` or treating damage as absence.
 
 The completeness guard lives in
 `test/unit/privacy/record-classes.test.ts`: any durable path added to `src/`
