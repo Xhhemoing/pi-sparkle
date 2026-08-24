@@ -419,3 +419,42 @@ test("currentGateStatus reads a matched RUN_UNBLOCKED as RUNNING and an unmatche
     "an unblock that does not name the active block clears nothing"
   );
 });
+
+test("currentGateStatus gives a matched discard authorization the same ledger status", () => {
+  const discardUnblock = (blockedEventId: EventId) =>
+    makeEvent("RUN_UNBLOCKED_WITH_DISCARD", {
+      blockedEventId,
+      reason: "operator authorized discarding completed descendants",
+      retryNodeId: "failed",
+      rewoundDescendants: [
+        {
+          nodeId: "completed-child",
+          taskId: "tsk_completed_child",
+          previousState: "COMPLETED",
+          modelRouteEventIds: [],
+          childRunIds: [],
+          chargedEstimatedCostUsd: 0,
+          chargedEstimatedDurationMs: 0
+        }
+      ]
+    });
+
+  const matched = blockedRun("discardmatched");
+  assert.deepEqual(
+    transitions(apply([...matched.events, discardUnblock(matched.blockedEventId)]).events),
+    [{ from: "RUNNING", to: "BLOCKED" }],
+    "the stronger authorization clears the active block for the transition ledger only"
+  );
+
+  const unmatched = blockedRun("discardunmatched");
+  assert.deepEqual(
+    transitions(
+      apply([
+        ...unmatched.events,
+        discardUnblock(createEventId(() => "someotherdiscardblock"))
+      ]).events
+    ),
+    [{ from: "BLOCKED", to: "BLOCKED" }],
+    "the stronger authorization still cannot clear a block it does not name"
+  );
+});
