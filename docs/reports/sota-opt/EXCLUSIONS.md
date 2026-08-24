@@ -537,3 +537,5 @@
 | S11-G-1 | 切片内跨界 import 边惰性化（flowchart-run→learned-routing 等） | 冷子树 10–23ms 但 main.ts 静态钉死，生产收益恒 0；可剪位在 D/I |
 | S11-G-2 | CheckpointStore 相同字节写跳过 | 14 格普查 0/27 命中（3 种子稳定）；写必带推进状态。非 S8-G-2 |
 | S11-G-3 | inspectRun 尾扫部分读 | 0.516–0.532ms/次；跳过早段 fail-closed 复验。非 S2-G-6 |
+| S12-B-1 | partitionLiveCandidates allowed 成员判断反索引（删 per-route `new Set(allowedModels)` 换 `Array.includes` 直扫） | 等价完备（SameValueZero 同语义；3 seeds × 2000 fuzz 含 20% 重复 id 全逐位；replica 保真含 4196 refusal 路径三次逐位）但 M=2 仅 +40~+413µs/批（S4-B-4 噪声带同阶）、M=7 符号翻转（−220~+515µs）、M=10 符号翻转且 10/15 为负（−2748~+2859µs）——与 S11-B-1 互为镜像的「肥目录」机制：includes 的 O(M²) 扫描在 M≥7 反超 Set 构造省费；route() 主循环结构维度双向封死 |
+| S12-B-2 | pickPreferredModel prior 层按 family 批内记忆化（`Map<TaskFamily,string\|undefined>` 把 N 次 pickFromPublicPrior 收拢到 ≤8 次） | 等价完备（replica 对真实 assignTasks 逐字节 + memo 逐字节 + 无效快照首抛同点同消息，3 seeds × 40 批三次逐位）且 45/45 轮符号稳定为正，但 prior 生产流量仅 CLI live face N≤30 / track loop C≤6：真实规模 0.08–0.19ms/call 低于落地线两个量级；假设 N=2000 档 +13.7~+30.6ms/批（整批 3.2–4.2×）零生产流量（eval-routing 不传 prior）。**重开条件即落地条件**：任何 N≥10³ 调用方开始传 prior（或榜单行数增一个量级使真实面越线）——等价证据与最小落地设计已备于 R12-B §4.2；若 public-prior.ts 先行瘦身需复测收益池 |
