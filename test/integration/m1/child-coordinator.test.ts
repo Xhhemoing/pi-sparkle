@@ -182,6 +182,44 @@ class FlakyExecutor implements AgentExecutor {
   }
 }
 
+/** Executor that hangs on every attempt until that attempt's signal aborts. */
+class StuckExecutor implements AgentExecutor {
+  calls = 0;
+  private readonly gates = new Map<number, { promise: Promise<void>; resolve: () => void }>();
+
+  private gate(attempt: number): { promise: Promise<void>; resolve: () => void } {
+    let entry = this.gates.get(attempt);
+    if (entry === undefined) {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => {
+        resolve = r;
+      });
+      entry = { promise, resolve };
+      this.gates.set(attempt, entry);
+    }
+    return entry;
+  }
+
+  /** Resolves once attempt `n` (1-based) is executing and its timer is armed. */
+  attemptStarted(n: number): Promise<void> {
+    return this.gate(n).promise;
+  }
+
+  async *execute(_request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.calls += 1;
+    yield { type: "TEXT_DELTA", text: "stuck" };
+    this.gate(this.calls).resolve();
+    await new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+      signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+  }
+}
+
 /** Executor that yields a QUESTION and then waits for the answer promise. */
 class QuestioningExecutor implements AgentExecutor {
   constructor(
@@ -419,6 +457,104 @@ test("timeout produces a TASK_TIMEOUT and a retry, then the child settles", asyn
     assert.ok(types.includes("TASK_RETRY"), "retry decision recorded");
     const timeoutEvent = read.events.find((e) => e.type === "TASK_TIMEOUT");
     assert.equal((timeoutEvent?.payload as { attempt: number }).attempt, 1);
+  });
+});
+
+test("a generous wall limit leaves the timeout-and-retry flow unchanged", async () => {
+  await withTempState(async (stateRoot) => {
+    const scheduler = manualScheduler();
+    const flaky = new FlakyExecutor();
+    const coordinator = makeCoordinator(stateRoot, flaky, {
+      schedule: scheduler.schedule,
+      generateId: sequenceGenerator()
+    });
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits({ maxAttempts: 2, timeoutMs: 1_000, maxWallTimeMs: 3_600_000 })),
+      new AbortController().signal
+    );
+    const donePromise = handle.done;
+    await flaky.started;
+    scheduler.advance(1_000);
+    const outcome = await donePromise;
+
+    assert.equal(outcome.outcome, "SUCCESS");
+    assert.equal(outcome.attempts, 2);
+    assert.equal(outcome.summary, "Parser implemented");
+
+    const parent = await new EventStore(stateRoot, parentRunId).readAll();
+    assert.deepEqual(
+      parent.events.map((event) => event.type),
+      [
+        "RUN_CREATED",
+        "CHILD_RUN_CREATED",
+        "CHILD_MESSAGE",
+        "TASK_TIMEOUT",
+        "TASK_RETRY",
+        "CHILD_MESSAGE",
+        "CHILD_MESSAGE"
+      ],
+      "an unexhausted wall budget adds no event to the parent log"
+    );
+    const child = await new EventStore(stateRoot, handle.childRunId).readAll();
+    // AGENT_EVENT rows depend on how far the stream got before the timeout
+    // abort landed, so pin the lifecycle spine rather than the stream trace.
+    assert.deepEqual(
+      child.events.map((event) => event.type).filter((type) => type !== "AGENT_EVENT"),
+      [
+        "RUN_CREATED",
+        "RUN_STARTED",
+        "AGENT_STARTED",
+        "AGENT_FINISHED",
+        "AGENT_STARTED",
+        "AGENT_FINISHED",
+        "RUN_COMPLETED"
+      ]
+    );
+  });
+});
+
+test("the wall limit bounds the retry ladder that maxAttempts x timeoutMs would not", async () => {
+  await withTempState(async (stateRoot) => {
+    const scheduler = manualScheduler();
+    const stuck = new StuckExecutor();
+    const coordinator = makeCoordinator(stateRoot, stuck, {
+      schedule: scheduler.schedule,
+      generateId: sequenceGenerator()
+    });
+    const parentRunId = coordinator.parentRunId;
+    const taskId = await seedParentRun(stateRoot, parentRunId);
+
+    // maxAttempts x timeoutMs budgets 3 000 ms of attempts; the wall stops at 2 500.
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits({ maxAttempts: 3, timeoutMs: 1_000, maxWallTimeMs: 2_500 })),
+      new AbortController().signal
+    );
+    const donePromise = handle.done;
+    await stuck.attemptStarted(1);
+    scheduler.advance(1_000);
+    await stuck.attemptStarted(2);
+    scheduler.advance(1_000);
+    await stuck.attemptStarted(3);
+    scheduler.advance(500); // the third attempt ends at the wall, not at its own 1 000 ms timer
+    const outcome = await donePromise;
+
+    assert.equal(outcome.outcome, "TIMEOUT");
+    assert.equal(outcome.attempts, 3);
+    assert.equal(stuck.calls, 3);
+    assert.match(outcome.summary, /wall-clock limit of 2500ms exhausted after 3 attempt\(s\)/);
+
+    const parent = await new EventStore(stateRoot, parentRunId).readAll();
+    assert.equal(parent.events.filter((event) => event.type === "TASK_TIMEOUT").length, 3);
+    assert.equal(
+      parent.events.filter((event) => event.type === "TASK_RETRY").length,
+      2,
+      "the wall-stopped attempt records no retry"
+    );
+    const child = await new EventStore(stateRoot, handle.childRunId).readAll();
+    assert.equal(child.events.at(-1)?.type, "RUN_FAILED");
   });
 });
 
