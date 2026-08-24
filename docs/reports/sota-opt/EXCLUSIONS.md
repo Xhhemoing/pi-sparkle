@@ -437,3 +437,6 @@
 | S7-G-3 | DeterministicJudge.decide filter+includes 改 Set | 等价但 0.111µs/次、0.0018ms/run |
 | S7-G-4 | expandTaskTransition BFS shift 改索引队列 | X4-6 同族；8 节点 0.50µs/次、0.008ms/run |
 | S7-G-5 | resume replay∥checkpoint∥learned 并行 | 真数据依赖 + S5-G-4/S6-G-5 Promise.all 家族 |
+| S7-H-1 | 生产提取链异步机器消除（extractor/critic/builder 同步化） | 等价但 167–175ns/run；落地改三个公开扩展点 Promise 签名（X0-4） |
+| S7-H-2 | normalizeSources 生产组合跳过 signals 计算 | 生产组合死输出 162–165ns；对任意 extractor 是活契约；删字段/平行路径/惰性 getter 分别撞公开面 |
+| S7-H-3 | 模块加载期 JIT 预热调用 | 三次净负（关键路径 +355~+411µs）；once-per-process 否决类 |
