@@ -160,3 +160,7 @@
 | S2-D-3 | eval-routing 双 parseTaskId 消除 | E=200 约 16.5µs |
 | S2-D-4 | 双 assignTasks 共享 analyzeTask | ~116µs 低于否决线 + 需改公开签名 |
 | S2-D-5 | monitor snapshot 跳过已验证观测重复校验 | ~615ns；防御纵深 |
+| S2-B-1 | assignPlanned learned 路径第二次防御拷贝省略 | 回放批 202–240µs；依赖未承诺新鲜性 |
+| S2-B-2 | createModelRouter 跳过二次 catalogModel | ~150ns/批；检测通道撞排除 |
+| S2-B-3 | routeR0 高风险过滤内联 Set（S1-B-6 姊妹） | 拖慢常见路径或 ns 级 |
+| S2-B-4 | assignTasks 全目录 plan 特化 | 每批 300–950ns + 切片外改动 |
