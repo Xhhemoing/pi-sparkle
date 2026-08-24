@@ -12,6 +12,7 @@ import {
 import { createModelRouter, type ModelRouterConfig } from "../../../src/supervisor/model-router.js";
 import {
   createFlowchartSupervisor,
+  reopenBlockedFlowchartSnapshot,
   restoreFlowchartSupervisor,
   type FlowchartSupervisor
 } from "../../../src/supervisor/flowchart-supervisor.js";
@@ -601,6 +602,48 @@ test("a success:expected-false recovery that completes the graph is COMPLETED", 
   sv.applyChildResult("recover", success);
   assert.equal(sv.nodeState("recover"), "COMPLETED");
   assert.equal(sv.status, "COMPLETED");
+});
+
+/**
+ * Fail-closed contract for the executed-descendant case. A future explicit
+ * discard authorization adds a separate positive path; ordinary unblock must
+ * never acquire that authority by widening silently.
+ */
+test("ordinary unblock cannot rewind completed descendants of a failed node", () => {
+  const fc: Flowchart = {
+    id: "executed-descendant-refusal",
+    nodes: [node("failed"), node("left"), node("right")],
+    edges: [
+      { from: "failed", to: "left", condition: { type: "success", expected: false } },
+      { from: "failed", to: "right", condition: { type: "success", expected: false } }
+    ]
+  };
+  const sv = makeSupervisor(fc);
+
+  assert.deepEqual(sv.leaseReadyNodes().map((lease) => lease.nodeId), ["failed"]);
+  sv.applyChildResult("failed", { outcome: "FAILURE", evidenceIds: ["evd-failure"] });
+  assert.deepEqual(
+    sv.leaseReadyNodes().map((lease) => lease.nodeId),
+    ["left", "right"]
+  );
+  sv.applyChildResult("left", success);
+  sv.applyChildResult("right", success);
+  const before = sv.snapshot();
+
+  assert.throws(
+    () =>
+      reopenBlockedFlowchartSnapshot(
+        { flowchart: fc, router: router() },
+        before,
+        { retryNodeId: "failed" }
+      ),
+    {
+      name: "DomainValidationError",
+      message:
+        "cannot reopen node failed: left, right already executed, and rewinding executed work is not authorized by an unblock"
+    }
+  );
+  assert.deepEqual(sv.snapshot(), before, "a refused ordinary unblock leaves completed work untouched");
 });
 
 test("a high-confidence router gate auto-selects defaults and never becomes a RUNNING worker", () => {
