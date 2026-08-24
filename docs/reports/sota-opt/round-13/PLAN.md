@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–12 已对各区做过十二遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S12-* 条目以及已合入的 S13-B-1（含已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–12 已对各区做过十二遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S12-* 条目以及已合入的 S13-B-1（含已合入的 S12-B-1..2 / S12-C-1 / S12-D-1..2 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I / R13-J 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R13-A … R13-J），报告写入 `docs/reports/sota-opt/round-13/`。
 
-状态：第 4 波收尾；A/C/D/E/F/G/H/I 已合入（空枚举）；B 已合入（S13-B-1 淘汰）；J 运行中。第 14 轮已开，见 [round-14/PLAN.md](../round-14/PLAN.md)。
+状态：完成 10/10。A/C/D/E/F/G/H/I/J 已合入（空枚举）；B 已合入（S13-B-1 淘汰）。无新落地。第 14 轮进行中，见 [round-14/PLAN.md](../round-14/PLAN.md)。
 
 A 切片已合入：空枚举，未铸 S13-A-*。预算复核 70–81 µs/run（与 R12-A 70–92 同带且更窄）。合同地板复现：hashAssessment×3 ~41–42%、validateEvent ~20–21%、turn ~13%、prescore×2 ~10–11%、O(E) 扫描合计 ~1.6%。本轮新增 turn 内部剖面，子组件全部落在已关 ID。8 项新记录换名检查不铸 ID。基线 `7acb666` 空 diff 再确认。
 
@@ -28,4 +28,4 @@ H 切片已合入：空枚举，未铸 S13-H-*。热层默认复核 9.3–10.4 �
 
 I 切片已合入：空枚举，未铸 S13-I-*（五连空）。custom−builtin 复核 children +45.5/+23.7、track +51.7/+21.5 ms（22.14/22.22）。S8-I-1 重开两臂本轮均文件级 blocked（`models.generated` 三 specifier + `./providers/all.models` ERR_MODULE_NOT_FOUND）。两处无名微观（import.meta.resolve 预探针、alias-row spread）不铸 ID。基线 `8dee7fb` 空 diff 再确认。
 
-J 切片 = **29 文件**：`src/cluster/` 3 + `src/privacy/` 3 + `src/preferences/` 7 + `src/episode/` 5 + `src/persist/` 2 + `src/track/` 4 + `src/context/` 2 + `src/feedback/` 3。必须站在已落地 J1 之上。不要重开 S1-J-1..7 / S2-J-1..11 / S3-J-1..6 / S4-J-1..6 / S5-J-1..6 / S6-J-1..6 / S7-J-1..6 / S8-J-1..2 / S9-J-1..4。R10-J / R11-J / R12-J 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希 / 增量读镜像。删除级联 fail-closed 两读顺序 + 串行两写（S5-J-3 / S6-J-1）钉死。S8-J-2 jsonl 单句柄合并符号不稳。R11-J 两处无名微观与 R12-J 三处跨函数微观（spawn 双 trim / claimRole byRole 重取重存 / packet omissions 双遍）均不补铸。J1 仿真 2468 项须保持绿。基线 `fb41417` 预期空 diff。
+J 切片已合入：空枚举，未铸 S13-J-*。I/O 地板复核 saveToDisk 131.7–211.2 / 407.6–514.9 µs；jsonl 60.4–67.1 / 242.0–396.0 µs；级联 613.7–723.8 / 254.7–292.0 µs；index 40.4–40.7 µs；plan CPU 1.08–2.77 µs（与 R11-J/R12-J 带重叠，I/O 支配第十三次成立）。本轮新增 fs 动词 × Node API 形态普查（16 个 fs 位点）；两处从未点名存在性探针（`statExists` 探针消除、`loadFromDisk` 双探针合并）理论失败（ENOTDIR fail-open→fail-closed），不铸 ID。J1 仿真 2468 项绿（2911.9×）。S5-J-3 / S6-J-1 / S8-J-2 / J1 原样在位。R11-J 两处无名微观与 R12-J 三处跨函数微观不补铸。基线 `fb41417` 空 diff 再确认。
