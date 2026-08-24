@@ -63,7 +63,7 @@ test("doctor fails closed for an injected Node version below engines", async () 
     assert.equal(code, 1);
     assert.match(
       out.join(""),
-      /^  FAIL {2}node: 22\.18\.9 \(engines >=22\.19\.0\) — need >= 22\.19\.0$/m
+      /^ {2}FAIL {2}node: 22\.18\.9 \(engines >=22\.19\.0\) — need >= 22\.19\.0$/m
     );
     assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
   } finally {
