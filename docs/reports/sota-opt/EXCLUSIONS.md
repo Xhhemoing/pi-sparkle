@@ -507,3 +507,6 @@
 | S9-F-1 | restore 对齐见证经私有通道 → assign O(1) 成员+唯一性双证明 | 等价但联合天花板 2.77–2.86 ms/实验；assign 站点三机制收口完成 |
 | S9-F-2 | recordOutcome assignments.some 末元素正向见证 | 等价无 fail-open，但 1.54–1.57 ms/实验；缺席证明仍属 S1-F-8 |
 | S9-F-3 | validateExperimentPlan 三站点共享 scratch Set | 等价但稳定负优化 0.96–1.86 ms；clear-reuse 反超新生代分配 |
+| S9-E-1 | applyCascadeRetry 死 behaviorDistribution 重算消除 | 等价但 242–272ns/run；删除字段强形态动 own-property |
+| S9-E-2 | collectSignalsFromEvents pass-2 消费者预过滤 | 等价但负优化；E=400 五次全负；两遍结构角度封死 |
+| S9-E-3 | scoreTaskResult × taskSuccessFromResult 分派树合一 | 等价但 1.2–1.6ns/call；落地需公开面扩张或 X1-2 复制 |
