@@ -13,8 +13,9 @@ const TERMINAL_EVENT_TYPES = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL
  * It sits *beside* the run directory, never inside it: `delete --run` removes
  * the subtree while holding this lock, and a lock file inside the subtree
  * would be removed out from under its own holder. Every holder uses this exact
- * path — the run lifecycles (`withRunLifecycleLock`, held for a whole run),
- * `requestPause`, the track loop's questions write, and `deleteRunRecords` —
+ * path — the run lifecycles (`withRunLifecycleLock`, held for a whole run, and
+ * the track loop's clarification run writes its questions file inside one),
+ * `requestPause`, and `deleteRunRecords` —
  * because rebuilding the template anywhere else would put the two sides on
  * different files, the failure `episodeLockPath` exists to prevent on the
  * episode plane.
@@ -54,8 +55,8 @@ export interface EventLogRead {
  * promise link. It says nothing about other `EventStore` instances, other
  * processes, or `delete --run`.
  *
- * `runLockPath` is the cross-writer exclusion `requestPause`, the track-questions
- * write and `deleteRunRecords` take. Taking it here too — inside the queue, so
+ * `runLockPath` is the cross-writer exclusion `requestPause`, the run
+ * lifecycles and `deleteRunRecords` take. Taking it here too — inside the queue, so
  * a store never has more than one acquisition outstanding — was implemented
  * and measured on this VM, and it is not affordable on this path: a locked
  * append costs ~0.21 ms against ~0.04 ms unlocked (+372%), which is +22.5% on

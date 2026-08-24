@@ -148,7 +148,7 @@ Parent sign-off: R6-1 option (a) — loop respects the gate (BLOCKED stays BLOCK
 | R6-9 | bc-fe0b8831-a06e-599c-8a78-1ae7b8fdc3e0 | exported-unused census |
 | R6-10 | bc-5d84790a-665a-5485-870f-e9cd99df2e8e | flowchart dead-letter pin + requeue countdown |
 
-Landed (exclusive; round still open): R6-10 `6fb7d9d` dead-letter pin; R6-8 SIGKILL run-lock probe (9×3); R6-6 cascade wire witness + `process-death`; R6-4 doctor `learnedState` inventory; R6-7 Round 5 docs truth-up (parent nit: ADR-006 stays Proposed); R6-9 unused-export census (3 deletions); R6-5 three doctor routes + `delete --lock-wait-ms` (parent joint: doctor bandit inventory is a signed-off isolation exception, not a selector); R6-2 resume child-spec pins (0/240 gate-directive diffs; reconstruct-from-log is Round 7); R6-1 gate BLOCKED wins over loop FAILED.
+Landed (exclusive; round still open): R6-10 `6fb7d9d` dead-letter pin; R6-8 SIGKILL run-lock probe (9×3); R6-6 cascade wire witness + `process-death`; R6-4 doctor `learnedState` inventory; R6-7 Round 5 docs truth-up (parent nit: ADR-006 stays Proposed); R6-9 unused-export census (3 deletions); R6-5 three doctor routes + `delete --lock-wait-ms` (parent joint: doctor bandit inventory is a signed-off isolation exception, not a selector); R6-2 resume child-spec pins (0/240 gate-directive diffs; reconstruct-from-log is Round 7); R6-1 gate BLOCKED wins over loop FAILED; R6-3 track-loop lock + supervised pre-flight hoist + pre-rounds settle.
 
 ---
 

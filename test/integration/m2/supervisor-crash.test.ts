@@ -537,6 +537,115 @@ const SETTLED_LOGS: ReadonlyArray<{
   }
 ];
 
+/**
+ * The pre-rounds window: the opening appends and the episode bind, which run
+ * before `runSupervisorRounds` has anything to drive.
+ *
+ * It used to sit outside the crash path entirely, so a run dying in there got
+ * neither terminal nor settle — the log stopped after `RUN_STARTED` reading
+ * RUNNING forever, no checkpoint, and an episode bound for good. Worse than the
+ * post-rounds case it mirrors, because no command could settle it afterwards:
+ * `resumeSupervisedRun` refuses a log with no accepted graph, and that is every
+ * log this window can leave.
+ *
+ * An empty task list is the cheapest reachable seed. `validateTaskGraph`
+ * accepts it, and the `TASK_GRAPH_ACCEPTED` append is then refused by event
+ * validation — a real refusal on the real path, no filesystem sabotage.
+ */
+async function crashedBeforeRounds(stateRoot: string, projectRoot: string): Promise<RunId> {
+  const running = startSupervisedRun(
+    {
+      stateRoot,
+      executor: new SucceedingExecutor(),
+      registry: createAgentProfileRegistry(defaultAgentProfiles()),
+      judge: new DeterministicJudge(),
+      now: NOW,
+      generateId: sequenceGenerator()
+    },
+    { projectRoot, objective: "Ship it", tasks: [], limits: limits() }
+  );
+  await assert.rejects(() => running.done, /must be a non-empty array/, "the error still reaches the caller");
+  return running.runId;
+}
+
+test("a supervised run that dies in its opening appends records a terminal and settles", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const runId = await crashedBeforeRounds(stateRoot, projectRoot);
+
+    const read = await new EventStore(stateRoot, runId).readAll();
+    const terminal = read.events.find((event) => event.type === "RUN_FAILED");
+    assert.ok(terminal !== undefined, "the log does not just stop after RUN_STARTED");
+    assert.match(
+      (terminal.payload as { reason: string }).reason,
+      /^run crashed: Invalid Event: payload\.tasks must be a non-empty array$/,
+      "the same bounded reason the rounds window records"
+    );
+    assert.deepEqual(
+      afterTerminal(read.events),
+      ["EPISODE_CLOSED"],
+      "nothing follows the terminal but the crash settle"
+    );
+
+    const replayed = replayRun(read.events);
+    assert.equal(replayed.status, "FAILED");
+    assert.deepEqual(replayed.anomalies, []);
+    assert.equal(await boundEpisodeStatus(stateRoot, read.events), "FAILED", "the episode is not bound forever");
+    assert.equal(await checkpointStatus(stateRoot, runId), "FAILED", "the durable resume point agrees");
+  });
+});
+
+test("a run that died before accepting a graph resumes as terminal rather than as a missing graph", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const runId = await crashedBeforeRounds(stateRoot, projectRoot);
+    const before = await new EventStore(stateRoot, runId).readAll();
+
+    const resumed = resumeSupervisedRun(
+      {
+        stateRoot,
+        executor: new SucceedingExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: NOW,
+        generateId: sequenceGenerator(100)
+      },
+      runId
+    );
+    const outcome = await resumed.done;
+    assert.equal(outcome.status, "FAILED", "the settled state is readable through the run-id command");
+    assert.equal(outcome.events.length, before.events.length, "a terminal run is resumed read-only");
+  });
+});
+
+/**
+ * The widened window keeps the module's best-effort rule: an event log that
+ * cannot be appended to at all takes the crash terminal down with it, and the
+ * original error is still what the caller sees.
+ */
+test("a pre-rounds crash whose own terminal cannot land still rethrows and writes no checkpoint", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    // A directory where the event log belongs: every append fails, including
+    // the crash terminal's.
+    const runId = "run_00000000-0000-4000-8000-000000000000" as RunId;
+    mkdirSync(join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl"), { recursive: true });
+
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new SucceedingExecutor(),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: NOW,
+        generateId: sequenceGenerator()
+      },
+      { projectRoot, objective: "Ship it", tasks: [task("a")], limits: limits() }
+    );
+    assert.equal(running.runId, runId, "the seeded log belongs to the run under test");
+    await assert.rejects(() => running.done, /EISDIR/, "the settle never masks the escaping error");
+
+    assert.equal(await checkpointStatus(stateRoot, runId), undefined, "nothing was invented about the run");
+  });
+});
+
 for (const settled of SETTLED_LOGS) {
   test(`a crash after ${settled.name} keeps that state instead of appending a terminal`, async () => {
     await withTempState(async (stateRoot, projectRoot) => {

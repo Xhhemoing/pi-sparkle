@@ -258,9 +258,10 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * Which writers take the lock is a measured decision, not a full set: the two
  * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
  * because acquiring per append or per checkpoint costs +22.5% / +17.5% on an
- * end-to-end run. `requestPause`, the track-questions write, and the run
- * lifecycles themselves (`withRunLifecycleLock`, one acquisition held for a
- * whole run) do. Each exclusion is argued where it is made.
+ * end-to-end run. `requestPause` does, and so do the run lifecycles themselves
+ * (`withRunLifecycleLock`, one acquisition held for a whole run — including the
+ * track loop's clarification run, whose questions write is covered by it rather
+ * than by an acquisition of its own). Each exclusion is argued where it is made.
  *
  * The verification stays as belt-and-braces (`verifyRunRecordsRemoved`), and
  * it runs twice: once inside the lock, and once after it is released. The lock
