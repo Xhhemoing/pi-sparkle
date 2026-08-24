@@ -412,3 +412,7 @@
 | S6-J-4 | waitForClarification 五次追加攒批落盘 | S5-G-5 同型 + read-your-writes 屏障（settle 读 5→0）；175–181µs |
 | S6-J-5 | reduceEpisodeEvents 无拒绝快路径返回输入别名 | 可观察身份改变；19–20ns |
 | S6-J-6 | generatedHints 第三处冗余 spread 就地 sort | 12–14ns；S4-J-6 同函数第三站点 |
+| S7-A-1 | from-child 路径 human 管道常量折叠 | 等价但需平行 turn 路径或公开旗标；1.7–3.4µs/run |
+| S7-A-2 | roller uniqueStrings 中间拼接数组消除 | 等价 3.2–3.7µs/链，被已否决 S2-A-1 支配 |
+| S7-A-3 | evaluateGates 空 hardCodes 析取守卫 | 实测负优化（−0.6~−2.3ns） |
+| S7-A-4 | combineScore 加权组合代数重排 | 舍入后可观察发散（首反例 H=0.35 P=0.0055） |
