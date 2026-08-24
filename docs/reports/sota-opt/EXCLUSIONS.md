@@ -520,3 +520,6 @@
 | S9-J-2 | rebuildViews 内部 weights Record→Map | 等价含原型键，但 3–4µs 被 saveToDisk 585–647µs 吞没 |
 | S9-J-3 | context index architecture/risks 双遍融合 | 等价但现实档 21–88ns/构建、每 run 一次 |
 | S9-J-4 | decideClosure structured-pass 短路死 legacyMatch | 等价但 4–865ns/判定；decideClosure 分解闭合 |
+| S10-B-1 | analyzeTask long 计算惰性下沉到非 HIGH 分支 | 等价但 40–125µs/批，低于 S4-B-4 噪声带 |
+| S10-B-2 | coldStartRoutingScore 死 Math.min(1) 钳位消除 | 8–9ns/route + ConfidenceScore≤1 护栏 |
+| S10-B-3 | validateConfig dup-role Set 换 indexOf 扫描 | 方向为正但每批 97–353ns |
