@@ -24,7 +24,7 @@
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
 | 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
 | 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](./round-09/PLAN.md) |
-| 10 | 第 2 波进行中 | 6 / 10（A/B/E 完成已合入；C 运行中；D 重派运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-10/PLAN.md](./round-10/PLAN.md) |
+| 10 | 第 3 波进行中 | 7 / 10（A/B/C/E 完成已合入；D 重派运行中；F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-10/PLAN.md](./round-10/PLAN.md) |
 
 ### Round 1 波次
 
@@ -111,8 +111,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R10-A 跟踪门控、R10-B live 路由、R10-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R10-D 自优化、R10-E 学习、R10-F 实验 | D 重派运行中；E 完成已合入；F 本波派出 |
+| 1 | R10-A 跟踪门控、R10-B live 路由、R10-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R10-D 自优化、R10-E 学习、R10-F 实验 | D 重派运行中；E 完成已合入；F 运行中 |
+| 3 | R10-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -211,7 +212,8 @@
 | R9-J | `cursor/r9-j-persist-ninth-pass-83a1` | 已合入专属分支（仅 `R9-J.md`）。S9-J-1..4 淘汰；删除级联配置态锚点复核 678–714µs |
 | R10-A | `cursor/r10-a-tracking-tenth-pass-83a1` | 已合入专属分支（仅 `R10-A.md`）。S10-A-1 淘汰；预算复核 59–70 µs/run |
 | R10-B | `cursor/r10-b-live-routing-tenth-pass-83a1` | 已合入专属分支（仅 `R10-B.md`）。S10-B-1..3 淘汰；天花板复核含 M=10+learned |
-| R10-C | `cursor/r10-c-offline-routing-tenth-pass-83a1` | 已派出 |
+| R10-C | `cursor/r10-c-offline-routing-tenth-pass-83a1` | 已合入专属分支（仅 `R10-C.md`）。S10-C-1..3 淘汰；r1c–r7c 回归门绿；贴带不越带 |
+| R10-G | `cursor/r10-g-runtime-tenth-pass-83a1` | 已派出 |
 | R10-D | `cursor/r10-d-adaptation-tenth-pass-83a1` | 首 VM ERROR 无分支；已重派 |
 | R10-E | `cursor/r10-e-learning-tenth-pass-83a1` | 已合入专属分支（仅 `R10-E.md`）。无新排除 ID；SLICE-CPU 复核 10.9–11.3 µs/run |
 | R10-F | `cursor/r10-f-experiments-tenth-pass-83a1` | 已派出 |

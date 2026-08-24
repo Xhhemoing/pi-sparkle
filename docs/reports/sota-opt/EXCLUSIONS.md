@@ -523,3 +523,6 @@
 | S10-B-1 | analyzeTask long 计算惰性下沉到非 HIGH 分支 | 等价但 40–125µs/批，低于 S4-B-4 噪声带 |
 | S10-B-2 | coldStartRoutingScore 死 Math.min(1) 钳位消除 | 8–9ns/route + ConfidenceScore≤1 护栏 |
 | S10-B-3 | validateConfig dup-role Set 换 indexOf 扫描 | 方向为正但每批 97–353ns |
+| S10-C-1 | irls 每拟合 distinct-key 代表表换逐行 stamp 扫描 | 逐位但池 ~7 ms；对决 +11–17 ms，在 ±35 ms 带内 |
+| S10-C-2 | APC off-value 按 canonical key 去重 | S8-C-2 天花板真子集；对决 +11–13 ms，贴带不越带 |
+| S10-C-3 | solveSymmetric 对称 Schur 镜像 | 部分主元破坏对称；3458/10000 反例；X2-3 同族 |
