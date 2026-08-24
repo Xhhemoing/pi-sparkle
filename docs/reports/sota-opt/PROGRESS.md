@@ -26,7 +26,8 @@
 | 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](./round-09/PLAN.md) |
 | 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
 | 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
-| 12 | 第 4 波进行中 | 10 / 10（A/B/C/D/E/F/H 已合入；G/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-12/PLAN.md](./round-12/PLAN.md) |
+| 12 | 第 4 波收尾 | 10 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-12/PLAN.md](./round-12/PLAN.md) |
+| 13 | 第 1 波进行中 | 1 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-13/PLAN.md](./round-13/PLAN.md) |
 
 ### Round 1 波次
 
@@ -133,8 +134,14 @@
 | --- | --- | --- |
 | 1 | R12-A 跟踪门控、R12-B live 路由、R12-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R12-D 自优化、R12-E 学习、R12-F 实验 | D/E/F 完成已合入 |
-| 3 | R12-G 运行时/图、R12-H 评价/需求 | G 运行中；H 完成已合入 |
+| 3 | R12-G 运行时/图、R12-H 评价/需求 | G/H 完成已合入 |
 | 4 | R12-I CLI/适配器、R12-J cluster/privacy | I 运行中；J 本波派出 |
+
+### Round 13 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R13-A 跟踪门控 | A 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -257,10 +264,11 @@
 | R12-D | `cursor/r12-d-adaptation-twelfth-pass-83a1` | 已合入专属分支（仅 `R12-D.md`）。S12-D-1..2 淘汰；eval 地板复核 3.72–4.07 ms；S12-D-2 生产规模稳定负优化 |
 | R12-E | `cursor/r12-e-learning-twelfth-pass-83a1` | 已合入专属分支（仅 `R12-E.md`）。无新排除 ID；SLICE-CPU 复核 18.5–19.2 µs/run |
 | R12-F | `cursor/r12-f-experiments-twelfth-pass-83a1` | 已合入专属分支（仅 `R12-F.md`）。无新排除 ID；全实验锚点复核 121–133 ms；账目残差直测 8–204 µs |
-| R12-G | `cursor/r12-g-runtime-twelfth-pass-83a1` | 已派出 |
+| R12-G | `cursor/r12-g-runtime-twelfth-pass-83a1` | 已合入专属分支（仅 `R12-G.md`）。无新排除 ID；计算顶复核 0.294–0.304 ms vs I/O 95.5–105.6 ms |
 | R12-H | `cursor/r12-h-eval-twelfth-pass-83a1` | 已合入专属分支（仅 `R12-H.md`）。无新排除 ID；热层默认复核 8.5–8.9 µs/run；热链剖面分解 |
 | R12-I | `cursor/r12-i-cli-twelfth-pass-83a1` | 已派出 |
 | R12-J | `cursor/r12-j-persist-twelfth-pass-83a1` | 已派出 |
+| R13-A | `cursor/r13-a-tracking-thirteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
