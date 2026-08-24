@@ -273,3 +273,8 @@
 | S4-B-3 | 成功路径共享冻结空 failures 单例 | 跨候选身份可观察改变 |
 | S4-B-4 | assignPlanned 直接传 task 作 options | 143–215µs/批噪声带 |
 | S4-B-5 | assignTasks 批内共享可变 route-input 骨架 | 232–349µs + S3-B-6 同护栏 |
+| S4-D-1 | parseLedgerEntry 尾部条件 spread 消除 | 两次基准符号翻转，纯抖动 |
+| S4-D-2 | rollback 载入链双拷贝消除 | 别名泄漏反例 + 133–143ns |
+| S4-D-3 | evalRoutingPolicy registry/dataset 载入重叠 | 双故障/投机读发散；79–127µs |
+| S4-D-4 | 默认 approval-profile 跳过校验 | ~110ns；防御纵深 |
+| S4-D-5 | assertNoForbiddenFields entries→keys | ~2.6µs ×2/eval，占端到端 ~0.1% |
