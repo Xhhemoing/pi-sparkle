@@ -403,6 +403,9 @@
 | S6-H-2 | 门控组合内 taskToChecks 死计算跳过 | 127–166ns/run；落地需平行构建器或收窄公开 CoverageMatrix。重开：调用图出现每 turn 热路径 |
 | S6-H-3 | assertCoverageAllowsStart 无条件消除 gated 拷贝 | 21–45ns/run；门逻辑须复制一份。重开：checkCoverageGate 单实现被正式拆分 |
 | S6-H-4 | extractor/critic 角色对象模块级单例化 | 466–853ns/run；偏好档仍须新建。重开：提取链进入每 turn 热路径 |
+| S6-I-1 | 常驻图分支独占残余 7 边点用处化（释放 15 模块） | 等价但非 run 类仅 -2.2~-4.6ms，无解析器病态红利。重开：单模块成本或病态回升使该组 ≥ 两位数 ms |
+| S6-I-2 | 进程内 `module.enableCompileCache()` | ESM 整图先编译后求值，切片内调用点覆盖不到静态图；全覆盖上界 -8ms。重开：bin/构建面解冻且落地线容纳 <10ms |
+| S6-I-3 | `main.ts` 全量按命令拆分 handler | 收益集中于亚感知一次性类；run 族 ≈1ms。重开：交互/诊断类获得明确延迟预算 |
 | S6-J-1 | 删除级联尾部 records 重写 ∥ tombstones 写并行化 | 单故障使「墓碑已更新而 body 未剥除」可达；双故障错误竞态；199–308µs |
 | S6-J-2 | loop-eval subject 字符串键换嵌套 Map | 无生产调用方；极端夹具 495–760µs 仍低于落地线 |
 | S6-J-3 | collapseFacts keys 排序+重查换 entries 直迭 | 现实 F=40 稳定负优化（慢 421–688ns） |
