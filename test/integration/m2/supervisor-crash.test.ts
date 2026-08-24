@@ -548,11 +548,13 @@ const SETTLED_LOGS: ReadonlyArray<{
  * `resumeSupervisedRun` refuses a log with no accepted graph, and that is every
  * log this window can leave.
  *
- * An empty task list is the cheapest reachable seed. `validateTaskGraph`
- * accepts it, and the `TASK_GRAPH_ACCEPTED` append is then refused by event
- * validation — a real refusal on the real path, no filesystem sabotage.
+ * The seed makes the episode snapshot store unwritable, so the bind fails
+ * after RUN_CREATED and before TASK_GRAPH_ACCEPTED. Empty task lists are now
+ * rejected during pre-flight and persist nothing.
  */
 async function crashedBeforeRounds(stateRoot: string, projectRoot: string): Promise<RunId> {
+  mkdirSync(runtimeRoot(stateRoot), { recursive: true });
+  appendFileSync(join(runtimeRoot(stateRoot), "episodes"), "");
   const running = startSupervisedRun(
     {
       stateRoot,
@@ -562,9 +564,9 @@ async function crashedBeforeRounds(stateRoot: string, projectRoot: string): Prom
       now: NOW,
       generateId: sequenceGenerator()
     },
-    { projectRoot, objective: "Ship it", tasks: [], limits: limits() }
+    { projectRoot, objective: "Ship it", tasks: [task("a")], limits: limits() }
   );
-  await assert.rejects(() => running.done, /must be a non-empty array/, "the error still reaches the caller");
+  await assert.rejects(() => running.done, /ENOTDIR/, "the episode-store error still reaches the caller");
   return running.runId;
 }
 
@@ -577,19 +579,15 @@ test("a supervised run that dies in its opening appends records a terminal and s
     assert.ok(terminal !== undefined, "the log does not just stop after RUN_STARTED");
     assert.match(
       (terminal.payload as { reason: string }).reason,
-      /^run crashed: Invalid Event: payload\.tasks must be a non-empty array$/,
+      /^run crashed: ENOTDIR: not a directory, open '.*\/runtime\/episodes\/ep_.*\.jsonl'$/,
       "the same bounded reason the rounds window records"
     );
-    assert.deepEqual(
-      afterTerminal(read.events),
-      ["EPISODE_CLOSED"],
-      "nothing follows the terminal but the crash settle"
-    );
+    assert.deepEqual(afterTerminal(read.events), [], "the unbound episode produces no invented closure");
 
     const replayed = replayRun(read.events);
     assert.equal(replayed.status, "FAILED");
     assert.deepEqual(replayed.anomalies, []);
-    assert.equal(await boundEpisodeStatus(stateRoot, read.events), "FAILED", "the episode is not bound forever");
+    assert.equal(await boundEpisodeStatus(stateRoot, read.events), undefined, "the failed bind exposes no episode");
     assert.equal(await checkpointStatus(stateRoot, runId), "FAILED", "the durable resume point agrees");
   });
 });

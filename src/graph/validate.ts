@@ -15,6 +15,10 @@ function orderLabel(id: TaskId): string {
 
 /** Validates a task collection as a DAG before any worker starts. */
 export function validateTaskGraph(tasks: readonly TaskNode[]): TaskGraph {
+  if (tasks.length === 0) {
+    throw new DomainValidationError("Task graph must contain at least one task");
+  }
+
   const byId = new Map<TaskId, TaskNode>();
   for (const node of tasks) {
     if (byId.has(node.id)) {
