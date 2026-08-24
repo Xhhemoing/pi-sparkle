@@ -4,6 +4,14 @@ import { DomainValidationError } from "../domain/errors.js";
  * Phase C Task 3: minimal symmetric solver. Gaussian elimination with
  * partial pivoting — no npm numeric library. Returns null when the matrix
  * is singular to working precision; callers must fail closed.
+ *
+ * The row references and the pivot column of `x` are hoisted out of the
+ * inner loops: nothing inside those loops reassigns `m[col]`, `m[row]`, or
+ * `x[col]` (the pivot swap runs before the hoist, and elimination only
+ * writes elements of rows strictly below `col`), so every read and write
+ * targets the identical memory in the identical order. The float operation
+ * set, values, and order are unchanged — the hoists only drop redundant
+ * outer-array loads that the JIT does not eliminate on its own.
  */
 export function solveSymmetric(a: readonly (readonly number[])[], b: readonly number[]): number[] | null {
   const n = b.length;
@@ -35,22 +43,26 @@ export function solveSymmetric(a: readonly (readonly number[])[], b: readonly nu
       x[col] = x[pivotRow]!;
       x[pivotRow] = tb;
     }
-    const pivot = m[col]![col]!;
+    const colArr = m[col]!;
+    const pivot = colArr[col]!;
+    const xCol = x[col]!;
     for (let row = col + 1; row < n; row++) {
-      const factor = m[row]![col]! / pivot;
+      const rowArr = m[row]!;
+      const factor = rowArr[col]! / pivot;
       if (factor === 0) continue;
       for (let k = col; k < n; k++) {
-        m[row]![k] = m[row]![k]! - factor * m[col]![k]!;
+        rowArr[k] = rowArr[k]! - factor * colArr[k]!;
       }
-      x[row] = x[row]! - factor * x[col]!;
+      x[row] = x[row]! - factor * xCol;
     }
   }
 
   const solution = new Array<number>(n).fill(0);
   for (let row = n - 1; row >= 0; row--) {
+    const rowArr = m[row]!;
     let sum = x[row]!;
-    for (let k = row + 1; k < n; k++) sum -= m[row]![k]! * solution[k]!;
-    const diag = m[row]![row]!;
+    for (let k = row + 1; k < n; k++) sum -= rowArr[k]! * solution[k]!;
+    const diag = rowArr[row]!;
     if (Math.abs(diag) < eps) return null;
     solution[row] = sum / diag;
   }
