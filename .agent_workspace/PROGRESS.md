@@ -219,9 +219,11 @@ Fable review (`.agent_workspace/loop4-r9-review.md` at `8e933a7`): **9 ACCEPT, 1
 
 Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI flip-pin; unblock carries contract); R9-2 `dff71f1` `sparkle_report_task_result` + pin 2 re-derived (PASSED opens / FAILED hard-blocks for `--executor pi`); R9-3 `97e475e` fail-closed pin + design `RUN_UNBLOCKED_WITH_DISCARD` (no payload field); R9-4 `af9f993` Round 8 docs (ADR-006 Proposed; ADR `0005` body still names deleted `loadProjectBandit` — flag-only; nit: nine-case probe line); R9-5 `25a57d9` 10th probe case; R9-6 `4d21a96` `runStatus` is a ledger not a control input (zero `src` readers); R9-7 `73363a2` character-exact `DOCTOR_ROUTED_NEXT` freeze; R9-8 `1b5ed59` `childTasksFromLog` resume call-site + FAIL-unreachable tripwire; R9-9 `8f45505` `loadProjectBandit` gone / `selectArm` shadow-only; R9-10 `5970a2f` `RUN_UNBLOCKED` payload three keys type-frozen.
 
-## Round 10 — in flight
+## Round 10 — landings (parent gate GREEN; fable review pending)
 
-10 slots from `.agent_workspace/ROUND9-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R10-1 **YES** `RUN_UNBLOCKED_WITH_DISCARD` (charged estimates in-payload, fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 option (a) **deferred to Round 11**; R10-5 comment-only `independentEvidence` posture (no rename); R10-6 probe **deferred** until R10-1 lands. R10-4 owns `resume.test.ts`.
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1915 / 1914 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **10 cases × 3** (discard-window probe deferred). ADR-006 stays Proposed. Zero parent fix-joints.
+
+10 slots from `.agent_workspace/ROUND9-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R10-1 **YES** `RUN_UNBLOCKED_WITH_DISCARD`; R10-2 option (a) **deferred**; R10-5 comment-only `independentEvidence` posture; R10-6 probe **deferred**.
 
 | Slot | Agent | Focus |
 |---|---|---|
@@ -235,6 +237,8 @@ Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI fl
 | R10-8 | bc-c2395186-968e-5e87-be28-66f89f4d0b55 | keep `applyRetry` AST pin over discard path |
 | R10-9 | bc-33009d74-85e5-5914-8616-76c9d244c74c | keep `runStatus` ledger no-reader pin |
 | R10-10 | bc-179325e9-b579-5eaa-9d28-17af209d4a6f | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
+
+Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-executed` (charged estimates fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 `a57fd7d` option (a) unimplemented freeze; R10-3 `66edccb` Round 9 docs; R10-4 `2e22453` writer-census pin (pure-CLI `--track`→pause STOP: tracked run has no pause controller); R10-5 `9b9888a` `independentEvidence` self-report posture; R10-6 `05d146c` verdict-producer standing rules; R10-7 `366df19` never-synthesize-from-episode; R10-8 `2399346` `applyRetry` absence over discard identifiers; R10-9 `d4b52b1` matched discard ledger status; R10-10 `d4741e6` `TERMINAL_REPLAY_STATUSES` / `RUN_UNBLOCKED*` not a status.
 
 ---
 
