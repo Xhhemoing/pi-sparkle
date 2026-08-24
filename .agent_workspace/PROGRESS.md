@@ -89,7 +89,7 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 | R3-9 | Resume `createExecutor` shares invocation sink |
 | R3-10 | Docs: no checkpoint leases; episode lock honesty |
 
-## Round 4 landings (parent gate GREEN; fable review in flight)
+## Round 4 landings (parent gate GREEN; fable 8 ACCEPT / 2 nits / 0 rollback)
 
 **Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1680 / 1679 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe 8×3 `ok: true`. Per-step run-lock on append/checkpoint rolled back (+22.5% / +17.5% e2e vs 5% bar).
 
@@ -106,7 +106,26 @@ Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
 | R4-9 | Atomic catalog-observed + preferences; additive `writeFileAtomicSync` |
 | R4-10 | Offline pi loopback run/resume/calibration fixture |
 
-Fable review agent: `bc-c5cbac0c-c3f8-5b03-85b5-356e57ccc23f` → `loop4-r4-review.md` + `ROUND4-BRIEF.md`.
+Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R4-8 stale snapshots; R4-10 empty-stderr joint). 0 ROLLBACK. Brief: `.agent_workspace/ROUND4-BRIEF.md`.
+
+## Round 5 — in flight
+
+10 slots from `.agent_workspace/ROUND4-BRIEF.md`. Sole owners: `flowchart-run.ts` R5-1; `main.ts` R5-9; `supervisor.ts` R5-2. Stay on `agent/opt-continuous`.
+
+Parent sign-offs: R5-1 SIGKILL-leaves-lock accepted; R5-6 mailbox option (b) only.
+
+| Slot | Focus |
+|---|---|
+| R5-1 | once-per-run lifecycle lock (delete waits) |
+| R5-2 | shared crash-terminal + supervised settle tail |
+| R5-3 | bandit store fail-closed atomic |
+| R5-4 | delete private temp+rename copies |
+| R5-5 | resume adopt unaccepted child results? (invest.) |
+| R5-6 | dead-letter reachability (option b) |
+| R5-7 | docs truth-up |
+| R5-8 | loopback witness for resume model |
+| R5-9 | command error → doctor next |
+| R5-10 | episode replay dead code + last bare parses |
 
 ---
 
