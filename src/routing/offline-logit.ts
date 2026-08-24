@@ -224,18 +224,103 @@ function irls(
     // directly — with w * z hoisted once per row — keeps every term, every
     // value, and the accumulation order unchanged; it only drops the
     // redundant multiplications and vector reads.
+    //
+    // A support holds at most five columns by construction — the intercept
+    // plus at most one scenario, model, project, and interaction dummy — so
+    // the accumulation loops run at trip counts the JIT cannot amortize:
+    // each element pays one increment/compare/branch plus one integer read
+    // of `active`. Dispatching on the support size to straight-line bodies
+    // performs the identical additions on the identical targets in the
+    // identical order (ai ascending, then bi ascending within it); only the
+    // per-element loop control and the repeated `active` index reads are
+    // dropped. `active` is never written during a fit and never aliases
+    // `xtwx` rows or `xtwz` (both freshly allocated above), so hoisting its
+    // entries into locals is unobservable. Sizes outside 2..5 (the
+    // intercept-only support) take the verbatim rolled loop in the default.
     for (let i = 0; i < n; i++) {
       const w = Math.max(mu[i]! * (1 - mu[i]!)!, 1e-10);
       const z = eta[i]! + ((rows[i]!.y - mu[i]!) / w);
       const wz = w * z;
       const active = supports[i]!;
-      for (let ai = 0; ai < active.length; ai++) {
-        const a = active[ai]!;
-        xtwz[a] = xtwz[a]! + wz;
-        const rowA = xtwx[a]!;
-        for (let bi = 0; bi < active.length; bi++) {
-          const b = active[bi]!;
-          rowA[b] = rowA[b]! + w;
+      switch (active.length) {
+        case 5: {
+          const a0 = active[0]!;
+          const a1 = active[1]!;
+          const a2 = active[2]!;
+          const a3 = active[3]!;
+          const a4 = active[4]!;
+          xtwz[a0] = xtwz[a0]! + wz;
+          const r0 = xtwx[a0]!;
+          r0[a0] = r0[a0]! + w; r0[a1] = r0[a1]! + w; r0[a2] = r0[a2]! + w; r0[a3] = r0[a3]! + w; r0[a4] = r0[a4]! + w;
+          xtwz[a1] = xtwz[a1]! + wz;
+          const r1 = xtwx[a1]!;
+          r1[a0] = r1[a0]! + w; r1[a1] = r1[a1]! + w; r1[a2] = r1[a2]! + w; r1[a3] = r1[a3]! + w; r1[a4] = r1[a4]! + w;
+          xtwz[a2] = xtwz[a2]! + wz;
+          const r2 = xtwx[a2]!;
+          r2[a0] = r2[a0]! + w; r2[a1] = r2[a1]! + w; r2[a2] = r2[a2]! + w; r2[a3] = r2[a3]! + w; r2[a4] = r2[a4]! + w;
+          xtwz[a3] = xtwz[a3]! + wz;
+          const r3 = xtwx[a3]!;
+          r3[a0] = r3[a0]! + w; r3[a1] = r3[a1]! + w; r3[a2] = r3[a2]! + w; r3[a3] = r3[a3]! + w; r3[a4] = r3[a4]! + w;
+          xtwz[a4] = xtwz[a4]! + wz;
+          const r4 = xtwx[a4]!;
+          r4[a0] = r4[a0]! + w; r4[a1] = r4[a1]! + w; r4[a2] = r4[a2]! + w; r4[a3] = r4[a3]! + w; r4[a4] = r4[a4]! + w;
+          break;
+        }
+        case 4: {
+          const a0 = active[0]!;
+          const a1 = active[1]!;
+          const a2 = active[2]!;
+          const a3 = active[3]!;
+          xtwz[a0] = xtwz[a0]! + wz;
+          const r0 = xtwx[a0]!;
+          r0[a0] = r0[a0]! + w; r0[a1] = r0[a1]! + w; r0[a2] = r0[a2]! + w; r0[a3] = r0[a3]! + w;
+          xtwz[a1] = xtwz[a1]! + wz;
+          const r1 = xtwx[a1]!;
+          r1[a0] = r1[a0]! + w; r1[a1] = r1[a1]! + w; r1[a2] = r1[a2]! + w; r1[a3] = r1[a3]! + w;
+          xtwz[a2] = xtwz[a2]! + wz;
+          const r2 = xtwx[a2]!;
+          r2[a0] = r2[a0]! + w; r2[a1] = r2[a1]! + w; r2[a2] = r2[a2]! + w; r2[a3] = r2[a3]! + w;
+          xtwz[a3] = xtwz[a3]! + wz;
+          const r3 = xtwx[a3]!;
+          r3[a0] = r3[a0]! + w; r3[a1] = r3[a1]! + w; r3[a2] = r3[a2]! + w; r3[a3] = r3[a3]! + w;
+          break;
+        }
+        case 3: {
+          const a0 = active[0]!;
+          const a1 = active[1]!;
+          const a2 = active[2]!;
+          xtwz[a0] = xtwz[a0]! + wz;
+          const r0 = xtwx[a0]!;
+          r0[a0] = r0[a0]! + w; r0[a1] = r0[a1]! + w; r0[a2] = r0[a2]! + w;
+          xtwz[a1] = xtwz[a1]! + wz;
+          const r1 = xtwx[a1]!;
+          r1[a0] = r1[a0]! + w; r1[a1] = r1[a1]! + w; r1[a2] = r1[a2]! + w;
+          xtwz[a2] = xtwz[a2]! + wz;
+          const r2 = xtwx[a2]!;
+          r2[a0] = r2[a0]! + w; r2[a1] = r2[a1]! + w; r2[a2] = r2[a2]! + w;
+          break;
+        }
+        case 2: {
+          const a0 = active[0]!;
+          const a1 = active[1]!;
+          xtwz[a0] = xtwz[a0]! + wz;
+          const r0 = xtwx[a0]!;
+          r0[a0] = r0[a0]! + w; r0[a1] = r0[a1]! + w;
+          xtwz[a1] = xtwz[a1]! + wz;
+          const r1 = xtwx[a1]!;
+          r1[a0] = r1[a0]! + w; r1[a1] = r1[a1]! + w;
+          break;
+        }
+        default: {
+          for (let ai = 0; ai < active.length; ai++) {
+            const a = active[ai]!;
+            xtwz[a] = xtwz[a]! + wz;
+            const rowA = xtwx[a]!;
+            for (let bi = 0; bi < active.length; bi++) {
+              const b = active[bi]!;
+              rowA[b] = rowA[b]! + w;
+            }
+          }
         }
       }
     }
