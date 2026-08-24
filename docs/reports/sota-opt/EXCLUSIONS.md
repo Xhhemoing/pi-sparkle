@@ -225,3 +225,8 @@
 | S3-B-4 | applyCascade previous===selection 免建 tiers 快路径 | 生产不可达 + 50–80ns |
 | S3-B-5 | validateInput 与 unknown-model 分段融合单遍 | 实测更慢（V8 内建快路径反例） |
 | S3-B-6 | partitionLiveCandidates 共享可变请求对象 | ~260µs 噪声带 + 别名可变危险 |
+| S3-D-1 | registry promote() 丢弃 beginPromotion 的 ledger 拷贝 | ~40ns；需改公开返回或平行 begin |
+| S3-D-2 | paretoFront 末尾冗余 spread 移除 | 21–37ns，无生产调用方 |
+| S3-D-3 | eval-routing assertReplayIsolated roots 去重 | 351–388µs 低于否决线 |
+| S3-D-4 | parseRollbackLedgerEntry 外层再拷贝消除 | ~1.1µs/载入 |
+| S3-D-5 | monitor report() 死 emptyAxes 分配下沉 | ~70ns，test-only |
