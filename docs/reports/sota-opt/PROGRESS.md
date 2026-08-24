@@ -15,14 +15,14 @@
 
 | 轮 | 状态 | 子代理数 | 模型 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | 第 1 波部分回传 | 10（2 在跑 / 1 完成 / 7 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
+| 1 | 第 1–2 波进行中 | 10（2 在跑 / 2 完成 / 6 排队） | claude-fable-5-thinking-xhigh | [round-01/PLAN.md](./round-01/PLAN.md) |
 
 ### Round 1 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R1-A 跟踪门控、R1-F 实验门控、R1-J cluster/privacy/episode | A 完成（无更优解，报告已合入）；F/J 仍在跑 |
-| 2 | R1-B live 路由、R1-C 离线路由、R1-D 自优化 | B 本波派出；C/D 排队 |
+| 1 | R1-A 跟踪门控、R1-F 实验门控、R1-J cluster/privacy/episode | A/F 完成已合入；J 仍在跑 |
+| 2 | R1-B live 路由、R1-C 离线路由、R1-D 自优化 | B 在跑；C 本波派出；D 排队 |
 | 3 | R1-E 学习、R1-G 运行时/图、R1-H 评价/需求 | 排队 |
 | 4 | R1-I CLI/适配器 | 排队（第 4 波不满 3，空位留给第 2 轮） |
 
@@ -30,7 +30,8 @@
 
 | 来源 | 分支 | 处置 |
 | --- | --- | --- |
-| R1-A | `cursor/sota-r1-a-tracking-1174` | 已快进合入专属分支（仅 `R1-A.md`） |
+| R1-A | `cursor/sota-r1-a-tracking-1174` | 已合入专属分支（仅 `R1-A.md`） |
+| R1-F | `cursor/r1-f-experiments-sota-4ac9` | 已合入专属分支（S1-F 代码 + 报告 + 仿真） |
 
 ## 合并策略
 

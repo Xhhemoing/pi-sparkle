@@ -7,6 +7,7 @@ import {
   haltOnAssignmentBudget,
   recordExperimentOutcome,
   requirePopulationEpisode,
+  requirePopulationMember,
   requireUniqueAssignment,
   assertFiniteNowMs,
 } from "./shadow.js";
@@ -89,9 +90,12 @@ function restoreCanaryState(serialized: CanaryState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
+  // One prebuilt membership Set keeps the fail-closed full re-validation of
+  // every assignment at O(A + P) per restore instead of O(A × P).
+  const population = new Set(serialized.plan.population);
   let derivedExposure = 0;
   for (const assignment of serialized.assignments) {
-    requirePopulationEpisode(serialized.plan, assignment.episodeHash);
+    requirePopulationMember(population, assignment.episodeHash);
     if (assignment.action !== "baseline" && assignment.action !== "candidate") {
       throw new DomainValidationError("invalid canary action");
     }

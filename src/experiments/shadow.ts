@@ -230,11 +230,33 @@ export function recordExperimentOutcome<
 }
 
 export function requirePopulationEpisode(plan: ExperimentPlan, episodeHash: string): void {
-  if (typeof episodeHash !== "string" || episodeHash.trim() === "") {
-    throw new DomainValidationError("episodeHash is required");
-  }
+  requireEpisodeHash(episodeHash);
   if (!plan.population.includes(episodeHash)) {
     throw new DomainValidationError(`episode ${episodeHash} is not in the frozen population`);
+  }
+}
+
+/**
+ * Membership check against a prebuilt Set over the frozen population.
+ * `Set.has` and `Array.includes` both use SameValueZero over the same
+ * (already validated: unique, non-empty string) population, so accept/reject
+ * and error messages are identical to `requirePopulationEpisode` — O(1) per
+ * assignment instead of O(P). Restores validate every assignment on every
+ * call (fail-closed, unchanged); this only removes the nested O(P) factor.
+ */
+export function requirePopulationMember(
+  population: ReadonlySet<string>,
+  episodeHash: string
+): void {
+  requireEpisodeHash(episodeHash);
+  if (!population.has(episodeHash)) {
+    throw new DomainValidationError(`episode ${episodeHash} is not in the frozen population`);
+  }
+}
+
+function requireEpisodeHash(episodeHash: string): void {
+  if (typeof episodeHash !== "string" || episodeHash.trim() === "") {
+    throw new DomainValidationError("episodeHash is required");
   }
 }
 
@@ -301,6 +323,9 @@ function restoreShadowState(serialized: ShadowState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
+  // One prebuilt membership Set keeps the fail-closed full re-validation of
+  // every assignment at O(A + P) per restore instead of O(A × P).
+  const population = new Set(serialized.plan.population);
   for (const assignment of serialized.assignments) {
     if (assignment.liveAction !== "baseline" || assignment.changedLiveAction !== false) {
       throw new DomainValidationError("shadow state must not change the live action");
@@ -308,7 +333,7 @@ function restoreShadowState(serialized: ShadowState, expected: ExperimentPlan): 
     if (assignment.shadowDecision !== "baseline" && assignment.shadowDecision !== "candidate") {
       throw new DomainValidationError("invalid shadowDecision");
     }
-    requirePopulationEpisode(serialized.plan, assignment.episodeHash);
+    requirePopulationMember(population, assignment.episodeHash);
   }
   const haltReason = canonicalHaltReason(serialized.haltReason, serialized.halted);
   return {
