@@ -61,6 +61,7 @@
 - S4-C `solveSymmetric` 消元/回代循环不变量引用提升（`m[row]`/`m[col]`/`x[col]` 提升为局部引用；浮点运算集合与顺序不变；见 round-04/R4-C.md）
 - S4-I CLI/`auth-session` 在点用处惰性加载 Pi 运行时子树（`--executor pi` 与 auth 函数体内 `await import(runtime)`；见 round-04/R4-I.md）
 - S5-C `solveSymmetric` 消元 k 循环按 4 顺序展开（含顺序余数；浮点运算集合与顺序不变；见 round-05/R5-C.md）
+- S5-F `assertUniqueNonEmpty` 单探针去重（`add` + size 计数器代替 `has`+`add`；first-fault 与消息逐位不变；见 round-05/R5-F.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -337,3 +338,6 @@
 | S5-E-3 | parseObservedSignal 两级 spread 合一 | extraSignals 零生产流量；~280ns |
 | S5-E-4 | diagnose 分组键换嵌套 Map | 廉价形式平局序发散；忠实形式抖动 |
 | S5-E-5 | auto-loop 切片内惰性 import | 独占增量仅 2.8–3.0ms |
+| S5-F-1 | dataset/simulation-holdout 探针去重镜像 | test-only 链；U=2000 仅 15µs |
+| S5-F-2 | assertUniqueNonEmpty 换 new Set(values).size | 无法命名重复项 + first-fault 重排 |
+| S5-F-3 | S5-F 赢家的索引循环形式 | 1.6–3.1ms 形式抖动 |
