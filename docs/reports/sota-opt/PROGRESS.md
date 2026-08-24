@@ -216,8 +216,8 @@
 | R10-D | `cursor/r10-d-adaptation-tenth-pass-83a1` | 首 VM ERROR 无分支；已重派 |
 | R10-E | `cursor/r10-e-learning-tenth-pass-83a1` | 已合入专属分支（仅 `R10-E.md`）。无新排除 ID；SLICE-CPU 复核 10.9–11.3 µs/run |
 | R10-F | `cursor/r10-f-experiments-tenth-pass-83a1` | 已合入专属分支（仅 `R10-F.md`）。无新排除 ID；全实验锚点复核 123.9–126.0 ms |
-| R10-H | `cursor/r10-h-eval-tenth-pass-83a1` | 已派出 |
 | R10-G | `cursor/r10-g-runtime-tenth-pass-83a1` | 已派出 |
+| R10-H | `cursor/r10-h-eval-tenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
