@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { runAutoAdaptFromEvents, runAutoAdaptLoop } from "../../../src/learning/auto-loop.js";
-import { loadProjectBandit } from "../../../src/learning/bandit-store.js";
+import { loadProjectBanditByKey } from "../../../src/learning/bandit-store.js";
 import type { ObservedSignal } from "../../../src/learning/signals.js";
 import {
   feedbackLogLockPath,
@@ -160,7 +160,7 @@ test("auto-adapt enabled updates the project bandit from deterministic signals",
     });
 
     assert.equal(result.banditUpdated, true);
-    const bandit = await loadProjectBandit(stateRoot, projectRoot);
+    const bandit = await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot));
     assert.ok(bandit, "the enabled loop must write the project bandit");
     assert.deepEqual(bandit.arms, ["cheap"]);
     assert.equal(bandit.pulls.cheap, 2);
@@ -200,7 +200,10 @@ test("kill switch SPARKLE_AUTO_ADAPT=0 collects signals without touching the ban
     // Learning does not: no bandit file, not even an empty one, and no lock
     // left behind by a write that never should have been attempted.
     assert.equal(result.banditUpdated, false);
-    assert.equal(await loadProjectBandit(stateRoot, projectRoot), undefined);
+    assert.equal(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      undefined
+    );
     assert.equal(existsSync(banditFile(stateRoot, projectRoot)), false);
     assert.equal(existsSync(`${banditFile(stateRoot, projectRoot)}.lock`), false);
     assert.match(result.reason, /bandit not updated/);

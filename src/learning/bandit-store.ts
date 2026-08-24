@@ -163,19 +163,11 @@ async function readBanditFile(path: string): Promise<BanditState | undefined> {
   return document.state;
 }
 
-/** Throws `BanditStateUnreadableError` on damaged bytes; a project with no bandit yet is `undefined`. */
-export async function loadProjectBandit(
-  stateRoot: string,
-  projectRoot: string
-): Promise<BanditState | undefined> {
-  return readBanditFile(banditPath(stateRoot, projectRoot));
-}
-
 /**
  * The same read, keyed by the stored project key instead of a project root, for callers that
  * enumerate `adaptation/learning/projects` and never see the roots those keys were hashed from.
- * Same contract as `loadProjectBandit`: `undefined` only for a project with no bandit yet,
- * `BanditStateUnreadableError` for damaged bytes, and nothing is written back either way.
+ * `undefined` means the project has no bandit yet; damaged bytes throw
+ * `BanditStateUnreadableError`, and nothing is written back either way.
  */
 export async function loadProjectBanditByKey(
   stateRoot: string,

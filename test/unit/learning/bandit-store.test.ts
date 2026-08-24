@@ -7,10 +7,11 @@ import { test } from "node:test";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import { createProjectId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
+import * as banditStore from "../../../src/learning/bandit-store.js";
 import {
   BANDIT_STATE_UNREADABLE_CODE,
   BanditStateUnreadableError,
-  loadProjectBandit,
+  loadProjectBanditByKey,
   updateProjectBandit
 } from "../../../src/learning/bandit-store.js";
 import { stableProjectKey } from "../../../src/learning/learned-routing.js";
@@ -61,6 +62,10 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve };
 }
 
+test("the bandit store does not export a caller-less root-keyed reader", () => {
+  assert.equal("loadProjectBandit" in banditStore, false);
+});
+
 test("creates, updates, and loads project state only from the adaptation plane", async () => {
   await withTempDir(async (stateRoot) => {
     const projectRoot = join(stateRoot, "project");
@@ -86,7 +91,10 @@ test("creates, updates, and loads project state only from the adaptation plane",
       explorationsUsed: 0,
       highRiskExplorations: 0
     });
-    assert.deepEqual(await loadProjectBandit(stateRoot, projectRoot), updated);
+    assert.deepEqual(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      updated
+    );
     await access(expectedBanditPath(stateRoot, projectRoot));
     await assert.rejects(access(runtimeRoot(stateRoot)), { code: "ENOENT" });
   });
@@ -94,7 +102,10 @@ test("creates, updates, and loads project state only from the adaptation plane",
 
 test("a project with no bandit yet is absent; ENOENT is the one silent path", async () => {
   await withTempDir(async (stateRoot) => {
-    assert.equal(await loadProjectBandit(stateRoot, join(stateRoot, "never-run")), undefined);
+    assert.equal(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(join(stateRoot, "never-run"))),
+      undefined
+    );
   });
 });
 
@@ -110,17 +121,20 @@ test("a torn bandit file fails closed instead of reading as no bandit", async ()
     const torn = `${JSON.stringify(learned, null, 2)}\n`.slice(0, 42);
     await writeFile(path, torn, "utf8");
 
-    await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
-      assert.ok(error instanceof BanditStateUnreadableError);
-      assert.ok(error instanceof DomainValidationError);
-      assert.equal(error.code, BANDIT_STATE_UNREADABLE_CODE);
-      assert.equal(error.name, "BanditStateUnreadableError");
-      assert.equal(error.path, path);
-      assert.ok(error.cause instanceof SyntaxError);
-      assert.match(error.message, /not valid JSON/);
-      assert.match(error.message, /cannot be recomputed from any log/);
-      return true;
-    });
+    await assert.rejects(
+      loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      (error: unknown) => {
+        assert.ok(error instanceof BanditStateUnreadableError);
+        assert.ok(error instanceof DomainValidationError);
+        assert.equal(error.code, BANDIT_STATE_UNREADABLE_CODE);
+        assert.equal(error.name, "BanditStateUnreadableError");
+        assert.equal(error.path, path);
+        assert.ok(error.cause instanceof SyntaxError);
+        assert.match(error.message, /not valid JSON/);
+        assert.match(error.message, /cannot be recomputed from any log/);
+        return true;
+      }
+    );
 
     // The update refuses for the same reason, before writing: the damaged bytes are still
     // there to repair, where the pre-atomic store would have published a fresh state over
@@ -145,11 +159,14 @@ test("an empty bandit file is damage, not a project that has never learned", asy
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, "", "utf8");
 
-    await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
-      assert.ok(error instanceof BanditStateUnreadableError);
-      assert.match(error.message, /the file is empty/);
-      return true;
-    });
+    await assert.rejects(
+      loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      (error: unknown) => {
+        assert.ok(error instanceof BanditStateUnreadableError);
+        assert.match(error.message, /the file is empty/);
+        return true;
+      }
+    );
   });
 });
 
@@ -186,11 +203,14 @@ test("every damaged bandit shape is refused by name, and none of them resets the
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, bytes, "utf8");
 
-      await assert.rejects(loadProjectBandit(stateRoot, projectRoot), (error: unknown) => {
-        assert.ok(error instanceof BanditStateUnreadableError, `case ${index}`);
-        assert.match(error.message, expected, `case ${index}`);
-        return true;
-      });
+      await assert.rejects(
+        loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+        (error: unknown) => {
+          assert.ok(error instanceof BanditStateUnreadableError, `case ${index}`);
+          assert.match(error.message, expected, `case ${index}`);
+          return true;
+        }
+      );
       await assert.rejects(
         updateProjectBandit(stateRoot, projectRoot, [taskSuccess("model-b", "PASS")]),
         { code: BANDIT_STATE_UNREADABLE_CODE },
@@ -220,7 +240,10 @@ test("unknown keys from a newer writer are version skew: the learned core surviv
     );
 
     // Half one: the document loads, and the unknown keys are dropped at the read boundary.
-    assert.deepEqual(await loadProjectBandit(stateRoot, projectRoot), core);
+    assert.deepEqual(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      core
+    );
 
     // Half two: the update keeps the learned counters instead of restarting from zero, and
     // republishes without the keys it never understood — the documented, accepted loss.

@@ -9,7 +9,7 @@ import { nowIso } from "../../../src/domain/timestamp.js";
 import { runAutoAdaptLoop } from "../../../src/learning/auto-loop.js";
 import {
   BANDIT_STATE_UNREADABLE_CODE,
-  loadProjectBandit,
+  loadProjectBanditByKey,
   updateProjectBandit
 } from "../../../src/learning/bandit-store.js";
 import { stableProjectKey } from "../../../src/learning/learned-routing.js";
@@ -118,7 +118,10 @@ test("a reader racing repeated publishes never observes a spliced bandit documen
     const reader = (async () => {
       while (writing) {
         try {
-          const state = await loadProjectBandit(stateRoot, projectRoot);
+          const state = await loadProjectBanditByKey(
+            stateRoot,
+            stableProjectKey(projectRoot)
+          );
           if (state === undefined) {
             failures.push("a read saw no bandit at all");
           } else if (state.arms.length !== CONCURRENT_ARMS) {
@@ -142,7 +145,10 @@ test("a reader racing repeated publishes never observes a spliced bandit documen
 
     assert.deepEqual(failures.slice(0, 3), [], `${failures.length} of ${reads} reads were torn`);
     assert.ok(reads > 5, `the reader only got ${reads} reads in; the race window was not exercised`);
-    const published = await loadProjectBandit(stateRoot, projectRoot);
+    const published = await loadProjectBanditByKey(
+      stateRoot,
+      stableProjectKey(projectRoot)
+    );
     assert.equal(published?.pulls["model-0000"], 1 + CONCURRENT_PUBLISHES);
     assert.deepEqual(
       (await readdir(dirname(path))).filter((name) => name.endsWith(".tmp")),
@@ -184,7 +190,10 @@ test("a temp abandoned by a crashed writer is neither adopted nor truncated", as
       taskSuccess("model-a", "PASS")
     ]);
     assert.deepEqual(state.arms, ["model-a"]);
-    assert.deepEqual(await loadProjectBandit(stateRoot, projectRoot), state);
+    assert.deepEqual(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      state
+    );
     assert.equal(await readFile(stale, "utf8"), staleBytes);
   });
 });
