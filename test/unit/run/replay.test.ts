@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   createAgentInstanceId,
   createProjectId,
@@ -8,6 +10,7 @@ import {
 } from "../../../src/domain/ids.js";
 import { defaultRunLimits } from "../../../src/domain/limits.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { EVENT_TYPES } from "../../../src/run/events.js";
 import {
   eventsLookLikeFlowchartRun,
   materializeCheckpoint,
@@ -21,6 +24,10 @@ import { makeEvent } from "../../helpers/event-factory.js";
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
 const AGENT = createAgentInstanceId(UUID);
 const TASK = createTaskId(UUID);
+const FLOWCHART_RUN_SOURCE = readFileSync(
+  fileURLToPath(new URL("../../../src/run/flowchart-run.ts", import.meta.url)),
+  "utf8"
+);
 
 const run = {
   id: createRunId(UUID),
@@ -126,6 +133,91 @@ test("RUN_BLOCKED is a terminal, so a RUN_FAILED after it is a second one", () =
   const blockedOnly = blockedThenFailed.slice(0, 3);
   assert.equal(replayRun(blockedOnly).status, "BLOCKED");
   assert.deepEqual(replayRun(blockedOnly).anomalies, []);
+});
+
+test("all three flowchart terminal recorders refuse while replay names BLOCKED", () => {
+  const recorderBounds = [
+    ["persistBlocked", "persistCompleted"],
+    ["persistCompleted", "persistFailed"],
+    ["persistFailed", "finish"]
+  ] as const;
+
+  for (const [recorder, nextFunction] of recorderBounds) {
+    const start = FLOWCHART_RUN_SOURCE.indexOf(`async function ${recorder}(`);
+    const end = FLOWCHART_RUN_SOURCE.indexOf(`async function ${nextFunction}(`, start + 1);
+    assert.notEqual(start, -1, `${recorder} must remain a named terminal recorder`);
+    assert.notEqual(end, -1, `${recorder} source boundary must remain inspectable`);
+    assert.match(
+      FLOWCHART_RUN_SOURCE.slice(start, end),
+      /if \(await alreadyTerminal\(ctx\)\) return;/,
+      `${recorder} must refuse after RUN_BLOCKED until an explicit unblock contract lands`
+    );
+  }
+
+  assert.match(
+    FLOWCHART_RUN_SOURCE,
+    /async function alreadyTerminal\(ctx: FlowchartLoopContext\): Promise<boolean> \{[\s\S]*?replayedTerminalStatus\(read\.events\) !== undefined;[\s\S]*?\}/,
+    "the three refusals must keep consulting replay's shared terminal definition"
+  );
+});
+
+test("current operator and scheduler signals cannot clear RUN_BLOCKED or its terminal latch", () => {
+  assert.equal(
+    (EVENT_TYPES as readonly string[]).includes("RUN_UNBLOCKED"),
+    false,
+    "adding persisted unblock schema requires parent sign-off and replacement of this current-behavior pin"
+  );
+
+  const blocked = [
+    makeEvent("RUN_CREATED", { run }),
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("RUN_BLOCKED", { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_x"] })
+  ];
+  const signals = [
+    makeEvent("RUN_STARTED", {}),
+    makeEvent("INJECTION_REQUESTED", {
+      kind: "fact",
+      actor: "operator",
+      confidence: 1,
+      key: "analysis",
+      value: "reviewed"
+    }),
+    makeEvent(
+      "TASK_STATUS_CHANGED",
+      { taskId: TASK, status: "READY", attempt: 1 },
+      { taskId: TASK }
+    ),
+    makeEvent("GATE_TRANSITION", {
+      transitionId: "transition-current-unblock-probe",
+      episodeId: "episode-current-unblock-probe",
+      turnId: TASK,
+      seq: 1,
+      from: "BLOCKED",
+      to: "RUNNING",
+      reasonCode: "operator-reviewed",
+      assessmentHash: "assessment-current-unblock-probe",
+      evidenceRefs: ["evd_x"],
+      policyVersion: "track-v1",
+      idempotencyKey: "current-unblock-probe",
+      directive: "none"
+    })
+  ];
+
+  for (const signal of signals) {
+    const afterSignal = [...blocked, signal];
+    assert.equal(replayRun(afterSignal).status, "BLOCKED", `${signal.type} must not unblock the run`);
+    assert.equal(
+      replayedTerminalStatus(afterSignal),
+      "BLOCKED",
+      `${signal.type} must not clear replay's terminal latch`
+    );
+    assert.deepEqual(replayRun(afterSignal).anomalies, []);
+    assert.deepEqual(
+      replayRun([...afterSignal, makeEvent("RUN_FAILED", { reason: "late" })]).anomalies,
+      ["multiple terminal events"],
+      `${signal.type} must leave RUN_BLOCKED terminal for the next recorder`
+    );
+  }
 });
 
 test("replayedTerminalStatus names the terminal a log already carries", () => {
