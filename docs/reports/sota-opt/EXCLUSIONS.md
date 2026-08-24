@@ -67,6 +67,7 @@
 - S6-F-1 shadow/canary restore 成员判断方向反转（pending assignment Set + population 扫描早退；validateExperimentPlan 与防御拷贝保留；见 round-06/R6-F.md）
 - S7-F-1 shadow/canary restore 对齐前缀快路径（同下标哈希相等即证非空+成员，失配后缀回退 S6-F-1，下标 0 失配改道原落地循环；见 round-07/R7-F.md）
 - S7-F-2 `assertUniqueNonEmpty` 可打印 ASCII 首字符卫（码点 33..126 跳过 trim；空串/非 ASCII 回落原探针；见 round-07/R7-F.md）
+- S7-I-1 目录构建按 provider 惰性加载 builtin 模型表（`listed-model-lazy.ts` 读 `providers/<id>.models`，`providers/all` 仅作 miss 回退；`listed-model.ts` 同步面保留；见 round-07/R7-I.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -448,3 +449,6 @@
 | S7-H-1 | 生产提取链异步机器消除（extractor/critic/builder 同步化） | 等价但 167–175ns/run；落地改三个公开扩展点 Promise 签名（X0-4） |
 | S7-H-2 | normalizeSources 生产组合跳过 signals 计算 | 生产组合死输出 162–165ns；对任意 extractor 是活契约；删字段/平行路径/惰性 getter 分别撞公开面 |
 | S7-H-3 | 模块加载期 JIT 预热调用 | 三次净负（关键路径 +355~+411µs）；once-per-process 否决类 |
+| S7-I-2 | run 路径 preferences.json 同步水合优化 | 0.22–1.07ms@≤1000 观测 + store 切片外 |
+| S7-I-3 | run 路径配置读取 Promise.all 并行 | µs 级 + 双故障竞态族（S2-J-10/S4-J-2/S7-G-5） |
+| S7-I-4 | per-provider 表推广到 models/auth 一次性命令 | 一次性 CLI 类 + 凭据面 |

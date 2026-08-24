@@ -21,7 +21,8 @@
 | 4 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S4-C / S4-I；其余区报告收口。见 [round-04/PLAN.md](./round-04/PLAN.md) |
 | 5 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S5-C / S5-F / S5-I-1；其余区报告收口。见 [round-05/PLAN.md](./round-05/PLAN.md) |
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
-| 7 | 第 4 波进行中 | 10 / 10（A–H 完成；F 落地 S7-F-1/S7-F-2；C 报告已合入并授权 X2-1 SOD 专项落地；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-07/PLAN.md](./round-07/PLAN.md) |
+| 7 | 第 4 波收口中 | 10 / 10（I 落地 S7-I-1；F 落地 S7-F-1/S7-F-2；C-LAND 与 J 仍在跑） | claude-fable-5-thinking-xhigh | [round-07/PLAN.md](./round-07/PLAN.md) |
+| 8 | 第 1 波派出 | 1 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-08/PLAN.md](./round-08/PLAN.md) |
 
 ### Round 1 波次
 
@@ -84,7 +85,13 @@
 | 1 | R7-A 跟踪门控、R7-B live 路由、R7-C 离线路由 | A/B 完成已合入；C 报告已合入（S7-C-1..4 淘汰；X2-1 档案授权专项落地） |
 | 2 | R7-D 自优化、R7-E 学习、R7-F 实验 | D/E 完成已合入；F 落地 S7-F-1/S7-F-2 |
 | 3 | R7-G 运行时/图、R7-H 评价/需求 | G/H 完成已合入 |
-| 4 | R7-I CLI/适配器、R7-J cluster/privacy | I 运行中；J 本波派出 |
+| 4 | R7-I CLI/适配器、R7-J cluster/privacy | I 落地 S7-I-1；J 运行中 |
+
+### Round 8 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R8-A 跟踪门控 | A 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -160,7 +167,8 @@
 | R7-J | `cursor/r7-j-persist-seventh-pass-83a1` | 已派出 |
 | R7-G | `cursor/r7-g-runtime-seventh-pass-83a1` | 已合入专属分支（仅 `R7-G.md`） |
 | R7-H | `cursor/r7-h-eval-seventh-pass-83a1` | 已合入专属分支（仅 `R7-H.md`） |
-| R7-I | `cursor/r7-i-cli-seventh-pass-83a1` | 已派出 |
+| R7-I | `cursor/r7-i-cli-seventh-pass-83a1` | 已合入专属分支（S7-I-1 代码 + 报告 + 仿真）。父代理重跑 r4i/r5i/r7i 待记 |
+| R8-A | `cursor/r8-a-tracking-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
