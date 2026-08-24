@@ -114,18 +114,18 @@ Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R4-8 stale snapshots; R4-10 empty-st
 
 Parent sign-offs: R5-1 SIGKILL-leaves-lock accepted; R5-6 mailbox option (b) only.
 
-| Slot | Focus |
-|---|---|
-| R5-1 | once-per-run lifecycle lock (delete waits) |
-| R5-2 | shared crash-terminal + supervised settle tail |
-| R5-3 | bandit store fail-closed atomic |
-| R5-4 | delete private temp+rename copies |
-| R5-5 | resume adopt unaccepted child results? (invest.) |
-| R5-6 | dead-letter reachability (option b) |
-| R5-7 | docs truth-up |
-| R5-8 | loopback witness for resume model |
-| R5-9 | command error → doctor next |
-| R5-10 | episode replay dead code + last bare parses |
+| Slot | Agent | Focus |
+|---|---|---|
+| R5-1 | bc-1a6ab9de-39cc-5f08-90c9-e9eaebad8a91 | once-per-run lifecycle lock (delete waits) |
+| R5-2 | bc-b0d58dc8-b281-563b-9770-25281a41c9a0 | shared crash-terminal + supervised settle tail |
+| R5-3 | bc-6b3b6bac-82a6-57a8-8e59-83a7bac7ae88 | bandit store fail-closed atomic |
+| R5-4 | bc-837972d7-3ff9-56f6-8a6d-18dc8a5b5ff0 | delete private temp+rename copies |
+| R5-5 | bc-08756ecf-0ac2-5fc2-9844-5af25a3a947c | resume adopt unaccepted child results? (invest.) |
+| R5-6 | bc-bc4c8832-dd50-5df2-ae0c-25f0b76802ca | dead-letter reachability (option b) |
+| R5-7 | bc-a3e3353e-8a60-5fdf-89b4-fa5310c7a934 | docs truth-up |
+| R5-8 | bc-71a7c01c-e04b-513b-b8ed-ddfbbcd1d455 | loopback witness for resume model |
+| R5-9 | bc-df501b27-1dd1-53e1-9684-6b1f195186f7 | command error → doctor next |
+| R5-10 | bc-41636f2c-62c7-51aa-bceb-0132b54bf77b | episode replay dead code + last bare parses |
 
 ---
 
