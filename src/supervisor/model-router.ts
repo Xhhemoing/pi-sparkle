@@ -13,6 +13,7 @@ import type { AgentRole } from "../domain/roles.js";
 import type { PrivacyClass } from "../routing/capability-registry.js";
 import { catalogModel, oneHotDistribution, type CatalogModel, type CatalogModelInput } from "../routing/catalog-model.js";
 import { FLOWCHART_FEATURE_VERSION } from "../routing/feature-version.js";
+import { liveRefusalMessage, selectLiveModel } from "../routing/live-selection.js";
 import { evaluateLiveCandidate } from "../routing/policy.js";
 
 /** Live catalog entry. Alias of the unified CatalogModel. */
@@ -195,108 +196,140 @@ function makeApprovalPlan(taskId: TaskId, model: CatalogModel): ApprovalPlan {
   };
 }
 
+/** RouteTaskInput with every documented default resolved exactly once. */
+interface ResolvedRouteRequest {
+  readonly highRisk: boolean;
+  readonly family: string;
+  readonly featureVersion: string;
+  readonly privacyRequired: PrivacyClass;
+  readonly requiredCapabilities: readonly string[];
+  readonly contextNeeded: number;
+  readonly outputNeeded: number;
+  readonly budgetUsd: number;
+  readonly deadlineMs: number;
+}
+
+function resolveRouteDefaults(input: RouteTaskInput): ResolvedRouteRequest {
+  return {
+    highRisk: input.highRisk === true,
+    family: input.family ?? "unknown",
+    featureVersion: input.featureVersion ?? FLOWCHART_FEATURE_VERSION,
+    privacyRequired: input.privacyRequired ?? "cloud-general",
+    requiredCapabilities: input.requiredCapabilities ?? ["tool-use"],
+    contextNeeded: input.contextNeeded ?? 0,
+    outputNeeded: input.outputNeeded ?? 0,
+    budgetUsd: input.limits.remainingCostUsd ?? Number.POSITIVE_INFINITY,
+    deadlineMs: input.limits.remainingTimeMs
+  };
+}
+
+/**
+ * Hard filter over the in-policy catalog slice, in catalog order. Eligibility
+ * is evaluateLiveCandidate — the same matrix as library R0 — and every failure
+ * is kept so nothing is dropped silently.
+ */
+function partitionLiveCandidates(
+  models: readonly CatalogModel[],
+  input: RouteTaskInput,
+  resolved: ResolvedRouteRequest
+): { readonly eligible: readonly CatalogModel[]; readonly refusals: readonly RoutingRefusal[] } {
+  const allowed = new Set(input.modelPolicy.allowedModels);
+  const eligible: CatalogModel[] = [];
+  const refusals: RoutingRefusal[] = [];
+  for (const model of models) {
+    if (!allowed.has(model.id)) continue;
+    const check = evaluateLiveCandidate(model, {
+      role: input.role,
+      complexity: input.complexity,
+      taskFamily: resolved.family,
+      privacyRequired: resolved.privacyRequired,
+      requiredCapabilities: resolved.requiredCapabilities,
+      contextNeeded: resolved.contextNeeded,
+      outputNeeded: resolved.outputNeeded,
+      budgetUsd: resolved.budgetUsd,
+      deadlineMs: resolved.deadlineMs,
+      highRisk: resolved.highRisk,
+      fixedCostUsd: model.estimatedCostUsd,
+      fixedLatencyMs: model.estimatedDurationMs
+    });
+    if (check.eligible) {
+      eligible.push(model);
+    } else {
+      refusals.push(...check.failures);
+    }
+  }
+  return { eligible, refusals };
+}
+
+function buildDecision(
+  policyVersion: string,
+  input: RouteTaskInput,
+  resolved: ResolvedRouteRequest,
+  selected: CatalogModel,
+  eligible: readonly CatalogModel[],
+  refusals: readonly RoutingRefusal[]
+): RoutingDecision {
+  const preferredModel = input.modelPolicy.preferredModel;
+  const preferred = selected.id === preferredModel;
+  const score = coldStartRoutingScore(input.complexity, preferred);
+  const approvalRequired = input.approvalRequired ?? false;
+  const statusAfterRoute: RoutingStatusAfter = approvalRequired ? "WAITING_FOR_USER" : "RUNNING";
+  const preferredNote = preferred
+    ? `; preferred constraint ${preferredModel}`
+    : "";
+  const justification =
+    `${selected.id} is allowed for role ${input.role} and ${input.complexity} complexity; ` +
+    `estimated cost ${selected.estimatedCostUsd} USD and duration ${selected.estimatedDurationMs} ms fit remaining limits` +
+    preferredNote;
+
+  const eligibleModels = eligible.map((model) => model.id);
+  return {
+    eventType: "MODEL_ROUTED",
+    taskId: input.taskId,
+    role: input.role,
+    complexity: input.complexity,
+    model: selected.id,
+    justification,
+    confidence: score,
+    coldStartRoutingScore: score,
+    approvalPlan: makeApprovalPlan(input.taskId, selected),
+    statusAfterRoute,
+    policyVersion,
+    estimatedCostUsd: selected.estimatedCostUsd,
+    estimatedDurationMs: selected.estimatedDurationMs,
+    family: resolved.family,
+    featureVersion: resolved.featureVersion,
+    modelVersion: selected.version,
+    highRisk: resolved.highRisk,
+    eligibleModels,
+    rejections: refusals,
+    behaviorDistribution: oneHotDistribution(eligibleModels, selected.id),
+    ...(input.agentRole !== undefined ? { agentRole: input.agentRole } : {}),
+    ...(preferred && preferredModel !== undefined ? { preferredConstraint: preferredModel } : {})
+  };
+}
+
 export function createModelRouter(config: ModelRouterConfig): ModelRouter {
   const models = validateConfig(config);
+  const catalogIds = new Set(models.map((model) => model.id));
   return {
     config: { ...config, models },
     route(input): RoutingDecision {
       validateInput(input);
-      const catalogIds = new Set(models.map((model) => model.id));
       const unknownPolicyModel = input.modelPolicy.allowedModels.find((id) => !catalogIds.has(id));
       if (unknownPolicyModel !== undefined) {
         throw new DomainValidationError(`Model policy references unavailable model: ${unknownPolicyModel}`);
       }
-
-      const highRisk = input.highRisk === true;
-      const family = input.family ?? "unknown";
-      const featureVersion = input.featureVersion ?? FLOWCHART_FEATURE_VERSION;
-      const privacyRequired = input.privacyRequired ?? "cloud-general";
-      const requiredCapabilities = input.requiredCapabilities ?? ["tool-use"];
-      const contextNeeded = input.contextNeeded ?? 0;
-      const outputNeeded = input.outputNeeded ?? 0;
-      const budgetUsd = input.limits.remainingCostUsd ?? Number.POSITIVE_INFINITY;
-      const inPolicy = models.filter((model) => input.modelPolicy.allowedModels.includes(model.id));
-      const refusals: RoutingRefusal[] = [];
-      const eligible: CatalogModel[] = [];
-
-      for (const model of inPolicy) {
-        const check = evaluateLiveCandidate(model, {
-          role: input.role,
-          complexity: input.complexity,
-          taskFamily: family,
-          privacyRequired,
-          requiredCapabilities,
-          contextNeeded,
-          outputNeeded,
-          budgetUsd,
-          deadlineMs: input.limits.remainingTimeMs,
-          highRisk,
-          fixedCostUsd: model.estimatedCostUsd,
-          fixedLatencyMs: model.estimatedDurationMs
-        });
-        if (check.eligible) {
-          eligible.push(model);
-        } else {
-          refusals.push(...check.failures);
-        }
-      }
-
+      const resolved = resolveRouteDefaults(input);
+      const { eligible, refusals } = partitionLiveCandidates(models, input, resolved);
       if (eligible.length === 0) {
-        const message = highRisk && refusals.some((row) => row.constraint === "high-risk-approval")
-          ? "No allowed model is approved for high-risk tasks"
-          : refusals.some((row) => row.constraint === "budget" || row.constraint === "deadline")
-            ? "No allowed model fits the remaining cost and time limits"
-            : `No allowed model satisfies role ${input.role} and complexity ${input.complexity}`;
-        throw new RoutingRefusalError(message, refusals);
+        throw new RoutingRefusalError(
+          liveRefusalMessage({ role: input.role, complexity: input.complexity, highRisk: resolved.highRisk }, refusals),
+          refusals
+        );
       }
-
-      const preferredModel = input.modelPolicy.preferredModel;
-      const selected = [...eligible].sort((left, right) => {
-        const preferredDifference =
-          Number(right.id === preferredModel) - Number(left.id === preferredModel);
-        if (preferredDifference !== 0) return preferredDifference;
-        const costDifference = left.estimatedCostUsd - right.estimatedCostUsd;
-        if (costDifference !== 0) return costDifference;
-        return left.id.localeCompare(right.id);
-      })[0]!;
-
-      const preferred = selected.id === preferredModel;
-      const score = coldStartRoutingScore(input.complexity, preferred);
-      const approvalRequired = input.approvalRequired ?? false;
-      const statusAfterRoute: RoutingStatusAfter = approvalRequired ? "WAITING_FOR_USER" : "RUNNING";
-      const preferredNote = preferred
-        ? `; preferred constraint ${preferredModel}`
-        : "";
-      const justification =
-        `${selected.id} is allowed for role ${input.role} and ${input.complexity} complexity; ` +
-        `estimated cost ${selected.estimatedCostUsd} USD and duration ${selected.estimatedDurationMs} ms fit remaining limits` +
-        preferredNote;
-
-      const eligibleModels = eligible.map((model) => model.id);
-      return {
-        eventType: "MODEL_ROUTED",
-        taskId: input.taskId,
-        role: input.role,
-        complexity: input.complexity,
-        model: selected.id,
-        justification,
-        confidence: score,
-        coldStartRoutingScore: score,
-        approvalPlan: makeApprovalPlan(input.taskId, selected),
-        statusAfterRoute,
-        policyVersion: config.policyVersion,
-        estimatedCostUsd: selected.estimatedCostUsd,
-        estimatedDurationMs: selected.estimatedDurationMs,
-        family,
-        featureVersion,
-        modelVersion: selected.version,
-        highRisk,
-        eligibleModels,
-        rejections: refusals,
-        behaviorDistribution: oneHotDistribution(eligibleModels, selected.id),
-        ...(input.agentRole !== undefined ? { agentRole: input.agentRole } : {}),
-        ...(preferred && preferredModel !== undefined ? { preferredConstraint: preferredModel } : {})
-      };
+      const selected = selectLiveModel(eligible, input.modelPolicy.preferredModel);
+      return buildDecision(config.policyVersion, input, resolved, selected, eligible, refusals);
     }
   };
 }
