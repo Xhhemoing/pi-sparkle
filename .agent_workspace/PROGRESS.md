@@ -196,9 +196,11 @@ Fable review (`.agent_workspace/loop4-r8-review.md` at `b65ad06`): **9 ACCEPT, 1
 
 Landed: R8-1 `RUN_UNBLOCKED` + locked `unblock` + honesty repair on BLOCKED `next:`; R8-2 contract-absence pins (schema deferred; nit: resumeCommand region regex swallows unblockCommand); R8-3 flowchart `applyRetry` absence pin; R8-4 option-(a) design (no live verdict producer — four preconditions); R8-5 Round 7 docs (ADR-006 Proposed); R8-6 catalog posture (b) + bandit `adapt auto` pin; R8-7 WAITING_FOR_USER crash / cancel-request decisions; R8-8 `INSPECT_SUMMARY` frozen-additive; R8-9 deleted `loadProjectBandit`; R8-10 bound-episode pre-rounds settle reseed.
 
-## Round 9 — landings (parent gate GREEN; fable review pending)
+## Round 9 — landings (parent gate GREEN; fable 9 ACCEPT / 1 nit / 0 rollback)
 
 Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1880 / 1879 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **10 cases × 3** (R9-5 added `unblock-append-before-checkpoint-sigkill`). ADR-006 stays Proposed. Zero parent fix-joints.
+
+Fable review (`.agent_workspace/loop4-r9-review.md` at `8e933a7`): **9 ACCEPT, 1 ACCEPT-WITH-NITS (R9-4), 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND9-BRIEF.md`.
 
 10 slots from `.agent_workspace/ROUND8-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R9-1 **YES** durable `contract` on the flowchart checkpoint; R9-2 **YES** `report_task_result` tool (no protocol schema); R9-3 design-only; R9-6 in-source gate-reconstruction posture (no new consumer). R9-3 did not co-schedule src with R9-1.
 
@@ -215,7 +217,24 @@ Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1880 / 1879 pas
 | R9-9 | bc-f5f50053-06b0-52d5-9751-64ec03b655c6 | freeze isolation after `loadProjectBandit` delete |
 | R9-10 | bc-ca262099-fbf9-5870-839e-a213db8117f4 | freeze `RUN_UNBLOCKED` payload keys |
 
-Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI flip-pin; unblock carries contract); R9-2 `dff71f1` `sparkle_report_task_result` + pin 2 re-derived (PASSED opens / FAILED hard-blocks for `--executor pi`); R9-3 `97e475e` fail-closed pin + design `RUN_UNBLOCKED_WITH_DISCARD` (no payload field); R9-4 `af9f993` Round 8 docs (ADR-006 Proposed; ADR `0005` body still names deleted `loadProjectBandit` — flag-only); R9-5 `25a57d9` 10th probe case; R9-6 `4d21a96` `runStatus` is a ledger not a control input (zero `src` readers); R9-7 `73363a2` character-exact `DOCTOR_ROUTED_NEXT` freeze; R9-8 `1b5ed59` `childTasksFromLog` resume call-site + FAIL-unreachable tripwire; R9-9 `8f45505` `loadProjectBandit` gone / `selectArm` shadow-only; R9-10 `5970a2f` `RUN_UNBLOCKED` payload three keys type-frozen.
+Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI flip-pin; unblock carries contract); R9-2 `dff71f1` `sparkle_report_task_result` + pin 2 re-derived (PASSED opens / FAILED hard-blocks for `--executor pi`); R9-3 `97e475e` fail-closed pin + design `RUN_UNBLOCKED_WITH_DISCARD` (no payload field); R9-4 `af9f993` Round 8 docs (ADR-006 Proposed; ADR `0005` body still names deleted `loadProjectBandit` — flag-only; nit: nine-case probe line); R9-5 `25a57d9` 10th probe case; R9-6 `4d21a96` `runStatus` is a ledger not a control input (zero `src` readers); R9-7 `73363a2` character-exact `DOCTOR_ROUTED_NEXT` freeze; R9-8 `1b5ed59` `childTasksFromLog` resume call-site + FAIL-unreachable tripwire; R9-9 `8f45505` `loadProjectBandit` gone / `selectArm` shadow-only; R9-10 `5970a2f` `RUN_UNBLOCKED` payload three keys type-frozen.
+
+## Round 10 — in flight
+
+10 slots from `.agent_workspace/ROUND9-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R10-1 **YES** `RUN_UNBLOCKED_WITH_DISCARD` (charged estimates in-payload, fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 option (a) **deferred to Round 11**; R10-5 comment-only `independentEvidence` posture (no rename); R10-6 probe **deferred** until R10-1 lands. R10-4 owns `resume.test.ts`.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R10-1 | pending | ship `RUN_UNBLOCKED_WITH_DISCARD` |
+| R10-2 | pending | freeze option-(a) unimplemented |
+| R10-3 | pending | Round 9 docs truth-up |
+| R10-4 | pending | CLI `--track` contract retention + writer census |
+| R10-5 | pending | `independentEvidence` + `applyChildThreeLine` posture |
+| R10-6 | pending | freeze verdict-producer rules (probe deferred) |
+| R10-7 | pending | freeze never-synthesize-from-episode |
+| R10-8 | pending | keep `applyRetry` AST pin over discard path |
+| R10-9 | pending | keep `runStatus` ledger no-reader pin |
+| R10-10 | pending | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
 
 ---
 
