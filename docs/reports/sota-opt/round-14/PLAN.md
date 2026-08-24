@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–13 已对各区做过十三遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S13-* 条目（含已合入的 S13-B-1 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I / R13-J / R14-A / R14-B / R14-D 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–13 已对各区做过十三遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S13-* 条目（含已合入的 S13-B-1 与 R12-A / R12-E / R12-F / R12-G / R12-H / R12-I / R12-J / R13-A / R13-C / R13-D / R13-E / R13-F / R13-G / R13-H / R13-I / R13-J / R14-A / R14-B / R14-D / R14-E 的空枚举收口）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R14-A … R14-J），报告写入 `docs/reports/sota-opt/round-14/`。
 
-状态：第 2 波 F 本波派出；A/B/D 已合入（空枚举）；C/E 运行中。Round 13 已收口 10/10。
+状态：第 3 波 G 本波派出；A/B/D/E 已合入（空枚举）；C/F 运行中。Round 13 已收口 10/10。
 
 A 切片已合入：空枚举，未铸 S14-A-*。预算复核 69–81 µs/run（锚点 13.9–16.3 µs/gate，与 R13-A 70–81 同带）。合同地板复现：hashAssessment×3 ~41–42%、validateEvent ~20–21%、turn ~13%、prescore×2 ~10%、O(E) 扫描 ~1.9–2.0%（第五扫描 currentGateStatus 51–65 ns 首次单列）。本轮新增 E 规模越线标定（10 ms/run 需 E≈1.4–1.7×10⁵）与 max-codes 格（14.6–15.0 µs/gate，无悬崖）。3 项换名拒绝不铸 ID。基线 `7acb666` 空 diff 再确认。
 
@@ -18,6 +18,8 @@ C 切片 = 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,
 
 D 切片已合入：空枚举，未铸 S14-D-*。eval 地板复核配置态 4.05–4.21 ms / toy 4.24–4.69 ms（Node v22.22.2，与 R13-D 3.83–4.05 同带上沿）。本轮新增规模越线标定：切片内可寻址池生产锚 0.53–0.54 ms，越 10 ms 需 17–18×；最早越线件为 assignTasks 合同屏障（9–11×，不可重开）；S6-D-5 rerunHash 在 E=20000 测得 46.2–49.8 ms，50 ms 越线 101–108×。8 项新角度换名/死面/越界拒绝。基线 `82bef36` 空 diff 再确认。
 
-E 切片 = `src/learning/`（10 文件）。不要重开 S1-E-* … S8-E-1 / S9-E-2。R10-E / R11-E / R12-E / R13-E 空枚举、未铸 ID。S8-E-1 双 `loadLearnedRouting` 不得去重。S9-E-2 是负优化。R13-E 三处无名微观（bandit includes 旁路、applyLearnedRouting 双中间数组、routingPolicyIdentity 再校验）不补铸。S13-B-1 辖区未重提。SLICE-CPU 复核 13.5–15.9 µs/run（历史带 11–24）。基线 `adb20d7` 预期空 diff。
+E 切片已合入：空枚举，未铸 S14-E-*。SLICE-CPU 复核 17.2–19.2 µs/run（双 Node 16 次，历史带 11–24；距 10 ms 落地线 521–583×）。本轮新增规模越线标定（E\*≈18,184–18,833，约 444–459× 生产）与 JIT 档审计（6/6 热导出 turbofan、0 deopt）。R13-E 三处无名微观原样在位不补铸。4 项新角度换名/理论失败拒绝。基线 `adb20d7` 空 diff 再确认。
 
 F 切片 = `src/experiments/`（15 文件：canary / plan / shadow / gated-comparison / replay / comparison-report / threshold-calibration / shadow-compare / isolation / simulation-holdout / holdout / manifest / evaluation-card / dataset / attribution-report）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**（对齐前缀快路径 ≠ O(P) 双指针）。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F / R11-F / R12-F / R13-F 空枚举、未铸 ID。全实验锚点 ~119–130 ms。outcomes.some 记账 1.63–1.73 ms（S1-F-8）。R13-F validate Ω(P) 体（Set 哈希/表 ≈90%）与 P-scaling 二次曲线已归档。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r14f 仿真。基线 `519101f` 预期空 diff。
+
+G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G / R13-G 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希。计算顶 ~0.289–0.293 ms vs I/O ~85–109 ms。R13-G Node 22.22 API 面轴（编译缓存 / flush:true / FileHandle 追加 / 错误路径读序）已命中已关 ID，不补铸。14 格矩阵 digest 与 R10-G/R11-G/R12-G 逐位相同。基线 `4efee23` 预期空 diff。
