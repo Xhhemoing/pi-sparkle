@@ -59,6 +59,7 @@
 - S2-C offline-logit IRLS 规范键 eta/mu 去重（见 round-02/R2-C.md）
 - S3-C offline-logit IRLS 累加循环单位乘法消除（0/1 设计下 `w*xi[a]*xi[b]`/`w*xi[a]*z` 逐位等于 `w`/`w*z`；见 round-03/R3-C.md）
 - S4-C `solveSymmetric` 消元/回代循环不变量引用提升（`m[row]`/`m[col]`/`x[col]` 提升为局部引用；浮点运算集合与顺序不变；见 round-04/R4-C.md）
+- S4-I CLI/`auth-session` 在点用处惰性加载 Pi 运行时子树（`--executor pi` 与 auth 函数体内 `await import(runtime)`；见 round-04/R4-I.md）
 - main 上已合入：ModelRouter 纯 live selection、catalog-invariant assignment plan、live route request 进共享约束矩阵
 
 ## 本战役新增
@@ -301,6 +302,10 @@
 | S4-H-1 | checkCoverageGate own-key 换 Object.hasOwn | 非可枚举键 fail-open；2–9ns |
 | S4-H-2 | critique 与 detectConflicts 结果级去重 | 公开签名 + 223ns |
 | S4-H-3 | heuristicCritic omissions 就地变异免双拷贝 | 322–486ns/run |
+| S4-I-2 | resume/answer PAUSED 探测改读 checkpoint.status | 陈旧 checkpoint fail-open 发散 + 4–17µs |
+| S4-I-3 | unpause 短路重排到 pause 探测前 | 等价但 µs 级内存重放 |
+| S4-I-4 | --track×--children 冲突检查提升到配置加载前 | 错误选择发散（S2-I-1/S3-I-3 同型） |
+| S4-I-5 | describeSparkleModel try/catch miss 换预探测 | 9.3µs × M≤10；平行实现风险 |
 | S4-J-1 | host.spawn 深度/配额双重复核死分支删除 | 不可达；3.7–5.5ns；防御纵深 |
 | S4-J-2 | startTrackedRun catalog∥learned Promise.all | 双故障竞态 + 投机读；17–18µs |
 | S4-J-3 | deleteEpisodeRecords 双文件 stat/rm 并行 | 删除数据面 + 竞态；60–62µs |
