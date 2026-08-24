@@ -25,7 +25,7 @@
 | X1-4 | cheaperEstimate/costOf/tierIndex 换 Map | M≤10 噪声级 |
 | X1-5 | 合并 shadow-compare 与 r1-shadow-report | 契约不同 |
 | X1-6 | 跨 episode 记忆化整个 routeR1 决策 | 等价键不安全 |
-| X2-1 | eta/dot 按支撑求和 | ±0.0 号位不保逐位 |
+| X2-1 | eta/dot 按支撑求和（一般实值设计） | 一般实值设计下 ±0.0 号位不保逐位。当前 0/1 设计 + +0.0 起点 + 有限 β 已被 R7-C §3 证伪；表所有者已授权该形态专项落地（S7-C），禁止另起平行实现 |
 | X2-2 | APC 按 (row,column) 记忆化 | 隐藏状态/收益不足 |
 | X2-3 | 解析 delta/Newton/Cholesky 改数值路径 | 非逐位一致 |
 | X2-4 | gate-apply 单遍合并不改签名 | 已否决 |
@@ -424,6 +424,10 @@
 | S7-B-4 | justification 常量尾段构造期预计算 | 符号翻转；X1-1 邻域派生缓存 |
 | S7-B-5 | 默认 `["tool-use"]` 能力数组模块级享元 | 可观察身份改变（S1-A-7 链） |
 | S7-B-6 | validateConfig 查重 Set 复用为 catalogIds | 每批一次 ns 级 |
+| S7-C-1 | bootstrap draws 循环 pointEffects.entries() 改 .keys() | 等价但 29.6–30.6 µs/报告 |
+| S7-C-2 | 收敛侧 beta.every(Number.isFinite) 换手写循环 | 实测负效应（every 快 6ns）；V8 已特化 builtin 谓词 |
+| S7-C-3 | irls 私有 eta/mu 缓冲 number[] 改 Float64Array | 零效应（PACKED_DOUBLE 已非装箱） |
+| S7-C-4 | onProbabilitiesFor map+闭包改索引循环 | 0.78–0.86 ms/报告，低于 ±35 ms 带 ~40× |
 | S7-D-1 | preparePromotion 内 putContent 重存消除 | legacy 无 contents 快照 fail-closed + hash32 碰撞 last-write→first-write；~10–14ns |
 | S7-D-2 | eval 报告尾 gatedComparisonReport/replayCacheKey/stringify/写盘 | 切片外 + 28.7–29.2µs = 端到端 0.62–0.69% |
 | S7-D-3 | saveAdaptationRegistry 临时名 UUID→pid+计数器 | 崩溃遗留+PID 复用 EEXIST；81–90ns |
