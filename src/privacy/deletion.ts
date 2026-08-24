@@ -2,11 +2,13 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 import { runtimeRoot } from "./state-layout.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
-import { DomainValidationError } from "../domain/errors.js";
-import { withExclusiveFileLock } from "../persist/file-lock.js";
-import { readJsonlObjects } from "../persist/jsonl.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
-import { invocationsLogPath } from "../routing/cost-calibration.js";
+import {
+  invocationsLogPath,
+  readInvocationRecords,
+  withInvocationLogLock,
+  writeInvocationRecords
+} from "../telemetry/invocation-log.js";
 import type { FeedbackRecord } from "../feedback/types.js";
 import {
   feedbackTombstonesPath,
@@ -464,18 +466,20 @@ interface InvocationRewrite {
  * unlink it; it has to be rewritten without the run's rows.
  *
  * Contract details:
- *  - A corrupt middle line throws (`readJsonlObjects` fails closed). Rewriting
- *    around an unparseable row would silently drop somebody's record and could
- *    equally silently keep one of this run's.
+ *  - A corrupt middle line throws (`readInvocationRecords` fails closed).
+ *    Rewriting around an unparseable row would silently drop somebody's record
+ *    and could equally silently keep one of this run's.
  *  - A crash-truncated final line is dropped by the rewrite. It is already
  *    unreadable to every reader, and it cannot be proven to belong to another
  *    run, so the privacy-safe direction is to let it go.
  *  - Rows that parse but are not valid invocations are kept unless they name
  *    this run: the runId match is deliberately structural, not
  *    `isInvocation`-gated, so a malformed row cannot smuggle the run through.
- *  - The rewrite takes the log's cooperative lock, which serializes concurrent
- *    deletes. It does not stop the live appender (`onInvocation` appends
- *    without the lock), so deleting a run while it is still executing can race.
+ *  - Read, filter, and write all happen inside the log's cooperative lock
+ *    (`withInvocationLogLock`), the same lock `appendInvocationRecord` takes.
+ *    A live invocation append therefore lands either wholly before the read or
+ *    wholly after the write, instead of into the window between them where the
+ *    rewrite would clobber it.
  */
 async function dropRunFromInvocationLog(
   stateRoot: string,
@@ -485,20 +489,15 @@ async function dropRunFromInvocationLog(
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
   if (!(await statExists(path))) return { path, droppedRows: 0 };
-  const droppedRows = await withExclusiveFileLock(`${path}.lock`, async () => {
-    const { values } = await readJsonlObjects(
-      path,
-      (line) =>
-        new DomainValidationError(
-          `corrupt invocation jsonl at line ${line} of ${path}; refusing to rewrite it for a delete`
-        )
+  const droppedRows = await withInvocationLogLock(stateRoot, async () => {
+    const { values } = await readInvocationRecords(
+      stateRoot,
+      "refusing to rewrite it for a delete"
     );
     const kept = values.filter((row) => !rowNamesRun(row, runId));
     const dropped = values.length - kept.length;
     if (dropped === 0) return 0;
-    const body = kept.map((row) => JSON.stringify(row)).join("\n");
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
+    await writeInvocationRecords(stateRoot, kept);
     return dropped;
   });
   return { path, droppedRows };

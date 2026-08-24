@@ -7,10 +7,13 @@ import { test } from "node:test";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import {
+  createAgentInstanceId,
   createEpisodeId,
   createEventId,
+  createInvocationId,
   createProjectId,
   createRunId,
+  createTaskId,
   type EpisodeId,
   type RunId
 } from "../../../src/domain/ids.js";
@@ -35,6 +38,13 @@ import {
   invocationsLogPath,
   loadInvocationsFromStateRoot
 } from "../../../src/routing/cost-calibration.js";
+import { hash32 } from "../../../src/domain/hash.js";
+import {
+  appendInvocationRecord,
+  invocationLogLockPath,
+  withInvocationLogLock
+} from "../../../src/telemetry/invocation-log.js";
+import type { ModelInvocation } from "../../../src/telemetry/model-invocation.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
 import { EpisodeStore } from "../../../src/run/episode-store.js";
@@ -501,6 +511,118 @@ test("a crash-truncated final line is dropped by the rewrite instead of being ke
     const rewritten = await readFile(path, "utf8");
     assert.doesNotMatch(rewritten, /inv_partial/);
     assert.match(rewritten, /inv_b/);
+  });
+});
+
+/**
+ * A live invocation the executor would hand to `onInvocation`. Unlike
+ * `invocationRow` this has to survive `validateInvocation`, because the locked
+ * append fails closed on a record it could not read back.
+ */
+function liveInvocation(runId: RunId): ModelInvocation {
+  return {
+    id: createInvocationId(UUID),
+    taskId: createTaskId(UUID),
+    runId,
+    agentInstanceId: createAgentInstanceId(UUID),
+    config: {
+      provider: "faux",
+      model: "cheap",
+      modelVersion: "cheap-v1",
+      parameterHash: hash32("params")
+    },
+    responseHash: hash32("response"),
+    tokensIn: 1000,
+    tokensOut: 500,
+    latencyMs: 200,
+    occurredAt: parseIsoTimestamp("2026-08-24T00:00:00.000Z"),
+    callOutcome: "ok"
+  };
+}
+
+test("the run-delete rewrite waits for the invocation log lock", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`
+    ]);
+    const before = await readFile(path, "utf8");
+    let pending: Promise<{ droppedInvocations: number }> | undefined;
+
+    await withInvocationLogLock(stateRoot, async () => {
+      pending = deleteRunRecords(stateRoot, doomed);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(
+        await readFile(path, "utf8"),
+        before,
+        "the rewrite must not start while another writer holds the lock"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    assert.equal((await pending).droppedInvocations, 1);
+    assert.equal(await readFile(path, "utf8"), "");
+    assert.equal(existsSync(invocationLogLockPath(stateRoot)), false, "lock is released");
+  });
+});
+
+/**
+ * The delete-vs-live-appender race: `deleteRunRecords` reads, filters, and
+ * rewrites the shared log, so an append that lands between its read and its
+ * write used to be erased. Both writers now take the same lock, so whichever
+ * order they run in, the appended row survives and the deleted run's rows do
+ * not.
+ */
+test("an invocation appended while a run delete runs is never clobbered", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`,
+      `${JSON.stringify(invocationRow(doomed, "inv_c"))}\n`
+    ]);
+    const live = liveInvocation(keeper);
+
+    const [result] = await Promise.all([
+      deleteRunRecords(stateRoot, doomed),
+      appendInvocationRecord(stateRoot, live)
+    ]);
+
+    assert.equal(result.droppedInvocations, 2);
+    const rows = (await readFile(path, "utf8"))
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as { id: string });
+    assert.deepEqual(
+      rows.map((row) => row.id).sort(),
+      ["inv_b", live.id].sort(),
+      "the live append survives the rewrite and the deleted run's rows do not"
+    );
+  });
+});
+
+test("a live append cannot resurrect the deleted run's rows after the rewrite", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`
+    ]);
+
+    await deleteRunRecords(stateRoot, doomed);
+    // An in-flight executor whose run was just deleted still appends. That row
+    // is a new fact, not a resurrected one: the delete is a point-in-time
+    // operation, and the operator has to delete again to clear it.
+    const late = liveInvocation(doomed);
+    await appendInvocationRecord(stateRoot, late);
+    assert.deepEqual(
+      (await loadInvocationsFromStateRoot(stateRoot)).map((inv) => inv.id),
+      [late.id]
+    );
+
+    const second = await deleteRunRecords(stateRoot, doomed);
+    assert.equal(second.droppedInvocations, 1);
+    assert.deepEqual(await loadInvocationsFromStateRoot(stateRoot), []);
   });
 });
 

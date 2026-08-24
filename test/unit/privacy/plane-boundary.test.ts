@@ -58,9 +58,9 @@ const ALLOWED: ReadonlyArray<Exception> = [
   { module: "learning/from-episode.ts -> ../run/event-store.js", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
   { module: "learning/from-episode.ts -> ../run/episode-bind.js", because: "episode id resolution for the derived-signal reader" },
   { module: "learning/from-episode.ts -> ../run/events.js", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },
-  // Offline routing evaluation reproduces the live router's *configuration
-  // shape* so replays stay comparable. Type-only, so nothing supervisor-side is
-  // loaded at runtime and no live record is reachable from the adaptation plane.
+  // The direct model-router import is type-only, but eval-routing value-imports
+  // routing/assign, which value-imports and loads model-router at runtime.
+  // model-router has no filesystem or record access.
   {
     module: "adaptation/eval-routing.ts -> ../supervisor/model-router.js",
     because: "type-only ModelRouterConfig shape for offline routing replay",
@@ -131,4 +131,26 @@ test("every allowlisted exception still exists and type-only ones stay erased", 
   }
   assert.deepEqual(stale, [], "allowlisted import no longer exists; drop the exception");
   assert.deepEqual(valueImports, [], "allowlisted type-only import became a value import");
+});
+
+test("routing evaluation reaches only the filesystem-free model router through value imports", () => {
+  const evalRouting = readSrc("adaptation/eval-routing.ts");
+  const assign = readSrc("routing/assign.ts");
+  const modelRouter = readSrc("supervisor/model-router.ts");
+
+  assert.match(
+    evalRouting,
+    /import\s+\{\s*assignTasks\s*\}\s+from\s+"\.\.\/routing\/assign\.js"/,
+    "eval-routing must value-import assignTasks"
+  );
+  assert.match(
+    assign,
+    /import\s+\{\s*createModelRouter\s*,[^}]*\}\s+from\s+"\.\.\/supervisor\/model-router\.js"/s,
+    "routing/assign must value-import createModelRouter"
+  );
+  assert.doesNotMatch(
+    modelRouter,
+    /node:fs|\breadFile\b|\bwriteFile\b|\bappendFile\b/,
+    "model-router must remain free of filesystem record access"
+  );
 });

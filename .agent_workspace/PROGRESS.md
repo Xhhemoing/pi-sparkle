@@ -30,7 +30,21 @@ Subagents do not git commit. Parent commits after each round.
 
 ## Loop 2 Round 1 结论简报
 
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1434 pass / 0 fail / 1 skip** (loop 1 close on main: 1408). Security probe **14/14**.
+
+| Slot | Landed |
+|---|---|
+| fable-1 | Loop2 architecture report; README skipContract + inspect `--summary-json`; matrix rows |
+| fable-2 | Isolation report; dictionary lock/boundary honesty |
+| opus-1 | `RunInspection.requiredEvidence`; prose inspect; `--summary-json` (`INSPECT_SUMMARY`); `--json` event stream unchanged |
+| opus-2 | `src/telemetry/invocation-log.ts` locked append; delete rewrite shares lock; CLI onInvocation uses it |
+| gpt-sol-1 | Plane-boundary comment + transitive eval-routing→assign→model-router + no-fs pin |
+| gpt-sol-2 | `--children` skipContract vs `--track` contract honesty test |
+
+This user request asked for **one** optimization round (6 concurrent agents). Loop 2 Round 1 closes the four carried P1/P2 items that are code-closable. Policy gates (P0, F-PROD, ADR-006, Outcome-supported) stay open.
+
 _Pending._
+
 
 ---
 
