@@ -132,6 +132,51 @@ test("a fresh agent id holding the sending role does not receive the role's own 
   assert.equal(mailbox.deadLetters()[0]?.requeues, 2);
 });
 
+test("a tallied mail's requeue count is monotone and ends in its dead letter", () => {
+  const clock = parseIsoTimestamp("2026-08-24T00:00:00.000Z");
+  const mailbox = createMailbox({ now: () => clock });
+  const sender = createAgentInstanceId();
+  mailbox.claimRole("tester", sender);
+  const id = createMessageId();
+  mailbox.enqueue({
+    id,
+    from: sender,
+    addressRole: "tester",
+    body: "run the suite",
+    occurredAt: clock
+  });
+  const tallies: number[] = [];
+  let previous = mailbox.requeueCount(id);
+
+  for (let claim = 1; claim <= DEFAULT_MAX_ROLE_REQUEUES; claim += 1) {
+    assert.deepEqual(mailbox.claimRole("tester", createAgentInstanceId()), []);
+    const current = mailbox.requeueCount(id);
+    assert.ok(current >= previous, `requeue count regressed from ${previous} to ${current}`);
+    tallies.push(current);
+    previous = current;
+  }
+
+  assert.deepEqual(tallies, [1, 2, 3]);
+  assert.deepEqual(mailbox.deadLetters(), []);
+  assert.deepEqual(mailbox.claimRole("tester", createAgentInstanceId()), []);
+  assert.equal(mailbox.requeueCount(id), 0, "the accessor only tallies still-pending mail");
+  assert.deepEqual(mailbox.deadLetters(), [
+    {
+      mail: {
+        id,
+        from: sender,
+        addressRole: "tester",
+        body: "run the suite",
+        occurredAt: clock
+      },
+      role: "tester",
+      reason: "requeue-limit",
+      requeues: previous,
+      deadLetteredAt: clock
+    }
+  ]);
+});
+
 test("a cast to a role its sender does not hold is delivered however late the role arrives", () => {
   const mailbox = createMailbox({ maxRoleRequeues: 0 });
   const scout = createAgentInstanceId();

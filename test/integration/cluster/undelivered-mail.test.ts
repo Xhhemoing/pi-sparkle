@@ -308,6 +308,50 @@ test("a run registering a fresh id per attempt reaches a dead letter", async () 
   });
 });
 
+test("a flowchart-embedded role chain reaches the same dead letter and operator line", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const scouts = [child("flow-scout1", "scout")];
+    for (let index = 2; index <= DEFAULT_MAX_ROLE_REQUEUES + 2; index += 1) {
+      scouts.push(child(`flow-scout${index}`, "scout", `flow-scout${index - 1}`));
+    }
+    const outcome = await startFlowchartRun(
+      {
+        stateRoot,
+        router: twoModelRouter(),
+        executor: new SelfCastExecutor(),
+        registry,
+        cluster: true
+      },
+      {
+        projectRoot,
+        flowchart: compileChildrenToFlowchart(
+          scouts.map((entry) => ({
+            taskId: entry.taskId,
+            role: "scout" as const,
+            objective: entry.objective,
+            ...(entry.dependsOn !== undefined ? { dependsOn: entry.dependsOn } : {})
+          }))
+        ),
+        objective: "Survey the parser through a flowchart",
+        childTasks: scouts
+      }
+    );
+
+    assert.equal(outcome.status, "COMPLETED");
+    assert.deepEqual(outcome.clusterMail, {
+      pending: 0,
+      pendingByRole: [],
+      deadLettered: 1,
+      deadLetteredByRole: [{ role: "scout", count: 1 }],
+      deadLetteredByReason: [{ reason: "requeue-limit", count: 1 }]
+    });
+    assert.equal(
+      formatUndeliveredClusterMail(outcome.clusterMail),
+      "warning: cluster role-cast mail undelivered: pending=0, dead-lettered=1 (scout=1; requeue-limit=1)\n"
+    );
+  });
+});
+
 /**
  * The same drop driven straight at the host, with one lone reviewer: the
  * re-registration path the bound has always had. It stays green under R5-6's
