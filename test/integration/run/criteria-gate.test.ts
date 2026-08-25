@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
-import { parseTaskId, type ArtifactId, type EvidenceId, type MessageId } from "../../../src/domain/ids.js";
+import {
+  parseTaskId,
+  type ArtifactId,
+  type EvidenceId,
+  type MessageId,
+  type RunId
+} from "../../../src/domain/ids.js";
 import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
 import type {
   AgentExecutionRequest,
@@ -22,7 +28,13 @@ import {
   unblockFlowchartRun,
   type FlowchartRunOutcome
 } from "../../../src/run/flowchart-run.js";
-import { replayRun, replayedTerminalStatus } from "../../../src/run/replay.js";
+import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
+import {
+  replayRun,
+  replayedTerminalStatus,
+  validateCheckpoint,
+  type TaskAcceptanceCriteria
+} from "../../../src/run/replay.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 
 /**
@@ -207,6 +219,15 @@ function assessments(events: readonly Event[]): Extract<Event, { type: "TRACKING
   return events.filter((event) => event.type === "TRACKING_ASSESSMENT");
 }
 
+/** The durable per-task criteria record, read back off disk rather than off an outcome. */
+async function storedTaskCriteria(
+  stateRoot: string,
+  runId: RunId
+): Promise<readonly TaskAcceptanceCriteria[] | undefined> {
+  const raw = await new CheckpointStore(stateRoot, runId).read();
+  return validateCheckpoint(raw).flowchart?.taskCriteria;
+}
+
 /** What the child's terminal TASK_RESULT durably says about its criteria. */
 function reportedCriteria(events: readonly Event[]): readonly CriterionVerification[] | undefined {
   for (const event of events) {
@@ -297,6 +318,74 @@ test("a child that reports the task PASSED with one FAILED criterion blocks the 
     assert.deepEqual(terminals(resumed.events), ["RUN_BLOCKED", "RUN_COMPLETED"]);
     assert.equal(replayedTerminalStatus(resumed.events), "COMPLETED");
     assert.deepEqual(replayRun(resumed.events).anomalies, []);
+  });
+});
+
+/**
+ * The unblock's carry-forward of `taskCriteria`, measured instead of read off
+ * the source.
+ *
+ * The reopen is the third writer of a flowchart checkpoint and the only one
+ * that rebuilds the payload from parts rather than from the loop context, so
+ * it is the one that can drop the field with every restorer still correct.
+ * Until this round that seam was held only by a character-exact source pin in
+ * `test/integration/m2.5/resume.test.ts` and by the AST property census —
+ * exactly the posture `contract` had before R10-4 gave it a behavioural pin.
+ *
+ * The run above is the fixture that closes it, and it is the strongest shape
+ * available: `childSpec` names `tsk_migrate` with an empty criteria list, so
+ * the record carries the caller's durable *known-none* — the one statement no
+ * later writer can rebuild. A logged `TASK_REQUEST` carrying no criteria is
+ * deliberately ignored (on the log it is indistinguishable from a substituted
+ * re-dispatch), so if the reopen dropped this entry nothing downstream could
+ * put it back: the field would silently fall from known-none to unknown and
+ * stay there. Reading the same deep-equal at all three moments is what
+ * separates carried-forward from dropped, and from re-synthesized.
+ */
+test("unblocking the blocked run carries its known-none criteria record across the reopen and the resume", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const reporting = executorYielding(
+      passedResult([{ id: CRITERION, kind: "FAILED", evidenceIds: [CRITERION_EVIDENCE] }])
+    );
+    const blocked = await runReporting(stateRoot, projectRoot, generateId, reporting);
+    assert.equal(blocked.status, "BLOCKED");
+
+    // (1) Before the unblock. One entry, and its criteria list is empty
+    // because the caller's own spec said so — not absent, which would mean
+    // nobody recorded this task at all.
+    const recorded: readonly TaskAcceptanceCriteria[] = [{ taskId: parseTaskId(NODE), acceptanceCriteria: [] }];
+    assert.deepEqual(await storedTaskCriteria(stateRoot, blocked.runId), recorded);
+
+    // (2) After the reopen rewrite. Authorizing a blocked run changes what may
+    // execute, never what its tasks were dispatched with.
+    const deps = { stateRoot, router: router(), now: () => TS, generateId };
+    const unblocked = await unblockFlowchartRun(deps, blocked.runId, {
+      reason: "operator reviewed the unmet criterion and accepted the gap"
+    });
+    assert.equal(unblocked.status, "RUNNING");
+    assert.deepEqual(
+      await storedTaskCriteria(stateRoot, blocked.runId),
+      recorded,
+      "the reopen rebuilt the payload from parts and kept the record among them"
+    );
+
+    // (3) After the resume, whose own checkpoint write is the last chance to
+    // lose it. The resume holds nothing but a run id, so what it writes back
+    // is what it restored.
+    const resumed = await resumeFlowchartRun(
+      {
+        stateRoot,
+        router: router(),
+        now: () => TS,
+        generateId,
+        executor: executorYielding(passedResult()),
+        cluster: true
+      },
+      blocked.runId
+    );
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(await storedTaskCriteria(stateRoot, blocked.runId), recorded);
   });
 });
 

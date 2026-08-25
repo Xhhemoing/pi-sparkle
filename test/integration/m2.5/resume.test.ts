@@ -864,6 +864,79 @@ test("a resume re-dispatches recorded criteria and leaves an unrecorded node unk
 });
 
 /**
+ * The log-derived arm of the record, which a fresh-tree run cannot exercise.
+ *
+ * `advanceTaskCriteria` merges every non-empty logged `TASK_REQUEST` into the
+ * record on each checkpoint write, but in a run started by current code the
+ * arm can never add anything: the start seed already pre-records every task
+ * the caller specified, and the only tasks it does *not* name are the ones the
+ * log answers with an empty list, which is ignored on purpose. The arm's real
+ * domain is a checkpoint that predates the writer — a run started before Loop
+ * 4 R12-1, resumed after it.
+ *
+ * That run is reproduced here rather than fabricated: a real run is taken to
+ * its pause, then `taskCriteria` is deleted from its checkpoint on disk. The
+ * result is schema-valid, because absence is exactly what "unknown" is spelled
+ * as, and it is the same state every pre-writer checkpoint is in. The resume
+ * then holds a run id and a log, with no caller specs at all — so the entry it
+ * recovers for `tsk_first` can only have come from that task's logged request.
+ *
+ * `tsk_second` is the other half of the same measurement and must stay absent.
+ * The resume substitutes an empty criteria list for it (nothing records it any
+ * more), it runs, and it logs that empty list — which the merge ignores,
+ * because a caller who asked for none and a node the rebuild substituted for
+ * are byte-identical on the log. Legacy recovery restores what the log can
+ * prove and declines to launder the rest.
+ */
+test("a resume of a checkpoint written before the writer recovers the record from the log", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
+    assert.deepEqual(await storedTaskCriteria(stateRoot, runId), {
+      tsk_first: [CONTRACT_CRITERION],
+      tsk_second: [CONTRACT_CRITERION]
+    });
+
+    // Rewind the checkpoint to the shape every pre-R12-1 run's is in. Written
+    // back through the validator's own reader on the next line, so a state
+    // this test could not actually reach would fail here rather than later.
+    const checkpointPath = join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
+    const raw = (await new CheckpointStore(stateRoot, runId).read()) as {
+      flowchart: Record<string, unknown>;
+    };
+    delete raw.flowchart["taskCriteria"];
+    await writeFile(checkpointPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    assert.equal(await storedTaskCriteria(stateRoot, runId), undefined, "absence is unknown, and valid");
+
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      runId,
+      { unpause: true, contract }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+
+    // The node the log had never seen run was re-dispatched with nothing,
+    // because by then the run truly had no record of what it was asked for.
+    // This is the cost of the legacy state, and it is visible rather than
+    // hidden: the criteria are gone from the dispatch, not silently restored
+    // from some other source.
+    const dispatched = Object.fromEntries(
+      loggedTaskRequests(resumed.events).map((request) => [
+        request.taskId,
+        request.acceptanceCriteria.map((criterion) => criterion.id)
+      ])
+    );
+    assert.deepEqual(dispatched, { tsk_first: [CONTRACT_CRITERION], tsk_second: [] });
+
+    // And what the log *could* prove came back. `tsk_first` is on the record
+    // again with the criteria its request carries; `tsk_second`, whose only
+    // request is the empty one this resume just logged, stays absent.
+    assert.deepEqual(await storedTaskCriteria(stateRoot, runId), {
+      tsk_first: [CONTRACT_CRITERION]
+    });
+  });
+});
+
+/**
  * The half R7-1 could not close, now closed — and this is the pin it flips.
  *
  * **Disclosure.** Until this round the assertion here was the opposite one:
