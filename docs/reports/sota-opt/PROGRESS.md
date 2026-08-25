@@ -40,7 +40,7 @@
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
-| 26 | 第 1 波开卷 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
+| 26 | 第 1–2 波进行中 | 2 / 10（A/B 已合入；C 运行中；D/E 本波派出） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
 
 ### Round 1 波次
 
@@ -271,7 +271,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R26-A 跟踪门控、R26-B live 路由、R26-C 离线路由 | A/B 运行中；C 本波派出 |
+| 1 | R26-A 跟踪门控、R26-B live 路由、R26-C 离线路由 | A/B 已合入；C 运行中 |
+| 2 | R26-D 自优化、R26-E 学习 | D/E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -528,9 +529,11 @@
 | R25-H | `cursor/r25-h-eval-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-H.md`）。无新排除 ID；热层默认复核 9.31–10.25 µs/run；consumer-stage string-representation census 归档 |
 | R25-I | `cursor/r25-i-cli-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-I.md`）。无新排除 ID；custom−builtin 复核 +37.0~+50.7 / +20.9~+25.8 / +45.7~+53.1 / +23.6~+25.6 / +42.3~+52.5 / +15.1~+24.9 ms；process-environment coordinate 归档 |
 | R25-J | `cursor/r25-j-persist-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-J.md`）。无新排除 ID；I/O 地板复核；COTARG 不铸 ID；切片关闭 |
-| R26-A | `cursor/r26-a-tracking-twenty-sixth-pass-83a1` | 已派出 |
-| R26-B | `cursor/r26-b-live-routing-twenty-sixth-pass-83a1` | 已派出 |
+| R26-A | `cursor/r26-a-tracking-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-A.md`）。无新排除 ID；预算复核 ~69–84 µs/run；collation-locale face 归档 |
+| R26-B | `cursor/r26-b-live-routing-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-B.md`）。无新排除 ID；天花板复核 M=2 ~9.1–9.3 / M=10 ~17.9–18.8 ms/eval；privacy / provider-policy constraint-leg face 归档 |
 | R26-C | `cursor/r26-c-offline-routing-twenty-sixth-pass-83a1` | 已派出 |
+| R26-D | `cursor/r26-d-adaptation-twenty-sixth-pass-83a1` | 已派出 |
+| R26-E | `cursor/r26-e-learning-twenty-sixth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
