@@ -133,6 +133,14 @@ Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fab
 
 Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r8-fable-next.md`) at `33e8cf3`. Through-line: after D21/D26–D30 fixed *which flags* you pass, four free files still forward *flag values* unchecked, so malformed ids, blank strings, and empty CSVs surface through `main.ts` as `stage: "validation"` with the doctor remedy and no flag named. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r8 KEEP.
 
+| Slot | Agent | Model | Where | Id |
+|---|---|---|---|---|
+| Fable-r8-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-ac8bb75a-bb52-5f1a-8984-42ec18093283` |
+| GPT-r8-challenge | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-1545c8db-ccbf-551b-9c3f-e75e32e4c7cc` |
+| D31 | Opus-d31-pause-inject | claude-opus-5-thinking-high-fast | cloud | `bc-d800526f-dbb5-5265-8287-02db44982c80` |
+| D32 | Opus-d32-commits-retarget | claude-opus-5-thinking-high-fast | cloud | `bc-3e1caa53-4855-50b3-aa59-82b2149f498b` |
+| D33 | Opus-d33-episode-events | claude-opus-5-thinking-high-fast | cloud | `bc-88290d9e-4a3e-5096-b559-741b00844c46` |
+
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
 | D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | implementing |
