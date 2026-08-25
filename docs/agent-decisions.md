@@ -258,7 +258,7 @@ Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-arg
 
 **GPT-r8-challenge: FIX** (keep the slot). (A) Unknown-subcommand refusal must precede required-`--episode` / `isEpisodeId` — pin `episode nonsense --episode banana` to the existing unknown-command report. (B) Escape `\`, tab, CR, LF in human detail fields so one physical line per event and exactly two structural tabs; `--json` unchanged.
 
-**Status:** implementing Fable spec; apply GPT dispatch-order + escape rider before merge.
+**Status:** GPT dispatch-order + escape rider landed (`8ca3026` on `cursor/episode-id-events-lines-0da8`). Merge gated on GPT-d33-recheck of the landing.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
