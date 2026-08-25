@@ -440,7 +440,6 @@ async function refusal(
  */
 test("a malformed model id is a parse-args refusal that names what was typed", async () => {
   await withStateRoot(async (stateRoot) => {
-    const listRemedy = `pnpm cli models list --available --state-root ${stateRoot}`;
     const cases = [
       {
         argv: ["enable", "banana"],
@@ -509,9 +508,16 @@ test("a malformed model id is a parse-args refusal that names what was typed", a
         report.message,
         `invalid ${label} "${value}": expected a model id of the form provider/model`
       );
-      assert.equal(report.next, `pass ${subject} as printed by ${listRemedy}`);
+      assert.equal(
+        report.next,
+        `copy ${subject} from pi-sparkle models list --available using the same --state-root`
+      );
       // No run is in play on any models verb.
       assert.equal(report.runId, undefined);
+      // The remedy names the flag, never this run's raw value: a state root
+      // holding a space or a shell metacharacter would look copy-paste safe.
+      assert.doesNotMatch(report.next, /--state-root \S/);
+      assert.equal(report.next.includes(stateRoot), false);
     }
   });
 });
@@ -568,7 +574,7 @@ test("an unknown model keeps its message and names the inventory that lists vali
   await withStateRoot(async (stateRoot) => {
     await writeCustomProviders(stateRoot);
     const next =
-      `pass an id printed by pnpm cli models list --available --state-root ${stateRoot}; ` +
+      "copy an id from pi-sparkle models list --available using the same --state-root; " +
       "providers.json customProviders adds ids the builtin catalog does not have";
     const cases = [
       { argv: ["enable", "local/nope"], command: "models enable", id: "local/nope" },
@@ -590,6 +596,7 @@ test("an unknown model keeps its message and names the inventory that lists vali
       assert.equal(report.stage, "validation");
       assert.equal(report.message, `unknown model "${id}"`);
       assert.equal(report.next, next);
+      assert.equal(report.next.includes(stateRoot), false);
     }
   });
 });
@@ -610,9 +617,10 @@ test("a refused set-default --fast writes nothing at all", async () => {
 /**
  * `Disabled <id>` for an id that was never enabled is a claim about work that
  * did not happen: the operator walks away believing an expensive model is off
- * while routing still resolves it.
+ * while routing still resolves it. The honest answer for the pure no-op is that
+ * there was nothing to clear — and it is the one case that writes nothing.
  */
-test("disable says so instead of claiming a disable that never happened", async () => {
+test("disable of an id that is enabled nowhere and routed nowhere writes nothing", async () => {
   await withStateRoot(async (stateRoot) => {
     await writeCustomProviders(stateRoot);
     await run(stateRoot, ["enable", "local/m1"]);
@@ -627,21 +635,23 @@ test("disable says so instead of claiming a disable that never happened", async 
     assert.deepEqual(err, []);
     assert.equal(
       out.join(""),
-      `local/m2 was not enabled; nothing to disable (pnpm cli models list --state-root ${stateRoot} shows the enabled models)\n`
+      "local/m2 was not enabled; routing configuration was already clear\n"
     );
     assert.doesNotMatch(out.join(""), /Disabled/);
-    // Idempotent, and the enabled set is exactly what it was.
+    // Raw bytes, not just semantic content: the pure no-op is the only branch
+    // that skips `disableModel`, so nothing rewrote the file.
     assert.equal(await providersJsonBytes(stateRoot), before);
     assert.equal(await run(stateRoot, ["list"]), "local/m1\n");
   });
 });
 
 /**
- * A hand-edited config can name a default that is not in `enabled`. Dropping it
- * is real work, so the mutation still runs and the D21 disclosure still fires —
- * only the "Disabled" claim is keyed on what was enabled before.
+ * A hand-edited config can name a default that is not in `enabled`. Clearing
+ * that reference is real work, so this path must claim neither a `Disabled` it
+ * did not do nor a no-op it was not: it says what it cleared, and the D21
+ * per-role disclosure still fires.
  */
-test("disable of a dangling default drops it without claiming a disable", async () => {
+test("disable of a dangling default clears it and says so, without a Disabled claim", async () => {
   await withStateRoot(async (stateRoot) => {
     await mkdir(join(stateRoot, "runtime"), { recursive: true });
     await writeFile(
@@ -650,6 +660,7 @@ test("disable of a dangling default drops it without claiming a disable", async 
         version: 1,
         enabled: ["local/m2"],
         primary: "local/m1",
+        fast: "local/m2",
         customProviders: [
           {
             id: "local",
@@ -663,10 +674,58 @@ test("disable of a dangling default drops it without claiming a disable", async 
 
     const disabled = await run(stateRoot, ["disable", "local/m1"]);
     assert.doesNotMatch(disabled, /Disabled/);
-    assert.match(disabled, /^local\/m1 was not enabled; nothing to disable/m);
-    assert.match(disabled, /note: local\/m1 was the primary default; the default is now unset/);
+    assert.doesNotMatch(disabled, /nothing to disable|nothing changed|already clear/);
+    assert.equal(
+      disabled,
+      "No enabled entry for local/m1; clearing dangling routing default references\n" +
+        "note: local/m1 was the primary default; the default is now unset — set a new one with pi-sparkle models set-default\n"
+    );
 
-    assert.equal(await run(stateRoot, ["list"]), "local/m2\n");
+    // The claim is checked against the configuration, not against file bytes:
+    // this branch does write. The dangling primary is gone and the unrelated
+    // fast default survived.
+    const after = JSON.parse(await providersJsonBytes(stateRoot)) as Record<string, unknown>;
+    assert.equal(after.primary, undefined);
+    assert.equal(after.fast, "local/m2");
+    assert.deepEqual(after.enabled, ["local/m2"]);
+    assert.equal(await run(stateRoot, ["list"]), "local/m2  fast\n");
+  });
+});
+
+test("a dangling fast default is cleared and disclosed the same way", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(
+      providersJsonPath(stateRoot),
+      `${JSON.stringify({
+        version: 1,
+        enabled: [],
+        fast: "local/m1",
+        customProviders: [
+          {
+            id: "local",
+            baseUrl: "http://127.0.0.1:9/v1",
+            models: LOCAL_MODELS.map((id) => ({ id }))
+          }
+        ]
+      })}\n`,
+      "utf8"
+    );
+
+    const disabled = await run(stateRoot, ["disable", "local/m1"]);
+    assert.match(
+      disabled,
+      /^No enabled entry for local\/m1; clearing dangling routing default references$/m
+    );
+    assert.match(disabled, /note: local\/m1 was the fast default; the default is now unset/);
+    const after = JSON.parse(await providersJsonBytes(stateRoot)) as Record<string, unknown>;
+    assert.equal(after.fast, undefined);
+
+    // Re-running is the pure no-op now that the reference is gone.
+    assert.equal(
+      await run(stateRoot, ["disable", "local/m1"]),
+      "local/m1 was not enabled; routing configuration was already clear\n"
+    );
   });
 });
 
@@ -696,5 +755,56 @@ test("list --provider without --available refuses instead of being ignored", asy
     }
     // The enabled view without the flag is untouched.
     assert.equal(await run(stateRoot, ["list"]), "local/m1\n");
+  });
+});
+
+/**
+ * A blank provider id names nothing in either mode. Under `--available` it used
+ * to be answered with `(no models)` — a successful empty inventory — so an
+ * operator who followed a generic "add --available" remedy would have converted
+ * the typo into that false answer instead of learning about it.
+ */
+test("a blank --provider is refused in both list modes, before either branch reads config", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["enable", "local/m1"]);
+    const cases = [
+      { argv: ["list", "--provider", ""], raw: "" },
+      { argv: ["list", "--provider", "", "--json"], raw: "" },
+      { argv: ["list", "--available", "--provider", ""], raw: "" },
+      { argv: ["list", "--available", "--json", "--provider", ""], raw: "" },
+      { argv: ["list", "--available", "--provider", "  "], raw: "  " }
+    ];
+    for (const { argv, raw } of cases) {
+      const { report, stdout } = await refusal(stateRoot, argv);
+      assert.equal(stdout, "", `${argv.join(" ")} must print no inventory`);
+      assert.equal(report.command, "models list");
+      assert.equal(report.stage, "parse-args");
+      assert.equal(
+        report.message,
+        `invalid --provider "${raw}": provider id must be a non-empty string`
+      );
+      assert.equal(report.next, "pass --provider <id>, or omit --provider");
+    }
+
+    // The blank guard runs first, so the blank value is never reported as the
+    // narrower "--provider needs --available" incompatibility.
+    const { report } = await refusal(stateRoot, ["list", "--provider", ""]);
+    assert.doesNotMatch(report.message, /does not apply to enabled models/);
+  });
+});
+
+test("a blank --provider refuses before the state root is opened", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(providersJsonPath(stateRoot), "{ not json", "utf8");
+    for (const argv of [
+      ["list", "--provider", ""],
+      ["list", "--available", "--provider", ""]
+    ]) {
+      const { report } = await refusal(stateRoot, argv);
+      assert.equal(report.stage, "parse-args", argv.join(" "));
+      assert.match(report.message, /^invalid --provider ""/);
+    }
   });
 });
