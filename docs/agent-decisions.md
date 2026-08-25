@@ -274,7 +274,7 @@ Fable-r9-next. Refuse malformed `<provider/model>` / `--primary` / `--fast` via 
 
 **GPT-r9-challenge: FIX** (keep the slot). (1) Blank `--provider` parse-args before either list branch. (2) Three-way disable: in-enabled keep `Disabled`; dangling default call `disableModel` and say clearing dangling routing default references (never “nothing to disable”); pure no-op skip `disableModel` and pin bytes unchanged. (3) Do not interpolate an unquoted raw state-root into `next`.
 
-**Status:** implementing Fable spec; apply GPT FIX rider before merge.
+**Status:** Fable landing on `cursor/models-id-preflight-0da8`. PR #19. GPT-r9 FIX rider in flight.
 
 ## D35 — Round 9 rank 2: `auth login` refusal envelopes
 
