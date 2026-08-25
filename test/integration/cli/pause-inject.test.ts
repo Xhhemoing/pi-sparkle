@@ -108,6 +108,23 @@ async function startWaiting(stateRoot: string, projectRoot: string): Promise<str
   return parseRunIdFromOutput(started.out.join(""));
 }
 
+/** A run with no flowchart in its checkpoint: the plain fake-executor path. */
+async function startPlainRun(stateRoot: string, projectRoot: string): Promise<string> {
+  const started = capture();
+  const code = await main(
+    ["run", "--project", projectRoot, "--objective", "Plain run", "--state-root", stateRoot],
+    started.io
+  );
+  assert.equal(code, 0);
+  assert.match(started.out.join(""), /COMPLETED/);
+  return parseRunIdFromOutput(started.out.join(""));
+}
+
+async function readEventLines(stateRoot: string, runId: string): Promise<number> {
+  const text = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
+  return text.split("\n").filter((line) => line.trim() !== "").length;
+}
+
 test("pause records PAUSE_REQUESTED and inspect/replay show PAUSED", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const runId = await startWaiting(stateRoot, projectRoot);
@@ -225,6 +242,7 @@ test("inject skip on a PENDING successor and unknown --type fail closed as requi
     };
     assert.equal(checkpoint.flowchart.snapshot.nodes.work?.state, "SKIPPED");
 
+    const before = await readEventLines(stateRoot, runId);
     const unknown = capture();
     const unknownCode = await main(
       ["inject", "--run", runId, "--type", "eval", "--key", "k", "--value", "v", "--state-root", stateRoot],
@@ -232,6 +250,122 @@ test("inject skip on a PENDING successor and unknown --type fail closed as requi
     );
     assert.equal(unknownCode, 1);
     assert.match(unknown.err.join(""), /kind|unknown/i);
+    const report = parseCliErrorJson(unknown.err.join(""));
+    assert.equal(report?.command, "inject");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.runId, runId);
+    assert.equal(report?.message, 'unknown --type "eval": injection kind must be fact, override, or skip');
+    assert.equal(report?.next, "pass --type fact, override, or skip");
+    assert.deepEqual(unknown.out, []);
+    // A refusal that never reached the plane cannot have written to the log.
+    assert.equal(await readEventLines(stateRoot, runId), before);
+  });
+});
+
+// The plane reads run shape before it reads the payload, so on a run with no
+// flowchart snapshot a mistyped --type used to surface as a missing-snapshot
+// checkpoint complaint that never named the flag.
+test("unknown --type on a non-flowchart run reports parse-args, not a checkpoint", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startPlainRun(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    const { io, out, err } = capture();
+    assert.equal(await main(["inject", "--run", runId, "--type", "banana", "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "inject");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.runId, runId);
+    assert.equal(report?.message, 'unknown --type "banana": injection kind must be fact, override, or skip');
+    assert.doesNotMatch(err.join(""), /snapshot|checkpoint/i);
+    assert.equal(await readEventLines(stateRoot, runId), before);
+  });
+});
+
+test("a value-domain --type refusal precedes the missing-run lookup", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(
+      ["inject", "--run", "run_missing0001", "--type", "banana", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.runId, "run_missing0001");
+    assert.match(report?.next ?? "", /--type fact, override, or skip/);
+    assert.doesNotMatch(err.join(""), /not found/);
+  });
+});
+
+test("an out-of-domain --confidence reports parse-args before the plane", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    // `-1` leads with a dash, so parseArgs itself only accepts the `=` form.
+    // `""` and `"  "` are here because `Number` reads both as a finite 0: an
+    // operator who passed no value must not record no-confidence instead.
+    for (const raw of ["banana", "2", "-1", "", "  "]) {
+      const { io, out, err } = capture();
+      const code = await main(
+        [
+          "inject",
+          "--run",
+          runId,
+          "--type",
+          "override",
+          "--node",
+          "work",
+          `--confidence=${raw}`,
+          "--state-root",
+          stateRoot
+        ],
+        io
+      );
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "inject");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(report?.runId, runId);
+      assert.equal(
+        report?.message,
+        `invalid --confidence "${raw}": confidence must be a finite number between 0 and 1`
+      );
+      assert.match(report?.next ?? "", /--confidence/);
+      assert.equal(await readEventLines(stateRoot, runId), before);
+    }
+  });
+});
+
+test("the --confidence boundaries 0 and 1 still reach the plane", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    for (const raw of ["0", "1"]) {
+      const { io, out, err } = capture();
+      const code = await main(
+        [
+          "inject",
+          "--run",
+          runId,
+          "--type",
+          "override",
+          "--node",
+          "work",
+          "--confidence",
+          raw,
+          "--state-root",
+          stateRoot
+        ],
+        io
+      );
+      assert.equal(code, 0);
+      assert.match(out.join(""), /Injected override node=work/);
+      assert.deepEqual(err, []);
+    }
+    const eventsText = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
+    assert.equal(eventsText.match(/INJECTION_REQUESTED/g)?.length, 2);
   });
 });
 
