@@ -124,9 +124,9 @@ GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D2
 
 | Slot | Rider |
 |---|---|
-| D28 | Pin parser-error `command` as `auth status` / `auth login` / `auth logout`; unknown subcommand stays `command: "auth"`. Catch only `parseArgs`. |
-| D29 | KEEP as specified: help before all work; frozen doctor JSON untouched. |
-| D30 | Reject blank/whitespace `--confidence` before `Number()`; use exported `INJECTION_KINDS` from `src/run/injection.ts`. |
+| D28 | First landing `ad14592` already pins parser `command` as `auth status`/`auth login`/`auth logout`; unknown subcommand stays `auth`. GPT-d28-recheck in flight. |
+| D29 | KEEP as specified: help before all work; frozen doctor JSON untouched. Implementer still running. |
+| D30 | First landing `6a7c2dd` still duplicates kinds and misses blank confidence. Rider: import `INJECTION_KINDS`; reject `trim() === ""` before `Number()`. |
 
 ### Round 3 still running / next implementers
 
