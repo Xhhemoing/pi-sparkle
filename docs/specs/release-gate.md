@@ -1,32 +1,30 @@
 # Release gate
 
-`pnpm prerelease` is the release bar. It is three commands in sequence:
+`pnpm prerelease` is the release bar. It is four commands in sequence:
 
 ```bash
+pnpm preview:probe     # cheap developer-preview invariants
 pnpm gate            # typecheck && lint && test && build
 pnpm security:probe  # node scripts/security-probe.mjs, against the built dist/
 pnpm pi:probe        # node scripts/pi-compat-probe.mjs, adapter/pin contract
 ```
 
-CI (`.github/workflows/ci.yml`) runs the quality gate — and only the quality
-gate — on pushes to `main` and pull requests targeting it. Neither probe runs
-in CI, so the status below is a **local, dated claim**, not a continuously
-enforced one. Re-run the probes before treating them as current.
+CI (`.github/workflows/ci.yml`) runs the quality job on pushes to `main` and
+pull requests targeting it. After that job builds `dist/`, it runs
+`pnpm security:probe` with no `SECURITY_WAIVER`; packaged-secret and redaction
+failures are therefore continuously enforced. The pi compatibility result
+below remains a **local, dated claim**; re-run it before treating it as current.
 
 ## Status: GREEN — 2026-08-25
 
 Live evidence, branch `cursor/merge-preview-release-8011`, Node `v22.14.0`,
-pnpm `10.17.1`, `src/feedback/redaction.ts` clean in the worktree at
-`d4b16e1`:
+pnpm `10.17.1`, re-run after the screaming-snake secret samples landed:
 
 ```console
-$ pnpm build
-exit 0
-
-$ node scripts/security-probe.mjs
+$ pnpm build && node scripts/security-probe.mjs
 {
   "status": "ok",
-  "passed": 14,
+  "passed": 16,
   "openFindings": [],
   "waivedFindings": []
 }
@@ -46,7 +44,7 @@ nothing failed, not because anything was suppressed.
 | id | what it proved on 2026-08-25 |
 |---|---|
 | `pii-redaction` | 9 samples (email, IPv4, `+1` phone, CN mobile, Luhn-valid card, unix/macOS/Windows/UNC paths) — no core survives `redactFeedback` with `redactPII: true` |
-| `secret-bodies` | 4 samples (`sk-proj-…`, `api_key=…`, `Bearer eyJ…`, PEM private-key body) — the value is removed, not just the prefix |
+| `secret-bodies` | 6 samples (`sk-proj-…`, `api_key=…`, `DATABASE_PASSWORD=…`, `API_TOKEN=…`, `Bearer eyJ…`, PEM private-key body) — the value is removed, not just the prefix |
 | `packaged-secrets` | 233 text files of the 451-entry `npm pack --dry-run` list scanned; no credential pattern matched |
 
 ### What GREEN does not mean
@@ -73,7 +71,9 @@ nothing failed, not because anything was suppressed.
   paths to `[path]`; email/IPv4/phone/Luhn-valid card to their placeholders.
   `test/unit/feedback/redaction.test.ts` pins the same gate cores against `src/`
   so a regression fails `pnpm test` before it reaches the probe.
-- **2026-08-25 — re-verified GREEN** by the run recorded above.
+- **2026-08-25 — re-verified GREEN after opus-A** added the two
+  screaming-snake `secret-bodies` samples: 16 checks passed with no open or
+  waived findings.
 
 ## Waivers
 
@@ -90,19 +90,17 @@ Rules:
 3. `packaged-secrets` findings are **never waivable** — credential material
    in the artifact is an unconditional block.
 
-Rule 3 is policy, not code: `scripts/security-probe.mjs` filters every failure
-through the `SECURITY_WAIVER` set, so `SECURITY_WAIVER="packaged-secrets"` would
-in fact suppress a packaged-credential finding today. Do not use it. Making the
-probe refuse that id is an open request against the probe owner
-(`scripts/security-probe.mjs`); until it lands, rule 3 is enforced by review.
+Rule 3 is enforced in code: `scripts/security-probe.mjs` only waives a finding
+when its id is not `packaged-secrets`. A packaged-credential finding remains
+open and blocks the probe even when `SECURITY_WAIVER` includes that id.
 
 ### Waiver register
 
 (empty)
 
-## Not yet a bar
+## Preview preflight
 
 `scripts/preview-release-probe.mjs` checks cheap developer-preview invariants
 (`private: true`, a non-empty `engines.node`, the `bin` path, a Status heading
-in this file, `pnpm-workspace.yaml`). It is **not** wired into `prerelease` and
-is not part of the gate; wiring it is a parent decision.
+in this file, `pnpm-workspace.yaml`). It is the first command in `prerelease`,
+so a failed preview preflight stops the rest of the release bar.

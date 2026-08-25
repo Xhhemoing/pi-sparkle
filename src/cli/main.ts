@@ -53,6 +53,7 @@ import {
   inspectRun,
   FOLLOW_STOP_STATUSES
 } from "../run/inspection.js";
+import { formatTaskResultLine, formatUnverifiedSummary } from "./inspect-format.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -1057,6 +1058,14 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     if (outcome.learn !== undefined) {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
+    // Same report-only line the --children path prints. --track never lists its
+    // children individually, so this is the only place its verification state
+    // is visible without a second `inspect --run`.
+    const trackInspection = await inspectRun(stateRoot, outcome.runId);
+    const trackUnverified = formatUnverifiedSummary(trackInspection.children);
+    if (trackUnverified !== undefined) {
+      io.stdout(`  ${trackUnverified}\n`);
+    }
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
     warnUndeliveredClusterMail(io, outcome.clusterMail);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
@@ -1137,7 +1146,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`    ${child.childRunId} (${child.taskId}): ${child.outcome} (${child.attempts} attempt(s))\n`);
       const terminal = child.messages.find((message) => message.type === "TASK_RESULT");
       if (terminal !== undefined && terminal.type === "TASK_RESULT") {
-        io.stdout(`      result: ${terminal.outcome} — ${terminal.summary}\n`);
+        io.stdout(`      result: ${formatTaskResultLine(terminal)}\n`);
         if (terminal.artifactIds.length > 0) {
           io.stdout(`      artifacts: ${terminal.artifactIds.join(", ")}\n`);
         }
@@ -1145,6 +1154,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
           io.stdout(`      evidence: ${terminal.evidenceIds.join(", ")}\n`);
         }
       }
+    }
+    const unverifiedSummary = formatUnverifiedSummary(inspection.children);
+    if (unverifiedSummary !== undefined) {
+      io.stdout(`  ${unverifiedSummary}\n`);
     }
     const episodeId = episodeIdFromEvents(outcome.events);
     try {
@@ -1500,7 +1513,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       );
       const terminal = child.messages.find((message) => message.type === "TASK_RESULT");
       if (terminal !== undefined && terminal.type === "TASK_RESULT") {
-        io.stdout(`      result: ${terminal.outcome} — ${terminal.summary}\n`);
+        io.stdout(`      result: ${formatTaskResultLine(terminal)}\n`);
         if (terminal.artifactIds.length > 0) {
           io.stdout(`      artifacts: ${terminal.artifactIds.join(", ")}\n`);
         }
@@ -1509,6 +1522,10 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
         }
       }
     }
+  }
+  const unverifiedSummary = formatUnverifiedSummary(inspection.children);
+  if (unverifiedSummary !== undefined) {
+    io.stdout(`  ${unverifiedSummary}\n`);
   }
   for (const question of inspection.pendingQuestions) {
     io.stdout(`  question ${question.id}: ${question.question}\n`);

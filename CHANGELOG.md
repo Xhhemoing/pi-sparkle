@@ -35,8 +35,8 @@ were not tracked here; use `git log` for the full history.
 - `src/cli/inspect-format.ts` formats a `TASK_RESULT` with
   `verification=PASSED|FAILED|UNOBSERVED`, suffixes the outcome with
   `(unverified)` when verification is `UNOBSERVED` with no evidence, and builds
-  a report-only `unverified: N/M` summary. The module is not yet called from
-  `src/cli/main.ts`, so CLI output is unchanged for now.
+  a report-only `unverified: N/M` summary. `run --children`, `inspect --run`,
+  and `--track` now print those lines.
 
 ### Changed
 
@@ -53,7 +53,10 @@ were not tracked here; use `git log` for the full history.
   email/IPv4/phone/Luhn-valid card to their placeholders.
   `test/unit/feedback/redaction.test.ts` pins the same gate cores against
   `src/` so a regression fails `pnpm test` before it reaches the probe. The
-  gate is GREEN as of 2026-08-25 with an empty waiver register.
+  gate is GREEN as of 2026-08-25 with an empty waiver register. Screaming-snake
+  names (`DATABASE_PASSWORD=`, `API_TOKEN=`) now match the keyed-assignment
+  rules; the probe carries 15 redaction samples (9 PII + 6 secret-bodies)
+  plus `packaged-secrets` (16 passed).
 
 ## [0.1.0] — Developer Preview
 

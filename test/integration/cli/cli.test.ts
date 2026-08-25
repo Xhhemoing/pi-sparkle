@@ -911,3 +911,59 @@ test("supervised resume still refuses a flowchart checkpoint", async () => {
     assert.match(resumed.err.join(""), /flowchart snapshot|flowchart resume/i);
   });
 });
+
+const VERIFICATION_CHILD_SPEC = {
+  tasks: [
+    { id: "tsk_one", role: "implementer", objective: "Do the first thing" },
+    { id: "tsk_two", role: "tester", objective: "Check the first thing" }
+  ]
+};
+
+test("run --children and inspect print verification per TASK_RESULT and an unverified summary", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(specPath, JSON.stringify(VERIFICATION_CHILD_SPEC), "utf8");
+    const runIo = capture();
+    const code = await main(
+      ["run", "--project", projectRoot, "--objective", "Ship it", "--children", specPath, "--state-root", stateRoot],
+      runIo.io
+    );
+    assert.equal(code, 0, runIo.err.join(""));
+    const runText = runIo.out.join("");
+    // The fake child executor verifies PASSED with evidence: no (unverified) suffix.
+    assert.match(runText, /result: SUCCESS verification=PASSED — /);
+    assert.doesNotMatch(runText, /\(unverified\)/);
+    assert.match(runText, /^ {2}unverified: 0\/2$/m);
+    const runId = parseRunIdFromOutput(runText);
+
+    const inspected = capture();
+    const inspectCode = await main(["inspect", "--run", runId, "--state-root", stateRoot], inspected.io);
+    assert.equal(inspectCode, 0, inspected.err.join(""));
+    const inspectText = inspected.out.join("");
+    assert.match(inspectText, /result: SUCCESS verification=PASSED — /);
+    assert.match(inspectText, /^ {2}unverified: 0\/2$/m);
+  });
+});
+
+test("inspect --json stays a pure event stream with no unverified line appended", async () => {
+  // The summary is human-output only: a consumer parsing `--json` line by line
+  // must not suddenly meet a non-JSON line once the wiring lands.
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(specPath, JSON.stringify(VERIFICATION_CHILD_SPEC), "utf8");
+    const runIo = capture();
+    await main(
+      ["run", "--project", projectRoot, "--objective", "Ship it", "--children", specPath, "--state-root", stateRoot],
+      runIo.io
+    );
+    const runId = parseRunIdFromOutput(runIo.out.join(""));
+    const inspected = capture();
+    const code = await main(["inspect", "--run", runId, "--json", "--state-root", stateRoot], inspected.io);
+    assert.equal(code, 0, inspected.err.join(""));
+    const lines = inspected.out.join("").trim().split("\n");
+    assert.ok(lines.length > 0);
+    for (const line of lines) {
+      JSON.parse(line);
+    }
+  });
+});

@@ -47,6 +47,22 @@ const PLACEHOLDER_ALTERNATION = `\\[(?:${Object.values(REDACTION_PLACEHOLDER)
 const KEYED_SECRET_NAMES =
   "api[_-]?key|apikey|secret(?:[_-]?key)?|token|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password|passwd|pwd";
 
+// `\b` is the wrong boundary for these names: `_` is a word character, so the
+// boundary between `DATABASE_` and `PASSWORD` does not exist and the whole
+// screaming-snake family (`DATABASE_PASSWORD=`, `API_TOKEN=`, `X_AUTH_TOKEN=`)
+// walked straight through the keyed rules. Env dumps and `.env` excerpts are
+// the most common way a credential reaches a feedback body, so the boundary is
+// spelled out instead: a secret name may be preceded and followed by anything
+// that is not a letter or digit — `_` and `-` included — which keeps
+// `mypassword` and `TOKENS` out of the class exactly as `\b` did.
+//
+// Only the name's own last segment is matched, so `TOKEN_COUNT: 512` stays put:
+// allowing trailing segments before the delimiter would redact token counts and
+// similar prose this repo's own feedback is full of.
+const SECRET_NAME_OPEN = "(?<![A-Za-z0-9])";
+const SECRET_NAME_CLOSE = "(?![A-Za-z0-9])";
+const KEYED_SECRET_PREFIX = `${SECRET_NAME_OPEN}(?:${KEYED_SECRET_NAMES})${SECRET_NAME_CLOSE}"?'?\\s*[:=]\\s*`;
+
 const SECRET_RULES: readonly TextRule[] = [
   // PEM blocks: the base64 body goes with the header, terminated or not.
   {
@@ -72,7 +88,7 @@ const SECRET_RULES: readonly TextRule[] = [
   },
   // `api_key: "value"` / `token='value'` — the quotes survive, the value does not.
   {
-    pattern: new RegExp(`(\\b(?:${KEYED_SECRET_NAMES})\\b"?'?\\s*[:=]\\s*)(["'])[^"'\\n]+\\2`, "gi"),
+    pattern: new RegExp(`(${KEYED_SECRET_PREFIX})(["'])[^"'\\n]+\\2`, "gi"),
     replacement: `$1$2${REDACTION_PLACEHOLDER.secret}$2`
   },
   // `api_key=value` / `token: value` — unquoted run up to the next delimiter.
@@ -80,7 +96,7 @@ const SECRET_RULES: readonly TextRule[] = [
   // turned into a placeholder must not be re-wrapped.
   {
     pattern: new RegExp(
-      `(\\b(?:${KEYED_SECRET_NAMES})\\b"?'?\\s*[:=]\\s*)(?!${PLACEHOLDER_ALTERNATION})([^\\s"',;)}\\]]{4,})`,
+      `(${KEYED_SECRET_PREFIX})(?!${PLACEHOLDER_ALTERNATION})([^\\s"',;)}\\]]{4,})`,
       "gi"
     ),
     replacement: `$1${REDACTION_PLACEHOLDER.secret}`

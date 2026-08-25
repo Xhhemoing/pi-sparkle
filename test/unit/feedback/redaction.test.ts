@@ -156,6 +156,24 @@ const GATE_CORES: readonly {
     classes: ["secret", "pii"]
   },
   {
+    name: "screaming-snake-password-value",
+    body: "DATABASE_PASSWORD=hunter2-prod-db",
+    core: "hunter2-prod-db",
+    // The `DATABASE_` prefix is not part of the keyed name, so it survives:
+    // the shape stays reviewable and only the value is gone.
+    expected: `DATABASE_PASSWORD=${REDACTION_PLACEHOLDER.secret}`,
+    classes: ["secret", "pii"]
+  },
+  {
+    name: "screaming-snake-token-value",
+    body: "API_TOKEN=abc123def456ghi789",
+    core: "abc123def456ghi789",
+    // "API_KEY" is a gate needle and "API_TOKEN" is not, so nothing but the
+    // transform removes this value.
+    expected: `API_TOKEN=${REDACTION_PLACEHOLDER.secret}`,
+    classes: ["secret", "pii"]
+  },
+  {
     name: "bearer-token-body",
     body: "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
     core: "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
@@ -396,6 +414,52 @@ test("quoted assignments keep their quotes and neighbours", () => {
   const result = redactSensitiveText('config { "api_key": "supersecretvalue123", "port": 8080 }');
   assert.equal(result.text, `config { "api_key": "${REDACTION_PLACEHOLDER.secret}", "port": 8080 }`);
   assert.equal(result.text.includes("supersecretvalue123"), false);
+});
+
+test("screaming-snake and kebab secret names lose their values", () => {
+  // Regression: `\b` counts `_` as a word character, so the boundary the keyed
+  // rules asked for between `DATABASE_` and `PASSWORD` never existed and every
+  // env-dump form below survived redaction verbatim.
+  for (const [body, expected] of [
+    ["DATABASE_PASSWORD=hunter2-prod-db", `DATABASE_PASSWORD=${REDACTION_PLACEHOLDER.secret}`],
+    ["API_TOKEN=abc123def456ghi789", `API_TOKEN=${REDACTION_PLACEHOLDER.secret}`],
+    ["X_AUTH_TOKEN: abcd1234efgh", `X_AUTH_TOKEN: ${REDACTION_PLACEHOLDER.secret}`],
+    ["PI_CLIENT_SECRET=0123456789abcdef", `PI_CLIENT_SECRET=${REDACTION_PLACEHOLDER.secret}`],
+    ["x-api-key: abcd1234efgh", `x-api-key: ${REDACTION_PLACEHOLDER.secret}`],
+    ["DB_PASSWORD=\"p@ssw0rd!\"", `DB_PASSWORD="${REDACTION_PLACEHOLDER.secret}"`],
+    ["redis.password = swordfish99", `redis.password = ${REDACTION_PLACEHOLDER.secret}`]
+  ] as const) {
+    const result = redactSensitiveText(body);
+    assert.equal(result.text, expected, body);
+    assert.ok(result.classes.includes("secret"), body);
+  }
+});
+
+test("the widened secret-name boundary does not eat neighbouring identifiers", () => {
+  // The boundary allows `_`/`-` around the name, not letters or digits, and it
+  // matches only the last name segment: token *counts* and plural forms are
+  // ordinary review prose in this repo and must survive.
+  for (const prose of [
+    "TOKEN_COUNT: 512",
+    "MAX_TOKENS=4096",
+    "mypassword=notasecretname",
+    "output_tokens: 1024"
+  ]) {
+    const result = redactSensitiveText(prose);
+    assert.equal(result.text, prose, prose);
+    assert.deepEqual(result.classes, [], prose);
+  }
+});
+
+test("screaming-snake redaction is idempotent", () => {
+  const once = redactSensitiveText("DATABASE_PASSWORD=hunter2-prod-db API_TOKEN=abc123def456ghi789");
+  const twice = redactSensitiveText(once.text);
+  assert.equal(
+    once.text,
+    `DATABASE_PASSWORD=${REDACTION_PLACEHOLDER.secret} API_TOKEN=${REDACTION_PLACEHOLDER.secret}`
+  );
+  assert.equal(twice.text, once.text);
+  assert.deepEqual(twice.classes, []);
 });
 
 test("vendor-prefixed keys are removed by shape", () => {

@@ -44,6 +44,19 @@ Parent verification: typecheck/lint green; 244/244 on scoped suites; preview-pro
 | R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | `packaged-secrets` never-waivable; CI security-probe after build, no waiver. |
 | R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | `preview:probe` first in `prerelease`. |
 
+## Round 3 — complete (2026-08-25)
+
+Fable-A: ACCEPT all Round 2; **zero Round 4**. Screaming-snake redaction, CI Node 22.19.0, inspect-format wiring, market-eval:probe, GREEN `passed: 16`.
+
+| Slot | Agent | Outcome |
+|---|---|---|
+| R3-fable-A | `claude-fable-5-thinking-xhigh` | ACCEPT; no Round 4. |
+| R3-fable-B | `claude-fable-5-thinking-xhigh` | Claims audit `docs/reports/2026-08-25-neice-declaration.md`. |
+| R3-opus-A | `claude-opus-5-thinking-high-fast` | Keyed-secret boundary fix; probe 16 passed. |
+| R3-opus-B | `claude-opus-5-thinking-high-fast` | Wired inspect-format; README help/unblock; parity allowlist empty. |
+| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | CI Node `22.19.0`. |
+| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `market-eval:probe`; release-gate truth-up; GREEN re-date to 16. |
+
 ---
 
 # Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)

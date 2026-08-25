@@ -165,6 +165,18 @@ const GATE_CORES: readonly {
     expected: "=[secret]"
   },
   {
+    name: "screaming-snake-password-value",
+    body: "DATABASE_PASSWORD=hunter2-prod-db",
+    core: "hunter2-prod-db",
+    expected: "DATABASE_PASSWORD=[secret]"
+  },
+  {
+    name: "screaming-snake-token-value",
+    body: "API_TOKEN=abc123def456ghi789",
+    core: "abc123def456ghi789",
+    expected: "API_TOKEN=[secret]"
+  },
+  {
     name: "bearer-token-body",
     body: "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
     core: "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
@@ -227,5 +239,25 @@ test("secret bodies lose the value, not just the recognisable prefix", () => {
     assert.equal(redacted.body?.includes(value), false, `value survived redaction: ${value}`);
   }
   assert.equal(redacted.body, "key [secret]; =[secret]; Authorization: Bearer [secret]");
+  assert.equal(redacted.redactionClasses?.includes("secret"), true);
+});
+
+test("screaming-snake env assignments lose their values under the store policy", () => {
+  // The store's needles are prefix strips ("sk-", "api_key", "API_KEY"), and
+  // none of them appears in a `DATABASE_PASSWORD=` / `API_TOKEN=` line: if the
+  // keyed-name boundary regresses, these credentials are persisted in full.
+  const body = [
+    "DATABASE_PASSWORD=hunter2-prod-db",
+    "API_TOKEN=abc123def456ghi789",
+    "X_AUTH_TOKEN: abcd1234efgh"
+  ].join("; ");
+  const redacted = applyRedaction(feedback({ body, summary: body }), FEEDBACK_REDACTION_POLICY);
+  for (const value of ["hunter2-prod-db", "abc123def456ghi789", "abcd1234efgh"]) {
+    assert.equal(JSON.stringify(redacted).includes(value), false, `value survived: ${value}`);
+  }
+  assert.equal(
+    redacted.body,
+    "DATABASE_PASSWORD=[secret]; API_TOKEN=[secret]; X_AUTH_TOKEN: [secret]"
+  );
   assert.equal(redacted.redactionClasses?.includes("secret"), true);
 });

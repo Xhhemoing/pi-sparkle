@@ -7,12 +7,12 @@ import { USAGE } from "../../../src/cli/main.js";
 /**
  * Docs-vs-dispatcher parity, in the one direction that can rot silently.
  *
- * `unblock` shipped as the only exit from a BLOCKED run and never got a README
- * row, so the single most important recovery verb is invisible to anyone
- * reading the docs. Nothing failed when that happened, which is why this file
- * exists: the dispatch switch is the source of truth for what the CLI answers
- * to, and every verb in it should have a README command-table row and a line
- * in the usage block.
+ * `unblock` shipped as the only exit from a BLOCKED run and went a long time
+ * without a README row, so the single most important recovery verb was
+ * invisible to anyone reading the docs. Nothing failed when that happened,
+ * which is why this file exists: the dispatch switch is the source of truth
+ * for what the CLI answers to, and every verb in it should have a README
+ * command-table row and a line in the usage block.
  *
  * Frozen additive: adding a verb is fine, adding one without documenting it in
  * both places is not.
@@ -29,13 +29,15 @@ const FLAG_ALIASES = new Set(["--version", "-V", "--help", "-h"]);
 
 /**
  * Verbs the dispatcher answers to that the README command table does not list
- * yet. Both are documented in USAGE, so the CLI itself still describes them.
+ * yet. Empty since `unblock` and `help` gained their rows: every dispatched
+ * verb is now in the table, so the parity assertion below runs with no
+ * exemptions and a new undocumented verb fails immediately.
  *
  * Self-cleaning: the last assertion below fails once a listed verb gains its
  * row, so the row and the removal of the entry land together and the list
  * cannot quietly outlive the gap it records.
  */
-const KNOWN_UNDOCUMENTED_VERBS = ["unblock", "help"];
+const KNOWN_UNDOCUMENTED_VERBS: readonly string[] = [];
 
 /**
  * The dispatch switch, read from source rather than from an exported list, so
@@ -95,7 +97,7 @@ test("the README command table invents no verb the CLI does not dispatch", async
 
 test("unblock and its --discard-executed authorization are documented in the usage block", async () => {
   // BLOCKED runs have exactly one exit, and the CLI's own help must name it
-  // and the stronger authorization even while the README row is still missing.
+  // and the stronger authorization, not just the README row.
   assert.match(USAGE, /^ {2}pi-sparkle unblock --run <runId> --reason <text>/m);
   assert.match(USAGE, /--discard-executed/);
 });
