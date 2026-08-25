@@ -11,7 +11,8 @@ import {
   listBuiltinProviderIds,
   listStoredCredentials,
   loginProviderInteractive,
-  storeApiKeyCredential
+  storeApiKeyCredential,
+  type SparkleAuthCheck
 } from "../pi-adapter/auth-session.js";
 import { asAuthStoreUnreadable, authStorePath } from "../pi-adapter/file-credential-store.js";
 import { cliFail } from "./errors.js";
@@ -91,7 +92,10 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
   });
   const stateRoot = stateRootOf(values);
   const stored = await listStoredCredentials(stateRoot);
-  if (stored.length === 0 && values.all !== true) {
+  // `--all` used to suppress this notice, so an operator with an empty store
+  // and no configured environment got a command that printed nothing at all
+  // and exited 0 — indistinguishable from a swallowed failure.
+  if (stored.length === 0) {
     io.stdout("No stored credentials. Provider env vars (OPENAI_API_KEY, …) still apply.\n");
   }
   for (const item of stored) {
@@ -100,6 +104,7 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
   if (values.all === true) {
     const config = await loadProvidersConfig(stateRoot);
     const storedIds = new Set(stored.map((item) => item.providerId));
+    let printed = 0;
     for (const providerId of unique([
       ...(await listBuiltinProviderIds()),
       ...config.customProviders.map((item) => item.id)
@@ -107,10 +112,33 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
       if (storedIds.has(providerId)) continue;
       const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
       if (check === undefined) continue;
-      io.stdout(`${providerId.padEnd(28)} env       ${check.source ?? check.type}\n`);
+      io.stdout(
+        `${providerId.padEnd(28)} ${sourceLabel(check).padEnd(10)}${check.source ?? check.type}\n`
+      );
+      printed += 1;
+    }
+    if (printed === 0) {
+      io.stdout("(no environment-configured providers found)\n");
     }
   }
   return 0;
+}
+
+/**
+ * What kind of source resolved this provider, for the second column.
+ *
+ * The column was hardcoded `env`, which mislabelled every row Pi resolves
+ * without an environment variable — a keyless custom provider prints
+ * `<id> (no key)` as its source, and the ADC/AWS-profile providers name a file
+ * or a profile. The honest question is whether the printed source is the name
+ * of a variable that is actually set, which is the same condition Pi's own
+ * resolution used to pick it.
+ */
+function sourceLabel(check: SparkleAuthCheck): string {
+  const source = check.source;
+  if (source === undefined) return "ambient";
+  const value = process.env[source];
+  return typeof value === "string" && value.trim() !== "" ? "env" : "ambient";
 }
 
 async function loginCommand(args: string[], io: AuthIo): Promise<number> {
@@ -125,9 +153,13 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     }
   });
   if (providerId === undefined || providerId.startsWith("-")) {
-    io.stderr("auth login requires <provider>\n");
     io.stderr(AUTH_USAGE);
-    return 1;
+    return cliFail(io, {
+      command: "auth login",
+      stage: "parse-args",
+      message: "auth login requires <provider>",
+      next: "run pi-sparkle auth --help"
+    });
   }
   // The modes do different things to auth.json, so a combination has no
   // coherent meaning and used to resolve by silent precedence: --from-env beat
@@ -155,6 +187,19 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   if (values["from-env"] === true) {
     return await loginFromEnvCommand(stateRoot, providerId, config.customProviders, io);
   }
+  // Every remaining mode — `--key`, `--oauth`, the interactive prompt — ends in
+  // a credential written to auth.json, and for a keyless custom provider that
+  // credential is never sent: the request path resolves these providers with no
+  // key at all and ignores the store. Storing one would leave the operator
+  // believing login worked; the interactive path additionally hands them Pi's
+  // own `<id> does not support api_key login` instead of the reason.
+  if (isKeylessCustomProvider(providerId, config.customProviders)) {
+    throw new DomainValidationError(
+      `provider ${providerId} is keyless (no envVar in providers.json): requests are sent ` +
+        "with no key, so there is nothing to store and nothing was written — add envVar to " +
+        "providers.json if the endpoint needs a key"
+    );
+  }
   if (values.key !== undefined) {
     const path = await storeApiKeyCredential(stateRoot, providerId, values.key);
     io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
@@ -164,6 +209,21 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   const path = await loginProviderInteractive(stateRoot, providerId, type, io, config.customProviders);
   io.stdout(`Stored ${type} credential for ${providerId} in ${path}\n`);
   return 0;
+}
+
+/**
+ * A self-configured provider that has no key at all: `providers.json` names no
+ * `envVar`, so the runtime builds it a resolver that sends every request
+ * unauthenticated. Nothing about such a provider reads or writes `auth.json`.
+ */
+function isKeylessCustomProvider(
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+): boolean {
+  const custom = customProviders.find((item) => item.id === providerId);
+  if (custom === undefined) return false;
+  const envVar = custom.envVar?.trim();
+  return envVar === undefined || envVar === "";
 }
 
 /**
@@ -187,9 +247,8 @@ async function loginFromEnvCommand(
   customProviders: readonly CustomProviderConfig[],
   io: AuthIo
 ): Promise<number> {
-  const custom = customProviders.find((item) => item.id === providerId);
-  const customEnvVar = custom?.envVar?.trim();
-  if (custom !== undefined && (customEnvVar === undefined || customEnvVar === "")) {
+  const customEnvVar = customProviders.find((item) => item.id === providerId)?.envVar?.trim();
+  if (isKeylessCustomProvider(providerId, customProviders)) {
     throw new DomainValidationError(
       `provider ${providerId} is a custom provider with no envVar in providers.json, ` +
         "so no environment variable configures it and --from-env has nothing to check"
@@ -259,8 +318,12 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
     options: { "state-root": { type: "string" } }
   });
   if (providerId === undefined || providerId.startsWith("-")) {
-    io.stderr("auth logout requires <provider>\n");
-    return 1;
+    return cliFail(io, {
+      command: "auth logout",
+      stage: "parse-args",
+      message: "auth logout requires <provider>",
+      next: "run pi-sparkle auth --help"
+    });
   }
   const stateRoot = stateRootOf(values);
   // Deleting nothing still succeeds — re-running logout has to stay safe — but

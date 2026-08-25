@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { authStorePath, FileCredentialStore } from "../../../src/pi-adapter/file-credential-store.js";
 
@@ -72,6 +73,42 @@ async function withEnv(
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  }
+}
+
+/**
+ * The variables the process itself needs; every other one is removed for the
+ * duration of the case. `status --all` asks whether *anything* configures
+ * *any* provider, and the answer has to be a fact about the test rather than
+ * about the developer machine it runs on — a stray key in the shell would
+ * otherwise decide whether the empty-state notice is reachable.
+ */
+const ENV_KEPT_BY_EMPTY_ENVIRONMENT = new Set([
+  "PATH",
+  "PATHEXT",
+  "HOME",
+  "USERPROFILE",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "SystemRoot",
+  "ComSpec",
+  "windir",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_V8_COVERAGE"
+]);
+
+async function withEmptyEnvironment(run: () => Promise<void>): Promise<void> {
+  const saved = { ...process.env };
+  for (const key of Object.keys(process.env)) {
+    if (!ENV_KEPT_BY_EMPTY_ENVIRONMENT.has(key)) delete process.env[key];
+  }
+  try {
+    await run();
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, saved);
   }
 }
 
@@ -367,6 +404,118 @@ test("--from-env on custom providers checks their configured variable, or refuse
     });
     assert.equal(await exists(authStorePath(stateRoot)), false);
   });
+});
+
+test("a keyless custom provider refuses every login mode that would store a key", async () => {
+  // `--from-env` is refused elsewhere; these are the modes that write. The
+  // request path resolves a provider with no envVar as "no key" and never
+  // reads auth.json for it, so a stored credential is a secret on disk that
+  // nothing will ever send — and an operator who believes login worked.
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await storeKey(stateRoot, "openai", STORED_KEY);
+    const before = await readFile(authStorePath(stateRoot), "utf8");
+
+    const invocations = [
+      ["auth", "login", "keyless", "--key", ROTATED_KEY, "--state-root", stateRoot],
+      ["auth", "login", "keyless", "--oauth", "--state-root", stateRoot],
+      ["auth", "login", "keyless", "--state-root", stateRoot]
+    ];
+    for (const argv of invocations) {
+      const { io, out, err } = capture();
+      assert.equal(await main(argv, io), 1, `${argv.join(" ")} must be refused`);
+      assert.equal(out.join(""), "", "a refusal must not print a success line");
+      const text = err.join("");
+      assert.match(text, /provider keyless is keyless \(no envVar in providers\.json\)/);
+      assert.match(text, /nothing to store and nothing was written/);
+      assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
+    }
+
+    // Not "no new entry": the file the operator already had is untouched.
+    assert.equal(await readFile(authStorePath(stateRoot), "utf8"), before);
+  });
+});
+
+test("a custom provider that does name an envVar still logs in normally", async () => {
+  // The guard has to separate "keyless" from "self-configured", not refuse
+  // every custom provider.
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    const { io, out, err } = capture();
+    const code = await main(
+      ["auth", "login", "gateway", "--key", STORED_KEY, "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /Stored api_key credential for gateway/);
+    assert.equal(out.join("").includes(STORED_KEY), false);
+    assert.match(await readFile(authStorePath(stateRoot), "utf8"), /"gateway"/);
+  });
+});
+
+test("status --all names the empty state instead of printing nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withEmptyEnvironment(async () => {
+      const { io, out, err } = capture();
+      const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+      assert.equal(code, 0, err.join(""));
+      const text = out.join("");
+      // Both halves: --all used to suppress the stored-credential notice *and*
+      // print no environment rows, which is a command that exits 0 having said
+      // nothing at all about either plane.
+      assert.match(text, /No stored credentials\./);
+      assert.match(text, /\(no environment-configured providers found\)/);
+    });
+  });
+});
+
+test("status --all labels each row by what actually resolved the provider", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await withEnv({ SPARKLE_TEST_GATEWAY_KEY: ENV_KEY }, async () => {
+      const { io, out, err } = capture();
+      const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+      assert.equal(code, 0, err.join(""));
+      const text = out.join("");
+      // The source column starts at the same offset on both rows: the label is
+      // derived, the layout is not. `keyless (no key)` is not an environment
+      // variable and used to be printed under a hardcoded `env`.
+      assert.match(text, /^keyless {22}ambient {3}keyless \(no key\)$/m);
+      assert.match(text, /^gateway {22}env {7}SPARKLE_TEST_GATEWAY_KEY$/m);
+      assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+    });
+  });
+});
+
+test("login and logout report a missing <provider> in the structured error dialect", async () => {
+  for (const [verb, argv] of [
+    ["auth login", ["auth", "login"]],
+    ["auth logout", ["auth", "logout"]]
+  ] as const) {
+    const { io, out, err } = capture();
+    assert.equal(await main([...argv], io), 1);
+    assert.equal(out.join(""), "");
+    const report = parseCliErrorJson(err.join(""));
+    assert.ok(report !== undefined, `${verb} must emit a parseable report`);
+    assert.equal(report.command, verb);
+    assert.equal(report.stage, "parse-args");
+    assert.equal(report.message, `${verb} requires <provider>`);
+    assert.equal(report.next, "run pi-sparkle auth --help");
+  }
+});
+
+test("login keeps echoing usage before its report; logout does not invent one", async () => {
+  const login = capture();
+  assert.equal(await main(["auth", "login"], login.io), 1);
+  const loginText = login.err.join("");
+  assert.ok(
+    loginText.indexOf("Usage:") < loginText.indexOf("error: auth login requires"),
+    "the usage echo comes before the report"
+  );
+
+  const logout = capture();
+  assert.equal(await main(["auth", "logout"], logout.io), 1);
+  assert.doesNotMatch(logout.err.join(""), /Usage:/);
 });
 
 test("logout distinguishes a removal from a provider that was never stored", async () => {
