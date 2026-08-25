@@ -165,15 +165,17 @@ function scopeOutcome(input: PrescoreInput): DimensionScore["outcome"] {
  * plan-time coverage of every contract criterion a start condition.
  *
  * Two obligations remain open and are *not* satisfied by this function:
- *   1. resumed child specs are re-synthesised with empty criteria, so a node
- *      the log never saw run carries no spec. That is unknown, not unmet, and
- *      the gate keeps it that way — `unmet-acceptance-criterion` fires only on
- *      a reported FAILED, and a node that never ran reports nothing. Durably
- *      distinguishing "known to have none" from "unknown" needs the
- *      `taskCriteria` seam on `run/replay.ts::FlowchartCheckpointState`, which
- *      is declared and validated but has no writer yet. The FAIL-unreachable
- *      tripwire in `test/unit/run/flowchart-run-abort.test.ts` still holds
- *      this function's range;
+ *   1. a resumed child spec is re-synthesised with empty criteria only where
+ *      nobody recorded the node. `run/flowchart-run.ts` writes the
+ *      `taskCriteria` seam on `run/replay.ts::FlowchartCheckpointState` from
+ *      the caller's child specs and from any logged `TASK_REQUEST` that
+ *      carries criteria, so a recorded node is re-asked on resume for exactly
+ *      what it was dispatched with. A node neither source names still carries
+ *      no spec. That is unknown, not unmet, and the gate keeps it that way —
+ *      `unmet-acceptance-criterion` fires only on a reported FAILED, and a
+ *      node that never ran reports nothing. The FAIL-unreachable tripwire in
+ *      `test/unit/run/flowchart-run-abort.test.ts` still holds this
+ *      function's range;
  *   2. only a tester child's criteria become `requiredChecks` at all
  *      (`run/child-tracking.ts`), which is a role decision this dimension
  *      inherits. The gate does not: a reported criterion outcome is read

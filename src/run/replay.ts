@@ -104,10 +104,13 @@ export interface FlowchartCheckpointState {
    * array itself must be non-empty when present, and ordered by ascending
    * `taskId`, which settles uniqueness in the same comparison.
    *
-   * No `src` writer fills this yet — the flowchart checkpoint writer is
-   * `run/flowchart-run.ts`, outside this diff's ownership. Declared and
-   * validated here so the shape is fixed and a malformed value fails closed;
-   * the writer is prescribed in `.agent_workspace/loop4-r11-t1.md`.
+   * `run/flowchart-run.ts` fills this: the caller's child specs when a run
+   * accepts them, and any logged `TASK_REQUEST` that carries criteria,
+   * first-write-wins and ordered by ascending `taskId`. A logged request with
+   * no criteria is deliberately ignored — on the log it is indistinguishable
+   * from a substituted one — so absence still means unknown, and only the
+   * caller's own spec can say known-none. Declared and validated here so the
+   * shape is fixed and a malformed value fails closed.
    */
   taskCriteria?: TaskAcceptanceCriteria[];
 }
