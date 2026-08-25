@@ -9,6 +9,7 @@ import {
   setDefaultModels
 } from "../config/providers-config.js";
 import { parseModelRef } from "../config/model-ref.js";
+import { cliFail } from "./errors.js";
 
 export interface ModelsIo {
   stdout(text: string): void;
@@ -97,12 +98,22 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
     io.stdout("No models enabled. Use: pi-sparkle models enable <provider/model>\n");
     return 0;
   }
+  // An enabled id can stop resolving without anything in this state root
+  // changing — a pin bump that drops a model leaves the entry behind, and the
+  // only symptom used to be a run failing later. Say it on the surface that
+  // claims the model is enabled.
+  const { resolveListedModel } = await import("../pi-adapter/listed-model.js");
   for (const id of config.enabled) {
     const tags: string[] = [];
     if (config.primary === id) tags.push("primary");
     if (config.fast === id) tags.push("fast");
     const suffix = tags.length > 0 ? `  ${tags.join(", ")}` : "";
-    io.stdout(`${id}${suffix}\n`);
+    const ref = parseModelRef(id);
+    const stale =
+      resolveListedModel(ref.providerId, ref.modelId, config.customProviders) === undefined
+        ? "  (not in catalog)"
+        : "";
+    io.stdout(`${id}${suffix}${stale}\n`);
   }
   return 0;
 }
@@ -114,8 +125,12 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
     options: { "state-root": { type: "string" } }
   });
   if (catalogId === undefined || catalogId.startsWith("-")) {
-    io.stderr("models enable requires <provider/model>\n");
-    return 1;
+    return cliFail(io, {
+      command: "models enable",
+      stage: "parse-args",
+      message: "models enable requires <provider/model>",
+      next: "run pi-sparkle models --help"
+    });
   }
   const stateRoot = stateRootOf(values);
   await assertKnownCatalogId(stateRoot, catalogId);
@@ -131,11 +146,29 @@ async function disableCommand(args: string[], io: ModelsIo): Promise<number> {
     options: { "state-root": { type: "string" } }
   });
   if (catalogId === undefined || catalogId.startsWith("-")) {
-    io.stderr("models disable requires <provider/model>\n");
-    return 1;
+    return cliFail(io, {
+      command: "models disable",
+      stage: "parse-args",
+      message: "models disable requires <provider/model>",
+      next: "run pi-sparkle models --help"
+    });
   }
-  await disableModel(stateRootOf(values), catalogId);
+  const stateRoot = stateRootOf(values);
+  // Disabling a model that is a routing default drops the default with it, and
+  // the operator used to learn that from a run that could not pick a model.
+  // Reading the config before the mutation is what makes the disclosure
+  // possible without teaching `disableModel` to report.
+  const before = await loadProvidersConfig(stateRoot);
+  const ref = parseModelRef(catalogId);
+  const formatted = `${ref.providerId}/${ref.modelId}`;
+  await disableModel(stateRoot, catalogId);
   io.stdout(`Disabled ${catalogId}\n`);
+  for (const role of ["primary", "fast"] as const) {
+    if (before[role] !== formatted) continue;
+    io.stdout(
+      `note: ${formatted} was the ${role} default; the default is now unset — set a new one with pi-sparkle models set-default\n`
+    );
+  }
   return 0;
 }
 
@@ -149,8 +182,12 @@ async function setDefaultCommand(args: string[], io: ModelsIo): Promise<number> 
     }
   });
   if (values.primary === undefined) {
-    io.stderr("models set-default requires --primary <provider/model>\n");
-    return 1;
+    return cliFail(io, {
+      command: "models set-default",
+      stage: "parse-args",
+      message: "models set-default requires --primary <provider/model>",
+      next: "run pi-sparkle models --help"
+    });
   }
   const stateRoot = stateRootOf(values);
   await assertKnownCatalogId(stateRoot, values.primary);
