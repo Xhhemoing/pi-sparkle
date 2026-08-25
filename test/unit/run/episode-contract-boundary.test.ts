@@ -28,6 +28,8 @@ import type { Event } from "../../../src/run/events.js";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const EPISODE_BIND = "src/run/episode-bind.ts";
 const EPISODE_MODEL = "src/domain/episode.ts";
+const FLOWCHART_CHECKPOINT_MODEL = "src/run/replay.ts";
+const ORIGINAL_RUN_AUTHORITY_FIELDS = new Set(["acceptanceCriteria", "constraints", "contract"]);
 
 type FunctionScope =
   | ts.ArrowFunction
@@ -96,6 +98,36 @@ function propertyName(node: ts.Node): string | undefined {
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined;
 }
 
+function isPerTaskCriteriaFieldName(name: string): boolean {
+  const normalized = name.replaceAll(/[^A-Za-z]/g, "").toLowerCase();
+  return (
+    (normalized.includes("task") || normalized.includes("child")) &&
+    (normalized.includes("criteria") || normalized.includes("criterion"))
+  );
+}
+
+function perTaskCriteriaCheckpointFields(): string[] {
+  const parsed = parse(FLOWCHART_CHECKPOINT_MODEL, readSource(FLOWCHART_CHECKPOINT_MODEL));
+  const checkpoint = parsed.statements.find(
+    (statement): statement is ts.InterfaceDeclaration =>
+      ts.isInterfaceDeclaration(statement) && statement.name.text === "FlowchartCheckpointState"
+  );
+  assert.ok(checkpoint, "the flowchart checkpoint state must remain structurally inspectable");
+  return checkpoint.members
+    .map((member) => propertyName(member))
+    .filter((name): name is string => name !== undefined && isPerTaskCriteriaFieldName(name))
+    .sort();
+}
+
+function isRunAuthorityField(name: string | undefined, checkpointCriteriaFields: ReadonlySet<string>): boolean {
+  return (
+    name !== undefined &&
+    (ORIGINAL_RUN_AUTHORITY_FIELDS.has(name) ||
+      checkpointCriteriaFields.has(name) ||
+      isPerTaskCriteriaFieldName(name))
+  );
+}
+
 function isNamedElementAccess(node: ts.Node, name: string): boolean {
   return (
     ts.isElementAccessExpression(node) &&
@@ -111,7 +143,10 @@ function callName(node: ts.CallExpression): string | undefined {
   return undefined;
 }
 
-function scopeSignals(scope: FunctionScope): {
+function scopeSignals(
+  scope: FunctionScope,
+  checkpointCriteriaFields: ReadonlySet<string>
+): {
   readonly readsEpisode: boolean;
   readonly constructsContract: boolean;
 } {
@@ -139,11 +174,13 @@ function scopeSignals(scope: FunctionScope): {
     if (
       (ts.isObjectLiteralExpression(node) &&
         node.properties.some((property) =>
-          ["acceptanceCriteria", "constraints", "contract"].includes(propertyName(property) ?? "")
+          isRunAuthorityField(propertyName(property), checkpointCriteriaFields)
         )) ||
       (ts.isCallExpression(node) && /contract/i.test(callName(node) ?? "")) ||
       (ts.isIdentifier(node) && node.text === "RequirementContract") ||
-      (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "contract")
+      (ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        isRunAuthorityField(node.name.text, checkpointCriteriaFields))
     ) {
       constructsContract = true;
     }
@@ -155,14 +192,16 @@ function scopeSignals(scope: FunctionScope): {
 }
 
 function assertNoEpisodeContractSynthesis(
-  modules: readonly { readonly file: string; readonly source: string }[]
+  modules: readonly { readonly file: string; readonly source: string }[],
+  checkpointCriteriaFields: readonly string[] = perTaskCriteriaCheckpointFields()
 ): string[] {
   const readers: string[] = [];
   const violations: string[] = [];
+  const criteriaFields = new Set(checkpointCriteriaFields);
   for (const module of modules) {
     const parsed = parse(module.file, module.source);
     for (const scope of functionScopes(parsed)) {
-      const signals = scopeSignals(scope);
+      const signals = scopeSignals(scope, criteriaFields);
       if (!signals.readsEpisode) continue;
       const location = `${module.file}:${scopeName(scope)}`;
       readers.push(location);
@@ -228,6 +267,24 @@ test("episode binding projects acceptance criteria only, never a run contract", 
   assert.equal(fields.includes("contract"), false);
   assert.equal(fields.includes("constraints"), false);
   assert.equal(fields.includes("acceptanceCriteria"), false);
+  assert.deepEqual(
+    fields.filter((field): field is string => field !== undefined && isPerTaskCriteriaFieldName(field)),
+    [],
+    "ProjectEpisode must not grow a per-task criteria field parallel to the flowchart checkpoint"
+  );
+  const checkpointCriteriaFields = perTaskCriteriaCheckpointFields();
+  assert.deepEqual(
+    checkpointCriteriaFields,
+    ["taskCriteria"],
+    "the durable checkpoint sibling must stay explicit and covered by the episode boundary"
+  );
+  for (const checkpointField of checkpointCriteriaFields) {
+    assert.equal(
+      fields.includes(checkpointField),
+      false,
+      `ProjectEpisode must not expose the checkpoint's ${checkpointField} authority`
+    );
+  }
 });
 
 test("no source reader of episode data constructs a RequirementContract", () => {
@@ -245,6 +302,20 @@ test("the source census rejects reconstruction and an empty-constraints claim", 
     function resumeFromEpisode(episode: ProjectEpisode) {
       const acceptanceCriteria = episode.acceptance;
       return { schemaVersion: 1, acceptanceCriteria, constraints: [] };
+    }
+  `;
+  assert.throws(
+    () => assertNoEpisodeContractSynthesis([{ file: "src/run/resume-from-episode.ts", source: mutant }]),
+    assert.AssertionError
+  );
+});
+
+test("the source census rejects per-task criteria reconstructed from an episode", () => {
+  const mutant = `
+    interface ProjectEpisode { acceptance: readonly unknown[] }
+    function resumeFromEpisode(episode: ProjectEpisode) {
+      const taskCriteria = [{ taskId: "child", acceptanceCriteria: episode.acceptance }];
+      return { taskCriteria };
     }
   `;
   assert.throws(
@@ -306,6 +377,14 @@ test("a persisted episode contains criteria but none of the supplied contract co
     assert.equal(Object.hasOwn(snapshot, "contract"), false);
     assert.equal(Object.hasOwn(snapshot, "constraints"), false);
     assert.equal(Object.hasOwn(snapshot, "acceptanceCriteria"), false);
+    assert.deepEqual(
+      Object.keys(snapshot).filter(isPerTaskCriteriaFieldName),
+      [],
+      "the persisted episode must not acquire checkpoint per-task criteria authority"
+    );
+    for (const checkpointField of perTaskCriteriaCheckpointFields()) {
+      assert.equal(Object.hasOwn(snapshot, checkpointField), false);
+    }
     assert.deepEqual(bound.contract, contract);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
