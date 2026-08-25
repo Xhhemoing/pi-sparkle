@@ -133,6 +133,10 @@ function flowchartPayloadWriters(): Writer[] {
 test("every flowchart checkpoint writer carries its durable authority properties", () => {
   const writers = flowchartPayloadWriters();
   assert.ok(writers.length > 0, "the source census must find flowchart-payload writers");
+  assert.ok(
+    writers.some(({ payload }) => carriesProperty(payload, "taskCriteria")),
+    "the source census must find a taskCriteria writer"
+  );
 
   for (const writer of writers) {
     assert.equal(
