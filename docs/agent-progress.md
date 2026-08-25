@@ -141,7 +141,7 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 
 ### Round 9
 
-Fable-r9-next dispatched to rank the next three file-disjoint operator batches after D31–D33 KEEP.
+Fable-r9-next dispatched to rank the next three file-disjoint operator batches after D31–D33 KEEP (`bc-2c5ef557-a068-53b5-b999-a20499e36e4d`).
 
 ### Round 3 still running / next implementers
 
