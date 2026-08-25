@@ -242,14 +242,14 @@ Fable review (`.agent_workspace/loop4-r10-review.md` at `6c60ba6`): **10 ACCEPT,
 
 Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-executed` (charged estimates fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 `a57fd7d` option (a) unimplemented freeze; R10-3 `66edccb` Round 9 docs; R10-4 `2e22453` writer-census pin (pure-CLI `--track`→pause STOP: tracked run has no pause controller); R10-5 `9b9888a` `independentEvidence` self-report posture; R10-6 `05d146c` verdict-producer standing rules; R10-7 `366df19` never-synthesize-from-episode; R10-8 `2399346` `applyRetry` absence over discard identifiers; R10-9 `d4b52b1` matched discard ledger status; R10-10 `d4741e6` `TERMINAL_REPLAY_STATUSES` / `RUN_UNBLOCKED*` not a status.
 
-## Round 11 — in flight
+## Round 11 — CLOSED
 
-10 slots from `.agent_workspace/ROUND10-BRIEF.md` (five real candidates + five concurrent-src guards). Stay on `agent/opt-continuous`. Parent sign-off: R11-1 **YES** option (a); R11-3 **YES** tracked pause controller (no race; fold declined); R11-4 **YES** restore-path charge validation.
+10 slots from `.agent_workspace/ROUND10-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R11-1 **YES** option (a); R11-3 **YES** tracked pause controller (no race; fold declined); R11-4 **YES** restore-path charge validation.
 
 | Slot | Agent | Focus |
 |---|---|---|
 | R11-1 | bc-bac929b5-19fa-5a19-b5cf-fc7af45eed6e | implement option (a) |
-| R11-2 | bc-3be62857-82a1-5523-9ef1-cae7b3339bb7 | discard crash-probe eleventh case |
+| R11-2 | bc-3be62857-82a5-5103-8de6-3a5d15860354 | discard crash-probe eleventh case |
 | R11-3 | bc-52d9f74c-f0f1-593a-9372-24ee72f4f2fc | tracked-run pause controller |
 | R11-4 | bc-e3adef72-a50c-5c80-b871-70aee430ac51 | restore-path discard audit validation |
 | R11-5 | bc-7096a9fa-0d14-5551-98e7-a5af5ce05f22 | Round 10 docs truth-up |
@@ -259,7 +259,9 @@ Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-execut
 | R11-9 | bc-9b740fbd-b914-5ee5-8aed-9ce8e9c09f14 | keep `TERMINAL_REPLAY_STATUSES` freeze |
 | R11-10 | bc-63703673-58ec-55f2-b9ad-9595d7b2e887 | keep never-synthesize-from-episode |
 
-Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-6 report-only (existing live-isolation pins covered R11-1's import); R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`; R11-10 `f99a0c8` never-synthesize covers `taskCriteria`. Parent joint `6926592` spent R9-1 reserved pin in `resume.test.ts`. All ten slots reported. Residual: `taskCriteria` has no `persistCheckpoint` writer.
+Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-6 report-only (existing live-isolation pins covered R11-1's import); R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`; R11-10 `f99a0c8` never-synthesize covers `taskCriteria`. Parent joint `6926592` spent R9-1 reserved pin in `resume.test.ts`; parent docs `df2c395` truth-up coverage-gate row.
+
+**Parent gate GREEN** at this write-up: **1938 tests / 1937 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`, including `unblock-discard-append-before-checkpoint-sigkill`. Residual: `taskCriteria` has no `persistCheckpoint` writer. Fable SOTA review in flight.
 
 ---
 
