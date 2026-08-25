@@ -276,6 +276,22 @@ the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
 requests are refused. A BLOCKED result still exits 1.
 
+On the gate path that recorded reason is the constant `ANALYSIS_QUEUED`, which
+names the queue the block was filed under rather than the anomaly. The anomaly
+is `GATE_TRANSITION.payload.reasonCode`; the failed dimensions are on the
+`TRACKING_ASSESSMENT` that transition cites; an acceptance criterion the child
+reported unmet is on that child's terminal `CHILD_MESSAGE`.
+`src/run/inspection.ts::gateBlockCause` reads those three back off the persisted
+log — pairing the newest `RUN_BLOCKED` with the transition that precedes it, and
+never consulting `GateApplyResult` — and two verbs render it. `inspect --run`
+prose adds `gate cause:`, plus `gate codes:`, `gate failed dimensions:` and one
+`gate unmet criterion:` line per reported FAILED criterion when there are any;
+`--summary-json` is unchanged, still exactly the four frozen `INSPECT_SUMMARY`
+keys. The blocked report adds one trailing `note:` naming the same cause. The
+`RUN_BLOCKED` payload, the gate, and the four routed lines above are untouched:
+the unknown-is-not-unmet rule of `tracking/from-child.ts::unmetCriteriaOf`
+applies to what is named, so an `UNOBSERVED` or absent criterion stays open.
+
 Ordinary `RUN_UNBLOCKED` keeps exactly its three signed-off keys
 (`blockedEventId`, `reason`, optional `retryNodeId`) and cannot discard
 executed descendants. The stronger `--discard-executed` authorization has the

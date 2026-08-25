@@ -45,7 +45,12 @@ import {
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
-import { buildInspectSummaryJson, inspectRun } from "../run/inspection.js";
+import {
+  buildInspectSummaryJson,
+  gateBlockCause,
+  inspectRun,
+  type GateBlockCause
+} from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -483,6 +488,14 @@ function reportFailedRun(
  * report is built from the event log alone and cannot see the checkpoint that
  * would say whether a descendant executed — so it states the precondition
  * instead of implying the flag applies here.
+ *
+ * The cause note is last and conditional, for the same reason it is a note at
+ * all. `reason:` prints the `RUN_BLOCKED` payload verbatim, and on the gate
+ * path that payload says `ANALYSIS_QUEUED` — the queue the block was filed
+ * under, not the anomaly. Correcting the payload would ripple through the
+ * fixtures and the matched-unblock ledger, so the honesty belongs here, where
+ * it can name the code the gate actually recorded without costing the ordinary
+ * four remedies a line or a place.
  */
 export function formatBlockedRunReport(
   runId: RunId,
@@ -494,6 +507,7 @@ export function formatBlockedRunReport(
     | { reason?: string; requiredEvidence?: readonly string[] }
     | undefined;
   const requiredEvidence = payload?.requiredEvidence ?? [];
+  const cause = gateBlockCause(events);
   return [
     `  reason: ${payload?.reason ?? "unknown"}\n`,
     `  required evidence: ${requiredEvidence.length === 0 ? "(none recorded)" : requiredEvidence.join(", ")}\n`,
@@ -501,8 +515,49 @@ export function formatBlockedRunReport(
     `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
     `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`,
     `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`,
-    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`
+    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`,
+    ...(cause === undefined ? [] : [formatGateCauseNote(cause)])
   ].join("");
+}
+
+/** Every criterion the block can name, as `id (evidence: …)`. */
+function formatUnmetCriteria(cause: GateBlockCause): string[] {
+  return cause.unmetCriteria.map((criterion) => {
+    const evidence =
+      criterion.evidenceIds.length === 0 ? "" : ` (evidence: ${criterion.evidenceIds.join(", ")})`;
+    return `${criterion.id}${evidence}`;
+  });
+}
+
+/**
+ * The one line that says what `reason: ANALYSIS_QUEUED` does not. Everything in
+ * it is read off `GATE_TRANSITION` and the child's own verdict.
+ */
+function formatGateCauseNote(cause: GateBlockCause): string {
+  const criteria = formatUnmetCriteria(cause);
+  const unmet = criteria.length === 0 ? "" : `, unmet criterion: ${criteria.join("; ")}`;
+  return `  note: ANALYSIS_QUEUED names the queue this block was filed under, not the cause — the gate recorded ${cause.reasonCode} on turn ${cause.turnId}${unmet}\n`;
+}
+
+/**
+ * The same cause, as additive `inspect` prose. Prints nothing for a run the
+ * tracking gate did not block, and never for `--summary-json`: the four
+ * INSPECT_SUMMARY keys are frozen, and a machine-readable gate cause is a new
+ * public field that would need its own pins.
+ */
+function formatGateCauseLines(cause: GateBlockCause): string {
+  const kind = cause.gateKind === undefined ? "" : `${cause.gateKind} gate, `;
+  const lines = [`  gate cause: ${cause.reasonCode} (${kind}turn ${cause.turnId})\n`];
+  if (cause.codes.length > 1) {
+    lines.push(`  gate codes: ${cause.codes.join(", ")}\n`);
+  }
+  if (cause.failedDimensions.length > 0) {
+    lines.push(`  gate failed dimensions: ${cause.failedDimensions.join(", ")}\n`);
+  }
+  for (const criterion of formatUnmetCriteria(cause)) {
+    lines.push(`  gate unmet criterion: ${criterion}\n`);
+  }
+  return lines.join("");
 }
 
 function reportBlockedRun(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
@@ -1213,6 +1268,12 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     for (const item of inspection.requiredEvidence) {
       io.stdout(`    - ${item}\n`);
     }
+  }
+  // A gate-blocked run's `requiredEvidence` above names ids and no cause; these
+  // lines name the cause, off the same log.
+  const gateCause = gateBlockCause(read.events);
+  if (gateCause !== undefined) {
+    io.stdout(formatGateCauseLines(gateCause));
   }
   if (inspection.children.length > 0) {
     io.stdout(`  children: ${inspection.children.length}\n`);
