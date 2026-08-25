@@ -88,8 +88,20 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
     });
   }
   if (values.clear === true) {
+    // What the clear removed decides what it may claim. A malformed token
+    // still gets cleared — the clear *is* the remedy for a damaged one — but
+    // it is not the same event as lifting a live pause, and an absent token is
+    // no work at all.
+    let existing: "paused" | "absent" | "malformed";
+    try {
+      existing = (await pause.token(runId)).paused ? "paused" : "absent";
+    } catch {
+      existing = "malformed";
+    }
     await pause.clearPause(runId);
-    io.stdout(`Cleared pause for ${runId}\n`);
+    if (existing === "paused") io.stdout(`Cleared pause for ${runId}\n`);
+    else if (existing === "malformed") io.stdout(`Cleared malformed pause token for ${runId}\n`);
+    else io.stdout(`No pause token for ${runId}; nothing to clear\n`);
     return CLI_EXIT.ok;
   }
   const outcome = await pauseFlowchartRun(

@@ -19,7 +19,7 @@ import {
   type DecisionCommitInput,
   type DecisionCommitProposal
 } from "../tools/decision-commit.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
 
 export interface CommitsIo {
   stdout(text: string): void;
@@ -45,6 +45,7 @@ async function loadCommitInput(
   io: CommitsIo
 ): Promise<{ checkpoint: RunCheckpoint; input: DecisionCommitInput } | undefined> {
   const read = await new EventStore(stateRoot, runId).readAll();
+  warnTruncatedJsonl(io, read.recovery, "event log");
   if (read.events.length === 0) {
     // The house run-not-found remedy, copied rather than imported: `main.ts`
     // imports this module, so reaching back for `missingRun` would be a cycle.
@@ -190,8 +191,25 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   if (!workTree.ok) {
     throw new DomainValidationError(`apply requires a git work tree at ${repo}: ${workTree.detail}`);
   }
-  for (const proposal of proposals) {
-    if (!applyProposal(repo, proposal, values.sign === true, io)) return 1;
+  for (let index = 0; index < proposals.length; index += 1) {
+    const proposal = proposals[index];
+    if (proposal === undefined) continue;
+    if (!applyProposal(repo, proposal, values.sign === true, io)) {
+      // The commits already in the operator's history are real and this
+      // command cannot take them back — rewriting their git history would be a
+      // far larger claim than the one that just failed. Naming them, and the
+      // `--nodes` selection that skips them, is what keeps the natural
+      // re-run from duplicating work the CLI already did.
+      if (index > 0) {
+        io.stderr(
+          `note: ${index} of ${proposals.length} proposed commits were already created in ${repo} before this failure; re-running apply would create them again — pass --nodes ${proposals
+            .slice(index)
+            .map((remaining) => remaining.nodeId)
+            .join(",")} to apply only the rest\n`
+        );
+      }
+      return 1;
+    }
     io.stdout(`Committed ${proposal.type}(${proposal.scope}): ${proposal.subject}\n`);
   }
   return 0;

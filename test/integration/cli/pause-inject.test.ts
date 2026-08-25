@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -361,6 +361,46 @@ test("pause on a run that does not exist gives inject's remedy verbatim", async 
       report?.next,
       `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`
     );
+  });
+});
+
+// `clearPause` swallows ENOENT, so the message is the only thing that can tell
+// an operator whether a pause was actually lifted.
+test("pause --clear claims only the token it removed", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const pausePath = join(stateRoot, "runtime", "runs", runId, "pause.json");
+
+    const absent = capture();
+    assert.equal(await main(["pause", "--clear", "--run", runId, "--state-root", stateRoot], absent.io), 0);
+    assert.equal(absent.out.join(""), `No pause token for ${runId}; nothing to clear\n`);
+    assert.deepEqual(absent.err, []);
+
+    assert.equal(await main(["pause", "--run", runId, "--state-root", stateRoot], capture().io), 0);
+    await access(pausePath);
+    const cleared = capture();
+    assert.equal(await main(["pause", "--clear", "--run", runId, "--state-root", stateRoot], cleared.io), 0);
+    assert.equal(cleared.out.join(""), `Cleared pause for ${runId}\n`);
+    await assert.rejects(access(pausePath));
+
+    // A clear that follows a real one must not claim the same work twice.
+    const again = capture();
+    assert.equal(await main(["pause", "--clear", "--run", runId, "--state-root", stateRoot], again.io), 0);
+    assert.match(again.out.join(""), /nothing to clear/);
+  });
+});
+
+test("pause --clear on a malformed pause.json clears it and says so", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const pausePath = join(stateRoot, "runtime", "runs", runId, "pause.json");
+    await writeFile(pausePath, "not-json", "utf8");
+
+    const { io, out, err } = capture();
+    assert.equal(await main(["pause", "--clear", "--run", runId, "--state-root", stateRoot], io), 0);
+    assert.equal(out.join(""), `Cleared malformed pause token for ${runId}\n`);
+    assert.deepEqual(err, []);
+    await assert.rejects(access(pausePath));
   });
 });
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { appendFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -140,6 +140,97 @@ test("episode close completes once every criterion has matching evidence and eve
   assert.equal(eventsCode, 0, listed.err.join(""));
   const events = listed.out.map((line) => JSON.parse(line) as { type: string });
   assert.deepEqual(events.map((event) => event.type), ["EPISODE_OPENED", "EPISODE_CLOSED"]);
+});
+
+test("a crash-truncated episode event log is disclosed and the surviving events still print", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-truncated-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "trunc0001"),
+    projectId: createProjectId(() => "trunc0001"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+  await appendFile(
+    join(stateRoot, "runtime", "episodes", `${episode.id}.events.jsonl`),
+    '{"type":"EPISODE_CLOS',
+    "utf8"
+  );
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", episode.id, "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 0, captured.err.join(""));
+  assert.match(captured.err.join(""), /warning: ignored truncated episode event log at line \d+/);
+  assert.deepEqual(captured.out.join("").trimEnd().split("\n"), ["EPISODE_OPENED"]);
+});
+
+test("a crash-truncated episode snapshot log is disclosed on close", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-trunc-snapshot-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "trunc0002"),
+    projectId: createProjectId(() => "trunc0002"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+  await appendFile(join(stateRoot, "runtime", "episodes", `${episode.id}.jsonl`), '{"id":"ep_trunc', "utf8");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "ABANDONED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 0, captured.err.join(""));
+  assert.match(captured.err.join(""), /warning: ignored truncated episode log at line \d+/);
+  assert.match(captured.out.join(""), /ABANDONED/);
+});
+
+test("episode close refuses --json instead of ignoring it", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-close-json-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "closejson"),
+    projectId: createProjectId(() => "closejson"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "ABANDONED", "--state-root", stateRoot, "--json"],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(report?.message, "episode close prints no JSON; --json applies to episode events");
+  assert.equal(report?.next, "drop --json, or use episode events --json");
+  // The refusal wrote nothing: the episode is still OPEN.
+  const snapshots = await new EpisodeStore(stateRoot, episode.id).readAll();
+  assert.equal(snapshots.episodes.at(-1)?.status, "OPEN");
 });
 
 test("episode events on an unknown episode points at list --episodes, not at a run id", async () => {

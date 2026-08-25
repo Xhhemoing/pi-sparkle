@@ -9,7 +9,7 @@ import { EpisodeEventStore } from "../episode/store.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import type { CliIo } from "./main.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
 
 const USAGE = `Usage:
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -54,6 +54,7 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
 
   if (subcommand === "events") {
     const read = await new EpisodeEventStore(stateRoot, episodeId).readAll();
+    warnTruncatedJsonl(io, read.recovery, "episode event log");
     if (read.events.length === 0) {
       return cliFail(io, {
         command: "episode",
@@ -83,6 +84,17 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
       next: "use episode events or episode close"
     });
   }
+  // `--json` is parsed for every subcommand but only `events` honours it.
+  // Refusing beats silently printing the plain-text close line to a caller
+  // that is about to `JSON.parse` it.
+  if (values.json === true) {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: "episode close prints no JSON; --json applies to episode events",
+      next: "drop --json, or use episode events --json"
+    });
+  }
   const status = values.status;
   if (status === undefined || !isTerminalStatus(status)) {
     return cliFail(io, {
@@ -97,7 +109,9 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
     join(runtimeRoot(stateRoot), "episodes", `${episodeId}.lock`),
     async () => {
       const snapshots = new EpisodeStore(stateRoot, episodeId);
-      const latest = (await snapshots.readAll()).episodes.at(-1);
+      const snapshotRead = await snapshots.readAll();
+      warnTruncatedJsonl(io, snapshotRead.recovery, "episode log");
+      const latest = snapshotRead.episodes.at(-1);
       if (latest === undefined) {
         return cliFail(io, {
           command: "episode",
