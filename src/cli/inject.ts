@@ -13,24 +13,58 @@ export interface InjectIo {
   stderr(text: string): void;
 }
 
+export const INJECT_USAGE = `pi-sparkle inject — record a typed fact/override/skip against a run's decision policy
+
+Usage:
+  pi-sparkle inject --run <runId> --type fact --key <name> --value <json-scalar|text> [--actor <who>] [--state-root <dir>]
+  pi-sparkle inject --run <runId> --type override --node <nodeId> --confidence <0-1> [--actor <who>] [--state-root <dir>]
+  pi-sparkle inject --run <runId> --type skip --node <nodeId> [--actor <who>] [--state-root <dir>]
+
+--value parses as a JSON scalar when it is one (true, 42, "text"), otherwise as the bare string;
+objects, arrays, and null are refused. Values are recorded, never executed. Injection into a
+terminal or BLOCKED run fails closed; success echoes the resulting facts/nodes snapshot.
+`;
+
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
 export async function injectCommand(args: string[], io: InjectIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      run: { type: "string" },
-      type: { type: "string" },
-      key: { type: "string" },
-      value: { type: "string" },
-      node: { type: "string" },
-      confidence: { type: "string" },
-      actor: { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
+  const first = args[0];
+  if (first === "help" || first === "--help" || first === "-h") {
+    io.stdout(INJECT_USAGE);
+    return CLI_EXIT.ok;
+  }
+
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        run: { type: "string" },
+        type: { type: "string" },
+        key: { type: "string" },
+        value: { type: "string" },
+        node: { type: "string" },
+        confidence: { type: "string" },
+        actor: { type: "string" },
+        "state-root": { type: "string" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle inject --help"
+    });
+  }
+
+  if (values.help === true) {
+    io.stdout(INJECT_USAGE);
+    return CLI_EXIT.ok;
+  }
   if (values.run === undefined || values.type === undefined) {
     return cliFail(io, {
       command: "inject",
