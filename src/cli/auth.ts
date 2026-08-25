@@ -149,11 +149,18 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
  * A builtin has no configured name to compare against: Pi's `ApiKeyAuth` keeps
  * its variable list inside the resolver closure and exposes only the source it
  * chose, and re-deriving those names here would drift from the pinned
- * provider set on every bump. What the closure does guarantee is that its
- * env-var branch returns the variable's own name, and only after reading a
- * non-empty value from it — so a source that is a live variable is an
- * environment row, and the phrases the file, profile and role branches return
- * (`AWS access keys`, `gcloud application default credentials`) are not.
+ * provider set on every bump. What the closure does guarantee is that a branch
+ * resolving a single variable returns that variable's own name, and only after
+ * reading a non-empty value from it — so a source naming a live variable is an
+ * environment row.
+ *
+ * The converse does not follow, and where the heuristic is wrong it
+ * understates. `gcloud application default credentials` really is a file, but
+ * `AWS access keys` is returned only once both `AWS_ACCESS_KEY_ID` and
+ * `AWS_SECRET_ACCESS_KEY` resolve — an environment configuration whose source
+ * names no single variable, so it prints `ambient`. Hardcoding that pair is
+ * the drift this heuristic avoids, and the source column still names what
+ * resolved the provider.
  */
 function sourceLabel(
   check: SparkleAuthCheck,

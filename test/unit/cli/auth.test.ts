@@ -564,6 +564,32 @@ test("a custom row is env when the configured envVar that resolved it carries sp
   });
 });
 
+test("a builtin whose source names no single variable stays ambient, understating the environment", async () => {
+  // Pinned as the cost of the heuristic, not as the desired reading. Pi
+  // returns `AWS access keys` only after both AWS_ACCESS_KEY_ID and
+  // AWS_SECRET_ACCESS_KEY resolve, so this row *is* configured by the
+  // environment and still prints `ambient` — the source is a phrase, not a
+  // variable name, and hardcoding the pair here would re-derive the variable
+  // lists Pi keeps inside its resolvers. Pinned so that trade-off cannot move
+  // without a test saying so, and so the column is never documented as
+  // separating environment from non-environment sources.
+  await withStateRoot(async (stateRoot) => {
+    await withEmptyEnvironment(async () => {
+      await withEnv(
+        { AWS_ACCESS_KEY_ID: "AKIA-do-not-log-2f60", AWS_SECRET_ACCESS_KEY: ENV_KEY },
+        async () => {
+          const { io, out, err } = capture();
+          const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+          assert.equal(code, 0, err.join(""));
+          const text = out.join("");
+          assert.match(text, /^amazon-bedrock {15}ambient {3}AWS access keys$/m);
+          assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+        }
+      );
+    });
+  });
+});
+
 test("login and logout report a missing <provider> in the structured error dialect", async () => {
   for (const [verb, argv] of [
     ["auth login", ["auth", "login"]],
