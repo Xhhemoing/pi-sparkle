@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
 import type { Flowchart } from "../domain/flowchart.js";
 import { isAgentRole } from "../domain/roles.js";
+import { providersConfigPath } from "../config/providers-config.js";
 import { compileChildrenToFlowchart, type CompilableChild } from "../graph/compile-children.js";
 import { parseChildSpec } from "./children-spec.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
@@ -149,12 +150,14 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
         catalogIds = (await buildLiveCatalogConfig(stateRoot)).models.map((model) => model.id);
       } catch (error) {
         // A broken or unresolvable catalog is not a broken spec, so it does
-        // not get the "fix the spec" remedy.
+        // not get the "fix the spec" remedy. The two ways to get here are an
+        // enabled model no provider exposes and a malformed providers.json, so
+        // the remedy names a repair for each and the file both live in.
         return cliFail(io, {
           command: "validate",
           stage: error instanceof DomainValidationError ? "validation" : "execute",
           message: `could not build the model catalog at ${stateRoot}: ${error instanceof Error ? error.message : String(error)}`,
-          next: "fix the enabled models with pi-sparkle models list, or pass --state-root <dir>"
+          next: `disable an unknown enabled model with pi-sparkle models disable <provider/model>, repair ${providersConfigPath(stateRoot)}, or pass --state-root <dir>`
         });
       }
       const flowchart = await parseFlowchartFile(flowchartPath as string, catalogIds);

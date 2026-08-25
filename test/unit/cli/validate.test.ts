@@ -239,8 +239,28 @@ test("validate --flowchart reports a broken catalog as a catalog problem, not a 
     assert.match(parsed?.message ?? "", new RegExp(`could not build the model catalog at ${stateRoot}`));
     assert.equal(
       parsed?.next,
-      "fix the enabled models with pi-sparkle models list, or pass --state-root <dir>"
+      `disable an unknown enabled model with pi-sparkle models disable <provider/model>, repair ${configPath}, or pass --state-root <dir>`
     );
+  });
+});
+
+/**
+ * The other way into the broken-catalog branch: providers.json parses, but it
+ * enables a model no provider exposes. `models list` cannot repair either case,
+ * so the remedy names `models disable`, which rewrites `enabled` and drops the
+ * ref from `primary`/`fast`.
+ */
+test("validate --flowchart names a repair for an enabled model no provider exposes", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    await enableModel(stateRoot, "nope/unknown-model");
+    const path = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
+    const { io, out, err } = capture();
+    assert.equal(await main(["validate", "--flowchart", path, "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.match(parsed?.message ?? "", /unknown model "nope\/unknown-model"/);
+    assert.match(parsed?.next ?? "", /pi-sparkle models disable <provider\/model>/);
+    assert.match(parsed?.next ?? "", new RegExp(providersConfigPath(stateRoot).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 });
 

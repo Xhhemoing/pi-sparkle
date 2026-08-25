@@ -13,6 +13,8 @@ import {
   type InitExamplesIo
 } from "../../../src/cli/init-examples.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { main } from "../../../src/cli/main.js";
+import { setDefaultModels } from "../../../src/config/providers-config.js";
 import { validateFlowchart } from "../../../src/domain/flowchart.js";
 
 interface Captured {
@@ -153,6 +155,46 @@ describe("init refuses to clobber", () => {
         FLOWCHART_EXAMPLE_JSON
       );
       assert.equal(captured.err(), "");
+    });
+  });
+});
+
+/**
+ * The hand-checks above read the examples as JSON; these feed them to the
+ * parsers `run` uses, which is the only way to find out whether "run
+ * immediately" is true. The flowchart is checked against both catalogs an
+ * operator can have on first contact: an untouched state root (the default
+ * cheap/premium list) and one with a single primary set (where both aliases
+ * resolve to that model).
+ */
+describe("init writes examples the run-path parsers accept", () => {
+  it("validates the children and flowchart examples against every first-run catalog", async () => {
+    await withDir(async (dir) => {
+      assert.equal(await initExamplesCommand(["--dir", dir], capture().io), 0);
+      const childrenPath = join(dir, CHILDREN_EXAMPLE_FILENAME);
+      const flowchartPath = join(dir, FLOWCHART_EXAMPLE_FILENAME);
+
+      const children = capture();
+      assert.equal(await main(["validate", "--children", childrenPath], children.io), 0, children.err());
+
+      await withDir(async (emptyRoot) => {
+        const validated = capture();
+        assert.equal(
+          await main(["validate", "--flowchart", flowchartPath, "--state-root", emptyRoot], validated.io),
+          0,
+          validated.err()
+        );
+      });
+
+      await withDir(async (primaryRoot) => {
+        await setDefaultModels(primaryRoot, { primary: "openai/gpt-4o-mini" });
+        const validated = capture();
+        assert.equal(
+          await main(["validate", "--flowchart", flowchartPath, "--state-root", primaryRoot], validated.io),
+          0,
+          validated.err()
+        );
+      });
     });
   });
 });
