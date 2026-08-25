@@ -360,9 +360,9 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 **Parent gate GREEN** against code HEAD `223e3dd` (orchestrator record `6b8124d`): **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r17-review.md`. One required joint (plane-boundary allowlist shrink inside `223e3dd`). Brief: `.agent_workspace/ROUND18-BRIEF.md`. Retarget plane closed; Round 18 has zero candidates.
 
-## Round 18 — cancelled; loop ending
+## Round 18 — in flight (post-merge seam)
 
-The parent ended the SOTA loop on user request after the Round 17 green gate. No Round 18 landings are accepted; the in-flight fable audit is ignored. Do not pad, reopen frozen surfaces, or continue on a new evidence plane.
+PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge is a **new seam** under ROUND18-BRIEF §4 reason 1. Continue the 20+ round loop on `cursor/opt-r18-postmerge-42b1`. Audit the merged tree for operator-honesty, fail-closed, embedder-contract, and merge-induced holes (steer, thinking redaction, `maxCostUsd` forward, live kernel events, isolation allowlists). **Do not pad. Do not freeze extras. Do not reopen inferred-preference liveness.**
 
 ---
 
