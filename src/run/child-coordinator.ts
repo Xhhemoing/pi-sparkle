@@ -53,6 +53,14 @@ export interface ChildCoordinatorDeps {
   project: ProjectSnapshot;
   registry: AgentProfileRegistry;
   maxConcurrentTasks: number;
+  /**
+   * Run-level USD ceiling from `RunLimits.maxCostUsd`, applied to every child
+   * attempt this coordinator leases. It bounds one execution, not the run:
+   * there is no cross-child spend accumulator, so N children under a $X run
+   * cap can still spend up to N·$X between them. Undefined stays undefined —
+   * a run that named no ceiling must not be handed an invented one.
+   */
+  maxCostUsd?: number;
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
   schedule?: (fn: () => void, ms: number) => { cancel(): void };
@@ -200,6 +208,7 @@ export class ChildCoordinator {
   private readonly stateRoot: string;
   private readonly now: () => IsoTimestamp;
   private readonly generateId: IdGenerator | undefined;
+  private readonly maxCostUsd: number | undefined;
   private readonly schedule: (fn: () => void, ms: number) => { cancel(): void };
   private readonly gate: ConcurrencyGate;
   private readonly parentAgentInstanceId: AgentInstanceId;
@@ -230,6 +239,7 @@ export class ChildCoordinator {
     this.parentRunId = deps.parentRunId;
     this.now = deps.now ?? nowIso;
     this.generateId = deps.generateId === undefined ? undefined : deps.generateId;
+    this.maxCostUsd = deps.maxCostUsd;
     this.schedule = deps.schedule ?? realSchedule;
     this.gate = new ConcurrencyGate(deps.maxConcurrentTasks);
     this.parentAgentInstanceId = createAgentInstanceId(
@@ -394,18 +404,37 @@ export class ChildCoordinator {
     };
   }
 
+  /**
+   * The USD ceiling one attempt on this task may spend: the tighter of the
+   * task's own `ChildRunLimits.maxCostUsd` and the run-level cap. A per-task
+   * budget cannot buy its way past the run's, and a run cap cannot loosen a
+   * task that asked for less. Undefined when neither side named one.
+   */
+  private costCapFor(limits: ChildRunLimits): number | undefined {
+    const caps = [limits.maxCostUsd, this.maxCostUsd].filter(
+      (cap): cap is number => cap !== undefined
+    );
+    return caps.length === 0 ? undefined : Math.min(...caps);
+  }
+
   private async runTask(
     input: ChildTaskInput,
     childRunId: RunId,
     parentSignal: AbortSignal
   ): Promise<ChildRunOutcome> {
+    // The child's own RUN_CREATED is the record of what this run was allowed
+    // to spend, so the ceiling belongs in it rather than only in the request.
+    const costCap = this.costCapFor(input.limits);
     const childRun: Run = {
       id: childRunId,
       projectId: this.project.id,
       parentRunId: this.parentRunId,
       rootTaskId: input.taskId,
       status: "RUNNING",
-      limits: defaultRunLimits(),
+      limits: {
+        ...defaultRunLimits(),
+        ...(costCap !== undefined ? { maxCostUsd: costCap } : {})
+      },
       createdAt: this.now(),
       updatedAt: this.now()
     };
@@ -630,12 +659,14 @@ export class ChildCoordinator {
 
     const assigned = input.assignedModel;
     const assignedRef = assigned === undefined ? undefined : tryParseModelRef(assigned);
+    const costCap = this.costCapFor(input.limits);
     const request = {
       runId: childRunId,
       taskId: input.taskId,
       agentInstanceId: childAgentId,
       prompt: this.buildChildPrompt(input, childAgentId),
       workingDirectory: this.project.rootPath,
+      ...(costCap !== undefined ? { maxCostUsd: costCap } : {}),
       ...(assigned !== undefined ? { modelId: assignedRef?.modelId ?? assigned } : {}),
       ...(assignedRef !== undefined ? { providerId: assignedRef.providerId } : {}),
       ...(this.cluster !== undefined ? { cluster: this.cluster.viewFor(childAgentId) } : {})
@@ -734,6 +765,18 @@ export class ChildCoordinator {
           childRunId,
           "AGENT_EVENT",
           { agentInstanceId: childAgentId, kind: "TEXT_DELTA", summary: `text delta (${event.text.length} chars)` },
+          taskId
+        );
+        return undefined;
+      case "THINKING_DELTA":
+        await this.appendChildEvent(
+          childRunId,
+          "AGENT_EVENT",
+          {
+            agentInstanceId: childAgentId,
+            kind: "THINKING_DELTA",
+            summary: `thinking delta (${event.bytes} bytes)`
+          },
           taskId
         );
         return undefined;

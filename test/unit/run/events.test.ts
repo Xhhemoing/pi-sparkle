@@ -123,6 +123,33 @@ test("pause and injection events validate fail-closed payloads", () => {
   );
 });
 
+test("STEER_INJECTED keeps the steer text and rejects an empty one", () => {
+  const steer = makeEvent("STEER_INJECTED", { text: "narrow the scope to the parser" });
+  assert.deepEqual(validateEvent(steer), steer);
+  const targeted = makeEvent("STEER_INJECTED", {
+    text: "narrow the scope to the parser",
+    agentInstanceId: "agt_01234567-89ab-cdef-0123-456789abcdef"
+  });
+  assert.deepEqual(validateEvent(targeted), targeted);
+
+  assert.throws(() => validateEvent(makeEvent("STEER_INJECTED", { text: "" })), /text/);
+  assert.throws(() => validateEvent(makeEvent("STEER_INJECTED", { text: "   " })), /non-empty/);
+  assert.throws(
+    () => validateEvent(makeEvent("STEER_INJECTED", { text: "ok", agentInstanceId: "nope" })),
+    /agentInstanceId/
+  );
+  assert.throws(
+    () => validateEvent(makeEvent("STEER_INJECTED", { text: "ok", thinking: "leaked" })),
+    /payload may only include/
+  );
+  // The steering principal is the event actor, so an anonymous steer is not a
+  // valid event at all.
+  assert.throws(
+    () => validateEvent({ ...makeEvent("STEER_INJECTED", { text: "ok" }), actor: "" }),
+    /actor/
+  );
+});
+
 test("TRACKING_ASSESSMENT fail-closed when assessmentHash does not match hashAssessment", () => {
   const assessment = parseTrackingAssessment({
     schemaVersion: 1,

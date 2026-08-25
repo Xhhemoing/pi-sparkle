@@ -1,4 +1,123 @@
+MODEL_SLUG: claude-opus-5-thinking-high-fast
+
+> **Filename collision, both reports kept.** Two parallel Round 3 tracks assign the
+> slug `R3-opus-B`. This path already held the aux-features track's gate-closer
+> report (committed in `2ef37dc`, branch `cursor/pi-adapt-aux-features-e1e3`); it is
+> preserved verbatim in the second half of this file. The kernel-reuse track's report
+> is first. Parent: split these if you want one report per file.
+
+---
+
+# Round 3 — R3-opus-B (kernel reuse): unskip `steer-inflight`, document cost-stop vs steer ordering
+
+Targets 2 (test half) and 3 in `R2-KERNEL-BRIEF.md`, branch
+`cursor/pi-kernel-reuse-e1e3`. Two source files touched. No cost-gate math changed.
+No commit.
+
+## `test/unit/pi-adapter/steer-inflight.test.ts`
+
+The `test.skip("RunningRun.steer forwards in-flight text and rejects empty text")`
+placeholder is gone, replaced by two real tests plus the fixture they need. There are
+now no `test.skip` calls anywhere under `test/`.
+
+I did not simply un-`skip` the stub, because the assertions it sketched
+(`doesNotThrow` on a steer, `/non-empty/` on blank text) are already covered — and
+covered better — by `test/integration/m0/steer.test.ts` against `GatedExecutor`.
+Re-asserting them here with the same double would have bought a green line and no
+information. What was actually missing is the seam this file is named for: nothing
+proved that text accepted at the run level reaches a **kernel**. `GatedExecutor`
+pushes steer strings onto an array; the hop from `SparkleKernel.steerText` into the
+agent's steering queue is only exercised by the first test in this file, which never
+goes near `RunningRun`.
+
+So the fixture is `KernelBackedExecutor`: an `AgentExecutor` whose in-flight run is a
+real `SparkleKernel` wrapping the file's existing `BlockingAgent`. A steer now has to
+survive every hop to be observable — `RunningRun.steer` → `SteerChannel` →
+`AgentExecutor.steerText` → `SparkleKernel.steerText` → `agent.steer(...)`.
+
+- **`RunningRun.steer forwards in-flight text to the live kernel and rejects empty
+  text`** — blank text throws `/non-empty/` at the run and the kernel's queue stays
+  empty (refused, not accepted-then-dropped); `"change direction"` with
+  `{ actor: "supervisor" }` lands in the agent's queue as a `role: "user"` message
+  and as one `STEER_INJECTED` event carrying that actor and that text.
+  `BlockingAgent.steer` throws unless a prompt is genuinely streaming, so *reaching*
+  the queue is itself the in-flight assertion — no timing assertion needed.
+- **`a steer refused by the kernel is not recorded as if the agent had received
+  it`** — releases the prompt while leaving `execute()` in flight, which is the one
+  state where the coordinator's window is open and the layer beneath it has nothing
+  to steer. The kernel throws, and because `SteerChannel` delivers before it logs, no
+  `STEER_INJECTED` is written. That is the delivery-before-logging invariant
+  (`coordinator.ts` ~line 143) under test from the failing side; the integration
+  suite only ever exercises its happy path.
+
+The fixture mirrors `PiAgentExecutor.steerText`'s single-agent refusals. It does not
+mirror the multi-agent one (`N agent runs are in flight and steering has no target`),
+which is unreachable from a single `startRun` and belongs with the child-coordinator
+tests.
+
+`startRun` needs `mkdtemp` roots, which is heavier than the rest of
+`test/unit/pi-adapter` allows itself but is normal elsewhere in `test/unit` (see
+`run/event-store.test.ts`, `cli/doctor.test.ts`). The alternative — moving the file
+to `test/integration/` — would have separated it from the kernel-level test it shares
+`BlockingAgent` with, which is the pairing that makes the file readable.
+
+## `src/pi-adapter/pi-executor.ts` (comment only)
+
+At the `stopAfterTurn` install site in `runAttempt`, next to the existing "only
+installed when the gate can actually price this model" note:
+
+> the loop consults this hook *before* it drains the steering queue, so text steered
+> during the turn that crosses the ceiling is dropped with the rest of the attempt
+> rather than delivered. Reordering it would need a Pi fork. What makes the loss
+> auditable is the pair of records already written: a `STEER_INJECTED` event, and a
+> `TASK_RESULT` saying the run stopped at the cost ceiling.
+
+The last sentence is the part worth keeping. The collision the brief flagged cannot
+be fixed from this side, but it is not silent either: the two records exist and
+disagree in a way an auditor can read — the log says the operator steered, the result
+says the run stopped at its ceiling, and the transcript shows the steer was never
+answered. Nothing claims the steer was delivered.
+
+`kernel.ts` already states the mechanism on `SparkleKernelStopAfterTurn` ("queued
+steering is not polled"). The new comment states the *consequence* at the only site
+that installs such a hook, which is where someone debugging a swallowed steer will be
+looking. I left `docs/kernel-reuse.md` alone — my brief said to prefer the adapter,
+and the docs are contended this round.
+
+## Not done (out of scope, flagged for whoever holds them)
+
+- **Target 1**, wiring `run.limits.maxCostUsd` into `AgentExecutionRequest`, is
+  untouched by me. Unless a sibling landed it, live runs are still uncapped; do not
+  let the docs say otherwise.
+- **The reorder itself.** Draining steering before consulting the stop hook is a Pi
+  loop change. A Sparkle-side approximation — have `steerText` reject once
+  `gate.stopRequested` has latched — would convert a silent drop into a refusal the
+  operator sees. It is a real improvement and I did not take it: it changes when
+  steering fails, which is coordinator-visible behavior, and my brief scoped me to
+  documenting the ordering.
+
+## Verification
+
+- `pnpm exec tsc --noEmit --pretty false` — clean.
+- `pnpm exec eslint` on both touched files — clean.
+- `node scripts/run-tests.mjs test/unit/pi-adapter/steer-inflight.test.ts` — 3 pass,
+  0 fail, **0 skipped** (was 1 skipped).
+- Full `node scripts/run-tests.mjs test` — 1445 tests, 1444 pass, 0 fail, 1 skipped.
+  The remaining skip is `provider-smoke.test.ts` self-skipping without `PI_SMOKE=1`,
+  as described in the aux-features report below. Note the tree is shared with the
+  other Round 3 agents, so this count includes their in-progress edits.
+
+One earlier iteration failed `tsc`: `assert.deepEqual(queue, [])` has an
+`asserts actual is T` signature, so the empty literal narrowed the queue to `never[]`
+and poisoned the later element assertions. Replaced with a length check.
+
+---
+---
+
 # Round 3 — R3-opus-B (quality gate closer)
+
+*(Preserved from commit `2ef37dc`, aux-features track. Everything below predates the
+kernel-reuse work above; its test counts are from that tree.)*
 
 `MODEL_SLUG: claude-opus-5-thinking-high-fast`
 

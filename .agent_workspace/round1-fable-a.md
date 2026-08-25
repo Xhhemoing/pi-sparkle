@@ -1,78 +1,86 @@
 MODEL_SLUG: claude-fable-5-thinking-xhigh
 
-# Round 1 report — R1-fable-A (architecture / SOTA audit)
+# Round 1 report — R1-fable-A (kernel-reuse audit + playbook)
+
+Retry after a failed dispatch; this file replaces the prior cycle's
+0.84.3-adaptation report per this round's ownership table (same convention
+R1-fable-B used).
 
 ## Delivered (exclusive write paths only; nothing committed)
 
-1. **`docs/how-to-adapt-to-pi.md`** — durable per-bump operator playbook:
-   changelog triage taxonomy, the full adapter import-surface table (file ×
-   symbol), pnpm-store `d.ts` diff technique, adapter test matrix
-   (`pi-boundary`, `test/unit/pi-adapter/*`, `test/integration/pi-adapter/*`,
-   `PI_SMOKE=1` gate), pin-after-typecheck rule, compat-surface refresh
-   commands (`pi-compat`, `doctor`, both probe scripts), 0.84.3
-   skill-discovery rules, ADR-001 boundary rule, and the "what we will not
-   absorb" list (TUI `/thinking`, PowerShell tool, inbound extension events
-   per ADR-006). Maintainer notes record the deliberate constraint that the
-   doc never spells the pre-rename Google thinking-level identifier
-   contiguously (see risk R2).
-2. **`docs/reports/2026-08-24-pi-0843-gap-audit.md`** — evidence-based audit.
-   Every delta claim is backed by a `dist/*.d.ts` diff between the 0.84.1 and
-   0.84.3 copies in the pnpm store; every state claim by a command run on
-   this branch. Verdict: the bump is a no-code-change bump for the adapter
-   (the breaking rename touched a never-imported symbol; agent-core's
-   consumed surface is byte-identical; `toolChoice` etc. are additive and
-   flow through the existing options spread).
+1. **`docs/kernel-reuse.md`** — durable playbook: secondary features build on
+   `AgentExecutor`/`ExecutionEvent` and `SparkleKernel` only, never Pi types
+   (ADR-001/006, no `pi-coding-agent`). Contains the wired-today evidence
+   table, the semantics extenders must respect (fresh-Agent-per-retry drops
+   queues; sync-only subscribe listeners; bytes-only thinking; contract
+   changes are domain decisions), a six-step "how to add a capability"
+   procedure, a worked inject→steer example naming the exact missing pieces,
+   and the verification gates.
+2. **`docs/reports/2026-08-24-kernel-reuse-audit.md`** — evidence-based
+   inventory of unused `Agent` 0.84.3 APIs vs sparkle, P0–P2 plus a parked
+   list, each item naming the contract decision it needs.
 3. This report.
 
-## Verification interplay confirmed
+## Peer work recorded as current evidence (not plan)
 
-- `src/pi-compat/check.ts` reads `docs/how-to-adapt-to-pi.md` as prose
-  evidence. After writing the doc: `pi-compat` still reports
-  `google-thinking=absent`, and the "assumed nested skill discovery" finding
-  is gone (the doc now supplies the nested-skill evidence the regex looks
-  for). Verified by re-running `pnpm cli pi-compat` and by testing both
-  regexes against the doc directly.
+All three Round-1 targets landed in the working tree before my audit ran;
+I verified them directly rather than restating the brief:
 
-## Leftover risks
+- **Live yield** — `runAttempt` bridges `kernel.subscribe` into
+  `AsyncEventQueue` and yields pre-idle; `live-stream.test.ts` asserts first
+  `TEXT_DELTA` while a scripted tool is still blocked.
+- **`SparkleKernel`** — facade with `prompt`/`abort`/`waitForIdle`/`reset`/
+  `steerText`/`followUpText`/`sessionId`, structural `SparkleKernelAgent`,
+  no Pi type on the public surface; exported via `src/pi-adapter/index.ts`.
+- **`THINKING_DELTA`** — bytes-only across contract, translator, both
+  coordinators, and `src/run/events.ts`; `translate-thinking.test.ts`
+  asserts the raw string does not serialize out.
 
-- **R1 (merge-blocking, P0):** `test/unit/pi-boundary.test.ts` fails on this
-  branch — it greps file *content* for `@earendil-works/` and false-positives
-  on `src/pi-compat/check.ts` + `src/cli/pi-compat.ts`, which name the
-  packages as data but import nothing from them. `pnpm gate` fails until the
-  tripwire matches import specifiers instead of substrings. Not in my write
-  scope (`test/`); needs an owner in Round 2 (natural fit: whoever owns
-  adapter tests, or gpt-B who owns pi-compat tests).
-- **R2 (P1):** `check.ts`'s report-body scan greps prose docs for the legacy
-  Google identifier; only the exit-code path was narrowed to adapter sources
-  (`readAdapterSourcesOnly` in `src/cli/pi-compat.ts`). A doc that names the
-  legacy symbol verbatim flips the printed report to `legacy-…`/BROKEN at
-  exit 0. My doc writes around it; `references/pi-version-adapt.md` spells it
-  and is safe only because it is not on the evidence list.
-- **R3 (P1):** thinking-level list is mirrored in three places with no drift
-  test (agent-core union, `src/cli/main.ts`, `src/pi-compat/check.ts`).
-- **R4 (environmental):** audit VM runs Node 22.14.0 < engines 22.19.0 —
-  doctor's only FAIL line. Tests ran fine; not a repo defect.
-- **R5 (process):** the tree mutated under me mid-audit (pin bump + install
-  landed between two probes). Audit §2 timestamps its evidence; re-verify
-  after Round 1 merges.
+Verification I ran today: `node scripts/kernel-reuse-probe.mjs` — PASS
+(exit 0, both checks); `pnpm exec tsx --test` over `kernel.test.ts`,
+`translate-thinking.test.ts`, `live-stream.test.ts` — 5 pass, 0 fail.
 
-## Recommended Round 2 focus
+## Key audit findings
 
-1. Fix R1 (import-specifier matching in the boundary test) — everything else
-   in Round 1 is blocked on `pnpm gate` behind it.
-2. `--thinking` CLI flag (headless counterpart of Pi's session-scoped
-   `/thinking`; plumbing already exists via `createConfiguredPiExecutor`).
-3. Nested-skill doctor check validating `.agents/skills` against 0.84.3
-   discovery rules.
-4. R2 + R3 cleanups in `src/pi-compat/check.ts` and a mirror-drift unit test
-   inside the adapter boundary.
-5. Skip `toolChoice` executor plumbing until a concrete use case appears —
-   the adapter already passes through whatever Pi's `Agent` sets.
+- **P0 (Round-2 leftover confirmed still unwired): inject→steer.**
+  `steerText`/`followUpText` exist only in `kernel.ts` + the index export
+  (grep-verified); `RunningRun` exposes only `cancel`;
+  `AgentExecutionRequest` has no mid-run channel; `pi-sparkle inject` is
+  flowchart policy facts (`fact|override|skip`), a different, approval-gated
+  mechanism. Adoption needs a contract decision (where the channel lives)
+  plus two explicit semantics calls: steering does not survive the
+  fresh-Agent retry, and steering text persistence policy.
+- **P1:** `shouldStopAfterTurn` (cost ceilings `maxCostUsd` are validated in
+  `domain/limits.ts` + `protocol/v1.ts` and enforced only in shadow
+  experiments — zero live-loop enforcement, child-coordinator has no cost
+  references) and `beforeToolCall` (no gate between model tool call and
+  execution; the honest site for a tool-allowlist kill switch).
+- **P2:** `continue()` (needs transcript-retention decision),
+  `thinkingBudgets`, `toolExecution: "sequential"`, `tool_execution_update`,
+  lifecycle events (`turn_start` → stall detection), multimodal prompt,
+  `transformContext`, `getApiKey` (low urgency — `builtinModels({credentials})`
+  already resolves keys per call), state introspection.
+- **Parked pending decisions:** `onPayload`/`onResponse` (conflicts with
+  hash-only telemetry), `convertToLlm`/`CustomAgentMessages` (couples message
+  model to Pi), `prepareNextTurn*` (routing must stay out of the adapter per
+  ADR-001), `transport`/`maxRetryDelayMs` (double-retry interaction with
+  `provider-retry.ts` — investigate first).
+
+## Handoffs / risks
+
+- **Spec drift:** `docs/specs/m0-m2-architecture.md` (~lines 288–293)
+  reproduces `ExecutionEvent` without `THINKING_DELTA` and `MESSAGE`.
+  `docs/specs/` is outside this round's write scope for me; needs an owner.
+- **`sessionId` unreachable:** executor calls `SparkleKernel.fromFactory`
+  without options; adoption must also copy the id across retry attempts.
+- **Doc pair to keep in sync:** `docs/kernel-reuse.md` (detailed) and
+  `.agents/skills/pi-sparkle/references/kernel-reuse.md` (agent checklist,
+  R1-fable-B). Both currently agree; future facade growth should refresh
+  both from the exported types, not from PROGRESS prose.
 
 ## Policy conformance
 
-ADR-001 respected (no `src/` edits; docs only). ADR-004 proposal-first intact
-(no promotion claims, no live-run mutation). ADR-006 intact (docs explicitly
-keep extensions and `session_compact_failed` out of scope; P2 items gated on
-ADR acceptance). No usage metrics invented. Did not commit (orchestrator
-commits after the round).
+No `src/` edits (docs + report only). ADR-001/ADR-006 respected; no
+coding-agent dependency or extension proposed. Evidence-based: every
+wired/unwired claim is backed by a grep, source read, or command run today.
+Did not commit (parent commits after the round).

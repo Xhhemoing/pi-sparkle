@@ -1,6 +1,6 @@
-# Round 3 — R3-gpt-B
+MODEL_SLUG: gpt-5.6-sol-xhigh-fast
 
-Model: `gpt-5.6-sol-xhigh-fast`
+# Round 3 — R3-gpt-B
 
 ## Result
 
@@ -22,12 +22,27 @@ Model: `gpt-5.6-sol-xhigh-fast`
 
 ## Verification
 
-Command:
+Focused command:
 
 ```text
 pnpm exec tsx --test test/unit/pi-compat/check.test.ts
 ```
 
 Result: PASS — 14 tests, 1 suite, 0 failures.
+
+Full gate:
+
+```text
+pnpm gate
+```
+
+Result: PASS (exit 0).
+
+- Typecheck: passed.
+- Lint: passed.
+- Tests: 1,443 total; 1,441 passed; 0 failed; 2 skipped; 0
+  cancelled; 0 todo, across 106 suites.
+- Build: passed.
+- No gate failures required test-file fixes.
 
 No commit was created, as requested.

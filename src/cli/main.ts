@@ -45,7 +45,7 @@ import {
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
-import { inspectRun } from "../run/inspection.js";
+import { buildInspectSummaryJson, inspectRun } from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -1158,19 +1158,12 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     return 0;
   }
   if (summaryJson) {
-    const summary = await inspectRun(stateRoot, runId);
+    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
     // One object, not a domain Event: --json stays a pure event NDJSON stream.
     // These four keys are the frozen-additive INSPECT_SUMMARY contract: they
     // never change name, type or meaning, and a fifth arrives only in a diff
     // that also updates the pins in `test/unit/run/inspection.test.ts`.
-    io.stdout(
-      `${JSON.stringify({
-        type: "INSPECT_SUMMARY",
-        runId,
-        status: summary.status,
-        requiredEvidence: summary.requiredEvidence
-      })}\n`
-    );
+    io.stdout(`${JSON.stringify(summary)}\n`);
     return 0;
   }
   const state = replayRun(read.events);

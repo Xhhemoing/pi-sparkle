@@ -1,86 +1,118 @@
 MODEL_SLUG: claude-fable-5-thinking-xhigh
 
-# Round 2 report — R2-fable-A (SOTA re-review + docs alignment)
+# Round 2 report — R2-fable-A (spec union + kernel-reuse Round-2 status)
+
+This file replaces the prior cycle's SOTA re-review report, per the same
+convention R1-fable-A used for round-1 files.
+
+**Round shape note:** the tree mutated under me mid-round. My first
+verification pass found P0 inject→steer unwired (`RunningRun` exposed only
+`runId`/`done`/`cancel`), and I drafted the docs accordingly; the P0 wiring
+(plus P1 `cost-gate.ts` and an overlay update) then landed in the working
+tree while I was writing. I re-ran every gate and corrected all three
+deliverables to the post-landing state before finishing. Everything below is
+the final state, verified after the landing.
 
 ## Delivered (exclusive write paths only; nothing committed)
 
-1. **`docs/how-to-adapt-to-pi.md`** — aligned with the actual CLI:
-   - Step 5 now states the real flag semantics: offline is the default,
-     `--offline` is an accepted explicit no-op, `--online` is opt-in and
-     fails closed, `--json` emits the `PiCompatReport`, and
-     `--offline --online` together is a parse-args error. Doctor check names
-     `pi-packages` / `pi-compat` were already correct; added that doctor's
-     `pi-compat` check is always offline.
-   - Wired in the new package scripts (`pnpm pi-compat`, `pnpm pi:latest`,
-     `pnpm pi:probe`) at the steps that previously invoked the raw files.
-   - `run --thinking <level>` documented as **landed** (not planned): it
-     exists in `src/cli/main.ts` (`resolveThinkingLevel`, USAGE lines,
-     parse-args validation) with flag > `PI_THINKING_LEVEL` > `"off"`
-     precedence, per-run scope, TUI `/thinking` contrast. It landed
-     mid-round from R2-opus-A — my first read of `main.ts` predated it, my
-     re-read and `test/unit/cli/thinking-flag.test.ts` confirmed it.
-   - Step-2 diff-surface section gained the two thinking-level watch items
-     with `d.ts` evidence: pi-ai's `ThinkingLevel` dropped `"off"` (moved to
-     `ModelThinkingLevel`) while agent-core kept it, and Google's
-     `GoogleApiThinkingLevel`/`ResolvedGoogleThinkingLevel` clamp `xhigh`/
-     `max` to at most `high`.
-   - Step 6 points at the new discovery fixture
-     (`test/fixtures/pi-0843-skills/` + its test).
-   - Maintainer notes: **retired the write-around** — the doc now spells
-     `GoogleThinkingLevel` verbatim, which doubles as a regression probe for
-     the narrowed report-path scan. Section 7 now states the boundary
-     tripwire matches import specifiers, not raw string mentions.
-2. **`docs/reports/2026-08-24-pi-0843-gap-audit.md`** — added §6 resolution
-   addendum and heading markers: G1 resolved (specifier-based tripwire,
-   parent fix, no path allowlist), G2 resolved (probe inputs separated in
-   `check.ts`; verified behaviorally, see below), G3 still open, G4
-   unchanged, P1-1 `--thinking` landed, P1-3 partially covered (fixture yes,
-   shipped-tree doctor check no), Node-engines FAIL was Round 1 VM-only
-   (this VM: 22.22.2, doctor all-ok).
-3. **`docs/reports/2026-08-24-round2-sota-gap.md`** (new) — Round 2 landed
-   table with evidence pointers, SOTA remainder re-statement (fixture /
-   Google clamp / `"off"` divergence / ADR-006 no-extensions / no
-   PowerShell / no coding-agent dep, each verified against the tree), and
-   the Round 3 leftover list.
+1. **`docs/specs/m0-m2-architecture.md`** — the `ExecutionEvent` union in
+   the Pi Adapter section now matches `src/execution/contract.ts`: added
+   `{ type: "THINKING_DELTA"; bytes: number }` (comment states CoT text
+   never enters the stream) and `{ type: "MESSAGE"; message: AgentMessage }`
+   (kept because code has it: emitted by `src/pi-adapter/pi-executor.ts`,
+   `src/testing/fake-executor.ts`, `src/cli/main.ts`; consumed by
+   `src/run/child-coordinator.ts` and `src/run/flowchart-executor.ts`).
+   Added a dated correction paragraph naming `src/execution/contract.ts` as
+   authoritative. Closes audit §4.1 / R1-fable-A's "spec drift needs an
+   owner" handoff.
+2. **`docs/kernel-reuse.md`** —
+   - Wired-today table: split the last row. Live steering
+     (`RunningRun.steer` → `AgentExecutor.steerText?` → facade) is now
+     **wired (landed mid-round)** with its evidence and three test suites;
+     `followUpText`/`reset`/`sessionId` stay "exposed, not product-wired".
+   - New "Round 2 status" subsection: what landed, the persistence policy
+     (steer text + actor as `STEER_INJECTED`; verbatim is correct because it
+     is user-authored input, not CoT), retry drop-on-retry unchanged, the
+     gate correction (below), and what stays open.
+   - Worked example retitled "(landed 2026-08-24)" and rewritten as the
+     plan-vs-actual mapping: handle on `RunningRun`, optional contract
+     method, document-and-drop retry, separate event type from flowchart
+     inject, tests at all three layers.
+   - Corrected the mechanical ADR-001 merge gate in both places it
+     appears: raw-substring grep → import-specifier grep (see finding 2).
+3. **`docs/reports/2026-08-24-kernel-reuse-audit.md`** — appended "§5
+   Round 2 addendum": the mid-round mutation stated explicitly, P0 landing
+   evidence itemized, §4.1 marked resolved (with the remaining
+   `AgentExecutionRequest` drift flagged), the stale-gate finding with exact
+   hit lines, gates re-run. Also corrects §2's "index.ts export" phrasing
+   (the index re-exports the `SparkleKernel` class, not the method names).
 4. This report.
 
-## Verification (commands run on this VM, 2026-08-24)
+## Verification (commands run on this VM, 2026-08-24, post-landing)
 
-- `pnpm cli pi-compat` before and **after** my doc edits: exit 0,
-  `pinned: agent-core=0.84.3 ai=0.84.3`, `google-thinking=absent`,
-  all seven levels, `nested-skill-discovery=yes`, no `BROKEN` finding —
-  proving the report-path scan is adapter-source-only even with the legacy
-  identifier spelled in the how-to, and that my edits kept the
-  nested-skill evidence wording intact.
-- `pnpm cli doctor`: all ten checks ok, including
-  `ok pi-packages: agent-core=0.84.3 ai=0.84.3` and
-  `ok pi-compat: status=unknown (offline …)`. Node 22.22.2 ≥ engines
-  22.19.0 on this VM (the Round 1 environmental FAIL does not reproduce).
-- Parent boundary fix confirmed by reading
-  `test/unit/pi-boundary.test.ts`: `hasPiPackageImport()` matches
-  `from` / `import(` / `require(` + quoted `@earendil-works/` specifier;
-  a data-mention regression test is included. The stale grep description in
-  the audit is superseded by §6; no other doc claims raw-substring matching
-  (repo-wide grep of `docs/` for `earendil-works` checked).
+- **P0 landed, but the circulated claim gate misses it:**
+  `rg -n "RunningRun.steer" src/run/coordinator.ts` → **no match (exit 1)**
+  even post-landing, because `steer(text, options?)` is declared inside the
+  multi-line `interface RunningRun` block (coordinator.ts:79–101). Gates
+  that do distinguish: `rg -n "steer\(text" src/run/coordinator.ts` (hits
+  100, 128) and `rg -n -U "interface RunningRun \{[\s\S]*?steer\("
+  src/run/coordinator.ts` (hits 79). Both `startRun` (line 315) and
+  `startParentRun` (line 639) return the `steer` handle. Per the brief's
+  rule I could not flip status on the literal gate alone, so the docs claim
+  "landed" on the direct-read + multiline-grep + passing-test evidence and
+  record the gate correction explicitly.
+- `src/execution/contract.ts` read directly: `steerText?(text)` on
+  `AgentExecutor` (line 53) with the inject-vs-steer distinction in its doc
+  comment; union has `THINKING_DELTA { bytes }` and `MESSAGE`; request
+  gained `maxCostUsd` (P1 work, not mine to claim).
+- `STEER_INJECTED` exists in `src/run/events.ts` (payload text, steering
+  principal is the event's `actor`) and `src/run/replay.ts:155`.
+- Steer tests: `pnpm exec tsx --test steer-inflight.test.ts
+  steer-blocked-tool.test.ts test/integration/m0/steer.test.ts` —
+  **8 pass, 0 fail, 1 skip**. The skip is the pre-landing placeholder
+  `test.skip("RunningRun.steer forwards in-flight text…")` in
+  `steer-inflight.test.ts`; its coverage now lives in `m0/steer.test.ts`.
+- Original three suites (`kernel`, `translate-thinking`, `live-stream`)
+  plus the three steer suites, final re-run on the latest tree: 14 pass,
+  0 fail, 1 skip (the stale placeholder). `node
+  scripts/kernel-reuse-probe.mjs` — PASS, exit 0; the probe gained a third
+  check mid-round (`executor-steer`) and all three pass.
+- Boundary gate: `rg -n "@earendil-works" src/ --glob '!src/pi-adapter/**'`
+  is **not empty** — six data-mention hits in `src/pi-compat/check.ts`
+  (49, 50, 135, 136, 154, 155). The import-specifier form
+  `rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob
+  '!src/pi-adapter/**'` returns empty; its positive control matches the real
+  imports inside `src/pi-adapter/`. Matches `hasPiPackageImport` semantics
+  in `test/unit/pi-boundary.test.ts`.
 
-## Scope discipline
+## Findings / handoffs
 
-Only my three exclusive paths were written. `src/`, `test/`,
-`package.json`, `README.md` untouched. Nothing committed (parent commits).
+1. **Claim-gate wording for future briefs:** single-line greps for
+   `Interface.member` miss multi-line declarations; the P0 landing was
+   nearly reported as "not landed" on that basis. Prefer member-signature
+   greps or `-U` multiline forms in claim gates.
+2. **Stale mechanical gate, overlay still affected:** the raw-substring
+   ADR-001 grep false-positives on `src/pi-compat/check.ts` data mentions.
+   Fixed in `docs/kernel-reuse.md`; the overlay
+   (`.agents/skills/pi-sparkle/references/kernel-reuse.md`) was updated
+   mid-round by its owner for the steer landing but still carries the raw
+   form in two places (checklist item 1 and "Verification before
+   reporting"). Its owner should adopt the import-specifier form.
+3. **Stale skip to remove (test/, outside my scope):** the placeholder
+   `test.skip` in `test/unit/pi-adapter/steer-inflight.test.ts:88` predates
+   the landing and now only adds a confusing SKIP to green runs.
+4. **Remaining spec drift, out of directed scope:** the spec's
+   `AgentExecutionRequest` (profile/model fields) differs from the code's
+   (`agentInstanceId`, `modelId?`, `providerId?`, `cluster?`, and now
+   `maxCostUsd?`). I only had a directive for the `ExecutionEvent` union;
+   the request shape needs the same treatment by a spec owner.
+5. **Still open after P0:** no CLI verb for live steer (product surface is
+   the `RunningRun` handle); `followUpText`/`reset`/`sessionId` remain
+   facade-only.
 
-## Leftover for Round 3
+## Policy conformance
 
-1. **G3 drift test (P1):** no test imports agent-core `ThinkingLevel` to
-   pin the two repo mirrors; the only Pi imports under `test/` are the two
-   integration suites.
-2. **README staleness (P2, needs an owner — README was in no R2 agent's
-   write scope):** line "Optional: `PI_THINKING_LEVEL=medium` (…)" omits
-   `max` and predates `--thinking`/precedence.
-3. **Shipped-tree skill packaging doctor check (P1, optional):** fixture
-   covers the rules; the shipped `.agents/skills` tree itself is not
-   doctor-validated.
-4. **Google clamp stderr notice (P3, optional):** never rewrite the level.
-5. **Full `pnpm gate` after merge:** the tree mutated under me during this
-   round (`--thinking` landed between two reads of `main.ts`); a
-   post-round gate run by the parent is the only trustworthy green.
-6. **Online CI cron (P2, needs network policy):** carried unchanged.
+No `src/` or `test/` edits (docs + this report only). Nothing committed
+(parent commits). Every landed/not-landed claim was re-verified after the
+mid-round tree mutation; the P0 "landed" claim rests on direct reads, the
+multiline grep, and 8 passing steer tests run on this tree today.

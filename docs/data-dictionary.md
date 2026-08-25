@@ -2,8 +2,10 @@
 
 Source of truth: `src/privacy/record-classes.ts` (`DURABLE_RECORD_CLASSES`).
 Tests: `test/unit/privacy/record-classes.test.ts` (schema, required ids,
-**path-completeness**, sensitivity-class consistency, **plane layout**) and
-`test/unit/privacy/plane-boundary.test.ts` (**adaptation→runtime boundary**).
+**path-completeness**, sensitivity-class consistency, **plane layout**),
+`test/unit/privacy/plane-boundary.test.ts` (**adaptation→runtime boundary**,
+direct imports), and `test/unit/privacy/adaptation-plane-closure.test.ts`
+(the same boundary over the **transitive value-import closure**).
 
 This dictionary is a Developer Preview control. It does **not** close P0 privacy
 review by itself. The 2026-08-22 independent review returned **CONDITIONAL**:
@@ -30,22 +32,18 @@ current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
-> Precision note (2026-08-24, Loop 2 Round 1): the allowlist pin above is
-> **direct-import only** — it does not walk transitive imports. One transitive
-> value chain is known and pinned by a dedicated test in the same file:
-> `adaptation/eval-routing.ts` value-imports `routing/assign.ts`, which
-> value-imports `supervisor/model-router.ts` — so the live router **module is
-> loaded at runtime** by the adaptation plane even though eval-routing's own
-> model-router import is type-only. The boundary rule still holds because it
-> is a claim about *records*, not code loading: `model-router.ts` and its
-> entire value-import subtree are filesystem-free, so no runtime record is
-> reachable through the chain (the test pins the router file itself; the
-> subtree was verified by closure walk — see the
-> [Loop 2 R1 isolation report](reports/2026-08-24-sota-loop2-isolation.md)
-> §1). Transitive chains through module prefixes the test does not list
-> (e.g. shared `routing/` helpers) would not be flagged automatically; the
-> only runtime-record reader value-reachable from the adaptation plane is the
-> sanctioned `from-episode` pipe.
+> Precision note (2026-08-24, revised Loop 3 Round 1): the allowlist pin
+> above is **direct-import only**; the second pin closes the transitive gap.
+> `test/unit/privacy/adaptation-plane-closure.test.ts` walks the union
+> **value-import closure** (`import type` statements stripped, as
+> `verbatimModuleSyntax` erases them) of every adaptation-plane module and pins
+> each runtime-prefix module against an explicit, justified allowlist — today
+> the nine modules of the sanctioned `from-episode` pipe plus
+> `supervisor/model-router.ts`, reached through
+> `adaptation/eval-routing.ts -> routing/assign.ts`. The router's entire value
+> subtree is pinned filesystem-free. The fail-closed regex walker counts
+> comment-shaped imports as edges, sees only literal specifiers, and is paired
+> with a repo-wide rejection of computed `import(expr)` in `src/`.
 
 > Layout note: this is a Developer Preview breaking change. Data written by
 > builds before 2026-08-22 sits at the legacy flat locations and is not
@@ -344,8 +342,17 @@ these are covered by the claims above:
   direct/out-of-lifecycle writer can still make deletion refuse with
   `RUN_RECORDS_SURVIVED`; a write after the final check is a new row and may
   recreate the directory after success. Invocation rows appended after their
-  rewrite likewise survive, while an appender that cannot take the invocation
-  lock in time silently drops its telemetry row rather than fail the run.
+  rewrite likewise survive. The live invocation sink retries a typed lock
+  timeout with a bounded default of three attempts and then drops the telemetry
+  row without failing the run, emitting one warning through its `onDrop` hook.
+- **The feedback log's mirror of that race is closed under its own lock.**
+  `cascadeFeedbackTombstones` and `appendFeedback` share
+  `adaptation/feedback/records.jsonl.lock`, so the cascade cannot clobber a
+  concurrent append. A row appended after the cascade is a new row and retains
+  text until deletion is repeated. The auto-adapt persistence path uses
+  `appendFeedbackWithRetry` (three attempts by default); terminal contention is
+  counted and disclosed in `feedbackDropped`, `feedbackDropReasons`, and the
+  result reason rather than aborting the already-completed run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -369,6 +376,10 @@ stated rationale or pin (now both); the cascade's interaction with persisted
 Closed in Loop 2 Round 1 (2026-08-24): the delete-vs-live-appender race on
 `invocations.jsonl` — the appender previously wrote without the lock the
 rewrite takes; both writers now share it (see the revised bullet above).
+
+Closed in Loop 3 Round 1 (2026-08-24): the corresponding feedback append vs
+episode-cascade rewrite race and the adaptation-plane transitive value-import
+gap (see the revised sections above).
 
 ## Completeness audit (2026-08-22)
 

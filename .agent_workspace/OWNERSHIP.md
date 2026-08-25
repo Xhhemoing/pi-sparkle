@@ -1,17 +1,9 @@
-# File ownership — Loop 4 Round 18 (`agent/opt-continuous`)
+# File ownership — Loop 4 ending after Round 17 (`agent/opt-continuous`)
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `agent/opt-continuous`. Do not `git checkout` another branch.**
 
-Round 18 is a **parent plane retarget** after the I/O / races / protocol / DR sweep returned zero remaining holes. The auditor owns `.agent_workspace/loop4-r18-audit.md` and rewrites `.agent_workspace/ROUND18-BRIEF.md` **only if** it proves real candidates on the new plane. **Do not pad. Do not dispatch freeze extras.**
+Round 18 is cancelled on user request. Loop 4 ends with the Round 17 green gate; do not continue landings, dispatch freeze extras, or consume the in-flight fable audit.
 
-**Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
+There are no active mutation slots.
 
-Injection: `.agent_workspace/ROUND18-BRIEF.md` (pre-retarget idle brief at `8eef663`; auditor overwrites if it proves holes). Dispatch: fable-audit `bc-fdaaa22e-da4f-5f1f-b314-f5beb897c1ac`.
-
-New plane (exclusive of frozen surfaces): operator-disclosure, fail-closed honesty, embedder-contract, silent persistence no-ops, security-probe coverage.
-
-| Slot | Model | Owns |
-|---|---|---|
-| fable-audit | fable | `.agent_workspace/loop4-r18-audit.md`; `.agent_workspace/ROUND18-BRIEF.md` (candidates or confirmed zero on this plane) |
-
-Frozen: ROUND18-BRIEF §3/§5 as of `8eef663`, plus: CLI inferred-preference plane stays not-live; migrate-legacy both publish arms pinned; no 12th probe case; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`. Adaptation-plane import-edge changes must census `test/unit/privacy/plane-boundary.test.ts` into the later landing grant.
+Frozen: exact eight `RunStatus` members; five `DOCTOR_ROUTED_NEXT` entries plus `GENERIC_FAILURE_NEXT`; the four-key `INSPECT_SUMMARY`; no live R1; ADR-006 Proposed; EventStore and CheckpointStore remain unlocked; preference locking stays at CLI writers; no 12th crash-probe case; no Outcome-supported or auto-promote claim.

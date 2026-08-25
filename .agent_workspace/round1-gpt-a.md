@@ -2,55 +2,23 @@ MODEL_SLUG: gpt-5.6-sol-xhigh-fast
 
 # Round 1 — R1-gpt-A
 
-## How to run
+## Delivered
 
-```sh
-node scripts/pi-compat-probe.mjs
-node scripts/pi-latest-check.mjs
-node scripts/pi-latest-check.mjs --json
-PI_COMPAT_OFFLINE=1 node scripts/pi-latest-check.mjs
-node scripts/pi-latest-check.mjs --strict
-```
+- Added `scripts/kernel-reuse-probe.mjs`, an ESM/no-dependency source gate with exactly one result line for each check:
+  - live subscribe-to-yield queue behavior in `PiAgentExecutor`
+  - exported `steerText` facade in `src/pi-adapter/kernel.ts`
+- Added `test/integration/pi-adapter/live-stream.test.ts` using `PiAgentExecutor`, the faux provider, and a faux-scripted custom blocking tool.
+- The integration test records the first `TEXT_DELTA` and iterator-completion timestamps. The tool remains in flight until live delivery releases it; a 500 ms fallback turns any future buffering regression into a bounded assertion failure instead of a deadlock.
 
-`--offline` is equivalent to `PI_COMPAT_OFFLINE=1`. The latest-version probe
-also accepts `PI_COMPAT_REGISTRY_URL` for a mock registry.
+## Verification
 
-## Observed output
+- `node scripts/kernel-reuse-probe.mjs` — **PASS** (exit 0): both the live stream and `steerText` facade checks pass.
+- `pnpm test -- test/integration/pi-adapter/live-stream.test.ts` — **PASS** (1 test). The first `TEXT_DELTA` was observed while the custom tool remained in flight, and execute completed only after the consumer released that tool.
+- `pnpm exec eslint scripts/kernel-reuse-probe.mjs test/integration/pi-adapter/live-stream.test.ts` — **PASS**.
+- `pnpm typecheck` — **PASS** after all concurrent round changes settled.
 
-### `node scripts/pi-latest-check.mjs`
+## Live assertion boundary
 
-```text
-PINNED @earendil-works/pi-agent-core: 0.84.3
-LATEST @earendil-works/pi-agent-core: 0.84.3
-STATUS @earendil-works/pi-agent-core: up-to-date
-PINNED @earendil-works/pi-ai: 0.84.3
-LATEST @earendil-works/pi-ai: 0.84.3
-STATUS @earendil-works/pi-ai: up-to-date
-PINNED @earendil-works/pi-coding-agent: (not pinned)
-LATEST @earendil-works/pi-coding-agent: 0.84.3
-STATUS @earendil-works/pi-coding-agent: unpinned
-```
+The faux provider exercises the stronger condition through a scripted tool call: the test asserts that the iterator exposes `TEXT_DELTA` while that custom tool is still blocked, then verifies execute completion occurs later. A 500 ms release fallback prevents deadlock on a buffering regression; such a regression now fails the assertion, while the source probe independently remains a static gate.
 
-Exit code: 0.
-
-### `node scripts/pi-compat-probe.mjs`
-
-```text
-PASS pin @earendil-works/pi-agent-core: 0.84.3
-PASS pin @earendil-works/pi-ai: 0.84.3
-PASS legacy identifier GoogleThinkingLevel is absent from src/pi-adapter
-PASS ThinkingLevel imports use @earendil-works/pi-agent-core only (2 found)
-```
-
-Exit code: 0.
-
-## Leftover
-
-The npm registry remains an external, potentially flaky dependency. A timeout
-or network failure reports `unknown` and exits 0 for normal probe use; strict
-mode exits 1. Offline mode skips registry access and exits 0.
-
-## Round 2
-
-Optionally add npm scripts for these probes after the package/lockfile owner
-agrees on names and integrates the change.
+No `src/**` or CLI file was changed by R1-gpt-A. No commit was created.

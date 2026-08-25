@@ -30,14 +30,23 @@ import {
   createMessageId,
   isArtifactId,
   isEvidenceId,
+  type AgentInstanceId,
   type ArtifactId,
-  type EvidenceId
+  type EvidenceId,
+  type TaskId
 } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { SUPERVISOR, type TaskOutcome, type VerificationKind } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { InvocationCallOutcome, ModelInvocation } from "../telemetry/model-invocation.js";
 import { createClusterTools } from "./cluster-tools.js";
+import {
+  CostGate,
+  catalogPrices,
+  type CostGateDisarmedReason,
+  type CostGateLedger
+} from "./cost-gate.js";
+import { AsyncEventQueue, SparkleKernel } from "./kernel.js";
 import {
   callOutcomeForFailure,
   classifyProviderFailure,
@@ -89,7 +98,32 @@ export interface PiExecutorOptions {
    * The response body itself is never persisted — only its hash.
    */
   onInvocation?: (invocation: ModelInvocation) => void;
+  /**
+   * Default USD ceiling per execute() call, used when the request does not
+   * carry its own. See {@link AgentExecutionRequest.maxCostUsd}.
+   */
+  maxCostUsd?: number;
+  /**
+   * Optional sink for what the spend ceiling did. Fires when a requested
+   * ceiling could not be enforced and when one stopped a run.
+   */
+  onCostGate?: (event: CostGateEvent) => void;
 }
+
+/** What the spend ceiling did on one execution. */
+export type CostGateEvent =
+  | {
+      readonly kind: "disarmed";
+      readonly taskId: TaskId;
+      readonly maxCostUsd: number;
+      readonly reason: CostGateDisarmedReason;
+    }
+  | {
+      readonly kind: "stopped";
+      readonly taskId: TaskId;
+      readonly maxCostUsd: number;
+      readonly ledger: CostGateLedger;
+    };
 
 export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined {
   switch (event.type) {
@@ -384,6 +418,8 @@ export function createTaskResultTool(
 /** One agent run: the events it produced and how it ended. */
 interface AttemptRun {
   readonly events: readonly ExecutionEvent[];
+  /** Leading text/thinking events already yielded while the attempt was live. */
+  readonly streamedCount: number;
   readonly failed: boolean;
   readonly error: unknown;
   readonly errorMessage: string | undefined;
@@ -399,6 +435,11 @@ interface RetriedRun {
 export class PiAgentExecutor implements AgentExecutor {
   private readonly models: MutableModels;
   private readonly faux?: FauxProviderHandle;
+  /**
+   * Kernels for attempts currently in flight, keyed by agent instance. One
+   * executor can serve concurrent child tasks; steering refuses ambiguity.
+   */
+  private readonly liveKernels = new Map<AgentInstanceId, SparkleKernel>();
 
   constructor(private readonly options: PiExecutorOptions) {
     if (options.models !== undefined) {
@@ -447,100 +488,147 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /**
-   * Run the agent once. Failures are reported, not thrown: the agent loop
-   * folds stream errors into `state.errorMessage` and only surfaces an error
-   * object when the prompt call itself rejects, so both are captured.
+   * Run one fresh Pi agent attempt. Leading text/thinking deltas are yielded
+   * live; once a structured event begins, the rest of the attempt is buffered
+   * so a failed attempt's verdict cannot leak into a retry and tool/message
+   * ordering remains exact.
    */
-  private async runAttempt(
+  private async *runAttempt(
     model: Model<Api>,
     request: AgentExecutionRequest,
+    gate: CostGate,
     signal: AbortSignal
-  ): Promise<AttemptRun> {
+  ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
+    const queue = new AsyncEventQueue<ExecutionEvent>();
+    let streamPrefixOpen = true;
+    let streamedCount = 0;
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
-    // Built per attempt, like the cluster tools: a verdict reported by an
-    // attempt that then failed must not survive into the retried transcript,
-    // and `runWithRetry` only surfaces the last attempt's events.
-    const reportTaskResult = createTaskResultTool(request, (event) => events.push(event));
-    const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
-    const agent = new Agent({
-      initialState: {
-        systemPrompt: this.options.systemPrompt ?? "",
-        model,
-        thinkingLevel,
-        tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult]
-      },
-      streamFn: (streamModel: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream =>
-        this.models.streamSimple(streamModel, context, {
-          ...options,
-          ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
-            ? { apiKey: this.options.apiKey }
-            : {})
-        })
+    // Built per attempt: a verdict from an attempt that is retried must not
+    // survive into the final transcript.
+    const reportTaskResult = createTaskResultTool(request, (event) => {
+      streamPrefixOpen = false;
+      events.push(event);
     });
+    const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
+    const kernel = SparkleKernel.fromFactory(
+      () =>
+        new Agent({
+          initialState: {
+            systemPrompt: this.options.systemPrompt ?? "",
+            model,
+            thinkingLevel,
+            tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult]
+          },
+          streamFn: (
+            streamModel: Model<Api>,
+            context: Context,
+            options?: SimpleStreamOptions
+          ): AssistantMessageEventStream =>
+            this.models.streamSimple(streamModel, context, {
+              ...options,
+              ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
+                ? { apiKey: this.options.apiKey }
+                : {})
+            })
+        }),
+      gate.armed ? { stopAfterTurn: () => gate.requestStopIfExceeded() } : {}
+    );
 
+    this.liveKernels.set(request.agentInstanceId, kernel);
     let thrown: unknown;
     let runFailed = false;
-    const onAbort = () => agent.abort();
+    const onAbort = () => kernel.abort();
     signal.addEventListener("abort", onAbort, { once: true });
-    // An abort that landed while the Agent was being built reaches no
-    // listener: `addEventListener` on an already-aborted signal never fires.
-    // Nothing can run between the registration above and this check, so the
-    // two paths are exclusive and `abort()` happens exactly once.
-    if (signal.aborted) agent.abort();
+    // addEventListener does not fire for a signal that was already aborted.
+    if (signal.aborted) kernel.abort();
+    const unsubscribe = kernel.subscribe((event) => {
+      const translated = translatePiEvent(event as AgentEvent);
+      if (translated === undefined) return;
+      if (translated.type === "TURN_FINISHED") gate.recordTurn(translated.usage);
+      events.push(translated);
+      if (
+        streamPrefixOpen &&
+        (translated.type === "TEXT_DELTA" || translated.type === "THINKING_DELTA")
+      ) {
+        streamedCount += 1;
+        queue.push(translated);
+      } else {
+        streamPrefixOpen = false;
+      }
+    });
+    const running = (async () => {
+      try {
+        await kernel.prompt(`Working directory: ${request.workingDirectory}\n\n${request.prompt}`);
+        await kernel.waitForIdle();
+      } catch (error) {
+        thrown = error;
+        runFailed = !signal.aborted;
+      } finally {
+        queue.close();
+      }
+    })();
+
+    let drained = false;
     try {
-      agent.subscribe((event) => {
-        const translated = translatePiEvent(event);
-        if (translated !== undefined) events.push(translated);
-      });
-      await agent.prompt(`Working directory: ${request.workingDirectory}\n\n${request.prompt}`);
-      await agent.waitForIdle();
-    } catch (error) {
-      thrown = error;
-      runFailed = !signal.aborted;
+      for await (const event of queue) {
+        yield event;
+      }
+      drained = true;
     } finally {
       signal.removeEventListener("abort", onAbort);
+      unsubscribe();
+      if (this.liveKernels.get(request.agentInstanceId) === kernel) {
+        this.liveKernels.delete(request.agentInstanceId);
+      }
+      if (!drained) kernel.abort();
     }
-    const errorMessage = agent.state.errorMessage;
+    await running;
+    const errorMessage = kernel.errorMessage;
     return {
       events,
+      streamedCount,
       failed: runFailed || errorMessage !== undefined,
       error: thrown,
       errorMessage
     };
   }
 
+  /** Yield the portion of a final attempt that was not already streamed live. */
+  private *remainingAttemptEvents(run: AttemptRun): Generator<ExecutionEvent> {
+    for (let index = run.streamedCount; index < run.events.length; index += 1) {
+      const event = run.events[index];
+      if (event !== undefined) yield event;
+    }
+  }
+
   /**
-   * Drive `runAttempt` until it succeeds, the failure is terminal, or the
-   * attempt budget runs out. Each attempt uses a fresh agent so a failed turn
-   * never leaks into the retried transcript, and only the last attempt's
-   * events are surfaced.
+   * Drive attempts until one succeeds, retry is refused, cancellation wins, or
+   * the cost gate stops another provider call.
    */
-  private async runWithRetry(
+  private async *runWithRetry(
     model: Model<Api>,
     request: AgentExecutionRequest,
+    gate: CostGate,
     signal: AbortSignal
-  ): Promise<RetriedRun> {
+  ): AsyncGenerator<ExecutionEvent, RetriedRun> {
     const options = this.options.retry;
     const policy = resolveRetryPolicy(options);
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
     let latest: RetriedRun = { attempt: 1, events: [], failure: undefined };
     for (let attempt = 1; ; attempt += 1) {
-      // Cancellation is checked before *every* attempt, not only after a
-      // backoff sleep: a signal that flipped anywhere in the loop body must
-      // not buy the provider one more call.
-      if (signal.aborted) {
-        return latest;
-      }
-      const run = await this.runAttempt(model, request, signal);
+      if (signal.aborted) return latest;
+      const run = yield* this.runAttempt(model, request, gate, signal);
       if (!run.failed || signal.aborted) {
+        yield* this.remainingAttemptEvents(run);
         return { attempt, events: run.events, failure: undefined };
       }
       const failure = classifyProviderFailure(run.error, run.errorMessage);
       latest = { attempt, events: run.events, failure };
       const decision = decideRetry(failure, attempt, policy, random);
-      if (!decision.retry) {
+      if (!decision.retry || gate.requestStopIfExceeded()) {
+        yield* this.remainingAttemptEvents(run);
         return latest;
       }
       options?.onRetry?.({
@@ -552,20 +640,40 @@ export class PiAgentExecutor implements AgentExecutor {
       });
       await sleep(decision.delayMs, signal);
       if (signal.aborted) {
+        yield* this.remainingAttemptEvents(run);
         return latest;
       }
     }
   }
 
+  /**
+   * Queue user-authored text into the sole live attempt. Refuses blank text,
+   * no active attempt, and ambiguous concurrent attempts.
+   */
+  steerText(text: string): void {
+    if (text.trim() === "") {
+      throw new DomainValidationError("steer text must be a non-empty string");
+    }
+    const live = [...this.liveKernels.values()];
+    if (live.length === 0) {
+      throw new DomainValidationError("cannot steer: no agent run is in flight");
+    }
+    if (live.length > 1) {
+      throw new DomainValidationError(
+        `cannot steer: ${live.length} agent runs are in flight and steering has no target`
+      );
+    }
+    (live[0] as SparkleKernel).steerText(text);
+  }
+
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     const startedAtMs = Date.now();
 
-    // Cancellation that happened before the executor was reached — a parent
-    // aborting while this child waited in a queue. No Agent is constructed and
-    // no stream is opened: the provider must not be paid for a dead run.
+    // A pre-aborted request never constructs an Agent or opens a provider
+    // stream, but still records honest cancelled telemetry.
     if (signal.aborted) {
       this.reportInvocation(request, this.resolveIdentity(request), [], startedAtMs, 1, "cancelled");
-      yield* this.finish(request, [], "CANCELLED");
+      yield* this.finish(request, [], "CANCELLED", false);
       return;
     }
 
@@ -575,8 +683,13 @@ export class PiAgentExecutor implements AgentExecutor {
       return;
     }
     const { identity, model } = resolved;
-
-    const { attempt, events: collected, failure } = await this.runWithRetry(model, request, signal);
+    const gate = this.buildCostGate(request, model);
+    const { attempt, events: collected, failure } = yield* this.runWithRetry(
+      model,
+      request,
+      gate,
+      signal
+    );
     const callOutcome: InvocationCallOutcome = signal.aborted
       ? "cancelled"
       : failure === undefined
@@ -585,8 +698,18 @@ export class PiAgentExecutor implements AgentExecutor {
 
     this.reportInvocation(request, identity, collected, startedAtMs, attempt, callOutcome);
 
+    const gateState = gate.state;
+    if (gate.stopRequested && gateState.armed) {
+      this.options.onCostGate?.({
+        kind: "stopped",
+        taskId: request.taskId,
+        maxCostUsd: gateState.maxCostUsd,
+        ledger: gate.ledger
+      });
+    }
+
     const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
-    yield* this.finish(request, collected, outcome);
+    yield* this.finish(request, collected, outcome, gate.stopRequested);
   }
 
   private reportInvocation(
@@ -605,22 +728,13 @@ export class PiAgentExecutor implements AgentExecutor {
     );
   }
 
-  /**
-   * Replay the collected transcript and close it out: a synthesized
-   * TASK_RESULT when the agent produced none, then EXECUTION_FINISHED.
-   *
-   * A child that called {@link REPORT_TASK_RESULT_TOOL} already put its own
-   * terminal in the transcript, and that verdict stands — the adapter must not
-   * overwrite an observation with UNOBSERVED, nor append a second terminal.
-   * Only a silent child is synthesized for, which is why UNOBSERVED still
-   * means exactly what it meant before the tool existed: nobody looked.
-   */
+  /** Close the already-yielded transcript with one terminal and completion. */
   private *finish(
     request: AgentExecutionRequest,
     collected: readonly ExecutionEvent[],
-    outcome: "SUCCESS" | "FAILURE" | "CANCELLED"
+    outcome: "SUCCESS" | "FAILURE" | "CANCELLED",
+    stoppedAtCostCeiling: boolean
   ): Generator<ExecutionEvent> {
-    for (const event of collected) yield event;
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       yield {
         type: "MESSAGE",
@@ -634,7 +748,7 @@ export class PiAgentExecutor implements AgentExecutor {
           to: SUPERVISOR,
           type: "TASK_RESULT",
           outcome,
-          summary: "pi agent finished",
+          summary: stoppedAtCostCeiling ? "pi agent stopped at the cost ceiling" : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
           verification: { kind: "UNOBSERVED", evidenceIds: [] }
@@ -642,6 +756,29 @@ export class PiAgentExecutor implements AgentExecutor {
       };
     }
     yield { type: "EXECUTION_FINISHED", outcome };
+  }
+
+  /**
+   * Build this execution's spend ceiling from the request (or executor
+   * default) and the resolved model's catalog rates.
+   */
+  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>): CostGate {
+    const maxCostUsd = request.maxCostUsd ?? this.options.maxCostUsd;
+    const prices = catalogPrices(model.cost);
+    const gate = new CostGate({
+      ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+      ...(prices !== undefined ? { prices } : {})
+    });
+    const state = gate.state;
+    if (!state.armed && maxCostUsd !== undefined) {
+      this.options.onCostGate?.({
+        kind: "disarmed",
+        taskId: request.taskId,
+        maxCostUsd,
+        reason: state.reason
+      });
+    }
+    return gate;
   }
 
   /**

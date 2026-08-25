@@ -11,9 +11,9 @@
 
 Each round: fable audit → 10 concurrent landings (opus-fast + gpt-sol) → parent `pnpm gate` + benches → fable review → commit/push/PR. Subagents do **not** git commit. Saturation: if a module gains <2% for 2 consecutive rounds, move to I/O, races, protocol, or disaster recovery.
 
-## Seed residuals (not yet on main)
+## Seed residuals (historical branch-start snapshot)
 
-Loop 3 draft (`agent/sota-opt-loop3-7e63`) claimed but has not landed: INSPECT_SUMMARY freeze; feedback append/rewrite lock; invocation lock-timeout retry; adaptation-plane import closure. Treat as open until present on this branch. Do not claim Loop 3 files if that PR lands first — rebase and retarget.
+At Loop 4 branch start, Loop 3 (`agent/sota-opt-loop3-7e63`) had claimed but not yet landed: INSPECT_SUMMARY freeze; feedback append/rewrite lock; invocation lock-timeout retry; adaptation-plane import closure. The closeout merge integrates those landings plus kernel reuse; where Loop 4 independently evolved the same surface, the Loop 4 implementation and freeze remain authoritative. The archived Loop 3 and kernel-reuse logs follow the Loop 4 record below.
 
 ## Round 1 — in flight
 
@@ -360,17 +360,56 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 **Parent gate GREEN** against code HEAD `223e3dd` (orchestrator record `6b8124d`): **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r17-review.md`. One required joint (plane-boundary allowlist shrink inside `223e3dd`). Brief: `.agent_workspace/ROUND18-BRIEF.md`. Retarget plane closed; Round 18 has zero candidates.
 
-## Round 18 — in flight (plane retarget)
+## Round 18 — cancelled; loop ending
 
-`.agent_workspace/ROUND18-BRIEF.md` found zero remaining holes on the I/O / races / protocol / DR plane. Parent protocol after two saturated planes is to open a **new evidence plane**, not freeze extras: operator-disclosure, fail-closed honesty, embedder-contract, silent persistence no-ops, security-probe coverage. Stay on `agent/opt-continuous`. Do not pad. Do not reopen inferred-preference liveness, census treadmill, or Round 16–17 sign-offs.
-
-| Slot | Agent | Focus |
-|---|---|---|
-| fable-audit | bc-fdaaa22e-da4f-5f1f-b314-f5beb897c1ac | operator honesty · embedder contract · silent no-ops · security-probe |
+The parent ended the SOTA loop on user request after the Round 17 green gate. No Round 18 landings are accepted; the in-flight fable audit is ignored. Do not pad, reopen frozen surfaces, or continue on a new evidence plane.
 
 ---
 
-# Loop 2 — SOTA follow-on (2026-08-24)
+# Loop 3 — SOTA follow-on (2026-08-24)
+
+- **Branch:** `agent/sota-opt-loop3-7e63`
+- **Parent:** Cursor Grok 4.6 orchestrator
+- **Base:** `main` @ `2a921ee` (PR #6 merged)
+- **Request:** one more SOP round (6 concurrent agents), then PR + merge
+- **Previous loop:** archived below; reports in `docs/reports/2026-08-24-sota-loop2-*.md`
+
+## Remaining gaps this loop will close (from Loop 2 §3, code-closable only)
+
+1. Declare `INSPECT_SUMMARY` stability (additive-only freeze, like `DoctorJsonReport`) and add `test/integration/cli/` coverage.
+2. Cross-process invocation lock-timeout: one bounded retry, then still drop; probe that measures the residual drop.
+3. Adaptation-plane **transitive value-import** closure check (Loop 2 P2-4): pin runtime-prefix allowlist, not just the known eval-routing→assign→model-router chain.
+4. Feedback append vs `cascadeFeedbackTombstones` rewrite race (unlocked `appendJsonlLine` / `writeFile` in `src/feedback/store.ts`).
+5. Honesty in matrix/README/dictionary; no Outcome-supported; no live R1.
+
+Policy-gated leftovers stay open: P0 independent review, F-PROD sealed holdout, ADR-006 Proposed, unbounded retention default, Node engines `>=22.19.0`, `--children` skipContract (do not invent a contract), real-provider coverage stays `PI_SMOKE=1`.
+
+## Loop 3 Round 1 ownership
+
+See `.agent_workspace/OWNERSHIP.md`. Subagents do not git commit. Parent commits after the round.
+
+## Loop 3 Round 1 结论简报
+
+**Parent verification (2026-08-24, Node v22.22.2):** `pnpm typecheck` / `lint` / `test` / `build` green. Tests **1458 / 1457 pass / 0 fail / 1 skip** (Loop 2 close: 1434). Security probe **14/14**. Invocation lock probe `{"retries":1,"dropped":1,"landed":32,"ok":true}`.
+
+| Slot | Landed |
+|---|---|
+| fable-1 | Loop 3 architecture report; README + matrix freeze `INSPECT_SUMMARY` additive-only |
+| fable-2 | Isolation report; dictionary honesty (feedback lock, invocation retry, transitive plane pin) |
+| opus-1 | `InspectSummaryJson` + `buildInspectSummaryJson`; CLI uses builder; integration `inspect-summary.test.ts` |
+| opus-2 | Feedback `withFeedbackLogLock`; cascade rewrite + tombstones under one lock |
+| gpt-sol-1 | Invocation lock-timeout: one retry then drop; `pnpm invocation:probe` |
+| gpt-sol-2 | `adaptation-plane-closure.test.ts` value-import walker (10 runtime modules pinned; model-router subtree no-fs; no computed `import(expr)` in `src/`) |
+| parent | `persistSignals` absorbs feedback lock-timeout so a held delete lock drops one row instead of aborting the adapt pass / `--track` after a finished run |
+
+Policy gates stay open: P0 independent review, F-PROD sealed holdout, ADR-006 Proposed, unbounded retention default, Node engines `>=22.19.0`, `--children` skipContract, real-provider coverage `PI_SMOKE=1`.
+
+This user request asked for **one** optimization round (6 concurrent agents). Loop 3 Round 1 closes the four carried Loop 2 leftovers that are code-closable.
+
+
+---
+
+# Loop 2 archive — SOTA follow-on (2026-08-24)
 
 - **Branch:** `agent/sota-opt-next-7e63`
 - **Parent:** Cursor Grok 4.6 orchestrator
@@ -593,3 +632,80 @@ Accepted for preview: fail-closed persistence, transitive live-isolation, docume
 - Doctor JSON contract + `legacy-layout` **and** `pi-packages` / `pi-compat` checks
 - `--thinking` on `run` **and** `migrate-legacy` / residual-delete disclosure
 - Adapter exports both `SparkleThinkingLevel` and retry types
+
+---
+
+# Kernel reuse epic (PR #5, 2026-08-24)
+
+Landed on `main` after Loop 3 (PR #7). This section is the kernel-reuse orchestrator log; Loop 3’s log is above.
+
+# Orchestrator — Pi slim-kernel reuse & effectiveness
+
+`main` also contains Loop 2 SOTA follow-on (PR #6). That loop’s orchestrator log is not this file; this branch tracks kernel reuse only.
+
+**Goal:** On the slim Pi kernel (`@earendil-works/pi-agent-core` + `pi-ai` behind `src/pi-adapter/`), reuse unused Agent capabilities for secondary development and improve runtime effectiveness. Do **not** take a dependency on `pi-coding-agent`. ADR-001 / ADR-006 stay in force.
+
+**Branch:** `cursor/pi-kernel-reuse-e1e3` (from `origin/main` @ persistent-opt merge). Cloud naming; maps user SOP `agent/<task>`.
+
+**Kernel facts (0.84.3 `Agent`):** `subscribe`, `prompt`, `continue`, `abort`, `reset`, `waitForIdle`, `steer`, `followUp`, steering/follow-up queues, `sessionId`, `thinkingBudgets`, `toolExecution`. Events: `agent_start`/`agent_end`, `turn_start`/`turn_end`, `message_*`, `tool_execution_*`. Stream deltas include `text_delta` and `thinking_delta`.
+
+**Current gaps (evidence):**
+- `PiAgentExecutor.execute` **buffers** `subscribe` events and yields them only after `waitForIdle` — supervisors see no live tokens.
+- `translatePiEvent` ignores `thinking_delta` and most lifecycle events.
+- `steer` / `followUp` / `continue` / `sessionId` / `thinkingBudgets` are unused.
+- Sparkle `inject` writes flowchart policy facts; it does **not** steer a live Pi Agent.
+- Cluster tools wrap spawn/send/inbox; the kernel itself is not a reusable secondary-dev facade.
+
+## Shared invariants
+
+- Pi imports only in `src/pi-adapter/**`.
+- No inbound Pi extension. No PowerShell tool. No coding-agent package.
+- Do not git commit. Parent commits after the round.
+- First line of every report: actual `MODEL_SLUG: …`.
+
+## File ownership — Round 1 (exclusive)
+
+| Agent | Model | Writes | Must not touch |
+|---|---|---|---|
+| R1-fable-A | `claude-fable-5-thinking-xhigh` | `docs/kernel-reuse.md`, `docs/reports/2026-08-24-kernel-reuse-audit.md`, `.agent_workspace/round1-fable-a.md` | `src/` |
+| R1-fable-B | `claude-fable-5-thinking-xhigh` | `.agents/skills/pi-sparkle/**` (add `references/kernel-reuse.md`, SKILL table row), `.agent_workspace/round1-fable-b.md` | `src/`, `docs/` |
+| R1-opus-A | `claude-opus-5-thinking-high-fast` | `src/pi-adapter/kernel.ts` (new facade), `src/pi-adapter/index.ts`, `src/pi-adapter/pi-executor.ts` **execute() live-yield only** (keep `translatePiEvent` body), `.agent_workspace/round1-opus-a.md` | `src/execution/`, skills |
+| R1-opus-B | `claude-opus-5-thinking-high-fast` | `translatePiEvent` in `pi-executor.ts` **only the switch**, `src/execution/contract.ts` add `THINKING_DELTA`, `src/run/coordinator.ts` / `src/run/events.ts` to persist thinking deltas like text (length only, no CoT body in events if policy forbids — hash or omit text if redaction requires), `src/run/child-coordinator.ts` if it switches on event type, `.agent_workspace/round1-opus-b.md` | `src/pi-adapter/kernel.ts`, skills |
+| R1-gpt-A | `gpt-5.6-sol-xhigh-fast` | `scripts/kernel-reuse-probe.mjs`, `test/integration/pi-adapter/live-stream.test.ts`, `.agent_workspace/round1-gpt-a.md` | `src/cli/main.ts` |
+| R1-gpt-B | `gpt-5.6-sol-xhigh-fast` | `test/unit/pi-adapter/kernel.test.ts`, `test/unit/pi-adapter/translate-thinking.test.ts`, `.agent_workspace/round1-gpt-b.md` | `src/cli/main.ts` |
+
+If `kernel.ts` is missing when gpt-B tests, skip kernel tests and still add thinking-delta translation tests against `translatePiEvent`.
+
+## Round 1 targets
+
+1. **Live yield:** `for await` consumers receive `TEXT_DELTA` before `waitForIdle` resolves (queue + subscribe). Abort still maps to `agent.abort()`.
+2. **Facade:** `SparkleKernel` wrapping Agent: `prompt`, `abort`, `steerText`, `followUpText`, `reset`, `waitForIdle`, optional `sessionId`. Sparkle types only on the public surface.
+3. **thinking_delta → THINKING_DELTA** (or omit payload and emit `{ type:"THINKING_DELTA", bytes:number }` to avoid persisting CoT — prefer **no raw thinking text** in the event log; length/bytes only).
+4. Probe + tests. Docs/skill explain how to extend sparkle using the facade instead of importing Pi.
+
+## Round log
+
+### Round 1 — complete (2026-08-24)
+
+All 6 delivered (fable-A retried after dispatch error `bc-3363607a-52c2-5177-8b2b-b4433e7be06a`). Live yield, SparkleKernel, bytes-only THINKING_DELTA, probe/tests/docs. Brief: `.agent_workspace/R1-KERNEL-BRIEF.md`.
+
+P0 leftover: inject→steer still unwired. P1: shouldStopAfterTurn / maxCostUsd live enforcement. Spec union stale.
+
+### Round 2 — complete
+
+Live `RunningRun.steer` + adapter cost gate (cap not forwarded from coordinator yet). Brief: `.agent_workspace/R2-KERNEL-BRIEF.md`.
+
+### Round 3 — complete (2026-08-24)
+
+All 6 delivered. `RunLimits.maxCostUsd` now reaches `AgentExecutionRequest` on parent and child paths (tighter of run-level and per-task caps). Live steer is covered through a real kernel; Pi still consults the cost stop before draining the steer queue, and that drop is documented rather than forked. Overlay ADR-001 gate is import-specifier form.
+
+| Agent | Model | Outcome |
+|---|---|---|
+| R3-fable-A | `claude-fable-5-thinking-xhigh` | Docs: cost-stop outranks queued steer; coordinator forwarding recorded |
+| R3-fable-B | `claude-fable-5-thinking-xhigh` | Overlay grep = import specifiers; cost-cap and steer claims re-grepped |
+| R3-opus-A | `claude-opus-5-thinking-high-fast` | Forward `maxCostUsd` parent + child + supervisor |
+| R3-opus-B | `claude-opus-5-thinking-high-fast` | Replaced skip with kernel-backed inflight steer tests; comment at stop hook |
+| R3-gpt-A | `gpt-5.6-sol-xhigh-fast` | Coordinator/child tests for set and unset caps |
+| R3-gpt-B | `gpt-5.6-sol-xhigh-fast` | `pnpm gate` during the round (re-run by parent after commit) |
+
+Leftovers (out of this 3-round epic): CLI verb for live steer; `followUpText`/`reset`/`sessionId` still facade-only; no `onCostGate` wiring from CLI; cap is per-`execute()`, not a run-total accumulator.

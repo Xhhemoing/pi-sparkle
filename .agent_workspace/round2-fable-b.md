@@ -1,91 +1,104 @@
 MODEL_SLUG: claude-fable-5-thinking-xhigh
 
-# Round 2 report — R2-fable-B (skill overlay polish after Round 1)
+# Round 2 report — R2-fable-B (kernel-reuse reference overlay)
 
 ## Files changed
 
-- `.agents/skills/pi-sparkle/SKILL.md`
-- `.agents/skills/pi-sparkle/references/pi-version-adapt.md`
-- `prompts/sparkle.md`
+- `.agents/skills/pi-sparkle/references/kernel-reuse.md` — three edits, no
+  new reference files, no SKILL.md changes:
+  1. Item 2 ("verify wiring before claiming it") rewritten as a
+     **per-layer** rule: Pi `Agent` ships it → `SparkleKernel` exposes it
+     → executor contract carries it → product surface calls it. The
+     worked example is live steering with all three Sparkle layers
+     grep-plus-test verified as of today (facade `steerText`, executor
+     `AgentExecutor.steerText?` / `PiAgentExecutor`, product
+     `RunningRun.steer` via `SteerChannel`), plus the steer-vs-inject
+     distinction and the note that steer *text* is logged with its actor
+     — user-authored text is loggable, unlike thinking text. The closing
+     paragraph keeps the day's claim history as the caution: the grep
+     went zero matches → facade-only → all three layers within hours, so
+     every status line is a dated snapshot and re-grepping before
+     repeating a claim is mandatory.
+  2. Item 4 ("never persist thinking text") upgraded from hypothetical to
+     landed: `{ type: "THINKING_DELTA"; bytes: number }` is defined in
+     `src/execution/contract.ts`, the raw delta stops inside
+     `translatePiEvent`, coordinators persist only `thinking delta
+     (N bytes)` summaries. Rule added: reuse the landed channel, never
+     build a parallel one carrying text.
+  3. Verification footer: report `wired | not wired | unknown` per
+     capability *and per layer* (facade vs product).
+- `.agent_workspace/round2-fable-b.md` — this report (replaces the prior
+  cycle's overlay-polish report, per ownership convention).
 
-No writes outside the exclusive set. No new top-level skill. Not committed
-(parent orchestrator commits).
+No writes to `src/`, `docs/`, `test/`, `package.json`, or `prompts/`. Not
+committed (parent commits).
 
-## Task 1 — point the overlay at live commands
+## Evidence — grep-verified three times because the workspace moved twice
 
-The 0.84.3 section of `SKILL.md` now opens with the three shipped surfaces
-instead of a bare `pi-compat --offline` mention:
+The mid-round drift is itself the round's best evidence for item 2. In
+sequence, all on 2026-08-24:
 
-- `pi-sparkle pi-compat [--json]` — documented as offline-by-default, with
-  `--online` fail-closed semantics (unreachable registry = status `unknown`,
-  exit 0) and exit 1 reserved for a broken adapter contract.
-- `pi-sparkle doctor` — names the two new checks exactly as the CLI prints
-  them (`pi-packages`, `pi-compat`) and marks a FAIL on either as blocking.
-- `node scripts/pi-latest-check.mjs` — covers agent-core / ai /
-  pi-coding-agent, `--offline` prints pins only, `--strict` exits 1 on
-  behind/unknown.
+1. **First pass.** `steerText` existed only on the facade
+   (`src/pi-adapter/kernel.ts`, exercised by
+   `test/unit/pi-adapter/kernel.test.ts`); `RunningRun` had only `runId`,
+   `done`, `cancel()`; no product call site. I drafted the overlay as
+   "facade wired / product not wired" per my brief.
+2. **Second pass (pre-freeze re-grep).** The executor layer had landed:
+   `AgentExecutor.steerText?(text)` in `src/execution/contract.ts:47`,
+   implemented by `PiAgentExecutor` (`src/pi-adapter/pi-executor.ts:373`;
+   empty-text guard, refuses when zero or multiple agents are in flight,
+   forwards via a per-agent `liveKernels` map). Overlay reworked to three
+   layers.
+3. **Third pass.** The product layer had landed too:
+   `RunningRun.steer(text, options?)` (`src/run/coordinator.ts:100`),
+   implemented by `SteerChannel` — validates text and actor, throws
+   `DomainValidationError` when blank / no execution in flight / executor
+   lacks `steerText`, delivers to the executor *before* logging, then
+   records the steer text with its actor; wired in both `startRun` and
+   `startParentRun`. Tested by `test/integration/m0/steer.test.ts`
+   (5 tests: delivery + actor recording, log ordering, blank refusal,
+   unsupported-executor refusal, out-of-window refusal). Per the brief's
+   "update grep-before-claim after opus-A lands," the overlay's final
+   text states all three layers wired, with the day's flip-flop kept as
+   the cautionary history.
 
-`pi-version-adapt.md` step 2 now routes online pin checks through
-`pi-sparkle pi-compat --online` (with `pi-latest-check.mjs --strict` as the
-automation path), and step 4 names the doctor check names and the
-"behind = exit 0, broken contract = exit 1" split. `prompts/sparkle.md`
-gained one rule: pull version/pin facts from those live commands, never
-remembered prose.
+Other claims verified:
 
-All command names, flags, check names, and exit semantics were verified
-against `src/cli/main.ts` USAGE, `src/cli/doctor.ts`, `src/cli/pi-compat.ts`,
-and both scripts — and by running the commands (output below).
+- **THINKING_DELTA bytes-only — landed end to end.**
+  `src/execution/contract.ts:24` (`{ type: "THINKING_DELTA"; bytes }`),
+  `src/pi-adapter/pi-executor.ts:95` (only `Buffer.byteLength` of the
+  delta crosses the boundary), `src/run/coordinator.ts` and
+  `src/run/child-coordinator.ts` persist `thinking delta (N bytes)`,
+  `src/run/events.ts` registers the event kind.
+- **Invariant gates.** `rg "@earendil-works" src/ --glob
+  '!src/pi-adapter/**'` → only `src/pi-compat/check.ts` string literals
+  naming the packages for pin reading (no type or runtime imports). Pin
+  unchanged: `package.json:48-49` both `0.84.3`.
 
-## Task 2 — thinking-knob clarification
+## Invariants kept
 
-The single two-knob bullet became "three knobs, never conflated":
-
-1. Pi TUI `/thinking` — session-scoped, Ctrl+S saves; owned by the TUI,
-   invisible to this package's runtime.
-2. `PI_THINKING_LEVEL` — runtime env var, with the exact accepted list from
-   `main.ts` (off|minimal|low|medium|high|xhigh|max; default off).
-3. `run --thinking <level>` — described as **planned** with precedence over
-   the env var. I checked `src/cli/main.ts`: the USAGE does not list it and
-   `runCommand`'s parseArgs has no `thinking` option, so both `SKILL.md` and
-   checklist step 5 carry an explicit guard: cite the flag only after
-   `pi-sparkle help` USAGE lists it. If the R2 agent owning `src/` lands the
-   flag, the overlay text stays true as written (the guard resolves to
-   "exists"), though dropping "planned" then would read cleaner.
-
-## Task 3 — nested grouping-dir discovery
-
-Kept as checklist step 3. Both `SKILL.md` and the checklist now explicitly
-forbid parking a demo/fixture skill under `.agents/skills/` (reads as skill
-bloat) and point at `test/fixtures/pi-0843-skills/` as the probe data. That
-fixture already exists on the branch (R2-gpt-A's ownership): a grouping dir
-with `nested-skill/SKILL.md` plus root `README.md` / `AGENTS.md` without
-frontmatter. I did not create or modify anything under `test/`.
-
-## Task 4 — invariants kept
-
-- The 1–2 reference load rule is unchanged in `SKILL.md` (In Pi + Activation
-  Rule) and `prompts/sparkle.md`; `pi-version-adapt.md` still declares it
-  counts toward the cap.
-- ADR-006 framing intact: "diagnostic overlay, not a control plane" in the
-  frontmatter/intro, "Still no extension" bullet unchanged, no extension
-  commands or session listeners introduced anywhere.
+- Activation cap untouched: the overlay edits exactly one existing
+  reference; no new reference files, no cross-reference obligations
+  added; SKILL.md routing row and Activation Rule (1–2 references)
+  unmodified.
+- ADR-001 / ADR-006 framing in the reference intro unchanged; no
+  extension surface introduced or described.
 
 ## Verification
 
-- `pnpm exec tsx --test test/unit/package/pi-manifest.test.ts` — 4/4 pass.
-- `pnpm cli pi-compat` — offline default confirmed; pins agent-core=0.84.3
-  ai=0.84.3; thinking-levels off..max; status unknown, exit 0.
-- `pnpm cli doctor` — prints `ok  pi-packages: agent-core=0.84.3 ai=0.84.3`
-  and `ok  pi-compat: status=unknown (...)`, matching the names the overlay
-  now cites.
-- `node scripts/pi-latest-check.mjs --offline` — prints the three PINNED
-  lines (pi-coding-agent correctly "(not pinned)", consistent with ADR-006).
+- `pnpm exec tsx --test test/unit/package/pi-manifest.test.ts` — 4/4 pass
+  after the overlay edits.
+- Final re-grep of `src/` and `test/` immediately before this report;
+  claims above reflect pass 3.
 
-## Leftovers for the next round
+## Leftovers for other owners
 
-1. When `run --thinking` actually lands in USAGE, drop the word "planned"
-   from `SKILL.md` bullet 3 and checklist step 5 (one-line edits; the
-   verify-USAGE guard already keeps the text truthful either way).
-2. If package.json gains wrapper scripts for the probes (Round 2 target 1,
-   not my file), the overlay could cite `pnpm <script>` aliases instead of
-   raw `node scripts/...` invocations — cosmetic only.
+1. `test/unit/pi-adapter/steer-inflight.test.ts:88` still carries
+   `test.skip("RunningRun.steer forwards in-flight text…")` with "not
+   available yet" — now stale, superseded by
+   `test/integration/m0/steer.test.ts`. Its owner should enable or delete
+   it; I did not touch `test/`.
+2. If a spec section lands for the `inject` (policy fact) vs `steer`
+   (conversational turn) distinction, the reference's product bullet
+   should link the term rather than keep its two-line explanation —
+   keeps the file inside the activation-cap budget.

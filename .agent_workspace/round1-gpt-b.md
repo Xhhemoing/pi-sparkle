@@ -2,30 +2,21 @@ MODEL_SLUG: gpt-5.6-sol-xhigh-fast
 
 # Round 1 — R1-gpt-B
 
-## API
+## Writes
 
-- Added `src/pi-compat/check.ts` with `PiPinnedVersions`,
-  `PiCompatAdapterProbe`, `PiCompatReport`, `readPinnedPiVersions`,
-  `comparePiVersions`, `probeAdapterContract`, and `buildPiCompatReport`.
-- Added stable re-exports from `src/pi-compat/index.ts`.
-- The adapter probe reads the adapter source without importing Pi, keeps the
-  sparkle-supported thinking-level strings local, and separates adapter type
-  detection from documentation evidence.
+- Added `test/unit/pi-adapter/translate-thinking.test.ts`.
+- Added `test/unit/pi-adapter/kernel.test.ts`; `src/pi-adapter/kernel.ts` existed,
+  so the kernel tests were not skipped.
+- The thinking translation test verifies a `thinking_delta`-like event becomes
+  `THINKING_DELTA`, reports a positive byte count, and does not expose the raw
+  thinking string through serialization.
+- Kernel coverage exercises lifecycle forwarding, state/session access,
+  steering and follow-up message construction, subscriptions, and the async
+  event queue's live/buffered close behavior.
 
 ## Tests
 
-- `pnpm test -- test/unit/pi-compat/check.test.ts`: 11 passed, 0 failed.
-- `pnpm exec tsc --noEmit --pretty false`: passed.
-- Focused ESLint for source/tests: passed.
-- `pnpm build`: passed; built-module smoke test passed.
-- The requested `pnpm test -- test/unit/pi-compat` form fails before test
-  discovery because Node treats the argument as an unsupported ESM directory
-  import. Passing the test file explicitly succeeds.
-- Environment warning: runtime Node 22.14.0 is below the package's declared
-  Node >=22.19.0 engine.
-
-## Round 2 leftover
-
-- Add CLI integration tests if `src/cli/pi-compat.ts` is available. It did not
-  exist when the Round 1 library tests were authored, so only library tests
-  were added.
+- `pnpm exec tsx --test test/unit/pi-adapter/translate-thinking.test.ts`:
+  1 passed, 0 failed.
+- `pnpm exec tsx --test test/unit/pi-adapter/kernel.test.ts`:
+  3 passed, 0 failed.

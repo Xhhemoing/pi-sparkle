@@ -117,9 +117,12 @@ function resultMessage(
 
 /** Executor whose steps can include protocol MESSAGE events derived from the request. */
 class ScriptedChildExecutor implements AgentExecutor {
+  readonly requests: AgentExecutionRequest[] = [];
+
   constructor(private readonly steps: (request: AgentExecutionRequest) => ExecutionEvent[]) {}
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.requests.push(request);
     if (signal.aborted) {
       yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
       return;
@@ -369,6 +372,46 @@ test("a successful child persists correlated lifecycle and message events", asyn
     assert.equal(messages.length, 3, "TASK_REQUEST + PROGRESS + TASK_RESULT");
     const first = messages[0]?.payload as { message: TaskRequest };
     assert.equal(first.message.type, "TASK_REQUEST");
+  });
+});
+
+test("a child forwards its configured max cost to the executor request", async () => {
+  await withTempState(async (stateRoot) => {
+    const executor = new ScriptedChildExecutor((request) => [
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits({ maxCostUsd: 0.25 })),
+      new AbortController().signal
+    );
+
+    await handle.done;
+
+    assert.equal(executor.requests.length, 1);
+    assert.equal(executor.requests[0]?.maxCostUsd, 0.25);
+  });
+});
+
+test("a child leaves max cost unset when child limits omit it", async () => {
+  await withTempState(async (stateRoot) => {
+    const executor = new ScriptedChildExecutor((request) => [
+      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+    ]);
+    const coordinator = makeCoordinator(stateRoot, executor);
+    const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
+    const handle = coordinator.startChildTask(
+      childInput(taskId, childLimits()),
+      new AbortController().signal
+    );
+
+    await handle.done;
+
+    assert.equal(executor.requests.length, 1);
+    assert.equal(executor.requests[0]?.maxCostUsd, undefined);
   });
 });
 
