@@ -146,18 +146,17 @@ export async function initExamplesCommand(args: string[], io: InitExamplesIo): P
 
   const overwritten = existing.length > 0;
   if (values.json === true) {
+    // `preview: true` is the developer-preview marker every machine surface
+    // carries; the object prints as one compact line like the other machine
+    // surfaces so a caller can read it a line at a time.
     io.stdout(
-      `${JSON.stringify(
-        {
-          type: "INIT_EXAMPLES",
-          preview: true,
-          dir,
-          files: targets.map((target) => target.path),
-          overwritten
-        },
-        null,
-        2
-      )}\n`
+      `${JSON.stringify({
+        type: "INIT_EXAMPLES",
+        preview: true,
+        dir,
+        files: targets.map((target) => target.path),
+        overwritten
+      })}\n`
     );
     return CLI_EXIT.ok;
   }
