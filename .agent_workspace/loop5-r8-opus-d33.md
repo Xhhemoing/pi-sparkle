@@ -39,6 +39,7 @@ the branded type is unchanged and that call can no longer throw.
 Position was deliberately **not** moved. Both outcomes the guard can mask — the unknown-subcommand
 refusal and the close-dialect refusals — are themselves `parse-args` refusals naming a real
 mistake, so `episode nonsense --episode banana` continues to report the id, per the spec.
+(**Superseded by the GPT-r8 rider below, item A**: the unknown-subcommand refusal now runs first.)
 
 Live probe on this VM (Node v22.14.0):
 
@@ -154,3 +155,116 @@ honored before state reads, the required-`--episode` refusal) changed.
 
 Operator-contract work only: an argv id guard and a CLI rendering of already-validated events. No
 auth, network, or access-control change.
+
+---
+
+# Rider — GPT-r8-challenge **FIX** on D33 (slot kept)
+
+Landed on the same branch as commit `8ca3026`, on top of the Fable-spec landing (`9613791`). Both
+items below are operator-contract only; no auth, network, or access-control change. Files touched
+are still just `src/cli/episode.ts` and `test/integration/m3/episode-cli.test.ts` (plus this
+report). `src/episode/events.ts` was not edited.
+
+## A. Unknown subcommand now precedes episode-id validation
+
+Fable kept the id guard ahead of the subcommand branches, which made
+`episode nonsense --episode banana` report the id. GPT-r8 called that the wrong operator order, and
+it is: no `--episode` value could have made that argv work, so naming the id first describes a
+defect the operator cannot act on while hiding the one they can.
+
+The existing `subcommand !== "events" && subcommand !== "close"` refusal now runs immediately after
+`parseArgs` and the help handling, **before** the required-`--episode` check and before the
+`isEpisodeId` guard. Its contract is carried over unchanged — `stage: "parse-args"`,
+`message: "Unknown episode command: <subcommand>"`, `next: "use episode events or episode close"`,
+and `EPISODE_USAGE` still written to stderr ahead of the report. The old late copy of the check
+(the `subcommand !== "close"` block that sat after the `events` branch) was removed rather than
+duplicated; TypeScript narrows `subcommand` to `"events" | "close"` through the hoisted guard, so
+the close path below it is unchanged and `tsc` stays clean with no cast.
+
+One knock-on, intended and unpinned anywhere: `episode nonsense` with no `--episode` at all now
+reports the unknown verb instead of "episode command requires --episode <epId>". Grep confirms no
+test or doc pinned either message before this rider.
+
+Live probe:
+
+```
+$ pnpm cli episode nonsense --episode banana
+{"ok":false,"command":"episode","stage":"parse-args","message":"Unknown episode command: nonsense",
+ "next":"use episode events or episode close"}
+```
+
+Malformed-id whole-report pins are kept on both **real** subcommands (`events` and `close`), and
+both were upgraded from field-by-field assertions to a single `deepEqual` against a shared
+`malformedIdReport(stateRoot)` expectation covering `ok`/`command`/`stage`/`message`/`next`.
+
+## B. Control characters escaped in human detail fields
+
+Fable interpolated operator-authored strings raw. The event schema constrains timestamps, ids and
+statuses, but leaves the objective, the waiting reason, each evidence entry and the outcome id free
+text — so a tab or a newline in any of them forged a column or a whole row in a tab-separated,
+one-line-per-event surface.
+
+One module-local helper, `humanField`, applies exactly four replacements **in this order**:
+
+1. `\` → `\\`
+2. tab → `\t`
+3. CR → `\r`
+4. LF → `\n`
+
+(right-hand sides being literal backslash escape text). Backslash goes first, or the escapes the
+helper introduces would be indistinguishable from a backslash the operator typed.
+
+Applied to the OPENED objective, the ATTACHED run id, the WAITING reason and each evidence entry,
+and the CLOSED outcome id. `status` and the timestamps are schema-constrained and pass through
+untouched. The simple-value output is byte-identical to Fable's landing:
+
+```
+<occurredAt>\tEPISODE_OPENED\t<escaped objective>
+<attachedAt>\tRUN_ATTACHED\t<escaped runId>
+<occurredAt>\tEPISODE_WAITING\t<escaped reason>[: <escaped evidence joined by ", ">]
+<closedAt>\tEPISODE_CLOSED\t<status>[ outcome=<escaped outcomeId>]
+```
+
+No currently valid event is rejected — the events are already validated and persisted, and a reader
+that refuses to print one is worse than one that prints it unambiguously. Escaping is display-only:
+`--json` is byte-identical and still emits the raw JSONL. `EPISODE_USAGE` is untouched.
+
+Live probe through `cat -A` (`^I` is a tab, `$` a newline), one event per line with exactly two
+structural tabs each:
+
+```
+2026-08-25T21:45:59.862Z^IEPISODE_OPENED^Iship\\now\tfast\r\nplease$
+2026-08-25T21:45:59.862Z^IRUN_ATTACHED^Irun_riderrun1$
+2026-08-25T21:45:59.862Z^IEPISODE_WAITING^Iblocked\ton\nreview: tests\tunit, docs\nadr$
+2026-08-25T21:45:59.862Z^IEPISODE_CLOSED^IFAILED outcome=oc\\1\tb$
+```
+
+The seeded objective/reason/evidence/outcome carried real tabs, CRs and LFs; `wc -l` on the same
+command returns 4 for the four events.
+
+## Rider tests
+
+`test/integration/m3/episode-cli.test.ts`: 15 → 17, all green. Every Fable pin is kept — the
+four-type whole-line pins, the `Date.parse` timestamp assertions, both lookup retargets, the
+truncation disclosure, and the malformed-close no-write pin all still run unmodified except for the
+two malformed-id reports upgraded to whole-report `deepEqual`.
+
+- **"an unknown episode subcommand is refused before the --episode value is judged"** — runs
+  `episode nonsense --episode banana` (a malformed id deliberately present) and `deepEqual`s the
+  whole report, plus pins that stderr still opens with `EPISODE_USAGE` and stdout is empty.
+- **"episode events escapes control characters so one event is always one line"** — a fixture whose
+  objective, reason, every evidence entry and outcome id each carry a literal backslash plus tab,
+  CR and LF, appended through `EpisodeEventStore.append` so all four rows had to pass
+  `validateEpisodeEvent`. It pins: exactly four physical lines (`raw.slice(0, -1).split("\n")`),
+  no raw `\r` or `\n` anywhere in a line, exactly two structural tab delimiters per line, and the
+  four exact escaped lines written out longhand rather than through the renderer's own helper, so
+  the test pins the format and not the implementation. It then pins `--json` twice over: stdout
+  equals the raw on-disk JSONL line for line, and the decoded events `deepEqual` an explicit array
+  carrying the operator's **unescaped** originals — the escape is proven display-only.
+
+## Rider verification
+
+- `npx tsx --test test/integration/m3/episode-cli.test.ts` → **17/17 pass, 0 fail**.
+- `node scripts/run-tests.mjs` (full suite) → **2292 pass, 0 fail, 1 skipped** (pre-existing skip).
+- `npx tsc --noEmit` → clean; `npx eslint` on both files → clean.
+- Host Node v22.14.0 against `engines: ">=22.19.0"` — pnpm warning only.
