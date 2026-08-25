@@ -2,7 +2,11 @@ import { createInterface } from "node:readline";
 import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import type { CustomProviderConfig } from "../config/providers-config.js";
-import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
+import {
+  authStorePath,
+  EmptyCredentialStore,
+  FileCredentialStore
+} from "./file-credential-store.js";
 import { createPiRuntime } from "./runtime.js";
 
 export interface SparkleAuthIo {
@@ -50,10 +54,19 @@ export async function storeApiKeyCredential(
   return authStorePath(stateRoot);
 }
 
-/** Idempotent: removing a provider that has no stored credential is a no-op. */
-export async function deleteStoredCredential(stateRoot: string, providerId: string): Promise<void> {
+/**
+ * Removes a provider's stored credential and reports whether there was one.
+ *
+ * Idempotent: removing a provider that has no stored credential is a no-op, so
+ * `auth logout` stays safe to re-run. The boolean exists so the caller can say
+ * which of the two happened instead of claiming a removal either way.
+ */
+export async function deleteStoredCredential(
+  stateRoot: string,
+  providerId: string
+): Promise<boolean> {
   requireProviderId(providerId);
-  await new FileCredentialStore(authStorePath(stateRoot)).delete(providerId);
+  return new FileCredentialStore(authStorePath(stateRoot)).deleteExisting(providerId);
 }
 
 export async function listStoredCredentials(
@@ -62,12 +75,48 @@ export async function listStoredCredentials(
   return new FileCredentialStore(authStorePath(stateRoot)).list();
 }
 
+/**
+ * How this provider resolves auth today: a stored credential first, ambient
+ * environment only when nothing is stored. That is Pi's own precedence, and it
+ * is the question `auth status` asks — "can this provider be used".
+ */
 export async function checkProviderAuth(
   stateRoot: string,
   providerId: string,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<SparkleAuthCheck | undefined> {
   const runtime = await createPiRuntime({ stateRoot, customProviders });
+  return await checkAuthOf(runtime, providerId);
+}
+
+/**
+ * Whether the *environment* configures this provider, ignoring `auth.json`.
+ *
+ * `checkProviderAuth` cannot answer this: Pi reads the credential store first,
+ * so it reports success for a provider whose only source is a stored key —
+ * which would make `--from-env` pass on the strength of the file it claims not
+ * to consult. Running the same check against an empty store is the narrow
+ * question, and it stays honest for every provider Pi knows how to resolve
+ * ambiently (env vars, ADC files, AWS profiles) without this file re-deriving
+ * the variable names and drifting from the pin.
+ */
+export async function checkProviderEnvAuth(
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[] = []
+): Promise<SparkleAuthCheck | undefined> {
+  const runtime = await createPiRuntime({
+    stateRoot,
+    customProviders,
+    credentials: new EmptyCredentialStore()
+  });
+  return await checkAuthOf(runtime, providerId);
+}
+
+async function checkAuthOf(
+  runtime: Awaited<ReturnType<typeof createPiRuntime>>,
+  providerId: string
+): Promise<SparkleAuthCheck | undefined> {
   const check = await runtime.models.checkAuth(providerId);
   if (check === undefined) return undefined;
   return {
