@@ -91,3 +91,7 @@ GPT-gate-cause-recheck: event pairing, four-key `--summary-json`, stall-path pre
 - Blocked `note:` should say the tracking gate's verdict is not a running job and that no analysis consumer is wired; `unblock` remains the action. Do not imply a live queue. Keep failed dimensions / per-criterion evidence on `inspect`.
 - Pin `deterministic-fail` (inspect `gate cause:` and the blocked note), not only `unmet-acceptance-criterion`.
 - Optional hardening: require the paired `GATE_TRANSITION` to be `queue_analysis` / `to === "BLOCKED"` and join the assessment by hash+seq.
+
+## D12 — Auth `--from-env` must succeed when the environment is configured, even if `auth.json` is corrupt
+
+GPT-auth-landing-recheck: **FIX**. Keep the empty-store probe and flag exclusivity. After `checkProviderEnvAuth` succeeds, do not let `listStoredCredentials` (or any real-store parse) fail the command. Omit the stored-wins note when the store cannot be listed. Add the corrupt-file + env-key CLI pin (exit 0, env source named, no secret, bytes unchanged). Add stored-OAuth `--from-env` pins (env absent → fail; env key set → succeed). Describe the check as environment/ambient auth with `auth.json` ignored — do not say “environment variables only” unless the probe is actually process-env-only. Do not change store-first `checkProviderAuth()`.
