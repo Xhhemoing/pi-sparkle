@@ -1,8 +1,25 @@
 # File ownership — Loop 4 Round 20 (`cursor/opt-r18-postmerge-42b1`)
 
-Round 18 CLOSED (2 ACCEPT). Round 19 CLOSED (zero-slot). Round 20 is a saturation retarget: I/O, races, protocol, DR at HEAD. **Do not pad.** No landing slots until the audit writes proven candidates into `.agent_workspace/ROUND20-BRIEF.md`.
+Two real candidates from `.agent_workspace/ROUND20-BRIEF.md`. **Do not pad.** Files are disjoint. Landing commits are slot files + report only — no PROGRESS ticks.
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r18-postmerge-42b1`. Do not `git checkout` another branch.**
+
+**Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
+
+Injection: `.agent_workspace/ROUND20-BRIEF.md`, `.agent_workspace/loop4-r20-audit.md`.
+
+| Slot | Model | Owns |
+|---|---|---|
+| R20-1 | opus | `src/run/flowchart-run.ts` (`fallbackChildLimits` + accept-time ceiling recorder + restore onto substituted specs); `src/run/replay.ts` (new optional ceiling field validation **only** — do **not** rewrite `:95-101`); `test/integration/m2.5/resume.test.ts`; `docs/specs/m0-m2-architecture.md:368-377`. **Direction (b):** durable per-task `maxCostUsd` (ceiling only). Sibling arm must not copy `maxCostUsd`. Existing sibling-budget pin stays green. Tests 3×. |
+| R20-2 | opus | `src/execution/contract.ts` (`steerText` signature only); `src/pi-adapter/pi-executor.ts` (`steerText` region); `src/run/coordinator.ts` (the two `SteerChannel` call sites only); new `test/integration/pi-adapter/steer-target.test.ts`; `test/unit/pi-adapter/steer-inflight.test.ts`. **Optional target:** `startRun` passes root instance; `startParentRun` passes none. 12 existing steer pins stay green. Tests 3×. Census `src/testing/fake-executor.ts` only if the signature forces it. |
+
+**Parent sign-off**
+- **R20-1 YES — (b) restore** declared ceilings across pause/resume. Disappearance is not accepted.
+- **R20-2 YES — optional `agentInstanceId` target.** No new event type. Do not broadcast.
+
+Frozen: ROUND20-BRIEF §3/§5. R18-1 replay placement/latch untouched. No live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`. Adaptation-plane import edges: none expected; if a slot changes one, census **both** privacy guards.
+
+Every slot: census first; verify paths exist; scoped eslint + whole-tree `tsc --noEmit`; report `.agent_workspace/loop4-r20-tN.md`. No full gate.
 
 # File ownership — Loop 4 Round 19 (closed, zero-slot)
 

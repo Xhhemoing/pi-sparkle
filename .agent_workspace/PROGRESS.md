@@ -381,11 +381,13 @@ Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (in
 
 ## Round 20 — in flight (saturation retarget)
 
-Post-merge honesty plane is closed (R18 two holes, R19 zero-slot). Saturation protocol: move to **I/O, races, protocol, disaster recovery** on HEAD `f449416` (code tree `4412fac`). Do not re-litigate ROUND19-BRIEF §5. Do not pad. A zero-slot Round 20 is valid if the auditor proves nothing.
+Two real candidates from `.agent_workspace/ROUND20-BRIEF.md` (audit: `.agent_workspace/loop4-r20-audit.md`). Stay on `cursor/opt-r18-postmerge-42b1`. Parent sign-off: R20-1 **YES (b) restore** declared per-child ceilings across pause/resume; R20-2 **YES** optional `steerText` target. Do not pad.
 
 | Slot | Agent | Focus |
 |---|---|---|
-| fable-audit | bc-901b7d5f-77ee-53cb-bddb-a667255af689 | I/O · races · protocol · DR on post-R18 tree; prove or kill |
+| fable-audit | bc-901b7d5f-77ee-53cb-bddb-a667255af689 | I/O · races · protocol · DR on post-R18 tree |
+| R20-1 | pending | restore declared maxCostUsd across pause/resume |
+| R20-2 | pending | targeted steerText so backoff cannot cross runs |
 
 ---
 
