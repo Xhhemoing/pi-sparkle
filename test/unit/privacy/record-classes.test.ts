@@ -22,6 +22,7 @@ const REQUIRED_IDS = [
   "run-pause",
   "track-questions",
   "routing-eval-report",
+  "routing-eval-dataset",
   "learning-bandit",
   "providers-config",
   "auth-credential"
@@ -148,6 +149,7 @@ test("completeness: every known durable state-root path is covered by a class", 
     "runtime/routing/catalog-observed.json", // catalog-observed
     "adaptation/registry.json", // candidate
     "adaptation/evals/<candidateId>.<cacheKey>.json", // routing-eval-report
+    "adaptation/eval-datasets/<runId>/manifest.json", // routing-eval-dataset
     "adaptation/learning/projects/<stableProjectKey>/routing.json", // learned-routing-policy
     "adaptation/learning/projects/<stableProjectKey>/bandit.json", // learning-bandit
     "runtime/providers.json", // providers-config
