@@ -102,6 +102,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D21 auth/models remainder. Implementer: Opus-d21-auth-models (`bc-c4dd2d65-355c-5243-940b-875d1e342896`). GPT-d21-recheck **FIX** (source-column trim drift).
 - D24 auth source-column bytes. Implementer: Opus-d24-source-column (`bc-8560fd72-b9e6-5224-9b23-adfbbd730a4e`). GPT-d24-recheck **KEEP**.
 - D22 doctor storage inventory. Implementer: Opus-d22-doctor-storage (`bc-c72bed86-cb4e-5126-888e-eca802cc5b0c`). GPT-d22-recheck **KEEP**.
+- D25 `list` truncation disclosure + `--sort last-event`. Implementer: Opus-d25-list-sort (`bc-dd11ca58-f52f-510e-bf63-b89d5a9dda31`). GPT-d25-recheck **KEEP**.
 
 ### Round 6 (in flight)
 
