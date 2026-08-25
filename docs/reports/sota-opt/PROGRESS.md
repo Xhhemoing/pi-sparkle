@@ -30,8 +30,8 @@
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
 | 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
-| 16 | 第 1–4 波进行中 | 10 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-16/PLAN.md](./round-16/PLAN.md) |
-| 17 | 第 1 波进行中 | 2 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-17/PLAN.md](./round-17/PLAN.md) |
+| 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
+| 17 | 第 1 波进行中 | 3 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-17/PLAN.md](./round-17/PLAN.md) |
 
 ### Round 1 波次
 
@@ -175,13 +175,13 @@
 | 1 | R16-A 跟踪门控、R16-B live 路由、R16-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R16-D 自优化、R16-E 学习、R16-F 实验 | D/E/F 完成已合入 |
 | 3 | R16-G 运行时/图、R16-H 评价/需求、R16-I CLI/适配器 | G/H/I 完成已合入 |
-| 4 | R16-J cluster/privacy/episode | J 运行中 |
+| 4 | R16-J cluster/privacy/episode | J 完成已合入 |
 
 ### Round 17 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R17-A 跟踪门控、R17-B live 路由 | A 运行中；B 本波派出 |
+| 1 | R17-A 跟踪门控、R17-B live 路由、R17-C 离线路由 | A/B 运行中；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -347,9 +347,10 @@
 | R16-G | `cursor/r16-g-runtime-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-G.md`）。无新排除 ID；计算顶复核 0.288–0.294 ms vs I/O 96.2–105.0 ms；SYSCENSUS 轴归档；digest 第七次逐位相同 |
 | R16-H | `cursor/r16-h-eval-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-H.md`）。无新排除 ID；热层默认复核 9.35–9.78 µs/run；载荷基底 × 形态格归档；PATH_RE 回溯拒列不铸 ID |
 | R16-I | `cursor/r16-i-cli-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-I.md`）。无新排除 ID；custom−builtin 复核 +22.5~+51.7 ms；八连空；flowchart 抽测格 + 增量采样归因归档 |
-| R16-J | `cursor/r16-j-persist-sixteenth-pass-83a1` | 已派出 |
+| R16-J | `cursor/r16-j-persist-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-J.md`）。无新排除 ID；I/O 地板复核；SYSCENSUS-J + payload 形态轴归档；切片关闭 |
 | R17-A | `cursor/r17-a-tracking-seventeenth-pass-83a1` | 已派出 |
 | R17-B | `cursor/r17-b-live-routing-seventeenth-pass-83a1` | 已派出 |
+| R17-C | `cursor/r17-c-offline-routing-seventeenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
