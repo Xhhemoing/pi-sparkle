@@ -6,7 +6,7 @@ import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { injectFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import { EventStore } from "../run/event-store.js";
-import { parseFactValue } from "../run/injection.js";
+import { INJECTION_KINDS, parseFactValue } from "../run/injection.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 
 export interface InjectIo {
@@ -29,8 +29,6 @@ terminal or BLOCKED run fails closed; success echoes the resulting facts/nodes s
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
-
-const INJECTION_KINDS = new Set(["fact", "override", "skip"]);
 
 export async function injectCommand(args: string[], io: InjectIo): Promise<number> {
   const first = args[0];
@@ -80,8 +78,9 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
   // named as one here: on a flowchart run the plane calls it a validation
   // failure with the doctor remedy, and on a run with no flowchart snapshot the
   // plane refuses on run shape first, so the operator is sent to debug a healthy
-  // checkpoint and never told which flag they mistyped.
-  if (!INJECTION_KINDS.has(values.type)) {
+  // checkpoint and never told which flag they mistyped. The set is the plane's
+  // own, imported rather than restated, so the two cannot drift apart.
+  if (!(INJECTION_KINDS as readonly string[]).includes(values.type)) {
     return cliFail(io, {
       command: "inject",
       stage: "parse-args",
@@ -120,19 +119,24 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
   // Same reason as the kind above, one flag later: `--confidence banana` and
   // `--confidence 2` are both argv, and both reached the plane before anyone
   // looked at them. Converted once here so the request carries the number the
-  // refusal already vetted.
+  // refusal already vetted. The blank check precedes the conversion because
+  // `Number("")` and `Number("  ")` are a finite 0 — an operator who passed
+  // nothing would otherwise have recorded full no-confidence as if they meant it.
   let confidence: number | undefined;
   if (values.confidence !== undefined) {
-    confidence = Number(values.confidence);
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      return cliFail(io, {
+    const raw = values.confidence;
+    const run = values.run;
+    const refuseConfidence = (): number =>
+      cliFail(io, {
         command: "inject",
         stage: "parse-args",
-        message: `invalid --confidence "${values.confidence}": confidence must be a finite number between 0 and 1`,
+        message: `invalid --confidence "${raw}": confidence must be a finite number between 0 and 1`,
         next: "pass --confidence <0-1>",
-        runId: values.run
+        runId: run
       });
-    }
+    if (raw.trim() === "") return refuseConfidence();
+    confidence = Number(raw);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return refuseConfidence();
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);

@@ -304,7 +304,9 @@ test("an out-of-domain --confidence reports parse-args before the plane", async 
     const runId = await startWaiting(stateRoot, projectRoot);
     const before = await readEventLines(stateRoot, runId);
     // `-1` leads with a dash, so parseArgs itself only accepts the `=` form.
-    for (const raw of ["banana", "2", "-1"]) {
+    // `""` and `"  "` are here because `Number` reads both as a finite 0: an
+    // operator who passed no value must not record no-confidence instead.
+    for (const raw of ["banana", "2", "-1", "", "  "]) {
       const { io, out, err } = capture();
       const code = await main(
         [
