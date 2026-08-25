@@ -19,7 +19,7 @@ export interface ModelsIo {
 const MODELS_USAGE = `pi-sparkle models — enable Pi models for routing
 
 Usage:
-  pi-sparkle models list [--available] [--provider <id>] [--state-root <dir>]
+  pi-sparkle models list [--available] [--provider <id>] [--state-root <dir>] [--json]
   pi-sparkle models enable <provider/model> [--state-root <dir>]
   pi-sparkle models disable <provider/model> [--state-root <dir>]
   pi-sparkle models set-default --primary <provider/model> [--fast <provider/model>] [--state-root <dir>]
@@ -45,9 +45,13 @@ export async function modelsCommand(args: string[], io: ModelsIo): Promise<numbe
       io.stdout(MODELS_USAGE);
       return 0;
     default:
-      io.stderr(`Unknown models command: ${sub}\n`);
       io.stderr(MODELS_USAGE);
-      return 1;
+      return cliFail(io, {
+        command: "models",
+        stage: "parse-args",
+        message: `Unknown models command: ${sub}`,
+        next: "use models list, enable, disable, or set-default"
+      });
   }
 }
 
@@ -59,15 +63,86 @@ function stateRootOf(values: { readonly ["state-root"]?: string }): string {
   return values["state-root"] ?? defaultStateRoot();
 }
 
+type ParsedArgs<T> =
+  | { readonly ok: true; readonly values: T }
+  | { readonly ok: false; readonly code: number };
+
+/**
+ * `parseArgs` throws on a mistyped flag, and an uncaught throw here reached the
+ * operator as the generic failure with the doctor remedy — a remedy that cannot
+ * help someone who typed `--jsn`. Every models subcommand routes its argv
+ * errors through the one house dialect instead.
+ */
+function parseModelsArgs<T>(io: ModelsIo, command: string, parse: () => { values: T }): ParsedArgs<T> {
+  try {
+    return { ok: true, values: parse().values };
+  } catch (error) {
+    return {
+      ok: false,
+      code: cliFail(io, {
+        command,
+        stage: "parse-args",
+        message: error instanceof Error ? error.message : String(error),
+        next: "run pi-sparkle models --help"
+      })
+    };
+  }
+}
+
+/**
+ * Frozen `models list --json` contract. Additive changes only: consumers pin
+ * `type` and `preview` and read `mode` / `models`. Not a domain Event (no `id`;
+ * `type` is outside the Event union), and `preview: true` says so.
+ *
+ * `enabled` rows carry the routing facts the human line encodes as tags and a
+ * `(not in catalog)` suffix — the least stable line format in this CLI, which
+ * is the reason scripts need this object. `available` rows carry the catalog id
+ * alone. Top-level `primary` / `fast` are present only when configured.
+ */
+export interface ModelsListEnabledRow {
+  readonly id: string;
+  readonly primary: boolean;
+  readonly fast: boolean;
+  readonly inCatalog: boolean;
+}
+
+export interface ModelsListAvailableRow {
+  readonly id: string;
+}
+
+export interface ModelsListJson {
+  readonly type: "MODELS_LIST";
+  readonly preview: true;
+  readonly mode: "enabled" | "available";
+  readonly primary?: string;
+  readonly fast?: string;
+  readonly models: readonly (ModelsListEnabledRow | ModelsListAvailableRow)[];
+}
+
+function writeModelsListJson(io: ModelsIo, payload: ModelsListJson): void {
+  io.stdout(`${JSON.stringify(payload)}\n`);
+}
+
 async function listCommand(args: string[], io: ModelsIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      available: { type: "boolean", default: false },
-      provider: { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
+  const parsed = parseModelsArgs(io, "models list", () =>
+    parseArgs({
+      args,
+      options: {
+        available: { type: "boolean", default: false },
+        provider: { type: "string" },
+        json: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+        "state-root": { type: "string" }
+      }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
+  if (values.help === true) {
+    io.stdout(MODELS_USAGE);
+    return 0;
+  }
+  const json = values.json === true;
   if (values.available === true) {
     const catalog = await import("../pi-adapter/listed-model.js");
     const builtin =
@@ -84,6 +159,15 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
       .filter((provider) => values.provider === undefined || provider.id === values.provider)
       .flatMap((provider) => catalog.listedModelsFromCustom(provider));
     const listed = [...builtin, ...custom];
+    if (json) {
+      writeModelsListJson(io, {
+        type: "MODELS_LIST",
+        preview: true,
+        mode: "available",
+        models: listed.map((model) => ({ id: model.catalogId }))
+      });
+      return 0;
+    }
     if (listed.length === 0) {
       io.stdout("(no models)\n");
       return 0;
@@ -94,6 +178,30 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
     return 0;
   }
   const config = await loadProvidersConfig(stateRootOf(values));
+  if (json) {
+    const { resolveListedModel } = await import("../pi-adapter/listed-model.js");
+    // The "No models enabled" notice is prose for a human reader; a caller
+    // asking for JSON gets the same object with an empty list rather than a
+    // line it would have to sniff for.
+    writeModelsListJson(io, {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "enabled",
+      ...(config.primary !== undefined ? { primary: config.primary } : {}),
+      ...(config.fast !== undefined ? { fast: config.fast } : {}),
+      models: config.enabled.map((id) => {
+        const ref = parseModelRef(id);
+        return {
+          id,
+          primary: config.primary === id,
+          fast: config.fast === id,
+          inCatalog:
+            resolveListedModel(ref.providerId, ref.modelId, config.customProviders) !== undefined
+        };
+      })
+    });
+    return 0;
+  }
   if (config.enabled.length === 0) {
     io.stdout("No models enabled. Use: pi-sparkle models enable <provider/model>\n");
     return 0;
@@ -120,10 +228,14 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
 
 async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
   const catalogId = args[0];
-  const { values } = parseArgs({
-    args: args.slice(1),
-    options: { "state-root": { type: "string" } }
-  });
+  const parsed = parseModelsArgs(io, "models enable", () =>
+    parseArgs({
+      args: args.slice(1),
+      options: { "state-root": { type: "string" } }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
   if (catalogId === undefined || catalogId.startsWith("-")) {
     return cliFail(io, {
       command: "models enable",
@@ -141,10 +253,14 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
 
 async function disableCommand(args: string[], io: ModelsIo): Promise<number> {
   const catalogId = args[0];
-  const { values } = parseArgs({
-    args: args.slice(1),
-    options: { "state-root": { type: "string" } }
-  });
+  const parsed = parseModelsArgs(io, "models disable", () =>
+    parseArgs({
+      args: args.slice(1),
+      options: { "state-root": { type: "string" } }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
   if (catalogId === undefined || catalogId.startsWith("-")) {
     return cliFail(io, {
       command: "models disable",
@@ -173,14 +289,18 @@ async function disableCommand(args: string[], io: ModelsIo): Promise<number> {
 }
 
 async function setDefaultCommand(args: string[], io: ModelsIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      primary: { type: "string" },
-      fast: { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
+  const parsed = parseModelsArgs(io, "models set-default", () =>
+    parseArgs({
+      args,
+      options: {
+        primary: { type: "string" },
+        fast: { type: "string" },
+        "state-root": { type: "string" }
+      }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
   if (values.primary === undefined) {
     return cliFail(io, {
       command: "models set-default",
