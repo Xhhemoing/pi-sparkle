@@ -242,8 +242,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R23-A 跟踪门控、R23-B live 路由、R23-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R23-D 自优化、R23-E 学习 | D 完成已合入；E 运行中 |
-| 3 | R23-F 实验 | F 本波派出 |
+| 2 | R23-D 自优化、R23-E 学习 | D/E 完成已合入 |
+| 3 | R23-F 实验、R23-G 运行时/图 | F 运行中；G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -474,8 +474,9 @@
 | R23-B | `cursor/r23-b-live-routing-twenty-third-pass-83a1` | 已合入专属分支（仅 `R23-B.md`）。无新排除 ID；天花板复核 M=2 9.20–9.48 / M=10 17.64–18.52 ms/eval；batch arrangement 几何轴（平坦）归档 |
 | R23-C | `cursor/r23-c-offline-routing-twenty-third-pass-83a1` | 已派出 |
 | R23-D | `cursor/r23-d-adaptation-twenty-third-pass-83a1` | 已合入专属分支（仅 `R23-D.md`）。无新排除 ID；eval 地板复核 3.39–3.74 ms；两相提升时间交错 / P-dose 归档 |
-| R23-E | `cursor/r23-e-learning-twenty-third-pass-83a1` | 已派出 |
+| R23-E | `cursor/r23-e-learning-twenty-third-pass-83a1` | 已合入专属分支（仅 `R23-E.md`）。无新排除 ID；SLICE-CPU 复核 18.1–18.6 µs/run；GS（过滤命运 × 分组几何）归档 |
 | R23-F | `cursor/r23-f-experiments-twenty-third-pass-83a1` | 已派出 |
+| R23-G | `cursor/r23-g-runtime-twenty-third-pass-83a1` | 已派出 |
 
 ## 合并策略
 
