@@ -168,4 +168,4 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | D37 | Opus-d37-blank-root | claude-opus-5-thinking-high-fast | cloud | `bc-fb7045fe-765d-5c12-b910-f0781db04580` |
 | D38 | Opus-d38-init-migrate | claude-opus-5-thinking-high-fast | cloud | `bc-cdef25b0-6684-5232-a444-1c8ff7ffe823` |
 | D39 | Opus-d39-episode-logs | claude-opus-5-thinking-high-fast | cloud | `bc-36e1f0fe-b786-5a7d-8b54-438bfc9d26b4` |
-| GPT-d39-recheck | GPT | gpt-5.6-sol-xhigh-fast | cloud | (dispatching) |
+| GPT-d39-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-0a8b191c-1961-5dc2-a150-cf0824dab855` |
