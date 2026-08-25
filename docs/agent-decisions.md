@@ -65,3 +65,21 @@ Fable-cli (Round 1): `validate` must not import `src/cli/main.ts` (dispatch cycl
 ## D6 — `init` verb (open)
 
 **KEEP the verb** (Round 1 synthesis). GPT-challenge preferred static `examples/` only. Fable-map and Fable-cli kept the verb because `package.json` `files[]` ships `dist` (plus skill/prompt trees) and forbids a drive-by `examples/` pack, so embedded constants only reach an installed binary through `init`. Repo `examples/` stays for checkout readers. Do not treat `init` as a project cookiecutter.
+
+## D7 — Same-episode track continuation stays design-only
+
+Fable-track specified Variant B (successor run, same episode). GPT-r2 independently **DEFER**ed that design: current project-id / concurrency / reservation holes mean the “small branch” cannot attach safely. Literal same-run-id (Variant A) stays rejected. Do not implement Variant B as specified. Revisit only with a reservation that is race-safe and an identity model GPT can re-challenge.
+
+## D8 — Track `answer` is fail-closed without a correlatable question
+
+The sidecar-only refusal is not enough: `waitForClarification` appends `RUN_WAITING_FOR_USER` before writing `track-questions.json`, and GPT reproduced a phantom-RUNNING `USER_ANSWER` on that torn state. Override Fable-track §6.3 fall-through.
+
+Before the generic non-flowchart append: a non-flowchart `WAITING_FOR_USER` run with no correlatable persisted child `QUESTION` must refuse. Readable sidecar → the existing track-specific message. Missing or unreadable sidecar on that wait → generic fail-closed (inspect, not `answer`). Ordinary non-waiting runs with no sidecar still record (existing pin). `INSPECT_SUMMARY` and `replay.ts` stay untouched.
+
+## D9 — Track continuation is facts, not a copy-paste shell line
+
+`trackContinuationCommand` interpolates unquoted paths and uses `JSON.stringify` as shell quoting. GPT reproduced `$()` / `;` / spaces injection in the inspect/`answer` `next:` text. Do not emit a copy-pasteable executable command. Print labeled argument facts (verb, project, objective, answers file, state-root). Tests that match `run --track` / `--answers <file.json>` stay valid as facts; they must not require a single concatenable argv line. `blocked-next` four-line prefix is unrelated and stays byte-identical.
+
+## D10 — `adapt dataset` is HOLD until privacy/isolation/deletion land
+
+GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required before treating the verb as merge-ready: redact-then-truncate (D1), do not claim `objective` is the only user text — classify/protect workspace path and store it at most once per manifest (D2), cascade default `adaptation/eval-datasets/<runId>/` from `delete --run` (D3), reject `--dir` under the runtime plane with realpath-aware checks (D4). Do not invent independent “episodes” from tasks.

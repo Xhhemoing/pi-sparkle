@@ -81,3 +81,15 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 | Opus-auth | claude-opus-5-thinking-high-fast | Login flag exclusivity + --from-env honesty |
 | Opus-gate | claude-opus-5-thinking-high-fast | inspect/blocked report: real gate reason |
 | Opus-review-verdict | claude-opus-5-thinking-high-fast | parsePromotionReview fail-closed + q-scope |
+
+### Round 3 landings so far
+
+- Promotion verdicts fail-closed + `q-scope` consumed (`8b4c077`).
+- Gate-cause visibility (`3140a96`): `gateBlockCause` in `src/run/inspection.ts`; inspect prose + blocked-report `note:`; `--summary-json` still four keys; blocked-next prefix preserved. Implementer: Opus-gate (`bc-592622fe-056e-51b0-914c-452730915dda`).
+- Fable R2 comprehensive review recorded in `.agent_workspace/loop5-r2-review.md` (no `src/` regressions at its HEAD; ranked leftovers match GPT-r2 on T1/T2/dataset HOLD).
+
+### Round 3 still running / next implementers
+
+- Opus-auth still in flight (must follow `.agent_workspace/loop5-r3-gpt-auth.md`: empty-store Pi probe, not `checkAuth().source`).
+- Fable-gate-cause freeze plan still in flight (landing already merged; treat as post-landing freeze review).
+- Next cloud implementer: Track T1+T2 (D8/D9). Dataset privacy (D10) and episode/inject/commits wait for a free cloud VM — do not run git-writing implementers in this shared workspace.
