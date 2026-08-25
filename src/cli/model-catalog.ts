@@ -66,11 +66,10 @@ export async function buildLiveCatalogConfig(
   if (fastRow !== undefined && !byId.has(DEFAULT_FAST_MODEL_ID)) {
     models.push({ ...fastRow, id: DEFAULT_FAST_MODEL_ID });
   }
-  if (
-    primaryRow !== undefined &&
-    primaryId !== fastId &&
-    !byId.has(DEFAULT_PRIMARY_MODEL_ID)
-  ) {
+  // Both aliases are emitted even when primary and fast are the same model:
+  // that is what the pi executor builds from a lone primary, so suppressing
+  // `premium` here would refuse flowcharts the executor can actually run.
+  if (primaryRow !== undefined && !byId.has(DEFAULT_PRIMARY_MODEL_ID)) {
     models.push({ ...primaryRow, id: DEFAULT_PRIMARY_MODEL_ID });
   }
   return { policyVersion: "router-v1-live", models };
