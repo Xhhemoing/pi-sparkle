@@ -27,6 +27,9 @@ export const EVAL_DATASET_EXPORTER_VERSION = "adapt-dataset-v1";
  */
 export const OBJECTIVE_MAX_CHARS = 500;
 
+/** Owner-only: the manifest is redacted user text, not a shared artifact. */
+const DATASET_FILE_MODE = 0o600;
+
 /**
  * One routed task from one run — not an independent episode.
  *
@@ -208,9 +211,6 @@ export async function exportRoutingEvalDataset(
   });
   return { datasetDir, manifestPath, manifest, skippedWithoutObjective, supersededAttempts };
 }
-
-/** Owner-only: the manifest is redacted user text, not a shared artifact. */
-const DATASET_FILE_MODE = 0o600;
 
 function originalWorkspace(events: readonly Event[]): string | undefined {
   let root: string | undefined;

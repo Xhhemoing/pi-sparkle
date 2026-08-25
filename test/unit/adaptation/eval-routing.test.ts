@@ -406,6 +406,78 @@ test("non-routing-policy candidates fail closed", async () => {
   );
 });
 
+/**
+ * The exporter stores the redacted project root once on `source` and repeats it
+ * per row. This reader keeps the row-level key as its contract and defaults to
+ * the manifest-level copy, so an export that stops repeating it still loads;
+ * with neither, the refusal still names the row that is missing it.
+ */
+test("a manifest-level workspace stands in for rows that omit it", async () => {
+  const seeded = await seedRoutingCandidate();
+  const rows = [1, 2].map((index) => {
+    const { originalWorkspace: _dropped, ...rest } = editEpisode(
+      index,
+      seeded.frozenWorkspace,
+      "PASS"
+    );
+    return rest;
+  });
+  await writeFile(
+    join(seeded.datasetDir, "manifest.json"),
+    JSON.stringify({
+      datasetId: "ds-routing-source-ws",
+      environmentVersion: "env-test-1",
+      source: { originalWorkspace: seeded.frozenWorkspace },
+      episodes: rows
+    }),
+    "utf8"
+  );
+
+  const { report } = await evalRoutingPolicy({
+    stateRoot: seeded.stateRoot,
+    candidateId: seeded.candidateId,
+    datasetDir: seeded.datasetDir
+  });
+  assert.equal(report.comparison.rawCounts.episodes, 2);
+
+  await writeFile(
+    join(seeded.datasetDir, "manifest.json"),
+    JSON.stringify({
+      datasetId: "ds-routing-no-ws",
+      environmentVersion: "env-test-1",
+      episodes: rows
+    }),
+    "utf8"
+  );
+  await assert.rejects(
+    () =>
+      evalRoutingPolicy({
+        stateRoot: seeded.stateRoot,
+        candidateId: seeded.candidateId,
+        datasetDir: seeded.datasetDir
+      }),
+    /episodes\[0\] requires originalWorkspace/
+  );
+});
+
+/**
+ * A redacted workspace can be a placeholder rather than a directory, so only
+ * absolute values are treated as read-only roots — resolving `[path]` against
+ * the process working directory would invent a root that never existed. The
+ * dataset directory itself is always a root, absolute or not.
+ */
+test("a redacted workspace marker is not resolved into an isolation root", async () => {
+  const seeded = await seedRoutingCandidate();
+  await writeDataset(seeded.datasetDir, [editEpisode(1, "[path]", "PASS")]);
+
+  const { report } = await evalRoutingPolicy({
+    stateRoot: seeded.stateRoot,
+    candidateId: seeded.candidateId,
+    datasetDir: seeded.datasetDir
+  });
+  assert.equal(report.comparison.rawCounts.episodes, 1);
+});
+
 test("replay output root must not overlap originalWorkspace", async () => {
   const seeded = await seedRoutingCandidate();
   const evalsDir = join(seeded.stateRoot, "adaptation", "evals");
