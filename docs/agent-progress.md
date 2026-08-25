@@ -125,7 +125,7 @@ GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D2
 
 | Slot | Rider |
 |---|---|
-| D28 | First landing `ad14592` runtime is correct. GPT-d28-recheck **FIX**: exact parser-error pins. Rider in flight. |
+| D28 | Rider `4d3fcc4` exact parser-error pins on `ad14592`. GPT-d28-recheck follow-up in flight. |
 | D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549`. GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
 | D30 | Rider `c2be255` shares `INJECTION_KINDS` and refuses blank `--confidence`. GPT-d30-recheck in flight. |
 
