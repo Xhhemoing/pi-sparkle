@@ -249,7 +249,7 @@ Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-execut
 | Slot | Agent | Focus |
 |---|---|---|
 | R11-1 | bc-bac929b5-19fa-5a19-b5cf-fc7af45eed6e | implement option (a) |
-| R11-2 | bc-3be62857-82a5-5103-8de6-3a5d15860354 | discard crash-probe eleventh case |
+| R11-2 | bc-3be62857-82a1-5523-9ef1-cae7b3339bb7 | discard crash-probe eleventh case |
 | R11-3 | bc-52d9f74c-f0f1-593a-9372-24ee72f4f2fc | tracked-run pause controller |
 | R11-4 | bc-e3adef72-a50c-5c80-b871-70aee430ac51 | restore-path discard audit validation |
 | R11-5 | bc-7096a9fa-0d14-5551-98e7-a5af5ce05f22 | Round 10 docs truth-up |
@@ -261,7 +261,24 @@ Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-execut
 
 Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-6 report-only (existing live-isolation pins covered R11-1's import); R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`; R11-10 `f99a0c8` never-synthesize covers `taskCriteria`. Parent joint `6926592` spent R9-1 reserved pin in `resume.test.ts`; parent docs `df2c395` truth-up coverage-gate row.
 
-**Parent gate GREEN** at this write-up: **1938 tests / 1937 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`, including `unblock-discard-append-before-checkpoint-sigkill`. Residual: `taskCriteria` has no `persistCheckpoint` writer. Fable SOTA review in flight.
+**Parent gate GREEN** at `2767321`: **1938 tests / 1937 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r11-review.md`. Two parent joints (`6926592`, `df2c395`) and one 20-second red-tree window at `6096da6`, counted. Residual closed into Round 12: `taskCriteria` writer + early run-id (same slot — `flowchart-run.ts` contention).
+
+## Round 12 — in flight
+
+10 slots from `.agent_workspace/ROUND11-BRIEF.md` (four real candidates; R12-1 absorbs brief R12-1+R12-2 because they share `flowchart-run.ts`). Stay on `agent/opt-continuous`. Parent sign-off: R12-1 **YES** `taskCriteria` writer+reader (semantic approved); R12-1 **YES** early run-id disclosure in the same diff (stop-and-report that half if disproportionate).
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R12-1 | (pending) | `taskCriteria` writer+reader + early run-id |
+| R12-2 | (pending) | keep `independentEvidence` one-void pin |
+| R12-3 | (pending) | criteria-gate production-reachability |
+| R12-4 | (pending) | Round 11 docs truth-up |
+| R12-5 | (pending) | keep `applyRetry` absence + restore audit |
+| R12-6 | (pending) | keep never-synthesize-from-episode |
+| R12-7 | (pending) | keep routes / INSPECT_SUMMARY / BLOCKED prefix |
+| R12-8 | (pending) | keep live-isolation pins |
+| R12-9 | (pending) | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R12-10 | (pending) | keep writer-carriage `contract` property |
 
 ---
 
