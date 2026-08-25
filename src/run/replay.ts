@@ -92,6 +92,14 @@ export interface FlowchartCheckpointState {
    * record of what was dispatched is the only form of the marker that survives
    * a second crash.
    *
+   * That chain still plays out verbatim, but only for a node *neither* source
+   * records. Once the record names a task, the rebuild in
+   * `run/flowchart-run.ts` puts the recorded criteria back on the substituted
+   * spec before the resumed node runs, so no downgrade completes; and an empty
+   * logged list no record entry vouches for is detectable as exactly that —
+   * unknown, not the caller's known-none — rather than indistinguishable after
+   * the fact.
+   *
    * Optional at `schemaVersion: 1`, and absence stays valid forever: every
    * checkpoint written before this field existed is still a good checkpoint,
    * and absence means "unknown", never "none". Like `contract` it is never

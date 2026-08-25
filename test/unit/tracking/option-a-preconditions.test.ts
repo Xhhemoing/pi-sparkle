@@ -613,9 +613,10 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
   it("the durable per-task criteria seam is declared, validated, and never synthesized", async () => {
     // R9-1 reserved a sibling field on `FlowchartCheckpointState` for option
     // (a) and pinned it unimplemented; that reservation is spent here, so this
-    // is its replacement. The unimplemented half of R9-1's assertion lives in
-    // `test/integration/m2.5/resume.test.ts`, which this slot does not own —
-    // the prescribed edit is in `.agent_workspace/loop4-r11-t1.md`.
+    // is its replacement. The unimplemented half of R9-1's assertion has since
+    // landed behaviourally in `test/integration/m2.5/resume.test.ts` ("a resume
+    // re-dispatches recorded criteria and leaves an unrecorded node unknown",
+    // R12-1); this file keeps only the source-side half.
     const source = await readFile(join(REPO_ROOT, "src/run/replay.ts"), "utf8");
     const region = /export interface FlowchartCheckpointState \{[\s\S]*?^\}$/m.exec(source);
     assert.ok(region, "FlowchartCheckpointState remains structurally inspectable");
