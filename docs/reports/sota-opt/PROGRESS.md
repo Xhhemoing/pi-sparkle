@@ -41,8 +41,8 @@
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
-| 27 | 第 1–6 波进行中 | 9 / 10（A–G、I/J 已合入；H 运行中） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 第 1 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
+| 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
+| 28 | 第 1 波进行中 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
 
 ### Round 1 波次
 
@@ -285,7 +285,7 @@
 | 1 | R27-A 跟踪门控、R27-B live 路由、R27-C 离线路由 | A/B/C 已合入 |
 | 2 | R27-D 自优化、R27-E 学习 | D/E 已合入 |
 | 3 | R27-F 实验、R27-G 运行时/图 | F/G 已合入 |
-| 4 | R27-H 评价/需求 | H 运行中 |
+| 4 | R27-H 评价/需求 | H 已合入 |
 | 5 | R27-I CLI/适配器 | I 已合入 |
 | 6 | R27-J cluster/privacy | J 已合入 |
 
@@ -293,7 +293,7 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R28-A 跟踪门控、R28-B live 路由 | A 运行中；B 本波派出 |
+| 1 | R28-A 跟踪门控、R28-B live 路由、R28-C 离线路由 | A/B 运行中；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -567,11 +567,12 @@
 | R27-E | `cursor/r27-e-learning-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-E.md`）。无新排除 ID；SLICE-CPU 复核 14.7–15.2 µs/run（cmp25 逐位）；RVL 不铸 ID；最坏 30.4–31.9 µs/run |
 | R27-F | `cursor/r27-f-experiments-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-F.md`）。无新排除 ID；锚点复核 r5f 129.98/120.26 / r6f 117.92 / r7f 129.62/131.86；input access-path mechanics face 归档 |
 | R27-G | `cursor/r27-g-runtime-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-G.md`）。无新排除 ID；计算顶复核 0.294–0.297 vs I/O 99.8–119.8 ms；digest 第十八次逐位；join-policy face 归档 |
-| R27-H | `cursor/r27-h-eval-twenty-seventh-pass-83a1` | 已派出 |
+| R27-H | `cursor/r27-h-eval-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-H.md`）。无新排除 ID；热层复核 9005–9493 ns；execution-substrate face 归档；切片关闭 |
 | R27-I | `cursor/r27-i-cli-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-I.md`）。无新排除 ID；custom−builtin 复核 +43.0~+46.0 / +22.4~+24.1 / +45.8~+52.6 / +23.2~+25.9 / +42.3~+46.8 / +18.2~+20.6 ms；process output-channel disposition face 归档 |
 | R27-J | `cursor/r27-j-persist-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-J.md`）。无新排除 ID；I/O 地板复核 preferences 125.8–310.6 / 422.0–533.8、jsonl 60.7–70.2 / 232.2–324.7 µs；SIDEC 不铸 ID |
 | R28-A | `cursor/r28-a-tracking-twenty-eighth-pass-83a1` | 已派出 |
 | R28-B | `cursor/r28-b-live-routing-twenty-eighth-pass-83a1` | 已派出 |
+| R28-C | `cursor/r28-c-offline-routing-twenty-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
