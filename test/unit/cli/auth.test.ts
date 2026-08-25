@@ -277,10 +277,13 @@ test("--from-env fails closed when only a stored credential configures the provi
         report.message,
         "provider openai is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login openai --key <key> to store a credential instead"
       );
+      // The builtin message names ambient *categories*, not one variable, so
+      // the remedy may not tell the operator to set "the variable it names".
       assert.equal(
         report.next,
-        "set the environment the message names, or store a credential with pnpm cli auth login openai --key <key>"
+        "configure one of the ambient sources named in the message, or store a credential with pi-sparkle auth login openai --key <key>"
       );
+      assert.doesNotMatch(text, /set the environment the message names/);
 
       assert.equal(await readFile(authStorePath(stateRoot), "utf8"), before);
     });
@@ -441,7 +444,7 @@ test("--from-env on custom providers checks their configured variable, or refuse
       );
       assert.equal(
         unsetReport.next,
-        "set the environment the message names, or store a credential with pnpm cli auth login gateway --key <key>"
+        "set the providers.json envVar exactly as configured for gateway, or store a credential with pi-sparkle auth login gateway --key <key>"
       );
     });
 
@@ -629,6 +632,73 @@ test("a custom row is env when the configured envVar that resolved it carries sp
         assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
       }
     );
+  });
+});
+
+test("--from-env names a padded envVar exactly as configured, and its trimmed spelling does not satisfy it", async () => {
+  // The same fact the row above labels `env` on, on the refusal path: the
+  // runtime looks the variable up under the configured bytes, so the trimmed
+  // spelling is a different variable. A refusal that named the trimmed one
+  // sent the operator to set something the probe would never read.
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot, [
+      {
+        id: "padded",
+        baseUrl: "http://127.0.0.1:9/v1",
+        envVar: PADDED_ENV_VAR,
+        models: [{ id: "m1" }]
+      }
+    ]);
+    const argv = ["auth", "login", "padded", "--from-env", "--state-root", stateRoot];
+
+    await withEnv(
+      {
+        // Only the trimmed spelling is set, and it is the wrong variable.
+        [PADDED_ENV_VAR]: undefined,
+        SPARKLE_TEST_PADDED_KEY: ENV_KEY,
+        SPARKLE_TEST_GATEWAY_KEY: undefined
+      },
+      async () => {
+        const { io, out, err } = capture();
+        assert.equal(await main(argv, io), 1, "the trimmed spelling is a different variable");
+        assert.equal(out.join(""), "");
+        const text = err.join("");
+        const report = parseCliErrorJson(text);
+        assert.ok(report !== undefined, "a padded envVar must emit a parseable report");
+        assert.equal(report.command, "auth login");
+        assert.equal(report.stage, "preflight");
+        // Quoted, so the spaces that are part of the name are visible.
+        assert.equal(
+          report.message,
+          'provider padded is not configured in the environment: providers.json envVar " SPARKLE_TEST_PADDED_KEY " is unset or empty (whitespace is part of the variable name)'
+        );
+        assert.equal(
+          report.next,
+          "set the providers.json envVar exactly as configured for padded, or store a credential with pi-sparkle auth login padded --key <key>"
+        );
+        // The trimmed spelling is never offered as the thing to set.
+        assert.doesNotMatch(text, /: SPARKLE_TEST_PADDED_KEY is unset or empty/);
+        assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+        assert.equal(await exists(authStorePath(stateRoot)), false);
+      }
+    );
+
+    // And the configured name, spaces and all, is what does satisfy the probe
+    // — so the refusal above is about the wrong variable, not a broken one.
+    await withEnv(
+      {
+        [PADDED_ENV_VAR]: ENV_KEY,
+        SPARKLE_TEST_PADDED_KEY: undefined,
+        SPARKLE_TEST_GATEWAY_KEY: undefined
+      },
+      async () => {
+        const { io, out, err } = capture();
+        assert.equal(await main(argv, io), 0, err.join(""));
+        assert.match(out.join(""), /configured by the environment via {2}SPARKLE_TEST_PADDED_KEY {2}\(/);
+        assert.equal(out.join("").includes(ENV_KEY), false);
+      }
+    );
+    assert.equal(await exists(authStorePath(stateRoot)), false);
   });
 });
 
@@ -903,9 +973,11 @@ test("an unknown provider is a validation refusal naming the inventory that list
     // not something the parser could have known.
     assert.equal(report.stage, "validation");
     assert.equal(report.message, 'unknown provider "banana"');
+    // The inventory has to be read under the root that refused: the same
+    // command against the default root would print a different catalog.
     assert.equal(
       report.next,
-      "pass a provider this install resolves: pnpm cli models list --available prints ids as <provider>/<model>, and providers.json customProviders adds more"
+      "pass a provider shown by pi-sparkle models list --available using the same --state-root; custom providers come from that root's providers.json"
     );
     assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
     assert.equal(await exists(authStorePath(stateRoot)), false);

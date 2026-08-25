@@ -384,7 +384,10 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
       command: "auth login",
       stage: "validation",
       message: `unknown provider "${providerId}"`,
-      next: "pass a provider this install resolves: pnpm cli models list --available prints ids as <provider>/<model>, and providers.json customProviders adds more"
+      // The inventory has to be read under the root that just refused: a
+      // custom provider comes from that root's providers.json, so the same
+      // command against the default root would print a different catalog.
+      next: "pass a provider shown by pi-sparkle models list --available using the same --state-root; custom providers come from that root's providers.json"
     });
   }
   const stateRoot = stateRootOf(values);
@@ -464,7 +467,11 @@ async function loginFromEnvCommand(
   customProviders: readonly CustomProviderConfig[],
   io: AuthIo
 ): Promise<number> {
-  const customEnvVar = customProviders.find((item) => item.id === providerId)?.envVar?.trim();
+  // The configured bytes, untrimmed: the runtime looks the variable up under
+  // exactly them (the same fact `status --all` labels a padded name `env` on),
+  // so a refusal derived from a trimmed copy would name a variable the probe
+  // never read. A whitespace-only value is keyless and refused just below.
+  const customEnvVar = customProviders.find((item) => item.id === providerId)?.envVar;
   if (isKeylessCustomProvider(providerId, customProviders)) {
     return cliFail(io, {
       command: "auth login",
@@ -482,11 +489,7 @@ async function loginFromEnvCommand(
     return cliFail(io, {
       command: "auth login",
       stage: "preflight",
-      message:
-        customEnvVar !== undefined
-          ? `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`
-          : `provider ${providerId} is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login ${providerId} --key <key> to store a credential instead`,
-      next: `set the environment the message names, or store a credential with pnpm cli auth login ${providerId} --key <key>`
+      ...unconfiguredEnvironmentReport(providerId, customEnvVar)
     });
   }
   // Read the store before reporting success, not after: an unexpected read
@@ -508,6 +511,49 @@ async function loginFromEnvCommand(
     );
   }
   return 0;
+}
+
+/**
+ * What `--from-env` found nothing for, and what to do about it — both stated
+ * in terms of what the probe actually checked.
+ *
+ * The remedy splits because the two messages name different things. A custom
+ * provider's message names one variable, so the remedy is to set that variable
+ * as configured. A builtin's message names *categories* — environment
+ * variables, ADC files, AWS profiles — because Pi keeps the variable list
+ * inside its resolver, so "set the variable the message names" would be
+ * pointing at a name that is not there.
+ *
+ * The padded case is the same fact `status --all` labels a padded `envVar`
+ * `env` on: `providers.json` keeps the name as written and the runtime looks
+ * it up under exactly those bytes, so the trimmed spelling is a *different*
+ * variable and setting it changes nothing. Naming it would send the operator
+ * to configure something the probe will not read. Quoted through
+ * `JSON.stringify` because the whitespace is otherwise invisible in the line;
+ * an unpadded name keeps its existing bytes rather than gaining quotes.
+ */
+function unconfiguredEnvironmentReport(
+  providerId: string,
+  customEnvVar: string | undefined
+): { readonly message: string; readonly next: string } {
+  const storeInstead = `store a credential with pi-sparkle auth login ${providerId} --key <key>`;
+  if (customEnvVar === undefined) {
+    return {
+      message: `provider ${providerId} is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login ${providerId} --key <key> to store a credential instead`,
+      next: `configure one of the ambient sources named in the message, or ${storeInstead}`
+    };
+  }
+  const next = `set the providers.json envVar exactly as configured for ${providerId}, or ${storeInstead}`;
+  if (customEnvVar !== customEnvVar.trim()) {
+    return {
+      message: `provider ${providerId} is not configured in the environment: providers.json envVar ${JSON.stringify(customEnvVar)} is unset or empty (whitespace is part of the variable name)`,
+      next
+    };
+  }
+  return {
+    message: `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`,
+    next
+  };
 }
 
 type StoreListing =
