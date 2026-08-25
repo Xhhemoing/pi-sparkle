@@ -81,7 +81,9 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
       command: "pause",
       stage: "lookup",
       message: `Run ${runId} not found under ${stateRoot}`,
-      next: `check --state-root and --run ${runId}`,
+      // The house run-not-found remedy, copied rather than imported: `main.ts`
+      // imports this module, so reaching back for `missingRun` would be a cycle.
+      next: `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`,
       runId
     });
   }
