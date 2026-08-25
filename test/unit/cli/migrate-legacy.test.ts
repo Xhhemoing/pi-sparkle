@@ -419,6 +419,24 @@ describe("migrate-legacy publishes atomically", () => {
     };
   }
 
+  it("never overwrites a destination that appears during the exclusive-copy fallback", async () => {
+    await withStateRoot(async (stateRoot) => {
+      const destination = await seedOneFile(stateRoot);
+      const live = '{"id":"fbk_live","episodeId":"ep_9","kind":"user","score":0}\n';
+      const captured = capture();
+
+      const code = await migrateLegacyCommand(["--state-root", stateRoot, "--apply"], captured.io, {
+        link: () => Promise.reject(Object.assign(new Error("no hard links here"), { code: "EPERM" })),
+        uniqueSuffix: racerWriting(destination, live)
+      });
+
+      assert.equal(code, 1);
+      assert.match(captured.err(), /could not copy feedback\/records\.jsonl/);
+      assert.equal(await readFile(destination, "utf8"), live, "the exclusive fallback never clobbers");
+      assert.deepEqual(await tempsBeside(destination), []);
+    });
+  });
+
   it("reports a destination that appears mid-apply with matching bytes as already migrated", async () => {
     await withStateRoot(async (stateRoot) => {
       const destination = await seedOneFile(stateRoot);
