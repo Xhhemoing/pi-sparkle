@@ -356,8 +356,14 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   `TIMEOUT` outcome even when the per-attempt deadline has not elapsed. A
   terminal result or protocol violation that still arrives keeps its own
   outcome.
-- `maxCostUsd` is validated as a positive protocol field when present, but the
-  child coordinator does not currently read usage or enforce this ceiling.
+- `maxCostUsd` is validated as a positive protocol field when present. The child
+  coordinator forwards the tighter of it and the run-level ceiling to the
+  selected executor on the execution request and stamps that effective cap into
+  the child's `RUN_CREATED.limits`. `PiAgentExecutor` prices observed turn usage
+  from the resolved model catalog and stops before another provider turn once
+  the ceiling is reached; an executor that cannot price its own spend leaves the
+  ceiling unenforced rather than inventing a dollar figure, so this stays a
+  best-effort per-execution cap, not a cross-child run ledger.
 
 On flowchart resume, a node whose parent log contains a `TASK_REQUEST` runs
 under that recorded spec. Objective, input artifacts, acceptance criteria, and

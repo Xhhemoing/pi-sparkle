@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -63,6 +63,110 @@ const CHILD_SPEC = {
     }
   ]
 };
+
+async function readEventLog(stateRoot: string, runId: string): Promise<Record<string, unknown>[]> {
+  const raw = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
+  return raw
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+async function runDirectoryNames(stateRoot: string): Promise<string[]> {
+  try {
+    return await readdir(join(stateRoot, "runtime", "runs"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+test("run --children carries a declared maxCostUsd to the child run and its TASK_REQUEST", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        tasks: [
+          {
+            id: "tsk_capped",
+            role: "implementer",
+            objective: "Implement the parser under a budget",
+            acceptanceCriteria: [{ id: "ac-1", description: "Parses empty input" }],
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000, maxCostUsd: 0.25 }
+          }
+        ]
+      }),
+      "utf8"
+    );
+    const { io, out, err } = capture();
+    const code = await main(
+      ["run", "--project", projectRoot, "--objective", "Ship the parser", "--children", specPath, "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    const runId = requireCompletedRunId(out, err);
+
+    // The declared ceiling must be on disk, not merely accepted by the CLI:
+    // the TASK_REQUEST the parent logged and the child's own RUN_CREATED are
+    // the two records that claim what the child was allowed to spend.
+    const parentEvents = await readEventLog(stateRoot, runId);
+    const requests = parentEvents.flatMap((event) => {
+      const payload = event.payload as { message?: { type?: string; limits?: { maxCostUsd?: number } } };
+      const message = payload?.message;
+      return event.type === "CHILD_MESSAGE" && message?.type === "TASK_REQUEST" ? [message] : [];
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.limits?.maxCostUsd, 0.25);
+
+    const inspection = await inspectRun(stateRoot, runId);
+    assert.equal(inspection.children.length, 1);
+    const childRunId = inspection.children[0]!.childRunId;
+    const childEvents = await readEventLog(stateRoot, childRunId);
+    const created = childEvents.filter((event) => event.type === "RUN_CREATED");
+    assert.equal(created.length, 1);
+    const createdRun = (created[0]!.payload as { run: { limits: { maxCostUsd?: number } } }).run;
+    assert.equal(createdRun.limits.maxCostUsd, 0.25);
+  });
+});
+
+test("run --children refuses a non-positive maxCostUsd naming the task and writes no run", async () => {
+  // JSON cannot carry NaN/Infinity, so `null` is the shape a hand-written spec
+  // actually reaches the parser with when the value is not a number at all.
+  for (const declared of [0, -1, "0.25", null] as const) {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const specPath = join(projectRoot, "children.json");
+      await writeFile(
+        specPath,
+        JSON.stringify({
+          tasks: [
+            {
+              id: "tsk_capped",
+              role: "implementer",
+              objective: "Implement the parser under a budget",
+              acceptanceCriteria: [],
+              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000, maxCostUsd: declared }
+            }
+          ]
+        }),
+        "utf8"
+      );
+      const { io, err } = capture();
+      const code = await main(
+        ["run", "--project", projectRoot, "--objective", "x", "--children", specPath, "--state-root", stateRoot],
+        io
+      );
+      assert.notEqual(code, 0);
+      const stderr = err.join("");
+      assert.match(stderr, /tsk_capped/);
+      assert.match(stderr, /maxCostUsd/);
+      const parsed = parseCliErrorJson(stderr);
+      assert.ok(parsed, stderr);
+      assert.equal(parsed.ok, false);
+      assert.deepEqual(await runDirectoryNames(stateRoot), []);
+    });
+  }
+});
 
 test("run --children compiles dependsOn into a sequential flowchart", async () => {
   await withRoots(async (stateRoot, projectRoot) => {

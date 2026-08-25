@@ -356,6 +356,25 @@ proposed until adapt promote --approve. Other kinds stay proposal-first. CAS pro
 rollback remain available on the CLI.
 `;
 
+/**
+ * A declared per-child USD ceiling is load-bearing: the child coordinator
+ * forwards the tighter of it and the run-level cap to the executor and stamps
+ * it into the child's RUN_CREATED. Dropping it would give the operator a
+ * silent exit 0 with no ceiling anywhere on disk; copying an invalid one would
+ * surface as a protocol-validation failure far from the file they wrote. So
+ * anything present that is not a positive finite number is refused here, by
+ * task.
+ */
+function parseChildCostCeiling(taskId: TaskId, value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new DomainValidationError(
+      `Child task ${taskId}: limits.maxCostUsd must be a positive finite number`
+    );
+  }
+  return value;
+}
+
 /** Parses a --children spec file into validated ChildTaskInput values. */
 async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
   const raw = await readFile(path, "utf8");
@@ -406,6 +425,7 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
         })
       : [];
     const limits = task.limits as Record<string, unknown> | undefined;
+    const maxCostUsd = parseChildCostCeiling(taskId, limits?.maxCostUsd);
     const profile = registry.resolve(task.role);
     const dependsOn = Array.isArray(task.dependsOn)
       ? task.dependsOn.map((id) => parseTaskId(id))
@@ -420,7 +440,8 @@ async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
       limits: {
         maxAttempts: typeof limits?.maxAttempts === "number" ? limits.maxAttempts : 1,
         timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : 60_000,
-        maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000
+        maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000,
+        ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
       },
       ...(dependsOn !== undefined ? { dependsOn } : {})
     };
