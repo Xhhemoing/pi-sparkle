@@ -73,8 +73,14 @@ const IMPLEMENTED_PROPAGATION: ReadonlyArray<{
 }> = [
   {
     from: "run-event",
-    to: ["run-checkpoint", "run-pause", "track-questions", "model-invocation"],
-    by: "deleteRunRecords: rm -r runtime/runs/<runId>/ then filter-rewrite runtime/invocations.jsonl"
+    to: [
+      "run-checkpoint",
+      "run-pause",
+      "track-questions",
+      "model-invocation",
+      "routing-eval-dataset"
+    ],
+    by: "deleteRunRecords: rm -r runtime/runs/<runId>/, filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
   },
   {
     from: "model-invocation",
@@ -119,6 +125,27 @@ test("run deletion does not claim to take the episode with it", () => {
   const runEvent = durableRecordClassById("run-event");
   assert.ok(runEvent);
   assert.ok(!runEvent.deletionPropagatesTo.includes("episode"));
+});
+
+/**
+ * D2 (GPT-r2): the exported replay dataset stores two pieces of user text —
+ * the objective excerpt and the project root — and both survive only
+ * best-effort regex redaction. The class used to name the objective as the
+ * only one, which made the census read cleaner than the file is.
+ */
+test("the exported replay dataset declares both of the user-text fields it stores", () => {
+  const dataset = durableRecordClassById("routing-eval-dataset");
+  assert.ok(dataset);
+  for (const field of ["objective", "originalWorkspace"]) {
+    assert.ok(
+      dataset.sensitiveFields.some((entry) => entry.startsWith(field)),
+      `${field} is written to the manifest but not declared sensitive`
+    );
+  }
+  assert.ok(
+    !/only user text/i.test(dataset.redaction),
+    "the class must not claim one field is the only user text it holds"
+  );
 });
 
 test("feedback marks every field the episode cascade strips as sensitive", () => {

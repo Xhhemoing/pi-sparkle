@@ -28,9 +28,11 @@ explicit plane directories:
 Runtime data reaches the adaptation plane only as (a) derived signals with no
 user text (taskSuccess PASS/FAIL via `src/learning/from-episode.ts`), or
 (b) through the redaction pipes (`redactFeedback` / `exportForDataset` /
-`exportRoutingEvalDataset`, which truncates the task objective to 500
-characters and runs it through `redactSensitiveText` before writing a replay
-dataset). The current import exceptions are pinned in
+`exportRoutingEvalDataset`, which runs the task objective and the discovered
+project root through `redactSensitiveText` and only then cuts the objective
+down to a 500-character excerpt, before writing a replay dataset). Redaction
+there is best-effort pattern matching, so both fields stay declared sensitive
+rather than being called clean. The current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
@@ -69,7 +71,7 @@ allowlist entry with a justification.
 | catalog-observed | runtime | `runtime/routing/catalog-observed.json` | until-deleted | delete-files | 1 |
 | candidate | adaptation | `adaptation/registry.json` | until-rollback | tombstone-ids | 1 |
 | routing-eval-report | adaptation | `adaptation/evals/<candidateId>.<cacheKey>.json` | until-deleted | exclude-from-export | 1 |
-| routing-eval-dataset | adaptation | `adaptation/eval-datasets/<runId>/manifest.json` (default; `adapt dataset --dir` may name another directory) | until-deleted | delete-files | 1 |
+| routing-eval-dataset | adaptation | `adaptation/eval-datasets/<runId>/manifest.json` (default, removed by `delete --run`; `adapt dataset --dir` may name another directory, which is an external export outside that cascade) | until-deleted | delete-files | 1 |
 | learned-routing-policy | adaptation | `adaptation/learning/projects/<stableProjectKey>/routing.json` | until-deleted | delete-files | 1 |
 | learning-bandit | adaptation | `adaptation/learning/projects/<stableProjectKey>/bandit.json` | until-deleted | delete-files | 1 |
 | experiment | adaptation | in-memory / fixture plans | until-deleted | exclude-from-export | 1 |
@@ -95,6 +97,18 @@ is essential because the per-step event and checkpoint writers deliberately
 do not take this lock and can recreate the subtree. A write after the final
 verification is a new write, so deletion after termination remains the
 supported flow.
+
+`delete --run <id>` also removes `adaptation/eval-datasets/<id>/`, the replay
+dataset `adapt dataset --run <id>` writes by default. That file is a derived
+copy of the run's own text (a redacted excerpt of each routed task's objective
+plus the redacted project root), so leaving it behind would keep the run's task
+text on disk under another name. It is reached by path — the exporter and the
+delete share `defaultEvalDatasetDir` — and removed after the run subtree, so a
+delete that fails at the run lock leaves it for the idempotent re-delete rather
+than half-completing. **An `adapt dataset --dir <path>` export is not
+cascaded**: nothing records the operator's path and rediscovering it would mean
+searching arbitrary directories for manifests, so the export command warns on
+stderr that the copy is external and the operator owns its deletion.
 
 The M0, parent, flowchart, and supervised start/resume paths, plus clarification
 runs, take `runtime/runs/<runId>.lock` once for the whole record-writing

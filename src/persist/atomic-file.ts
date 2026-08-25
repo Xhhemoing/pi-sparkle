@@ -16,6 +16,13 @@ export interface AtomicWriteOptions {
   readonly rename?: (source: string, destination: string) => Promise<void>;
   /** Injection seam for the temp-name suffix. Defaults to a random UUID. */
   readonly uniqueSuffix?: () => string;
+  /**
+   * Permission bits for the published file, applied to the temp file at
+   * creation so the bytes are never briefly readable at the umask default.
+   * Omitted means the platform default (`0o666` & umask); Windows honours only
+   * the write bit either way.
+   */
+  readonly mode?: number;
 }
 
 /** The `writeFileAtomicSync` mirror of `AtomicWriteOptions`; the seams are synchronous. */
@@ -41,14 +48,15 @@ function tempName(path: string, uniqueSuffix: () => string): string {
 
 async function openUniqueTemp(
   path: string,
-  uniqueSuffix: () => string
+  uniqueSuffix: () => string,
+  mode: number | undefined
 ): Promise<{ tempPath: string; handle: Awaited<ReturnType<typeof open>> }> {
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_TEMP_NAME_ATTEMPTS; attempt += 1) {
     const tempPath = tempName(path, uniqueSuffix);
     try {
       // "wx" never truncates: a temp left behind by a crashed writer is refused, not adopted.
-      return { tempPath, handle: await open(tempPath, "wx") };
+      return { tempPath, handle: await open(tempPath, "wx", mode) };
     } catch (error: unknown) {
       if (errorCode(error) !== "EEXIST") throw error;
       lastError = error;
@@ -72,7 +80,7 @@ export async function writeFileAtomic(
   const uniqueSuffix = options.uniqueSuffix ?? randomUUID;
   await mkdir(dirname(path), { recursive: true });
 
-  const { tempPath, handle } = await openUniqueTemp(path, uniqueSuffix);
+  const { tempPath, handle } = await openUniqueTemp(path, uniqueSuffix, options.mode);
   let published = false;
   try {
     try {

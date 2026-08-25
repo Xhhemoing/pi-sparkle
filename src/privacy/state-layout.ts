@@ -16,8 +16,10 @@ import { join } from "node:path";
  * Runtime data reaches the adaptation plane only as (a) derived signals with
  * no user text (taskSuccess PASS/FAIL), or (b) through the redaction pipes
  * (`redactFeedback` / `exportForDataset` / `exportRoutingEvalDataset`, which
- * truncates and scrubs the task objective before it can land in a replay
- * dataset). The plane-boundary test pins the current exceptions; new ones
+ * scrubs the task objective and the project root and only then bounds the
+ * objective to an excerpt, before either can land in a replay dataset).
+ * Scrubbing is best-effort, so what lands is classified sensitive rather than
+ * called clean. The plane-boundary test pins the current exceptions; new ones
  * require an explicit allowlist entry.
  */
 export type Plane = "runtime" | "adaptation";
@@ -28,4 +30,15 @@ export function runtimeRoot(stateRoot: string): string {
 
 export function adaptationRoot(stateRoot: string): string {
   return join(stateRoot, "adaptation");
+}
+
+/**
+ * Where `adapt dataset --run <runId>` writes when the operator does not name a
+ * directory. It lives here rather than in the exporter because the delete
+ * tooling has to reach the same path: `deleteRunRecords` cascades into this
+ * directory, and a second spelling of it would be a cascade that silently
+ * misses. `--dir` exports are outside this path and outside that cascade.
+ */
+export function defaultEvalDatasetDir(stateRoot: string, runId: string): string {
+  return join(adaptationRoot(stateRoot), "eval-datasets", runId);
 }

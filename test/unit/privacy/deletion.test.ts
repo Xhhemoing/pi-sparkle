@@ -38,7 +38,10 @@ import {
   inspectPreferences,
   recordExplicitPreference
 } from "../../../src/preferences/service.js";
+import { exportRoutingEvalDataset } from "../../../src/learning/eval-dataset.js";
 import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 import {
   FREE_TEXT_FEEDBACK_FIELDS,
   RUN_RECORDS_SURVIVED_CODE,
@@ -154,6 +157,85 @@ function runEvent(runId: RunId, type: Event["type"], payload: unknown): Event {
     actor: "deletion-test",
     payload
   } as Event;
+}
+
+/**
+ * One routed, deterministically verified task — the minimum
+ * `exportRoutingEvalDataset` accepts, so the derived replay dataset in the
+ * cascade tests below is written by the real exporter rather than mocked.
+ */
+function routedRunEvents(runId: RunId, workspace: string, objective: string): Event[] {
+  const taskId = "tsk_dsdel01";
+  const occurredAt = parseIsoTimestamp("2026-08-24T00:00:00.000Z");
+  return [
+    runEvent(runId, "PROJECT_DISCOVERED", {
+      project: {
+        id: createProjectId(UUID),
+        rootPath: workspace,
+        discoveredAt: occurredAt,
+        instructionFiles: [],
+        manifests: [],
+        commands: [],
+        facts: []
+      }
+    }),
+    runEvent(runId, "TASK_GRAPH_ACCEPTED", {
+      tasks: [
+        {
+          id: taskId,
+          title: "cache work",
+          objective,
+          role: "implementer",
+          dependencies: [],
+          acceptanceCriteria: [{ id: "ac1", description: "tests pass" }],
+          status: "PENDING",
+          attempt: 0,
+          maxAttempts: 2,
+          timeoutMs: 60_000,
+          artifactIds: [],
+          evidenceIds: []
+        }
+      ]
+    }),
+    runEvent(runId, "MODEL_ROUTED", {
+      taskId,
+      role: "actor",
+      complexity: "MEDIUM",
+      model: "cheap",
+      justification: "cheapest eligible",
+      confidence: 0.8,
+      approvalPlan: { id: "ap_del", items: [{ id: "go", label: "go", selectable: true }] },
+      statusAfterRoute: "RUNNING",
+      policyVersion: "router-v1",
+      estimatedCostUsd: 0.1,
+      estimatedDurationMs: 1000,
+      family: "edit",
+      featureVersion: ASSIGN_FEATURE_VERSION,
+      modelVersion: "cheap-v1",
+      highRisk: false,
+      eligibleModels: ["cheap", "premium"],
+      rejections: [],
+      behaviorDistribution: { cheap: 1, premium: 0 },
+      agentRole: "implementer"
+    }),
+    runEvent(runId, "CHILD_MESSAGE", {
+      message: {
+        protocolVersion: 1,
+        id: "msg_00000000-0000-4000-8000-00000000d001",
+        occurredAt,
+        runId,
+        taskId,
+        from: "agt_00000000-0000-4000-8000-000000000009",
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "checks green",
+        artifactIds: [],
+        evidenceIds: ["evd_check"],
+        verification: { kind: "PASSED", evidenceIds: ["evd_check"] }
+      }
+    })
+  ];
 }
 
 /** A run whose event log opens the episode, i.e. embeds the whole snapshot. */
@@ -978,6 +1060,62 @@ function agentEvent(runId: RunId, summary: string): Event {
     summary
   });
 }
+
+/**
+ * D3 (GPT-r2): `adapt dataset` writes a durable, derived copy of the run's own
+ * task text under `adaptation/eval-datasets/<runId>/`, and no delete reached
+ * it — so deleting the source run left the objective excerpt and the project
+ * root on disk indefinitely while the record class claimed `delete-files`.
+ * The default path is derived from the run id, which is what makes the cascade
+ * possible without searching the filesystem for manifests.
+ */
+test("delete --run removes the replay dataset exported from that run", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const objective = "Ship the payroll importer for acme-corp";
+    const events = routedRunEvents(runId, workspace, objective);
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+
+    const exported = await exportRoutingEvalDataset({ stateRoot, runId, events });
+    assert.equal(
+      exported.datasetDir,
+      join(adaptationRoot(stateRoot), "eval-datasets", runId),
+      "the cascade only reaches the default path, so the export must use it"
+    );
+    assert.ok((await readFile(exported.manifestPath, "utf8")).includes("payroll importer"));
+
+    const result = await deleteRunRecords(stateRoot, runId);
+
+    assert.equal(existsSync(exported.datasetDir), false, "the derived task text survived the delete");
+    assert.ok(
+      result.removedPaths.includes(exported.datasetDir),
+      `the delete must report the dataset it removed: ${JSON.stringify(result.removedPaths)}`
+    );
+    // Only the run's own dataset goes; the plane it lives in stays.
+    assert.equal(existsSync(join(adaptationRoot(stateRoot), "eval-datasets")), true);
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
+
+test("a re-delete of a run whose dataset is already gone reports only what it removed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const events = routedRunEvents(runId, workspace, "Implement the cache layer");
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+    const exported = await exportRoutingEvalDataset({ stateRoot, runId, events });
+
+    const first = await deleteRunRecords(stateRoot, runId);
+    assert.ok(first.removedPaths.includes(exported.datasetDir));
+
+    const second = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(second.removedPaths, [], "an absent dataset is not a removal to report");
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
 
 test("verifying a run delete passes on an absent subtree and fails on a recreated one", async () => {
   await withStateRoot(async (stateRoot) => {

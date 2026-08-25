@@ -41,6 +41,13 @@ Usage:
   pi-sparkle adapt rollback --expected <rsv_...> --target <rsv_...> --reason <guardrail|degradation|user> [--state-root <dir>]
 
 show and dataset are read-only: show never promotes, dataset never writes policy.
+
+dataset exports one run's routed tasks as replay rows (manifest key "episodes",
+because that is what eval reads) — they are one run's evidence, not independent
+episodes, and the export is a routing/cost replay fixture rather than held-out
+validation. Task objectives and the project root are redacted best-effort and
+stay sensitive. The default export under adaptation/eval-datasets/<runId>/ is
+removed by delete --run <runId>; a --dir export is external and is not.
 `;
 
 const PROMOTE_REFUSAL =
@@ -260,6 +267,15 @@ async function showCommand(
  * Export the replay dataset `adapt eval --dataset` consumes from one run's
  * recorded events. Writes the dataset directory and nothing else: no registry
  * mutation, no bandit file, no policy.
+ *
+ * The rows are that run's routed tasks. They are written under the manifest's
+ * `episodes` key because that is what the evaluator reads, and they are not
+ * independent episodes — five tasks from one run are one run's evidence.
+ *
+ * Default exports land under `adaptation/eval-datasets/<runId>/` and
+ * `delete --run` removes them with the run. A `--dir` export is an external
+ * copy of redacted user text that nothing records, so it is warned about here
+ * instead of being promised a cascade that cannot find it.
  */
 async function datasetCommand(
   values: { run?: string | undefined; dir?: string | undefined },
@@ -287,6 +303,15 @@ async function datasetCommand(
       const tasks = result.skippedWithoutObjective === 1 ? "task" : "tasks";
       io.stderr(
         `warning: ${result.skippedWithoutObjective} routed PASS/FAIL ${tasks} had no recorded objective and were left out\n`
+      );
+    }
+    const rows = result.manifest.episodes.length;
+    io.stderr(
+      `note: the ${rows} exported row(s) are routed tasks from run ${runId}, not independent episodes; adapt eval replays them as a routing/cost fixture, not as held-out validation evidence\n`
+    );
+    if (values.dir !== undefined) {
+      io.stderr(
+        `warning: ${result.datasetDir} is an external export and is NOT cascaded by delete --run ${runId}; only the default adaptation/eval-datasets/${runId}/ export is. It holds redacted task text and a redacted project root — delete it yourself when you are done with it.\n`
       );
     }
     io.stdout(`${result.datasetDir}\n`);
