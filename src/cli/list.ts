@@ -3,7 +3,8 @@
  *   import { listCommand } from "./list.js";
  *   case "list": return await listCommand(rest, io);
  * and one USAGE line:
- *   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
+ *   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--sort <id|last-event>]
+ *                   [--state-root <dir>] [--json]
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -24,15 +25,19 @@ export interface ListIo {
 }
 
 export const LIST_USAGE = `Usage:
-  pi-sparkle list [--runs] [--status <RunStatus>] [--state-root <dir>] [--json]
-  pi-sparkle list --episodes [--state-root <dir>] [--json]
+  pi-sparkle list [--runs] [--status <RunStatus>] [--sort <id|last-event>] [--state-root <dir>] [--json]
+  pi-sparkle list --episodes [--sort <id|last-event>] [--state-root <dir>] [--json]
 
 Lists the runs (default) or episodes recorded under a state root, ordered by id,
 with the status replayed from each log. --status filters runs by that status, one
-of ${RUN_STATUSES.join(", ")}. Records that cannot be read are counted on stderr
-and listed under "errors" in --json; the other records are still listed and the
-exit code stays 0. --json prints exactly one object on stdout (developer
-preview). State root defaults to ~/.pi-sparkle.
+of ${RUN_STATUSES.join(", ")}. --sort last-event orders the rows most-recent-first
+by their last event, tie-broken by id; rows with no timestamp sort last. Records
+that cannot be read are counted on stderr and listed under "errors" in --json; the
+other records are still listed and the exit code stays 0. A record whose log was
+crash-truncated is listed with the status replayed from the shortened log, and the
+dropped tail is disclosed on stderr and under "warnings" in --json. --json prints
+exactly one object on stdout (developer preview). State root defaults to
+~/.pi-sparkle.
 `;
 
 /**
@@ -64,6 +69,47 @@ export interface ListJson {
   readonly runs?: readonly ListJsonRunRow[];
   readonly episodes?: readonly ListJsonEpisodeRow[];
   readonly errors: readonly ListJsonError[];
+  /**
+   * Records that were listed from a crash-truncated log. Always present, like
+   * `errors`: a consumer must be able to tell "nothing was truncated" from "the
+   * key predates this field".
+   */
+  readonly warnings: readonly ListJsonError[];
+}
+
+/** What the rows are ordered by. `id` is the inventory's own order. */
+export type ListSort = "id" | "last-event";
+
+const LIST_SORTS: readonly ListSort[] = ["id", "last-event"];
+
+function isListSort(value: string): value is ListSort {
+  return (LIST_SORTS as readonly string[]).includes(value);
+}
+
+/**
+ * The rows, most-recent-first by `lastEventAt`, ties broken by id ascending so
+ * the order is total and stable across runs.
+ *
+ * A row with no timestamp sorts last rather than first: "when did this last
+ * move" cannot be answered for it, and an unanswerable row must not head a
+ * recency list. Exported because that branch is unreachable through the
+ * episode store today (every snapshot that validates carries `startedAt`),
+ * and an ordering rule no test can reach is an ordering rule nobody owns.
+ */
+export function sortByLastEvent<Row extends { readonly lastEventAt?: string | undefined }>(
+  rows: readonly Row[],
+  idOf: (row: Row) => string
+): Row[] {
+  return [...rows].sort((left, right) => {
+    const leftAt = left.lastEventAt;
+    const rightAt = right.lastEventAt;
+    if (leftAt !== rightAt) {
+      if (leftAt === undefined) return 1;
+      if (rightAt === undefined) return -1;
+      return rightAt.localeCompare(leftAt);
+    }
+    return idOf(left).localeCompare(idOf(right));
+  });
 }
 
 function defaultStateRoot(): string {
@@ -74,12 +120,30 @@ function jsonErrors(errors: readonly InventoryError[]): ListJsonError[] {
   return errors.map((error) => ({ path: error.path, message: error.message }));
 }
 
-function warnIncomplete(io: ListIo, errors: readonly InventoryError[]): void {
-  if (errors.length === 0) return;
-  io.stderr(`warning: list incomplete: ${errors.length} unreadable record(s)\n`);
+/**
+ * Every disclosure the inventory owes stderr, in the order an operator reads
+ * them: the named truncated logs first, then the count of records that could
+ * not be read at all.
+ */
+function warnNotices(io: ListIo, notices: InventoryNotices): void {
+  for (const warning of notices.warnings) {
+    io.stderr(`warning: ${warning.path}: ${warning.message}\n`);
+  }
+  if (notices.errors.length === 0) return;
+  io.stderr(`warning: list incomplete: ${notices.errors.length} unreadable record(s)\n`);
 }
 
-function writeRuns(io: ListIo, runs: readonly RunInventoryRow[], json: boolean, errors: readonly InventoryError[]): void {
+interface InventoryNotices {
+  readonly errors: readonly InventoryError[];
+  readonly warnings: readonly InventoryError[];
+}
+
+function writeRuns(
+  io: ListIo,
+  runs: readonly RunInventoryRow[],
+  json: boolean,
+  notices: InventoryNotices
+): void {
   if (json) {
     const payload: ListJson = {
       type: "RUN_LIST",
@@ -90,7 +154,8 @@ function writeRuns(io: ListIo, runs: readonly RunInventoryRow[], json: boolean, 
         lastEventAt: run.lastEventAt,
         episodeId: run.episodeId ?? null
       })),
-      errors: jsonErrors(errors)
+      errors: jsonErrors(notices.errors),
+      warnings: jsonErrors(notices.warnings)
     };
     io.stdout(`${JSON.stringify(payload)}\n`);
     return;
@@ -108,7 +173,7 @@ function writeEpisodes(
   io: ListIo,
   episodes: readonly EpisodeInventoryRow[],
   json: boolean,
-  errors: readonly InventoryError[]
+  notices: InventoryNotices
 ): void {
   if (json) {
     const payload: ListJson = {
@@ -119,7 +184,8 @@ function writeEpisodes(
         status: episode.status,
         lastEventAt: episode.lastEventAt ?? null
       })),
-      errors: jsonErrors(errors)
+      errors: jsonErrors(notices.errors),
+      warnings: jsonErrors(notices.warnings)
     };
     io.stdout(`${JSON.stringify(payload)}\n`);
     return;
@@ -148,6 +214,7 @@ export async function listCommand(args: string[], io: ListIo): Promise<number> {
         runs: { type: "boolean", default: false },
         episodes: { type: "boolean", default: false },
         status: { type: "string" },
+        sort: { type: "string" },
         json: { type: "boolean", default: false },
         "state-root": { type: "string" },
         help: { type: "boolean", short: "h", default: false }
@@ -198,6 +265,16 @@ export async function listCommand(args: string[], io: ListIo): Promise<number> {
     }
   }
 
+  const sort = values.sort ?? "id";
+  if (!isListSort(sort)) {
+    return cliFail(io, {
+      command: "list",
+      stage: "parse-args",
+      message: `Unknown list sort: ${sort}`,
+      next: "pass --sort id or --sort last-event"
+    });
+  }
+
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const json = values.json === true;
 
@@ -213,8 +290,12 @@ export async function listCommand(args: string[], io: ListIo): Promise<number> {
         next: `check --state-root ${stateRoot} is readable`
       });
     }
-    writeEpisodes(io, inventory.episodes, json, inventory.errors);
-    warnIncomplete(io, inventory.errors);
+    const episodes =
+      sort === "last-event"
+        ? sortByLastEvent(inventory.episodes, (episode) => episode.episodeId)
+        : inventory.episodes;
+    writeEpisodes(io, episodes, json, inventory);
+    warnNotices(io, inventory);
     return CLI_EXIT.ok;
   }
 
@@ -229,9 +310,10 @@ export async function listCommand(args: string[], io: ListIo): Promise<number> {
       next: `check --state-root ${stateRoot} is readable`
     });
   }
-  const runs =
+  const selected =
     status === undefined ? inventory.runs : inventory.runs.filter((run) => run.status === status);
-  writeRuns(io, runs, json, inventory.errors);
-  warnIncomplete(io, inventory.errors);
+  const runs = sort === "last-event" ? sortByLastEvent(selected, (run) => run.runId) : selected;
+  writeRuns(io, runs, json, inventory);
+  warnNotices(io, inventory);
   return CLI_EXIT.ok;
 }
