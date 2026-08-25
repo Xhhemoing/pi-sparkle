@@ -148,12 +148,24 @@ Post-publish must not only re-read directory identity; it must `lstat` `manifest
 
 ## D20 — Round 5 rank 1: CLI claims only the work it did
 
-Fable-r5-next: **HIGH VALUE**. `commits apply` must disclose already-created commits on a mid-loop failure and name `--nodes` for the rest. `episode`/`commits` must emit the same truncated-JSONL stderr warning `inspect` already prints (`warnTruncatedJsonl` in `errors.ts`; `main.ts` keeps its private copy until #12). `episode close --json` refuses (`parse-args`). `pause --clear` must not print "Cleared pause" when no token existed. No `main.ts`. Spec: `.agent_workspace/loop5-r5-fable-next.md` Rank 1.
+Fable-r5-next: **HIGH VALUE**. GPT-r5-challenge: **FIX** the two remedies, keep the slot.
+
+- `commits apply`: always disclose successful count and remaining proposal ids. Recommend `--nodes` only for generated proposals whose remaining ids round-trip through `parseCommitNodeIdsCsv`. For `--file`, tell the operator to write the uncommitted suffix as a new `{ "commits": [...] }` file and rerun; do not print a command that can replay the prefix. Do not narrow flowchart ids.
+- Truncation warning + `episode close --json` refuse as Fable specified (`warnTruncatedJsonl` in `errors.ts`; `main.ts` keeps its private copy until #12).
+- `pause --clear`: base the message on whether unlink actually removed a file (narrow result-bearing helper in `pause-controller.ts`). No malformed-token special case; no TOCTOU probe-then-clear.
+
+No `main.ts`. Spec: `.agent_workspace/loop5-r5-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r5-gpt-challenge.md`.
 
 ## D21 — Round 5 rank 2: auth/models operator remainder
 
-Fable-r5-next. F4, F12, and keyless-custom `--from-env` already landed — do not re-implement. Remaining: refuse keyless-custom `--key`/interactive/oauth login (nothing to store); `models disable` discloses dropped primary/fast defaults; `auth status --all` never exits 0 with empty output; source column `env` vs `ambient`; convert the six raw-stderr arg errors in `auth.ts`/`models.ts` to `cliFail` `parse-args`. Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 of the same report.
+Fable-r5-next. GPT-r5-challenge: **FIX** the login message and G4 count; keep the slot. F4, F12, and keyless-custom `--from-env` already landed — do not re-implement.
+
+- Keyless-custom `--key`/interactive/oauth: refuse storing into `auth.json` because the custom resolver ignores it. Do **not** say requests are always keyless: `PI_API_KEY` can still apply to the selected default provider. Do not advise “remove the flag.”
+- Convert the **five** missing-argument sites (auth login/logout, models enable/disable/set-default), or all seven including unknown-subcommand; do not claim six.
+- F9 disable dropped-default disclosure; F13 `status --all` never empty; source column `env` only when `check.source` equals the configured `envVar`, else `ambient`.
+
+Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 as corrected by the GPT challenge.
 
 ## D22 — Round 5 rank 3: doctor storage inventory (queued)
 
-Additive doctor `storage` field + check, `lstat`-only walk (never follow directory links), Windows-hermetic tests, legal additive pin updates. No sixth `DOCTOR_ROUTED_NEXT` route. Hold dispatch one slot behind D20/D21 cloud cap / D19 recheck; files are disjoint from D19. Spec: Rank 3 of the same report.
+GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
