@@ -31,7 +31,7 @@
 | 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
 | 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
-| 17 | 第 1–3 波进行中 | 8 / 10（A–E 已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-17/PLAN.md](./round-17/PLAN.md) |
+| 17 | 第 1–3 波进行中 | 9 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-17/PLAN.md](./round-17/PLAN.md) |
 
 ### Round 1 波次
 
@@ -182,8 +182,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R17-A 跟踪门控、R17-B live 路由、R17-C 离线路由 | A/B/C 完成已合入 |
-| 2 | R17-D 自优化、R17-E 学习、R17-F 实验 | D/E 完成已合入；F 运行中 |
-| 3 | R17-G 运行时/图、R17-H 评价/需求 | G 运行中；H 本波派出 |
+| 2 | R17-D 自优化、R17-E 学习、R17-F 实验 | D/E/F 完成已合入 |
+| 3 | R17-G 运行时/图、R17-H 评价/需求、R17-I CLI/适配器 | G/H 运行中；I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -355,9 +355,10 @@
 | R17-C | `cursor/r17-c-offline-routing-seventeenth-pass-83a1` | 已合入专属分支（仅 `R17-C.md`）。无新排除 ID；生产中位复核 657.6–689.3 ms；NSQRT/PMV/OSTZ 不铸 ID；APC floor 再锚定 |
 | R17-D | `cursor/r17-d-adaptation-seventeenth-pass-83a1` | 已合入专属分支（仅 `R17-D.md`）。无新排除 ID；eval 地板复核 3.57–4.00 ms；fail-closed 拒绝路径普查归档 |
 | R17-E | `cursor/r17-e-learning-seventeenth-pass-83a1` | 已合入专属分支（仅 `R17-E.md`）。无新排除 ID；SLICE-CPU 复核 18.5–20.2 µs/run；拒绝路径 + 逐事件类价表归档 |
-| R17-F | `cursor/r17-f-experiments-seventeenth-pass-83a1` | 已派出 |
+| R17-F | `cursor/r17-f-experiments-seventeenth-pass-83a1` | 已合入专属分支（仅 `R17-F.md`）。无新排除 ID；全实验锚点复核 120.5–129.6 ms；拒绝路径 + 冷进程 + 操作粒度尾部轴归档 |
 | R17-G | `cursor/r17-g-runtime-seventeenth-pass-83a1` | 已派出 |
 | R17-H | `cursor/r17-h-eval-seventeenth-pass-83a1` | 已派出 |
+| R17-I | `cursor/r17-i-cli-seventeenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
