@@ -201,7 +201,9 @@ export async function exportRoutingEvalDataset(
   const isDefaultExport = input.datasetDir === undefined;
   const datasetDir = input.datasetDir ?? defaultEvalDatasetDir(input.stateRoot, input.runId);
   await assertDatasetIsolated(datasetDir, workspace, input.stateRoot);
-  if (isDefaultExport) await bindDefaultEvalDatasetDir(input.stateRoot, input.runId);
+  const bound = isDefaultExport
+    ? await bindDefaultEvalDatasetDir(input.stateRoot, input.runId)
+    : undefined;
 
   const manifest: EvalDatasetManifest = {
     datasetId: `ds-${input.runId}`,
@@ -225,14 +227,17 @@ export async function exportRoutingEvalDataset(
     mode: DATASET_FILE_MODE,
     ...writeOptions
   });
-  if (isDefaultExport) {
+  if (bound !== undefined) {
     try {
-      await assertDefaultEvalDatasetPublished(input.stateRoot, input.runId);
+      await assertDefaultEvalDatasetPublished(input.stateRoot, input.runId, bound);
     } catch (error) {
-      // The leaf was swapped for an alias between the bind and the publish, so
-      // these bytes are outside the plane. Take back what this call wrote —
-      // best-effort, because the target is no longer ours to reason about —
-      // and fail rather than return a path that does not hold the manifest.
+      // The leaf stopped being the directory this export bound to between the
+      // bind and the publish — swapped for an alias, or replaced by another
+      // real directory at the same name — so these bytes are not where this
+      // path says they are. Take back what this call wrote, best-effort:
+      // `manifestPath` is lexical, so it reaches the bytes only while the
+      // original directory is still there to be reached. Then fail, rather
+      // than return a path that does not hold the manifest.
       await rm(manifestPath, { force: true }).catch(() => undefined);
       throw error;
     }

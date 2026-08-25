@@ -7,6 +7,7 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
   symlink,
@@ -39,8 +40,11 @@ import {
 } from "../../../src/learning/eval-dataset.js";
 import { routingPolicyContent } from "../../../src/learning/learned-routing.js";
 import {
+  assertDefaultEvalDatasetPublished,
+  bindDefaultEvalDatasetDir,
   EVAL_DATASET_ALIAS_CODE,
-  EvalDatasetAliasError
+  EvalDatasetAliasError,
+  type BoundEvalDatasetDir
 } from "../../../src/privacy/eval-dataset-path.js";
 import { durableRecordClassById } from "../../../src/privacy/record-classes.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
@@ -626,6 +630,101 @@ test("a leaf swapped for a symlink during the publish fails loudly and takes its
     await readdir(external),
     [],
     "the manifest published through the swapped alias was left outside the plane"
+  );
+});
+
+/**
+ * D19: the swap does not have to be a symlink.
+ *
+ * The post-publish check used to compare canonical pathnames — `realpath(leaf)
+ * === join(realpath(container), runId)` — which a *fresh real directory*
+ * created at the same `<runId>` name satisfies exactly as well as the
+ * directory that received the bytes. The export then returned success with a
+ * `manifestPath` that contained nothing, which is the one thing this whole
+ * binding exists to prevent. The bind now records the directory's identity and
+ * the publish re-reads it, so a replacement cannot pass as the original.
+ */
+test("a leaf replaced by another real directory during the publish is not accepted", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const events = routedRun(runId, workspace, editTasks(1));
+  const datasetDir = join(stateRoot, "adaptation", "eval-datasets", runId);
+  const displaced = join(stateRoot, "adaptation", "displaced-leaf");
+
+  await assert.rejects(
+    () =>
+      exportRoutingEvalDataset(
+        { stateRoot, runId, events },
+        {
+          rename: async (source, destination) => {
+            // The real publish happens first, into the bound directory, so the
+            // manifest genuinely exists before the leaf is swapped.
+            await rename(source, destination);
+            await rename(datasetDir, displaced);
+            await mkdir(datasetDir);
+          }
+        }
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof EvalDatasetAliasError, String(error));
+      assert.equal(error.code, EVAL_DATASET_ALIAS_CODE);
+      assert.equal(error.stage, "publish");
+      assert.equal(error.datasetDir, datasetDir);
+      assert.equal(error.linkTarget, undefined, "nothing here is a symlink");
+      return true;
+    }
+  );
+
+  // Returning this path with the manifest missing from it is the bug; the
+  // refusal is what makes the absence honest.
+  assert.equal((await lstat(datasetDir)).isDirectory(), true);
+  assert.equal(existsSync(join(datasetDir, "manifest.json")), false);
+
+  // Take-back only reaches the lexical path, and the bytes left with the
+  // directory that was renamed out from under it. The error says so rather
+  // than claiming a cleanup it did not perform.
+  assert.equal(existsSync(join(displaced, "manifest.json")), true);
+  const orphan = await readManifest(join(displaced, "manifest.json"));
+  assert.equal(orphan.source.runId, runId);
+});
+
+/**
+ * `dev`/`ino` is the identity wherever the platform has one, but libuv reports
+ * `ino === 0` on volumes that expose no file index (Windows network shares,
+ * some non-NTFS mounts), and a zero is not an identity. The documented
+ * equivalent is a uniquely named file the bind drops inside the directory it
+ * bound: a replacement directory created at the same name during the publish
+ * cannot contain it. This exercises that branch directly, because no test can
+ * make a POSIX filesystem stop handing out inode numbers.
+ */
+test("the witness fallback distinguishes the bound directory where no inode is reported", async () => {
+  const { stateRoot } = await dirs();
+  const runId = createRunId();
+  const bound = await bindDefaultEvalDatasetDir(stateRoot, runId);
+  if (process.platform !== "win32") {
+    assert.equal(bound.identity.kind, "inode", "a POSIX bind holds dev/ino, not a witness");
+  }
+
+  const file = join(bound.path, ".pi-sparkle-bind-witness-fixture");
+  await writeFile(file, "", { flag: "wx", mode: 0o600 });
+  const witnessBinding: BoundEvalDatasetDir = {
+    path: bound.path,
+    identity: { kind: "witness", file }
+  };
+
+  await assertDefaultEvalDatasetPublished(stateRoot, runId, witnessBinding);
+  assert.equal(existsSync(file), false, "the witness is consumed once it has been read");
+
+  await writeFile(file, "", { flag: "wx", mode: 0o600 });
+  await rm(bound.path, { recursive: true, force: true });
+  await mkdir(bound.path);
+  await assert.rejects(
+    () => assertDefaultEvalDatasetPublished(stateRoot, runId, witnessBinding),
+    (error: unknown) => {
+      assert.ok(error instanceof EvalDatasetAliasError, String(error));
+      assert.equal(error.stage, "publish");
+      return true;
+    }
   );
 });
 
