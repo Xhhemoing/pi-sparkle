@@ -192,3 +192,100 @@ No Event type, no new JSON key, no `main.ts`, no `pi-adapter` edit, no `package.
 - `pnpm test` (whole suite) — 2318 pass, 0 fail, 1 skipped (unchanged pre-existing skip).
 
 Host Node is v22.14.0 against engines `>=22.19.0`; that is a warning only and no test depends on it.
+
+## Rider — GPT-r9-challenge FIX: three remedies restated in terms of what was actually checked
+
+GPT-r9 returned **FIX** (slot kept) on the envelopes' `next` strings and one missed D24-shaped
+value case. The verdict keeps the blank-positional folding, the argv-before-config order, the
+message preservation for the already-pinned ordinary cases, and the parse-args/validation/preflight
+split; the multi-mode-before-blank-key order is unchanged. Rider is on the same branch, same three
+source files.
+
+### 1. The unknown-provider inventory is read under the root that refused
+
+`models list --available` prints a different catalog per state root — a custom provider comes from
+that root's `providers.json` — so a remedy that omitted the flag pointed at an inventory that would
+not contain the provider the operator is looking for. The raw path is not embedded.
+
+| field | value |
+| --- | --- |
+| `next` | `pass a provider shown by pi-sparkle models list --available using the same --state-root; custom providers come from that root's providers.json` |
+
+`command`, `stage`, and the `unknown provider "${providerId}"` message are unchanged from the first
+landing.
+
+### 2. The unset-environment remedy splits by what the probe checked
+
+The two messages name different kinds of thing, so one remedy could not be true of both. A custom
+provider's message names a single variable. A builtin's names ambient *categories* — environment
+variables, ADC files, AWS profiles — because Pi keeps the variable list inside its resolver, so the
+first landing's `set the environment the message names` pointed at a name that is not in the line.
+
+| case | `next` |
+| --- | --- |
+| named custom `envVar` | `set the providers.json envVar exactly as configured for ${providerId}, or store a credential with pi-sparkle auth login ${providerId} --key <key>` |
+| builtin | `configure one of the ambient sources named in the message, or store a credential with pi-sparkle auth login ${providerId} --key <key>` |
+
+Both stay `command: "auth login"`, `stage: "preflight"`. The keyless `--from-env` refusal
+(`add envVar for ${providerId} to providers.json`) and the keyless-custom store-mode refusal are
+unchanged.
+
+### 3. A custom `envVar` is no longer trimmed when its failure is reported
+
+`loginFromEnvCommand` read `?.envVar?.trim()` and printed the trimmed spelling. The runtime looks
+the variable up under the bytes `providers.json` configures — the same fact D24 pinned when
+`status --all` labels a padded name `env` off its configured `envVar` — so for
+`envVar: " SPARKLE_TEST_PADDED_KEY "` the refusal named `SPARKLE_TEST_PADDED_KEY`, a *different*
+variable that the operator could set without changing the outcome.
+
+The read is now the raw configured value, and the report branches on whether those bytes differ
+from their trim:
+
+| case | `message` |
+| --- | --- |
+| ordinary (unpadded) | `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)` — bytes unchanged, no quotes added |
+| padded | `provider ${providerId} is not configured in the environment: providers.json envVar ${JSON.stringify(customEnvVar)} is unset or empty (whitespace is part of the variable name)` |
+
+`JSON.stringify` supplies the quotes and the escaping, so the whitespace is visible in the line and
+a name carrying a quote or a control character cannot forge one. No value is read or printed.
+
+Dropping the `.trim()` does not change which branch a whitespace-only or empty `envVar` takes: both
+are keyless by `isKeylessCustomProvider` (which keeps its own `trim()`, mirroring the runtime's
+guard for whether a resolver is built at all) and are refused before this point.
+
+The three message/remedy pairs are built by a new module-local
+`unconfiguredEnvironmentReport(providerId, customEnvVar)` returning `{ message, next }`, spread into
+the existing `cliFail`. No catch added or widened; the outer `asAuthStoreUnreadable` catch, the
+`parseAuthArgs` catch, and `listStoredCredentialsIfReadable` are untouched.
+
+### Rider tests
+
+- **`--from-env names a padded envVar exactly as configured, and its trimmed spelling does not
+  satisfy it`** (new) — a `padded` custom provider with `envVar: " SPARKLE_TEST_PADDED_KEY "`. With
+  only the trimmed spelling set: exit 1, empty stdout, whole-field pins on `command`/`stage`/
+  `message`/`next`, `doesNotMatch` on `/: SPARKLE_TEST_PADDED_KEY is unset or empty/` (the trimmed
+  name is never offered as the thing to set), the env value never printed, and `auth.json` never
+  created. Then, with the configured name set spaces and all: exit 0 and the success line naming the
+  padded source — so the refusal is provably about the wrong variable rather than a provider that
+  can never pass.
+- Updated pins on the three remedies: the unknown-provider `next`; the gateway unset-`envVar` `next`;
+  the builtin fail-closed `next`, plus a `doesNotMatch` on `/set the environment the message names/`
+  so the false remedy cannot come back.
+
+The ordinary custom case keeps its existing message pin
+(`/SPARKLE_TEST_GATEWAY_KEY is unset or empty/` plus the whole-field message assertion), which is
+what holds the "unpadded bytes unchanged" half.
+
+### Rider verification
+
+- `npx tsx --test test/unit/cli/auth.test.ts test/integration/cli/commands.test.ts` — 38 pass,
+  0 fail (37 before the rider).
+- `npx tsc --noEmit` — clean.
+- `npx eslint src/cli/auth.ts test/unit/cli/auth.test.ts test/integration/cli/commands.test.ts` —
+  clean.
+- `pnpm test` (whole suite) — 2319 pass, 0 fail, 1 skipped.
+
+Every first-landing envelope, the blank-positional folding, the multi-mode-before-blank-key order,
+and all the D12/D21/D24/D28/D16 and `AUTH_STATUS` pins listed above are unchanged; the rider touches
+only three `next` strings and the custom-`envVar` reporting path. `test/integration/cli/commands.test.ts`
+needed no rider change — it pins the two messages, and neither moved.
