@@ -53,11 +53,19 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     sensitiveFields: ["prompt", "tool payloads", "model output text"],
     redaction: "event bodies are append-only; do not copy into optimization datasets",
     deletion: "delete-files",
-    // deleteRunRecords removes the whole runtime/runs/<runId>/ subtree and
-    // then drops the run's rows from the shared invocation log. It does NOT
-    // propagate to episode: episodes outlive individual runs under multi-run
-    // attach, so a run delete must not take the episode with it.
-    deletionPropagatesTo: ["run-checkpoint", "run-pause", "track-questions", "model-invocation"],
+    // deleteRunRecords removes the whole runtime/runs/<runId>/ subtree, drops
+    // the run's rows from the shared invocation log, and removes the replay
+    // dataset derived from the run at the default eval-datasets path (a
+    // `--dir` export is outside that cascade and the exporter says so). It
+    // does NOT propagate to episode: episodes outlive individual runs under
+    // multi-run attach, so a run delete must not take the episode with it.
+    deletionPropagatesTo: [
+      "run-checkpoint",
+      "run-pause",
+      "track-questions",
+      "model-invocation",
+      "routing-eval-dataset"
+    ],
     migrationVersion: 1,
     recovery: "truncated final JSONL line is ignored; a corrupt middle line fails closed"
   },
@@ -240,17 +248,28 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     owner: "adaptation",
     path: "adaptation/eval-datasets/<runId>/manifest.json",
     retention: "until-deleted",
-    // The objective is the only user text that reaches this file, and it
-    // arrives as a redacted excerpt: `exportRoutingEvalDataset` truncates to
-    // OBJECTIVE_MAX_CHARS and runs the result through `redactSensitiveText`
-    // (the same value-removing pass `redactFeedback` applies) before writing.
-    sensitiveFields: ["objective (redacted, truncated excerpt of task text)"],
+    // Two user-text fields reach this file, both best-effort redacted and
+    // neither claimed clean. `exportRoutingEvalDataset` runs the whole
+    // objective through `redactSensitiveText` (the value-removing pass
+    // `redactFeedback` applies) and only then cuts an OBJECTIVE_MAX_CHARS
+    // excerpt, because cutting first can split a secret past the point any
+    // rule matches it. The discovered project root goes through the same pass
+    // and is stored once on `source.originalWorkspace`, repeated verbatim on
+    // each row so `adapt eval`'s per-row reader still parses; redaction only
+    // removes the shapes it recognises, so a surviving path can still name a
+    // user, a customer, or a repository.
+    sensitiveFields: [
+      "objective (redacted excerpt of task text)",
+      "originalWorkspace (redacted project root; regex redaction is best-effort)"
+    ],
     redaction:
-      "adapt dataset copies ids, agent role, task family, PASS/FAIL and a redactSensitiveText-scrubbed objective excerpt; prompts, tool payloads and model output never reach it",
+      "adapt dataset copies ids, agent role, task family, PASS/FAIL, a redactSensitiveText-scrubbed objective excerpt and the scrubbed project root; prompts, tool payloads and model output never reach it. Rows are one run's routed tasks, not independent episodes",
     deletion: "delete-files",
-    // No implemented propagation: deleting a run does not reach an exported
-    // dataset (the operator names the directory), and the record class says so
-    // rather than claiming a cascade the delete tooling does not perform.
+    // No propagation out of this class: it is a leaf derived copy. The cascade
+    // into it is declared on run-event, which is what deleteRunRecords
+    // performs for the default eval-datasets/<runId>/ path. A `--dir` export
+    // is an external copy no delete can rediscover; adapt dataset warns at
+    // export time rather than implying a cascade that cannot exist.
     deletionPropagatesTo: [],
     migrationVersion: 1,
     recovery: "re-export from the run event log; a stale manifest is replaced whole, never merged"

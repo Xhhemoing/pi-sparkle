@@ -1,6 +1,6 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { runtimeRoot } from "./state-layout.js";
+import { defaultEvalDatasetDir, runtimeRoot } from "./state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
@@ -246,8 +246,10 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
 
 /**
  * Delete one run's records: the runtime subtree (events, checkpoint, pause
- * state, track questions) under `runtime/runs/<runId>/`, plus that run's rows
- * in the shared `runtime/invocations.jsonl`. Deleting a run does not touch its
+ * state, track questions) under `runtime/runs/<runId>/`, that run's rows in the
+ * shared `runtime/invocations.jsonl`, and the replay dataset derived from the
+ * run at the default `adaptation/eval-datasets/<runId>/`
+ * (`removeDefaultEvalDataset`). Deleting a run does not touch its
  * episode: episodes can outlive individual runs (multi-run attach), which is
  * why the `run-event` record class does not declare episode propagation.
  *
@@ -333,6 +335,7 @@ export async function deleteRunRecords(
     // lock is itself two I/O turns, and a writer that does not take the lock
     // can use them. One `readdir` on an absent directory, once per delete.
     if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
+    removed.push(...(await removeDefaultEvalDataset(stateRoot, runId)));
     if (invocations.droppedRows > 0) {
       removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
       if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
@@ -348,6 +351,31 @@ export async function deleteRunRecords(
     disclosePartialRunDelete(runId, invocations, options.disclosePartial);
     throw error;
   }
+}
+
+/**
+ * Remove the replay dataset `adapt dataset --run <runId>` exports by default.
+ *
+ * That file is a derived copy of the run's own text — a redacted excerpt of
+ * every routed task's objective plus the redacted project root — so a run
+ * delete that left it behind would keep the run's task text on disk under a
+ * different name. It is reached by path rather than by search: the default
+ * directory is `defaultEvalDatasetDir`, the same helper the exporter writes to.
+ *
+ * This is the last step of the delete rather than the first, so a delete that
+ * fails at the run lock leaves the dataset in place instead of removing part of
+ * a delete it did not complete. The re-delete is idempotent and finishes it.
+ *
+ * A `--dir` export is out of reach on purpose: the operator named that path,
+ * nothing records it, and rediscovering it would mean searching arbitrary
+ * directories for manifests. `adapt dataset --dir` says so on stderr when it
+ * writes one.
+ */
+async function removeDefaultEvalDataset(stateRoot: string, runId: RunId): Promise<string[]> {
+  const datasetDir = defaultEvalDatasetDir(stateRoot, runId);
+  if (!(await statExists(datasetDir))) return [];
+  await rm(datasetDir, { recursive: true, force: true });
+  return [datasetDir];
 }
 
 /**

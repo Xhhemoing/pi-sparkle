@@ -1,5 +1,5 @@
 import { mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -108,6 +108,12 @@ export function parseRoutingEvalReport(value: unknown): RoutingEvalReport {
   return value as unknown as RoutingEvalReport;
 }
 
+/**
+ * One replay row. `adapt dataset` writes these as the routed tasks of a single
+ * run, so a manifest's rows are not independent episodes even though the key
+ * they arrive under is `episodes` (kept because this reader and its errors
+ * name that path).
+ */
 interface RoutingEvalEpisode {
   readonly episodeHash: string;
   readonly taskId: string;
@@ -115,6 +121,11 @@ interface RoutingEvalEpisode {
   readonly objective: string;
   readonly taskFamily?: string | undefined;
   readonly taskSuccess?: "PASS" | "FAIL" | undefined;
+  /**
+   * The exporter's redacted project root. Best-effort redaction means this may
+   * be a placeholder (`[path]`) rather than a real directory, so isolation
+   * treats only absolute values as roots.
+   */
   readonly originalWorkspace: string;
 }
 
@@ -279,7 +290,9 @@ async function loadRoutingEvalDataset(datasetDir: string): Promise<RoutingEvalDa
   if (!Array.isArray(parsed.episodes) || parsed.episodes.length === 0) {
     throw new DomainValidationError("dataset manifest episodes must be a non-empty array");
   }
-  const episodes = parsed.episodes.map((entry, index) => parseEpisode(entry, index));
+  const episodes = parsed.episodes.map((entry, index) =>
+    parseEpisode(entry, index, manifestWorkspace(parsed.source))
+  );
   return {
     datasetId: parsed.datasetId,
     environmentVersion: parsed.environmentVersion,
@@ -287,7 +300,23 @@ async function loadRoutingEvalDataset(datasetDir: string): Promise<RoutingEvalDa
   };
 }
 
-function parseEpisode(value: unknown, index: number): RoutingEvalEpisode {
+/**
+ * The exporter stores the redacted project root once on `source` and repeats it
+ * on every row. A manifest that carries only the manifest-level copy still
+ * loads: the row-level key remains the reader's contract, and this is the value
+ * it defaults to.
+ */
+function manifestWorkspace(source: unknown): string | undefined {
+  if (!isRecord(source)) return undefined;
+  const workspace = source.originalWorkspace;
+  return typeof workspace === "string" && workspace.trim() !== "" ? workspace : undefined;
+}
+
+function parseEpisode(
+  value: unknown,
+  index: number,
+  fallbackWorkspace: string | undefined
+): RoutingEvalEpisode {
   if (!isRecord(value)) {
     throw new DomainValidationError(`dataset episodes[${index}] must be an object`);
   }
@@ -304,7 +333,11 @@ function parseEpisode(value: unknown, index: number): RoutingEvalEpisode {
   if (typeof value.objective !== "string" || value.objective.trim() === "") {
     throw new DomainValidationError(`dataset episodes[${index}] requires objective`);
   }
-  if (typeof value.originalWorkspace !== "string" || value.originalWorkspace.trim() === "") {
+  const originalWorkspace =
+    typeof value.originalWorkspace === "string" && value.originalWorkspace.trim() !== ""
+      ? value.originalWorkspace
+      : fallbackWorkspace;
+  if (originalWorkspace === undefined) {
     throw new DomainValidationError(`dataset episodes[${index}] requires originalWorkspace`);
   }
   let taskSuccess: "PASS" | "FAIL" | undefined;
@@ -325,20 +358,30 @@ function parseEpisode(value: unknown, index: number): RoutingEvalEpisode {
     taskId: value.taskId,
     role: value.role,
     objective: value.objective,
-    originalWorkspace: value.originalWorkspace,
+    originalWorkspace,
     ...(taskFamily !== undefined ? { taskFamily } : {}),
     ...(taskSuccess !== undefined ? { taskSuccess } : {})
   };
 }
 
+/**
+ * The dataset directory is always a real directory and always a read-only root.
+ * A recorded workspace is only a root when it is still an absolute path: the
+ * exporter redacts it, and a redacted value such as `[path]` is a marker, not a
+ * location — resolving it against the current working directory would invent a
+ * root that never existed.
+ */
 function assertReplayIsolated(
   dataset: RoutingEvalDataset,
   datasetDir: string,
   outputRoot: string
 ): void {
+  const workspaces = dataset.episodes
+    .map((episode) => episode.originalWorkspace)
+    .filter((workspace) => isAbsolute(workspace));
   try {
     createIsolationGuard({
-      readOnlyRoots: [...dataset.episodes.map((episode) => episode.originalWorkspace), datasetDir],
+      readOnlyRoots: [...workspaces, datasetDir],
       outputRoot
     });
   } catch (error) {

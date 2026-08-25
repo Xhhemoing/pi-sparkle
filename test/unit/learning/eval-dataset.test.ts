@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -20,12 +20,14 @@ import {
   type TaskId
 } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
+import { redactSensitiveText } from "../../../src/feedback/redaction.js";
 import {
   exportRoutingEvalDataset,
   OBJECTIVE_MAX_CHARS,
   type EvalDatasetManifest
 } from "../../../src/learning/eval-dataset.js";
 import { routingPolicyContent } from "../../../src/learning/learned-routing.js";
+import { durableRecordClassById } from "../../../src/privacy/record-classes.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 import type { Event } from "../../../src/run/events.js";
@@ -169,42 +171,8 @@ async function readManifest(path: string): Promise<EvalDatasetManifest> {
   return JSON.parse(await readFile(path, "utf8")) as EvalDatasetManifest;
 }
 
-test("export writes the dataset directory adapt eval consumes and never mutates policy", async () => {
-  const { stateRoot, workspace } = await dirs();
-  const runId = createRunId();
-  const tasks = editTasks(2);
-
-  const exported = await exportRoutingEvalDataset({
-    stateRoot,
-    runId,
-    events: routedRun(runId, workspace, tasks)
-  });
-
-  assert.equal(exported.datasetDir, join(stateRoot, "adaptation", "eval-datasets", runId));
-  assert.equal(exported.manifestPath, join(exported.datasetDir, "manifest.json"));
-  const manifest = await readManifest(exported.manifestPath);
-  assert.equal(manifest.datasetId, `ds-${runId}`);
-  assert.equal(manifest.source.runId, runId);
-  assert.equal(manifest.environmentVersion, `run-log:${ASSIGN_FEATURE_VERSION}:router-v1`);
-  assert.deepEqual(
-    manifest.episodes.map((episode) => [episode.taskId, episode.taskSuccess, episode.taskFamily]),
-    [
-      [tasks[0]?.taskId, "PASS", "edit"],
-      [tasks[1]?.taskId, "FAIL", "edit"]
-    ]
-  );
-  for (const episode of manifest.episodes) {
-    assert.equal(episode.role, "implementer");
-    assert.equal(episode.originalWorkspace, workspace);
-    assert.match(episode.episodeHash, /^eh_/);
-  }
-
-  // The only state the export produced is the dataset itself: no registry, no
-  // bandit, no learned policy.
-  assert.deepEqual(await readdir(join(stateRoot, "adaptation")), ["eval-datasets"]);
-
-  // The report only proves the manifest is loadable by the evaluator; the
-  // candidate stays proposed and the pointer stays put.
+/** A proposed routing candidate `adapt eval` can replay an export against. */
+async function seedRoutingCandidate(stateRoot: string): Promise<{ candidateId: string }> {
   let n = 0;
   const generateId: IdGenerator = () => `ds${String(++n).padStart(4, "0")}`;
   const identity: ResourceIdentity = {
@@ -230,15 +198,180 @@ test("export writes the dataset directory adapt eval consumes and never mutates 
     evaluationPlan: { stages: ["static", "replay"], metrics: ["utility", "cost"], planVersion: 1 }
   });
   await saveAdaptationRegistry(stateRoot, registry);
+  return { candidateId: candidate.candidateId };
+}
+
+test("export writes the dataset directory adapt eval consumes and never mutates policy", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const tasks = editTasks(2);
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: routedRun(runId, workspace, tasks)
+  });
+
+  assert.equal(exported.datasetDir, join(stateRoot, "adaptation", "eval-datasets", runId));
+  assert.equal(exported.manifestPath, join(exported.datasetDir, "manifest.json"));
+  const manifest = await readManifest(exported.manifestPath);
+  assert.equal(manifest.datasetId, `ds-${runId}`);
+  assert.equal(manifest.source.runId, runId);
+  assert.equal(manifest.environmentVersion, `run-log:${ASSIGN_FEATURE_VERSION}:router-v1`);
+  assert.deepEqual(
+    manifest.episodes.map((episode) => [episode.taskId, episode.taskSuccess, episode.taskFamily]),
+    [
+      [tasks[0]?.taskId, "PASS", "edit"],
+      [tasks[1]?.taskId, "FAIL", "edit"]
+    ]
+  );
+  // The workspace is stored once on the manifest and repeated verbatim on
+  // every row; the rows are one run's routed tasks, which the manifest says
+  // in as many words rather than leaving a reader to assume independence.
+  assert.equal(manifest.source.rowKind, "routed-task-from-one-run");
+  assert.equal(manifest.source.originalWorkspace, workspace);
+  for (const episode of manifest.episodes) {
+    assert.equal(episode.role, "implementer");
+    assert.equal(episode.originalWorkspace, manifest.source.originalWorkspace);
+    assert.match(episode.episodeHash, /^eh_/);
+  }
+
+  // The only state the export produced is the dataset itself: no registry, no
+  // bandit, no learned policy.
+  assert.deepEqual(await readdir(join(stateRoot, "adaptation")), ["eval-datasets"]);
+
+  // The report only proves the manifest is loadable by the evaluator; the
+  // candidate stays proposed and the pointer stays put.
+  const { candidateId } = await seedRoutingCandidate(stateRoot);
 
   const evaluated = await evalRoutingPolicy({
     stateRoot,
-    candidateId: candidate.candidateId,
+    candidateId,
     datasetDir: exported.datasetDir
   });
   assert.equal(evaluated.report.comparison.rawCounts.episodes, 2);
   assert.equal(evaluated.report.environmentVersion, manifest.environmentVersion);
   assert.equal(evaluated.report.evidenceClass, "replay");
+});
+
+/**
+ * D1 (GPT-r2): the exporter used to excerpt first and redact the excerpt, so a
+ * cut that landed inside a secret left a fragment no rule could match — the
+ * quoted keyed-secret rule needs its closing quote, the bearer rule needs
+ * eight characters of token, and an email needs its domain. Every case below
+ * puts the 500-character boundary inside the value, and none of the surviving
+ * fragments may reach disk.
+ */
+const BOUNDARY_CASES: ReadonlyArray<{
+  readonly name: string;
+  readonly taskId: TaskId;
+  readonly before: string;
+  readonly value: string;
+  readonly after: string;
+  /** How many characters of `value` the old excerpt-first cut left behind. */
+  readonly survivingChars: number;
+  readonly placeholder: RegExp;
+}> = [
+  {
+    name: "quoted keyed secret",
+    taskId: parseTaskId("tsk_dsb01"),
+    before: 'api_key="',
+    value: "SUPERSECRETVALUE1234",
+    after: '" and then ship it',
+    survivingChars: 5,
+    placeholder: /\[secret\]/
+  },
+  {
+    name: "bearer token",
+    taskId: parseTaskId("tsk_dsb02"),
+    before: "Authorization: Bearer ",
+    value: "abcdefghij0123456789KLMNOP",
+    after: " and then ship it",
+    survivingChars: 5,
+    placeholder: /Bearer \[secret\]/
+  },
+  {
+    name: "PEM private key",
+    taskId: parseTaskId("tsk_dsb03"),
+    before: "-----BEGIN PRIVATE KEY-----\n",
+    value: "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEA",
+    after: "\n-----END PRIVATE KEY-----",
+    survivingChars: 12,
+    placeholder: /\[secret\]/
+  },
+  {
+    name: "email address",
+    taskId: parseTaskId("tsk_dsb04"),
+    before: "ask ",
+    value: "maria@example.com",
+    after: " about the rollout",
+    survivingChars: 6,
+    placeholder: /\[email\]/
+  },
+  {
+    name: "home directory path",
+    taskId: parseTaskId("tsk_dsb05"),
+    before: "read ",
+    value: "/home/maria/secrets/app",
+    after: " before starting",
+    survivingChars: 8,
+    placeholder: /\[path\]/
+  }
+];
+
+function straddlingObjective(input: {
+  readonly before: string;
+  readonly value: string;
+  readonly after: string;
+  readonly survivingChars: number;
+}): string {
+  const padding = OBJECTIVE_MAX_CHARS - input.survivingChars - input.before.length;
+  assert.ok(padding > 1, "the boundary must fall inside the value, not before it");
+  return `${"y".repeat(padding - 1)} ${input.before}${input.value}${input.after}`;
+}
+
+test("a secret straddling the excerpt boundary is redacted, not clipped in half", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const tasks: TaskFixture[] = BOUNDARY_CASES.map((boundary) => ({
+    taskId: boundary.taskId,
+    objective: straddlingObjective(boundary),
+    outcome: "PASS" as const
+  }));
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: routedRun(runId, workspace, tasks)
+  });
+
+  const bytes = await readFile(exported.manifestPath, "utf8");
+  const manifest = await readManifest(exported.manifestPath);
+  for (const [index, boundary] of BOUNDARY_CASES.entries()) {
+    const episode = manifest.episodes[index];
+    assert.ok(episode !== undefined, boundary.name);
+    assert.equal(episode.taskId, boundary.taskId);
+    const clipped = boundary.value.slice(0, boundary.survivingChars);
+    assert.ok(
+      !bytes.includes(clipped),
+      `${boundary.name}: the fragment left by the cut (${clipped}) reached the dataset`
+    );
+    assert.ok(!bytes.includes(boundary.value), `${boundary.name}: the whole value reached the dataset`);
+    // What "redact, then excerpt" means, stated as an invariant: the stored
+    // text is a prefix of the redaction of the whole objective. (The excerpt
+    // can end mid-placeholder, which is a clipped `[secret]`, not a value.)
+    const redacted = redactSensitiveText(tasks[index]?.objective ?? "").text;
+    assert.match(redacted, boundary.placeholder, boundary.name);
+    assert.ok(
+      redacted.startsWith(episode.objective),
+      `${boundary.name}: the stored text is not an excerpt of the redacted objective`
+    );
+    assert.ok(
+      episode.objective.length <= OBJECTIVE_MAX_CHARS,
+      `${boundary.name}: the excerpt is still bounded`
+    );
+  }
+  assert.deepEqual([...manifest.source.redactionClasses], ["path", "pii", "secret"]);
 });
 
 test("objectives are truncated and scrubbed before they reach the dataset", async () => {
@@ -279,6 +412,126 @@ test("objectives are truncated and scrubbed before they reach the dataset", asyn
   assert.equal(manifest.source.objectiveMaxChars, OBJECTIVE_MAX_CHARS);
   assert.equal(manifest.source.redactionPipe, "redactSensitiveText");
   assert.deepEqual([...manifest.source.redactionClasses], ["secret", "path", "pii"].sort());
+});
+
+/**
+ * D2 (GPT-r2): the project root used to be copied onto every row verbatim,
+ * while the record class called the objective the only user text. Workspace
+ * paths carry usernames, customer and repository names, and organization
+ * layout, so the root now goes through the same best-effort pass as the
+ * objective, is stored once on the manifest, and is declared sensitive.
+ */
+test("the recorded project root is redacted before it reaches the dataset", async () => {
+  const { stateRoot } = await dirs();
+  const runId = createRunId();
+  const workspace = "/home/maria/customers/acme-corp/checkout";
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: routedRun(runId, workspace, editTasks(2))
+  });
+
+  const bytes = await readFile(exported.manifestPath, "utf8");
+  assert.ok(!bytes.includes("maria"), "the raw project root reached the exported dataset");
+  assert.ok(!bytes.includes("acme-corp"), "the customer name reached the exported dataset");
+
+  const manifest = await readManifest(exported.manifestPath);
+  assert.equal(manifest.source.originalWorkspace, "[path]");
+  for (const episode of manifest.episodes) {
+    assert.equal(episode.originalWorkspace, manifest.source.originalWorkspace);
+  }
+  assert.ok([...manifest.source.redactionClasses].includes("path"));
+
+  // The class must not go back to claiming the objective is the only user text.
+  const recordClass = durableRecordClassById("routing-eval-dataset");
+  assert.ok(recordClass);
+  assert.ok(
+    recordClass.sensitiveFields.some((field) => field.startsWith("originalWorkspace")),
+    "the workspace path is stored but not declared sensitive"
+  );
+});
+
+test("a redacted workspace still loads through adapt eval", async () => {
+  const { stateRoot } = await dirs();
+  const runId = createRunId();
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: routedRun(runId, "/home/maria/customers/acme-corp/checkout", editTasks(2))
+  });
+
+  const { candidateId } = await seedRoutingCandidate(stateRoot);
+  const evaluated = await evalRoutingPolicy({
+    stateRoot,
+    candidateId,
+    datasetDir: exported.datasetDir
+  });
+
+  assert.equal(evaluated.report.comparison.rawCounts.episodes, 2);
+});
+
+/**
+ * D4 (GPT-r2): `--dir` used to be checked only against the recorded workspace,
+ * so an adaptation-plane dataset could be written into the runtime plane the
+ * layout says it can never share a directory with — and the lexical check
+ * missed even that through a symlink.
+ */
+test("--dir is refused when it lands in the runtime plane, symlinks included", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const events = routedRun(runId, workspace, editTasks(1));
+  const inside = join(stateRoot, "runtime", "runs", runId, "dataset");
+
+  await assert.rejects(
+    () => exportRoutingEvalDataset({ stateRoot, runId, events, datasetDir: inside }),
+    /must not be written into the runtime plane/
+  );
+  assert.equal(existsSync(inside), false);
+
+  // A path that only reaches the runtime plane through a symlink resolves to
+  // the same refusal: the guard canonicalizes before it compares.
+  const linkParent = await mkdtemp(join(tmpdir(), "pi-sparkle-ds-link-"));
+  await mkdir(join(stateRoot, "runtime"), { recursive: true });
+  const link = join(linkParent, "runtime-link");
+  await symlink(join(stateRoot, "runtime"), link, "dir");
+  await assert.rejects(
+    () =>
+      exportRoutingEvalDataset({
+        stateRoot,
+        runId,
+        events,
+        datasetDir: join(link, "smuggled-dataset")
+      }),
+    /must not be written into the runtime plane/
+  );
+  assert.equal(existsSync(join(link, "smuggled-dataset")), false);
+
+  // A --dir that contains the whole state root would swallow the runtime plane
+  // as well, and is refused for the same reason.
+  await assert.rejects(
+    () => exportRoutingEvalDataset({ stateRoot, runId, events, datasetDir: stateRoot }),
+    /must not be written into the runtime plane/
+  );
+
+  // The adaptation plane is still a legal destination.
+  const allowed = join(stateRoot, "adaptation", "exports", "custom");
+  const exported = await exportRoutingEvalDataset({ stateRoot, runId, events, datasetDir: allowed });
+  assert.equal(exported.datasetDir, allowed);
+});
+
+test("the manifest is published owner-only", { skip: process.platform === "win32" }, async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: routedRun(runId, workspace, editTasks(1))
+  });
+
+  const mode = (await stat(exported.manifestPath)).mode & 0o777;
+  assert.equal(mode.toString(8), "600");
 });
 
 test("re-export of the same run is byte-identical", async () => {
