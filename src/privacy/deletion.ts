@@ -310,9 +310,8 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * either removes cleanly (the run ended inside the bounded wait) or fails with
  * `LOCK_TIMEOUT` having touched none of the run's records — its invocation
  * rows are already gone by then, disclosed rather than undone. The refusal it
- * replaces happened
- * *after* `rm` had already run, so a delete racing a live run used to destroy
- * part of that run's records on its way to failing closed.
+ * replaces happened *after* `rm` had already run, so a delete racing a live
+ * run used to destroy part of that run's records on its way to failing closed.
  *
  * The one limit that cannot be closed from here: a write that lands after the
  * final verification is a new fact, not a resurrection — the same posture the
