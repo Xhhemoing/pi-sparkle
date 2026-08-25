@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, stat, symlink } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -27,6 +38,10 @@ import {
   type EvalDatasetManifest
 } from "../../../src/learning/eval-dataset.js";
 import { routingPolicyContent } from "../../../src/learning/learned-routing.js";
+import {
+  EVAL_DATASET_ALIAS_CODE,
+  EvalDatasetAliasError
+} from "../../../src/privacy/eval-dataset-path.js";
 import { durableRecordClassById } from "../../../src/privacy/record-classes.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
@@ -518,6 +533,100 @@ test("--dir is refused when it lands in the runtime plane, symlinks included", a
   const allowed = join(stateRoot, "adaptation", "exports", "custom");
   const exported = await exportRoutingEvalDataset({ stateRoot, runId, events, datasetDir: allowed });
   assert.equal(exported.datasetDir, allowed);
+});
+
+/**
+ * D18: a default export has no `--dir` warning behind it, so it may not
+ * produce an external copy at all.
+ *
+ * The exporter canonicalized `adaptation/eval-datasets/<runId>` for its
+ * isolation checks and then wrote `manifest.json` at the lexical path, i.e.
+ * straight through a symlink pre-created at the leaf. `delete --run` could
+ * only unlink that alias afterwards, so the redacted objective excerpt and
+ * redacted project root stayed on disk outside the plane while the delete
+ * reported the default directory as removed. The leaf is now `lstat`ed — what
+ * it *is*, not what it points at.
+ */
+test("a default export refuses a <runId> leaf that is a symlink", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const events = routedRun(runId, workspace, editTasks(2));
+  const external = await mkdtemp(join(tmpdir(), "pi-sparkle-ds-external-"));
+  const datasetDir = join(stateRoot, "adaptation", "eval-datasets", runId);
+  await mkdir(join(stateRoot, "adaptation", "eval-datasets"), { recursive: true });
+  await symlink(external, datasetDir, "junction");
+
+  await assert.rejects(
+    () => exportRoutingEvalDataset({ stateRoot, runId, events }),
+    (error: unknown) => {
+      assert.ok(error instanceof EvalDatasetAliasError, String(error));
+      assert.equal(error.code, EVAL_DATASET_ALIAS_CODE);
+      assert.equal(error.stage, "export");
+      assert.equal(error.datasetDir, datasetDir);
+      assert.ok(error.message.includes(external), error.message);
+      return true;
+    }
+  );
+  assert.deepEqual(await readdir(external), [], "the refused export wrote through the alias");
+
+  // Refused, not repaired: an export must not silently replace a link the
+  // operator put there, and the delete has to be able to see it too.
+  assert.equal((await lstat(datasetDir)).isSymbolicLink(), true);
+
+  // With the alias gone the same export is ordinary, and lands on a real
+  // directory bound to the canonical eval-datasets root.
+  await rm(datasetDir, { force: true });
+  const exported = await exportRoutingEvalDataset({ stateRoot, runId, events });
+  assert.equal(exported.datasetDir, datasetDir);
+  assert.equal((await lstat(datasetDir)).isDirectory(), true);
+  assert.equal(await realpath(datasetDir), datasetDir);
+  assert.deepEqual(await readdir(external), []);
+});
+
+/**
+ * The leaf is created with a non-recursive `mkdir`, so a link planted before
+ * the export is refused rather than adopted; one planted after the bind is
+ * caught by the re-assert that follows the publish, which also takes back the
+ * bytes it can prove it wrote. Node has no directory-relative publish, so this
+ * is a detected failure, not a held handle — and it says so instead of
+ * reporting a path that does not hold the manifest.
+ */
+test("a leaf swapped for a symlink during the publish fails loudly and takes its bytes back", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const events = routedRun(runId, workspace, editTasks(1));
+  const external = await mkdtemp(join(tmpdir(), "pi-sparkle-ds-swap-"));
+  const datasetDir = join(stateRoot, "adaptation", "eval-datasets", runId);
+
+  await assert.rejects(
+    () =>
+      exportRoutingEvalDataset(
+        { stateRoot, runId, events },
+        {
+          // The rename that publishes the manifest is the last thing the write
+          // does, so swapping the bound directory here is the tightest window
+          // a caller can reach.
+          rename: async (source, destination) => {
+            const bytes = await readFile(source, "utf8");
+            await rm(datasetDir, { recursive: true, force: true });
+            await symlink(external, datasetDir, "junction");
+            // What a publish into a swapped leaf does: the destination path is
+            // unchanged, and it now resolves outside the plane.
+            await writeFile(destination, bytes, "utf8");
+          }
+        }
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof EvalDatasetAliasError, String(error));
+      assert.equal(error.stage, "publish");
+      return true;
+    }
+  );
+  assert.deepEqual(
+    await readdir(external),
+    [],
+    "the manifest published through the swapped alias was left outside the plane"
+  );
 });
 
 test("the manifest is published owner-only", { skip: process.platform === "win32" }, async () => {

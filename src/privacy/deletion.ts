@@ -1,5 +1,6 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { assertDefaultEvalDatasetNotAliased } from "./eval-dataset-path.js";
 import { defaultEvalDatasetDir, runtimeRoot } from "./state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
@@ -257,6 +258,15 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * middle line we cannot prove which rows belong to this run, so nothing is
  * deleted at all rather than reporting a partial delete as success.
  *
+ * Ahead of even that, the dataset cascade's target is checked with `lstat`: a
+ * `<runId>` leaf that is a symlink is refused (`EvalDatasetAliasError`) before
+ * anything is removed. `rm`ing it would unlink the alias and report the
+ * default path as removed while the exported manifest — the run's own task
+ * text, derived — stayed on disk at the target. The exporter no longer
+ * produces that shape, so reaching it means a pre-existing or hand-planted
+ * link; either way the operator, not this delete, decides what happens to the
+ * directory it points at.
+ *
  * ## The subtree removal happens under the run's lock, and is verified twice
  *
  * `runtime/runs/<runId>.lock` (`runLockPath`) is the run plane's cooperative
@@ -325,6 +335,13 @@ export async function deleteRunRecords(
   runId: RunId,
   options: RunDeletionOptions = {}
 ): Promise<DeletionResult> {
+  // Before anything is touched: the dataset cascade has to be able to remove
+  // the derivative, not just the name it is filed under. A `<runId>` leaf that
+  // is a symlink cannot be, so the delete refuses here — where nothing has
+  // been removed and nothing has to be disclosed — instead of at the end,
+  // after the run's records and telemetry rows are already gone.
+  await assertDefaultEvalDatasetNotAliased(stateRoot, runId, "delete");
+
   const invocations = await dropRunFromInvocationLog(stateRoot, runId, options);
 
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
@@ -369,9 +386,17 @@ export async function deleteRunRecords(
  * A `--dir` export is out of reach on purpose: the operator named that path,
  * nothing records it, and rediscovering it would mean searching arbitrary
  * directories for manifests. `adapt dataset --dir` says so on stderr when it
- * writes one.
+ * writes one. There is deliberately no global search for manifests here to
+ * make up for that.
+ *
+ * The alias check is repeated here even though `deleteRunRecords` preflights
+ * it: the preflight ran before two locks were taken, and a leaf that becomes a
+ * symlink in that window would otherwise be `rm`ed as if it were the dataset.
+ * `statExists` is what made this unsafe before — it follows the link, so the
+ * derivative "existed", and the `rm` beneath it removed only the alias.
  */
 async function removeDefaultEvalDataset(stateRoot: string, runId: RunId): Promise<string[]> {
+  await assertDefaultEvalDatasetNotAliased(stateRoot, runId, "delete");
   const datasetDir = defaultEvalDatasetDir(stateRoot, runId);
   if (!(await statExists(datasetDir))) return [];
   await rm(datasetDir, { recursive: true, force: true });

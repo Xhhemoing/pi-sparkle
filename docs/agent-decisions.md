@@ -127,3 +127,9 @@ Hidden-input for secret prompts on real stdin; additive doctor `auth` check (sec
 ## D17 — `INIT_EXAMPLES` is one compact JSON line
 
 Drop `JSON.stringify(..., null, 2)` in `src/cli/init-examples.ts`; keep keys `type/preview/dir/files/overwritten`; pin stdout is exactly one parseable line.
+
+## D18 — The default eval-dataset cascade must bind to a path, not to a name
+
+GPT-r4 F1 reproduced a D10 residual: with no `--dir`, but `adaptation/eval-datasets/<runId>` pre-created as a **symlink to an external directory**, the exporter canonicalized for its isolation checks and then published `manifest.json` *through* the alias, and `delete --run` `stat`ed the path (follows the link, so the dataset "existed"), `rm`ed the lexical path (does not, so only the alias went), and reported the default directory as removed while the derivative survived externally. No warning fired — the external-export warning is a `--dir` disclosure the operator never triggered.
+
+**Landed** (Opus-d18-dataset-symlink): both halves ask `lstat` what the leaf *is*, through the shared `src/privacy/eval-dataset-path.ts`. A default export binds — the `eval-datasets` container is resolved, the leaf is created with a non-recursive `mkdir` (never follows or adopts a final symlink), the binding is re-asserted after the publish, and a swap detected there takes the published bytes back — and refuses a symlinked leaf outright. `delete --run` refuses the shape with a typed `EvalDatasetAliasError` (`code: "EVAL_DATASET_ALIAS"`) before either cooperative lock and again at the removal point: it may not follow the alias into an operator's external directory, and it may not unlink it and call that a cascade. No global manifest search was invented; `--dir` keeps the existing external-export warning and stays outside every cascade. D10 behaviours unchanged.

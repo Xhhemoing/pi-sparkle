@@ -110,6 +110,20 @@ cascaded**: nothing records the operator's path and rediscovering it would mean
 searching arbitrary directories for manifests, so the export command warns on
 stderr that the copy is external and the operator owns its deletion.
 
+Sharing the path is not enough on its own, because a path is a name and not
+the thing it names. If the `<runId>` leaf is a **symlink**, an export publishes
+through it and a delete can only unlink it — which is how a default export with
+no `--dir` warning behind it used to produce an external derivative that
+`delete --run` then reported as removed. Both halves therefore `lstat` the leaf
+(`src/privacy/eval-dataset-path.ts`). A default export binds to the resolved
+`eval-datasets` container, creates the leaf with a non-recursive `mkdir`, and
+re-asserts the binding after publishing; a symlinked leaf is refused. A
+`delete --run` against that shape **fails closed** with
+`EvalDatasetAliasError` (`code: "EVAL_DATASET_ALIAS"`) before it takes either
+lock, naming the target: following the alias would delete an operator's
+external directory, and unlinking it would report a removal that did not
+happen. The operator removes the derivative and the link, then re-deletes.
+
 The M0, parent, flowchart, and supervised start/resume paths, plus clarification
 runs, take `runtime/runs/<runId>.lock` once for the whole record-writing
 lifecycle and release it after teardown. Clarification discovery remains

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
@@ -8,6 +8,10 @@ import { redactSensitiveText, type RedactionClass } from "../feedback/redaction.
 import { createIsolationGuard } from "../experiments/isolation.js";
 import { stableStringify } from "../experiments/manifest.js";
 import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
+import {
+  assertDefaultEvalDatasetPublished,
+  bindDefaultEvalDatasetDir
+} from "../privacy/eval-dataset-path.js";
 import { defaultEvalDatasetDir, runtimeRoot } from "../privacy/state-layout.js";
 import type { Event } from "../run/events.js";
 import { outcomesFromRoutedRun } from "./from-episode.js";
@@ -120,6 +124,12 @@ export interface ExportEvalDatasetResult {
  * Fails closed rather than inventing rows: a run with no project snapshot, no
  * routed PASS/FAIL outcome, or no recorded objective for any such task is
  * refused, because each of those would otherwise become a fabricated row.
+ *
+ * A default export (no `datasetDir`) additionally binds its output directory
+ * to the canonical `adaptation/eval-datasets/` root before it publishes, and
+ * refuses outright when the `<runId>` leaf is a symlink — see
+ * `src/privacy/eval-dataset-path.ts` for why writing through one produced a
+ * derivative that `delete --run` could report as removed while it survived.
  */
 export async function exportRoutingEvalDataset(
   input: ExportEvalDatasetInput,
@@ -184,8 +194,14 @@ export async function exportRoutingEvalDataset(
     );
   }
 
+  // A `--dir` export is the operator's own external path: warned about at the
+  // command surface, never cascaded, and not bound to anything here. A default
+  // export is a record of this state root, so its leaf has to be a directory
+  // this state root owns rather than an alias the delete could only unlink.
+  const isDefaultExport = input.datasetDir === undefined;
   const datasetDir = input.datasetDir ?? defaultEvalDatasetDir(input.stateRoot, input.runId);
   await assertDatasetIsolated(datasetDir, workspace, input.stateRoot);
+  if (isDefaultExport) await bindDefaultEvalDatasetDir(input.stateRoot, input.runId);
 
   const manifest: EvalDatasetManifest = {
     datasetId: `ds-${input.runId}`,
@@ -209,6 +225,18 @@ export async function exportRoutingEvalDataset(
     mode: DATASET_FILE_MODE,
     ...writeOptions
   });
+  if (isDefaultExport) {
+    try {
+      await assertDefaultEvalDatasetPublished(input.stateRoot, input.runId);
+    } catch (error) {
+      // The leaf was swapped for an alias between the bind and the publish, so
+      // these bytes are outside the plane. Take back what this call wrote —
+      // best-effort, because the target is no longer ours to reason about —
+      // and fail rather than return a path that does not hold the manifest.
+      await rm(manifestPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
   return { datasetDir, manifestPath, manifest, skippedWithoutObjective, supersededAttempts };
 }
 

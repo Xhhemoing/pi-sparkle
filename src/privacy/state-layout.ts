@@ -33,12 +33,26 @@ export function adaptationRoot(stateRoot: string): string {
 }
 
 /**
+ * The container every default `adapt dataset` export lands in. Publishing
+ * binds the `<runId>` leaf to this directory (see
+ * `src/privacy/eval-dataset-path.ts`), so it needs one spelling too.
+ */
+export function evalDatasetsRoot(stateRoot: string): string {
+  return join(adaptationRoot(stateRoot), "eval-datasets");
+}
+
+/**
  * Where `adapt dataset --run <runId>` writes when the operator does not name a
  * directory. It lives here rather than in the exporter because the delete
  * tooling has to reach the same path: `deleteRunRecords` cascades into this
  * directory, and a second spelling of it would be a cascade that silently
  * misses. `--dir` exports are outside this path and outside that cascade.
+ *
+ * This is the *lexical* path both sides name. Whether the `<runId>` leaf is
+ * really a directory of this state root — rather than a symlink pointing
+ * somewhere the cascade cannot follow — is `eval-dataset-path.ts`'s question,
+ * and both the exporter and the delete have to ask it.
  */
 export function defaultEvalDatasetDir(stateRoot: string, runId: string): string {
-  return join(adaptationRoot(stateRoot), "eval-datasets", runId);
+  return join(evalDatasetsRoot(stateRoot), runId);
 }

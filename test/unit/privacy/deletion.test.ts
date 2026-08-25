@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -39,7 +39,11 @@ import {
   recordExplicitPreference
 } from "../../../src/preferences/service.js";
 import { exportRoutingEvalDataset } from "../../../src/learning/eval-dataset.js";
-import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import {
+  EVAL_DATASET_ALIAS_CODE,
+  EvalDatasetAliasError
+} from "../../../src/privacy/eval-dataset-path.js";
+import { adaptationRoot, runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
 import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 import {
@@ -1113,6 +1117,100 @@ test("a re-delete of a run whose dataset is already gone reports only what it re
 
     const second = await deleteRunRecords(stateRoot, runId);
     assert.deepEqual(second.removedPaths, [], "an absent dataset is not a removal to report");
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
+
+/**
+ * D18: the cascade reached the default path by name, and a name is not the
+ * thing it names.
+ *
+ * With `adaptation/eval-datasets/<runId>` pre-created as a symlink to a
+ * directory outside the state root, the exporter canonicalized for its
+ * isolation checks and then published `manifest.json` *through* the alias, so
+ * the redacted objective excerpt landed externally. The delete then `stat`ed
+ * the path — which follows the link, so the dataset "existed" — and `rm`ed the
+ * lexical path — which does not, so only the alias went — and reported the
+ * default directory as removed. The derivative survived under a name no
+ * cascade can find, and nothing warned: the external-export warning is a
+ * `--dir` disclosure and the operator never passed `--dir`.
+ *
+ * Both halves now `lstat`. The export refuses the shape outright; the delete
+ * refuses before it removes anything, because following the alias would mean
+ * deleting an operator's external directory and unlinking it would mean
+ * claiming a removal that did not happen.
+ */
+test("delete --run fails closed on a symlinked default dataset path instead of unlinking the alias", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const external = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-external-"));
+    const objective = "Ship the payroll importer for acme-corp";
+    const events = routedRunEvents(runId, workspace, objective);
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+    const invocationsPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(runId, "inv_alias"))}\n`
+    ]);
+
+    const datasetDir = join(adaptationRoot(stateRoot), "eval-datasets", runId);
+    await mkdir(join(adaptationRoot(stateRoot), "eval-datasets"), { recursive: true });
+    await symlink(external, datasetDir, "junction");
+    const externalManifest = join(external, "manifest.json");
+    await writeFile(externalManifest, `{"objective":${JSON.stringify(objective)}}\n`, "utf8");
+
+    // How the shape gets here is not this test's subject: the exporter now
+    // refuses it (pinned in `eval-dataset.test.ts`), and before that it
+    // published straight through the alias. Either way a derivative sits at
+    // the target and the delete has to deal with it, so the export attempt is
+    // made and its outcome deliberately not asserted on.
+    await exportRoutingEvalDataset({ stateRoot, runId, events }).catch(() => undefined);
+    assert.equal(existsSync(externalManifest), true);
+
+    // The delete refuses, names the target, and is a genuine fail-closed: the
+    // preflight runs before either cooperative lock, so the run subtree, the
+    // invocation rows and the alias are all still there.
+    const outcome = await deleteRunRecords(stateRoot, runId).then(
+      (result) => ({ ok: true as const, result }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+    if (outcome.ok) {
+      // The invariant this test exists for, asserted on the path that would
+      // violate it rather than only on the path that cannot.
+      assert.equal(
+        existsSync(externalManifest),
+        false,
+        "delete --run reported success while the external derivative survived"
+      );
+      assert.fail("the symlinked default dataset path must not delete successfully");
+    }
+    assert.ok(outcome.error instanceof EvalDatasetAliasError, String(outcome.error));
+    assert.equal(outcome.error.code, EVAL_DATASET_ALIAS_CODE);
+    assert.equal(outcome.error.stage, "delete");
+    assert.equal(outcome.error.datasetDir, datasetDir);
+    assert.ok(outcome.error.message.includes(external), outcome.error.message);
+    assert.equal(existsSync(join(runtimeRoot(stateRoot), "runs", runId)), true);
+    assert.deepEqual(
+      (await loadInvocationsFromStateRoot(stateRoot)).map((row) => row.id),
+      ["inv_alias"],
+      "the telemetry half must not run ahead of a refusal it could not roll back"
+    );
+    assert.equal(existsSync(invocationsPath), true);
+    assert.equal(existsSync(externalManifest), true);
+    assert.equal(existsSync(datasetDir), true, "the alias itself was not unlinked");
+
+    // The remediation the message prescribes: the operator deletes the
+    // derivative the alias points at, then the alias, and the re-delete is an
+    // ordinary one.
+    await rm(datasetDir, { force: true });
+    await rm(external, { recursive: true, force: true });
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.equal(existsSync(externalManifest), false);
+    assert.ok(
+      result.removedPaths.includes(join(runtimeRoot(stateRoot), "runs", runId)),
+      JSON.stringify(result.removedPaths)
+    );
+    assert.equal(result.droppedInvocations, 1);
     await rm(workspace, { recursive: true, force: true });
   });
 });
