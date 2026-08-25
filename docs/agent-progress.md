@@ -129,26 +129,19 @@ Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fab
 | D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549` | GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
 | D30 | merged from `cursor/inject-preflight-0da8` `c2be255` | GPT-d30-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d30.md`. |
 
-### Round 8 (implementing)
+### Round 8 (closed)
 
-Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r8-fable-next.md`) at `33e8cf3`. Through-line: after D21/D26–D30 fixed *which flags* you pass, four free files still forward *flag values* unchecked, so malformed ids, blank strings, and empty CSVs surface through `main.ts` as `stage: "validation"` with the doctor remedy and no flag named. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r8 KEEP.
+Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r8-fable-next.md`) at `33e8cf3`. Through-line: after D21/D26–D30 fixed *which flags* you pass, four free files still forwarded *flag values* unchecked. GPT-r8-challenge: D31 **KEEP**, D32 **FIX** (blank `--repo`), D33 **FIX** (subcommand order + escape). All three merged after independent KEEP rechecks (D33 after a test-pin rider).
 
-| Slot | Agent | Model | Where | Id |
-|---|---|---|---|---|
-| Fable-r8-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-ac8bb75a-bb52-5f1a-8984-42ec18093283` |
-| GPT-r8-challenge | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-1545c8db-ccbf-551b-9c3f-e75e32e4c7cc` |
-| GPT-d31-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-1e414d4e-4510-5473-a1e0-e0e315d5a8ac` |
-| GPT-d32-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-6bd82794-4dd8-5187-97f4-14fdd913a7bc` |
-| GPT-d33-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-2b71a3e2-769b-5635-8a65-35b289fe8ab0` |
-| D31 | Opus-d31-pause-inject | claude-opus-5-thinking-high-fast | cloud | `bc-d800526f-dbb5-5265-8287-02db44982c80` |
-| D32 | Opus-d32-commits-retarget | claude-opus-5-thinking-high-fast | cloud | `bc-3e1caa53-4855-50b3-aa59-82b2149f498b` |
-| D33 | Opus-d33-episode-events | claude-opus-5-thinking-high-fast | cloud | `bc-88290d9e-4a3e-5096-b559-741b00844c46` |
+| Slot | Landing | Recheck |
+|---|---|---|
+| D31 | merged `393f164` from `cursor/pause-inject-value-preflight-0da8` | GPT-d31-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d31.md`. |
+| D32 | merged `53dccde` from `cursor/commits-refusal-retarget-0da8` `c91af7b` | GPT-d32-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d32.md`. |
+| D33 | merged `82e6ad4` from `cursor/episode-id-events-lines-0da8` `08219b2` | GPT-d33b-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d33b.md`. |
 
-| Slot | Owns | Branch | Status |
-|---|---|---|---|
-| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | **KEEP** merged; PR #14; report `.agent_workspace/loop5-r8-gpt-d31.md` |
-| D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | **KEEP** merged; PR #15; report `.agent_workspace/loop5-r8-gpt-d32.md` |
-| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | PR #16; GPT-d33-recheck **FIX**; pin rider `08219b2` landed; KEEP recheck in flight |
+### Round 9
+
+Fable-r9-next dispatched to rank the next three file-disjoint operator batches after D31–D33 KEEP.
 
 ### Round 3 still running / next implementers
 
