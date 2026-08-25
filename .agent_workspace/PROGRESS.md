@@ -364,6 +364,10 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 `.agent_workspace/ROUND18-BRIEF.md` found zero remaining holes on the I/O / races / protocol / DR plane. Parent protocol after two saturated planes is to open a **new evidence plane**, not freeze extras: operator-disclosure, fail-closed honesty, embedder-contract, silent persistence no-ops, security-probe coverage. Stay on `agent/opt-continuous`. Do not pad. Do not reopen inferred-preference liveness, census treadmill, or Round 16–17 sign-offs.
 
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-audit | bc-fdaaa22e-da4f-5f1f-b314-f5beb897c1ac | operator honesty · embedder contract · silent no-ops · security-probe |
+
 ---
 
 # Loop 2 — SOTA follow-on (2026-08-24)

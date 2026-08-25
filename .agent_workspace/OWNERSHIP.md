@@ -6,6 +6,8 @@ Round 18 is a **parent plane retarget** after the I/O / races / protocol / DR sw
 
 **Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
 
+Injection: `.agent_workspace/ROUND18-BRIEF.md` (pre-retarget idle brief at `8eef663`; auditor overwrites if it proves holes). Dispatch: fable-audit `bc-fdaaa22e-da4f-5f1f-b314-f5beb897c1ac`.
+
 New plane (exclusive of frozen surfaces): operator-disclosure, fail-closed honesty, embedder-contract, silent persistence no-ops, security-probe coverage.
 
 | Slot | Model | Owns |
