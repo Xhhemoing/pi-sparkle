@@ -96,8 +96,9 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - `INIT_EXAMPLES --json` is one compact line (D17). Implementer: Opus-init-json (`bc-3d5df502-d602-5e2d-94f0-beee62ee6291`).
 - Auth remainder D16: secret mute, doctor `auth` preflight, custom `--available`. Implementer: Opus-auth-echo-doctor-F8 (`bc-740e3587-69a2-5ce1-836d-398139fdba28`). GPT-d16-recheck **KEEP**.
 - D18 default eval-dataset leaf-symlink bind/refuse. Implementer: Opus-dataset-symlink-cascade (`bc-83d49ea6-9b87-5659-9b3e-14d88c42e729`). GPT-d18-recheck **FIX** (pathname equality ≠ directory identity).
+- D19 default-export directory-identity bind. Implementer: Opus-d19-publish-identity (`bc-2ad751d1-e327-5807-8907-90a681f9aeac`). GPT recheck in flight.
 
 ### Round 3 still running / next implementers
 
-- D19 default-export directory-identity bind dispatched (GPT-d18 FIX).
+- D19 independent GPT recheck dispatched.
 - Round 5 next-bets ranking still in flight. Windows smoke and status-matrix still HOLD behind PR #12.

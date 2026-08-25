@@ -137,3 +137,5 @@ GPT-r4 F1 reproduced a D10 residual: with no `--dir`, but `adaptation/eval-datas
 ## D19 — Default export bind and publish must share directory identity
 
 The post-publish assertion must confirm the leaf is a directory and is the **same directory** the bind accepted (`dev`/`ino` or an equivalent that a replacement directory cannot satisfy), not only `realpath` string equality. Thread that identity from `bindDefaultEvalDatasetDir` into `assertDefaultEvalDatasetPublished`. If the leaf was replaced during publish, fail loudly and do not return a path whose `manifest.json` is missing. Keep the existing symlink-swap pin; add a real-directory replacement pin via the `AtomicWriteOptions.rename` seam. Do not change `--dir`, deletion of a pre-created symlink leaf, `main.ts`, or invent a global search.
+
+**Landed** (Opus-d19-publish-identity): `bindDefaultEvalDatasetDir` returns `BoundEvalDatasetDir` (lexical path + accepted leaf identity); `assertDefaultEvalDatasetPublished` re-reads that identity. Identity is `lstat` `dev`/`ino` as bigint; when `ino === 0n`, a uniquely named witness file with `"wx"` is the equivalent. Independent GPT recheck dispatched.
