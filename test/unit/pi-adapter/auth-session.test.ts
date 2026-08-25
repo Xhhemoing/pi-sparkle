@@ -13,6 +13,7 @@ import {
   listBuiltinProviderIds,
   listStoredCredentials,
   loginProviderInteractive,
+  mutedPromptOutput,
   storeApiKeyCredential,
   type SparkleAuthIo
 } from "../../../src/pi-adapter/auth-session.js";
@@ -376,6 +377,32 @@ test("consecutive prompts on one interaction both reach the reader", async () =>
   assert.equal(await interaction.prompt({ type: "secret", message: "Enter API key" }), FAKE_KEY);
   assert.deepEqual(cli.asked, ["Account: ", "Enter API key: "]);
   assert.equal(cli.out.join("").includes(FAKE_KEY), false);
+});
+
+test("the secret prompt's output passes the question and then swallows the answer", () => {
+  // The terminal echo of a pasted API key is readline writing the typed line
+  // back to its output, so muting that output after the prompt — and only
+  // after it — is what keeps the key out of the operator's scrollback. A real
+  // TTY cannot be arranged in a unit test; the writer that does the muting can.
+  const written: string[] = [];
+  const output = mutedPromptOutput((text) => written.push(text));
+
+  output.stream.write("Enter API key: ");
+  output.mute();
+  output.stream.write(FAKE_KEY);
+  output.stream.write(Buffer.from(`${FAKE_KEY}\r\n`, "utf8"));
+  output.stream.write("\r\n");
+
+  assert.deepEqual(written, ["Enter API key: "]);
+  assert.equal(written.join("").includes(FAKE_KEY), false);
+});
+
+test("the prompt reaches the sink as text, buffer chunks included", () => {
+  const written: string[] = [];
+  const output = mutedPromptOutput((text) => written.push(text));
+  output.stream.write("Enter API key: ");
+  output.stream.write(Buffer.from("(hidden)", "utf8"));
+  assert.equal(written.join(""), "Enter API key: (hidden)");
 });
 
 test("notify renders login events without inventing fields", () => {

@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { Writable } from "node:stream";
 import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import type { CustomProviderConfig } from "../config/providers-config.js";
@@ -150,8 +151,13 @@ export async function listBuiltinProviderIds(): Promise<readonly string[]> {
  * injected reader: the interactive paths are otherwise only reachable through
  * a real stdin.
  *
- * Never echoes what the user typed — the answer to a `secret` prompt goes
- * straight back to Pi, not to `io.stdout`.
+ * What the user types at a `secret` prompt is never written anywhere by this
+ * module: the answer goes straight back to Pi, not to `io.stdout`, and on a
+ * real TTY the keystrokes are not echoed back to the terminal either — the
+ * readline interface for a secret writes through `mutedPromptOutput`, which
+ * passes the prompt and then swallows everything, so a pasted API key does not
+ * land in the operator's scrollback. An injected `io.question` owns its own
+ * echo policy; this module cannot mute a reader it did not create.
  */
 export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
   // Opened on the first prompt and closed after it, rather than once per
@@ -166,6 +172,10 @@ export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
       rl.close();
     }
   };
+  const askSecret = async (message: string): Promise<string> => {
+    if (io.question !== undefined) return io.question(message);
+    return await hiddenQuestion(message);
+  };
   return {
     async prompt(prompt) {
       if (prompt.type === "select") {
@@ -178,6 +188,7 @@ export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
         if (selected === undefined) throw new DomainValidationError("invalid selection");
         return selected.id;
       }
+      if (prompt.type === "secret") return await askSecret(`${prompt.message}: `);
       return await ask(`${prompt.message}: `);
     },
     notify(event) {
@@ -204,5 +215,72 @@ function requireProviderId(providerId: string): void {
 }
 
 function question(rl: ReturnType<typeof createInterface>, message: string): Promise<string> {
-  return new Promise((resolve) => rl.question(message, resolve));
+  return new Promise((resolve, reject) => {
+    // A closed stdin (EOF, a piped input that ran out, a killed parent) never
+    // delivers the answer, so without this the login promise settles never
+    // instead of failing.
+    rl.once("close", () => {
+      reject(new DomainValidationError("stdin closed before the prompt was answered"));
+    });
+    rl.question(message, resolve);
+  });
+}
+
+export interface MutedPromptOutput {
+  /** Readline's output stream: writes reach `sink` until `mute()` is called. */
+  readonly stream: Writable;
+  readonly mute: () => void;
+}
+
+/**
+ * A writable that forwards what readline prints and can then be silenced.
+ *
+ * On a TTY, readline turns off the terminal driver's own echo and re-renders
+ * the typed line to its output itself, so muting that output — after the
+ * prompt has been written and before the first keystroke is rendered — is what
+ * keeps a secret off the screen and out of scrollback. Exported for the unit
+ * test: the muting is the whole security property, so it is worth pinning on
+ * its own rather than only through a prompt that needs a real terminal.
+ */
+export function mutedPromptOutput(sink: (text: string) => void): MutedPromptOutput {
+  let muted = false;
+  const stream = new Writable({
+    write(chunk: string | Buffer, _encoding, callback) {
+      if (!muted) sink(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+      callback();
+    }
+  });
+  return {
+    stream,
+    mute: () => {
+      muted = true;
+    }
+  };
+}
+
+async function hiddenQuestion(message: string): Promise<string> {
+  const output = mutedPromptOutput((text) => process.stdout.write(text));
+  const rl = createInterface({
+    input: process.stdin,
+    output: output.stream,
+    // Raw mode is what stops the terminal driver from echoing; without it
+    // readline neither owns the echo nor can suppress it.
+    terminal: process.stdin.isTTY === true
+  });
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      rl.once("close", () => {
+        reject(new DomainValidationError("stdin closed before the prompt was answered"));
+      });
+      rl.question(message, resolve);
+      // Only now: `question` writes the prompt synchronously, so muting before
+      // it would hide the question along with the answer.
+      output.mute();
+    });
+  } finally {
+    rl.close();
+    // The submitted newline was swallowed with the rest of the echo, so the
+    // next line of output would otherwise start beside the prompt.
+    process.stdout.write("\n");
+  }
 }
