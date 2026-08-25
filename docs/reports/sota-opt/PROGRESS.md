@@ -38,7 +38,7 @@
 | 21 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-21/PLAN.md](./round-21/PLAN.md) |
 | 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
-| 24 | 第 1–2 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-24/PLAN.md](./round-24/PLAN.md) |
+| 24 | 第 1–3 波进行中 | 3 / 10（A/B/C 已合入；D/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-24/PLAN.md](./round-24/PLAN.md) |
 
 ### Round 1 波次
 
@@ -251,8 +251,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R24-A 跟踪门控、R24-B live 路由、R24-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R24-D 自优化、R24-E 学习 | D 运行中；E 本波派出 |
+| 1 | R24-A 跟踪门控、R24-B live 路由、R24-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R24-D 自优化、R24-E 学习 | D/E 运行中 |
+| 3 | R24-F 实验 | F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -491,9 +492,10 @@
 | R23-J | `cursor/r23-j-persist-twenty-third-pass-83a1` | 已合入专属分支（仅 `R23-J.md`）。无新排除 ID；I/O 地板复核；CALLB 不铸 ID；切片关闭 |
 | R24-A | `cursor/r24-a-tracking-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-A.md`）。无新排除 ID；预算复核 67–84 µs/run；residual input-face list-dimension 普查归档 |
 | R24-B | `cursor/r24-b-live-routing-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-B.md`）。无新排除 ID；天花板复核 M=2 8.75–9.07 / M=10 17.78–17.95 ms/eval；M=1 catalog collapse 配置态格归档 |
-| R24-C | `cursor/r24-c-offline-routing-twenty-fourth-pass-83a1` | 已派出 |
+| R24-C | `cursor/r24-c-offline-routing-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-C.md`）。无新排除 ID；生产中位复核 658.9–675.3 ms；OCCX 不铸 ID；APC floor 再锚定 |
 | R24-D | `cursor/r24-d-adaptation-twenty-fourth-pass-83a1` | 已派出 |
 | R24-E | `cursor/r24-e-learning-twenty-fourth-pass-83a1` | 已派出 |
+| R24-F | `cursor/r24-f-experiments-twenty-fourth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
