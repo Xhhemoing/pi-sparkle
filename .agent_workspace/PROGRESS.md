@@ -346,7 +346,7 @@ Landed: R16-3 `9c58b90` eval-routing atomic publish; R16-2 `ee24d86` episode-eve
 
 **Parent gate GREEN** against code HEAD `16691b3` (orchestrator record `5ed437a`): **1977 tests / 1976 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 15: **+26**. Fable SOTA review: **3 ACCEPT, 1 ACCEPT-WITH-NITS (R16-4 fallback never-overwrite unpinned), 0 ROLLBACK** at `.agent_workspace/loop4-r16-review.md`. Zero red-tree commit points. Brief: `.agent_workspace/ROUND17-BRIEF.md`. Two proven Round 17 candidates; do not pad.
 
-## Round 17 — in flight (two proven candidates)
+## Round 17 — parent gate GREEN; fable in flight
 
 Two real candidates from `.agent_workspace/ROUND17-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R17-1 **YES (b) remove** the persistence-dead `recordInferredPreference` call from `adapt learn` (CLI advertised contract is routing-candidate only; store inferred machinery stays for embedders). R17-2 test-only pin, no extra sign-off. Landing commits are slot files + report only (no PROGRESS ticks). Do not pad.
 
@@ -355,6 +355,10 @@ Two real candidates from `.agent_workspace/ROUND17-BRIEF.md`. Stay on `agent/opt
 | fable-review | bc-9e193417-ef51-53ee-ad15-c35d506cc024 | Round 16 SOTA review |
 | R17-1 | bc-6f0c02aa-6311-5709-99ad-12cfb15b9b9a | remove persistence-dead inferred-preference call |
 | R17-2 | bc-039fec19-aced-5ae0-b6ac-b5b58e480925 | pin migrate-legacy fallback never-overwrite |
+
+Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove persistence-dead `recordInferredPreference` from `adapt learn` (direction (b)). No freeze extras.
+
+**Parent gate GREEN** against code HEAD `223e3dd`: **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review in flight.
 
 ---
 
