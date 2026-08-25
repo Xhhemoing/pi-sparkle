@@ -37,7 +37,15 @@ const taskId: TaskId = createTaskId(UUID);
 const parent: AgentInstanceId = createAgentInstanceId(UUID);
 const child: AgentInstanceId = createAgentInstanceId(() => "abcdef01-2345-6789-abcd-ef0123456789");
 const occurredAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
-const verificationResultCriteriaIsDeferred: "criteria" extends keyof VerificationResult ? never : true = true;
+// R10-2 froze option (a) unimplemented with the inverse of this check. Loop 4
+// R11-1 shipped it, so the compile-level assertion flips with the field: the
+// channel now exists, and it is optional, so a verdict that says nothing about
+// individual criteria is still a `VerificationResult`.
+const verificationResultDeclaresCriteria: "criteria" extends keyof VerificationResult ? true : never = true;
+const verificationResultCriteriaIsOptional: VerificationResult = {
+  kind: "PASSED",
+  evidenceIds: []
+};
 
 function base(overrides: Partial<Record<"id" | "runId" | "taskId" | "from" | "to", unknown>> = {}): Record<string, unknown> {
   return {
@@ -273,17 +281,77 @@ test("TASK_RESULT payload validation rejects bad outcome, verification, and fail
   );
 });
 
-test("VerificationResult keeps per-criterion reporting deferred", async () => {
-  assert.equal(verificationResultCriteriaIsDeferred, true);
+test("VerificationResult carries an optional per-criterion channel", async () => {
+  assert.equal(verificationResultDeclaresCriteria, true);
+  assert.equal(verificationResultCriteriaIsOptional.criteria, undefined);
 
   const source = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
   const region = /export interface VerificationResult\s*\{([\s\S]*?)\n\}/.exec(source);
   assert.ok(region, "VerificationResult must remain a declared protocol interface");
-  assert.doesNotMatch(
+  assert.match(
     region[1] ?? "",
-    /^\s*(?:readonly\s+)?criteria\??\s*:/m,
-    "option (a) is deferred: VerificationResult must not declare criteria"
+    /^\s*(?:readonly\s+)?criteria\?\s*:/m,
+    "the per-criterion channel stays optional: absence must keep meaning what it always meant"
   );
+
+  // Additive-compatible in both directions is the property the design rests
+  // on, so it is asserted rather than assumed: a verdict written before the
+  // field existed still validates and round-trips byte-for-byte.
+  const legacy = JSON.parse(JSON.stringify(validResult())) as Record<string, unknown>;
+  assert.equal((legacy.verification as Record<string, unknown>).criteria, undefined);
+  assert.deepEqual(validateAgentMessage(legacy), legacy);
+});
+
+test("per-criterion outcomes validate as a set of distinct, evidenced criteria", () => {
+  const evidence = createEvidenceId(UUID);
+  const withCriteria = {
+    ...validResult(),
+    verification: {
+      kind: "PASSED",
+      evidenceIds: [evidence],
+      criteria: [
+        { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+        { id: "ac-2", kind: "FAILED", evidenceIds: [evidence] },
+        { id: "ac-3", kind: "UNOBSERVED", evidenceIds: [] }
+      ]
+    }
+  };
+  assert.deepEqual(validateAgentMessage(withCriteria), withCriteria);
+
+  const withVerification = (criteria: unknown): Record<string, unknown> => ({
+    ...validResult(),
+    verification: { kind: "PASSED", evidenceIds: [evidence], criteria }
+  });
+
+  // Absent and empty must not be two spellings of the same thing.
+  assert.throws(() => validateAgentMessage(withVerification([])), /verification/);
+  assert.throws(() => validateAgentMessage(withVerification({})), /verification/);
+  // A duplicate id is a protocol violation, not a last-wins merge.
+  assert.throws(
+    () =>
+      validateAgentMessage(
+        withVerification([
+          { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+          { id: "ac-1", kind: "FAILED", evidenceIds: [evidence] }
+        ])
+      ),
+    /verification/
+  );
+  // A FAILED criterion gates a run, so it has to name something.
+  assert.throws(
+    () => validateAgentMessage(withVerification([{ id: "ac-1", kind: "FAILED", evidenceIds: [] }])),
+    /verification/
+  );
+  for (const bad of [
+    { id: "", kind: "PASSED", evidenceIds: [] },
+    { id: "   ", kind: "PASSED", evidenceIds: [] },
+    { id: "ac-1", kind: "MAYBE", evidenceIds: [] },
+    { id: "ac-1", kind: "PASSED", evidenceIds: ["not-an-evidence-id"] },
+    { id: "ac-1", kind: "PASSED" },
+    "ac-1"
+  ]) {
+    assert.throws(() => validateAgentMessage(withVerification([bad])), /verification/, JSON.stringify(bad));
+  }
 });
 
 test("assertAtMostOneTerminal rejects duplicate TASK_RESULT messages", () => {

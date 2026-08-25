@@ -20,6 +20,7 @@ export type AnomalyCode =
   | "deterministic-fail"
   | "ownership-escape"
   | "claimed-verification-without-checks"
+  | "unmet-acceptance-criterion"
   | "repeated-no-progress"
   | "user-reject-stop"
   | "soft-threshold"
@@ -256,6 +257,7 @@ const ANOMALY_CODES: readonly AnomalyCode[] = [
   "deterministic-fail",
   "ownership-escape",
   "claimed-verification-without-checks",
+  "unmet-acceptance-criterion",
   "repeated-no-progress",
   "user-reject-stop",
   "soft-threshold",

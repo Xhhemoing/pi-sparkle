@@ -20,6 +20,7 @@ import {
   type Event,
   type M0EventType
 } from "../../../src/run/events.js";
+import { validateAgentMessage } from "../../../src/protocol/v1.js";
 import { replayRun } from "../../../src/run/replay.js";
 import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
 import { makeEvent, makeRun } from "../../helpers/event-factory.js";
@@ -801,6 +802,155 @@ test("a RUN_UNBLOCKED row is refused unless its target, reason and node id are a
   // Omitting the optional node is the run-level stall shape, and is valid.
   assert.doesNotThrow(() =>
     validateEvent(withPayload({ blockedEventId: BLOCKED_EVENT_ID, reason: "reviewed" }))
+  );
+});
+
+/**
+ * Option (a)'s new payload shape, seeded here for the same reason every other
+ * shape is seeded: a `CHILD_MESSAGE` row is the durable record of what a child
+ * said, and the per-criterion outcomes are now the part of that record an
+ * operator reads to find out *which* criterion blocked a run. If a row can
+ * carry a criterion the decoder half-understands, the record lies.
+ *
+ * The base seed keeps a QUESTION so the mutation sweep above stays comparable
+ * across rounds; this seed is exercised on its own, with the same invariant.
+ */
+const CRITERIA_TERMINAL = validateAgentMessage({
+  protocolVersion: 1,
+  id: MESSAGE_ID,
+  occurredAt: NOW,
+  runId: CHILD_RUN_ID,
+  taskId: TASK_ID,
+  from: AGENT_ID,
+  to: "SUPERVISOR",
+  type: "TASK_RESULT",
+  outcome: "PARTIAL",
+  summary: "the suite runs; one criterion is still open",
+  artifactIds: [],
+  evidenceIds: ["evd_fuzz"],
+  verification: {
+    kind: "PASSED",
+    evidenceIds: ["evd_fuzz"],
+    criteria: [
+      { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+      { id: "ac-2", kind: "FAILED", evidenceIds: ["evd_fuzz"] },
+      { id: "ac-3", kind: "UNOBSERVED", evidenceIds: [] }
+    ]
+  }
+});
+
+test(
+  "a CHILD_MESSAGE carrying per-criterion outcomes decodes, and is refused unless each one is sound",
+  { timeout: FUZZ_TIMEOUT_MS },
+  () => {
+    const seed = makeEvent("CHILD_MESSAGE", { message: CRITERIA_TERMINAL });
+    assert.deepEqual(validateEvent(seed), seed);
+
+    const random = new XorShift32(DEFAULT_SEED ^ 0x0a11_0a11);
+    for (let iteration = 0; iteration < ITERATIONS_PER_TYPE; iteration += 1) {
+      assertEventInvariant(
+        mutate(seed, random, iteration),
+        `validateEvent type=CHILD_MESSAGE(criteria) iteration=${iteration}`
+      );
+    }
+
+    const withCriteria = (criteria: unknown): unknown => ({
+      ...seed,
+      payload: {
+        message: {
+          ...CRITERIA_TERMINAL,
+          verification: { kind: "PASSED", evidenceIds: ["evd_fuzz"], criteria }
+        }
+      }
+    });
+    const refused: readonly unknown[] = [
+      // Absent and empty must not be two spellings of the same thing.
+      [],
+      "ac-1",
+      // A duplicate id has no merge rule, so it is a violation rather than a
+      // last-wins.
+      [
+        { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+        { id: "ac-1", kind: "FAILED", evidenceIds: ["evd_fuzz"] }
+      ],
+      // A FAILED criterion gates a run; an unreferenced one would name nothing.
+      [{ id: "ac-1", kind: "FAILED", evidenceIds: [] }],
+      [{ id: "", kind: "PASSED", evidenceIds: [] }],
+      [{ id: "ac-1", kind: "MAYBE", evidenceIds: [] }],
+      [{ id: "ac-1", kind: "PASSED", evidenceIds: ["not-an-evidence-id"] }],
+      [{ id: "ac-1", kind: "PASSED" }]
+    ];
+    for (const criteria of refused) {
+      assert.throws(
+        () => validateEvent(withCriteria(criteria)),
+        (error: unknown) =>
+          isExactDomainValidationError(error) &&
+          /verification must be a valid VerificationResult/.test(error.message),
+        JSON.stringify(criteria)
+      );
+    }
+
+    // And the shape every row written before the field still has: absent, not
+    // empty, and unchanged by a round trip through the decoder.
+    const silent = makeEvent("CHILD_MESSAGE", {
+      message: validateAgentMessage({
+        ...CRITERIA_TERMINAL,
+        verification: { kind: "PASSED", evidenceIds: ["evd_fuzz"] }
+      })
+    });
+    assert.deepEqual(validateEvent(silent), silent);
+  }
+);
+
+/**
+ * The gate vocabulary grew by one code with option (a), and both rows that
+ * carry a gate decision have to survive it: the assessment that records the
+ * codes, and the transition that stamps the leading one as its reason.
+ */
+test("a TRACKING_ASSESSMENT and its transition carry the unmet-acceptance-criterion code", () => {
+  const blocked = parseTrackingAssessment({
+    ...JSON.parse(JSON.stringify(ASSESSMENT)),
+    gate: {
+      kind: "hard",
+      codes: ["unmet-acceptance-criterion"],
+      wakeAnalysis: true,
+      expandDetail: true,
+      askUser: false,
+      openMinors: []
+    }
+  });
+  const assessmentRow = makeEvent("TRACKING_ASSESSMENT", {
+    assessment: blocked,
+    assessmentHash: hashAssessment(blocked),
+    seq: 1
+  });
+  assert.deepEqual(validateEvent(assessmentRow), assessmentRow);
+
+  const transitionRow = makeEvent("GATE_TRANSITION", {
+    transitionId: "transition-criterion",
+    episodeId: EPISODE_ID,
+    turnId: "turn-fuzz",
+    seq: 1,
+    from: "RUNNING",
+    to: "BLOCKED",
+    reasonCode: "unmet-acceptance-criterion",
+    assessmentHash: hashAssessment(blocked),
+    evidenceRefs: ["evd_fuzz"],
+    policyVersion: "track-v1",
+    idempotencyKey: "fuzz:1",
+    directive: "queue_analysis"
+  });
+  assert.deepEqual(validateEvent(transitionRow), transitionRow);
+
+  // The code is in the recorded vocabulary, not merely tolerated as a string:
+  // a spelling nobody declared still fails the assessment parser.
+  assert.throws(
+    () =>
+      parseTrackingAssessment({
+        ...JSON.parse(JSON.stringify(blocked)),
+        gate: { ...blocked.gate, codes: ["criteria-unmet"] }
+      }),
+    (error: unknown) => isExactDomainValidationError(error) && /gate\.codes\[0\] is invalid/.test(error.message)
   );
 });
 

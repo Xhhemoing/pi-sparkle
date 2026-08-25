@@ -100,6 +100,10 @@ export function runTrackingTurn(input: TrackingTurnInput): TrackingTurnResult {
     ownershipEscape:
       input.gateFacts?.ownershipEscape ?? input.window.toolSituations.some((tool) => tool.escaped),
     claimedVerificationWithoutChecks: derivedClaimedVerificationWithoutChecks(input),
+    // No derivation behind this one: nothing in a `PrescoreInput` records a
+    // per-criterion outcome, so a caller that does not supply the fact has not
+    // observed one. `false` here means "not reported", never "met".
+    criterionUnmet: input.gateFacts?.criterionUnmet ?? false,
     repeatedNoProgress: input.gateFacts?.repeatedNoProgress ?? input.prescoreInput.stalledTurns >= 2,
     userRejectStop,
     safetyRejected,
@@ -169,6 +173,17 @@ export function runTrackingTurn(input: TrackingTurnInput): TrackingTurnResult {
   };
 }
 
+/**
+ * Left reading the request-derived lists on purpose (Loop 4 R11-1, the option
+ * (a) diff). Making `completedChecks` an observation of the new per-criterion
+ * channel would turn this derivation into the *leading* hard code for a PASSED
+ * child with an unmet criterion — but only when the child's own prose matches
+ * `isSuccessClaim`, which is untrusted text this codebase tags
+ * `UNTRUSTED_TEXT` precisely so it does not decide things. It would also miss
+ * the honest child that reports an unmet criterion without claiming success.
+ * `unmet-acceptance-criterion` gates that child instead, off the reported
+ * outcome rather than off the prose, so this stays what it was.
+ */
 function derivedClaimedVerificationWithoutChecks(input: TrackingTurnInput): boolean {
   if (input.gateFacts?.claimedVerificationWithoutChecks !== undefined) {
     return input.gateFacts.claimedVerificationWithoutChecks;

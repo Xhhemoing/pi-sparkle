@@ -133,39 +133,51 @@ function scopeOutcome(input: PrescoreInput): DimensionScore["outcome"] {
 }
 
 /**
- * check-coverage — criteria-shaped, and deliberately not a check.
+ * check-coverage — criteria-shaped, and deliberately still not a check.
  *
  * `FAIL` is not in this function's range: a required check nobody reported
- * completing reads UNOBSERVED, never FAIL. That is the recorded contract, not
- * an oversight (Loop 4 R7-2, parent-signed): **acceptance criteria are prompt
- * guidance, and the deterministic verifier is the sole gate on a child's
- * work.** The verifier reaches the gate as `deterministicFail` in `turn.ts`,
- * carrying `verification.kind` from the child's terminal TASK_RESULT.
+ * completing reads UNOBSERVED, never FAIL. That is the recorded contract, and
+ * it survived option (a) unchanged (Loop 4 R7-2, re-affirmed at R11-1,
+ * parent-signed): **a criterion this dimension reads is a criterion that was
+ * asked for, and asking for something is not evidence about it.**
  *
- * Criteria are load-bearing elsewhere — `run/child-prompt.ts` renders them to
- * the child under "Acceptance:", and `requirement/coverage.ts` makes plan-time
- * coverage of every contract criterion a start condition. They are simply not
- * evidence: the protocol carries one verification verdict per task, not
- * per-criterion outcomes, so the sole production producer of a `PrescoreInput`
- * (`from-child.ts::prescoreInputFromObservation`) can only echo the criteria
- * that were asked for, and this dimension compares a list against a copy of
- * itself.
+ * What changed at R11-1 is which criteria can gate, not this dimension. A
+ * child may now report per-criterion outcomes on its own verdict
+ * (`protocol/v1.ts::VerificationResult.criteria`), and a criterion it reports
+ * FAILED reaches the gate as the `unmet-acceptance-criterion` anomaly, fed by
+ * an explicit `GateInput` fact that `from-child.ts::assessChildObservation`
+ * supplies from the observation. So an unmet criterion does block a run — via
+ * a named code with the criterion's own evidence behind it, never via a number
+ * this function moves.
  *
- * Changing that is a real change, not a tidy-up, and it is three changes:
- *   1. a child-side way to report per-criterion outcomes, so `completedChecks`
- *      can be an observation instead of an echo;
- *   2. resumed child specs — re-synthesised today with empty criteria — fixed
- *      in the same diff, or a resumed node is gated more weakly than the node
- *      the run started with. The FAIL-unreachable tripwire in
- *      `test/unit/run/flowchart-run-abort.test.ts` is where whoever tries
- *      finds out; its docstring names the fix;
- *   3. a way for the FAIL to reach the gate at all. Putting FAIL into this
- *      function's range is not enough on its own: `gates.ts` has no anomaly
- *      code for an unmet acceptance criterion, and `cappedByHardFail` caps
- *      `displayPrescore` only — the gate scores the uncapped `P`. A lone
- *      criteria-shaped FAIL therefore drops P by one dimension's weight and
- *      leaves the directive at `none` (pinned in
- *      `test/unit/tracking/criteria-are-guidance.test.ts`).
+ * The rejected alternative is worth keeping written down, because it looks
+ * like the obvious one: giving this dimension FAIL. It would be a *silent*
+ * gate, and measurably a no-op — a lone criteria-shaped FAIL drops `P` by one
+ * dimension's weight, caps `displayPrescore` (which the gate does not score),
+ * and leaves the directive at `none`. It would also read a request-derived
+ * echo as if it were an observation: the sole production producer of a
+ * `PrescoreInput` (`from-child.ts::prescoreInputFromObservation`) still fills
+ * `completedChecks` from the criteria that were asked for, on purpose, so this
+ * dimension still compares a list against a copy of itself.
+ *
+ * Criteria remain load-bearing elsewhere too — `run/child-prompt.ts` renders
+ * them to the child under "Acceptance:", and `requirement/coverage.ts` makes
+ * plan-time coverage of every contract criterion a start condition.
+ *
+ * Two obligations remain open and are *not* satisfied by this function:
+ *   1. resumed child specs are re-synthesised with empty criteria, so a node
+ *      the log never saw run carries no spec. That is unknown, not unmet, and
+ *      the gate keeps it that way — `unmet-acceptance-criterion` fires only on
+ *      a reported FAILED, and a node that never ran reports nothing. Durably
+ *      distinguishing "known to have none" from "unknown" needs the
+ *      `taskCriteria` seam on `run/replay.ts::FlowchartCheckpointState`, which
+ *      is declared and validated but has no writer yet. The FAIL-unreachable
+ *      tripwire in `test/unit/run/flowchart-run-abort.test.ts` still holds
+ *      this function's range;
+ *   2. only a tester child's criteria become `requiredChecks` at all
+ *      (`run/child-tracking.ts`), which is a role decision this dimension
+ *      inherits. The gate does not: a reported criterion outcome is read
+ *      whatever the child's role.
  */
 function coverageOutcome(input: PrescoreInput): DimensionScore["outcome"] {
   if (input.requiredChecks.length === 0) return "NOT_APPLICABLE";

@@ -18,11 +18,21 @@ import type { ConstraintRecord } from "../../../src/tracking/types.js";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 /**
- * Loop 4 R7-2, parent-signed option (b): acceptance criteria are prompt
- * guidance and the deterministic verifier is the sole gate. These pins hold
- * the recorded contract at the layer that owns it. R6-2's FAIL-unreachable
- * tripwire (`test/unit/run/flowchart-run-abort.test.ts`) holds the same fact
- * one layer up, against a real child spec, and stays where it is.
+ * Loop 4 R7-2, parent-signed: the acceptance criteria a caller *asks for* are
+ * prompt guidance, not evidence about the child. These pins hold that at the
+ * layer that owns it. R6-2's FAIL-unreachable tripwire
+ * (`test/unit/run/flowchart-run-abort.test.ts`) holds the same fact one layer
+ * up, against a real child spec, and stays where it is.
+ *
+ * Option (a) landed at R11-1 and did not change any of this. Every observation
+ * below reports a whole-task verdict and nothing per-criterion, so the sweep
+ * measures exactly what it always measured: asked-for criteria move the
+ * recorded verdicts and the numeric prescore, and move the directive not at
+ * all. What option (a) added is a separate channel — a criterion the child
+ * *reports* FAILED, which reaches the gate as `unmet-acceptance-criterion`
+ * and is pinned in `option-a-preconditions.test.ts`. The sole production path
+ * into three-line scoring is unchanged (last pin in this file), which is the
+ * condition R8-4 attached to keeping this sweep as written.
  */
 
 const OUTCOMES: readonly ObservedChildOutcome[] = [
@@ -133,7 +143,7 @@ function verdicts(decision: ChildTrackingDecision): Record<string, string> {
   );
 }
 
-describe("acceptance criteria are prompt guidance, not a gate", () => {
+describe("the acceptance criteria a caller asks for are prompt guidance, not a gate", () => {
   it("the directive does not move when criteria and constraints do", () => {
     let cells = 0;
     for (const behaviour of BEHAVIOURS) {
@@ -285,12 +295,14 @@ describe("the criteria-shaped dimensions, at their source", () => {
   });
 });
 
-describe("what it would take for a criterion to gate a child", () => {
+describe("why a criteria-shaped dimension is not how a criterion gates a child", () => {
   it("a criteria-shaped FAIL caps the displayed prescore and leaves the gate open", () => {
-    // The reason option (b) is a decision and not a one-line omission: even
-    // with FAIL in range, nothing carries it to the directive. `gates.ts` has
-    // no anomaly code for an unmet criterion, and the hard-fail cap reaches
-    // `displayPrescore`, not the `P` the gate scores.
+    // The measurement behind option (a)'s choice of mechanism, kept because
+    // the rejected alternative still looks like the obvious one. Even with
+    // FAIL in a dimension's range, nothing carries it to the directive: the
+    // hard-fail cap reaches `displayPrescore`, not the `P` the gate scores.
+    // R11-1 therefore gave the gate an explicit fact and a named code rather
+    // than a dimension outcome — see `option-a-preconditions.test.ts`.
     const failing = {
       claims: ["did the work"],
       toolSituations: [
@@ -369,9 +381,13 @@ describe("the recorded contract", () => {
 
     assert.match(
       prose(prescore),
-      /acceptance criteria are prompt guidance, and the deterministic verifier is the sole gate/,
+      /a criterion this dimension reads is a criterion that was asked for, and asking for something is not evidence about it/,
       "prescore.ts must keep recording why check-coverage cannot fail"
     );
+    // The half option (a) added: the dimension's silence is now a choice made
+    // against a live alternative, so the source has to say where the gate went
+    // instead of only saying it is not here.
+    assert.match(prose(prescore), /`unmet-acceptance-criterion` anomaly/);
     assert.match(prose(fromChild), /sole production producer of a `PrescoreInput`/);
     assert.match(prose(fromChild), /derived from the request, not observed/);
   });

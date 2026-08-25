@@ -13,6 +13,7 @@ import { validateProjectSnapshot, type ProjectSnapshot } from "../domain/project
 import { isRecord } from "../domain/record.js";
 import { validateRun, type Run } from "../domain/run.js";
 import { isRunStatus, type RunStatus } from "../domain/status.js";
+import type { AcceptanceCriterion } from "../domain/task.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
 import type { Event } from "./events.js";
 import {
@@ -72,11 +73,49 @@ export interface FlowchartCheckpointState {
    * acceptance criteria, and presenting an empty constraint list as the run's
    * would turn missing evidence into `NOT_APPLICABLE`.
    *
-   * Reserved: per-task acceptance criteria are expected to ride this same seam
-   * as a sibling optional field (option (a), `.agent_workspace/loop4-r8-t4.md`
-   * §5.3). That field is design-gated and deliberately not implemented here.
+   * The reservation this docstring used to hold for per-task acceptance
+   * criteria is spent: they ride the same seam as {@link taskCriteria} below.
    */
   contract?: RequirementContract;
+  /**
+   * The acceptance criteria each task was actually dispatched with, so a
+   * resume can tell "this task has no criteria" from "nobody recorded this
+   * task's criteria".
+   *
+   * That distinction is the whole reason the field exists. `childTasksFromLog`
+   * rebuilds a resumed child from the parent log and gives a node whose
+   * `TASK_REQUEST` was never logged `acceptanceCriteria: []`; the node then
+   * runs and appends a real `TASK_REQUEST` carrying that empty list, which the
+   * last-request-wins rule makes authoritative for every later resume. Under
+   * option (a) that laundering would permanently downgrade one node's gating
+   * on the strength of a crash, with no way to notice afterwards. A durable
+   * record of what was dispatched is the only form of the marker that survives
+   * a second crash.
+   *
+   * Optional at `schemaVersion: 1`, and absence stays valid forever: every
+   * checkpoint written before this field existed is still a good checkpoint,
+   * and absence means "unknown", never "none". Like `contract` it is never
+   * *synthesized* — not from the bound episode, not from the flowchart
+   * definition (`FlowNode` carries no criteria), and not from the run
+   * contract, whose criteria are the run's rather than any one task's.
+   *
+   * An entry with an empty `acceptanceCriteria` is meaningful and allowed: it
+   * is the durable statement that this task was dispatched with none. The
+   * array itself must be non-empty when present, and ordered by ascending
+   * `taskId`, which settles uniqueness in the same comparison.
+   *
+   * No `src` writer fills this yet — the flowchart checkpoint writer is
+   * `run/flowchart-run.ts`, outside this diff's ownership. Declared and
+   * validated here so the shape is fixed and a malformed value fails closed;
+   * the writer is prescribed in `.agent_workspace/loop4-r11-t1.md`.
+   */
+  taskCriteria?: TaskAcceptanceCriteria[];
+}
+
+/** One task's dispatched acceptance criteria, as {@link FlowchartCheckpointState} records them. */
+export interface TaskAcceptanceCriteria {
+  taskId: TaskId;
+  acceptanceCriteria: AcceptanceCriterion[];
 }
 
 export interface RunCheckpoint {
@@ -382,14 +421,76 @@ export function validateFlowchartCheckpointState(value: unknown): FlowchartCheck
       `Invalid RunCheckpoint: flowchart snapshot is not restorable: ${messageOf(error)}`
     );
   }
-  if (value.contract === undefined) return { definition, snapshot, limits };
+  const taskCriteria = validateTaskCriteria(value.taskCriteria);
+  if (value.contract === undefined) {
+    return taskCriteria === undefined
+      ? { definition, snapshot, limits }
+      : { definition, snapshot, limits, taskCriteria };
+  }
   let contract: RequirementContract;
   try {
     contract = validateRequirementContract(value.contract);
   } catch (error) {
     throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.contract: ${messageOf(error)}`);
   }
-  return { definition, snapshot, limits, contract };
+  return taskCriteria === undefined
+    ? { definition, snapshot, limits, contract }
+    : { definition, snapshot, limits, contract, taskCriteria };
+}
+
+/**
+ * Validates the optional per-task criteria record, fail-closed.
+ *
+ * Absence is valid and means "unknown". An empty array is not: a checkpoint
+ * that carries the field says something about at least one task, and two
+ * spellings of "nothing" is how a durable channel rots. Entries are ordered by
+ * ascending `taskId`, which makes duplicates a violation of the same rule.
+ */
+function validateTaskCriteria(value: unknown): TaskAcceptanceCriteria[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DomainValidationError(
+      "Invalid RunCheckpoint: flowchart.taskCriteria must be a non-empty array when present"
+    );
+  }
+  const entries: TaskAcceptanceCriteria[] = [];
+  let previousTaskId: string | undefined;
+  for (const [index, entry] of value.entries()) {
+    const label = `Invalid RunCheckpoint: flowchart.taskCriteria[${index}]`;
+    if (!isRecord(entry)) throw new DomainValidationError(`${label} must be an object`);
+    if (!isTaskId(entry.taskId)) throw new DomainValidationError(`${label}.taskId must be a valid TaskId`);
+    if (previousTaskId !== undefined && entry.taskId <= previousTaskId) {
+      throw new DomainValidationError(`${label}.taskId must sort strictly after ${previousTaskId}`);
+    }
+    previousTaskId = entry.taskId;
+    if (!Array.isArray(entry.acceptanceCriteria)) {
+      throw new DomainValidationError(`${label}.acceptanceCriteria must be an array`);
+    }
+    const criteria: AcceptanceCriterion[] = [];
+    const seen = new Set<string>();
+    for (const [position, criterion] of entry.acceptanceCriteria.entries()) {
+      if (
+        !isRecord(criterion) ||
+        typeof criterion.id !== "string" ||
+        criterion.id.trim() === "" ||
+        typeof criterion.description !== "string" ||
+        criterion.description.trim() === ""
+      ) {
+        throw new DomainValidationError(
+          `${label}.acceptanceCriteria[${position}] must be {id, description} with non-empty strings`
+        );
+      }
+      if (seen.has(criterion.id)) {
+        throw new DomainValidationError(
+          `${label}.acceptanceCriteria[${position}] repeats criterion id ${criterion.id}`
+        );
+      }
+      seen.add(criterion.id);
+      criteria.push({ id: criterion.id, description: criterion.description });
+    }
+    entries.push({ taskId: entry.taskId, acceptanceCriteria: criteria });
+  }
+  return entries;
 }
 
 export function validateCheckpoint(value: unknown): RunCheckpoint {

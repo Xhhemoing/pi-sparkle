@@ -8,10 +8,14 @@ import { DomainValidationError } from "../../../src/domain/errors.js";
 import { AGENT_ROLES, type AgentRole } from "../../../src/domain/roles.js";
 import type { AgentInstanceId, ArtifactId, EvidenceId, RunId, TaskId } from "../../../src/domain/ids.js";
 import type { AgentExecutionRequest, ExecutionEvent } from "../../../src/execution/contract.js";
+import { validateConfidenceScore, type Flowchart } from "../../../src/domain/flowchart.js";
 import { createTaskResultTool } from "../../../src/pi-adapter/pi-executor.js";
 import { VERIFICATION_KINDS, validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import type { ChildRunOutcome, ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { observationFromChild } from "../../../src/run/child-tracking.js";
+import { validateFlowchartCheckpointState } from "../../../src/run/replay.js";
+import { createFlowchartSupervisor } from "../../../src/supervisor/flowchart-supervisor.js";
+import { createModelRouter } from "../../../src/supervisor/model-router.js";
 import { combineScore } from "../../../src/tracking/combined-score.js";
 import { DEFAULT_TRACKING_CONFIG } from "../../../src/tracking/config.js";
 import { evaluateGates } from "../../../src/tracking/gates.js";
@@ -28,24 +32,23 @@ import { parseTrackingAssessment, type ConstraintRecord } from "../../../src/tra
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 /**
- * Loop 4 R8-4 — the preconditions option (a) has to satisfy, pinned as they
- * stand under option (b).
+ * Loop 4 R8-4 — the preconditions option (a) had to satisfy. Option (a)
+ * shipped at R11-1, so this file is now the record of what moved.
  *
- * R7-2 recorded the decision (acceptance criteria are prompt guidance; the
- * deterministic verifier is the sole gate) and `criteria-are-guidance.test.ts`
- * pins it. These pins are the *other* half: the facts a criteria-can-gate
- * design has to move, each locked where it lives today so that moving it is
- * deliberate. Nothing here changes behaviour, and none of it asserts that the
- * present shape is right — only that it is what is shipped.
+ * All five pins have been through the replace-in-the-same-diff rule R8-4 wrote
+ * for them, in two instalments: pin 2 at R9-2 (the child-side verdict
+ * producer), the remaining four here. Each still measures the fact it was
+ * written to measure; what changed is the answer, and where the answer changed
+ * the pin says so rather than being deleted. R10-2's exact-title meta-pin moved
+ * with them — it now protects the post-option-(a) titles.
  *
- * Anyone implementing option (a) replaces these pins in the same diff, with
- * disclosure, and re-derives the 270-cell sweep in
- * `criteria-are-guidance.test.ts` under the new semantics.
- *
- * Pin 2 has already been through that: Loop 4 R9-2 shipped the child-side
- * producer R8-4 called precondition 0, so the pin now records a real executor
- * that can report PASSED/FAILED and a default path that still cannot. The
- * other four still stand as written.
+ * What did *not* move is worth naming, because reading this file the other way
+ * round is easy: acceptance criteria are still not scored. `check-coverage`
+ * still has no FAIL in its range, `completedChecks` is still an echo of the
+ * request, and the 270-cell sweep in `criteria-are-guidance.test.ts` still
+ * holds — a criterion the caller *asked for* moves nothing. What gates is a
+ * criterion the child *reported* FAILED, through one named anomaly with that
+ * criterion's own evidence behind it.
  */
 
 const REGISTRY = createAgentProfileRegistry(defaultAgentProfiles());
@@ -67,6 +70,45 @@ function specFor(role: AgentRole, criterionIds: readonly string[]): ChildTaskInp
 }
 
 const AGENT_ID = "agt_01234567-89ab-cdef-0123-456789abcdef" as AgentInstanceId;
+const OTHER_TASK_ID = "tsk_fedcba98-7654-3210-fedc-ba9876543210" as TaskId;
+
+/**
+ * The smallest restorable flowchart checkpoint payload, built live rather than
+ * hand-written because `validateFlowchartCheckpointState` validates by restore
+ * and a hand-written snapshot would fail before reaching the field under test.
+ */
+const FLOWCHART_LIMITS = { maxConcurrentNodes: 4, maxConsecutiveStalls: 3 };
+const FLOWCHART_DEFINITION: Flowchart = {
+  id: "criteria-seam",
+  nodes: [
+    {
+      id: "a",
+      taskId: TASK_ID,
+      role: "actor",
+      objective: "Do a",
+      modelPolicy: { allowedModels: ["cheap"] },
+      confidenceThreshold: validateConfidenceScore(0.7),
+      approvalRequired: false
+    }
+  ],
+  edges: []
+};
+const FLOWCHART_SNAPSHOT = createFlowchartSupervisor({
+  flowchart: FLOWCHART_DEFINITION,
+  router: createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor", "critic"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      }
+    ]
+  })
+}).snapshot();
 
 /**
  * Drives the shipped `sparkle_report_task_result` tool and returns the message
@@ -107,6 +149,24 @@ function childReporting(terminal: TaskResult): ChildRunOutcome {
   } as unknown as ChildRunOutcome;
 }
 
+/**
+ * A child whose work passed as a whole and which named one criterion it did
+ * not meet — the case the per-criterion channel exists for, and the one no
+ * whole-task verdict can express.
+ */
+function childReportingUnmetCriterion(): ChildRunOutcome {
+  return {
+    ...childOutcome("PASSED"),
+    terminalResult: {
+      verification: {
+        kind: "PASSED",
+        evidenceIds: [EVIDENCE_ID],
+        criteria: [{ id: "crit-a", kind: "FAILED", evidenceIds: [EVIDENCE_ID] }]
+      }
+    }
+  } as unknown as ChildRunOutcome;
+}
+
 function childOutcome(kind: "PASSED" | "FAILED"): ChildRunOutcome {
   return {
     childRunId: CHILD_RUN_ID,
@@ -121,15 +181,18 @@ function childOutcome(kind: "PASSED" | "FAILED"): ChildRunOutcome {
   } as unknown as ChildRunOutcome;
 }
 
-describe("what a criteria-gating design has to move (option (a) preconditions)", () => {
-  it("keeps the deferred option (a) pins 1, 3, 4, and 5 named exactly", async () => {
+describe("what a criteria-gating design had to move (option (a), landed)", () => {
+  it("keeps the landed option (a) pins 1, 3, 4, and 5 named exactly", async () => {
+    // R10-2's meta-pin, re-pointed at the titles those four pins carry now
+    // that option (a) has landed. Its job is unchanged: a later slot that
+    // wants to weaken one of them has to rename it here first, in the open.
     const source = await readFile(fileURLToPath(import.meta.url), "utf8");
     const declaredTitles = [...source.matchAll(/^\s*it\("([^"]+)"/gm)].map((match) => match[1]);
     const protectedTitles = [
-      "criteria reach the prescore for exactly one role",
+      "criteria reach the prescore for exactly one role, and the gate for all of them",
       "scoring the capped prescore would move 54 of 270 cells, none of them about criteria",
-      "the recorded assessment vocabulary has no criterion-shaped anomaly code",
-      "the protocol carries one verdict per task and no per-criterion channel"
+      "the recorded assessment vocabulary names exactly one criterion-shaped anomaly code",
+      "the protocol carries one verdict per task, and that verdict can speak per criterion"
     ];
 
     for (const title of protectedTitles) {
@@ -137,7 +200,7 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     }
   });
 
-  it("criteria reach the prescore for exactly one role", () => {
+  it("criteria reach the prescore for exactly one role, and the gate for all of them", () => {
     // `observationFromChild` is where a task's acceptance criteria become
     // `requiredChecks`, and it consults the role first: a non-tester child's
     // criteria are dropped before the prescore ever sees them, so
@@ -168,6 +231,33 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     assert.equal(
       dimensionOf(observationFromChild(childOutcome("PASSED"), specFor("implementer", ["crit-a"]))),
       "NOT_APPLICABLE"
+    );
+
+    // The half option (a) changed. The role gate above is a *prescore* fact:
+    // it decides whose asked-for criteria become `requiredChecks`. A criterion
+    // the child reported FAILED never travels that way — it arrives on the
+    // verdict — so it gates every role, including the six whose criteria
+    // check-coverage still refuses to look at.
+    const codesByRole = new Map<AgentRole, string>();
+    for (const role of AGENT_ROLES) {
+      const decision = assessChildObservation({
+        observation: observationFromChild(childReportingUnmetCriterion(), specFor(role, ["crit-a"])),
+        episodeId: "ep_probe",
+        runId: "run_probe"
+      });
+      assert.equal(decision.apply, true, role);
+      if (!decision.apply) return;
+      codesByRole.set(role, decision.assessment.gate.codes.join(","));
+    }
+    assert.deepEqual(
+      [...new Set(codesByRole.values())],
+      ["unmet-acceptance-criterion"],
+      "a reported unmet criterion blocks every role, not only the tester whose criteria are scored"
+    );
+    assert.equal(
+      dimensionOf(observationFromChild(childReportingUnmetCriterion(), specFor("implementer", ["crit-a"]))),
+      "NOT_APPLICABLE",
+      "and it does so without the criteria-shaped dimension learning anything"
     );
   });
 
@@ -334,6 +424,10 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
               input.claims.some(isSuccessClaim) &&
               input.requiredChecks.length > 0 &&
               !input.requiredChecks.every((check) => input.completedChecks.includes(check)),
+            // No cell in this grid reports a per-criterion outcome, which is
+            // why the count below is unchanged by option (a): the sweep
+            // measures criteria that were *asked for*.
+            criterionUnmet: false,
             repeatedNoProgress: false,
             userRejectStop: false,
             safetyRejected: false,
@@ -390,11 +484,12 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     );
   });
 
-  it("the recorded assessment vocabulary has no criterion-shaped anomaly code", () => {
-    // A deliberate tripwire, in R7-3's replace-not-weaken shape. `gates.ts`
-    // has no code for an unmet acceptance criterion, and the persisted
-    // assessment parser refuses one, so a gate path for option (a) cannot be
-    // added quietly: whoever adds the code updates this pin in the same diff.
+  it("the recorded assessment vocabulary names exactly one criterion-shaped anomaly code", () => {
+    // R8-4's pin 4, replaced as it required. It used to assert that no
+    // criterion-shaped code existed; option (a) added exactly one, so the
+    // tripwire now holds the vocabulary at that one. The two near-misses it
+    // already refused are still refused, which is what keeps a second,
+    // undeclared spelling from creeping in beside the first.
     const decision = assessChildObservation({
       observation: {
         taskId: "tsk_probe",
@@ -419,7 +514,10 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     record.gate.codes = ["soft-threshold"];
     assert.deepEqual(parseTrackingAssessment(record).gate.codes, ["soft-threshold"]);
 
-    for (const candidate of ["unmet-acceptance-criterion", "criteria-unmet", "acceptance-criterion-fail"]) {
+    record.gate.codes = ["unmet-acceptance-criterion"];
+    assert.deepEqual(parseTrackingAssessment(record).gate.codes, ["unmet-acceptance-criterion"]);
+
+    for (const candidate of ["criteria-unmet", "acceptance-criterion-fail"]) {
       record.gate.codes = [candidate];
       assert.throws(
         () => parseTrackingAssessment(record),
@@ -427,22 +525,46 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
         `${candidate} is not in the recorded vocabulary`
       );
     }
+
+    // The vocabulary is one thing; a real assessment carrying the code is
+    // another. This one comes off the production path, so the persisted record
+    // is proven parseable rather than assumed to be.
+    const blocked = assessChildObservation({
+      observation: observationFromChild(childReportingUnmetCriterion(), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    assert.equal(blocked.apply, true);
+    if (!blocked.apply) return;
+    const persisted = parseTrackingAssessment(JSON.parse(JSON.stringify(blocked.assessment)));
+    assert.deepEqual(persisted.gate.codes, ["unmet-acceptance-criterion"]);
+    assert.equal(persisted.gate.kind, "hard");
+    assert.ok(
+      persisted.evidenceRefs.includes(EVIDENCE_ID),
+      "the criterion's own evidence reaches the record, so the anomaly is auditable"
+    );
   });
 
-  it("the protocol carries one verdict per task and no per-criterion channel", async () => {
-    // The first of option (a)'s three changes is a schema decision, and this
-    // is its starting state: three verdict kinds, one verdict object, two
-    // fields on it. The tolerance half matters for the design — protocol v1
-    // does not reject unknown keys, so a per-criterion field can be added
-    // optionally without a version bump, and an absent one must keep meaning
-    // exactly what it means today.
+  it("the protocol carries one verdict per task, and that verdict can speak per criterion", async () => {
+    // R8-4's pin 5, replaced. Its starting state was three verdict kinds, one
+    // verdict object, two fields on it, and a `criteria` key that validated
+    // only because protocol v1 tolerates unknown keys — additive, and unread.
+    // Option (a) declared the field, so the same message is now read. Still
+    // one verdict object and still three kinds: the channel let the verifier
+    // say more in one statement, not say it more often.
     assert.deepEqual([...VERIFICATION_KINDS], ["PASSED", "FAILED", "UNOBSERVED"]);
 
     const source = await readFile(join(REPO_ROOT, "src/protocol/v1.ts"), "utf8");
     const region = /export interface VerificationResult \{([\s\S]*?)\n\}/.exec(source);
     assert.ok(region, "VerificationResult must stay a declared interface");
-    const fields = [...(region[1] ?? "").matchAll(/^\s*(\w+)\??:/gm)].map((match) => match[1]);
-    assert.deepEqual(fields, ["kind", "evidenceIds"], "a per-criterion channel would be a third field");
+    const fields = [...(region[1] ?? "").matchAll(/^\s*(\w+)(\??):/gm)].map(
+      (match) => `${match[1]}${match[2]}`
+    );
+    assert.deepEqual(
+      fields,
+      ["kind", "evidenceIds", "criteria?"],
+      "the per-criterion channel is the third field and stays optional"
+    );
 
     const terminal = {
       protocolVersion: 1,
@@ -466,8 +588,92 @@ describe("what a criteria-gating design has to move (option (a) preconditions)",
     assert.deepEqual(
       validateAgentMessage(terminal),
       terminal,
-      "unknown keys pass validation unchanged, so the channel would be additive — and unread"
+      "the same message R8-4 pinned as additive-but-unread still validates unchanged"
     );
+
+    // And is now read. Absence is what keeps every log written before the
+    // field meaning exactly what it meant, so both halves are asserted here.
+    const spoken = assessChildObservation({
+      observation: observationFromChild(childReportingUnmetCriterion(), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    const silent = assessChildObservation({
+      observation: observationFromChild(childOutcome("PASSED"), specFor("tester", ["crit-a"])),
+      episodeId: "ep_probe",
+      runId: "run_probe"
+    });
+    assert.equal(spoken.apply, true);
+    assert.equal(silent.apply, true);
+    if (!spoken.apply || !silent.apply) return;
+    assert.deepEqual(spoken.assessment.gate.codes, ["unmet-acceptance-criterion"]);
+    assert.deepEqual(silent.assessment.gate.codes, []);
+  });
+
+  it("the durable per-task criteria seam is declared, validated, and never synthesized", async () => {
+    // R9-1 reserved a sibling field on `FlowchartCheckpointState` for option
+    // (a) and pinned it unimplemented; that reservation is spent here, so this
+    // is its replacement. The unimplemented half of R9-1's assertion lives in
+    // `test/integration/m2.5/resume.test.ts`, which this slot does not own —
+    // the prescribed edit is in `.agent_workspace/loop4-r11-t1.md`.
+    const source = await readFile(join(REPO_ROOT, "src/run/replay.ts"), "utf8");
+    const region = /export interface FlowchartCheckpointState \{[\s\S]*?^\}$/m.exec(source);
+    assert.ok(region, "FlowchartCheckpointState remains structurally inspectable");
+    assert.match(region[0], /taskCriteria\?: TaskAcceptanceCriteria\[\]/);
+    assert.match(region[0], /never \*synthesized\*/, "the never-synthesize rule stays in-source");
+    assert.match(region[0], /not from the bound episode/);
+
+    const base = {
+      definition: FLOWCHART_DEFINITION,
+      snapshot: FLOWCHART_SNAPSHOT,
+      limits: FLOWCHART_LIMITS
+    };
+    // Absence stays valid, and stays absent: an unknown must not round-trip
+    // into an empty list, because empty means "dispatched with none".
+    assert.equal("taskCriteria" in validateFlowchartCheckpointState(base), false);
+
+    const known = validateFlowchartCheckpointState({
+      ...base,
+      taskCriteria: [
+        { taskId: TASK_ID, acceptanceCriteria: [{ id: "crit-a", description: "the suite passes" }] },
+        { taskId: OTHER_TASK_ID, acceptanceCriteria: [] }
+      ]
+    });
+    assert.deepEqual(known.taskCriteria?.map((entry) => entry.acceptanceCriteria.length), [1, 0]);
+
+    for (const [label, taskCriteria] of [
+      ["an empty array is a second spelling of unknown", []],
+      ["a non-array", {}],
+      ["a bad task id", [{ taskId: "not-a-task", acceptanceCriteria: [] }]],
+      [
+        "descending task ids, which is also how duplicates are refused",
+        [
+          { taskId: OTHER_TASK_ID, acceptanceCriteria: [] },
+          { taskId: TASK_ID, acceptanceCriteria: [] }
+        ]
+      ],
+      [
+        "a repeated criterion id within one task",
+        [
+          {
+            taskId: TASK_ID,
+            acceptanceCriteria: [
+              { id: "crit-a", description: "one" },
+              { id: "crit-a", description: "two" }
+            ]
+          }
+        ]
+      ],
+      ["a blank criterion description", [{ taskId: TASK_ID, acceptanceCriteria: [{ id: "crit-a", description: "  " }] }]]
+    ] as const) {
+      assert.throws(
+        () => validateFlowchartCheckpointState({ ...base, taskCriteria }),
+        (error: unknown) =>
+          error instanceof DomainValidationError &&
+          /Invalid RunCheckpoint: flowchart\.taskCriteria/.test(error.message),
+        label
+      );
+    }
   });
 });
 

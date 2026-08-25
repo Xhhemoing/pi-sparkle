@@ -387,6 +387,88 @@ describe("sparkle_report_task_result", () => {
     assert.deepEqual(harness.emitted, []);
   });
 
+  it("carries per-criterion outcomes on the one verdict, or says nothing about them", async () => {
+    // Loop 4 R11-1, option (a). The channel rides the existing single call:
+    // the verifier speaks once, and the schema lets it say more in that one
+    // statement rather than say it more often. R10-6's standing rules are
+    // untouched — identity still comes from the lease, the whole-task FAILED
+    // rule still applies, and this is still one verdict per attempt.
+    const harness = toolHarness();
+    await report(harness, {
+      verification: "PASSED",
+      summary: "the suite runs; one criterion is still open",
+      evidenceIds: ["evd_suite-1"],
+      criteria: [
+        { id: "ac-1", verification: "PASSED" },
+        { id: "  ac-2  ", verification: "FAILED", evidenceIds: ["evd_case-9"] }
+      ]
+    });
+
+    const terminal = harness.terminals()[0];
+    assert.ok(terminal);
+    assert.deepEqual(validateAgentMessage(terminal), terminal, "the criteria-bearing message is real protocol v1");
+    assert.deepEqual(terminal.verification, {
+      kind: "PASSED",
+      evidenceIds: ["evd_suite-1"],
+      criteria: [
+        { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+        { id: "ac-2", kind: "FAILED", evidenceIds: ["evd_case-9"] }
+      ]
+    });
+
+    // Silence about criteria stays silence: the field is absent, not empty, so
+    // a verdict written by a child that ignores the parameter is byte-identical
+    // to one written before the parameter existed.
+    const quiet = toolHarness();
+    await report(quiet, { verification: "PASSED", summary: "did the work" });
+    assert.deepEqual(quiet.terminals()[0]?.verification, { kind: "PASSED", evidenceIds: [] });
+  });
+
+  it("refuses a criteria list it cannot report faithfully", async () => {
+    const cases: ReadonlyArray<readonly [unknown, RegExp]> = [
+      [[], /criteria must not be empty; omit it to say nothing about individual criteria/],
+      ["ac-1", /criteria must be an array/],
+      [[{ verification: "PASSED" }], /criteria\[0\]\.id must be a non-empty string/],
+      [[{ id: "   ", verification: "PASSED" }], /criteria\[0\]\.id must be a non-empty string/],
+      [
+        [{ id: "ac-1", verification: "UNOBSERVED" }],
+        /criteria\[0\]\.verification must be one of PASSED, FAILED, got "UNOBSERVED"/
+      ],
+      [[{ id: "ac-1", verification: "FAILED" }], /criteria\[0\] reports FAILED and must cite at least one evidenceId/],
+      [
+        [{ id: "ac-1", verification: "FAILED", evidenceIds: [] }],
+        /criteria\[0\] reports FAILED and must cite at least one evidenceId/
+      ],
+      [
+        [{ id: "ac-1", verification: "PASSED", evidenceIds: ["sha256:beef"] }],
+        /criteria\[0\]\.evidenceIds entry "sha256:beef" is not a evd_ id/
+      ],
+      [
+        [
+          { id: "ac-1", verification: "PASSED" },
+          { id: "ac-1", verification: "FAILED", evidenceIds: ["evd_case-9"] }
+        ],
+        /criteria\[1\] repeats criterion "ac-1"/
+      ]
+    ];
+
+    for (const [criteria, pattern] of cases) {
+      const harness = toolHarness();
+      await assert.rejects(
+        harness.tool.execute("tool_call_1", {
+          verification: "PASSED",
+          summary: "did the work",
+          criteria
+        }),
+        pattern,
+        JSON.stringify(criteria)
+      );
+      // The whole verdict is refused, not trimmed: a criteria list quietly
+      // missing its one FAILED entry is worse than no list at all.
+      assert.deepEqual(harness.emitted, []);
+    }
+  });
+
   it("records exactly one verdict per attempt and says which one stands", async () => {
     const harness = toolHarness();
     await report(harness, { verification: "PASSED", summary: "did the work" });
@@ -478,6 +560,27 @@ describe("PiAgentExecutor verdict reporting", () => {
       message > started && message < finished,
       `the terminal lands inside its own tool call, got ${types.join(",")}`
     );
+  });
+
+  it("replays a per-criterion verdict end to end through the executor", async () => {
+    const executor = executorFor([
+      reportCall({
+        verification: "PASSED",
+        summary: "the suite runs; one criterion is still open",
+        evidenceIds: ["evd_suite-1"],
+        criteria: [{ id: "ac-2", verification: "FAILED", evidenceIds: ["evd_case-9"] }]
+      }),
+      fauxAssistantMessage("done")
+    ]);
+
+    const terminals = terminalsOf(await drain(executor));
+
+    assert.equal(terminals.length, 1, "the criteria ride the child's own terminal, not a second one");
+    assert.deepEqual(terminals[0]?.verification, {
+      kind: "PASSED",
+      evidenceIds: ["evd_suite-1"],
+      criteria: [{ id: "ac-2", kind: "FAILED", evidenceIds: ["evd_case-9"] }]
+    });
   });
 
   it("still synthesizes UNOBSERVED for a child that reports nothing", async () => {

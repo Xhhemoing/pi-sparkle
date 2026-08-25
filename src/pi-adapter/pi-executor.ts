@@ -154,8 +154,13 @@ function usageCount(value: unknown): number | undefined {
 export const REPORT_TASK_RESULT_TOOL = "sparkle_report_task_result";
 
 /**
- * Verdicts a child may state. UNOBSERVED is deliberately absent: it is already
- * what silence means, and {@link PiAgentExecutor.finish} synthesizes it.
+ * Verdicts a child may state, for the task as a whole and for any one
+ * criterion. UNOBSERVED is deliberately absent from both: it is already what
+ * silence means — {@link PiAgentExecutor.finish} synthesizes it for a child
+ * that reports nothing, and omitting a criterion from the list says the same
+ * thing about that criterion. Protocol v1 can carry a per-criterion UNOBSERVED
+ * because a future verifier might want to be explicit about what it skipped;
+ * a child talking about its own work has no use for the distinction.
  */
 const REPORTABLE_VERDICTS: readonly VerificationKind[] = ["PASSED", "FAILED"];
 
@@ -194,6 +199,58 @@ function idList<T extends string>(
 }
 
 /**
+ * Per-criterion outcomes, refused as a whole rather than trimmed.
+ *
+ * The same rule as {@link idList}, one level up: a malformed entry means the
+ * child's statement is not the statement it thinks it is making, and a
+ * criterion list quietly missing its one FAILED entry is worse than no list.
+ * Omitting `criteria` says nothing about individual criteria; an empty array
+ * would be a second way to say that, so it is refused instead.
+ *
+ * Ids are not checked against the task's acceptance criteria: the executor's
+ * request carries the prompt, not the `TASK_REQUEST`, so there is nothing here
+ * to check against. The tracking layer ignores an id nobody asked for.
+ */
+function criterionList(
+  value: unknown
+): Array<{ id: string; kind: VerificationKind; evidenceIds: EvidenceId[] }> | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new DomainValidationError("criteria must be an array");
+  if (value.length === 0) {
+    throw new DomainValidationError(
+      "criteria must not be empty; omit it to say nothing about individual criteria"
+    );
+  }
+  const seen = new Set<string>();
+  return value.map((candidate: unknown, index: number) => {
+    const entry = candidate as { id?: unknown; verification?: unknown; evidenceIds?: unknown };
+    const id = typeof entry?.id === "string" ? entry.id.trim() : "";
+    if (id === "") {
+      throw new DomainValidationError(`criteria[${index}].id must be a non-empty string`);
+    }
+    if (seen.has(id)) {
+      throw new DomainValidationError(`criteria[${index}] repeats criterion ${describe(id)}`);
+    }
+    seen.add(id);
+    const kind = REPORTABLE_VERDICTS.find((verdict) => verdict === entry.verification);
+    if (kind === undefined) {
+      throw new DomainValidationError(
+        `criteria[${index}].verification must be one of ${REPORTABLE_VERDICTS.join(", ")}, got ${describe(entry.verification)}`
+      );
+    }
+    const evidenceIds = idList(`criteria[${index}].evidenceIds`, entry.evidenceIds, isEvidenceId, "evd_");
+    // Same reason the whole-task rule exists: an unreferenced FAILED criterion
+    // would block a run while naming nothing an operator could look at.
+    if (kind === "FAILED" && evidenceIds.length === 0) {
+      throw new DomainValidationError(
+        `criteria[${index}] reports FAILED and must cite at least one evidenceId`
+      );
+    }
+    return { id, kind, evidenceIds };
+  });
+}
+
+/**
  * A child's own verdict channel, built per attempt from the leased request.
  *
  * Before this tool existed the adapter had no path to a `MESSAGE` at all —
@@ -212,7 +269,10 @@ function idList<T extends string>(
  * Exactly one verdict per attempt. A second call is refused at this boundary
  * instead of being emitted, because the transcript rejects a duplicate
  * terminal as a protocol violation and that would turn a model's slip into a
- * failed task. The refusal text names the verdict already on the record.
+ * failed task. The refusal text names the verdict already on the record. That
+ * is also why per-criterion outcomes ride the same call rather than arriving
+ * one at a time: the verifier speaks once, and the schema lets it say more in
+ * that one statement instead of more often.
  */
 export function createTaskResultTool(
   request: AgentExecutionRequest,
@@ -228,13 +288,26 @@ export function createTaskResultTool(
       "outcome (optional): SUCCESS, PARTIAL, or FAILURE. " +
       "evidenceIds / artifactIds (optional): evd_ / art_ references the verdict rests on; " +
       "a FAILED verdict must cite at least one evidenceId. " +
+      "criteria (optional): one entry per acceptance criterion you actually checked, " +
+      "each { id, verification: PASSED or FAILED, evidenceIds }; a FAILED criterion must cite " +
+      "at least one evidenceId, and reporting one blocks the run for review even if the task " +
+      "as a whole passed. Leave a criterion out if you did not check it — do not guess. " +
       "Not calling this leaves the verdict unobserved, and an unobserved verdict is not scored.",
     parameters: Type.Object({
       verification: Type.String(),
       summary: Type.String(),
       outcome: Type.Optional(Type.String()),
       evidenceIds: Type.Optional(Type.Array(Type.String())),
-      artifactIds: Type.Optional(Type.Array(Type.String()))
+      artifactIds: Type.Optional(Type.Array(Type.String())),
+      criteria: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            verification: Type.String(),
+            evidenceIds: Type.Optional(Type.Array(Type.String()))
+          })
+        )
+      )
     }),
     execute: async (_toolCallId: string, params: unknown) => {
       const record = params as {
@@ -243,6 +316,7 @@ export function createTaskResultTool(
         outcome?: unknown;
         evidenceIds?: unknown;
         artifactIds?: unknown;
+        criteria?: unknown;
       };
       if (reported !== undefined) {
         throw new DomainValidationError(
@@ -278,6 +352,7 @@ export function createTaskResultTool(
       if (kind === "FAILED" && evidenceIds.length === 0) {
         throw new DomainValidationError("a FAILED verdict must cite at least one evidenceId");
       }
+      const criteria = criterionList(record.criteria);
       emit({
         type: "MESSAGE",
         message: {
@@ -293,7 +368,11 @@ export function createTaskResultTool(
           summary,
           artifactIds,
           evidenceIds,
-          verification: { kind, evidenceIds: [...evidenceIds] }
+          verification: {
+            kind,
+            evidenceIds: [...evidenceIds],
+            ...(criteria !== undefined ? { criteria } : {})
+          }
         }
       });
       reported = kind;
