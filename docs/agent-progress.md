@@ -103,11 +103,12 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D24 auth source-column bytes. Implementer: Opus-d24-source-column (`bc-8560fd72-b9e6-5224-9b23-adfbbd730a4e`). GPT-d24-recheck **KEEP**.
 - D22 doctor storage inventory. Implementer: Opus-d22-doctor-storage (`bc-c72bed86-cb4e-5126-888e-eca802cc5b0c`). GPT-d22-recheck **KEEP**.
 
-### Round 5 (in flight)
+### Round 6 (in flight)
 
-Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fable-next.md`): D20 claim-only-what-happened CLI, D21 auth/models remainder, D22 doctor storage inventory. Ranked at `c4e3e63`; D19 landed later on disjoint files.
+Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fable-next.md`): D25 `list` truncation/`--sort`, D26 argv dialect/`--help`, D27 `models list --json`. Ranked at `83beb1e`; D24 KEEP later on disjoint `auth.ts`.
 
 ### Round 3 still running / next implementers
 
-- Round 6 next-bets ranking in flight.
+- D25 / D26 / D27 Opus implementers dispatched.
+- Round 6 GPT ranking challenge dispatched.
 - Windows smoke and status-matrix still HOLD behind PR #12.

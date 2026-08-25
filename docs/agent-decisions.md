@@ -186,6 +186,18 @@ Compare `check.source` to the preserved configured `envVar` (or trim at parse, r
 
 **GPT-d24-recheck: KEEP.** Report: `.agent_workspace/loop5-r5-gpt-d24.md`.
 
+## D25 — Round 6 rank 1: `list` truncation disclosure + `--sort last-event`
+
+Fable-r6-next. Inventory must not silently discard JSONL recovery: add `warnings` on `RunInventory`/`EpisodeInventory` and still list the row. CLI: stderr `warning: ${path}: ${message}`; additive JSON `warnings` on `RUN_LIST`/`EPISODE_LIST` (always present). `--sort id|last-event` default `id`; `last-event` is most-recent-first by `lastEventAt`, id tie-break. Unknown sort → `parse-args`. Do not change inventory's by-id sort. No `main.ts`. Spec: `.agent_workspace/loop5-r6-fable-next.md` Rank 1.
+
+## D26 — Round 6 rank 2: one-dialect argv errors and working `--help` on free verbs
+
+Wrap `parseArgs` in `episode`, `commits` (preview+apply), `validate`, `migrate-legacy`, `pi-compat`, `init-examples` → `cliFail` `stage: "parse-args"` with `--help` next. Honor `--help` on episode/commits/pi-compat (validate/init already have it). Optional inject `--type`/`--confidence` preflight. No `main.ts`. Spec: Rank 2 of the same report.
+
+## D27 — Round 6 rank 3: `models list --json` (`MODELS_LIST`) + leftover dialect
+
+`--json`/`help` on `models list`; compact `MODELS_LIST` for enabled and available modes (`preview: true`). Convert unknown-subcommand and four subcommand `parseArgs` to `cliFail` parse-args. Exact-shape and one-line pins day one. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`. Spec: Rank 3.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
