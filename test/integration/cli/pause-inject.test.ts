@@ -541,6 +541,173 @@ test("pause --clear removes a malformed pause.json and reports it as cleared", a
   });
 });
 
+// A pasted-wrong run id is an argv typo, and doctor preflight cannot fix one.
+test("pause on a malformed --run refuses parse-args and names the flag", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    assert.equal(await main(["pause", "--run", "banana", "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "pause");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --run "banana": expected a run id of the form run_<suffix>');
+    assert.equal(report?.next, `pass --run <runId> as printed by pnpm cli list --state-root ${stateRoot}`);
+    assert.equal(report?.runId, "banana");
+    assert.doesNotMatch(err.join(""), /doctor/);
+  });
+});
+
+test("inject on a malformed --run refuses parse-args and names the flag", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(
+      ["inject", "--run", "banana", "--type", "fact", "--key", "k", "--value", "v", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "inject");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --run "banana": expected a run id of the form run_<suffix>');
+    assert.equal(report?.next, `pass --run <runId> as printed by pnpm cli list --state-root ${stateRoot}`);
+    assert.equal(report?.runId, "banana");
+    assert.doesNotMatch(err.join(""), /doctor/);
+  });
+});
+
+// D30's precedence is pinned: the flag the operator mistyped is reported first.
+test("a --type typo still outranks the malformed --run guard", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    assert.equal(await main(["inject", "--run", "banana", "--type", "banana", "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'unknown --type "banana": injection kind must be fact, override, or skip');
+    assert.equal(report?.runId, "banana");
+  });
+});
+
+// The guard has to precede every state read, or a wrong id under a wrong state
+// root reports whichever fault the filesystem happened to hit first.
+test("the malformed --run guard precedes all state I/O", async () => {
+  await withRoots(async (stateRoot) => {
+    const missingRoot = join(stateRoot, "no-such-state-root");
+    const { io, out, err } = capture();
+    assert.equal(await main(["pause", "--run", "banana", "--state-root", missingRoot], io), 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "pause");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --run "banana": expected a run id of the form run_<suffix>');
+    assert.equal(report?.next, `pass --run <runId> as printed by pnpm cli list --state-root ${missingRoot}`);
+    await assert.rejects(access(missingRoot));
+  });
+});
+
+// The controller's own blank-reason rule, moved ahead of the event-log read: a
+// blank flag must not cost the operator a state read or a written token.
+test("pause on a blank --reason refuses parse-args and writes no token", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    const pausePath = join(stateRoot, "runtime", "runs", runId, "pause.json");
+    for (const raw of ["", "  "]) {
+      const { io, out, err } = capture();
+      assert.equal(
+        await main(["pause", "--run", runId, `--reason=${raw}`, "--state-root", stateRoot], io),
+        1
+      );
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "pause");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(report?.message, `invalid --reason "${raw}": pause reason must be a non-empty string`);
+      assert.equal(report?.next, "pass --reason <text> or omit it");
+      assert.equal(report?.runId, runId);
+      assert.equal(await readEventLines(stateRoot, runId), before);
+      await assert.rejects(access(pausePath));
+    }
+  });
+});
+
+// `--clear` plus `--reason` is refused for the flag combination, and that
+// precedence is unchanged by the blank-value check that follows it.
+test("pause --clear --reason keeps its combination refusal on a blank reason", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, err } = capture();
+    assert.equal(await main(["pause", "--clear", "--run", "banana", "--reason=", "--state-root", stateRoot], io), 1);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, "pause --clear does not accept --reason");
+    assert.equal(report?.next, "omit --reason when clearing a pause");
+  });
+});
+
+test("inject refuses a blank --key, --node, or --actor before the plane", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    const cases = [
+      {
+        flag: "--key",
+        subject: "injection key",
+        next: "pass --key <name>",
+        argv: (raw: string) => ["--type", "fact", `--key=${raw}`, "--value", "v"]
+      },
+      {
+        flag: "--node",
+        subject: "injection nodeId",
+        next: "pass --node <id>",
+        argv: (raw: string) => ["--type", "skip", `--node=${raw}`]
+      },
+      {
+        flag: "--actor",
+        subject: "injection actor",
+        next: "pass --actor <who> or omit it",
+        argv: (raw: string) => ["--type", "fact", "--key", "k", "--value", "v", `--actor=${raw}`]
+      }
+    ];
+    for (const { flag, subject, next, argv } of cases) {
+      for (const raw of ["", "  "]) {
+        const { io, out, err } = capture();
+        const code = await main(
+          ["inject", "--run", runId, ...argv(raw), "--state-root", stateRoot],
+          io
+        );
+        assert.equal(code, 1);
+        assert.deepEqual(out, []);
+        const report = parseCliErrorJson(err.join(""));
+        assert.equal(report?.command, "inject");
+        assert.equal(report?.stage, "parse-args");
+        assert.equal(report?.message, `invalid ${flag} "${raw}": ${subject} must be a non-empty string`);
+        assert.equal(report?.next, next);
+        assert.equal(report?.runId, runId);
+        assert.equal(await readEventLines(stateRoot, runId), before);
+      }
+    }
+  });
+});
+
+// A `fact` may legally carry a node id, so the guard keys on the flag being
+// supplied rather than on the injection kind.
+test("a blank --node is refused even when the type does not require one", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    const { io, err } = capture();
+    const code = await main(
+      ["inject", "--run", runId, "--type", "fact", "--key", "k", "--value", "v", "--node=  ", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.message, 'invalid --node "  ": injection nodeId must be a non-empty string');
+    assert.equal(await readEventLines(stateRoot, runId), before);
+  });
+});
+
 test("pause fails closed on a BLOCKED flowchart", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const flowchartPath = join(projectRoot, "flow.json");
