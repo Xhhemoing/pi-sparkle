@@ -1179,7 +1179,9 @@ test("a live run's own writers cannot make a delete report a removal it lost", a
  * append put it back, and threw `RunRecordsSurvivedError` — fail-closed, but
  * only after destroying part of a live run. The two cases below are what
  * replaced it: the run ends inside the bounded wait and the delete is clean,
- * or the wait runs out and the delete removes nothing at all.
+ * or the wait runs out and the delete removes none of the run's own records.
+ * "None of the run's own records" is the whole claim — the telemetry half
+ * runs before the lock and stays run; the partiality cases below pin that.
  */
 function deletionFlowchart(): Flowchart {
   const only: FlowNode = {
@@ -1363,7 +1365,7 @@ test("delete --run waits for a live run-lock holder before removing anything", a
   });
 });
 
-test("a run delete that cannot take the run lock fails closed and removes nothing", async () => {
+test("a run delete that cannot take the run lock fails closed over the run's records", async () => {
   await withStateRoot(async (stateRoot) => {
     const runId = createRunId(UUID);
     const runDir = join(stateRoot, "runtime", "runs", runId);
@@ -1387,6 +1389,139 @@ test("a run delete that cannot take the run lock fails closed and removes nothin
 
     // Idempotent once the holder is gone.
     assert.deepEqual((await deleteRunRecords(stateRoot, runId)).removedPaths, [runDir]);
+  });
+});
+
+/**
+ * The half of a timed-out delete that *did* happen.
+ *
+ * The two tests above use fixtures with no invocation rows, so they cannot see
+ * the shape of the real contract: the telemetry rewrite runs before the run
+ * lock is ever requested, and a timeout at that lock does not put its rows
+ * back. Everything the operator-facing surfaces say about a lock timeout is
+ * pinned here — the run's records survive byte-for-byte, the dropped rows and
+ * the derived snapshot stay gone, exactly one disclosure line names them, and
+ * the re-delete finishes the refused half without re-dropping the first.
+ */
+test("a timed-out run delete keeps the invocation rows it already dropped, and discloses them", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", doomed);
+    await new EventStore(stateRoot, doomed).append(agentEvent(doomed, "work the timeout keeps"));
+    const beforeEvents = await readFile(join(runDir, "events.jsonl"), "utf8");
+    const logPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`
+    ]);
+    const observed = catalogObservedPath(stateRoot);
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(observed, '{"models":[]}\n', "utf8");
+
+    const disclosed: string[] = [];
+    let outcome: unknown;
+    await withExclusiveFileLock(runLockPath(stateRoot, doomed), async () => {
+      outcome = await deleteRunRecords(stateRoot, doomed, {
+        timeoutMs: 40,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+    });
+
+    assert.equal((outcome as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.equal(
+      await readFile(join(runDir, "events.jsonl"), "utf8"),
+      beforeEvents,
+      "the lock-guarded half is the half a timeout refuses"
+    );
+    assert.deepEqual(
+      (await readFile(logPath, "utf8"))
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => (JSON.parse(line) as { id: string }).id),
+      ["inv_b"],
+      "the pre-lock rewrite is not rolled back by the failure that follows it"
+    );
+    assert.equal(existsSync(observed), false, "the derived snapshot goes with the rows");
+
+    assert.equal(disclosed.length, 1, `one disclosure, got: ${JSON.stringify(disclosed)}`);
+    const line = disclosed[0] ?? "";
+    assert.match(line, /1 invocation row\(s\) were dropped/);
+    assert.ok(line.includes(logPath), "the disclosure must name the log it rewrote");
+    assert.ok(line.includes(observed), "the disclosure must name the snapshot it invalidated");
+    assert.ok(!line.includes("\n"), "one line, so a CLI can write it as one");
+
+    // The re-delete finishes the half that was refused, and the half that
+    // already completed is a no-op the second time.
+    const after = await deleteRunRecords(stateRoot, doomed);
+    assert.deepEqual(after.removedPaths, [runDir]);
+    assert.equal(after.droppedInvocations, 0);
+  });
+});
+
+test("a run delete that drops no rows before failing discloses nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    await new EventStore(stateRoot, runId).append(agentEvent(runId, "no telemetry for this run"));
+    const disclosed: string[] = [];
+
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      await deleteRunRecords(stateRoot, runId, {
+        timeoutMs: 40,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        () => assert.fail("a held run lock must refuse the delete"),
+        (error: unknown) => assert.equal((error as { code?: unknown }).code, LOCK_TIMEOUT_CODE)
+      );
+    });
+
+    assert.deepEqual(disclosed, [], "a delete that changed nothing must not claim it did");
+  });
+});
+
+/**
+ * `--lock-wait-ms` names one bound, and a `delete --run` takes two locks. The
+ * invocation log's acquisition used to keep the 5 s default no matter what the
+ * operator asked for, so a zero wait could still sit on it and a long wait was
+ * cut short by it. Pinned from the short end, where the difference is a wall
+ * clock reading rather than an assertion about which default applied.
+ */
+test("delete --run bounds the invocation log lock with the wait it was given", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const logPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`
+    ]);
+    const before = await readFile(logPath, "utf8");
+    const disclosed: string[] = [];
+    let outcome: unknown;
+    let elapsedMs = 0;
+
+    await withInvocationLogLock(stateRoot, async () => {
+      const startedAt = Date.now();
+      outcome = await deleteRunRecords(stateRoot, doomed, {
+        timeoutMs: 0,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+      elapsedMs = Date.now() - startedAt;
+    });
+
+    assert.equal((outcome as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.ok(
+      (outcome as Error).message.includes(invocationLogLockPath(stateRoot)),
+      "the refusal must name the lock the delete could not have"
+    );
+    assert.ok(elapsedMs < 2_000, `a zero wait must not sit on the 5s default: ${elapsedMs}ms`);
+    assert.equal(await readFile(logPath, "utf8"), before, "nothing was rewritten");
+    assert.deepEqual(disclosed, [], "a rewrite that never ran has nothing to disclose");
   });
 });
 
