@@ -32,14 +32,15 @@ current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
-> Precision note (2026-08-24, revised Loop 3 Round 1): the allowlist pin
+> Precision note (2026-08-24, Loop 3 pin revised at Loop 4 closeout): the allowlist pin
 > above is **direct-import only**; the second pin closes the transitive gap.
 > `test/unit/privacy/adaptation-plane-closure.test.ts` walks the union
 > **value-import closure** (`import type` statements stripped, as
 > `verbatimModuleSyntax` erases them) of every adaptation-plane module and pins
-> each runtime-prefix module against an explicit, justified allowlist — today
-> the nine modules of the sanctioned `from-episode` pipe plus
-> `supervisor/model-router.ts`, reached through
+> each runtime-prefix module against an explicit, justified allowlist. Loop 4
+> removed the inferred-preference episode lookup from `from-episode`, shrinking
+> that pipe to `run/event-store.ts`, `run/events.ts`, and `run/injection.ts`;
+> the fourth allowed module is `supervisor/model-router.ts`, reached through
 > `adaptation/eval-routing.ts -> routing/assign.ts`. The router's entire value
 > subtree is pinned filesystem-free. The fail-closed regex walker counts
 > comment-shaped imports as edges, sees only literal specifiers, and is paired
