@@ -1,9 +1,9 @@
-# File ownership — Loop 4 idle after Round 15 (`agent/opt-continuous`)
+# File ownership — Loop 4 Round 16 retarget audit (`agent/opt-continuous`)
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `agent/opt-continuous`. Do not `git checkout` another branch.**
 
-**Round 16 dispatches nothing.** ROUND15-BRIEF §4: zero candidates. The loop idles until new schema (new seam, usage-surfaced gap, gate/probe failure, or a landing that changes what the runtime surfaces describe). Do not manufacture freeze extras or a seventh docs pass.
+Round 15 closed the last honesty-debt item on the `taskCriteria`/docs treadmill. ROUND15-BRIEF §4 said dispatch nothing **on that surface**. The parent loop protocol retargets when a module saturates: **I/O, races, protocol, disaster recovery**. Round 16 is that audit — not freeze extras, not a seventh docs pass.
 
-Injection brief: `.agent_workspace/ROUND15-BRIEF.md`. Review: `.agent_workspace/loop4-r15-review.md`.
+The fable auditor owns `.agent_workspace/loop4-r16-audit.md` (and a candidate list if any). No `src/**` until ranked exclusive slots exist.
 
-Frozen (do not break): `taskCriteria` writer as shipped; scoped laundering coda as citable source prose; census terminator on the three runtime surfaces (new notes only when a landing changes what they describe); early-id disclosure uniform on all three public run paths; `onRunStarted` as shipped; exact eight `RunStatus` members; option (a) schema; restore-side discard audit; 11-case probe; `INSPECT_SUMMARY` four keys; BLOCKED prefix + `note:`; `RUN_UNBLOCKED` three keys; `RUN_UNBLOCKED_WITH_DISCARD` exact-key; `independentEvidence` one `void` + spine zero-mention; episode never-synthesize; every flowchart-payload writer carries `contract` and `taskCriteria`; verdict-producer rules; gate `runStatus` ledger; R8-3 AST pin; `loadProjectBandit` absence; catalog posture (b); parent-plane residuals; reconstruction `childTasksFromLog` + FAIL-unreachable; `coverageOutcome` no FAIL; `recordCrashTerminal` rethrow; `applyRetry` sole scheduler producer; jsonl; `writeFileAtomic`(+Sync); no new private tmp+rename; `withRunLifecycleLock`; append/checkpoint unlocked; five `DOCTOR_ROUTED_NEXT` routes; loopback supervised resume; empty-graph pre-flight; `settleSupervisedOutcome` absence; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`.
+Frozen (do not break): everything in ROUND15-BRIEF §3–§5, including the census terminator (new notes only when a landing changes what the surfaces describe), the `taskCriteria` writer as shipped, early-id sequence pins, exact eight `RunStatus` members, ADR-006 Proposed, no live R1 / Outcome-supported / auto-promote / `package.json`.

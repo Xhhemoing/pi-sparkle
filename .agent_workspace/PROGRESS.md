@@ -330,9 +330,13 @@ Landed: R15-1 `5d7c0d6` (sole landing; no sibling).
 
 **Parent gate GREEN** at `6d625d1`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **1 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r15-review.md`. Zero joints. Brief: `.agent_workspace/ROUND15-BRIEF.md`. Census-note treadmill terminated; surfaces current at HEAD.
 
-## Round 16 — idle
+## Round 16 — retarget audit in flight
 
-Zero candidates (ROUND15-BRIEF §4). No slots dispatched. The loop idles until new schema: a new seam, a usage-surfaced behavioural gap, a gate/probe failure, or a landing that changes what the runtime surfaces describe. Freeze extras and further census notes are forbidden busywork while the surfaces stay current.
+ROUND15-BRIEF §4 said dispatch nothing on the saturated `taskCriteria`/docs surface. Parent protocol: after two low-gain rounds, **move to I/O, races, protocol, or disaster recovery**. Round 16 is that plane-retarget audit (not freeze extras, not a seventh docs pass). Stay on `agent/opt-continuous`. ADR-006 stays Proposed.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-audit | pending | I/O · races · protocol · disaster-recovery candidates |
 
 ---
 
