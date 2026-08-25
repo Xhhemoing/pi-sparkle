@@ -10,4 +10,6 @@ Round 18 audits the **post-merge tree** (`main` @ `985250b` = Loop 4 + Loop 3 + 
 |---|---|---|
 | fable-audit | fable | `.agent_workspace/loop4-r18-audit.md`; rewrite `.agent_workspace/ROUND18-BRIEF.md` with proven candidates or confirmed zero |
 
+Dispatch: fable-audit `bc-f8e930d3-5a33-5efa-a612-d648ed088f69`. PR https://github.com/Xhhemoing/pi-sparkle/pull/10
+
 Frozen: ROUND17/18 briefs §3/§5 — CLI inferred-preference plane not live; migrate-legacy both publish arms pinned; five routes; `INSPECT_SUMMARY` four keys; exact eight `RunStatus`; EventStore/CheckpointStore unlocked; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json` dep bumps. Adaptation-plane import-edge changes must include `test/unit/privacy/plane-boundary.test.ts` (and Loop 3 `adaptation-plane-closure.test.ts` if it still fails closed on stale allowances). Kernel-reuse landings (`steer`, thinking redaction, `maxCostUsd` forward) are **in** the tree — do not revert them; hunt holes around them.

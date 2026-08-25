@@ -364,6 +364,10 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge is a **new seam** under ROUND18-BRIEF §4 reason 1. Continue the 20+ round loop on `cursor/opt-r18-postmerge-42b1`. Audit the merged tree for operator-honesty, fail-closed, embedder-contract, and merge-induced holes (steer, thinking redaction, `maxCostUsd` forward, live kernel events, isolation allowlists). **Do not pad. Do not freeze extras. Do not reopen inferred-preference liveness.**
 
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-audit | bc-f8e930d3-5a33-5efa-a612-d648ed088f69 | post-merge seam · kernel-reuse · isolation allowlists |
+
 ---
 
 # Loop 3 — SOTA follow-on (2026-08-24)
