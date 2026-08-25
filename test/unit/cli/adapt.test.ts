@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,11 +13,31 @@ import {
 } from "../../../src/adaptation/promotion.js";
 import { ResourceRegistry } from "../../../src/adaptation/registry.js";
 import type { AuthorIdentity, ResourceIdentity } from "../../../src/adaptation/resource.js";
-import { createProjectId, type IdGenerator } from "../../../src/domain/ids.js";
-import type { IsoTimestamp } from "../../../src/domain/timestamp.js";
+import {
+  createEpisodeId,
+  createMessageId,
+  createProjectId,
+  createRunId,
+  parseTaskId,
+  type AgentInstanceId,
+  type IdGenerator,
+  type RunId,
+  type TaskId
+} from "../../../src/domain/ids.js";
+import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
 import { adaptCommand } from "../../../src/cli/adapt.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { routingPolicyContent, type LearnedRoutingPolicy } from "../../../src/learning/learned-routing.js";
+import {
+  listObservations,
+  preferenceSnapshotPath,
+  resetPreferenceStore
+} from "../../../src/preferences/store.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import type { Event } from "../../../src/run/events.js";
+import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
+import { makeEvent } from "../../helpers/event-factory.js";
 
 interface WrittenEvalReport {
   readonly candidateId: string;
@@ -649,4 +670,114 @@ test("adapt promote --approve for routing-policy with a qualifying --eval-file s
   assert.match(out.join(""), /promoted/);
   const loaded = await loadAdaptationRegistry(dir);
   assert.notEqual(loaded.getActiveVersion(seeded.identity)?.versionId, seeded.baselineVersionId);
+});
+
+const LEARN_AGENT = "agt_00000000-0000-4000-8000-000000000009" as AgentInstanceId;
+const LEARN_OCCURRED = parseIsoTimestamp("2026-08-19T00:00:00.000Z");
+
+/**
+ * A routed run that failed on the model and is bound to an episode — the exact
+ * shape `adapt learn` used to turn into an inferred preference as well as a
+ * routing-policy candidate.
+ */
+function learnableRun(runId: RunId, taskId: TaskId): Event[] {
+  return [
+    makeEvent(
+      "PROJECT_DISCOVERED",
+      {
+        project: {
+          id: createProjectId(),
+          rootPath: "/tmp/adapt-learn-proj",
+          discoveredAt: LEARN_OCCURRED,
+          instructionFiles: [],
+          manifests: [],
+          commands: [],
+          facts: []
+        }
+      },
+      { runId }
+    ),
+    makeEvent(
+      "RUN_ATTACHED",
+      { episodeId: createEpisodeId(), runId, attachedAt: LEARN_OCCURRED },
+      { runId }
+    ),
+    makeEvent(
+      "MODEL_ROUTED",
+      {
+        taskId,
+        role: "actor",
+        complexity: "MEDIUM",
+        model: "cheap",
+        justification: "cheapest eligible",
+        confidence: 0.8,
+        approvalPlan: { id: "ap_adapt_learn", items: [{ id: "go", label: "go", selectable: true }] },
+        statusAfterRoute: "RUNNING",
+        policyVersion: "router-v1",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1000,
+        family: "edit",
+        featureVersion: ASSIGN_FEATURE_VERSION,
+        modelVersion: "cheap-v1",
+        highRisk: false,
+        eligibleModels: ["cheap", "premium"],
+        rejections: [],
+        behaviorDistribution: { cheap: 1, premium: 0 },
+        agentRole: "implementer"
+      },
+      { taskId, runId }
+    ),
+    makeEvent(
+      "CHILD_MESSAGE",
+      {
+        message: {
+          protocolVersion: 1 as const,
+          id: createMessageId(),
+          occurredAt: LEARN_OCCURRED,
+          runId,
+          taskId,
+          from: LEARN_AGENT,
+          to: SUPERVISOR,
+          type: "TASK_RESULT" as const,
+          outcome: "FAILURE" as const,
+          summary: "golden fixture mismatch",
+          artifactIds: [],
+          evidenceIds: ["evd_check"],
+          verification: { kind: "FAILED" as const, evidenceIds: ["evd_check"] },
+          failure: { category: "MODEL_ERROR" }
+        }
+      },
+      { taskId, runId }
+    )
+  ];
+}
+
+test("adapt learn persists a routing-policy candidate and no preference snapshot", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-learn-"));
+  const runId = createRunId();
+  const store = new EventStore(stateRoot, runId);
+  for (const event of learnableRun(runId, parseTaskId("tsk_learn01"))) {
+    await store.append(event);
+  }
+
+  resetPreferenceStore();
+  try {
+    const { io, out, err } = capture();
+    const code = await adaptCommand(
+      ["learn", "--run", runId, "--primary-model", "premium", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    assert.deepEqual(err, []);
+    assert.match(out.join(""), /proposed routing-policy candidate/);
+
+    // What the command advertises is durable; what it never mentioned is not
+    // recorded at all, on disk or in this process.
+    assert.equal(existsSync(adaptationRegistryPath(stateRoot)), true);
+    assert.equal(existsSync(preferenceSnapshotPath(stateRoot)), false);
+    assert.deepEqual(listObservations(), []);
+  } finally {
+    resetPreferenceStore();
+    await rm(stateRoot, { recursive: true, force: true });
+  }
 });

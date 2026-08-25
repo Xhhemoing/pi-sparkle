@@ -56,7 +56,6 @@ const ALLOWED: ReadonlyArray<Exception> = [
   { module: "learning/signals.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
   // Derived-signal pipe: extracts taskSuccess PASS/FAIL only, never text.
   { module: "learning/from-episode.ts -> ../run/event-store.js", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
-  { module: "learning/from-episode.ts -> ../run/episode-bind.js", because: "episode id resolution for the derived-signal reader" },
   { module: "learning/from-episode.ts -> ../run/events.js", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },
   // The direct model-router import is type-only, but eval-routing value-imports
   // routing/assign, which value-imports and loads model-router at runtime.
@@ -82,10 +81,6 @@ const ALLOWED_VALUE_RUNTIME_EDGES: readonly ValueRuntimeAllowance[] = [
   {
     edge: "learning/from-episode.ts -> run/event-store.ts",
     because: "sanctioned derived-signal reader extracts routed task PASS/FAIL only"
-  },
-  {
-    edge: "learning/from-episode.ts -> run/episode-bind.ts",
-    because: "resolves the episode id needed by the sanctioned derived-signal reader"
   },
   {
     edge: "routing/assign.ts -> supervisor/model-router.ts",
