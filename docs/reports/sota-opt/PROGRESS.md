@@ -34,7 +34,7 @@
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
-| 20 | 第 1–2 波进行中 | 6 / 10（A/C/D 已合入；B/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-20/PLAN.md](./round-20/PLAN.md) |
+| 20 | 第 2–3 波进行中 | 7 / 10（A/B/C/D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-20/PLAN.md](./round-20/PLAN.md) |
 
 ### Round 1 波次
 
@@ -211,8 +211,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R20-A 跟踪门控、R20-B live 路由、R20-C 离线路由 | A/C 完成已合入；B 运行中 |
-| 2 | R20-D 自优化、R20-E 学习、R20-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
+| 1 | R20-A 跟踪门控、R20-B live 路由、R20-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R20-D 自优化、R20-E 学习、R20-F 实验 | D 完成已合入；E/F 运行中 |
+| 3 | R20-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -410,11 +411,12 @@
 | R19-I | `cursor/r19-i-cli-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-I.md`）。无新排除 ID；custom−builtin 复核 +47.6~+48.4 / +23.9~+26.4 ms；十一连空；配置输入基数 E×P×K 轴归档 |
 | R19-J | `cursor/r19-j-persist-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-J.md`）。无新排除 ID；I/O 地板复核；重投递剂量 + 输入次序置换归档；切片关闭 |
 | R20-A | `cursor/r20-a-tracking-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-A.md`）。无新排除 ID；预算复核 64–80 µs/run；openMinors 基数 M + 多轮驻留链面归档 |
-| R20-B | `cursor/r20-b-live-routing-twentieth-pass-83a1` | 已派出 |
+| R20-B | `cursor/r20-b-live-routing-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-B.md`）。无新排除 ID；天花板复核 M=2 9.03–10.73 / M=10 17.97–24.28 ms/eval；objective 长度 L 轴 + 能力约束 K×W 双线性轴归档 |
 | R20-C | `cursor/r20-c-offline-routing-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-C.md`）。无新排除 ID；生产中位复核 661.4–671.5 ms；SCALEX 不铸 ID；APC floor 再锚定 |
 | R20-D | `cursor/r20-d-adaptation-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-D.md`）。无新排除 ID；eval 地板复核 3.75–3.97 ms；多进程并发面归档 |
 | R20-E | `cursor/r20-e-learning-twentieth-pass-83a1` | 已派出 |
 | R20-F | `cursor/r20-f-experiments-twentieth-pass-83a1` | 已派出 |
+| R20-G | `cursor/r20-g-runtime-twentieth-pass-83a1` | 已派出 |
 
 ## 合并策略
 

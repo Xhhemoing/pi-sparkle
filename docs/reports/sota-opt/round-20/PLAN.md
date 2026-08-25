@@ -2,17 +2,17 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–19 已对各区做过十九遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S19-* 条目（含已合入的 S13-B-1 与 R12–R19 全部空枚举收口，含刚合入的 R19-A … R19-J / R20-A / R20-C / R20-D）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX**。
+Round 1–19 已对各区做过十九遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S19-* 条目（含已合入的 S13-B-1 与 R12–R19 全部空枚举收口，含刚合入的 R19-A … R19-J / R20-A / R20-B / R20-C / R20-D）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX**。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R20-A … R20-J），报告写入 `docs/reports/sota-opt/round-20/`。
 
-状态：第 2 波 F 本波派出。A/C/D 已合入。B/E 运行中。Round 19 已收口 10/10。
+状态：第 3 波 G 本波派出。A/B/C/D 已合入。E/F 运行中。Round 19 已收口 10/10。
 
 A 切片已合入：空枚举，未铸 S20-A-*。切片 `git diff 7acb666..HEAD` 为空（二十遍零 diff）。预算复核 64–80 µs/run（12.9–16.1 µs/gate，与 R19-A 66–75 同带略宽）。本轮新增 resident-state 基数 M（`gate.openMinors` 斜率 34.4–43.2 ns/minor；10 ms 越线 M≈46k–58k；生产流量为零）与多轮驻留链面（`window.previous` 3311–3475 ns；100 轮积分 328–346 µs）。R19-A 重投递 / `wait_user` 与 R18-A skip-path / 拒绝终点不补铸。基线 `7acb666` 空 diff 再确认。
 
-B 切片 = live 路由 10 文件：`src/routing/{r0,assign,assign-plan,policy,live-cascade,live-selection,analyze-task,primary-catalog,catalog-model}.ts` + `src/supervisor/model-router.ts`。Live = R0。不要重开 S12-B-2 / S13-B-1（重开条件未触发）。R10-B…R19-B 空枚举。R19-B 比较器第三腿 + 目录基数 M 轴不补铸。R18-B 语料字宽/CJK / RoutingLimits 不补铸。基线 `94ed3d9` 预期空 diff。运行中。
+B 切片已合入：空枚举，未铸 S20-B-*。切片 `git diff 94ed3d9..HEAD` 为空。天花板复核 M=2 9.03–10.73 / M=10 17.97–24.28 / replay 7.10–8.06 / 10× 96.9–125.4 ms/eval（细粒度 live face 47.4–48.7 µs）。S12-B-2 / S13-B-1 重开条件未触发。本轮新增 objective 长度 L 轴（`analyzeTask` 严格线性 11.24–11.53 ns/char·任务；miss L=32000 假设 1.44–1.47 s/eval，生产带 61–120 字符、流量为零；S1-B-1/S1-B-3 休眠池首次拿到 L 依赖定价）与能力约束双线性 K×W 轴（生产 K=1 且 W≤3 税为零；K=W=128 假设 116.4–118.8 ms/eval-equivalent，两轴须同时离带才重开）。R19-B 比较器第三腿 + 目录基数 M 与 R18-B 语料字宽/CJK / RoutingLimits 不补铸。Live = R0。基线 `94ed3d9` 空 diff 再确认。
 
 C 切片已合入：空枚举，未铸 S20-C-*。切片 `git diff 183df9b..HEAD` 为空。生产中位复核 661.4–671.5 ms/报告（对 R19-C 667.5–675.1 / R18-C 656.7–672.4 在 ±35 内）。本轮新增 **SCALEX**（B 轴 α=0.90–1.11 线性；K 轴 solve 池 α=2.75；on-prob 越线 K*≈2.6× 仍 <35）。APC 地板复测 ceiling 17.4–21.6 < 35；sink=7.309 逐位相同。r1c–r7c 绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ / TAILG / REJX / **FITQ** / **SCALEX**。基线 `183df9b` 空 diff 再确认。
 
@@ -22,7 +22,7 @@ E 切片 = `src/learning/` 10 文件。不要重开 S8-E-1 / S9-E-2 / S13-B-1。
 
 F 切片 = `src/experiments/` 15 文件。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。R10-F…R19-F 空枚举。R19-F runner 家族（canary）轴不补铸。R18-F 剂量 / 暖计划税 / halt 后路径不补铸。锚点 R19-F：120.4–130.2 ms。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r20f 仿真。基线 `519101f` 预期空 diff。本波派出。
 
-G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G…R19-G 空枚举。禁止去 fsync / 完整性再哈希。计算顶 R19-G：0.292–0.296 ms vs I/O 94.9–108.2 ms。digest `06cbcf92c098c8f0` 第十次逐位相同。**NAMESHAPE** / BYTESHAPE / 存储后端 / 拒绝路径 / SYSCENSUS / digest 轴不补铸。基线 `4efee23` 预期空 diff。
+G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G…R19-G 空枚举。禁止去 fsync / 完整性再哈希。计算顶 R19-G：0.292–0.296 ms vs I/O 94.9–108.2 ms。digest `06cbcf92c098c8f0` 第十次逐位相同。**NAMESHAPE** / BYTESHAPE / 存储后端 / 拒绝路径 / SYSCENSUS / digest 轴不补铸。基线 `4efee23` 预期空 diff。本波派出。
 
 H 切片 = 21 文件：`src/evaluation/` **8**（不是 9）+ `src/requirement/` 7 + `src/review/` 4 + `src/rubric/` 2。S5-H-1 必须保留。不要重开 S1-H-* … S9-H-2。R10-H…R19-H 空枚举。热层默认 R19-H：9.53–10.39 µs/run。R19-H 执行史剂量/平稳性普查不补铸。R18-H 休眠分支普查与 R17-H fail-closed 拒绝路径不补铸。PATH_RE 回溯重开仅当 objective 出现程序化/对抗来源，或现实载荷出现 ≥~3.2K 字符无斜杠 `[\w.-]` 段。基线 `fd437a9` 预期空 diff。
 
