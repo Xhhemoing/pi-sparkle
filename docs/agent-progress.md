@@ -143,6 +143,14 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 
 Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r9-fable-next.md`) at `6bdeb4e`. Through-line: D31–D33 taught the run-state verbs to refuse bad flag values before the plane; config-plane verbs and the spec checker still throw value and environment faults into generic catches. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r9 KEEP.
 
+| Slot | Agent | Model | Where | Id |
+|---|---|---|---|---|
+| Fable-r9-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-2c5ef557-a068-53b5-b999-a20499e36e4d` |
+| GPT-r9-challenge | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-598bdca3-69c5-5bd3-be1e-c96eb8e2b6c9` |
+| D34 | Opus-d34-models-preflight | claude-opus-5-thinking-high-fast | cloud | `bc-b562f78d-b1c3-54a0-b8c1-888e62b1e14f` |
+| D35 | Opus-d35-auth-envelopes | claude-opus-5-thinking-high-fast | cloud | `bc-fa4e5bc2-9f01-52aa-9ec4-088227f06a42` |
+| D36 | Opus-d36-validate-paths | claude-opus-5-thinking-high-fast | cloud | `bc-2cbcd19b-8fdb-5a2e-b433-e86c4b2c3c1c` |
+
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
 | D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | implementing |
