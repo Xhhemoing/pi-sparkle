@@ -164,4 +164,4 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
 | Fable-r10-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-d3b26848-9908-5f90-b05f-0bd46a293238` |
-| GPT-r10-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | (dispatching) |
+| GPT-r10-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | `bc-94104804-bdd4-594f-bd13-43082c0eb54b` |
