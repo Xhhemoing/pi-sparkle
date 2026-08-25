@@ -191,9 +191,7 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   if (!workTree.ok) {
     throw new DomainValidationError(`apply requires a git work tree at ${repo}: ${workTree.detail}`);
   }
-  for (let index = 0; index < proposals.length; index += 1) {
-    const proposal = proposals[index];
-    if (proposal === undefined) continue;
+  for (const [index, proposal] of proposals.entries()) {
     if (!applyProposal(repo, proposal, values.sign === true, io)) {
       // The commits already in the operator's history are real and this
       // command cannot take them back — rewriting their git history would be a
