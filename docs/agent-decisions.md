@@ -200,6 +200,8 @@ GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Hon
 
 GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape: enabled always has `type`, `preview`, `mode`, `primary`, `fast`, `models` (`primary`/`fast` are `string | null`; each row is exactly `id` + `inCatalog`). Available has exactly `type`, `preview`, `mode`, `models` and rows exactly `{id}`. Do not duplicate defaults as per-row booleans. Describe as stored configuration, not effective per-run routing. Catch only `parseArgs`. Whole-object `deepEqual` pins. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`.
 
+**Landed** (Opus-d27-models-json): first `0fded4e`; rider `c83fc99` discriminated shape on `cursor/models-list-json-0da8`. GPT recheck after implementer idle.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
