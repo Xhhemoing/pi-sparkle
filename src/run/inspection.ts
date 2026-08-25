@@ -112,20 +112,23 @@ const GATE_BLOCK_REASON = "ANALYSIS_QUEUED";
 /**
  * The cause behind the newest `RUN_BLOCKED`, or `undefined` when that block did
  * not come from the tracking gate (the stall detector writes its own reason,
- * which already says what happened) or when no transition precedes it.
+ * which already says what happened) or when the row before it is not the
+ * transition that filed it.
  *
- * The transition is taken from before the block rather than from the end of the
- * log: the gate writes the pair together, so the newest transition *preceding*
- * the newest block is the one that filed it, and a run that blocks twice does
- * not read the second block's cause onto the first.
+ * The pairing is adjacency, not proximity. `gate-apply.ts` appends
+ * `GATE_TRANSITION` and then `RUN_BLOCKED` inside one `applyTrackingGate` call
+ * with nothing in between, so on any log the gate wrote, the transition that
+ * filed a block is `events[blockedIndex - 1]` exactly. Scanning further back
+ * would accept a transition separated from the block by other valid rows — a
+ * `PAUSE_REQUESTED`, or an older block/unblock cycle whose own transition is
+ * still on the log — and print that older turn's anomaly as this block's cause.
+ * Each of those rows is individually valid, so only the pairing rules them out.
  *
- * That transition must also look like the one that could have filed this block:
- * `gate-apply.ts` writes `RUN_BLOCKED` only from the `queue_analysis` directive,
- * whose transition always carries `to: "BLOCKED"`. A preceding transition that
- * says anything else did not produce the block sitting after it, so this reads
- * no cause rather than attributing someone else's. The check costs nothing on
- * the shipped producer and refuses a log whose events are each valid but whose
- * pairing is not.
+ * The immediately preceding transition must also be one that could have filed a
+ * block: `gate-apply.ts` writes `RUN_BLOCKED` only from the `queue_analysis`
+ * directive, whose transition always carries `to: "BLOCKED"`. Anything else,
+ * including no preceding event at all, reads as no cause rather than as
+ * someone else's.
  */
 export function gateBlockCause(events: readonly Event[]): GateBlockCause | undefined {
   const blockedIndex = events.findLastIndex((event) => event.type === "RUN_BLOCKED");
@@ -133,25 +136,24 @@ export function gateBlockCause(events: readonly Event[]): GateBlockCause | undef
   if (blocked?.type !== "RUN_BLOCKED" || blocked.payload.reason !== GATE_BLOCK_REASON) {
     return undefined;
   }
-  let transition: GateTransitionPayload | undefined;
-  for (let index = blockedIndex - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.type === "GATE_TRANSITION") {
-      transition = event.payload;
-      break;
-    }
-  }
-  if (transition === undefined) return undefined;
+  const preceding = blockedIndex === 0 ? undefined : events[blockedIndex - 1];
+  if (preceding?.type !== "GATE_TRANSITION") return undefined;
+  const transition: GateTransitionPayload = preceding.payload;
   if (transition.directive !== "queue_analysis" || transition.to !== "BLOCKED") {
     return undefined;
   }
+
+  // Everything this cause cites has to have been on the log when the block was
+  // filed. A row appended afterwards belongs to work that came later and cannot
+  // be evidence for a decision already recorded.
+  const atOrBeforeBlock = events.slice(0, blockedIndex);
 
   // Both keys are written in the same `applyTrackingGate` call, so the pair is
   // exact. The hash alone would match a re-assessment that hashed identically
   // under a later sequence number, which is a different turn of the gate.
   const cited = transition.assessmentHash;
   const citedSeq = transition.seq;
-  const assessment = events.findLast(
+  const assessment = atOrBeforeBlock.findLast(
     (event): event is Extract<Event, { type: "TRACKING_ASSESSMENT" }> =>
       event.type === "TRACKING_ASSESSMENT" &&
       event.payload.assessmentHash === cited &&
@@ -161,7 +163,7 @@ export function gateBlockCause(events: readonly Event[]): GateBlockCause | undef
   // Last writer wins, as everywhere else in this file: a retried task can
   // report more than once and only its newest verdict describes the block.
   let reported: readonly CriterionVerification[] = [];
-  for (const event of events) {
+  for (const event of atOrBeforeBlock) {
     if (event.type !== "CHILD_MESSAGE") continue;
     const message = event.payload.message;
     if (message.type !== "TASK_RESULT" || message.taskId !== transition.turnId) continue;
