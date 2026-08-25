@@ -293,7 +293,7 @@ Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded jo
 | R13-1 | bc-8f305442-b89e-5027-8a3f-0fe1bd1d3c95 | comment-only `replay.ts` / `prescore.ts` "no writer" truth-up |
 | R13-2 | bc-8638f5c8-c39c-5c1d-94a3-b357cf0fd70e | behavioural pins: unblock `taskCriteria` carry-forward + `advanceTaskCriteria` log-derived arm |
 | R13-3 | bc-7a65b4d9-3e73-5963-96ef-1dfdca2e6c75 | early run-id on `--flowchart` / `--children` |
-| R13-4 | bc-a1cff01d-f85e-5307-9cd3-5fefc24656cf | Round 12 docs truth-up |
+| R13-4 | bc-a1cff01d-f85e-5307-9cd3-5fefc24656cf | Round 12 docs truth-up — landed |
 | R13-5 | bc-de6bdc78-aeff-5f90-9dd0-1bef638bdfc7 | keep live-isolation pins — report-only |
 | R13-6 | bc-9df1a46b-08b6-50c8-b5a6-22c75b0ceb0d | keep `applyRetry` absence — report-only |
 | R13-7 | bc-977f733c-6ed5-58a9-bd4e-13e3d4a28069 | keep never-synthesize-from-episode — report-only |

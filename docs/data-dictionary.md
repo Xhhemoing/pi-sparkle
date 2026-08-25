@@ -158,9 +158,11 @@ On flowchart resume, a node with a logged `TASK_REQUEST` is reconstructed from
 the durable parent log rather than from the checkpoint definition's thin node
 shape: the request restores objective, artifacts, criteria, and budget; the
 role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
-checkpointed edges restore dependencies. A never-requested node keeps empty
-criteria/artifacts and uses the earliest logged sibling budget or the run's
-declared per-task limits. The optional run requirement contract is durable as
+checkpointed edges restore dependencies. A node without a logged request keeps
+empty artifacts and uses the earliest logged sibling budget or the run's
+declared per-task limits. Its criteria come from the durable `taskCriteria`
+record when that record names the node; otherwise they remain empty/unknown.
+The optional run requirement contract is durable as
 `FlowchartCheckpointState.contract?` at unchanged checkpoint
 `schemaVersion: 1`; absence remains valid. Validation, every
 flowchart-checkpoint writer, pause/inject restoration, and both CLI
@@ -172,15 +174,19 @@ Round 11 also added the validated optional
 `FlowchartCheckpointState.taskCriteria?` seam. Absence means unknown, an
 entry's empty list means known-none, entries are ordered by `taskId`, and the
 field is never synthesized from the episode, flowchart definition, or run
-contract. At the Round 11 close it remains declared-but-unwritten: there is no
-`src` checkpoint writer for the field, so it is not yet a durability
-guarantee.
-Round 10 pins both rules structurally: a recursive AST census requires
-`contract` on every flowchart-payload `materializeCheckpoint` call without
-freezing the call count, while a source-wide episode-reader census rejects
-contract-shaped output and `RequirementContract` references. The episode
-remains a deliberately lossy projection carrying acceptance criteria, never
-run-contract authority.
+contract. Round 12 filled the seam in `81f5b81` from exactly three sources:
+caller specs at start, non-empty logged `TASK_REQUEST`s on checkpoint writes,
+and the checkpoint's existing record on restore. Writes are monotone
+first-write-wins. Empty logged requests are ignored because they cannot
+distinguish substituted re-dispatch from known-none; only the caller's own
+empty spec records known-none. The reader fills criteria only into substituted
+specs and never overrides a logged request. There is no
+`FlowchartContinuation.taskCriteria` input. Round 10's contract census and
+Round 12's `d592f8c` / `0e61063` pins require field carriage and at least one
+writer without freezing the writer count, while the source-wide episode-reader
+census rejects contract- or task-criteria-shaped output. The episode remains a
+deliberately lossy projection carrying acceptance criteria, never run-contract
+or task-dispatch authority.
 
 Each real Pi-executor attempt exposes `sparkle_report_task_result`. A valid
 call writes one request-identity protocol-v1 `TASK_RESULT` with a non-empty
@@ -199,7 +205,11 @@ and each reported `FAILED` criterion cites evidence. A reported criterion
 failure reaches the hard `unmet-acceptance-criterion` gate for every role,
 even when the whole-task verdict is `PASSED`. Omission, a protocol-level
 `UNOBSERVED` criterion, and a task that never ran remain unknown, not unmet,
-and do not trigger that gate.
+and do not trigger that gate. Round 12 commit `b8f784f` reaches the gate in
+production: the node is COMPLETED while the run is BLOCKED. Retry is refused
+for that completed node, no-retry `unblock` is the sanctioned exit, and
+`--discard-executed` is structurally unavailable because there is no failed
+retry node to name.
 Round 10's producer freeze additionally proves that model-supplied
 `from`/`runId`/`taskId` cannot displace the lease, an explicitly empty
 `FAILED.evidenceIds` emits nothing, an identical repeat is still a forbidden
@@ -209,8 +219,9 @@ attempt's `tools` array.
 `PrescoreInput.independentEvidence` is derived solely from that child-authored
 verdict and then discarded by `computePrescore`. It is a self-report posture,
 not independent corroboration. Round 10's whole-`src` dereference census allows
-only that `void` discard, and its 144-cell sweep shows the flag changes no score
-today; giving it a reader or a new name requires a separate decision.
+only that `void` discard, and `95a2b25` separately requires zero mentions in
+the flowchart spine. Its 144-cell sweep shows the flag changes no score today;
+giving it a reader or a new name requires a separate decision.
 
 `GateApplyResult.runStatus` is a ledger projection, not a control input. Both
 runtime planes act on the directive and events and have zero
@@ -249,17 +260,17 @@ superseded control-state outcomes clear, pending approval is released when its
 waiter is rewound, and no budget is refunded. The authorization applies to one
 block, not to the rest of the run.
 
-> Round 12 docs-slot working-tree census (2026-08-25 00:48:38 UTC): HEAD was
-> `b65a8b1`. Round 11 is committed: option (a) `6096da6`; the eleven-case
-> probe `db38b21`; tracked pause-controller wiring `ac3faa3`; restore-side
-> discard audit `9663294`; the preceding docs truth-up `9efc715`; direct output
-> freezes `3bbb8dc`; the restore AST guard `39c97c3`; terminal-status census
-> `330466a`; episode/`taskCriteria` boundary census `f99a0c8`; and parent
-> joints `6926592` / `df2c395`. At this timestamp R12-1 had neither a committed
-> landing nor an owned-source working-tree diff, so this document records the
-> Round 11 `taskCriteria` no-writer residual and run-id-at-end gap rather than
-> assigning an uncommitted sibling a commit id. This note supersedes the dated
-> 23:56–23:59 UTC working-tree notes.
+> Round 13 docs-slot working-tree census (2026-08-25 01:28:37 UTC): HEAD was
+> `e744b4a`. Round 12 is committed: the `taskCriteria` writer and tracked early
+> run id `81f5b81` (including the folded abort-test joint); flowchart-spine
+> `independentEvidence` freeze `95a2b25`; criteria-gate reachability `b8f784f`;
+> the preceding docs truth-up `d1b451c`; exact `RunStatus` vocabulary
+> `b65a8b1`; writer-carriage census `d592f8c`; and writer-existence successor
+> `0e61063`. At this timestamp R13-1 and R13-3 had neither a committed landing
+> nor an owned working-tree diff. The two source comments still said there was
+> no writer, while `--flowchart` / `--children` still lacked early id output;
+> this document reports the committed runtime without assigning either sibling
+> a commit id.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation

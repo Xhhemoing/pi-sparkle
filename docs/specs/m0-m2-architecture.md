@@ -11,17 +11,17 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 12 docs-slot working-tree census (2026-08-25 00:48:38 UTC): HEAD was
-> `b65a8b1`. Round 11 is committed: option (a) `6096da6`; the eleven-case
-> probe `db38b21`; tracked pause-controller wiring `ac3faa3`; restore-side
-> discard audit `9663294`; the preceding docs truth-up `9efc715`; direct output
-> freezes `3bbb8dc`; the restore AST guard `39c97c3`; terminal-status census
-> `330466a`; episode/`taskCriteria` boundary census `f99a0c8`; and parent
-> joints `6926592` / `df2c395`. At this timestamp R12-1 had neither a committed
-> landing nor an owned-source working-tree diff, so this document records the
-> Round 11 `taskCriteria` no-writer residual and run-id-at-end gap rather than
-> assigning an uncommitted sibling a commit id. This note supersedes the dated
-> 23:56–23:59 UTC working-tree notes.
+> Round 13 docs-slot working-tree census (2026-08-25 01:28:37 UTC): HEAD was
+> `e744b4a`. Round 12 is committed: the `taskCriteria` writer and tracked early
+> run id `81f5b81` (including the folded abort-test joint); flowchart-spine
+> `independentEvidence` freeze `95a2b25`; criteria-gate reachability `b8f784f`;
+> the preceding docs truth-up `d1b451c`; exact `RunStatus` vocabulary
+> `b65a8b1`; writer-carriage census `d592f8c`; and writer-existence successor
+> `0e61063`. At this timestamp R13-1 and R13-3 had neither a committed landing
+> nor an owned working-tree diff. The two source comments still said there was
+> no writer, while `--flowchart` / `--children` still lacked early id output;
+> this document reports the committed runtime without assigning either sibling
+> a commit id.
 
 ## Milestone names
 
@@ -172,6 +172,7 @@ type RunStatus =
   | "PLANNING"
   | "RUNNING"
   | "WAITING_FOR_USER"
+  | "PAUSED"
   | "BLOCKED"
   | "COMPLETED"
   | "FAILED"
@@ -198,6 +199,9 @@ interface RunLimits {
   maxCostUsd?: number;
 }
 ```
+
+Round 12 commit `b65a8b1` freezes those exact eight `RunStatus` members; adding
+a terminal or non-terminal status is a separate contract change.
 
 ### Task graph
 
@@ -357,17 +361,26 @@ On flowchart resume, a node whose parent log contains a `TASK_REQUEST` runs
 under that recorded spec. Objective, input artifacts, acceptance criteria, and
 child limits come from the request; the role-bearing assignment
 `MODEL_ROUTED` restores the agent role, assigned model, and cascade; dependencies
-come from the checkpointed edges. A node that was never requested retains empty
-criteria/artifacts and receives the earliest logged sibling's budget, or the
-run's declared per-task limits when there is no sibling. This reconstruction is
-stable across repeated resumes because the latest request per task wins.
+come from the checkpointed edges. A node without a logged request retains empty
+artifacts and receives the earliest logged sibling's budget, or the run's
+declared per-task limits when there is no sibling. Its acceptance criteria come
+from the durable task record when that record names the node; otherwise they
+remain empty/unknown. Request reconstruction is stable across repeated resumes
+because the latest request per task wins.
 Round 11 added the validated optional
-`FlowchartCheckpointState.taskCriteria?` seam: absence remains unknown, a
-present task entry with an empty criteria list is known-none, and entries are
-ordered by `taskId`. At the Round 11 close the field has no `src` writer, so
-this is still a declared durability seam rather than a working guarantee.
-The runtime never synthesizes it from the episode, flowchart definition, or run
-contract.
+`FlowchartCheckpointState.taskCriteria?` seam; Round 12 filled it in `81f5b81`.
+Its three sources are caller specs at start, non-empty logged `TASK_REQUEST`s on
+checkpoint writes, and the checkpoint's existing record on restore. Entries
+are ordered by `taskId` and written monotonically first-write-wins. Empty
+logged requests are ignored because they cannot distinguish a real known-none
+request from a substituted re-dispatch; only the caller's own empty spec
+records known-none. Absence remains unknown. The reader fills only substituted
+specs, and a logged request retains its own answer. There is deliberately no
+`FlowchartContinuation.taskCriteria`: a continuation cannot re-answer a
+durable dispatch fact. The runtime never synthesizes the record from the
+episode, flowchart definition, or run contract. The carriage property
+`d592f8c` and writer-existence guard `0e61063` prevent checkpoint writers from
+dropping the field or silently removing its last writer.
 
 `FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
 that supplies it gets the same child grounding and assessment as start. The
@@ -389,12 +402,15 @@ acceptance remains closure metadata, never run-contract authority.
 The offline `run --track --assume-defaults --executor fake` path does extract
 and persist a contract without a live provider. Round 11 wired the tracked
 pause seam: `TrackRunInput.pause` is forwarded to `startFlowchartRun`, and
-`runCommand` supplies the file-backed controller. A behavioural control proves
-that the same tracked run completes without a controller and pauses after one
-child with one. The pure-CLI `run --track` → `pause` → `resume` proof remains
-partial for a different reason: `run` prints the run id only after the awaited
-tracked outcome is terminal, so an operator cannot address the live run from
-that output.
+`runCommand` supplies the file-backed controller. Round 12 commit `81f5b81`
+added `onRunStarted`, fired under the run lifecycle lock immediately after
+`RUN_CREATED` and before round 1's pause poll; callback failures are swallowed
+so notification failure cannot orphan a run before its first checkpoint. The
+track path now prints `Run <id>: started` while the run is still pausable, and
+the pure-CLI track pause proof is complete. At the dated census above,
+`--flowchart` and `--children` had no corresponding callback and still printed
+the id only after settlement, so that operator gap remains open on those two
+paths.
 
 ### Cluster role-cast dead letters
 
@@ -549,11 +565,13 @@ node statuses and its ledger), limits required for flowchart resume, and the
 optional run requirement contract. Production flowchart resume projects that
 validated contract into `FlowchartContinuation`; pause and injection preserve
 the same field when they rewrite the checkpoint. The checkpoint still does
-**not** contain the M2 DAG supervisor's active leases. It also has a validated
-optional `taskCriteria` seam, but no Round 11 `src` writer populates it; absence
-therefore remains unknown rather than being rewritten as known-none. Supervised DAG
-resume reconstructs its graph, task statuses, attempts, ledger, and leases from
-the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
+**not** contain the M2 DAG supervisor's active leases. Its validated optional
+`taskCriteria` record is now populated by the three Round 12 sources described
+above and carried by every flowchart-checkpoint writer. Absence remains unknown
+rather than being rewritten as known-none; an empty logged request is ignored,
+while an empty caller spec is durable known-none. Supervised DAG resume
+reconstructs its graph, task statuses, attempts, ledger, and leases from the
+event log, including `TASK_LEASED`; a reconstructed lease for a still-running
 task is recovered as orphaned because no worker survives process restart.
 
 `catalog-observed.json` and `preferences.json` also publish by atomic
@@ -661,6 +679,14 @@ roles, even when the whole-task verdict is `PASSED`. The gate is supplied from
 the child's reported failures only: omission, protocol-level `UNOBSERVED`, and
 a task that never ran stay unknown-not-unmet and leave it open.
 
+Round 12 commit `b8f784f` proves that path through production: the child can
+report the task `PASSED` with one evidence-backed failed criterion, leaving the
+node COMPLETED while the run is BLOCKED by
+`unmet-acceptance-criterion`. A retry request is refused because the node is
+not failed; no-retry `unblock` is the sanctioned exit and resume does not drive
+the completed node again. `--discard-executed` is structurally unavailable for
+this block class because there is no failed retry node to name.
+
 Measured production-input reachability confirms the whole-task control result:
 `PASSED` opened all 360 swept cells (minimum prescore 0.750, above the 0.55
 soft threshold), while `FAILED` hard-blocked all 180 swept cells with
@@ -675,7 +701,8 @@ The unfortunately named `PrescoreInput.independentEvidence` is not independent
 corroboration. Its sole production writer derives it from the same child-authored
 verdict, and `computePrescore` discards it. Round 10 records that self-report
 posture in source and pins it with a whole-`src` dereference census whose sole
-allowed read is the `void` discard; a 144-cell sweep confirms it changes no
+allowed read is the `void` discard; `95a2b25` additionally requires the
+flowchart spine to contain no mention. A 144-cell sweep confirms it changes no
 score today. A reader or rename is a separate design decision.
 
 When `run --flowchart` or `run --children` returns BLOCKED, stderr reports the

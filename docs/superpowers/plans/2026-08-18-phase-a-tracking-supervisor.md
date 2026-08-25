@@ -17,6 +17,9 @@
 - Do not import `@earendil-works/pi-*` from `src/tracking/` or `src/run/gate-apply.ts`.
 - Do not change `ModelRouter` / R0 live selection in this phase.
 - Do not add `REPAIRING` or `ANALYSIS_QUEUED` as public `RunStatus` values; store them on the gate directive / ledger fact while the run stays `RUNNING`, `WAITING_FOR_USER`, or `BLOCKED`.
+- Round 12 commit `b65a8b1` freezes the exact eight public statuses:
+  `PLANNING`, `RUNNING`, `WAITING_FOR_USER`, `PAUSED`, `BLOCKED`, `COMPLETED`,
+  `FAILED`, and `CANCELLED`.
 - Hidden CoT reader must not be registered.
 - Keep existing hyphenated dimension ids (`evidence-consistency`, not `evidence_consistency`).
 - Tests: `corepack pnpm exec tsx --test <files>` then `corepack pnpm run typecheck`.
@@ -195,15 +198,26 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > object. An evidence-backed reported `FAILED` criterion reaches the hard
 > `unmet-acceptance-criterion` gate for every role, even beside a whole-task
 > `PASSED`; omission, `UNOBSERVED`, and never-ran remain unknown-not-unmet.
+> Round 12 commit `b8f784f` reaches that gate in production: the node remains
+> COMPLETED while the run is BLOCKED. A retry request is refused; no-retry
+> `unblock` is the sanctioned exit, and `--discard-executed` is structurally
+> unavailable because there is no failed retry node.
 > The optional durable `taskCriteria` seam was declared and validated in the
-> same landing but had no `src` writer at the Round 11 close.
+> same Round 11 landing, then filled by `81f5b81`: caller specs at start,
+> non-empty logged requests on checkpoint writes, and the existing checkpoint
+> record on restore are its three monotone first-write-wins sources. Empty
+> logged requests are ignored, absence remains unknown, a caller's empty spec
+> records known-none, the reader fills only substituted specs, and there is no
+> `continuation.taskCriteria`. `d592f8c` and successor `0e61063` pin carriage
+> and writer existence.
 >
 > `PrescoreInput.independentEvidence` does not mean third-party corroboration:
 > its sole production writer derives it from that child verdict, including the
 > child's own report, and `computePrescore` deliberately discards it. It is
 > inert today. Round 10's whole-`src` AST census permits only that `void`
-> discard, and its 144-cell sweep confirms that flipping the flag changes no
-> score. A future scoring reader or rename needs a separate justification.
+> discard, and `95a2b25` separately requires zero mentions in the flowchart
+> spine. Its 144-cell sweep confirms that flipping the flag changes no score.
+> A future scoring reader or rename needs a separate justification.
 
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 
