@@ -149,15 +149,15 @@ Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 | D35 | merged `2afc5f8` from `cursor/auth-login-envelopes-0da8` `a8e80d5` | GPT-d35-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d35.md`. |
 | D36 | merged `367bd45` from `cursor/validate-path-retarget-0da8` `2e9d35e` | GPT-d36-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d36.md`. |
 
-### Round 10 (ranking; GPT challenge in flight)
+### Round 10 (implementing)
 
-Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r10-fable-next.md`) at `acd2eb7` (spec commit `3bdaa35` on `cursor/loop5-r10-fable-next-0da8`). Through-line: Rounds 8–9 made free verbs honest about *which flags and values* they were given; Round 10 makes them honest about *which tree they acted on*. GPT-r10-challenge is next; do not dispatch implementers until KEEP (or FIX riders applied).
+Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r10-fable-next.md`) at `acd2eb7`. Through-line: Rounds 8–9 made free verbs honest about *which flags and values* they were given; Round 10 makes them honest about *which tree they acted on*. GPT-r10-challenge: D37 **FIX**, D38 **FIX**, D39 **FIX** (ranking stands). Implementers apply the GPT-corrected contracts; do not merge until independent KEEP rechecks.
 
-| Slot | Owns | Status |
+| Slot | Owns | Spec |
 |---|---|---|
-| D37 | `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + six test files — blank `--state-root` parse-args before any I/O | ranked; pending GPT-r10 |
-| D38 | `src/cli/{init-examples,migrate-legacy}.ts` + three test files — blank `--dir`/`--state-root`, obstruction preflight, honest write faults | ranked; pending GPT-r10 |
-| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` — corrupt-log envelopes + episode blank-root | ranked; pending GPT-r10 |
+| D37 | `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + six test files | Rank 1 as corrected by `.agent_workspace/loop5-r10-gpt-challenge.md` |
+| D38 | `src/cli/{init-examples,migrate-legacy}.ts` + three test files | Rank 2 as corrected |
+| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 3 as corrected |
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
 
@@ -165,3 +165,6 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 |---|---|---|---|---|
 | Fable-r10-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-d3b26848-9908-5f90-b05f-0bd46a293238` |
 | GPT-r10-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | `bc-94104804-bdd4-594f-bd13-43082c0eb54b` |
+| D37 | Opus-d37-blank-root | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
+| D38 | Opus-d38-init-migrate | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
+| D39 | Opus-d39-episode-logs | claude-opus-5-thinking-high-fast | cloud | (dispatching) |

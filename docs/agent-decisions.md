@@ -302,19 +302,25 @@ Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable
 
 Fable-r10-next. When `--state-root` is present and `trim() === ""`, each free verb refuses as `parse-args` before any filesystem read or write (and before any `next` that interpolates the resolved root). Message: `invalid --state-root "${raw}": state root must be a non-empty directory path`. Next names the flag, never interpolates the raw value: `pass --state-root <dir> or omit it to use the default ~/.pi-sparkle`. `command` stays each module's existing dialect. Guard copied per module (D15; no shared helper in `errors.ts`). Nonblank relative roots stay accepted. Files: `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + `test/unit/cli/{list,models,auth,validate}.test.ts` + `test/integration/cli/{pause-inject,commits}.test.ts`. Spec: Rank 1 in `.agent_workspace/loop5-r10-fable-next.md`. Reopens D25/D31/D32/D34/D35/D36 files only for this new defect.
 
-**Status:** ranked; gated on GPT-r10-challenge.
+**Status:** GPT-r10 FIX rider is the implementation contract. Implementer dispatched.
+
+**GPT-r10-challenge: FIX** (keep the slot). Guard list/pause/inject/commits/models/auth as Fable specified, after each module's existing path-free argv checks. In `validate`, apply the guard **only on the flowchart branch** after the exactly-one and blank-spec checks; `--children` documents that `--state-root` is ignored — do not refuse a blank root there. Pause mixed case `pause --run banana --state-root ""` reports blank root first (does not fight D31: existing malformed-run pins use a nonblank temp root). Keep per-module copied guards; no helper in `errors.ts`/`main.ts`. Report: `.agent_workspace/loop5-r10-gpt-challenge.md`.
 
 ## D38 — Round 10 rank 2: `init` and `migrate-legacy` target-directory contract
 
 Fable-r10-next. `init`: blank/whitespace `--dir` is parse-args; obstruction preflight (`lstat` each target, refuse even with `--force` when not a regular file) before any write; write faults name `--dir` and disclose partial work on stderr (D20). Pinned no-`--force` "already exists" bytes kept and now only fire when `--force` would succeed. `migrate-legacy`: same blank `--state-root` parse-args as D37; coded fs faults in the existing scan catch become `stage: "lookup"` naming the flag; corrupt legacy JSONL keeps `stage: "scan"`. Nonexistent root keeps the honest empty dry run. Files: `src/cli/{init-examples,migrate-legacy}.ts` + `test/unit/cli/{init-examples,migrate-legacy}.test.ts` + `test/integration/cli/migrate-legacy.test.ts`. Spec: Rank 2 in `.agent_workspace/loop5-r10-fable-next.md`.
 
-**Status:** ranked; gated on GPT-r10-challenge.
+**Status:** GPT-r10 FIX rider is the implementation contract. Implementer dispatched.
+
+**GPT-r10-challenge: FIX** (keep the slot). Blank `--dir` next stays “omit to write into the current directory” (omission is the documented default; explicit blank is malformed). Obstruction `lstat` preflight even with `--force`. Execute catch: message may interpolate the resolved dir; `next` stays path-free. Partial-disclosure cannot use the squat fixture (preflight rejects it); add an optional `writeFile` seam (default real `writeFile`) so one test pins squat/zero-write and a separate seam test pins the note after the first write. Append to `written` only after `writeFile` resolves. Migrate: D37 blank-root bytes; coded fs → `lookup`; uncoded JSONL stays `scan`; ENOENT empty dry-run stays exit 0. Report: `.agent_workspace/loop5-r10-gpt-challenge.md`.
 
 ## D39 — Round 10 rank 3: `episode` corrupt-log envelopes
 
 Fable-r10-next. Convert corrupt events-log and close snapshot-log throws to in-module `cliFail` (`command: "episode"`, `stage: "validation"`, store message bytes kept). Next must not send the operator to doctor (doctor does not inventory episode logs); close retargets `list --episodes --json` `errors[]`. Catch only `DomainValidationError` without an `errorCodeOf` so lock timeouts still reach main. Also refuse blank `--state-root` as parse-args (file-disjoint instance of D37). Do not edit episode stores. Files: `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3 in `.agent_workspace/loop5-r10-fable-next.md`. Reopens D33 only for this new defect.
 
-**Status:** ranked; gated on GPT-r10-challenge.
+**Status:** GPT-r10 FIX rider is the implementation contract. Implementer dispatched.
+
+**GPT-r10-challenge: FIX** (keep the slot). Keep `command: "episode"` (D33 spelling) and store message bytes. Blank-root guard **after** help and unknown-subcommand (and after missing-episode), **before** `isEpisodeId`. Pin `episode events --help --state-root ""` usage/exit 0 and `episode nonsense … --state-root ""` as `Unknown episode command: nonsense`. Catch only uncoded `DomainValidationError` around each `readAll()`; rethrow everything else (lock-timeout still reaches main). Report: `.agent_workspace/loop5-r10-gpt-challenge.md`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
