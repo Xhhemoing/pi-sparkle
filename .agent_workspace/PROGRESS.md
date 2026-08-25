@@ -280,7 +280,7 @@ Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th cr
 | R12-9 | bc-b03d3f9a-d0aa-5194-85c0-15cfef2a6d07 | keep `TERMINAL_REPLAY_STATUSES` freeze |
 | R12-10 | bc-0551ba4d-479f-5f00-9bb5-6d9e2e29a23b | keep writer-carriage `contract` property |
 
-Landed: R12-2 `95a2b25` `flowchart-run` cannot read `independentEvidence`; R12-6 report-only episode never-synthesize already covers `taskCriteria`; R12-7 report-only routes / inspect / BLOCKED prefix; R12-9 `b65a8b1` exact `RunStatus` vocabulary; R12-10 `d592f8c` writer-carriage property (`contract` required; `taskCriteria` only once a payload mentions it). Held: R12-10 successor vacuity guard until R12-1 lands a writer.
+Landed: R12-2 `95a2b25` `flowchart-run` cannot read `independentEvidence`; R12-4 `d1b451c` Round 11 docs truth-up; R12-6 report-only episode never-synthesize already covers `taskCriteria`; R12-7 report-only routes / inspect / BLOCKED prefix; R12-9 `b65a8b1` exact `RunStatus` vocabulary; R12-10 `d592f8c` writer-carriage property (`contract` required; `taskCriteria` only once a payload mentions it). Held: R12-10 successor vacuity guard until R12-1 lands a writer.
 
 ---
 
