@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -25,6 +25,27 @@ function fixtures(episodeId: EpisodeId): readonly EpisodeEvent[] {
   const waiting = waitForUser(attached.episode, "acceptance-incomplete", ["acc-1"]);
   const closed = closeEpisode(waiting.episode, "COMPLETED", "out-1");
   return [opened.event, attached.event, waiting.event, closed.event];
+}
+
+/**
+ * The row the audit proved could be appended: a type no writer in the tree can
+ * produce, which the reader refuses forever once it is on disk. Casting is the
+ * point — runtime callers are typed, but types are erased and this store is an
+ * exported embedder surface.
+ */
+function unknownTypeEvent(episodeId: EpisodeId): EpisodeEvent {
+  return {
+    type: "EPISODE_REOPENED",
+    episodeId,
+    occurredAt: "2026-08-24T00:00:00.000Z"
+  } as unknown as EpisodeEvent;
+}
+
+async function exists(path: string): Promise<boolean> {
+  return stat(path).then(
+    () => true,
+    () => false
+  );
 }
 
 async function withStore(
@@ -119,6 +140,79 @@ test("a corrupt mid-file line fails readAll closed with a DomainValidationError"
       () => store.readAll(),
       (error: unknown) => error instanceof DomainValidationError && /line 2/.test(error.message)
     );
+  });
+});
+
+test("a malformed append is rejected and the log keeps its exact bytes", async () => {
+  await withStore(async (store, stateRoot, episodeId) => {
+    const events = fixtures(episodeId);
+    const [opened, attached] = events;
+    if (opened === undefined || attached === undefined) throw new Error("expected fixtures");
+    await store.append(opened);
+    const before = await readFile(logPath(stateRoot, episodeId), "utf8");
+
+    await assert.rejects(
+      () => store.append(unknownTypeEvent(episodeId)),
+      (error: unknown) =>
+        error instanceof DomainValidationError &&
+        /Unknown EpisodeEvent\.type: EPISODE_REOPENED/.test(error.message) &&
+        // No line number: nothing was written, so there is no line to name.
+        !/line \d/.test(error.message)
+    );
+    assert.equal(await readFile(logPath(stateRoot, episodeId), "utf8"), before);
+
+    // The rejection is not fatal to the store: the next valid append lands and
+    // the read every consumer performs stays green, which is what the
+    // unvalidated writer could not promise once a bad row was on disk.
+    await store.append(attached);
+    const read = await store.readAll();
+    assert.deepEqual(read.recovery, {});
+    assert.deepEqual(
+      read.events.map((event) => event.type),
+      ["EPISODE_OPENED", "RUN_ATTACHED"]
+    );
+  });
+});
+
+test("a rejected append never brings the log into existence", async () => {
+  await withStore(async (store, stateRoot, episodeId) => {
+    await assert.rejects(
+      () => store.append(unknownTypeEvent(episodeId)),
+      (error: unknown) => error instanceof DomainValidationError
+    );
+
+    assert.equal(await exists(logPath(stateRoot, episodeId)), false);
+    const read = await store.readAll();
+    assert.deepEqual(read.events, []);
+  });
+});
+
+test("a malformed required field is refused by the writer, not just the reader", async () => {
+  await withStore(async (store, stateRoot, episodeId) => {
+    const events = fixtures(episodeId);
+    const [opened, attached] = events;
+    if (opened === undefined || attached === undefined) throw new Error("expected fixtures");
+    await store.append(opened);
+    const before = await readFile(logPath(stateRoot, episodeId), "utf8");
+
+    await assert.rejects(
+      () => store.append({ ...attached, runId: "not-a-run-id" } as unknown as EpisodeEvent),
+      (error: unknown) => error instanceof DomainValidationError && /runId/.test(error.message)
+    );
+    assert.equal(await readFile(logPath(stateRoot, episodeId), "utf8"), before);
+  });
+});
+
+test("an accepted append lands the decoder's output, so unknown keys never reach the log", async () => {
+  await withStore(async (store, stateRoot, episodeId) => {
+    const events = fixtures(episodeId);
+    const [opened] = events;
+    if (opened === undefined) throw new Error("expected a fixture");
+    await store.append({ ...opened, smuggled: "must not land" } as unknown as EpisodeEvent);
+
+    const raw = await readFile(logPath(stateRoot, episodeId), "utf8");
+    assert.equal(raw, `${JSON.stringify(opened)}\n`);
+    assert.doesNotMatch(raw, /smuggled/);
   });
 });
 

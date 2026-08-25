@@ -23,9 +23,27 @@ export class EpisodeEventStore {
     this.path = join(runtimeRoot(stateRoot), "episodes", `${episodeId}.events.jsonl`);
   }
 
+  /**
+   * Appends one event, validating it *before* it can reach the log.
+   *
+   * `readAll` below fails closed on the first row it cannot decode, this log is
+   * append-only, and rewriting append-only logs is out of contract — so a
+   * single malformed row is not a bad row, it is the permanent end of the
+   * episode's event history (`episode events` included). The static type is no
+   * defence: it is erased at runtime and this class is an exported embedder
+   * surface. So the write side runs the same decoder the read side does, and
+   * the row that lands is the decoder's output — unknown keys never reach the
+   * log. This mirrors `EventStore.append` (`validateEvent`) and
+   * `EpisodeStore.append` (`validateEpisode`), the two appenders that already
+   * work this way.
+   *
+   * Rejection is plain: no line number is attached, because at this point there
+   * is no line — nothing has been written and nothing will be.
+   */
   append(event: EpisodeEvent): Promise<void> {
     return this.enqueue(async () => {
-      await appendJsonlLine(this.path, JSON.stringify(event), false);
+      const validated = validateEpisodeEvent(event);
+      await appendJsonlLine(this.path, JSON.stringify(validated), false);
     });
   }
 
