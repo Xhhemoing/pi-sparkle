@@ -212,7 +212,9 @@ GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape:
 
 ## D28 — Round 7 rank 1: `auth` dialect completion + `auth status --json` (`AUTH_STATUS`)
 
-**Landed** (Opus-d28-auth-json): `ad14592` dialect + AUTH_STATUS. GPT-d28-recheck **FIX**: tighten parser-error tests to exact `command`/`message`/`next` for status, login, and logout `--bogus`. Rider in flight.
+Fable-r7-next. GPT-r7-challenge: **FIX** the parser `command` field, keep the slot. Convert unknown-subcommand and three `parseArgs` to `cliFail` `stage: "parse-args"`. Parser errors pin `command: "auth status"|"auth login"|"auth logout"`; unknown subcommand stays `command: "auth"`. Honor `--help` on status/login/logout before provider/store I/O. Discriminated `AUTH_STATUS` stored mode `type/preview/mode/stored` rows `{providerId,credentialType}`; `--all` adds `environment` `{providerId,label,source}` via `sourceLabel`, never a secret value. Catch only `parseArgs`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`.
+
+**Landed** (Opus-d28-auth-json): `ad14592` runtime already uses the owning-subcommand `command` strings. GPT-d28-recheck **FIX**: exact parser-error tests for status/login/logout `--bogus`. Report: `.agent_workspace/loop5-r7-gpt-d28.md`. Rider in flight.
 
 ## D29 — Round 7 rank 2: `doctor --help` and argv dialect
 
