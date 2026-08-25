@@ -260,7 +260,7 @@ const EVENT_SEEDS = {
   }),
   STEER_INJECTED: makeEvent("STEER_INJECTED", {
     text: "focus the remaining work on the failing fuzz invariant",
-    agentInstanceId: AGENT_INSTANCE_ID
+    agentInstanceId: AGENT_ID
   }),
   EPISODE_OPENED: makeEvent("EPISODE_OPENED", { episode: EPISODE }),
   RUN_ATTACHED: makeEvent("RUN_ATTACHED", {
