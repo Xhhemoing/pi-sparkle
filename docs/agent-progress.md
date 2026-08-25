@@ -159,12 +159,19 @@ Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 | D38 | merged `39d4f33` from `cursor/init-migrate-target-0da8` `1268ea7` | GPT-d38-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d38.md`. |
 | D39 | merged `f447946` from `cursor/episode-corrupt-log-0da8` `0f773df` | GPT-d39-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d39.md`. |
 
-### Round 11 (ranking in flight)
+### Round 11 (ranking; GPT challenge in flight)
 
-Fable-r11-next ranks the next three file-disjoint operator batches after D37–D39 KEEP. Spec lands only as `.agent_workspace/loop5-r11-fable-next.md` on `cursor/loop5-r11-fable-next-0da8` — no `src/` edits.
+Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf` (spec commit `d14a178` on `cursor/loop5-r11-fable-next-0da8`). Through-line: Rounds 8–10 made free verbs refuse bad flags, values, and targets before touching state; Round 11 converts the remaining post-read faults that still hit a doctor with no inventory. GPT-r11-challenge is next; do not dispatch implementers until KEEP (or FIX riders applied).
 
-HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
+| Slot | Owns | Status |
+|---|---|---|
+| D40 | `src/cli/commits.ts` + `test/integration/cli/commits.test.ts` — four stored-ledger envelopes | ranked; pending GPT-r11 |
+| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` — `--value` domain + flag relevance | ranked; pending GPT-r11 |
+| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` — blank `--outcome`, terminal re-close next, events flag relevance | ranked; pending GPT-r11 |
+
+HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); file-as-root (doctor answers); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string (blank instance only in D42).
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
 | Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-0366a1ee-f5a3-5eb3-aa04-3c9db9a002d2` |
+| GPT-r11-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | (dispatching) |
