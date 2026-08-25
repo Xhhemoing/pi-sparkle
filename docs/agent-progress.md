@@ -105,6 +105,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D25 `list` truncation disclosure + `--sort last-event`. Implementer: Opus-d25-list-sort (`bc-dd11ca58-f52f-510e-bf63-b89d5a9dda31`). GPT-d25-recheck **KEEP**.
 - D26 one-dialect argv/`--help` on six free verbs. Implementer: Opus-d26-argv-help (`bc-2a2a0515-81de-5318-9557-6bef72169e03`). GPT-d26-recheck **KEEP**.
 - D27 `models list --json` stored-config contract. Implementer: Opus-d27-models-json (`bc-273c089d-f7b4-564b-bd04-10e34d162330`). GPT-d27-recheck **KEEP**.
+- D28 `auth` dialect + `AUTH_STATUS`. Implementer: Opus-d28-auth-json (`bc-c17f189d-a482-578b-91d0-076b8cccb958`). GPT-d28-recheck **KEEP**.
 - D29 `doctor --help` and parse-args dialect. Implementer: Opus-d29-doctor-help (`bc-2b9bd5c6-42e8-5a7c-9a18-124a87293e4f`). GPT-d29-recheck **KEEP**.
 - D30 inject `--type`/`--confidence` preflight. Implementer: Opus-d30-inject-preflight (`bc-7a73aace-288e-5058-8373-06bd7f016050`). GPT-d30-recheck **KEEP**.
 
@@ -118,17 +119,19 @@ Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fab
 | D26 | merged `e9c4d77` from `cursor/argv-help-dialect-0da8` `25742b4` | GPT-d26-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d26.md`. |
 | D27 | merged `b927921` from `cursor/models-list-json-0da8` `c83fc99` | GPT-d27-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d27.md`. |
 
-### Round 7
+### Round 7 (closed)
 
-Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fable-next.md`) at `786f23e`: D28 `auth` dialect + `AUTH_STATUS`, D29 `doctor --help`, D30 inject `--type`/`--confidence` preflight.
+Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fable-next.md`) at `786f23e`: D28 `auth` dialect + `AUTH_STATUS`, D29 `doctor --help`, D30 inject `--type`/`--confidence` preflight. GPT-r7-challenge: D28 **FIX**, D29 **KEEP**, D30 **FIX**. All three merged after independent KEEP rechecks.
 
-GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D29 **KEEP**, D30 **FIX**. D29 merged after KEEP.
+| Slot | Landing | Recheck |
+|---|---|---|
+| D28 | merged from `cursor/auth-dialect-json-0da8` `4d3fcc4` | GPT-d28-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d28.md`. |
+| D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549` | GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
+| D30 | merged from `cursor/inject-preflight-0da8` `c2be255` | GPT-d30-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d30.md`. |
 
-| Slot | Rider |
-|---|---|
-| D28 | Rider `4d3fcc4` exact parser-error pins on `ad14592`. GPT-d28-recheck follow-up in flight. |
-| D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549`. GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
-| D30 | merged from `cursor/inject-preflight-0da8` `c2be255`. GPT-d30-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d30.md`. |
+### Round 8
+
+Fable-r8-next dispatched to rank the next three file-disjoint operator batches after D28–D30 KEEP.
 
 ### Round 3 still running / next implementers
 
