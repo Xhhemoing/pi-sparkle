@@ -11,7 +11,7 @@ import { withExclusiveFileLock } from "../persist/file-lock.js";
 import type { CliIo } from "./main.js";
 import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
 
-const USAGE = `Usage:
+export const EPISODE_USAGE = `Usage:
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--outcome <id>] [--state-root <dir>]
 
@@ -27,20 +27,35 @@ function isTerminalStatus(value: string): value is TerminalStatus {
 
 export async function episodeCommand(args: string[], io: CliIo): Promise<number> {
   const [subcommand, ...rest] = args;
-  const { values } = parseArgs({
-    args: rest,
-    options: {
-      episode: { type: "string" },
-      status: { type: "string" },
-      outcome: { type: "string" },
-      "state-root": { type: "string" },
-      json: { type: "boolean", default: false }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: rest,
+      options: {
+        episode: { type: "string" },
+        status: { type: "string" },
+        outcome: { type: "string" },
+        "state-root": { type: "string" },
+        json: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle episode --help"
+    });
+  }
   const stateRoot = values["state-root"] ?? join(homedir(), ".pi-sparkle");
   if (subcommand === "help" || subcommand === "--help" || subcommand === "-h" || subcommand === undefined) {
-    io.stdout(USAGE);
+    io.stdout(EPISODE_USAGE);
     return subcommand === undefined ? CLI_EXIT.error : CLI_EXIT.ok;
+  }
+  if (values.help === true) {
+    io.stdout(EPISODE_USAGE);
+    return CLI_EXIT.ok;
   }
   if (values.episode === undefined) {
     return cliFail(io, {
@@ -76,7 +91,7 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
   }
 
   if (subcommand !== "close") {
-    io.stderr(USAGE);
+    io.stderr(EPISODE_USAGE);
     return cliFail(io, {
       command: "episode",
       stage: "parse-args",

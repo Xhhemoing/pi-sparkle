@@ -12,7 +12,7 @@ export interface PiCompatIo {
   stderr(text: string): void;
 }
 
-const PI_COMPAT_USAGE = `pi-sparkle pi-compat — offline-first Pi compatibility report
+export const PI_COMPAT_USAGE = `pi-sparkle pi-compat — offline-first Pi compatibility report
 
 Usage:
   pi-sparkle pi-compat [--json] [--offline]
@@ -169,14 +169,29 @@ export async function piCompatCommand(args: string[], io: PiCompatIo): Promise<n
     io.stdout(PI_COMPAT_USAGE);
     return CLI_EXIT.ok;
   }
-  const { values } = parseArgs({
-    args,
-    options: {
-      json: { type: "boolean", default: false },
-      offline: { type: "boolean", default: false },
-      online: { type: "boolean", default: false }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        json: { type: "boolean", default: false },
+        offline: { type: "boolean", default: false },
+        online: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "pi-compat",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle pi-compat --help"
+    });
+  }
+  if (values.help === true) {
+    io.stdout(PI_COMPAT_USAGE);
+    return CLI_EXIT.ok;
+  }
   if (values.offline === true && values.online === true) {
     return cliFail(io, {
       command: "pi-compat",

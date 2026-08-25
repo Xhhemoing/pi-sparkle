@@ -70,7 +70,7 @@ export interface MigrationPlan {
   readonly warnings: readonly string[];
 }
 
-const USAGE = `pi-sparkle migrate-legacy — move pre-2026-08-22 flat state into the plane layout
+export const MIGRATE_LEGACY_USAGE = `pi-sparkle migrate-legacy — move pre-2026-08-22 flat state into the plane layout
 
 Usage:
   pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
@@ -102,16 +102,26 @@ export async function migrateLegacyCommand(
   io: MigrateLegacyIo,
   options: MigrateLegacyOptions = {}
 ): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      "state-root": { type: "string" },
-      apply: { type: "boolean", default: false },
-      help: { type: "boolean", default: false }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        "state-root": { type: "string" },
+        apply: { type: "boolean", default: false },
+        help: { type: "boolean", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "migrate-legacy",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle migrate-legacy --help"
+    });
+  }
   if (values.help === true) {
-    io.stdout(USAGE);
+    io.stdout(MIGRATE_LEGACY_USAGE);
     return CLI_EXIT.ok;
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();

@@ -26,6 +26,8 @@ objects, arrays, and null are refused. Values are recorded, never executed. Inje
 terminal or BLOCKED run fails closed; success echoes the resulting facts/nodes snapshot.
 `;
 
+const INJECT_TYPES: readonly string[] = ["fact", "override", "skip"];
+
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
@@ -74,6 +76,19 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       next: "pass --run <runId> and --type fact|override|skip"
     });
   }
+  // Both preflights restate the plane's own rules so a typo is refused as an
+  // argv error with the flag that carries it, rather than travelling into
+  // `validateInjection` as a NaN and coming back as a validation failure with
+  // the doctor remedy.
+  if (!INJECT_TYPES.includes(values.type)) {
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: `inject --type must be fact, override, or skip, not ${values.type}`,
+      next: "pass --type fact|override|skip",
+      runId: values.run
+    });
+  }
   if (values.type === "fact" && (values.key === undefined || values.value === undefined)) {
     return cliFail(io, {
       command: "inject",
@@ -100,6 +115,18 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       next: "pass --confidence <0-1>",
       runId: values.run
     });
+  }
+  if (values.confidence !== undefined) {
+    const confidence = Number(values.confidence);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      return cliFail(io, {
+        command: "inject",
+        stage: "parse-args",
+        message: `inject --confidence must be a finite number between 0 and 1, not ${values.confidence}`,
+        next: "pass --confidence <0-1>",
+        runId: values.run
+      });
+    }
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);

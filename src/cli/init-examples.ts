@@ -113,14 +113,24 @@ export async function initExamplesCommand(args: string[], io: InitExamplesIo): P
     io.stdout(INIT_USAGE);
     return CLI_EXIT.ok;
   }
-  const { values } = parseArgs({
-    args,
-    options: {
-      dir: { type: "string" },
-      force: { type: "boolean", default: false },
-      json: { type: "boolean", default: false }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        dir: { type: "string" },
+        force: { type: "boolean", default: false },
+        json: { type: "boolean", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "init",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle init --help"
+    });
+  }
 
   const dir = resolve(values.dir ?? ".");
   const targets = EXAMPLE_FILES.map((file) => ({ ...file, path: resolve(dir, file.name) }));
