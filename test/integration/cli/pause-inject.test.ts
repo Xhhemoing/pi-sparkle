@@ -316,6 +316,54 @@ test("a malformed pause flag reports parse-args and points at pause --help", asy
   assert.match(report?.next ?? "", /pause --help/);
 });
 
+test("inject on a run that does not exist refuses at lookup and points at list", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(
+      [
+        "inject",
+        "--run",
+        "run_missing0001",
+        "--type",
+        "fact",
+        "--key",
+        "k",
+        "--value",
+        "v",
+        "--state-root",
+        stateRoot
+      ],
+      io
+    );
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "inject");
+    assert.equal(report?.stage, "lookup");
+    assert.equal(report?.runId, "run_missing0001");
+    assert.match(report?.next ?? "", /pnpm cli list/);
+    assert.ok((report?.next ?? "").includes(stateRoot));
+  });
+});
+
+test("pause on a run that does not exist gives inject's remedy verbatim", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(["pause", "--run", "run_missing0001", "--state-root", stateRoot], io);
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "pause");
+    assert.equal(report?.stage, "lookup");
+    assert.equal(report?.runId, "run_missing0001");
+    assert.match(report?.next ?? "", /pnpm cli list/);
+    assert.equal(
+      report?.next,
+      `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`
+    );
+  });
+});
+
 test("pause fails closed on a BLOCKED flowchart", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const flowchartPath = join(projectRoot, "flow.json");

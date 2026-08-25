@@ -59,7 +59,11 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
         command: "episode",
         stage: "lookup",
         message: `Episode ${episodeId} has no events under ${stateRoot}`,
-        next: "inspect --run first to get a bound episode id"
+        // The house not-found remedy, retargeted at episodes: an operator who
+        // has the wrong episode id usually has no run id either, so pointing
+        // back at `inspect --run` asks for the thing they are missing. The
+        // inventory of episode ids that do exist under this state root answers.
+        next: `check --state-root, then pnpm cli list --state-root ${stateRoot} --episodes for the episode ids that exist there`
       });
     }
     if (values.json) {
@@ -99,7 +103,7 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
           command: "episode",
           stage: "lookup",
           message: `Episode ${episodeId} not found under ${stateRoot}`,
-          next: "inspect --run to find a bound episode id"
+          next: `check --state-root, then pnpm cli list --state-root ${stateRoot} --episodes for the episode ids that exist there`
         });
       }
       const events = new EpisodeEventStore(stateRoot, episodeId);

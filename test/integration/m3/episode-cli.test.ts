@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import {
   createEpisodeId,
   createEvidenceId,
@@ -139,4 +140,43 @@ test("episode close completes once every criterion has matching evidence and eve
   assert.equal(eventsCode, 0, listed.err.join(""));
   const events = listed.out.map((line) => JSON.parse(line) as { type: string });
   assert.deepEqual(events.map((event) => event.type), ["EPISODE_OPENED", "EPISODE_CLOSED"]);
+});
+
+test("episode events on an unknown episode points at list --episodes, not at a run id", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-events-missing-"));
+  const missing = createEpisodeId(() => "missing001");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", missing, "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "lookup");
+  assert.match(report?.next ?? "", /pnpm cli list/);
+  assert.match(report?.next ?? "", /--episodes/);
+  assert.ok((report?.next ?? "").includes(stateRoot));
+});
+
+test("episode close on an unknown episode points at list --episodes, not at a run id", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-close-missing-"));
+  const missing = createEpisodeId(() => "missing002");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", missing, "--status", "FAILED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "lookup");
+  assert.match(report?.next ?? "", /pnpm cli list/);
+  assert.match(report?.next ?? "", /--episodes/);
+  assert.ok((report?.next ?? "").includes(stateRoot));
 });

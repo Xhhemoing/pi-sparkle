@@ -5,6 +5,7 @@ import { parseRunId } from "../domain/ids.js";
 import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { injectFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController } from "../run/pause-controller.js";
+import { EventStore } from "../run/event-store.js";
 import { parseFactValue } from "../run/injection.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 
@@ -102,6 +103,21 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);
+  // A missing run reached the flowchart plane and surfaced as an untyped throw
+  // indistinguishable from a real plane failure. Refused here, before anything
+  // is read or written on that plane; deeper failures still throw as they did.
+  const read = await new EventStore(stateRoot, runId).readAll();
+  if (read.events.length === 0) {
+    return cliFail(io, {
+      command: "inject",
+      stage: "lookup",
+      message: `Run ${runId} not found under ${stateRoot}`,
+      // The house run-not-found remedy, copied rather than imported: `main.ts`
+      // imports this module, so reaching back for `missingRun` would be a cycle.
+      next: `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`,
+      runId
+    });
+  }
   const request: Record<string, unknown> = {
     kind: values.type,
     actor: values.actor ?? "user",
