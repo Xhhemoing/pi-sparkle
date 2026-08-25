@@ -109,9 +109,34 @@ an empty `runtime/runs/` directory, but no run subtree, lock, or record.
 `delete --run <id>` and `delete --episode <id>` accept
 `--lock-wait-ms <ms>`. Omitting it preserves the lock's 5 s default, `0`
 refuses a held lock immediately, and only decimal whole milliseconds through
-the 24 h ceiling are accepted. A delete aimed at a live run waits for clean
-teardown up to that bound instead of removing records underneath it; if the
-run outlives the wait, deletion fails with `LOCK_TIMEOUT` and removes nothing.
+the 24 h ceiling are accepted. The bound applies to every cooperative lock the
+delete takes, not just the target's: on the `--run` path that is
+`invocations.jsonl.lock` as well as `runtime/runs/<runId>.lock`, so `0` refuses
+at both and a long chosen wait is not cut short by a default at the first one.
+A delete aimed at a live run waits for clean teardown up to that bound instead
+of removing records underneath it; if the run outlives the wait, deletion fails
+with `LOCK_TIMEOUT`.
+
+**A timed-out delete is partial, not a no-op, and that is deliberate.** Both
+targets complete their adaptation/telemetry half *before* taking the lock that
+guards the target's own records, so the privacy-safe work survives a failure:
+
+- `--run` has already filter-rewritten `runtime/invocations.jsonl` and
+  invalidated `catalog-observed.json` by the time it asks for the run lock.
+  Those rows are not restored on failure; the CLI prints one stderr line naming
+  the count and the paths before it exits non-zero, because the throw discards
+  the `DeletionResult` that reports them on the success path.
+- `--episode` has already stripped `body`/`summary` from feedback bound to the
+  episode and persisted those ids as tombstones by the time it asks for the
+  episode lock (`cascadeFeedbackTombstones` runs first, and the two locks are
+  never nested).
+
+What a `LOCK_TIMEOUT` refuses is the lock-guarded half — removing
+`runtime/runs/<id>/`, or unlinking `<epId>.jsonl` and `<epId>.events.jsonl` —
+and those records are left byte-identical. Re-running the same delete once the
+lock is free is idempotent: the completed half is a no-op the second time and
+the refused half finishes.
+
 `pause` deliberately has no matching flag: waiting longer can succeed only
 after the lifecycle holder has stopped, when writing a pause token would be a
 slow no-op rather than pausing a busy run. A cross-process pause therefore
@@ -122,7 +147,9 @@ pause/delete/track-question writes remain blocked until an operator inspects
 the recorded PID and run state with `pi-sparkle doctor`, stops any live owner,
 and manually removes a confirmed abandoned lock. The crash-probe case
 `sigkill-run-lock-operator-recovery` crosses that OS-process boundary: it proves
-the recorded PID is dead, proves a timed-out delete changes no bytes, checks
+the recorded PID is dead, proves a timed-out delete leaves every file under the
+run's own directory byte-identical (the scope it snapshots; the pre-lock
+telemetry half above is outside it), checks
 doctor's `pidLiveness: "not-running"` and manual-removal guidance, then removes
 the confirmed abandoned lock and verifies deletion. The standing probe has
 eleven ordered cases, each run for three iterations. The added tenth case,
@@ -339,7 +366,9 @@ these are covered by the claims above:
   and the append-times-out-instead-of-writing-unlocked case). The run-plane
   lifecycle lock now prevents the locked M0, parent, flowchart, and supervised
   paths and their deletion from overlapping: deletion waits for teardown or
-  times out having removed nothing. The subtree removal still verifies once
+  times out having removed none of the run's own records — the rows this
+  rewrite already dropped stay dropped, and are disclosed on stderr rather
+  than restored. The subtree removal still verifies once
   while holding that lock and once after release. Event appends and checkpoint
   writes remain lock-free for measured end-to-end cost reasons, so a
   direct/out-of-lifecycle writer can still make deletion refuse with

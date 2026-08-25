@@ -1986,11 +1986,23 @@ the adaptation plane: feedback bound to that episode is tombstoned and its
 free-text body is stripped (see docs/data-dictionary.md). Exactly one of
 --run / --episode must be given.
 
---lock-wait-ms bounds how long the delete waits for the cooperative lock its
-target is under (default 5000). A live run holds its lock for as long as it
-runs, so a larger value is how an operator says "wait for that run to finish"
-instead of stopping it; 0 refuses immediately rather than waiting at all. The
-delete fails closed either way: a wait that runs out removes nothing.
+--lock-wait-ms bounds how long the delete waits for each cooperative lock it
+has to take (default 5000). A live run holds its lock for as long as it runs,
+so a larger value is how an operator says "wait for that run to finish"
+instead of stopping it; 0 refuses immediately rather than waiting at all.
+
+What a wait that runs out refuses is the lock-guarded half: removing
+runtime/runs/<runId>/, or unlinking the episode's own records. Those are left
+exactly as they were, and the command exits non-zero with LOCK_TIMEOUT.
+
+The other half runs first and is NOT rolled back. --run has by then dropped
+the run's rows from runtime/invocations.jsonl and invalidated the derived
+routing snapshot; --episode has by then stripped the free text from feedback
+bound to that episode and tombstoned those ids. Completing the privacy-safe
+half first is deliberate, so a delete that fails still leaves less user text on
+disk than it found. A --run delete that got that far says so on stderr before
+it exits. Re-running the same delete once the lock is free is idempotent: it
+finishes the half that was refused.
 `;
 
 /**
@@ -2046,7 +2058,14 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
   const lock = lockWaitOptions(values["lock-wait-ms"]);
   const result =
     values.run !== undefined
-      ? await deleteRunRecords(stateRoot, parseRunId(values.run), lock)
+      ? await deleteRunRecords(stateRoot, parseRunId(values.run), {
+          ...lock,
+          // The failure path prints the thrown error and a `next:` line, and
+          // drops the DeletionResult on the way — so the telemetry rows this
+          // delete already dropped would otherwise be invisible to the
+          // operator it fails in front of.
+          disclosePartial: (line: string) => io.stderr(`${line}\n`)
+        })
       : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string), lock);
   for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {

@@ -111,6 +111,23 @@ export interface DeletionResult {
 
 export { feedbackTombstonesPath } from "../feedback/store.js";
 
+export interface RunDeletionOptions extends FileLockOptions {
+  /**
+   * Disclosure seam for the half of a `delete --run` that completes before any
+   * lock is taken.
+   *
+   * The invocation-log rewrite runs first and is not rolled back, so a delete
+   * that then fails — a lock it could not have, or records it could not prove
+   * gone — has already changed the telemetry plane while throwing away the
+   * `DeletionResult` that would have said so. When that happens and rows were
+   * actually dropped, this is called exactly once with a single line (no
+   * trailing newline) naming what stayed dropped. It is never called when the
+   * rewrite dropped nothing, and never on the success path, where the same
+   * facts are already in `removedPaths`.
+   */
+  readonly disclosePartial?: (line: string) => void;
+}
+
 async function statExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -248,12 +265,17 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * `appendJsonlLine` retries ENOENT through `mkdir` — which is how a delete
  * used to report success over records that were already back.
  *
- * `options` bounds that acquisition, and it fails closed: a live writer that
- * holds the lock for longer than the timeout means the delete throws with
- * nothing removed rather than deleting around it. Locks are never stolen here
- * either, so a lock left by a killed writer makes the delete fail until an
- * operator removes it — identical to `delete --episode`, and diagnosable with
- * `doctor`.
+ * `options` bounds that acquisition — and the invocation log's, so one
+ * `--lock-wait-ms` means the same thing at both locks this delete takes — and
+ * it fails closed: a live writer that holds the run lock for longer than the
+ * timeout means the delete throws without removing any of the run's records,
+ * rather than deleting around it. What it does *not* mean is that the delete
+ * changed nothing: the invocation rewrite above already ran, and stays run.
+ * `options.disclosePartial` is how that reaches the operator on the failure
+ * path, where the `DeletionResult` that would have reported it is thrown away.
+ * Locks are never stolen here either, so a lock left by a killed writer makes
+ * the delete fail until an operator removes it — identical to
+ * `delete --episode`, and diagnosable with `doctor`.
  *
  * Which writers take the lock is a measured decision, not a full set: the two
  * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
@@ -286,7 +308,9 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * lifecycle lock — which is what a live run *does* hold. Against a real live
  * run the delete no longer reaches the removal at all: it waits, and then
  * either removes cleanly (the run ended inside the bounded wait) or fails with
- * `LOCK_TIMEOUT` having touched nothing. The refusal it replaces happened
+ * `LOCK_TIMEOUT` having touched none of the run's records — its invocation
+ * rows are already gone by then, disclosed rather than undone. The refusal it
+ * replaces happened
  * *after* `rm` had already run, so a delete racing a live run used to destroy
  * part of that run's records on its way to failing closed.
  *
@@ -298,28 +322,58 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
 export async function deleteRunRecords(
   stateRoot: string,
   runId: RunId,
-  options: FileLockOptions = {}
+  options: RunDeletionOptions = {}
 ): Promise<DeletionResult> {
-  const invocations = await dropRunFromInvocationLog(stateRoot, runId);
+  const invocations = await dropRunFromInvocationLog(stateRoot, runId, options);
 
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
-  const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
-  // Re-assert outside the lock, so the claim this call returns with is about
-  // the moment it returns and not about the moment it let go: releasing a lock
-  // is itself two I/O turns, and a writer that does not take the lock can use
-  // them. One `readdir` on an absent directory, once per delete.
-  if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
-  if (invocations.droppedRows > 0) {
-    removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
-    if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
+  try {
+    const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
+    // Re-assert outside the lock, so the claim this call returns with is about
+    // the moment it returns and not about the moment it let go: releasing a
+    // lock is itself two I/O turns, and a writer that does not take the lock
+    // can use them. One `readdir` on an absent directory, once per delete.
+    if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
+    if (invocations.droppedRows > 0) {
+      removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
+      if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
+    }
+    return {
+      target: `run:${runId}`,
+      removedPaths: removed,
+      cascadedFeedbackTombstones: [],
+      droppedInvocations: invocations.droppedRows,
+      residualEpisodeTextRunIds: []
+    };
+  } catch (error) {
+    disclosePartialRunDelete(runId, invocations, options.disclosePartial);
+    throw error;
   }
-  return {
-    target: `run:${runId}`,
-    removedPaths: removed,
-    cascadedFeedbackTombstones: [],
-    droppedInvocations: invocations.droppedRows,
-    residualEpisodeTextRunIds: []
-  };
+}
+
+/**
+ * Tell the caller what the failed delete already did, without letting the
+ * telling replace the failure: a reporter that throws would hide a
+ * `LOCK_TIMEOUT` behind a broken disclosure hook, which is the one outcome
+ * worse than no disclosure at all.
+ */
+function disclosePartialRunDelete(
+  runId: RunId,
+  invocations: InvocationRewrite,
+  disclose: ((line: string) => void) | undefined
+): void {
+  if (disclose === undefined || invocations.droppedRows === 0) return;
+  const invalidated =
+    invocations.staleAggregate === undefined
+      ? ""
+      : `, and the derived ${invocations.staleAggregate} snapshot was invalidated with them`;
+  try {
+    disclose(
+      `run:${runId}: the delete failed, but its telemetry half had already completed and is not rolled back: ${invocations.droppedRows} invocation row(s) were dropped from ${invocations.path}${invalidated}. Whether the run's own records under runtime/runs/ survived is what the reported error says. Re-run the same delete once that is resolved; it is idempotent and removes the rest.`
+    );
+  } catch {
+    // nothing left to report it to
+  }
 }
 
 /**
@@ -788,7 +842,11 @@ interface InvocationRewrite {
  *    (`withInvocationLogLock`), the same lock `appendInvocationRecord` takes.
  *    A live invocation append therefore lands either wholly before the read or
  *    wholly after the write, instead of into the window between them where the
- *    rewrite would clobber it.
+ *    rewrite would clobber it. `options` bounds that acquisition too: this is
+ *    one of the two locks a `delete --run` takes, so `--lock-wait-ms 0` must
+ *    refuse here as immediately as it does at the run lock, and a long wait
+ *    the operator chose must not be cut short by a 5 s default they did not.
+ *    The live append path keeps its own defaults; nothing here changes them.
  *  - The derived p50 snapshot is invalidated here, with the rows, rather than
  *    at the end of the delete: the subtree removal that follows can fail
  *    closed (`RunRecordsSurvivedError`), and a failed delete must not leave an
@@ -796,23 +854,28 @@ interface InvocationRewrite {
  */
 async function dropRunFromInvocationLog(
   stateRoot: string,
-  runId: RunId
+  runId: RunId,
+  options: FileLockOptions = {}
 ): Promise<InvocationRewrite> {
   const path = invocationsLogPath(stateRoot);
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
   if (!(await statExists(path))) return { path, droppedRows: 0, staleAggregate: undefined };
-  const droppedRows = await withInvocationLogLock(stateRoot, async () => {
-    const { values } = await readInvocationRecords(
-      stateRoot,
-      "refusing to rewrite it for a delete"
-    );
-    const kept = values.filter((row) => !rowNamesRun(row, runId));
-    const dropped = values.length - kept.length;
-    if (dropped === 0) return 0;
-    await writeInvocationRecords(stateRoot, kept);
-    return dropped;
-  });
+  const droppedRows = await withInvocationLogLock(
+    stateRoot,
+    async () => {
+      const { values } = await readInvocationRecords(
+        stateRoot,
+        "refusing to rewrite it for a delete"
+      );
+      const kept = values.filter((row) => !rowNamesRun(row, runId));
+      const dropped = values.length - kept.length;
+      if (dropped === 0) return 0;
+      await writeInvocationRecords(stateRoot, kept);
+      return dropped;
+    },
+    options
+  );
   const staleAggregate =
     droppedRows > 0 ? await invalidateCatalogObserved(stateRoot) : undefined;
   return { path, droppedRows, staleAggregate };
