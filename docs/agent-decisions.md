@@ -104,4 +104,16 @@ Fable-catalog-honesty: **HIGH VALUE**, freeze-safe. The `primaryId !== fastId` g
 
 GPT-r3-landings: D11 wording KEEP, pairing **FIX**. `gate-apply.ts` writes `GATE_TRANSITION` then `RUN_BLOCKED` with nothing between. `gateBlockCause` currently scans backward past intervening events and can attribute a pause-separated (or otherwise non-adjacent) `queue_analysis` transition to a later `ANALYSIS_QUEUED` block. Require `events[blockedIndex - 1]` to be that qualifying transition; otherwise print no cause. Negative pins: intervening `PAUSE_REQUESTED` (or any non-transition) → no cause; prior block/unblock cycle must not leak onto a later unmatched block. Bound child-result evidence to events at or before the selected block. Prose-only; no Event/`RunStatus`/`INSPECT_SUMMARY` change.
 
-Auth TTY secret-echo is Round 4 (highest-value leftover), not a reason to reopen D12.
+Auth TTY secret-echo is Round 4 (highest-value leftover per GPT-r3), not a reason to reopen D12. Fable-r4-next ranks the implementable Round 4 batches as: G6 not-found retarget (D15), auth F5+F11+F8 (D16), `INIT_EXAMPLES` compact JSON (D17). Windows cli-smoke and status-matrix stay HOLD behind PR #12.
+
+## D15 — Finish not-found retarget onto `list` (Round 4 rank 1)
+
+Copy the `missingRun` house wording (do not import from `main.ts`). `episode` events/close `next:` → `list --episodes`. `pause` lookup `next:` → `list`. `inject` gets an `EventStore` empty-log preflight like `pause` (`stage: "lookup"`). No `main.ts`. Spec: `.agent_workspace/loop5-r4-fable-next.md` Rank 1.
+
+## D16 — Auth remainder F5 + doctor auth preflight F11 + custom `--available` F8
+
+Hidden-input for secret prompts on real stdin; additive doctor `auth` check (secrets never in `detail`); `models list --available` appends `listedModelsFromCustom`. Update doctor check-name pin additively. Hermetic doctor tests (Windows CI). Do not churn `auth.ts` D12 landing. Spec: Rank 2 of the same report.
+
+## D17 — `INIT_EXAMPLES` is one compact JSON line
+
+Drop `JSON.stringify(..., null, 2)` in `src/cli/init-examples.ts`; keep keys `type/preview/dir/files/overwritten`; pin stdout is exactly one parseable line.

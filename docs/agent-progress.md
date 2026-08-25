@@ -95,5 +95,6 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 still running / next implementers
 
 - D10 dataset privacy in flight.
-- D14 gate-cause adjacent pairing dispatched (GPT-r3 FIX).
-- GPT Round 3 landing challenge recorded; Fable Round 4 next-bet ranking in flight.
+- D14 gate-cause adjacent pairing in flight.
+- D15 not-found → `list` dispatched (Round 4 rank 1).
+- D16 auth echo/doctor/available and D17 `INIT_EXAMPLES` compact JSON wait for a free cloud VM.
