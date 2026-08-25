@@ -1,4 +1,35 @@
-# File ownership — Loop 4 Round 21 (`cursor/opt-r18-postmerge-42b1`)
+# File ownership — Loop 4 Round 23 (`cursor/opt-r22-42b1`)
+
+Round 22 CLOSED (3 ACCEPT). Round 23 is a recorded **zero-slot** round — `.agent_workspace/ROUND23-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
+
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r22-42b1`. Do not `git checkout` another branch.**
+
+# File ownership — Loop 4 Round 22 (closed)
+
+Three real candidates from `.agent_workspace/ROUND22-BRIEF.md`. **Do not pad.** Files are disjoint. **Land in order: R22-1 → R22-2 → R22-3.** Landing commits are slot files + report only — no PROGRESS ticks.
+
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r22-42b1`. Do not `git checkout` another branch.**
+
+**Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
+
+Injection: `.agent_workspace/ROUND22-BRIEF.md`, `.agent_workspace/loop4-r22-audit.md`.
+
+| Slot | Model | Owns |
+|---|---|---|
+| R22-1 | opus | `docs/kernel-reuse.md`; `.agents/skills/pi-sparkle/references/kernel-reuse.md`. Truth-up only. Freeze lift is this slot. |
+| R22-2 | opus | `src/run/flowchart-run.ts`; new `test/integration/m2.5/flowchart-run-cap.test.ts`; `docs/specs/m0-m2-architecture.md`; `docs/data-dictionary.md` (conditional). `FlowchartRunInput.maxCostUsd` → ChildCoordinator. No `FlowchartRunLimits.maxCostUsd`. |
+| R22-3 | opus | `src/cli/main.ts`; `src/pi-adapter/runtime.ts`; `test/integration/m1/cli-children.test.ts`; new `test/unit/cli/cost-flag.test.ts`; new `test/integration/cli/run-cost-cap.test.ts`; new `test/integration/pi-adapter/costgate-cli-warning.test.ts`; `docs/status-matrix.md`. Lands after R22-2. |
+
+**Parent sign-off**
+- **R22-1 YES** — lift `docs/kernel-reuse.md` freeze for truth-up only.
+- **R22-2 YES** — flowchart plane carries run-level cap to `ChildCoordinator`.
+- **R22-3 YES** — CLI `--max-cost-usd` + `onCostGate` stderr. Loud refuse on `--flowchart`/`--track`. No steer CLI verb.
+
+Frozen: ROUND22-BRIEF §3/§5. No live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`. `remainingCostUsd` stays a separate plane.
+
+Every slot: census first; verify paths exist; scoped eslint + whole-tree `tsc --noEmit`; report `.agent_workspace/loop4-r22-tN.md`. No full gate.
+
+# File ownership — Loop 4 Round 21 (closed, zero-slot)
 
 Round 20 CLOSED (2 ACCEPT). Round 21 is a recorded **zero-slot** round — `.agent_workspace/ROUND21-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
 

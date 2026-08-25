@@ -5,7 +5,7 @@ import { loadProvidersConfig } from "../config/providers-config.js";
 import type { ModelRef } from "../config/model-ref.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
-import { PiAgentExecutor, type SparkleThinkingLevel } from "./pi-executor.js";
+import { PiAgentExecutor, type CostGateEvent, type SparkleThinkingLevel } from "./pi-executor.js";
 import type { RetryOptions } from "./provider-retry.js";
 
 export interface PiRuntime {
@@ -38,6 +38,12 @@ export async function createConfiguredPiExecutor(input: {
   /** Overrides the executor's default bounded 429/5xx retry. */
   readonly retry?: RetryOptions;
   readonly onInvocation?: (invocation: ModelInvocation) => void;
+  /**
+   * Optional sink for what the spend ceiling did. Without it a requested cap
+   * the gate could not arm disarms with no trace anywhere, which is the common
+   * case here: every custom provider without explicit rates is unpriced.
+   */
+  readonly onCostGate?: (event: CostGateEvent) => void;
 }): Promise<PiAgentExecutor> {
   // Omitted customProviders means "load the state root's providers.json";
   // callers may still pass an explicit list (tests, embedded setups).
@@ -57,7 +63,8 @@ export async function createConfiguredPiExecutor(input: {
     ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
     ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
     ...(input.retry !== undefined ? { retry: input.retry } : {}),
-    ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {})
+    ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {}),
+    ...(input.onCostGate !== undefined ? { onCostGate: input.onCostGate } : {})
   });
 }
 

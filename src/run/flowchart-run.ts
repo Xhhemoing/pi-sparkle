@@ -139,6 +139,24 @@ export interface FlowchartRunInput {
   childResults?: Readonly<Record<string, ChildNodeResult>>;
   /** When set, leased nodes run through ChildCoordinator instead of the thin executor. */
   childTasks?: readonly ChildTaskInput[];
+  /**
+   * A run-level USD ceiling handed to the child coordinator, exactly as
+   * `startParentRun` hands it one from `RunLimits.maxCostUsd`.
+   *
+   * It is the caller's declared authorization for this whole run and nothing
+   * else: it is stamped onto the run's own `RUN_CREATED.limits` so a resume can
+   * recover it from a durable record, and it caps each child attempt at the
+   * tighter of it and that child's own `ChildRunLimits.maxCostUsd`. It is not a
+   * per-task declaration, so it never enters a `TASK_REQUEST` or the
+   * `taskCostCeilings` record, and there is no cross-child spend ledger — N
+   * children under one run cap may spend up to N times it between them
+   * (`ChildCoordinator`'s disclosed semantics).
+   *
+   * Deliberately not on {@link FlowchartRunLimits}: those limits are the
+   * supervisor's loop budget, and a `remainingCostUsd` there is a separate
+   * routing-budget plane. Absent stays absent — no layer invents a cap.
+   */
+  maxCostUsd?: number;
   contract?: RequirementContract;
   assignments?: readonly TaskAssignment[];
   resolvedQuestionIds?: readonly string[];
@@ -685,6 +703,8 @@ function attachChildRuntime(input: {
   readonly project: ProjectSnapshot;
   readonly registry: AgentProfileRegistry;
   readonly cluster: boolean;
+  /** The run's own declared USD ceiling, read from its `RUN_CREATED.limits`. */
+  readonly maxCostUsd?: number;
   readonly generateId?: IdGenerator;
   readonly now: () => IsoTimestamp;
   readonly abort: RunAbortScope;
@@ -733,6 +753,7 @@ function attachChildRuntime(input: {
     project: input.project,
     registry: input.registry,
     maxConcurrentTasks: defaultRunLimits().maxConcurrentTasks,
+    ...(input.maxCostUsd !== undefined ? { maxCostUsd: input.maxCostUsd } : {}),
     now: input.now,
     ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
     ...(clusterHost !== undefined ? { cluster: clusterHost } : {})
@@ -1342,6 +1363,17 @@ export async function startFlowchartRun(
   // acquiring the lock would create `runtime/runs/` for a run that never
   // happened.
   const resolved = resolveLimits(input.limits);
+  // Fail closed on the run-level ceiling before anything is written: it goes
+  // onto `RUN_CREATED.limits`, where `validateRun` would reject it anyway, and
+  // a run that dies on its own first append is worse than one that never
+  // started. `FlowchartRunInput` is an in-process interface, so an embedder can
+  // reach it with a value TypeScript alone would not have let through.
+  if (
+    input.maxCostUsd !== undefined &&
+    (typeof input.maxCostUsd !== "number" || !Number.isFinite(input.maxCostUsd) || input.maxCostUsd <= 0)
+  ) {
+    throw new DomainValidationError("flowchart maxCostUsd must be a positive finite number of US dollars");
+  }
   if (input.contract !== undefined && input.childTasks !== undefined) {
     assertCoverageAllowsStart(
       input.contract,
@@ -1397,7 +1429,10 @@ async function startLockedFlowchartRun(
     limits: {
       ...defaults,
       maxConsecutiveStalls: resolved.flowchart.maxConsecutiveStalls,
-      maxRounds: resolved.maxRounds
+      maxRounds: resolved.maxRounds,
+      // The durable home of the run-level ceiling, and the only place a resume
+      // reads it back from. Absent stays an absent key.
+      ...(input.maxCostUsd !== undefined ? { maxCostUsd: input.maxCostUsd } : {})
     },
     createdAt: now(),
     updatedAt: now()
@@ -1465,6 +1500,7 @@ async function startLockedFlowchartRun(
       cluster: deps.cluster !== false,
       now,
       abort,
+      ...(run.limits.maxCostUsd !== undefined ? { maxCostUsd: run.limits.maxCostUsd } : {}),
       ...(generateId !== undefined ? { generateId } : {})
     });
     childCoordinator = attached.childCoordinator;
@@ -1674,6 +1710,12 @@ async function resumeLockedFlowchartRun(
       cluster: deps.cluster !== false,
       now,
       abort,
+      // Restored, not re-declared: the number the run itself wrote onto its
+      // `RUN_CREATED.limits`, which `validateRun` already accepted. There is
+      // no `FlowchartContinuation` counterpart for the same reason there is
+      // none for `taskCostCeilings` — a resume must not be a way to introduce
+      // or raise a cap.
+      ...(replayed.run.limits.maxCostUsd !== undefined ? { maxCostUsd: replayed.run.limits.maxCostUsd } : {}),
       ...(generateId !== undefined ? { generateId } : {})
     });
     childCoordinator = attached.childCoordinator;

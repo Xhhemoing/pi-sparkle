@@ -160,9 +160,13 @@ role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
 checkpointed edges restore dependencies. A node without a logged request keeps
 empty artifacts and receives the earliest logged sibling's `maxAttempts`,
 `timeoutMs` and `maxWallTimeMs` (never its `maxCostUsd`) or the run's declared
-per-task limits; a declared ceiling comes back only from the durable
-`taskCostCeilings` record. Its criteria come from the durable `taskCriteria`
-record when that record names the node; otherwise they remain empty/unknown.
+per-task limits; a declared per-task ceiling comes back only from the durable
+`taskCostCeilings` record. The run-level ceiling is a separate durable source:
+it comes back from the run's own replayed `RUN_CREATED.limits.maxCostUsd`, so a
+substituted node with no per-task ceiling of its own still executes under the
+run cap its caller declared at start. Its criteria come from the durable
+`taskCriteria` record when that record names the node; otherwise they remain
+empty/unknown.
 The optional run requirement contract is durable as
 `FlowchartCheckpointState.contract?` at unchanged checkpoint
 `schemaVersion: 1`; absence remains valid. Validation, every

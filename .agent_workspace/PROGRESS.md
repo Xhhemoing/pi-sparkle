@@ -398,6 +398,25 @@ Landed: R20-2 `57ade59` optional `steerText` target (startRun passes root instan
 
 `.agent_workspace/ROUND21-BRIEF.md` §4: **no proven candidates**. Every R20 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras.
 
+## Round 22 — in flight (capability, not honesty-hole padding)
+
+User continuation after PR #10 merge (`80eb0bd`). Honesty plane remains saturated. Parent product sign-off (see fable prompt / ROUND22-BRIEF): lift `docs/kernel-reuse.md` freeze for truth-up; CLI run-level `--max-cost-usd` + `onCostGate` visibility; flowchart `ChildCoordinator` must receive that cap the same way `startParentRun` already does. No live R1 / ADR-006 / spend ledger / 12th probe. Do not pad to 10.
+
+Branch: `cursor/opt-r22-42b1`.
+
+| Slot | SHA | Focus |
+|---|---|---|
+| fable-audit | bc-48246438-6cc8-5d72-a243-7d77103e1158 | capability unpark · CLI cost · kernel-reuse truth-up |
+| R22-1 | `13e375e` | kernel-reuse.md steer/retry truth-up |
+| R22-2 | `8f11e5c` | flowchart run-level cap → ChildCoordinator |
+| R22-3 | `21a470a` | CLI `--max-cost-usd` + `onCostGate` stderr |
+
+**Parent gate GREEN** against code HEAD `21a470a`: **2070 tests / 2069 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites). Crash-probe **11 cases × 3**, `ok: true`. Kernel-reuse probe 3 PASS. Delta vs Round 20: **+20**. Fable SOTA review: **3 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r22-review.md`. Brief: `.agent_workspace/ROUND23-BRIEF.md`. Round 23 has zero candidates.
+
+## Round 23 — CLOSED (zero-slot)
+
+`.agent_workspace/ROUND23-BRIEF.md` §4: **no proven candidates**. Every R22 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras.
+
 ---
 
 # Loop 3 — SOTA follow-on (2026-08-24)

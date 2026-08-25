@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
+import type { CostGateEvent } from "../pi-adapter/pi-executor.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
@@ -32,6 +33,7 @@ import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model
 import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
+import { defaultRunLimits } from "../domain/limits.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
@@ -172,7 +174,10 @@ function defaultStateRoot(): string {
 async function createExecutor(
   kind: string,
   stateRoot: string,
-  hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void },
+  hooks?: {
+    onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void;
+    onCostGate?: (event: CostGateEvent) => void;
+  },
   /** Explicit --primary-model wins over ambient env vars and providers.json. */
   modelOverride?: { readonly providerId: string; readonly modelId: string },
   /** Already-resolved --thinking level; falls back to PI_THINKING_LEVEL here. */
@@ -225,7 +230,11 @@ async function createExecutor(
             }
           }
         : {}),
-      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {})
+      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {}),
+      // Only the real executor has a cost gate. The fakes above ignore a cap
+      // by design, so wiring the sink onto them would promise a warning that
+      // could never fire.
+      ...(hooks?.onCostGate !== undefined ? { onCostGate: hooks.onCostGate } : {})
     });
   }
   throw new DomainValidationError(`Unknown executor "${kind}": expected "fake" or "pi"`);
@@ -253,7 +262,7 @@ Usage:
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
-  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
+  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
@@ -294,9 +303,15 @@ compatibility override for the default provider only. --thinking
 <off|minimal|low|medium|high|xhigh|max> sets the reasoning effort for this run
 only and wins over PI_THINKING_LEVEL (default off); it is the headless
 counterpart of Pi's session-scoped /thinking TUI selector and never persists.
-Google models silently clamp xhigh/max. --children runs the
-parent as a coordinator over the child tasks in
-the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
+Google models silently clamp xhigh/max.
+--max-cost-usd <usd> is a per-run USD ceiling forwarded to the executor's cost
+gate and stamped onto the run's own RUN_CREATED.limits; with --children each
+child attempt runs under the tighter of it and that child's own
+limits.maxCostUsd. An unpriced model cannot enforce it and says so on stderr.
+There is no cross-child spend ledger: N children under a $X run cap can spend
+up to N times $X between them. The flag is refused on --flowchart and --track.
+--children runs the parent as a coordinator over the child tasks in the spec
+file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 --track clarifies the objective (using recorded habits), sends it through a
 primary-owned split (planner on --primary-model, then scout → implement →
 review → test), compiles that plan into the flowchart supervisor, grounds each
@@ -355,6 +370,59 @@ feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
+
+/**
+ * `run --max-cost-usd <usd>` as the operator typed it.
+ *
+ * Absent stays absent: no layer invents a cap, so an omitted flag makes the
+ * call the CLI made before the flag existed. What is present must be a plain
+ * decimal — the `--lock-wait-ms` spelling discipline, for the same reason.
+ * `1e4`, `0x10` and ` 5 ` all coerce to a number JavaScript is happy with and
+ * an operator did not mean to type, and a budget is the wrong place to guess.
+ */
+export function parseRunCostCeiling(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new DomainValidationError(
+      `--max-cost-usd must be a positive finite number of US dollars, got: ${raw}`
+    );
+  }
+  return parsed;
+}
+
+/**
+ * The stderr line a requested-but-unenforceable ceiling owes the operator.
+ *
+ * A cap the gate could not arm is the dishonest case: the run continues with
+ * no ceiling at all, and without this it does so with no trace on any record.
+ * Every CLI custom provider without explicit rates is an unpriced model, so
+ * this is the common outcome, not a corner.
+ *
+ * `stopped` prints nothing: a real ceiling stop already ends the transcript
+ * visibly, and a second line would be a claim with no new fact behind it.
+ * `no-cap` is unreachable — the executor emits `disarmed` only when a cap was
+ * requested — and is handled here so the union stays exhaustive.
+ */
+export function formatCostGateWarning(event: CostGateEvent): string | undefined {
+  if (event.kind === "stopped") return undefined;
+  switch (event.reason) {
+    case "unpriced-model":
+      return (
+        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
+        `requested ${event.maxCostUsd} USD, but the catalog quotes no usable price ` +
+        "for this model, so spend is unknowable; the run continues uncapped\n"
+      );
+    case "invalid-cap":
+      return (
+        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
+        `requested ${event.maxCostUsd} USD is not a positive finite number of dollars; ` +
+        "the run continues uncapped\n"
+      );
+    case "no-cap":
+      return undefined;
+  }
+}
 
 /**
  * A declared per-child USD ceiling is load-bearing: the child coordinator
@@ -723,7 +791,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       answers: { type: "string" },
       "public-prior": { type: "string" },
       "require-public-prior": { type: "boolean", default: false },
-      thinking: { type: "string" }
+      thinking: { type: "string" },
+      "max-cost-usd": { type: "string" }
     }
   });
   const projectRoot = values.project;
@@ -760,6 +829,20 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --flowchart <file.json> with --results"
     });
   }
+  // Neither of those two planes forwards a run-level cap: --track would have to
+  // cross startTrackedRun's input, and --flowchart without childTasks executes
+  // its RUNNING nodes on a path that carries no cap at all. Accepting the flag
+  // there would be a ceiling the operator asked for and nothing enforced or
+  // even recorded, which is exactly the silence this flag exists to end.
+  if (values["max-cost-usd"] !== undefined && (values.flowchart !== undefined || values.track === true)) {
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message:
+        "run --max-cost-usd is not wired for --flowchart or --track yet; it caps the default and --children paths",
+      next: "omit --max-cost-usd, or use the default or --children path"
+    });
+  }
   if (values.thinking !== undefined && !isThinkingLevel(values.thinking)) {
     return cliFail(io, {
       command: "run",
@@ -769,6 +852,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     });
   }
   const thinkingLevel = resolveThinkingLevel(values.thinking);
+  const maxCostUsd = parseRunCostCeiling(values["max-cost-usd"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   // One telemetry sink for every executor this command builds. It writes each
   // invocation through the log's exclusive lock, retries a lock timeout a few
@@ -779,6 +863,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
     }
   });
+  const reportCostGate = (event: CostGateEvent): void => {
+    const warning = formatCostGateWarning(event);
+    if (warning !== undefined) io.stderr(warning);
+  };
   if (values.flowchart !== undefined) {
     const liveCatalog = await buildLiveCatalogConfig(stateRoot);
     const flowchart = await parseFlowchartFile(
@@ -795,7 +883,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
             {
               onInvocation: (invocation) => {
                 void invocationSink(invocation);
-              }
+              },
+              onCostGate: reportCostGate
             },
             undefined,
             thinkingLevel
@@ -852,7 +941,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     {
       onInvocation: (invocation) => {
         void invocationSink(invocation);
-      }
+      },
+      onCostGate: reportCostGate
     },
     flaggedPrimary,
     thinkingLevel
@@ -1007,7 +1097,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         flowchart,
         objective,
         childTasks: planned.children,
-        assignments: planned.assignments
+        assignments: planned.assignments,
+        // Recorded and forwarded, not enforced by the child fake: the fake
+        // executor ignores a ceiling by design, so what this proves locally is
+        // that the number reaches the child's RUN_CREATED and the coordinator.
+        ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
       }
     );
     printFlowchartOutcome(io, outcome, stateRoot);
@@ -1055,7 +1149,17 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     }
     return flowchartExitCode(outcome.status);
   }
-  const running = startRun({ stateRoot, executor }, { projectRoot, objective });
+  // The whole limits block only when a cap was asked for: `startRun` reads
+  // `input.limits` or nothing, so handing it a lone `maxCostUsd` would drop
+  // every other default. Absent leaves the call the CLI has always made.
+  const running = startRun(
+    { stateRoot, executor },
+    {
+      projectRoot,
+      objective,
+      ...(maxCostUsd !== undefined ? { limits: { ...defaultRunLimits(), maxCostUsd } } : {})
+    }
+  );
   const outcome = await running.done;
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
@@ -1374,6 +1478,12 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
     }
   });
+  // Resume gains no cap flag, but the work it re-drives can carry one from a
+  // durable record, so the same disarmed-ceiling silence is reachable here.
+  const reportCostGate = (event: CostGateEvent): void => {
+    const warning = formatCostGateWarning(event);
+    if (warning !== undefined) io.stderr(warning);
+  };
   const runId = parseRunId(values.run);
   const eventStore = new EventStore(stateRoot, runId);
   const read = await eventStore.readAll();
@@ -1392,7 +1502,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         executor: await createExecutor(executorKind, stateRoot, {
           onInvocation: (invocation) => {
             void invocationSink(invocation);
-          }
+          },
+          onCostGate: reportCostGate
         }, modelOverride, thinkingLevel),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
@@ -1436,7 +1547,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
             onInvocation: (invocation) => {
               void invocationSink(invocation);
-            }
+            },
+            onCostGate: reportCostGate
           }, modelOverride, thinkingLevel)
         : undefined;
     const outcome = await resumeFlowchartRun(
