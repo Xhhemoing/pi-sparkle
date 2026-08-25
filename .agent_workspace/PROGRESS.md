@@ -367,10 +367,12 @@ PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge
 | Slot | Agent | Focus |
 |---|---|---|
 | fable-audit | bc-f8e930d3-5a33-5efa-a612-d648ed088f69 | post-merge seam · kernel-reuse · isolation allowlists |
-| R18-1 | pending | re-deliver accepted steers into retry kernels |
-| R18-2 | pending | parseChildSpec forwards declared maxCostUsd |
+| R18-1 | bc-9375c7fd-7f33-5db1-8397-57dfd290b6b4 | re-deliver accepted steers into retry kernels |
+| R18-2 | bc-1a36546b-f73f-5f8c-b7f9-259950beb25d | parseChildSpec forwards declared maxCostUsd |
 
-Parent sign-off: R18-1 **YES (a)** re-deliver. R18-2 no extra sign-off. Do not pad.
+Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (invalid refused by task); R18-1 `4412fac` re-deliver accepted steers into each retry kernel after the new attempt's first turn. Direction (a). No freeze extras. No 12th crash-probe case.
+
+**Parent gate GREEN** against code HEAD `4412fac`: **2042 tests / 2041 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs post-merge audit baseline 2038: **+4** (R18-2 +2, R18-1 +2). Fable SOTA review dispatched. Do not pad.
 
 ---
 
