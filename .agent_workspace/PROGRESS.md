@@ -385,7 +385,7 @@ Post-merge honesty plane is closed (R18 two holes, R19 zero-slot). Saturation pr
 
 | Slot | Agent | Focus |
 |---|---|---|
-| fable-audit | pending | I/O · races · protocol · DR on post-R18 tree; prove or kill |
+| fable-audit | bc-901b7d5f-77ee-53cb-bddb-a667255af689 | I/O · races · protocol · DR on post-R18 tree; prove or kill |
 
 ---
 
