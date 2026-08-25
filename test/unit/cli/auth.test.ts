@@ -718,21 +718,31 @@ test("an unknown auth subcommand speaks the house dialect and still echoes the u
   assert.equal(report.next, "use auth status, login, or logout");
 });
 
-test("a mistyped flag is a parse-args refusal, not an execution failure", async () => {
-  await withStateRoot(async (stateRoot) => {
-    const { io, out, err } = capture();
-    assert.equal(await main(["auth", "status", "--bogus", "--state-root", stateRoot], io), 1);
-    assert.equal(out.join(""), "");
-    const report = parseCliErrorJson(err.join(""));
-    assert.ok(report !== undefined, "a mistyped flag must emit a parseable report");
-    assert.equal(report.command, "auth status");
-    assert.equal(report.stage, "parse-args");
-    assert.match(report.message, /--bogus/);
-    // The remedy an operator who mistyped a flag can actually use — not the
-    // doctor preflight the generic failure used to send them to.
-    assert.match(report.next, /--help/);
-    assert.equal(await exists(authStorePath(stateRoot)), false);
-  });
+test("a mistyped flag is a parse-args refusal on every subcommand, not an execution failure", async () => {
+  // All four fields exactly, on all three verbs: the `command` is what tells
+  // an operator (and a log reader) which subcommand refused, the parser's own
+  // message is what names the flag they typed, and the `next` is the remedy
+  // they can actually use — not the doctor preflight the generic
+  // execute-stage failure used to send them to.
+  for (const [command, argv] of [
+    ["auth status", ["auth", "status", "--bogus"]],
+    ["auth login", ["auth", "login", "openai", "--bogus"]],
+    ["auth logout", ["auth", "logout", "openai", "--bogus"]]
+  ] as const) {
+    await withStateRoot(async (stateRoot) => {
+      const { io, out, err } = capture();
+      assert.equal(await main([...argv, "--state-root", stateRoot], io), 1, argv.join(" "));
+      assert.equal(out.join(""), "", argv.join(" "));
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${command} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, "Unknown option '--bogus'");
+      assert.equal(report.next, "run pi-sparkle auth --help");
+      // The refusal precedes every store read, so nothing is written either.
+      assert.equal(await exists(authStorePath(stateRoot)), false, argv.join(" "));
+    });
+  }
 });
 
 test("--help on every subcommand prints usage, exits 0, and reads no credential file", async () => {
