@@ -144,7 +144,7 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
-| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | landed; GPT-r8 **KEEP**; PR #14; GPT-d31-recheck in flight |
+| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | **KEEP** merged; PR #14; report `.agent_workspace/loop5-r8-gpt-d31.md` |
 | D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | PR #15; GPT-r8 **FIX** blank `--repo` rider in flight |
 | D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | PR #16; GPT-r8 **FIX** subcommand-order + escape rider in flight |
 

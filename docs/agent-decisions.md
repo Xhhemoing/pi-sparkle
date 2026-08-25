@@ -240,7 +240,9 @@ Fable-r8-next. Refuse malformed `--run` (`isRunId`) and blank `--reason`/`--key`
 
 **GPT-r8-challenge: KEEP.** Report: `.agent_workspace/loop5-r8-gpt-challenge.md`.
 
-**Landed** (Opus-d31-pause-inject): `b1d9621` on `cursor/pause-inject-value-preflight-0da8`. Report: `.agent_workspace/loop5-r8-opus-d31.md`. Merge gated on GPT-d31-recheck of the landing.
+**Landed** (Opus-d31-pause-inject): `b1d9621` on `cursor/pause-inject-value-preflight-0da8`. Report: `.agent_workspace/loop5-r8-opus-d31.md`.
+
+**GPT-d31-recheck: KEEP.** Report: `.agent_workspace/loop5-r8-gpt-d31.md`. Merged to the integration branch as `393f164`.
 
 ## D32 — Round 8 rank 2: `commits` refusal retargeting
 
