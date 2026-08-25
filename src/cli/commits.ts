@@ -19,7 +19,7 @@ import {
   type DecisionCommitInput,
   type DecisionCommitProposal
 } from "../tools/decision-commit.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
 
 export interface CommitsIo {
   stdout(text: string): void;
@@ -45,6 +45,7 @@ async function loadCommitInput(
   io: CommitsIo
 ): Promise<{ checkpoint: RunCheckpoint; input: DecisionCommitInput } | undefined> {
   const read = await new EventStore(stateRoot, runId).readAll();
+  warnTruncatedJsonl(io, read.recovery, "event log");
   if (read.events.length === 0) {
     // The house run-not-found remedy, copied rather than imported: `main.ts`
     // imports this module, so reaching back for `missingRun` would be a cycle.
@@ -125,6 +126,53 @@ function applyProposal(
   return true;
 }
 
+/**
+ * Whether `--nodes <csv>` can name exactly these ids and nothing else.
+ *
+ * Flowchart node ids are only required to be non-empty, so a valid id may
+ * carry a comma or outer whitespace that `parseCommitNodeIdsCsv` would split
+ * or trim away. Asking the CSV parser to reproduce the list is the check;
+ * narrowing the id grammar to make the command always printable would reject
+ * flowcharts the runtime accepts today.
+ */
+function nodesCsvSelectsExactly(nodeIds: readonly string[]): boolean {
+  const parsed = parseCommitNodeIdsCsv(nodeIds.join(","));
+  return parsed !== undefined && parsed.length === nodeIds.length && parsed.every((id, index) => id === nodeIds[index]);
+}
+
+/**
+ * What `apply` owes an operator when commit *k* of *n* fails: the commits
+ * already in their history are real, this command cannot take them back, and
+ * the obvious reflex — rerunning the same command — would create them a second
+ * time. The count and the not-yet-created ids are always disclosed.
+ *
+ * The recovery command is only printed when it provably cannot replay the
+ * prefix. `--nodes` re-derives its selection from the checkpoint, so it is
+ * offered for generated proposals whose remaining ids survive the CSV
+ * round-trip and never for `--file` input, which may repeat a `nodeId` (the
+ * filter would then select the created proposal too) or name one the
+ * checkpoint does not know (the filter would refuse the whole rerun).
+ */
+function partialApplyNote(
+  proposals: readonly DecisionCommitProposal[],
+  created: number,
+  repo: string,
+  fromFile: boolean
+): string {
+  const remaining = proposals.slice(created);
+  const remainingIds = remaining.map((proposal) => proposal.nodeId);
+  const head =
+    `note: ${created} of ${proposals.length} proposed commits were already created in ${repo} before this failure; ` +
+    `re-running apply would create them again — the commits not yet created are for node ids ${remainingIds.join(", ")}`;
+  if (!fromFile && nodesCsvSelectsExactly(remainingIds)) {
+    return `${head}; pass --nodes ${remainingIds.join(",")} to apply only those\n`;
+  }
+  return (
+    `${head}; write just those proposals to a new file as { "commits": [...] } and rerun apply with --file on that ` +
+    `file — do not rerun an input that still contains the first ${created}\n`
+  );
+}
+
 async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -190,8 +238,15 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   if (!workTree.ok) {
     throw new DomainValidationError(`apply requires a git work tree at ${repo}: ${workTree.detail}`);
   }
-  for (const proposal of proposals) {
-    if (!applyProposal(repo, proposal, values.sign === true, io)) return 1;
+  for (const [index, proposal] of proposals.entries()) {
+    if (!applyProposal(repo, proposal, values.sign === true, io)) {
+      // Rewriting the operator's git history would be a far larger claim than
+      // the one that just failed, so the disclosure is the whole remedy.
+      if (index > 0) {
+        io.stderr(partialApplyNote(proposals, index, repo, fileProposals !== undefined));
+      }
+      return 1;
+    }
     io.stdout(`Committed ${proposal.type}(${proposal.scope}): ${proposal.subject}\n`);
   }
   return 0;

@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { parseRunId } from "../domain/ids.js";
 import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { pauseFlowchartRun } from "../run/flowchart-run.js";
-import { createFilePauseController } from "../run/pause-controller.js";
+import { createFilePauseController, unlinkPauseToken } from "../run/pause-controller.js";
 import { EventStore } from "../run/event-store.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 
@@ -88,8 +88,10 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
     });
   }
   if (values.clear === true) {
-    await pause.clearPause(runId);
-    io.stdout(`Cleared pause for ${runId}\n`);
+    // The unlink itself decides what the message may claim; reading the token
+    // first would only describe a file the clear never saw.
+    const { removed } = await unlinkPauseToken(stateRoot, runId);
+    io.stdout(removed ? `Cleared pause for ${runId}\n` : `No pause token for ${runId}; nothing to clear\n`);
     return CLI_EXIT.ok;
   }
   const outcome = await pauseFlowchartRun(

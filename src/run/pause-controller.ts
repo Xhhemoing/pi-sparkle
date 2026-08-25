@@ -49,6 +49,33 @@ function parsePauseToken(raw: string): PauseToken {
 }
 
 /**
+ * Removes a run's pause token and reports whether *this* call is the one that
+ * removed it.
+ *
+ * Narrow on purpose. `PauseController.clearPause` keeps returning `void`, so
+ * the controller's embedders and test doubles are untouched; only a caller
+ * whose output claims work — the CLI's `pause --clear` — needs the result. It
+ * comes from the unlink rather than from reading the token first: the clear is
+ * deliberately unlocked, so a `paused` flag observed before the unlink is a
+ * guess about a file a concurrent `pause` may have written or removed since.
+ * A token that will not parse is still a token, and unlinking it is still a
+ * clear.
+ */
+export async function unlinkPauseToken(
+  stateRoot: string,
+  runId: RunId
+): Promise<{ readonly removed: boolean }> {
+  const removed = await unlink(pausePath(stateRoot, runId)).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+  );
+  return { removed };
+}
+
+/**
  * `lockOptions` bounds the run-scoped cooperative lock `requestPause` takes
  * (`runLockPath`), so a pause request and a `delete --run` of the same run
  * cannot interleave: writing `pause.json` creates the run directory, which
@@ -81,9 +108,7 @@ export function createFilePauseController(
     // clearing a pause has nothing for a `delete --run` to lose a race with.
     // Taking the lock here would only make a clear create `runtime/runs/`.
     async clearPause(runId) {
-      await unlink(pausePath(stateRoot, runId)).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      });
+      await unlinkPauseToken(stateRoot, runId);
     },
     async token(runId) {
       const raw = await readFile(pausePath(stateRoot, runId), "utf8").catch((error: NodeJS.ErrnoException) => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { appendFile, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -91,6 +91,103 @@ async function tinyCompletedRun(stateRoot: string, projectRoot: string) {
       }
     }
   );
+}
+
+/**
+ * Two completed nodes so `apply` has a prefix to lose. `secondId` is a
+ * parameter because a flowchart node id is only required to be non-empty
+ * (`validateFlowchart`), and an id carrying a comma is the case `--nodes`
+ * cannot name.
+ */
+async function twoNodeCompletedRun(stateRoot: string, projectRoot: string, secondId = "second") {
+  return startFlowchartRun(
+    {
+      stateRoot,
+      router: createCliModelRouter(),
+      now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+      generateId: (() => {
+        let n = 0;
+        return () => `00000000-0000-4000-8000-${String(n++).padStart(12, "0")}`;
+      })()
+    },
+    {
+      projectRoot,
+      objective: "Ship two conventional commits",
+      flowchart: {
+        id: "commits-pair",
+        nodes: [
+          {
+            id: "first",
+            taskId: createTaskId(() => "first"),
+            role: "actor",
+            objective: "Do the first thing",
+            modelPolicy: { allowedModels: ["cheap"] },
+            confidenceThreshold: validateConfidenceScore(0.7),
+            approvalRequired: false
+          },
+          {
+            id: secondId,
+            taskId: createTaskId(() => "second"),
+            role: "actor",
+            objective: "Do the second thing",
+            modelPolicy: { allowedModels: ["cheap"] },
+            confidenceThreshold: validateConfidenceScore(0.7),
+            approvalRequired: false
+          }
+        ],
+        edges: [{ from: "first", to: secondId, condition: { type: "success", expected: true } }]
+      },
+      childResults: {
+        first: {
+          outcome: "SUCCESS",
+          confidence: validateConfidenceScore(0.9),
+          evidenceIds: ["evd_first"]
+        },
+        [secondId]: {
+          outcome: "SUCCESS",
+          confidence: validateConfidenceScore(0.9),
+          evidenceIds: ["evd_second"]
+        }
+      }
+    }
+  );
+}
+
+// A `commit-msg` hook is the cheapest way to make git refuse commit *k* of *n*
+// with the first k-1 already written.
+async function repoRefusingTheSecondSubject(prefix: string): Promise<string> {
+  const repo = await mkdtemp(join(tmpdir(), prefix));
+  git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
+  const hook = join(repo, ".git", "hooks", "commit-msg");
+  await writeFile(
+    hook,
+    "#!/bin/sh\nif grep -q 'Do the second thing' \"$1\"; then\n  echo 'commit-msg hook: refusing the second subject' >&2\n  exit 1\nfi\nexit 0\n",
+    "utf8"
+  );
+  await chmod(hook, 0o755);
+  return repo;
+}
+
+function noteLine(stderr: string): string | undefined {
+  return stderr.split("\n").find((line) => line.startsWith("note: "));
+}
+
+const PARTIAL_APPLY_SKIP = platform() === "win32" ? "POSIX commit-msg hook" : false;
+
+async function withGitIdentity<T>(run: () => Promise<T>): Promise<T> {
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(GIT_IDENTITY_ENV)) {
+    saved[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 test("commits preview prints conventional messages with Evidence and the run id", async () => {
@@ -299,6 +396,188 @@ test("bare commits and an unknown subcommand print usage and a parse-args report
   assert.equal(unknownReport?.command, "commits");
   assert.equal(unknownReport?.stage, "parse-args");
   assert.equal(unknownReport?.message, "Unknown commits command: squash");
+});
+
+// Windows has no POSIX shell for the `commit-msg` hook these three cases need,
+// and this file is not in the Windows `cli-smoke` matrix.
+test(
+  "a mid-loop apply failure discloses the commits it already made and names --nodes for the rest",
+  { skip: PARTIAL_APPLY_SKIP },
+  async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-");
+      try {
+        const apply = capture();
+        const code = await withGitIdentity(() =>
+          main(
+            ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo],
+            apply.io
+          )
+        );
+
+        assert.equal(code, 1);
+        assert.match(apply.out.join(""), /Committed feat\(first\): Do the first thing/);
+        assert.equal(
+          noteLine(apply.err.join("")),
+          `note: 1 of 2 proposed commits were already created in ${repo} before this failure; ` +
+            "re-running apply would create them again — the commits not yet created are for node ids second; " +
+            "pass --nodes second to apply only those"
+        );
+
+        assert.deepEqual(git(["log", "--format=%s"], repo).trim().split("\n"), [
+          "feat(first): Do the first thing"
+        ]);
+
+        // The disclosed remedy is the one that works: `--nodes second` skips
+        // the commit already in the history instead of duplicating it.
+        const retry = capture();
+        const retryCode = await withGitIdentity(() =>
+          main(
+            [
+              "commits",
+              "apply",
+              "--run",
+              outcome.runId,
+              "--state-root",
+              stateRoot,
+              "--repo",
+              repo,
+              "--nodes",
+              "second"
+            ],
+            retry.io
+          )
+        );
+        assert.equal(retryCode, 1, "the hook still refuses the second subject");
+        assert.deepEqual(retry.out, []);
+        assert.equal(noteLine(retry.err.join("")), undefined);
+        assert.equal(git(["log", "--format=%s"], repo).trim().split("\n").length, 1);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+  }
+);
+
+// `--nodes` re-derives its selection from the checkpoint, so it is not a valid
+// recovery for an edited file: `parseDecisionCommitFile` accepts a repeated
+// `nodeId` (the filter would reselect the commit already created) and one the
+// checkpoint never knew (the filter would refuse the whole rerun).
+test(
+  "a mid-loop apply --file failure sends the operator to a suffix file, never to --nodes",
+  { skip: PARTIAL_APPLY_SKIP },
+  async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
+      const preview = capture();
+      assert.equal(
+        await main(
+          ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json"],
+          preview.io
+        ),
+        0
+      );
+      const { commits } = JSON.parse(preview.out.join("")) as { commits: unknown[] };
+      assert.equal(commits.length, 2);
+
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-file-");
+      const file = join(repo, "edited.json");
+      try {
+        await writeFile(file, JSON.stringify({ commits }), "utf8");
+        const apply = capture();
+        const code = await withGitIdentity(() =>
+          main(
+            [
+              "commits",
+              "apply",
+              "--run",
+              outcome.runId,
+              "--state-root",
+              stateRoot,
+              "--repo",
+              repo,
+              "--file",
+              file
+            ],
+            apply.io
+          )
+        );
+
+        assert.equal(code, 1);
+        const note = noteLine(apply.err.join("")) ?? "";
+        assert.equal(
+          note,
+          `note: 1 of 2 proposed commits were already created in ${repo} before this failure; ` +
+            "re-running apply would create them again — the commits not yet created are for node ids second; " +
+            'write just those proposals to a new file as { "commits": [...] } and rerun apply with --file on ' +
+            "that file — do not rerun an input that still contains the first 1"
+        );
+        assert.doesNotMatch(note, /--nodes/);
+        assert.deepEqual(git(["log", "--format=%s"], repo).trim().split("\n"), [
+          "feat(first): Do the first thing"
+        ]);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+  }
+);
+
+// A flowchart node id is only required to be non-empty, and `--nodes` splits on
+// commas, so an id containing one cannot round-trip. Disclose the ids and send
+// the operator to a suffix file rather than narrowing the id grammar.
+test(
+  "a remaining node id that --nodes cannot round-trip is disclosed without a --nodes command",
+  { skip: PARTIAL_APPLY_SKIP },
+  async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await twoNodeCompletedRun(stateRoot, projectRoot, "second,tail");
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-csv-");
+      try {
+        const apply = capture();
+        const code = await withGitIdentity(() =>
+          main(
+            ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo],
+            apply.io
+          )
+        );
+
+        assert.equal(code, 1);
+        const note = noteLine(apply.err.join("")) ?? "";
+        assert.match(note, /node ids second,tail;/);
+        assert.doesNotMatch(note, /--nodes/);
+        assert.match(note, /rerun apply with --file on that file/);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+  }
+);
+
+test("a crash-truncated event log is disclosed on stderr and leaves --json one clean line", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    await appendFile(
+      join(stateRoot, "runtime", "runs", outcome.runId, "events.jsonl"),
+      '{"type":"RUN_COMP',
+      "utf8"
+    );
+
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json"],
+      io
+    );
+
+    assert.equal(code, 0, err.join(""));
+    assert.match(err.join(""), /warning: ignored truncated event log at line \d+/);
+    const text = out.join("");
+    assert.equal(text.trimEnd().split("\n").length, 1);
+    const parsed = JSON.parse(text) as { type: string; commits: unknown[] };
+    assert.equal(parsed.type, "COMMITS_PREVIEW");
+    assert.equal(parsed.commits.length, 1);
+  });
 });
 
 test("preview does not create commits", async () => {
