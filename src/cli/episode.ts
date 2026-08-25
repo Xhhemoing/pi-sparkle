@@ -14,6 +14,8 @@ import { CLI_EXIT, cliFail } from "./errors.js";
 const USAGE = `Usage:
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--outcome <id>] [--state-root <dir>]
+
+A COMPLETED close refused for incomplete acceptance records WAITING_FOR_USER (one EPISODE_WAITING event) so the episode names the evidence it waits for; close FAILED/ABANDONED remains available.
 `;
 
 const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "ABANDONED"] as const;
@@ -108,6 +110,13 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
             const waiting = waitForUser(latest, decision.reason, decision.requiredEvidence);
             await snapshots.append(waiting.episode);
             await events.append(waiting.event);
+            // Disclosed only once both appends returned: a refusal must never
+            // claim a write that threw.
+            io.stderr(
+              `note: recorded WAITING_FOR_USER for ${episodeId} — this refused close changed the episode status; it now names its missing evidence\n`
+            );
+          } else if (decision.reason === "acceptance-incomplete") {
+            io.stderr("note: episode is already WAITING_FOR_USER; no new snapshot recorded\n");
           }
           io.stderr(
             `${decision.reason}${decision.requiredEvidence.length > 0 ? `: ${decision.requiredEvidence.join(", ")}` : ""}\n`

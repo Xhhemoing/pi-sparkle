@@ -59,10 +59,51 @@ test("episode close refuses completion when acceptance evidence is missing and r
 
   assert.equal(code, 1);
   assert.match(captured.err.join(""), /acceptance-incomplete.*tests/);
+  assert.match(captured.err.join(""), /recorded WAITING_FOR_USER/);
   const snapshots = await new EpisodeStore(stateRoot, episode.id).readAll();
   assert.equal(snapshots.episodes.at(-1)?.status, "WAITING_FOR_USER");
   const events = await new EpisodeEventStore(stateRoot, episode.id).readAll();
   assert.equal(events.events.at(-1)?.type, "EPISODE_WAITING");
+});
+
+test("a second refused COMPLETED close writes no second snapshot and claims no write", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-rewait-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "close0003"),
+    projectId: createProjectId(() => "close0003"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [{ id: "tests", description: "tests pass", observableCheck: "pnpm test" }],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+
+  const first = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", episode.id, "--status", "COMPLETED", "--state-root", stateRoot],
+      first.io
+    ),
+    1
+  );
+  const afterFirst = await new EpisodeStore(stateRoot, episode.id).readAll();
+  assert.equal(afterFirst.episodes.at(-1)?.status, "WAITING_FOR_USER");
+
+  const second = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", episode.id, "--status", "COMPLETED", "--state-root", stateRoot],
+      second.io
+    ),
+    1
+  );
+  const afterSecond = await new EpisodeStore(stateRoot, episode.id).readAll();
+  assert.equal(afterSecond.episodes.length, afterFirst.episodes.length);
+  assert.doesNotMatch(second.err.join(""), /recorded WAITING_FOR_USER/);
+  assert.match(second.err.join(""), /already WAITING_FOR_USER/);
 });
 
 test("episode close completes once every criterion has matching evidence and events are inspectable", async () => {
