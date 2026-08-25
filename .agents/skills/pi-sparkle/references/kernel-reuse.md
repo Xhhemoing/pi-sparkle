@@ -39,12 +39,18 @@ the runtime never takes a dependency on `pi-coding-agent`.
      (forwards `agent.steer(userMessage(text))`);
      `test/unit/pi-adapter/kernel.test.ts` exercises it against a fake
      agent.
-   - *Executor.* `AgentExecutor` declares optional `steerText?(text)`
-     (`src/execution/contract.ts`) and `PiAgentExecutor` implements it
-     (`src/pi-adapter/pi-executor.ts`): rejects empty text, refuses when
-     zero or several agents are in flight, otherwise forwards to the live
-     kernel. A missing method means "steering unsupported" — callers
-     fail, never drop the text.
+   - *Executor.* `AgentExecutor` declares optional
+     `steerText?(text, agentInstanceId?)` (`src/execution/contract.ts`) and
+     `PiAgentExecutor` implements it (`src/pi-adapter/pi-executor.ts`): it
+     rejects empty text; given a target it delivers to that agent
+     instance's live kernel and refuses a miss loudly — a
+     `DomainValidationError` thrown before anything is written — rather
+     than falling back to whichever attempt is live, so a run in retry
+     backoff never has its text handed to a sibling on the same executor;
+     omitting the target keeps sole-live-or-refuse, forwarding when exactly
+     one agent is in flight and refusing at zero or several. A missing
+     method means "steering unsupported" — callers fail, never drop the
+     text.
    - *Product.* `RunningRun.steer(text, options?)`
      (`src/run/coordinator.ts`) validates, delivers to
      `executor.steerText` *before* logging, then records the steer text
@@ -110,10 +116,15 @@ the runtime never takes a dependency on `pi-coding-agent`.
    `references/pi-version-adapt.md` checklist first.
 
 6. **Respect retry and queue semantics.** The executor retries transient
-   provider failures with a *fresh* `Agent` per attempt, so queued steering
-   and follow-up messages do not survive a retry, and only the last
-   attempt's events surface. Features that steer mid-run must tolerate a
-   retried attempt starting from the original prompt. `sessionId` is
+   provider failures with a *fresh* `Agent` per attempt, so whatever the
+   discarded kernel was holding goes with it: `followUpText` messages do
+   not survive a retry, `sessionId` does not carry over, and only the last
+   attempt's events surface. Steers **accepted through the contract** do
+   survive — the executor keeps each text the live kernel took for the rest
+   of that execution and re-delivers it at the next attempt's first
+   `TURN_FINISHED`, once per attempt (R18-1) — so a feature steering
+   through `RunningRun.steer` needs no re-arm of its own, while text queued
+   straight onto a kernel is still lost with its attempt. `sessionId` is
    optional on the facade; treat it as advisory continuity, not a
    durability guarantee.
 

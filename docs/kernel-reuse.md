@@ -1,6 +1,10 @@
 # Kernel Reuse: Building Secondary Features on the Slim Pi Kernel
 
-Status: current as of 2026-08-24 (branch `cursor/pi-kernel-reuse-e1e3`).
+Status: current as of 2026-08-25 (branch `cursor/opt-r22-42b1`) — truthed up
+against the shipped steering contract: `steerText` is two-parameter targeted
+(R20-2 `57ade59`) and accepted steers are re-delivered across provider retries
+(R18-1 `4412fac`). Dated subsections below stay historical; where one asserted
+a superseded fact as current semantics it carries a bracketed pointer.
 Companion audit: `docs/reports/2026-08-24-kernel-reuse-audit.md` (which Pi
 `Agent` capabilities are unused and in what order to adopt them). Diagnostic
 overlay for agents: `.agents/skills/pi-sparkle/references/kernel-reuse.md`.
@@ -51,7 +55,7 @@ kernel exposes it.
 | Abort maps to `agent.abort()`; a consumer that stops draining also aborts the run | wired | `runAttempt` abort listener + walk-away guard | `test/unit/pi-adapter/executor-retry.test.ts` |
 | Bounded provider retry with a fresh `Agent` per attempt | wired | `runWithRetry` + `src/pi-adapter/provider-retry.ts` | `test/unit/pi-adapter/executor-retry.test.ts`, `provider-retry.test.ts` |
 | `prompt`, `abort`, `waitForIdle` via the facade | wired | executor drives `SparkleKernel.fromFactory(...)` | `test/unit/pi-adapter/kernel.test.ts` |
-| Live steering: `RunningRun.steer(text, { actor? })` → `AgentExecutor.steerText?` → facade `steerText` | wired (landed mid-round 2026-08-24) | `src/execution/contract.ts` (optional `steerText?` — absence means "steering unsupported", callers fail rather than drop); `SteerChannel` in `src/run/coordinator.ts`, returned by both `startRun` and `startParentRun`; `PiAgentExecutor.steerText` targets the single in-flight kernel and refuses when zero or several runs are live; each accepted steer persists as a `STEER_INJECTED` event carrying the text with the steering principal as event actor | `test/integration/pi-adapter/steer-blocked-tool.test.ts` (steer during a blocked tool reaches the next model call), `test/integration/m0/steer.test.ts` (actor + text in the event log; write settles before the run does), `test/unit/pi-adapter/steer-inflight.test.ts` |
+| Live steering: `RunningRun.steer(text, { actor? })` → `AgentExecutor.steerText?` → facade `steerText` | wired (landed mid-round 2026-08-24; targeted 2026-08-25) | `src/execution/contract.ts` (optional `steerText?(text, agentInstanceId?)` — absence means "steering unsupported", callers fail rather than drop); `SteerChannel` in `src/run/coordinator.ts`, returned by both `startRun` and `startParentRun`. `startRun` opens its steer window **targeted** at that run's own root agent instance; `startParentRun` has no agent of its own and opens **untargeted**, keeping the disclosed whichever-child-is-live semantics. `PiAgentExecutor.steerText` delivers a targeted call to that instance's live kernel and refuses a targeted miss loudly — a `DomainValidationError` thrown before any write, so a run in retry backoff never has its text handed to a sibling the same executor is driving; untargeted it is unchanged sole-live-or-refuse (forwards when exactly one run is live, refuses at zero or several). Each accepted steer persists as a `STEER_INJECTED` event carrying the text with the steering principal as event actor, and is re-delivered on later retry attempts of the same execution (see "Retry resets the agent") | `test/integration/pi-adapter/steer-blocked-tool.test.ts` (steer during a blocked tool reaches the next model call), `test/integration/pi-adapter/steer-target.test.ts` (a run's steer reaches that run and no other on the shared executor; a target in retry backoff is refused), `test/integration/pi-adapter/steer-retry.test.ts` (re-delivery across one and several retries, exactly once per attempt), `test/integration/m0/steer.test.ts` (actor + text in the event log; write settles before the run does), `test/unit/pi-adapter/steer-inflight.test.ts` |
 | Spend ceiling: `RunLimits.maxCostUsd` → `AgentExecutionRequest.maxCostUsd` → `CostGate` as the loop's stop-after-turn hook | wired (landed mid-Round-3 2026-08-24) | `startRun` forwards `run.limits.maxCostUsd` on the root request and `startParentRun` hands it to `ChildCoordinator`, whose `costCapFor` gives each child the tighter of the per-task and run-level caps (`src/run/coordinator.ts`, `src/run/child-coordinator.ts`; the supervisor loop forwards the same limit). `PiAgentExecutor.buildCostGate` arms the gate only when a cap **and** catalog prices both exist; an unpriced or invalid cap is reported through `onCostGate` and then ignored — never priced by guesswork (`src/pi-adapter/cost-gate.ts`). A stop is also re-checked between retry attempts so a failing task cannot buy attempts past its budget | `test/unit/pi-adapter/cost-gate.test.ts`, `cost-gate-ledger.test.ts`, `test/integration/pi-adapter/cost-stop.test.ts` (gate math + stop); `test/integration/m0/coordinator.test.ts`, `test/integration/m1/child-coordinator.test.ts` (forwarding, set and unset) |
 | `followUpText`, `reset`, `sessionId` on the facade | **exposed, not product-wired** | `SparkleKernel` only; no caller outside `src/pi-adapter/**` | `rg -n "followUpText" src/` shows `kernel.ts` only |
 
@@ -73,6 +77,10 @@ was re-verified against the tree after the landing:
   { actor? })` wired through a `SteerChannel` that is open only while
   execution is in flight, delivers to the executor before logging, and
   blocks run settlement on the event-log write.
+  [Superseded 2026-08-25 by R20-2 `57ade59`: the contract signature is the
+  two-parameter `steerText?(text, agentInstanceId?)`, and the channel opens
+  targeted on `startRun`, untargeted on `startParentRun`. See the
+  wired-today table above.]
 - Steer text persists with its actor as `STEER_INJECTED`
   (`src/run/events.ts`, replay-aware via `src/run/replay.ts`) — it is
   user-authored input, not chain-of-thought, so persisting it verbatim is
@@ -80,6 +88,10 @@ was re-verified against the tree after the landing:
 - Retry semantics unchanged: queued steering still does not survive the
   fresh-`Agent` retry; a steer accepted before a retried attempt is
   documented as dropped, not silently re-armed.
+  [Superseded 2026-08-25 by R18-1 `4412fac`: a steer accepted through the
+  contract is re-delivered at each retry attempt's first `TURN_FINISHED`.
+  Only text queued directly on the discarded kernel is still lost. See
+  "Retry resets the agent" below.]
 - Test evidence: 8 passing steer tests across facade, executor, and
   coordinator layers (suites listed in the table above).
 
@@ -129,11 +141,21 @@ landing, not promised before it):
 These are properties of the current adapter, not suggestions.
 
 - **Retry resets the agent.** `runWithRetry` builds a fresh `Agent` per
-  attempt. Queued steering/follow-up messages and `sessionId` do not survive a
-  retried attempt, and only the last attempt's events form the invocation
-  record. A steering feature must tolerate a retry restarting from the
-  original prompt — either re-arm queued messages after retry or document the
-  drop.
+  attempt, so nothing held inside the discarded kernel survives: messages
+  sitting in its steering or follow-up queues are gone with it, `sessionId`
+  does not carry over, and only the last attempt's events form the
+  invocation record. What does survive is a steer **accepted through the
+  contract**: `PiAgentExecutor` keeps each text the live kernel took for the
+  rest of that execution and re-delivers it on the next attempt, at that
+  attempt's first `TURN_FINISHED` — where the loop polls its steering queue,
+  so a re-delivered steer lands where a live one would have. The re-delivery
+  is latched once per attempt (a steer accepted live during an attempt is
+  not also replayed into it) and execution-scoped: the log opens and is
+  discarded inside `runWithRetry` (R18-1). Extender guidance follows that
+  split — steer through `RunningRun.steer` / `AgentExecutor.steerText` and
+  re-delivery across retries is handled for you; anything queued straight
+  onto a kernel is still lost when its attempt is, so a feature that reaches
+  past the contract must re-arm itself or document the drop.
 - **A cost stop outranks a queued steer.** Pi's loop consults
   `shouldStopAfterTurn` immediately after a turn settles and exits the loop
   when it answers true; the steering queue is drained only after that check
@@ -210,8 +232,15 @@ it actually landed:
    throws rather than accepting text it would drop.
 2. **Executor plumbing** — `PiAgentExecutor.steerText` forwards to the
    per-attempt kernel and refuses to guess when zero or more than one run is
-   in flight. The retry decision went to document-and-drop: queued steering
-   does not survive the fresh-`Agent` retry.
+   in flight. That forward is now *targeted*: the caller names the agent
+   instance it meant, and a target with no attempt in flight is refused
+   loudly rather than delivered into whichever sibling the same executor
+   happens to have live (R20-2, `57ade59`). The retry decision was initially
+   document-and-drop — queued steering did not survive the fresh-`Agent`
+   retry — and was superseded 2026-08-25 by R18-1 (`4412fac`): a steer
+   accepted through the contract is re-delivered at each retry attempt's
+   first `TURN_FINISHED`. Text queued directly onto the discarded kernel is
+   still lost.
 3. **Product separation** — live steer stayed a separate channel from the
    flowchart `inject` verb, logged as a distinct event type
    (`STEER_INJECTED` vs. the injection events), so audits can tell which one
