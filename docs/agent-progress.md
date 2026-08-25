@@ -107,8 +107,15 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 
 Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fable-next.md`): D25 `list` truncation/`--sort`, D26 argv dialect/`--help`, D27 `models list --json`. Ranked at `83beb1e`; D24 KEEP later on disjoint `auth.ts`.
 
+GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D26 **KEEP**, D27 **FIX**. First landings are on the implementer branches; do not merge D25/D27 until the riders below are on those branches.
+
+| Slot | First landing | Rider still required |
+|---|---|---|
+| D25 | `origin/cursor/list-truncation-sort-0da8` `72a3b2e` — `warnings` + copied CLI `last-event` + factored `sortByLastEvent` undefined-last pin | Replace `localeCompare` of timestamp strings with `Date.parse` descending then id; add an offset-bearing pin (`2026-08-25T23:00:00+14:00` is earlier than `2026-08-25T10:00:00Z`). |
+| D26 | `origin/cursor/argv-help-dialect-0da8` `daf7fc7` — parseArgs-only catches, inject rider omitted | KEEP as landed; GPT recheck then merge. |
+| D27 | `origin/cursor/models-list-json-0da8` `0fded4e` — `MODELS_LIST` plus models argv dialect | Discriminated JSON: enabled always `type/preview/mode/primary/fast/models` with `primary`/`fast` `string \| null` and rows `{id,inCatalog}` only; available `{type,preview,mode,models}` with `{id}` rows; no per-row default booleans; whole-object `deepEqual`. |
+
 ### Round 3 still running / next implementers
 
-- D25 / D26 / D27 Opus implementers dispatched.
-- Round 6 GPT ranking challenge dispatched.
+- D25 / D27 rider resumes go to the idle Opus implementers. D26 KEEP landing is still finishing.
 - Windows smoke and status-matrix still HOLD behind PR #12.

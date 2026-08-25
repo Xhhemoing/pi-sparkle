@@ -188,15 +188,15 @@ Compare `check.source` to the preserved configured `envVar` (or trim at parse, r
 
 ## D25 — Round 6 rank 1: `list` truncation disclosure + `--sort last-event`
 
-Fable-r6-next. Inventory must not silently discard JSONL recovery: add `warnings` on `RunInventory`/`EpisodeInventory` and still list the row. CLI: stderr `warning: ${path}: ${message}`; additive JSON `warnings` on `RUN_LIST`/`EPISODE_LIST` (always present). `--sort id|last-event` default `id`; `last-event` is most-recent-first by `lastEventAt`, id tie-break. Unknown sort → `parse-args`. Do not change inventory's by-id sort. No `main.ts`. Spec: `.agent_workspace/loop5-r6-fable-next.md` Rank 1.
+Fable-r6-next. GPT-r6-challenge: **FIX** the remedies, keep the slot. Inventory must not silently discard JSONL recovery: add `warnings` (update empty-inventory exact `{ runs/episodes, errors }` pins to include `warnings: []`). CLI: stderr `warning: ${path}: ${message}`; additive JSON `warnings`. Keep inventory by-id sort unchanged; absent `--sort` equals `id`. Apply `last-event` only to a copied CLI row array. Compare `Date.parse(lastEventAt)` descending, then id ascending — not `localeCompare` (offset-bearing pin). Do not invent an undefined `startedAt` episode fixture; test `undefined`-last at a factored sort seam if needed. No `main.ts`. Spec: `.agent_workspace/loop5-r6-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r6-gpt-challenge.md`.
 
 ## D26 — Round 6 rank 2: one-dialect argv errors and working `--help` on free verbs
 
-Wrap `parseArgs` in `episode`, `commits` (preview+apply), `validate`, `migrate-legacy`, `pi-compat`, `init-examples` → `cliFail` `stage: "parse-args"` with `--help` next. Honor `--help` on episode/commits/pi-compat (validate/init already have it). Optional inject `--type`/`--confidence` preflight. No `main.ts`. Spec: Rank 2 of the same report.
+GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. Spec: Rank 2.
 
 ## D27 — Round 6 rank 3: `models list --json` (`MODELS_LIST`) + leftover dialect
 
-`--json`/`help` on `models list`; compact `MODELS_LIST` for enabled and available modes (`preview: true`). Convert unknown-subcommand and four subcommand `parseArgs` to `cliFail` parse-args. Exact-shape and one-line pins day one. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`. Spec: Rank 3.
+GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape: enabled always has `type`, `preview`, `mode`, `primary`, `fast`, `models` (`primary`/`fast` are `string | null`; each row is exactly `id` + `inCatalog`). Available has exactly `type`, `preview`, `mode`, `models` and rows exactly `{id}`. Do not duplicate defaults as per-row booleans. Describe as stored configuration, not effective per-run routing. Catch only `parseArgs`. Whole-object `deepEqual` pins. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
