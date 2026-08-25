@@ -590,6 +590,191 @@ test("a builtin whose source names no single variable stays ambient, understatin
   });
 });
 
+/**
+ * The frozen `AUTH_STATUS` shape, pinned as whole objects the day it ships
+ * (D3): what a caller polling "can provider X authenticate" must not have to
+ * guess is which keys are always there. Every value in it — provider ids,
+ * credential types, source names — is already on the human path, and no case
+ * below may find a secret in the line.
+ */
+test("status --json emits the exact stored shape, sorted, and no prose", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withEnv(withoutOpenAiEnv(), async () => {
+      await storeKey(stateRoot, "openai", STORED_KEY);
+      await storeOauth(stateRoot, "anthropic");
+
+      const { io, out, err } = capture();
+      const code = await main(["auth", "status", "--json", "--state-root", stateRoot], io);
+      assert.equal(code, 0, err.join(""));
+      assert.deepEqual(err, []);
+      assert.deepEqual(JSON.parse(out.join("")), {
+        type: "AUTH_STATUS",
+        preview: true,
+        mode: "stored",
+        stored: [
+          { providerId: "anthropic", credentialType: "oauth" },
+          { providerId: "openai", credentialType: "api_key" }
+        ]
+      });
+      const text = out.join("");
+      assert.equal(text.includes(STORED_KEY), false, "the value never leaves the store");
+      assert.equal(text.includes(OAUTH_ACCESS), false);
+      assert.equal(text.includes(OAUTH_REFRESH), false);
+    });
+  });
+});
+
+test("status --json prints exactly one parseable line and keeps the empty shape", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(["auth", "status", "--json", "--state-root", stateRoot], io);
+    assert.equal(code, 0, err.join(""));
+    assert.deepEqual(err, []);
+    const stdout = out.join("");
+    assert.equal(stdout.endsWith("\n"), true);
+    const lines = stdout.split("\n").slice(0, -1);
+    assert.equal(lines.length, 1, stdout);
+    // An empty store is the object with no rows, not the prose notice a
+    // caller would otherwise have to sniff for.
+    assert.deepEqual(JSON.parse(lines[0] as string), {
+      type: "AUTH_STATUS",
+      preview: true,
+      mode: "stored",
+      stored: []
+    });
+    assert.doesNotMatch(stdout, /No stored credentials/);
+  });
+});
+
+test("status --all --json carries env, ambient, and excludes what is stored", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await withEmptyEnvironment(async () => {
+      await withEnv({ SPARKLE_TEST_GATEWAY_KEY: ENV_KEY }, async () => {
+        await storeKey(stateRoot, "openai", STORED_KEY);
+
+        const { io, out, err } = capture();
+        const code = await main(
+          ["auth", "status", "--all", "--json", "--state-root", stateRoot],
+          io
+        );
+        assert.equal(code, 0, err.join(""));
+        assert.deepEqual(err, []);
+        // `gateway` is `env` off its configured variable; `keyless` names no
+        // variable at all and stays `ambient` with the same source string the
+        // human column prints. `openai` has a stored credential, which wins
+        // over the environment, so it appears once — under `stored`.
+        assert.deepEqual(JSON.parse(out.join("")), {
+          type: "AUTH_STATUS",
+          preview: true,
+          mode: "all",
+          stored: [{ providerId: "openai", credentialType: "api_key" }],
+          environment: [
+            { providerId: "gateway", label: "env", source: "SPARKLE_TEST_GATEWAY_KEY" },
+            { providerId: "keyless", label: "ambient", source: "keyless (no key)" }
+          ]
+        });
+        const text = out.join("");
+        assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+        assert.equal(text.includes(STORED_KEY), false);
+      });
+    });
+  });
+});
+
+test("status --all --json keeps the empty environment array instead of the notice", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withEmptyEnvironment(async () => {
+      const { io, out, err } = capture();
+      const code = await main(["auth", "status", "--all", "--json", "--state-root", stateRoot], io);
+      assert.equal(code, 0, err.join(""));
+      assert.deepEqual(err, []);
+      assert.deepEqual(JSON.parse(out.join("")), {
+        type: "AUTH_STATUS",
+        preview: true,
+        mode: "all",
+        stored: [],
+        environment: []
+      });
+      assert.doesNotMatch(out.join(""), /no environment-configured providers found/);
+    });
+  });
+});
+
+test("an unknown auth subcommand speaks the house dialect and still echoes the usage", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["auth", "staus"], io), 1);
+  assert.equal(out.join(""), "");
+  const stderr = err.join("");
+  assert.ok(
+    stderr.indexOf("Usage:") < stderr.indexOf("error: Unknown auth command"),
+    "the usage echo comes before the report"
+  );
+  const report = parseCliErrorJson(stderr);
+  assert.ok(report !== undefined, "an unknown subcommand must emit a parseable report");
+  assert.equal(report.command, "auth");
+  assert.equal(report.stage, "parse-args");
+  assert.equal(report.message, "Unknown auth command: staus");
+  assert.equal(report.next, "use auth status, login, or logout");
+});
+
+test("a mistyped flag is a parse-args refusal on every subcommand, not an execution failure", async () => {
+  // All four fields exactly, on all three verbs: the `command` is what tells
+  // an operator (and a log reader) which subcommand refused, the parser's own
+  // message is what names the flag they typed, and the `next` is the remedy
+  // they can actually use — not the doctor preflight the generic
+  // execute-stage failure used to send them to.
+  for (const [command, argv] of [
+    ["auth status", ["auth", "status", "--bogus"]],
+    ["auth login", ["auth", "login", "openai", "--bogus"]],
+    ["auth logout", ["auth", "logout", "openai", "--bogus"]]
+  ] as const) {
+    await withStateRoot(async (stateRoot) => {
+      const { io, out, err } = capture();
+      assert.equal(await main([...argv, "--state-root", stateRoot], io), 1, argv.join(" "));
+      assert.equal(out.join(""), "", argv.join(" "));
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${command} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, "Unknown option '--bogus'");
+      assert.equal(report.next, "run pi-sparkle auth --help");
+      // The refusal precedes every store read, so nothing is written either.
+      assert.equal(await exists(authStorePath(stateRoot)), false, argv.join(" "));
+    });
+  }
+});
+
+test("--help on every subcommand prints usage, exits 0, and reads no credential file", async () => {
+  // Both spellings that reach each verb: the flag, and — for the two verbs
+  // that read their provider as a positional — the provider position itself,
+  // where `--help` used to be refused as a missing <provider>.
+  const invocations = [
+    ["auth", "status", "--help"],
+    ["auth", "status", "-h"],
+    ["auth", "login", "--help"],
+    ["auth", "login", "help"],
+    ["auth", "login", "openai", "--help"],
+    ["auth", "logout", "--help"],
+    ["auth", "logout", "-h"],
+    ["auth", "logout", "openai", "--help"]
+  ];
+  for (const argv of invocations) {
+    await withStateRoot(async (stateRoot) => {
+      const { io, out, err } = capture();
+      assert.equal(
+        await main([...argv, "--state-root", stateRoot], io),
+        0,
+        `${argv.join(" ")}: ${err.join("")}`
+      );
+      assert.deepEqual(err, [], argv.join(" "));
+      assert.match(out.join(""), /Usage:\n {2}pi-sparkle auth status/);
+      // Asking for help writes nothing and reads nothing.
+      assert.equal(await exists(authStorePath(stateRoot)), false, argv.join(" "));
+    });
+  }
+});
+
 test("login and logout report a missing <provider> in the structured error dialect", async () => {
   for (const [verb, argv] of [
     ["auth login", ["auth", "login"]],

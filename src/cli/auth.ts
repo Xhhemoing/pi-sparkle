@@ -25,7 +25,7 @@ export interface AuthIo {
 const AUTH_USAGE = `pi-sparkle auth — per-provider credentials (Pi CredentialStore)
 
 Usage:
-  pi-sparkle auth status [--all] [--state-root <dir>]
+  pi-sparkle auth status [--all] [--json] [--state-root <dir>]
   pi-sparkle auth login <provider> [--key <key> | --from-env | --oauth] [--state-root <dir>]
   pi-sparkle auth logout <provider> [--state-root <dir>]
 
@@ -58,9 +58,13 @@ export async function authCommand(args: string[], io: AuthIo): Promise<number> {
         io.stdout(AUTH_USAGE);
         return 0;
       default:
-        io.stderr(`Unknown auth command: ${sub}\n`);
         io.stderr(AUTH_USAGE);
-        return 1;
+        return cliFail(io, {
+          command: "auth",
+          stage: "parse-args",
+          message: `Unknown auth command: ${sub}`,
+          next: "use auth status, login, or logout"
+        });
     }
   } catch (error) {
     // A damaged auth.json fails every verb, `logout` included, so the remedy
@@ -85,40 +89,172 @@ function stateRootOf(values: { readonly ["state-root"]?: string }): string {
   return values["state-root"] ?? defaultStateRoot();
 }
 
+type ParsedArgs<T> =
+  | { readonly ok: true; readonly values: T }
+  | { readonly ok: false; readonly code: number };
+
+/**
+ * `parseArgs` throws on a mistyped flag, and an uncaught throw here reached the
+ * operator as an execution failure whose remedy was "use pi-sparkle doctor for
+ * preflight" — the one thing that cannot help someone who typed `--jsno`. The
+ * catch covers the synchronous parse and nothing else: provider checks, store
+ * reads and the damaged-store report keep their own classifications.
+ */
+function parseAuthArgs<T>(io: AuthIo, command: string, parse: () => { values: T }): ParsedArgs<T> {
+  try {
+    return { ok: true, values: parse().values };
+  } catch (error) {
+    return {
+      ok: false,
+      code: cliFail(io, {
+        command,
+        stage: "parse-args",
+        message: error instanceof Error ? error.message : String(error),
+        next: "run pi-sparkle auth --help"
+      })
+    };
+  }
+}
+
+/**
+ * Asking for help is not an error, and `login`/`logout` read their provider as
+ * a positional — so `auth logout --help` arrives as the provider itself.
+ */
+function isHelpPositional(value: string | undefined): boolean {
+  return value === "help" || value === "--help" || value === "-h";
+}
+
+/**
+ * Frozen `auth status --json` contract. Additive changes only: consumers pin
+ * `type` and `preview` and discriminate on `mode`. Not a domain Event (no `id`;
+ * `type` is outside the Event union), and `preview: true` says so. The private
+ * `AUTH_STATUS` HTTP-status set in `pi-adapter/provider-retry.ts` is unrelated.
+ *
+ * Nothing here is a secret and nothing here is new: the object carries provider
+ * ids, credential *types*, and source *names* (`OPENAI_API_KEY`) — every byte
+ * of it already printed by the human columns. A credential value is never read
+ * on this path, in either mode.
+ *
+ * `stored` reports what `auth.json` holds under this state root, and — as in
+ * the human listing — `environment` covers only providers with nothing stored,
+ * because a stored credential wins over the environment. Both are sorted by
+ * `providerId` so a caller diffing two runs sees credential changes rather than
+ * store or catalog ordering.
+ */
+export interface AuthStatusStoredRow {
+  readonly providerId: string;
+  readonly credentialType: string;
+}
+
+/**
+ * `label` is `sourceLabel`'s verdict, not a second derivation of it, and
+ * `source` is the same string the human source column prints — so the two
+ * surfaces cannot disagree about what resolved a provider, including the rows
+ * the label deliberately understates (`AWS access keys` stays `ambient`).
+ */
+export interface AuthStatusEnvironmentRow {
+  readonly providerId: string;
+  readonly label: string;
+  readonly source: string;
+}
+
+export interface AuthStatusStoredJson {
+  readonly type: "AUTH_STATUS";
+  readonly preview: true;
+  readonly mode: "stored";
+  readonly stored: readonly AuthStatusStoredRow[];
+}
+
+export interface AuthStatusAllJson {
+  readonly type: "AUTH_STATUS";
+  readonly preview: true;
+  readonly mode: "all";
+  readonly stored: readonly AuthStatusStoredRow[];
+  readonly environment: readonly AuthStatusEnvironmentRow[];
+}
+
+export type AuthStatusJson = AuthStatusStoredJson | AuthStatusAllJson;
+
+function writeAuthStatusJson(io: AuthIo, payload: AuthStatusJson): void {
+  io.stdout(`${JSON.stringify(payload)}\n`);
+}
+
+function byProviderId<T extends { readonly providerId: string }>(rows: readonly T[]): T[] {
+  return [...rows].sort((left, right) =>
+    left.providerId < right.providerId ? -1 : left.providerId > right.providerId ? 1 : 0
+  );
+}
+
 async function statusCommand(args: string[], io: AuthIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: { all: { type: "boolean", default: false }, "state-root": { type: "string" } }
-  });
+  const parsed = parseAuthArgs(io, "auth status", () =>
+    parseArgs({
+      args,
+      options: {
+        all: { type: "boolean", default: false },
+        json: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+        "state-root": { type: "string" }
+      }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
+  // Before the store read: a help request must not create auth.json.
+  if (values.help === true) {
+    io.stdout(AUTH_USAGE);
+    return 0;
+  }
+  const json = values.json === true;
   const stateRoot = stateRootOf(values);
   const stored = await listStoredCredentials(stateRoot);
-  // `--all` used to suppress this notice, so an operator with an empty store
-  // and no configured environment got a command that printed nothing at all
-  // and exited 0 — indistinguishable from a swallowed failure.
-  if (stored.length === 0) {
-    io.stdout("No stored credentials. Provider env vars (OPENAI_API_KEY, …) still apply.\n");
-  }
-  for (const item of stored) {
-    io.stdout(`${item.providerId.padEnd(28)} stored    ${item.type}\n`);
-  }
-  if (values.all === true) {
-    const config = await loadProvidersConfig(stateRoot);
-    const storedIds = new Set(stored.map((item) => item.providerId));
-    let printed = 0;
-    for (const providerId of unique([
-      ...(await listBuiltinProviderIds()),
-      ...config.customProviders.map((item) => item.id)
-    ])) {
-      if (storedIds.has(providerId)) continue;
-      const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
-      if (check === undefined) continue;
-      const label = sourceLabel(check, providerId, config.customProviders);
-      io.stdout(`${providerId.padEnd(28)} ${label.padEnd(10)}${check.source ?? check.type}\n`);
-      printed += 1;
+  if (!json) {
+    // `--all` used to suppress this notice, so an operator with an empty store
+    // and no configured environment got a command that printed nothing at all
+    // and exited 0 — indistinguishable from a swallowed failure. A caller
+    // asking for JSON gets `stored: []` instead, which needs no sniffing.
+    if (stored.length === 0) {
+      io.stdout("No stored credentials. Provider env vars (OPENAI_API_KEY, …) still apply.\n");
     }
-    if (printed === 0) {
-      io.stdout("(no environment-configured providers found)\n");
+    for (const item of stored) {
+      io.stdout(`${item.providerId.padEnd(28)} stored    ${item.type}\n`);
     }
+  }
+  const storedRows = byProviderId(
+    stored.map((item) => ({ providerId: item.providerId, credentialType: item.type }))
+  );
+  if (values.all !== true) {
+    if (json) {
+      writeAuthStatusJson(io, { type: "AUTH_STATUS", preview: true, mode: "stored", stored: storedRows });
+    }
+    return 0;
+  }
+  const config = await loadProvidersConfig(stateRoot);
+  const storedIds = new Set(stored.map((item) => item.providerId));
+  const environment: AuthStatusEnvironmentRow[] = [];
+  for (const providerId of unique([
+    ...(await listBuiltinProviderIds()),
+    ...config.customProviders.map((item) => item.id)
+  ])) {
+    if (storedIds.has(providerId)) continue;
+    const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
+    if (check === undefined) continue;
+    const label = sourceLabel(check, providerId, config.customProviders);
+    const source = check.source ?? check.type;
+    environment.push({ providerId, label, source });
+    if (!json) io.stdout(`${providerId.padEnd(28)} ${label.padEnd(10)}${source}\n`);
+  }
+  if (json) {
+    writeAuthStatusJson(io, {
+      type: "AUTH_STATUS",
+      preview: true,
+      mode: "all",
+      stored: storedRows,
+      environment: byProviderId(environment)
+    });
+    return 0;
+  }
+  if (environment.length === 0) {
+    io.stdout("(no environment-configured providers found)\n");
   }
   return 0;
 }
@@ -182,15 +318,27 @@ function sourceLabel(
 
 async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   const providerId = args[0];
-  const { values } = parseArgs({
-    args: args.slice(1),
-    options: {
-      key: { type: "string" },
-      "from-env": { type: "boolean", default: false },
-      oauth: { type: "boolean", default: false },
-      "state-root": { type: "string" }
-    }
-  });
+  const parsed = parseAuthArgs(io, "auth login", () =>
+    parseArgs({
+      args: args.slice(1),
+      options: {
+        key: { type: "string" },
+        "from-env": { type: "boolean", default: false },
+        oauth: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
+        "state-root": { type: "string" }
+      }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
+  // Ahead of the `requires <provider>` refusal, which `--help` in the provider
+  // position would otherwise turn the discovery gesture into, and ahead of any
+  // store read.
+  if (values.help === true || isHelpPositional(providerId)) {
+    io.stdout(AUTH_USAGE);
+    return 0;
+  }
   if (providerId === undefined || providerId.startsWith("-")) {
     io.stderr(AUTH_USAGE);
     return cliFail(io, {
@@ -361,10 +509,21 @@ async function listStoredCredentialsIfReadable(stateRoot: string): Promise<Store
 
 async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
   const providerId = args[0];
-  const { values } = parseArgs({
-    args: args.slice(1),
-    options: { "state-root": { type: "string" } }
-  });
+  const parsed = parseAuthArgs(io, "auth logout", () =>
+    parseArgs({
+      args: args.slice(1),
+      options: {
+        help: { type: "boolean", short: "h", default: false },
+        "state-root": { type: "string" }
+      }
+    })
+  );
+  if (!parsed.ok) return parsed.code;
+  const { values } = parsed;
+  if (values.help === true || isHelpPositional(providerId)) {
+    io.stdout(AUTH_USAGE);
+    return 0;
+  }
   if (providerId === undefined || providerId.startsWith("-")) {
     return cliFail(io, {
       command: "auth logout",
