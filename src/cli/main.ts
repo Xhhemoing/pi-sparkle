@@ -310,10 +310,9 @@ the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 primary-owned split (planner on --primary-model, then scout → implement →
 review → test), compiles that plan into the flowchart supervisor, grounds each
 child with a bounded context packet and predecessor artifacts, assigns catalog
-models, and executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4 per parent).
-predecessor artifacts, assigns other catalog models from --primary-model
-(default premium / PI_MODEL) plus an optional cheaper --fast-model, executes
-with peer mail, scores three-line tracking on child TASK_RESULT facts when
+models from --primary-model (default premium / PI_MODEL) plus an optional
+cheaper --fast-model, executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4
+per parent), scores three-line tracking on child TASK_RESULT facts when
 verification is PASSED or FAILED, then runs the automatic adaptation loop
 (collect feedback, diagnose model/project issues, propose a routing-policy
 candidate; never CAS-promotes. SPARKLE_AUTO_ADAPT=0 still collects). --public-prior loads a hashed frozen

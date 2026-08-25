@@ -45,10 +45,25 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 |---|---|
 | 检查模块 | CLI, runtime journeys, adaptation product UX, persist/privacy, frozen contracts, feature map |
 | 发现问题 | No run catalog; no no-write spec check; no flowchart example; `--track` wait is a dead end; adapt promote unusable without dumped blobs; delete lock-timeout docs overclaim “removes nothing”; `unblock` missing from README; `adapt eval`/`rollback` hidden |
-| 解决问题 | `validate` shipped and dispatched. `list`/`init` modules tested; dispatcher in flight. README documents `unblock`/`list`/`validate`/`init`/`adapt eval`. D6 KEEP `init` |
+| 解决问题 | `validate` dispatched (then live-catalog parity in `42b4c6c`). `list`/`init` dispatched (`679553e`). README documents `unblock`/`list`/`validate`/`init`/`adapt eval`. D6 KEEP `init`. Garbled `--track` USAGE paragraph repaired. |
 | 测试结果 | list 19 pass; validate 9 pass ×3 + broader CLI suites on the cloud VM; init unit tests present |
 | Commit | merge validate; list module; init preserved; reports under `.agent_workspace/loop5-r1-*` |
 | PR | https://github.com/Xhhemoing/pi-sparkle/pull/13 |
 | Merge 状态 | open (draft) |
 | Blocked | P0 human sign-off; Checkpoint F-PROD; PR #12 not duplicated (`inspect --follow`, `--max-cost-usd`) |
-| 下一轮重点 | Dispatch `list`/`init`; track-clarification continuation; `adapt show --candidate` + dataset export; delete-disclosure honesty; USAGE discoverability |
+| 下一轮重点 | Round 2 in flight: track-clarification dead end; adapt show+dataset; delete-disclosure honesty |
+
+## ROUND 2 (in flight)
+
+| Agent | Model | Role |
+|---|---|---|
+| Fable-track-design | claude-fable-5-thinking-xhigh | Same-run vs refuse continuation design |
+| Fable-context | claude-fable-5-thinking-xhigh | `src/context/` + `src/tracking/` UX |
+| Fable-auth-models | claude-fable-5-thinking-xhigh | auth/models operator flow |
+| Fable-review-req | claude-fable-5-thinking-xhigh | review/rubric/requirement uncovered |
+| Fable-aux-cli | claude-fable-5-thinking-xhigh | episode/inject/commits + new-verb Windows |
+| GPT-track-challenge | gpt-5.6-sol-xhigh-fast | Challenge the refuse-answer min-fix |
+| GPT-validate-recheck | gpt-5.6-sol-xhigh-fast | Independent recheck of live-catalog validate |
+| Opus-track | claude-opus-5-thinking-high-fast | inspect + refuse answer on track wait |
+| Opus-adapt | claude-opus-5-thinking-high-fast | `adapt show` + `adapt dataset` |
+| Opus-delete | claude-opus-5-thinking-high-fast | delete disclosure + lock-wait propagation |
