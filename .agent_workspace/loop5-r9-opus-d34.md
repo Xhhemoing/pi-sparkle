@@ -129,3 +129,88 @@ mutations, and two of the four changes strictly remove writes from refusal paths
 arguments) and D27 (JSON contract + `parseArgs` dialect) are reopened only for the value-domain
 defects neither covered. Disjoint from Ranks 2 (`auth.ts`) and 3 (`validate.ts`) and from PR #12's
 file list.
+
+---
+
+# Rider — GPT-r9-challenge D34 **FIX** applied (same branch, same slot)
+
+GPT-r9-challenge returned **FIX** for D34 and kept rank 1. The four corrections in
+`.agent_workspace/loop5-r9-gpt-challenge.md` § "D34 — FIX (keep rank 1)" are applied on
+`cursor/models-id-preflight-0da8` on top of the Fable landing, not as a restart. Files touched by
+the rider: `src/cli/models.ts`, `test/unit/cli/models.test.ts`, and this report. Everything the
+challenge said to keep is kept — the `tryParseModelRef` guards, the unknown-model `validation`
+class, the catalog retarget, and the non-available `--provider` refusal.
+
+## R1. Blank `--provider` refuses before either list branch
+
+New guard at the top of `listCommand`, after `--help` and **before** the "requires `--available`"
+compatibility refusal and before any config read: when
+`values.provider !== undefined && values.provider.trim() === ""`, `cliFail` with
+`command: "models list"`, `stage: "parse-args"`,
+`message: 'invalid --provider "<raw>": provider id must be a non-empty string'` (the raw value, so
+`"  "` reports as `"  "`), `next: "pass --provider <id>, or omit --provider"`.
+
+This closes the hole the challenge found: `--available --provider ""` used to answer `(no models)`
+and exit 0, so an operator who followed the generic "add `--available`" remedy would have converted
+a malformed blank into a *successful* empty inventory. Ordering matters and is pinned — the blank
+value never reports as the narrower incompatibility. Nonblank unknown providers under `--available`
+still print the deliberately pinned `(no models)` (`models.test.ts` "still says (no models) for a
+provider that exists nowhere", untouched and green).
+
+## R2. Three-way disable, partitioned from the already-loaded `before`
+
+The challenge's live fixture (`enabled: []`, `primary: "local/m1"`) proved that absence from
+`enabled` does not imply `disableModel` does nothing, so "nothing to disable" was wrong on exactly
+the path where the command still cleared a reference. `disableCommand` now partitions:
+
+| `before` | mutation | stdout |
+| --- | --- | --- |
+| `formatted` in `enabled` | `disableModel` | `Disabled ${catalogId}` (raw id, byte-identical), then the existing per-role notes |
+| not in `enabled`, equals `primary` and/or `fast` | `disableModel` | `No enabled entry for ${formatted}; clearing dangling routing default references`, then the existing per-role notes verbatim |
+| not in `enabled`, neither default | none | `${formatted} was not enabled; routing configuration was already clear`, exit 0 |
+
+The words "nothing to disable" and "nothing changed" no longer appear on the dangling path (pinned
+by a `doesNotMatch`). The pure no-op is now the only branch that skips the write, which is what
+makes correction R3 coherent.
+
+## R3. The no-op pin matches the mutation contract
+
+The Fable draft asked for both "always call `disableModel`" and "raw `providers.json` bytes
+unchanged", which conflict: `disableModel` always calls `saveProvidersConfig`, and its pretty
+serializer rewrites the compact `writeCustomProviders` fixture even when the semantic content is
+identical. Resolved as the challenge directs — raw-bytes-unchanged is asserted **only** for the pure
+no-op (which now genuinely does not write), and the dangling-default fixture instead pins the
+outcome: the dangling `primary` is gone, the unrelated `fast` survived, `enabled` is untouched, and
+`list` afterwards shows the surviving default. A second fixture pins the same for a dangling `fast`,
+and pins that the immediate re-run is the pure no-op — the honest idempotence claim.
+
+## R4. No raw state root interpolated into a remedy
+
+`refuseMalformedId` and `refuseUnknownModel` no longer take a `stateRoot` at all. The remedies are
+now `copy <provider/model> from pi-sparkle models list --available using the same --state-root`
+(and `copy --primary <provider/model> from …` / `--fast`), and
+`copy an id from pi-sparkle models list --available using the same --state-root; providers.json customProviders adds ids the builtin catalog does not have`.
+A state root holding a space, `;` or `$()` no longer appears inside executable-looking text. Pinned
+two ways: the exact expected string, and an assertion that the report's `next` does not contain the
+test's own state root.
+
+The same defect existed in the honest-disable line the Fable draft wrote to stdout
+(`… (pnpm cli models list --state-root ${stateRoot} …)`); correction R2 replaces that sentence
+outright, so no models surface interpolates a raw state root anymore. Both guards also moved ahead
+of `stateRootOf(values)`, so the malformed-id refusals no longer compute a state root they cannot
+use.
+
+## Rider verification
+
+- `npx tsx --test test/unit/cli/models.test.ts` — **28/28 pass** (25 before the rider; the two
+  disable cases were rewritten and three cases added: dangling `fast`, blank `--provider` across
+  both modes with and without `--json`, and blank `--provider` before the state root is opened).
+- `npx tsx --test test/unit/cli/api-config.test.ts test/integration/cli/commands.test.ts test/unit/config/providers-config.test.ts test/unit/config/model-ref.test.ts`
+  — 21/21 pass; the `/unknown model/i` pin and every plane pin hold untouched.
+- `pnpm typecheck` and `pnpm lint` — clean.
+- `pnpm test` (full suite) — 2327 tests across 125 suites: 2326 pass, 0 fail, 1 pre-existing skip.
+
+`MODELS_LIST` stays byte-identical: the new blank-`--provider` guard fires before both list branches
+and before any JSON assembly, and the D27 deepEqual pins re-run green. Still confined to
+`models.ts` + `models.test.ts`; `model-ref.ts`, `providers-config.ts`, `listed-model.ts` and
+`main.ts` are untouched. Operator-contract only.
