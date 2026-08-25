@@ -336,7 +336,7 @@ ROUND15-BRIEF §4 said dispatch nothing on the saturated `taskCriteria`/docs sur
 
 | Slot | Agent | Focus |
 |---|---|---|
-| fable-audit | pending | I/O · races · protocol · disaster-recovery candidates |
+| fable-audit | bc-c35e018c-0f65-50db-89b0-89f8f434415c | I/O · races · protocol · disaster-recovery candidates |
 
 ---
 
