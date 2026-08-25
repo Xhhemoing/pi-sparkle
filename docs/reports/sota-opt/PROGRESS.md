@@ -39,7 +39,7 @@
 | 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 第 1–4 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-24/PLAN.md](./round-24/PLAN.md) |
-| 25 | 第 1 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
+| 25 | 第 1 波进行中 | 1 / 10（A 已合入；B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
 
 ### Round 1 波次
 
@@ -261,7 +261,7 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R25-A 跟踪门控、R25-B live 路由 | A 运行中；B 本波派出 |
+| 1 | R25-A 跟踪门控、R25-B live 路由、R25-C 离线路由 | A 已合入；B 运行中；C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -508,8 +508,9 @@
 | R24-H | `cursor/r24-h-eval-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-H.md`）。无新排除 ID；热层默认复核 9.37–9.76 µs/run；operand-residency census 归档 |
 | R24-I | `cursor/r24-i-cli-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-I.md`）。无新排除 ID；custom−builtin 复核 +44.2/+26.5 / +48.0/+25.9 / +48.7/+16.3 ms；adaptation-state coordinate 归档 |
 | R24-J | `cursor/r24-j-persist-twenty-fourth-pass-83a1` | 已派出 |
-| R25-A | `cursor/r25-a-tracking-twenty-fifth-pass-83a1` | 已派出 |
+| R25-A | `cursor/r25-a-tracking-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-A.md`）。无新排除 ID；预算复核 ~69–89 µs/run；value-domain / string content-class census 归档 |
 | R25-B | `cursor/r25-b-live-routing-twenty-fifth-pass-83a1` | 已派出 |
+| R25-C | `cursor/r25-c-offline-routing-twenty-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
