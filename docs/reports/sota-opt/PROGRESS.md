@@ -33,7 +33,7 @@
 | 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
-| 19 | 第 1–2 波进行中 | 6 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-19/PLAN.md](./round-19/PLAN.md) |
+| 19 | 第 1–3 波进行中 | 8 / 10（A/B/C/D/E 已合入；F 运行中；G/H 本波派出） | claude-fable-5-thinking-xhigh | [round-19/PLAN.md](./round-19/PLAN.md) |
 
 ### Round 1 波次
 
@@ -201,8 +201,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R19-A 跟踪门控、R19-B live 路由、R19-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R19-D 自优化、R19-E 学习、R19-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
+| 1 | R19-A 跟踪门控、R19-B live 路由、R19-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R19-D 自优化、R19-E 学习、R19-F 实验 | D/E 完成已合入；F 运行中 |
+| 3 | R19-G 运行时/图、R19-H 评价/需求 | G/H 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -391,10 +392,12 @@
 | R18-J | `cursor/r18-j-persist-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-J.md`）。无新排除 ID；I/O 地板复核；skip-path 普查 + 整命令组成账目归档；切片关闭 |
 | R19-A | `cursor/r19-a-tracking-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-A.md`）。无新排除 ID；预算复核 66–75 µs/run；重投递面 + wait_user 指令类归档 |
 | R19-B | `cursor/r19-b-live-routing-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-B.md`）。无新排除 ID；天花板复核 M=2 8.9–9.3 / M=10 18.4–20.4 ms/eval；比较器第三腿 + 目录基数 M 轴归档 |
-| R19-C | `cursor/r19-c-offline-routing-nineteenth-pass-83a1` | 已派出 |
+| R19-C | `cursor/r19-c-offline-routing-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-C.md`）。无新排除 ID；生产中位复核 667.5–675.1 ms；FITQ 不铸 ID；APC floor 再锚定 |
 | R19-D | `cursor/r19-d-adaptation-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-D.md`）。无新排除 ID；eval 地板复核 3.85–4.22 ms；冷进程模块图组成轴归档 |
-| R19-E | `cursor/r19-e-learning-nineteenth-pass-83a1` | 已派出 |
+| R19-E | `cursor/r19-e-learning-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-E.md`）。无新排除 ID；SLICE-CPU 复核 19.0–20.6 / 种子复现 18.5–19.7 µs/run；表示保真 + 事件排序轴归档 |
 | R19-F | `cursor/r19-f-experiments-nineteenth-pass-83a1` | 已派出 |
+| R19-G | `cursor/r19-g-runtime-nineteenth-pass-83a1` | 已派出 |
+| R19-H | `cursor/r19-h-eval-nineteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
