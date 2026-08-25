@@ -122,6 +122,8 @@ Copy the `missingRun` house wording (do not import from `main.ts`). `episode` ev
 
 Hidden-input for secret prompts on real stdin; additive doctor `auth` check (secrets never in `detail`); `models list --available` appends `listedModelsFromCustom`. Update doctor check-name pin additively. Hermetic doctor tests (Windows CI). Do not churn `auth.ts` D12 landing. Spec: Rank 2 of the same report.
 
+**Landed** (Opus-auth-echo-doctor-F8): secret prompts muted on real-stdin readline (injected `io.question` unchanged); doctor check `auth` after `providers`; `--available` appends custom listed models. Independent GPT recheck dispatched.
+
 ## D17 — `INIT_EXAMPLES` is one compact JSON line
 
 Drop `JSON.stringify(..., null, 2)` in `src/cli/init-examples.ts`; keep keys `type/preview/dir/files/overwritten`; pin stdout is exactly one parseable line.
