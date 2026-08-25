@@ -41,7 +41,7 @@
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
-| 27 | 第 1–2 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
+| 27 | 第 1–3 波进行中 | 3 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
 
 ### Round 1 波次
 
@@ -282,7 +282,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R27-A 跟踪门控、R27-B live 路由、R27-C 离线路由 | A/B 已合入；C 运行中 |
-| 2 | R27-D 自优化、R27-E 学习 | D 运行中；E 本波派出 |
+| 2 | R27-D 自优化、R27-E 学习 | D 已合入；E 运行中 |
+| 3 | R27-F 实验 | F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -552,8 +553,9 @@
 | R27-A | `cursor/r27-a-tracking-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-A.md`）。无新排除 ID；预算复核 ~68–84 µs/run；scalar numeric value-class face 归档 |
 | R27-B | `cursor/r27-b-live-routing-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-B.md`）。无新排除 ID；天花板复核 M=2 8.62–9.24 / M=10 17.27–17.73 ms/eval；batch-cardinality bottom + prelude intercept face 归档 |
 | R27-C | `cursor/r27-c-offline-routing-twenty-seventh-pass-83a1` | 已派出 |
-| R27-D | `cursor/r27-d-adaptation-twenty-seventh-pass-83a1` | 已派出 |
+| R27-D | `cursor/r27-d-adaptation-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-D.md`）。无新排除 ID；eval 地板复核 3.62–3.70 ms；policy-content tree-geometry face 归档 |
 | R27-E | `cursor/r27-e-learning-twenty-seventh-pass-83a1` | 已派出 |
+| R27-F | `cursor/r27-f-experiments-twenty-seventh-pass-83a1` | 已派出 |
 
 ## 合并策略
 
