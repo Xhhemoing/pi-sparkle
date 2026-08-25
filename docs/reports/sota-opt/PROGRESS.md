@@ -32,7 +32,7 @@
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
 | 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
-| 18 | 第 1–3 波进行中 | 8 / 10（A/B/D/E/F 已合入；C/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-18/PLAN.md](./round-18/PLAN.md) |
+| 18 | 第 1–4 波进行中 | 9 / 10（A/B/C/D/E/F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-18/PLAN.md](./round-18/PLAN.md) |
 
 ### Round 1 波次
 
@@ -191,9 +191,10 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R18-A 跟踪门控、R18-B live 路由、R18-C 离线路由 | A/B 完成已合入；C 运行中 |
+| 1 | R18-A 跟踪门控、R18-B live 路由、R18-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R18-D 自优化、R18-E 学习、R18-F 实验 | D/E/F 完成已合入 |
-| 3 | R18-G 运行时/图、R18-H 评价/需求 | G 运行中；H 本波派出 |
+| 3 | R18-G 运行时/图、R18-H 评价/需求 | G/H 运行中 |
+| 4 | R18-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -372,12 +373,13 @@
 | R17-J | `cursor/r17-j-persist-seventeenth-pass-83a1` | 已合入专属分支（仅 `R17-J.md`）。无新排除 ID；I/O 地板复核；拒绝路径普查 + 冷进程预算归档；切片关闭 |
 | R18-A | `cursor/r18-a-tracking-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-A.md`）。无新排除 ID；预算复核 64–74 µs/run；skip-path 组成 + 拒绝终点普查归档 |
 | R18-B | `cursor/r18-b-live-routing-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-B.md`）。无新排除 ID；天花板复核 M=2 8.9–9.4 / M=10 18.3–18.5 ms/eval；字宽/CJK + 有限 RoutingLimits 轴归档 |
-| R18-C | `cursor/r18-c-offline-routing-eighteenth-pass-83a1` | 已派出 |
+| R18-C | `cursor/r18-c-offline-routing-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-C.md`）。无新排除 ID；生产中位复核 656.7–672.4 ms；TAILG/REJX 不铸 ID；APC floor 再锚定 |
 | R18-D | `cursor/r18-d-adaptation-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-D.md`）。无新排除 ID；eval 地板复核 3.75–4.14 ms；锁定事务组成账目归档 |
 | R18-E | `cursor/r18-e-learning-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-E.md`）。无新排除 ID；SLICE-CPU 复核 12.4–14.8 / 种子复现 18.8–19.4 µs/run；冷层 + 字宽轴归档 |
 | R18-F | `cursor/r18-f-experiments-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-F.md`）。无新排除 ID；全实验锚点复核 120.8–129.1 ms；对齐分数剂量 + 热进程税 + halt 后定价归档 |
 | R18-G | `cursor/r18-g-runtime-eighteenth-pass-83a1` | 已派出 |
 | R18-H | `cursor/r18-h-eval-eighteenth-pass-83a1` | 已派出 |
+| R18-I | `cursor/r18-i-cli-eighteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
