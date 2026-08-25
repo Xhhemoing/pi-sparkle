@@ -138,7 +138,13 @@ GPT-r4 F1 reproduced a D10 residual: with no `--dir`, but `adaptation/eval-datas
 
 The post-publish assertion must confirm the leaf is a directory and is the **same directory** the bind accepted (`dev`/`ino` or an equivalent that a replacement directory cannot satisfy), not only `realpath` string equality. Thread that identity from `bindDefaultEvalDatasetDir` into `assertDefaultEvalDatasetPublished`. If the leaf was replaced during publish, fail loudly and do not return a path whose `manifest.json` is missing. Keep the existing symlink-swap pin; add a real-directory replacement pin via the `AtomicWriteOptions.rename` seam. Do not change `--dir`, deletion of a pre-created symlink leaf, `main.ts`, or invent a global search.
 
-**Landed** (Opus-d19-publish-identity): `bindDefaultEvalDatasetDir` returns `BoundEvalDatasetDir` (lexical path + accepted leaf identity); `assertDefaultEvalDatasetPublished` re-reads that identity. Identity is `lstat` `dev`/`ino` as bigint; when `ino === 0n`, a uniquely named witness file with `"wx"` is the equivalent. Independent GPT recheck dispatched.
+**Landed** (Opus-d19-publish-identity): `bindDefaultEvalDatasetDir` returns `BoundEvalDatasetDir` (lexical path + accepted leaf identity); `assertDefaultEvalDatasetPublished` re-reads that identity. Identity is `lstat` `dev`/`ino` as bigint; when `ino === 0n`, a uniquely named witness file with `"wx"` is the equivalent.
+
+**GPT-d19-recheck: FIX.** Endpoint identity KEEP for one-way replacement. Restoring the originally bound directory after the publish landed in a replacement still returns success with a missing `manifest.json`. See D23. `adapt dataset` is still not merge-ready.
+
+## D23 — Successful default export must find `manifest.json` in the bound directory
+
+Post-publish must not only re-read directory identity; it must `lstat` `manifest.json` inside that same directory and require a regular file. If the originally bound directory is restored empty after the write went to a replacement, fail at stage `"publish"` and do not return a path whose manifest is missing. Keep D18 symlink refusals and the D19 one-way replacement pin. Add a rename-seam pin: move bound leaf aside → publish into a replacement → move replacement aside → restore original leaf → export rejects. Do not search the filesystem for the displaced directory. Do not change `--dir` or `main.ts`.
 
 ## D20 — Round 5 rank 1: CLI claims only the work it did
 
