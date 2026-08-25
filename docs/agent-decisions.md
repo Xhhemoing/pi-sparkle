@@ -192,7 +192,7 @@ Fable-r6-next. GPT-r6-challenge: **FIX** the remedies, keep the slot. Inventory 
 
 ## D26 — Round 6 rank 2: one-dialect argv errors and working `--help` on free verbs
 
-GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. Spec: Rank 2.
+GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. First landing `daf7fc7` included the inject rider anyway; revert of `src/cli/inject.ts` / pause-inject tests is in flight before merge. Spec: Rank 2.
 
 ## D27 — Round 6 rank 3: `models list --json` (`MODELS_LIST`) + leftover dialect
 
