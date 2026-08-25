@@ -236,6 +236,26 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     recovery: "report is reproducible from the frozen dataset + registry via the cacheKey"
   },
   {
+    id: "routing-eval-dataset",
+    owner: "adaptation",
+    path: "adaptation/eval-datasets/<runId>/manifest.json",
+    retention: "until-deleted",
+    // The objective is the only user text that reaches this file, and it
+    // arrives as a redacted excerpt: `exportRoutingEvalDataset` truncates to
+    // OBJECTIVE_MAX_CHARS and runs the result through `redactSensitiveText`
+    // (the same value-removing pass `redactFeedback` applies) before writing.
+    sensitiveFields: ["objective (redacted, truncated excerpt of task text)"],
+    redaction:
+      "adapt dataset copies ids, agent role, task family, PASS/FAIL and a redactSensitiveText-scrubbed objective excerpt; prompts, tool payloads and model output never reach it",
+    deletion: "delete-files",
+    // No implemented propagation: deleting a run does not reach an exported
+    // dataset (the operator names the directory), and the record class says so
+    // rather than claiming a cascade the delete tooling does not perform.
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "re-export from the run event log; a stale manifest is replaced whole, never merged"
+  },
+  {
     id: "learned-routing-policy",
     owner: "adaptation",
     path: "adaptation/learning/projects/<stableProjectKey>/routing.json",

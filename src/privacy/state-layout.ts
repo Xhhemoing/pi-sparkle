@@ -10,13 +10,15 @@ import { join } from "node:path";
  *                            catalog-observed, providers-config, auth-credential
  *   <stateRoot>/adaptation/  feedback (+tombstones), preference,
  *                            preference-dataset, candidate, routing-eval-report,
- *                            learning-bandit, experiment
+ *                            routing-eval-dataset, learning-bandit, experiment
  *
  * Boundary rule: adaptation modules must not read runtime files directly.
  * Runtime data reaches the adaptation plane only as (a) derived signals with
  * no user text (taskSuccess PASS/FAIL), or (b) through the redaction pipes
- * (`redactFeedback` / `exportForDataset`). The plane-boundary test pins the
- * current exceptions; new ones require an explicit allowlist entry.
+ * (`redactFeedback` / `exportForDataset` / `exportRoutingEvalDataset`, which
+ * truncates and scrubs the task objective before it can land in a replay
+ * dataset). The plane-boundary test pins the current exceptions; new ones
+ * require an explicit allowlist entry.
  */
 export type Plane = "runtime" | "adaptation";
 

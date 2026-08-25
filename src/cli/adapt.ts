@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -15,6 +15,7 @@ import { rollbackActive, ROLLBACK_REASONS } from "../adaptation/rollback.js";
 import type { RollbackReason } from "../adaptation/rollback.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isCandidateId, isResourceVersionId, parseRunId } from "../domain/ids.js";
+import { exportRoutingEvalDataset } from "../learning/eval-dataset.js";
 import { proposeRoutingFromRoutedEvents } from "../learning/from-episode.js";
 import { runAutoAdaptFromEvents, runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
@@ -32,10 +33,14 @@ Usage:
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--primary-model <id>] [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--primary-model <id>] [--state-root <dir>]
+  pi-sparkle adapt show --candidate <cnd_...> [--content-file <path>] [--json] [--state-root <dir>]
+  pi-sparkle adapt dataset --run <runId> [--dir <path>] [--state-root <dir>]
   pi-sparkle adapt eval --candidate <cnd_...> --dataset <dir> [--state-root <dir>]
   pi-sparkle adapt promote
   pi-sparkle adapt promote --candidate <cnd_...> --expected <rsv_...> --content-file <path> --review-file <path> --approve [--eval-file <path>] [--state-root <dir>]
   pi-sparkle adapt rollback --expected <rsv_...> --target <rsv_...> --reason <guardrail|degradation|user> [--state-root <dir>]
+
+show and dataset are read-only: show never promotes, dataset never writes policy.
 `;
 
 const PROMOTE_REFUSAL =
@@ -67,6 +72,8 @@ export async function adaptCommand(args: string[], io: AdaptIo): Promise<number>
       run: { type: "string" },
       "primary-model": { type: "string" },
       project: { type: "string" },
+      dir: { type: "string" },
+      json: { type: "boolean", default: false },
       "no-promote": { type: "boolean", default: false },
       confirm: { type: "boolean" }
     }
@@ -79,6 +86,10 @@ export async function adaptCommand(args: string[], io: AdaptIo): Promise<number>
       return await learnCommand(values, stateRoot, io);
     case "auto":
       return await autoCommand(values, stateRoot, io);
+    case "show":
+      return await showCommand(values, stateRoot, io);
+    case "dataset":
+      return await datasetCommand(values, stateRoot, io);
     case "eval":
       return await evalCommand(values, stateRoot, io);
     case "promote":
@@ -124,6 +135,167 @@ async function statusCommand(stateRoot: string, io: AdaptIo): Promise<number> {
     }
   }
   return 0;
+}
+
+/**
+ * Frozen `adapt show --json` contract. Additive changes only: consumers pin
+ * `type` and `preview`. Not a domain Event (no `id`; `type` is outside the
+ * Event union), and `preview: true` says so.
+ *
+ * `reviewActorId` is the whole reason this verb exists: `adapt promote`
+ * requires a review whose `actorId` equals the candidate author's identity
+ * string, and nothing else prints it.
+ */
+export interface AdaptShowJson {
+  readonly type: "ADAPT_CANDIDATE";
+  readonly preview: true;
+  readonly candidateId: string;
+  readonly kind: string;
+  readonly name: string;
+  readonly status: string;
+  readonly authorKind: string;
+  readonly authorIdentity: string;
+  readonly reviewActorId: string;
+  readonly contentHash: string;
+  readonly contentBytes: number;
+  readonly content: string;
+  readonly contentFile: string | null;
+  readonly parentVersionId: string;
+  readonly activeVersionId: string | null;
+}
+
+/**
+ * Read-only candidate inspection. It loads the registry, never writes it, and
+ * has no path to promotion: the content it dumps is exactly what
+ * `promote --content-file` must hash to, and the identity it prints is exactly
+ * what the promotion review's `actorId` must be.
+ */
+async function showCommand(
+  values: {
+    candidate?: string | undefined;
+    "content-file"?: string | undefined;
+    json?: boolean | undefined;
+  },
+  stateRoot: string,
+  io: AdaptIo
+): Promise<number> {
+  if (values.candidate === undefined) {
+    io.stderr("adapt show requires --candidate <cnd_...>\n");
+    return 1;
+  }
+  if (!isCandidateId(values.candidate)) {
+    io.stderr(`invalid candidate id: ${values.candidate}\n`);
+    return 1;
+  }
+  const candidateId = values.candidate;
+  const contentFile = values["content-file"];
+  try {
+    const registry = await loadAdaptationRegistry(stateRoot);
+    const candidate = registry.getCandidate(candidateId);
+    if (candidate === undefined) {
+      io.stderr(`unknown candidate: ${candidateId}\n`);
+      return 1;
+    }
+    const content = registry.getContent(candidate.contentHash);
+    if (content === undefined) {
+      io.stderr(
+        `registry has no stored content for ${candidateId} (hash ${candidate.contentHash}); it cannot be promoted from this snapshot\n`
+      );
+      return 1;
+    }
+    if (contentFile !== undefined) {
+      await writeFile(contentFile, content, "utf8");
+    }
+    const active = registry.getActiveVersion(candidate.identity);
+    if (values.json === true) {
+      const payload: AdaptShowJson = {
+        type: "ADAPT_CANDIDATE",
+        preview: true,
+        candidateId,
+        kind: candidate.identity.kind,
+        name: candidate.identity.name,
+        status: candidate.status,
+        authorKind: candidate.author.kind,
+        authorIdentity: candidate.author.identity,
+        reviewActorId: candidate.author.identity,
+        contentHash: candidate.contentHash,
+        contentBytes: Buffer.byteLength(content, "utf8"),
+        content,
+        contentFile: contentFile ?? null,
+        parentVersionId: candidate.parentVersionId,
+        activeVersionId: active?.versionId ?? null
+      };
+      io.stdout(`${JSON.stringify(payload)}\n`);
+      return 0;
+    }
+    io.stdout(`candidate: ${candidateId}\n`);
+    io.stdout(`kind: ${candidate.identity.kind}\n`);
+    io.stdout(`name: ${candidate.identity.name}\n`);
+    io.stdout(`status: ${candidate.status}\n`);
+    io.stdout(`author: ${candidate.author.kind} ${candidate.author.identity}\n`);
+    io.stdout(
+      `review actorId: ${candidate.author.identity} (promote --review-file must carry this actorId, a different reviewerId, and reviewerKind peer or independent)\n`
+    );
+    io.stdout(`contentHash: ${candidate.contentHash}\n`);
+    io.stdout(`parent version: ${candidate.parentVersionId}\n`);
+    io.stdout(
+      `active version: ${active?.versionId ?? "(none)"}${active !== undefined ? " (promote --expected)" : ""}\n`
+    );
+    io.stdout(`content bytes: ${String(Buffer.byteLength(content, "utf8"))}\n`);
+    if (contentFile !== undefined) {
+      io.stdout(`content file: ${contentFile}\n`);
+      return 0;
+    }
+    io.stdout("--- content ---\n");
+    io.stdout(content.endsWith("\n") ? content : `${content}\n`);
+    return 0;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    io.stderr(`${message}\n`);
+    return 1;
+  }
+}
+
+/**
+ * Export the replay dataset `adapt eval --dataset` consumes from one run's
+ * recorded events. Writes the dataset directory and nothing else: no registry
+ * mutation, no bandit file, no policy.
+ */
+async function datasetCommand(
+  values: { run?: string | undefined; dir?: string | undefined },
+  stateRoot: string,
+  io: AdaptIo
+): Promise<number> {
+  if (values.run === undefined) {
+    io.stderr("adapt dataset requires --run <runId>\n");
+    return 1;
+  }
+  try {
+    const runId = parseRunId(values.run);
+    const read = await new EventStore(stateRoot, runId).readAll();
+    if (read.events.length === 0) {
+      io.stderr(`no events recorded for run ${runId} under ${stateRoot}\n`);
+      return 1;
+    }
+    const result = await exportRoutingEvalDataset({
+      stateRoot,
+      runId,
+      events: read.events,
+      ...(values.dir !== undefined ? { datasetDir: values.dir } : {})
+    });
+    if (result.skippedWithoutObjective > 0) {
+      const tasks = result.skippedWithoutObjective === 1 ? "task" : "tasks";
+      io.stderr(
+        `warning: ${result.skippedWithoutObjective} routed PASS/FAIL ${tasks} had no recorded objective and were left out\n`
+      );
+    }
+    io.stdout(`${result.datasetDir}\n`);
+    return 0;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    io.stderr(`${message}\n`);
+    return 1;
+  }
 }
 
 async function evalCommand(

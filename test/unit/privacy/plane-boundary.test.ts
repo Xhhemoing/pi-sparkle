@@ -54,6 +54,11 @@ const ALLOWED: ReadonlyArray<Exception> = [
   // Type-only import of the runtime event shape; no data access.
   { module: "learning/auto-loop.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
   { module: "learning/signals.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
+  {
+    module: "learning/eval-dataset.ts -> ../run/events.js",
+    because: "type-only Event shape; the CLI reads the log and hands the events in",
+    typeOnly: true
+  },
   // Derived-signal pipe: extracts taskSuccess PASS/FAIL only, never text.
   { module: "learning/from-episode.ts -> ../run/event-store.js", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
   { module: "learning/from-episode.ts -> ../run/events.js", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },

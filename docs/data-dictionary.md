@@ -21,14 +21,16 @@ explicit plane directories:
   episode, model-invocation, catalog-observed, providers-config,
   auth-credential
 - `<root>/adaptation/` — feedback (+tombstones), preference,
-  preference-dataset, candidate, routing-eval-report, learned-routing-policy,
-  learning-bandit, experiment
+  preference-dataset, candidate, routing-eval-report, routing-eval-dataset,
+  learned-routing-policy, learning-bandit, experiment
 
 **Boundary rule:** adaptation modules never read runtime files directly.
 Runtime data reaches the adaptation plane only as (a) derived signals with no
 user text (taskSuccess PASS/FAIL via `src/learning/from-episode.ts`), or
-(b) through the redaction pipes (`redactFeedback` / `exportForDataset`). The
-current import exceptions are pinned in
+(b) through the redaction pipes (`redactFeedback` / `exportForDataset` /
+`exportRoutingEvalDataset`, which truncates the task objective to 500
+characters and runs it through `redactSensitiveText` before writing a replay
+dataset). The current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
@@ -67,6 +69,7 @@ allowlist entry with a justification.
 | catalog-observed | runtime | `runtime/routing/catalog-observed.json` | until-deleted | delete-files | 1 |
 | candidate | adaptation | `adaptation/registry.json` | until-rollback | tombstone-ids | 1 |
 | routing-eval-report | adaptation | `adaptation/evals/<candidateId>.<cacheKey>.json` | until-deleted | exclude-from-export | 1 |
+| routing-eval-dataset | adaptation | `adaptation/eval-datasets/<runId>/manifest.json` (default; `adapt dataset --dir` may name another directory) | until-deleted | delete-files | 1 |
 | learned-routing-policy | adaptation | `adaptation/learning/projects/<stableProjectKey>/routing.json` | until-deleted | delete-files | 1 |
 | learning-bandit | adaptation | `adaptation/learning/projects/<stableProjectKey>/bandit.json` | until-deleted | delete-files | 1 |
 | experiment | adaptation | in-memory / fixture plans | until-deleted | exclude-from-export | 1 |
