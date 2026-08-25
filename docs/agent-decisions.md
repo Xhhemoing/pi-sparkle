@@ -212,7 +212,7 @@ GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape:
 
 ## D28 — Round 7 rank 1: `auth` dialect completion + `auth status --json` (`AUTH_STATUS`)
 
-Fable-r7-next. GPT-r7-challenge: **FIX** the parser `command` field, keep the slot. Convert unknown-subcommand and three `parseArgs` to `cliFail` `stage: "parse-args"`. Parser errors pin `command: "auth status"|"auth login"|"auth logout"`; unknown subcommand stays `command: "auth"`. Honor `--help` on status/login/logout before provider/store I/O (login/logout positional `help` too). Discriminated `AUTH_STATUS`: stored mode exactly `type/preview/mode/stored` with rows `{providerId,credentialType}`; `--all` adds `environment` rows `{providerId,label,source}` using existing `sourceLabel` (D24 untrimmed equality), never a secret value. Catch only `parseArgs`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`. Spec: `.agent_workspace/loop5-r7-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r7-gpt-challenge.md`.
+**Landed** (Opus-d28-auth-json): `ad14592` dialect + AUTH_STATUS. GPT-d28-recheck **FIX**: tighten parser-error tests to exact `command`/`message`/`next` for status, login, and logout `--bogus`. Rider in flight.
 
 ## D29 — Round 7 rank 2: `doctor --help` and argv dialect
 

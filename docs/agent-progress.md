@@ -124,7 +124,7 @@ GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D2
 
 | Slot | Rider |
 |---|---|
-| D28 | First landing `ad14592` already pins parser `command` as `auth status`/`auth login`/`auth logout`; unknown subcommand stays `auth`. GPT-d28-recheck in flight. |
+| D28 | First landing `ad14592` runtime is correct. GPT-d28-recheck **FIX**: exact parser-error pins for `auth status`/`auth login`/`auth logout` `--bogus` (message/next not regex). Rider in flight. |
 | D29 | KEEP as specified. First landing `0244549` on `cursor/doctor-help-dialect-0da8`. GPT-d29-recheck in flight. |
 | D30 | First landing `6a7c2dd` still duplicates kinds and misses blank confidence. Rider: import `INJECTION_KINDS`; reject `trim() === ""` before `Number()`. |
 
