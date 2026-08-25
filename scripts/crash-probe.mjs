@@ -17,6 +17,9 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const UNBLOCK_REASON_BYTES = 16 * 1024 * 1024;
 const UNBLOCK_REASON_PREFIX = "widen the real append-before-checkpoint window: ";
 const UNBLOCK_NODE_ID = "tsk_crash_unblock";
+const DISCARD_SCOUT_NODE_ID = "tsk_crash_discard_scout";
+const DISCARD_RETRY_NODE_ID = "tsk_crash_discard_root_cause";
+const DISCARD_EXECUTED_NODE_ID = "tsk_crash_discard_summary";
 const UNBLOCK_NOW = "2026-08-24T20:00:00.000Z";
 
 const PROBE_ROUTER_CONFIG = {
@@ -79,6 +82,23 @@ function recordingExecutor(kind) {
         return;
       }
       yield verificationResult(request, kind);
+      yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+    }
+  };
+}
+
+function recordingExecutorFailing(failingTaskIds) {
+  const failing = new Set(failingTaskIds);
+  const taskIds = [];
+  return {
+    taskIds,
+    async *execute(request, signal) {
+      taskIds.push(request.taskId);
+      if (signal.aborted) {
+        yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+        return;
+      }
+      yield verificationResult(request, failing.has(request.taskId) ? "FAILED" : "PASSED");
       yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
     }
   };
@@ -201,7 +221,8 @@ async function runChild(mode, payload) {
       payload.runId,
       {
         reason: unblockReason(payload.reasonBytes),
-        retryNodeId: payload.retryNodeId
+        retryNodeId: payload.retryNodeId,
+        ...(payload.discardExecuted === true ? { discardExecuted: true } : {})
       }
     );
     return;
@@ -540,6 +561,10 @@ async function runProbe(iterations) {
   );
   const { createAgentProfileRegistry, defaultAgentProfiles } = await tsImport(
     "../src/agents/registry.ts",
+    import.meta.url
+  );
+  const { validateFlowchart } = await tsImport(
+    "../src/domain/flowchart.ts",
     import.meta.url
   );
   const { compileChildrenToFlowchart } = await tsImport(
@@ -1193,6 +1218,212 @@ async function runProbe(iterations) {
         );
         assert.deepEqual(replayRun(resumed.events).anomalies, []);
       })
+    );
+
+    cases.push(
+      await runCase(
+        "unblock-discard-append-before-checkpoint-sigkill",
+        iterations,
+        async (iteration) => {
+          const caseDir = join(root, "unblock-discard-window", String(iteration));
+          const stateRoot = join(caseDir, "state");
+          const projectRoot = join(caseDir, "project");
+          await mkdir(projectRoot, { recursive: true });
+
+          const childTasks = [
+            {
+              taskId: parseTaskId(DISCARD_SCOUT_NODE_ID),
+              role: "implementer",
+              objective: "collect evidence before the failed analysis",
+              profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+              inputArtifactIds: [],
+              acceptanceCriteria: [],
+              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+            },
+            {
+              taskId: parseTaskId(DISCARD_RETRY_NODE_ID),
+              role: "implementer",
+              objective: "fail verification before discard recovery",
+              profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+              inputArtifactIds: [],
+              acceptanceCriteria: [],
+              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+            },
+            {
+              taskId: parseTaskId(DISCARD_EXECUTED_NODE_ID),
+              role: "implementer",
+              objective: "complete behind the failed analysis, then re-run after recovery",
+              profile: createAgentProfileRegistry(defaultAgentProfiles()).resolve("implementer"),
+              inputArtifactIds: [],
+              acceptanceCriteria: [],
+              limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+            }
+          ];
+          const compiled = compileChildrenToFlowchart([
+            {
+              taskId: parseTaskId(DISCARD_SCOUT_NODE_ID),
+              role: "implementer",
+              objective: childTasks[0].objective
+            },
+            {
+              taskId: parseTaskId(DISCARD_RETRY_NODE_ID),
+              role: "implementer",
+              objective: childTasks[1].objective,
+              dependsOn: [parseTaskId(DISCARD_SCOUT_NODE_ID)]
+            },
+            {
+              taskId: parseTaskId(DISCARD_EXECUTED_NODE_ID),
+              role: "implementer",
+              objective: childTasks[2].objective,
+              dependsOn: [
+                parseTaskId(DISCARD_SCOUT_NODE_ID),
+                parseTaskId(DISCARD_RETRY_NODE_ID)
+              ]
+            }
+          ]);
+          const flowchart = validateFlowchart({
+            ...compiled,
+            nodes: compiled.nodes.map((node) =>
+              node.id === DISCARD_EXECUTED_NODE_ID
+                ? {
+                    ...node,
+                    joinPolicy: {
+                      mode: "any",
+                      requiredNodeIds: [DISCARD_SCOUT_NODE_ID, DISCARD_RETRY_NODE_ID]
+                    }
+                  }
+                : node
+            )
+          });
+          const setupExecutor = recordingExecutorFailing([DISCARD_RETRY_NODE_ID]);
+          const blocked = await startFlowchartRun(
+            {
+              stateRoot,
+              router: createModelRouter(PROBE_ROUTER_CONFIG),
+              now: () => UNBLOCK_NOW,
+              generateId: randomUUID,
+              executor: setupExecutor,
+              cluster: true
+            },
+            { projectRoot, flowchart, childTasks }
+          );
+          assert.equal(blocked.status, "BLOCKED");
+          assert.deepEqual(
+            Object.fromEntries(
+              Object.entries(blocked.snapshot.nodes).map(([id, node]) => [id, node.state])
+            ),
+            {
+              [DISCARD_SCOUT_NODE_ID]: "COMPLETED",
+              [DISCARD_RETRY_NODE_ID]: "FAILED",
+              [DISCARD_EXECUTED_NODE_ID]: "COMPLETED"
+            },
+            "the real gate block must have an executed descendant"
+          );
+
+          const runDir = join(runtimeRoot(stateRoot), "runs", blocked.runId);
+          const eventsPath = join(runDir, "events.jsonl");
+          const checkpointPath = join(runDir, "checkpoint.json");
+          const checkpointBefore = await readFile(checkpointPath, "utf8");
+          const eventBytesBefore = (await stat(eventsPath)).size;
+
+          // The child uses the real discard producer with no crash seam. The
+          // parent observes its complete row and kills it during the producer's
+          // widened post-append read, before checkpoint I/O can start.
+          const killed = await runExternallyKilledAfterAppend(
+            "unblock-flowchart",
+            {
+              discardExecuted: true,
+              now: UNBLOCK_NOW,
+              reasonBytes: UNBLOCK_REASON_BYTES,
+              retryNodeId: DISCARD_RETRY_NODE_ID,
+              runId: blocked.runId,
+              stateRoot
+            },
+            eventsPath,
+            eventBytesBefore
+          );
+          assert.ok(killed.appendedSize >= eventBytesBefore + UNBLOCK_REASON_BYTES);
+
+          const afterKill = (await new EventStore(stateRoot, blocked.runId).readAll()).events;
+          const appended = afterKill.slice(blocked.events.length);
+          assert.equal(appended.length, 1, "exactly one complete event row must decode after SIGKILL");
+          const discard = appended[0];
+          assert.equal(discard?.type, "RUN_UNBLOCKED_WITH_DISCARD");
+          assert.equal(discard?.payload.reason.length, UNBLOCK_REASON_BYTES);
+          assert.equal(discard?.payload.retryNodeId, DISCARD_RETRY_NODE_ID);
+          assert.deepEqual(
+            discard?.payload.rewoundDescendants.map((entry) => ({
+              nodeId: entry.nodeId,
+              previousState: entry.previousState,
+              taskId: entry.taskId
+            })),
+            [
+              {
+                nodeId: DISCARD_EXECUTED_NODE_ID,
+                previousState: "COMPLETED",
+                taskId: DISCARD_EXECUTED_NODE_ID
+              }
+            ]
+          );
+          assert.equal(
+            afterKill.filter((event) => event.type === "RUN_UNBLOCKED").length,
+            0,
+            "the stronger authorization must remain a single event"
+          );
+          assert.equal(
+            await readFile(checkpointPath, "utf8"),
+            checkpointBefore,
+            "the externally observed checkpoint must remain the BLOCKED bytes"
+          );
+          assert.deepEqual(
+            (await readdir(runDir)).filter(
+              (name) => name.startsWith("checkpoint.json.") && name.endsWith(".tmp")
+            ),
+            [],
+            "SIGKILL must land before the child starts its checkpoint write"
+          );
+
+          const lockPath = runLockPath(stateRoot, blocked.runId);
+          const lock = JSON.parse(await readFile(lockPath, "utf8"));
+          assert.equal(lock.pid, killed.childPid);
+          // Lifecycle locks are never stolen. Having established that this PID
+          // is the child we reaped above, the operator removes its stale lock.
+          await rm(lockPath);
+
+          const passing = recordingExecutor("PASSED");
+          const resumed = await resumeFlowchartRun(
+            {
+              stateRoot,
+              router: createModelRouter(PROBE_ROUTER_CONFIG),
+              now: () => UNBLOCK_NOW,
+              generateId: randomUUID,
+              executor: passing,
+              cluster: true
+            },
+            blocked.runId
+          );
+          assert.equal(resumed.status, "COMPLETED");
+          assert.equal(resumed.snapshot.nodes[DISCARD_RETRY_NODE_ID]?.state, "COMPLETED");
+          assert.equal(resumed.snapshot.nodes[DISCARD_EXECUTED_NODE_ID]?.state, "COMPLETED");
+          assert.deepEqual(
+            passing.taskIds,
+            [DISCARD_RETRY_NODE_ID, DISCARD_EXECUTED_NODE_ID],
+            "resume must recompute the matching discard and execute each rewound node exactly once"
+          );
+          const recoveredDiscards = resumed.events.filter(
+            (event) => event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+          );
+          assert.equal(recoveredDiscards.length, 1);
+          assert.equal(recoveredDiscards[0]?.id, discard?.id, "resume must not append an authorization");
+          assert.deepEqual(
+            resumed.events
+              .map((event) => event.type)
+              .filter((type) => type === "RUN_BLOCKED" || type === "RUN_COMPLETED"),
+            ["RUN_BLOCKED", "RUN_COMPLETED"]
+          );
+          assert.deepEqual(replayRun(resumed.events).anomalies, []);
+        }
+      )
     );
   } finally {
     try {
