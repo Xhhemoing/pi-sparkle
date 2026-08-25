@@ -210,6 +210,18 @@ GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape:
 
 **GPT-d27-recheck: KEEP.** Report: `.agent_workspace/loop5-r6-gpt-d27.md`. Merged to the integration branch.
 
+## D28 — Round 7 rank 1: `auth` dialect completion + `auth status --json` (`AUTH_STATUS`)
+
+Fable-r7-next. Convert unknown-subcommand and three `parseArgs` to `cliFail` `stage: "parse-args"`. Honor `--help` on status/login/logout before provider/store I/O (login/logout positional `help` too). Discriminated `AUTH_STATUS`: stored mode exactly `type/preview/mode/stored` with rows `{providerId,credentialType}`; `--all` adds `environment` rows `{providerId,label,source}` using existing `sourceLabel` (D24 untrimmed equality), never a secret value. Catch only `parseArgs`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`. Spec: `.agent_workspace/loop5-r7-fable-next.md` Rank 1.
+
+## D29 — Round 7 rank 2: `doctor --help` and argv dialect
+
+Fable-r7-next. `DOCTOR_USAGE`; `help` boolean honored before engines/inventory/mkdir. Wrap only synchronous `parseArgs`. Frozen `--json` contract byte-untouched. Files: `src/cli/doctor.ts`, `test/unit/cli/doctor.test.ts`. Spec: Rank 2.
+
+## D30 — Round 7 rank 3: `inject` `--type`/`--confidence` preflight
+
+Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). Refuse `type` outside `fact|override|skip` and non-finite/`[0,1]` `--confidence` as `parse-args` before EventStore lookup. Do not widen a catch around run lookup or injection. Files: `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: Rank 3.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.

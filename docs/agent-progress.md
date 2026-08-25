@@ -118,7 +118,9 @@ Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fab
 
 ### Round 7
 
-Fable-r7-next dispatched to rank the next three file-disjoint operator batches after D25–D27 KEEP.
+Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fable-next.md`) at `786f23e`: D28 `auth` dialect + `AUTH_STATUS`, D29 `doctor --help`, D30 inject `--type`/`--confidence` preflight.
+
+GPT-r7-challenge and three Opus implementers dispatched. Do not merge until independent KEEP.
 
 ### Round 3 still running / next implementers
 
