@@ -40,8 +40,8 @@
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
-| 26 | 第 1–4 波进行中 | 8 / 10（A–G、I 已合入；H/J 运行中） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
-| 27 | 第 1 波进行中 | 0 / 10（A 本波派出；Round 26 H/J 仍在飞） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
+| 26 | 第 1–4 波进行中 | 9 / 10（A–G、I/J 已合入；H 运行中） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
+| 27 | 第 1 波进行中 | 0 / 10（A 运行中；B 本波派出；Round 26 H 仍在飞） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
 
 ### Round 1 波次
 
@@ -275,13 +275,13 @@
 | 1 | R26-A 跟踪门控、R26-B live 路由、R26-C 离线路由 | A/B/C 已合入 |
 | 2 | R26-D 自优化、R26-E 学习 | D/E 已合入 |
 | 3 | R26-F 实验、R26-G 运行时/图、R26-H 评价/需求 | F/G 已合入；H 运行中 |
-| 4 | R26-I CLI/适配器、R26-J cluster/privacy | I 已合入；J 运行中 |
+| 4 | R26-I CLI/适配器、R26-J cluster/privacy | I/J 已合入 |
 
 ### Round 27 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R27-A 跟踪门控 | A 本波派出 |
+| 1 | R27-A 跟踪门控、R27-B live 路由 | A 运行中；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -547,8 +547,9 @@
 | R26-G | `cursor/r26-g-runtime-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-G.md`）。无新排除 ID；计算顶复核 0.286–0.305 vs I/O 90.7–96.9 ms；edge condition-kind face 归档；digest 第十七次逐位相同 |
 | R26-H | `cursor/r26-h-eval-twenty-sixth-pass-83a1` | 已派出 |
 | R26-I | `cursor/r26-i-cli-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-I.md`）。无新排除 ID；custom−builtin 复核 +43.4~+61.7 / +24.0~+27.8 / +48.5~+52.6 / +25.7~+36.9 / +47.1~+49.2 / +12.0~+28.2 ms；argv surface-form face 归档 |
-| R26-J | `cursor/r26-j-persist-twenty-sixth-pass-83a1` | 已派出 |
+| R26-J | `cursor/r26-j-persist-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-J.md`）。无新排除 ID；I/O 地板复核；DELINV 不铸 ID；切片关闭 |
 | R27-A | `cursor/r27-a-tracking-twenty-seventh-pass-83a1` | 已派出 |
+| R27-B | `cursor/r27-b-live-routing-twenty-seventh-pass-83a1` | 已派出 |
 
 ## 合并策略
 
