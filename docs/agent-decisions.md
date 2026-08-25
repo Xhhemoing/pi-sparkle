@@ -84,6 +84,8 @@ Before the generic non-flowchart append: a non-flowchart `WAITING_FOR_USER` run 
 
 GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required before treating the verb as merge-ready: redact-then-truncate (D1), do not claim `objective` is the only user text — classify/protect workspace path and store it at most once per manifest (D2), cascade default `adaptation/eval-datasets/<runId>/` from `delete --run` (D3), reject `--dir` under the runtime plane with realpath-aware checks (D4). Do not invent independent “episodes” from tasks.
 
+**Landed** (Opus-dataset-privacy): redact-then-excerpt; `source.originalWorkspace` redacted once and copied onto rows; `delete --run` cascades default eval-datasets dir; `--dir` realpath-refuses the runtime plane; JSON key `episodes` kept with `rowKind: "routed-task-from-one-run"`. Treat `adapt dataset` as merge-ready on those conditions.
+
 ## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
 
 GPT-gate-cause-recheck: event pairing, four-key `--summary-json`, stall-path prefix, and persisted-events-only reads all PASS. Do not revert. Follow-up (wording-only + tests, no new Event/`RunStatus`/summary keys):

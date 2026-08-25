@@ -91,11 +91,11 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - Track T1+T2 merged (D8/D9): fail-closed `answer` without a correlatable pending QUESTION; continuation facts not a copy-paste shell line. Implementer: Opus-track-t1-t2 (`bc-95aaadd3-a9db-5013-9e71-e9c72feb3be3`).
 - Catalog honesty merged (D13): one-primary catalogs emit `cheap` and `premium`; validate `next:` names `models disable`; init examples go through real parsers. Implementer: Opus-catalog-honesty (`bc-12eb428f-7801-5301-b187-fcadc1e1b61a`).
 - Episode close disclosure, inject/pause `--help`, commits `cliFail` + `COMMITS_PREVIEW`. Implementer: Opus-aux-cli (`bc-d26ab175-1565-5484-a810-e3fbea3e18aa`).
+- Dataset privacy (D10): redact-then-excerpt, redacted workspace once per manifest, `delete --run` cascade, runtime-plane `--dir` refusal. Implementer: Opus-dataset-privacy (`bc-e457a143-0d09-5e0f-9549-34470ad99c12`).
 
 ### Round 3 still running / next implementers
 
-- D10 dataset privacy in flight.
 - D14 adjacent gate pairing merged. Implementer: Opus-gate-pairing (`bc-29dcbc73-fe23-5316-b5b7-e2378d33c96c`).
 - D15 not-found → `list` in flight.
-- D16 auth echo/doctor/available dispatched.
-- D17 `INIT_EXAMPLES` compact JSON waits for a free cloud VM.
+- D16 auth echo/doctor/available in flight.
+- D17 `INIT_EXAMPLES` compact JSON dispatched.
