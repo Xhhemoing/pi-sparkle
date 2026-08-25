@@ -107,15 +107,15 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 
 Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fable-next.md`): D25 `list` truncation/`--sort`, D26 argv dialect/`--help`, D27 `models list --json`. Ranked at `83beb1e`; D24 KEEP later on disjoint `auth.ts`.
 
-GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D26 **KEEP**, D27 **FIX**. First landings are on the implementer branches; do not merge D25/D27 until the riders below are on those branches.
+GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D26 **KEEP**, D27 **FIX**. D25 merged after GPT-d25-recheck KEEP.
 
 | Slot | Landing | Recheck |
 |---|---|---|
-| D25 | `origin/cursor/list-truncation-sort-0da8` `02ef2f4` — Date.parse + offset pins on `72a3b2e` | GPT-d25-recheck in flight; do not merge until KEEP. |
+| D25 | merged from `cursor/list-truncation-sort-0da8` `02ef2f4` | GPT-d25-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d25.md`. |
 | D26 | `origin/cursor/argv-help-dialect-0da8` `25742b4` — inject rider reverted; six-verb argv/`--help` only | GPT-d26-recheck in flight; do not merge until KEEP. |
 | D27 | `origin/cursor/models-list-json-0da8` `c83fc99` — discriminated `MODELS_LIST` | GPT-d27-recheck in flight; do not merge until KEEP. |
 
 ### Round 3 still running / next implementers
 
-- All three Round 6 riders are on their implementer branches. Independent GPT rechecks are in flight. Do not merge until KEEP.
+- D26 and D27 wait on independent GPT rechecks. D25 is merged.
 - Windows smoke and status-matrix still HOLD behind PR #12.
