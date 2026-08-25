@@ -12,9 +12,9 @@ R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配
 
 A 切片已合入：空枚举，未铸 S24-A-*。切片 `git diff 7acb666..HEAD` 为空。预算复核 67–84 µs/run（与 R23-A 66–78 同带）。本轮新增 residual input-face list-dimension 普查（N_op 5.89–6.03 ns/op；N_cl 29.80–31.38 ns/claim×3；W×O / Q×D 二次位点生产流量为零；CF 平坦）。R23-A G×E / R22-A 公开导出普查 / R21-A H 输入面 / R20-A openMinors 不补铸。基线 `7acb666` 空 diff 再确认。
 
-B 切片 = live 路由 10 文件。Live = R0。不要重开 S12-B-2 / S13-B-1（重开条件未触发）。R23-B batch arrangement 与 R22-B 标识符几何（G×T）/ R21-B public-prior 快照形状不补铸。**CALLB** / R23-I `.pi/` 可观测树 / **CKMIX** / **ORDX** / R23-A G×E 不要移植。天花板 R23-B：M=2 9.20–9.48 / M=10 17.64–18.52 ms/eval。基线 `94ed3d9` 预期空 diff。
+B 切片 = live 路由 10 文件。Live = R0。不要重开 S12-B-2 / S13-B-1（重开条件未触发）。R23-B batch arrangement 与 R22-B 标识符几何（G×T）/ R21-B public-prior 快照形状不补铸。R24-A list-dimension 普查 / **CALLB** / R23-I `.pi/` 可观测树 / **CKMIX** / **ORDX** / R23-A G×E 不要移植。天花板 R23-B：M=2 9.20–9.48 / M=10 17.64–18.52 ms/eval。基线 `94ed3d9` 预期空 diff。
 
-C 切片 = 离线路由 9 文件。必须站在 S1-C … S7-C。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ / TAILG / REJX / **FITQ** / **SCALEX** / **YMIX** / **SEEDX** / **ORDX**。**CALLB** / **CKMIX** / R23-I `.pi/` 可观测树 / R23-A G×E / R23-B batch arrangement 不要移植。生产中位 R23-C：660.7–665.4 ms；APC ceiling 14.6–16.0 < 35；sink=7.309。若落地：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ r24c。基线 `183df9b` 预期空 diff。本波派出。
+C 切片 = 离线路由 9 文件。必须站在 S1-C … S7-C。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ / TAILG / REJX / **FITQ** / **SCALEX** / **YMIX** / **SEEDX** / **ORDX**。R24-A list-dimension 普查 / **CALLB** / **CKMIX** / R23-I `.pi/` 可观测树 / R23-A G×E / R23-B batch arrangement 不要移植。生产中位 R23-C：660.7–665.4 ms；APC ceiling 14.6–16.0 < 35；sink=7.309。若落地：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ r24c。基线 `183df9b` 预期空 diff。
 
 D 切片 = `src/adaptation/` 14 文件。不要重开 S9-D-4 / S12-D-1。R23-D 两相 P-dose 与 R22-D 公开导出流普查 / R21-D 状态增长方向不补铸。R24-A list-dimension 普查 / **CALLB** / **CKMIX** / **ORDX** / R23-A G×E / R23-B batch arrangement 不要移植。eval 地板 R23-D：3.39–3.74 ms。基线 `82bef36` 预期空 diff。本波派出。
 
