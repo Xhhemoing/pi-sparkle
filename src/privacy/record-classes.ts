@@ -270,6 +270,12 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     // performs for the default eval-datasets/<runId>/ path. A `--dir` export
     // is an external copy no delete can rediscover; adapt dataset warns at
     // export time rather than implying a cascade that cannot exist.
+    //
+    // `delete-files` is a claim about the derivative, not about the name it is
+    // filed under, so the default `<runId>` leaf must be a directory this
+    // state root owns. A leaf that is a symlink is refused at export and makes
+    // the delete fail closed (`EvalDatasetAliasError`) rather than unlink the
+    // alias and report the file as deleted; see eval-dataset-path.ts.
     deletionPropagatesTo: [],
     migrationVersion: 1,
     recovery: "re-export from the run event log; a stale manifest is replaced whole, never merged"
