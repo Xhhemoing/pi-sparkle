@@ -8,7 +8,7 @@ R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配
 
 分区与 Round 1 相同（R20-A … R20-J），报告写入 `docs/reports/sota-opt/round-20/`。
 
-状态：第 4 波 H/I/J 本波派出。A–G 已合入。Round 19 已收口 10/10。
+状态：完成 10/10。A–J 全部合入（空枚举）。无新落地。第 21 轮进行中，见 [round-21/PLAN.md](../round-21/PLAN.md)。
 
 A 切片已合入：空枚举，未铸 S20-A-*。切片 `git diff 7acb666..HEAD` 为空（二十遍零 diff）。预算复核 64–80 µs/run（12.9–16.1 µs/gate，与 R19-A 66–75 同带略宽）。本轮新增 resident-state 基数 M（`gate.openMinors` 斜率 34.4–43.2 ns/minor；10 ms 越线 M≈46k–58k；生产流量为零）与多轮驻留链面（`window.previous` 3311–3475 ns；100 轮积分 328–346 µs）。R19-A 重投递 / `wait_user` 与 R18-A skip-path / 拒绝终点不补铸。基线 `7acb666` 空 diff 再确认。
 
@@ -24,8 +24,8 @@ F 切片已合入：空枚举，未铸 S20-F-*。切片 `git diff 519101f..HEAD`
 
 G 切片已合入：空枚举，未铸 S20-G-*（连续第九次）。切片 `git diff 4efee23..HEAD` 为空。计算顶复核 0.287–0.294 ms vs I/O 91.3–99.9 ms。digest `06cbcf92c098c8f0` 第十一次逐位相同。本轮新增 **XPROC**（跨进程干涉；同 inode 锤击税 +21.8~+167.9 µs/append 生产占空比为零；155,746 次 pause 轮询 0 malformed；车队 F=8 吞吐单调）。禁止去 fsync / 完整性再哈希。**NAMESHAPE** / BYTESHAPE / 存储后端 / 拒绝路径 / SYSCENSUS / digest 轴不补铸。基线 `4efee23` 空 diff 再确认。
 
-H 切片 = 21 文件：`src/evaluation/` **8**（不是 9）+ `src/requirement/` 7 + `src/review/` 4 + `src/rubric/` 2。S5-H-1 必须保留。不要重开 S1-H-* … S9-H-2。R10-H…R19-H 空枚举。热层默认 R19-H：9.53–10.39 µs/run。R19-H 执行史剂量/平稳性普查不补铸。R18-H 休眠分支普查与 R17-H fail-closed 拒绝路径不补铸。PATH_RE 回溯重开仅当 objective 出现程序化/对抗来源，或现实载荷出现 ≥~3.2K 字符无斜杠 `[\w.-]` 段。基线 `fd437a9` 预期空 diff。本波派出。
+H 切片已合入：空枚举，未铸 S20-H-*。切片 `git diff fd437a9..HEAD` 为空（二十遍零 diff）。热层默认复核 9.24–9.36 µs/run（与 R19-H 9.53–10.39 邻接下缘）。S5-H-1 字节级维持。本轮新增环境进程态压力普查（堆剂量 p50 平坦 6.69–6.94 µs；常驻模块图 p50 比恰 1.00；属引擎一次-per-process）。R19-H 执行史剂量/平稳性与 R18-H 休眠分支不补铸。基线 `fd437a9` 空 diff 再确认。
 
-I 切片 = 25 文件：`src/cli/` 13 + `src/pi-adapter/` 9 + `src/config/` 2 + `src/telemetry/` 1。必须站在已落地 S1-I / S4-I / S5-I-1 / S7-I-1。S4-I 淘汰项是 S4-I-2..5（无 S4-I-1）。S8-I-1 两臂文件级 blocked，不要重开。R9-I…R19-I 十一连空。R19-I 配置输入基数（E×P×K；10 ms 越线 E≈130–160）不补铸。R18-I children-spec 基数轴不补铸。R17-I fail-closed 拒绝路径不补铸。若落地代码：重跑 r4i/r5i/r7i（68 / 119 / 80）+ 新 r20i 仿真。基线 `8dee7fb` 预期空 diff。本波派出。
+I 切片已合入：空枚举，未铸 S20-I-*（十二连空）。切片 `git diff 8dee7fb..HEAD` 为空（连续第十三轮字节不变）。custom−builtin 复核 children +46.5/+24.0、track +48.8/+24.1 ms。S8-I-1 重开条件仍未满足。本轮新增累积遥测态轴（`runtime/invocations.jsonl` 基数 N；N=20k +54.7/+58.2 ms；10 ms 越线 N*≈2300–2700；缓解均落既有栅栏）。R19-I E×P×K 与 R18-I children-spec 不补铸。基线 `8dee7fb` 空 diff 再确认。
 
-J 切片 = 29 文件：`src/cluster/` 3 + `src/privacy/` 3 + `src/preferences/` 7 + `src/episode/` 5 + `src/persist/` 2 + `src/track/` 4 + `src/context/` 2 + `src/feedback/` 3。必须站在已落地 J1。S5-J-3 / S6-J-1 / S8-J-2 / J1 钉死。禁止去 fsync。R11-J…R19-J 空枚举。R19-J 重投递/重复剂量 + 输入次序置换不补铸。R18-J skip-path / 命令组合不补铸。R18-G BYTESHAPE / R19-G **NAMESHAPE** / R20-G **XPROC** 不要移植到 J。若落地代码：重跑 J1 仿真（2468）+ 新 r20j 仿真。基线 `fb41417` 预期空 diff。本波派出。
+J 切片已合入：空枚举，未铸 S20-J-*。切片 `git diff fb41417..HEAD` 为空（J1 以来十九遍零后续代码）。I/O 地板复核 save 125.0–226.7 / 420.2–571.8 µs；jsonl 59.4–73.2 / 228.7–446.8 µs；级联 636.4–763.5 / 267.0–371.5 µs；index 40.4–41.1 µs；plan 1.03–1.10 / 2.51–2.68 µs（I/O 支配第二十次成立）。J1 仿真 2468 项绿。本轮新增输入类组成剂量面（cascade 命中比 / tombstone 密度 / redaction 脏比 / episode 事件类混合；可测悬崖均属既有契约或零生产调用方）。S5-J-3 / S6-J-1 / S8-J-2 / J1 原样。R19-J 重投递/次序与 R18-J skip-path 不补铸。基线 `fb41417` 空 diff 再确认。

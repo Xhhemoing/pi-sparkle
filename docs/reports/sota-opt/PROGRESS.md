@@ -34,7 +34,8 @@
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
-| 20 | 第 3–4 波进行中 | 7 / 10（A–G 已合入；H/I/J 本波派出） | claude-fable-5-thinking-xhigh | [round-20/PLAN.md](./round-20/PLAN.md) |
+| 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
+| 21 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
 
 ### Round 1 波次
 
@@ -214,7 +215,13 @@
 | 1 | R20-A 跟踪门控、R20-B live 路由、R20-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R20-D 自优化、R20-E 学习、R20-F 实验 | D/E/F 完成已合入 |
 | 3 | R20-G 运行时/图 | G 完成已合入 |
-| 4 | R20-H 评价/需求、R20-I CLI/适配器、R20-J cluster/privacy | H/I/J 本波派出 |
+| 4 | R20-H 评价/需求、R20-I CLI/适配器、R20-J cluster/privacy | H/I/J 完成已合入 |
+
+### Round 21 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R21-A 跟踪门控、R21-B live 路由、R21-C 离线路由 | A/B/C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -418,9 +425,12 @@
 | R20-E | `cursor/r20-e-learning-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-E.md`）。无新排除 ID；SLICE-CPU 复核 17.7–19.3 / 种子 18.7–18.9 µs/run；bandit 多进程并发面归档 |
 | R20-F | `cursor/r20-f-experiments-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-F.md`）。无新排除 ID；全实验锚点复核 117.5–129.1 ms；outcome 流组成轴归档 |
 | R20-G | `cursor/r20-g-runtime-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-G.md`）。无新排除 ID；计算顶复核 0.287–0.294 vs I/O 91.3–99.9 ms；XPROC 不铸 ID；digest 第十一次逐位相同 |
-| R20-H | `cursor/r20-h-eval-twentieth-pass-83a1` | 已派出 |
-| R20-I | `cursor/r20-i-cli-twentieth-pass-83a1` | 已派出 |
-| R20-J | `cursor/r20-j-persist-twentieth-pass-83a1` | 已派出 |
+| R20-H | `cursor/r20-h-eval-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-H.md`）。无新排除 ID；热层默认复核 9.24–9.36 µs/run；环境进程态压力普查归档 |
+| R20-I | `cursor/r20-i-cli-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-I.md`）。无新排除 ID；custom−builtin 复核 +46.5/+24.0 / +48.8/+24.1 ms；十二连空；累积遥测态 N 轴归档 |
+| R20-J | `cursor/r20-j-persist-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-J.md`）。无新排除 ID；I/O 地板复核；输入类组成剂量面归档；切片关闭 |
+| R21-A | `cursor/r21-a-tracking-twenty-first-pass-83a1` | 已派出 |
+| R21-B | `cursor/r21-b-live-routing-twenty-first-pass-83a1` | 已派出 |
+| R21-C | `cursor/r21-c-offline-routing-twenty-first-pass-83a1` | 已派出 |
 
 ## 合并策略
 
