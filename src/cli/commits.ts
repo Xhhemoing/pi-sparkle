@@ -212,7 +212,7 @@ function refuseUnknownNodes(io: CommitsIo, error: unknown, runId: RunId, stateRo
     stage: "validation",
     message: error instanceof Error ? error.message : String(error),
     next:
-      `pass --nodes ids from this run's flowchart; ` +
+      "pass --nodes ids from this run's flowchart; " +
       `pi-sparkle inspect --run ${runId} --state-root ${stateRoot} lists its nodes`,
     runId
   });
