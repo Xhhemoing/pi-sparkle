@@ -2,17 +2,17 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–16 已对各区做过十六遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S16-* 条目（含已合入的 S13-B-1 与 R12–R16 全部空枚举收口，含刚合入的 R16-A … R16-J）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
+Round 1–16 已对各区做过十六遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S16-* 条目（含已合入的 S13-B-1 与 R12–R16 全部空枚举收口，含刚合入的 R16-A … R16-J / R17-B）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R17-A … R17-J），报告写入 `docs/reports/sota-opt/round-17/`。
 
-状态：第 1 波 C 本波派出；A/B 运行中。Round 16 已收口 10/10。
+状态：第 2 波 D 本波派出；A/C 运行中。B 已合入（空枚举）。Round 16 已收口 10/10。
 
 A 切片 = 14 文件：`src/tracking/` 12 + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`。不要重开 S1-A-* … S11-A-2。R12-A…R16-A 空枚举、未铸 ID。预算复核 R16-A：66–76 µs/run（13.1–15.3 µs/gate）。R16-A payload 形态轴（L schema 封闭；V 越 10 ms 于 ≈21,447–25,331；S 越 10 ms 于 ≈1.32×10⁶ chars）不补铸。R15-A C/R/GC/JIT 与 R14-A E/max-codes 不补铸。分析不改 in-flight run；tracking 无命令权；H/score 不写路由 PASS/FAIL。基线 `7acb666` 预期空 diff。
 
-B 切片 = live 路由 10 文件：`src/routing/{r0,assign,assign-plan,policy,live-cascade,live-selection,analyze-task,primary-catalog,catalog-model}.ts` + `src/supervisor/model-router.ts`。不要重开 S12-B-2（条件式落地：N≥10³ 且调用方传 `prior`）/ S13-B-1（本体成本 ≥2 个量级）。R13-B…R16-B 空枚举或仅淘汰 ID。天花板复核 R16-B：M=2 8.8–9.4 / M=10 17.7–18.5 ms/eval。R16-B 剖析站点预算与语料基底轴不补铸。R15-B A/A 与引擎代轴不补铸。Live = R0。基线 `94ed3d9` 预期空 diff。
+B 切片已合入：空枚举，未铸 S17-B-*。天花板复核 M=2 9.1–11.4 / M=10 19.0–23.8 / replay 7.2–8.2 / 10× 104–128 ms/eval（粗格偏慢属 VM 噪声；细粒度 live face 48.1–48.9 µs 稳定）。S12-B-2 / S13-B-1 重开条件未触发。本轮新增拒绝/异常路径定价（单次抛出 11.6–12.1 µs；全拒批 21–25 µs）与逐任务尾部分布（max/p50 1.4–1.6×，tail-cap 9.3–10.9 ms）。R15-B / R16-B 轴不补铸。Live = R0。基线 `94ed3d9` 空 diff 再确认。
 
 C 切片 = 离线路由 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S1-C / S2-C / S3-C / S4-C / S5-C / S6-C / S7-C。不要另起平行 S7-C。R11-C…R16-C 空枚举、未铸 ID。生产中位 R16-C：672.8–686.3 ms/报告；落地线 ±35 ms。ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX 与 R13–R15 无名微观不补铸。若落地代码：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ 新 r17c 仿真。基线 `183df9b` 预期空 diff。
 
