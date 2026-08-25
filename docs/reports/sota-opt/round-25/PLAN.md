@@ -16,9 +16,9 @@ B 切片 = live 路由 10 文件。Live = R0。不要重开 S12-B-2 / S13-B-1（
 
 C 切片 = 离线路由 9 文件。必须站在 S1-C … S7-C。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ / TAILG / REJX / **FITQ** / **SCALEX** / **YMIX** / **SEEDX** / **ORDX** / **OCCX**。生产中位 R24-C：658.9–675.3 ms；APC ceiling 15.9–22.7 < 35；sink=7.309。若落地：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ r25c。基线 `183df9b` 预期空 diff。
 
-D 切片 = `src/adaptation/` 14 文件。不要重开 S9-D-4 / S12-D-1。R24-D approval-authority face 与 R23-D 两相 P-dose / R22-D 公开导出流普查不补铸。eval 地板 R24-D：3.55–3.68 ms。基线 `82bef36` 预期空 diff。
+D 切片 = `src/adaptation/` 14 文件。不要重开 S9-D-4 / S12-D-1。R24-D approval-authority face 与 R23-D 两相 P-dose / R22-D 公开导出流普查不补铸。R24-I adaptation-state coordinate（I 侧接线双装载事实，税在 D/E 辖区）不要作为 D ID 补铸。eval 地板 R24-D：3.55–3.68 ms。基线 `82bef36` 预期空 diff。
 
-E 切片 = `src/learning/` 10 文件。不要重开 S8-E-1 / S9-E-2 / S13-B-1。R24-E **JB** 与 R23-E GS / R22-E **NVG** 不补铸。SLICE-CPU R24-E 本轮构成 16.1–17.5 µs/run。基线 `adb20d7` 预期空 diff。
+E 切片 = `src/learning/` 10 文件。不要重开 S8-E-1 / S9-E-2 / S13-B-1。R24-E **JB** 与 R23-E GS / R22-E **NVG** 不补铸。R24-I adaptation-state coordinate 不要作为 E ID 补铸。SLICE-CPU R24-E 本轮构成 16.1–17.5 µs/run。基线 `adb20d7` 预期空 diff。
 
 F 切片 = `src/experiments/` 15 文件。**S7-F-1 不是 S6-F-5**。R24-F state serialization-boundary provenance face 与 R23-F plan count-field 联合面 / R22-F membership-topology 不补铸。锚点 R24-F：r5f 120.1–121.3 / r6f 126.9。若落地：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ r25f。基线 `519101f` 预期空 diff。
 
@@ -28,4 +28,4 @@ H 切片 = 21 文件（evaluation **8**）。S5-H-1 必须保留。R24-H operand
 
 I 切片 = 25 文件。S8-I-1 两臂文件级 blocked。R24-I adaptation-state coordinate 与 R23-I `.pi/` 可观测树 / R22-I run-record 回读 / R21-I flowchart 平面不补铸。custom−builtin R24-I：children +44.2/+26.5、track +48.0/+25.9、flowchart-flat64 +48.7/+16.3 ms。若落地：重跑 r4i/r5i/r7i（68 / 119 / 80）+ r25i。基线 `8dee7fb` 预期空 diff。
 
-J 切片 = 29 文件。J1 / S5-J-3 / S6-J-1 / S8-J-2 钉死。禁止去 fsync。R23-J **CALLB** 与 R22-J **SHAPEK** / R21-J **KFAN** 不补铸。file-lock retryMs 已由 D/E 定价，勿作为 J ID 补铸。若落地：重跑 J1（2468）+ r25j。基线 `fb41417` 预期空 diff。R24-J 若先合入，以其收口为准、勿补铸其轴。
+J 切片 = 29 文件。J1 / S5-J-3 / S6-J-1 / S8-J-2 钉死。禁止去 fsync。R23-J **CALLB** 与 R22-J **SHAPEK** / R21-J **KFAN** 不补铸。R24-I adaptation-state coordinate 不要移植。file-lock retryMs 已由 D/E 定价，勿作为 J ID 补铸。若落地：重跑 J1（2468）+ r25j。基线 `fb41417` 预期空 diff。R24-J 若先合入，以其收口为准、勿补铸其轴。
