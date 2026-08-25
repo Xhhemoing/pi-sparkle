@@ -149,25 +149,22 @@ Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 | D35 | merged `2afc5f8` from `cursor/auth-login-envelopes-0da8` `a8e80d5` | GPT-d35-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d35.md`. |
 | D36 | merged `367bd45` from `cursor/validate-path-retarget-0da8` `2e9d35e` | GPT-d36-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d36.md`. |
 
-### Round 10 (implementing)
+### Round 10 (closed)
 
-Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r10-fable-next.md`) at `acd2eb7`. Through-line: Rounds 8–9 made free verbs honest about *which flags and values* they were given; Round 10 makes them honest about *which tree they acted on*. GPT-r10-challenge: D37 **FIX**, D38 **FIX**, D39 **FIX** (ranking stands). Implementers apply the GPT-corrected contracts; do not merge until independent KEEP rechecks.
+Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r10-fable-next.md`) at `acd2eb7`. Through-line: Rounds 8–9 made free verbs honest about *which flags and values* they were given; Round 10 makes them honest about *which tree they acted on*. GPT-r10-challenge: D37 **FIX**, D38 **FIX**, D39 **FIX**. All three merged after independent KEEP rechecks.
 
-| Slot | Owns | Spec |
+| Slot | Landing | Recheck |
 |---|---|---|
-| D37 | `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + six test files | Rank 1 as corrected; landed `cursor/blank-state-root-preflight-0da8`; KEEP recheck in flight |
-| D38 | `src/cli/{init-examples,migrate-legacy}.ts` + three test files | Rank 2 as corrected; **KEEP** merged `39d4f33` |
-| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 3 as corrected; **KEEP** merged `f447946` |
+| D37 | merged `a777832` from `cursor/blank-state-root-preflight-0da8` `d3c5249` | GPT-d37-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d37.md`. |
+| D38 | merged `39d4f33` from `cursor/init-migrate-target-0da8` `1268ea7` | GPT-d38-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d38.md`. |
+| D39 | merged `f447946` from `cursor/episode-corrupt-log-0da8` `0f773df` | GPT-d39-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d39.md`. |
+
+### Round 11 (ranking in flight)
+
+Fable-r11-next ranks the next three file-disjoint operator batches after D37–D39 KEEP. Spec lands only as `.agent_workspace/loop5-r11-fable-next.md` on `cursor/loop5-r11-fable-next-0da8` — no `src/` edits.
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
-| Fable-r10-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-d3b26848-9908-5f90-b05f-0bd46a293238` |
-| GPT-r10-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | `bc-94104804-bdd4-594f-bd13-43082c0eb54b` |
-| D37 | Opus-d37-blank-root | claude-opus-5-thinking-high-fast | cloud | `bc-fb7045fe-765d-5c12-b910-f0781db04580` |
-| D38 | Opus-d38-init-migrate | claude-opus-5-thinking-high-fast | cloud | `bc-cdef25b0-6684-5232-a444-1c8ff7ffe823` |
-| D39 | Opus-d39-episode-logs | claude-opus-5-thinking-high-fast | cloud | `bc-36e1f0fe-b786-5a7d-8b54-438bfc9d26b4` |
-| GPT-d39-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-0a8b191c-1961-5dc2-a150-cf0824dab855` |
-| GPT-d38-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-cb2dfda9-ead6-5da0-bb4f-633d9a323311` |
-| GPT-d37-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-580977f5-2c97-597a-bcbf-d3755dac1c35` |
+| Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | (dispatching) |

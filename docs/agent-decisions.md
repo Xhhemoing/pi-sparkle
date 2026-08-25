@@ -302,9 +302,11 @@ Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable
 
 Fable-r10-next. When `--state-root` is present and `trim() === ""`, each free verb refuses as `parse-args` before any filesystem read or write (and before any `next` that interpolates the resolved root). Message: `invalid --state-root "${raw}": state root must be a non-empty directory path`. Next names the flag, never interpolates the raw value: `pass --state-root <dir> or omit it to use the default ~/.pi-sparkle`. `command` stays each module's existing dialect. Guard copied per module (D15; no shared helper in `errors.ts`). Nonblank relative roots stay accepted. Files: `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + `test/unit/cli/{list,models,auth,validate}.test.ts` + `test/integration/cli/{pause-inject,commits}.test.ts`. Spec: Rank 1 in `.agent_workspace/loop5-r10-fable-next.md`. Reopens D25/D31/D32/D34/D35/D36 files only for this new defect.
 
-**Status:** landed on `cursor/blank-state-root-preflight-0da8` (`d3c5249`). Report: `.agent_workspace/loop5-r10-opus-d37.md`. Merge gated on GPT-d37-recheck KEEP.
+**Status:** landed on `cursor/blank-state-root-preflight-0da8` (`d3c5249`). Report: `.agent_workspace/loop5-r10-opus-d37.md`.
 
 **GPT-r10-challenge: FIX** (keep the slot). Guard list/pause/inject/commits/models/auth as Fable specified, after each module's existing path-free argv checks. In `validate`, apply the guard **only on the flowchart branch** after the exactly-one and blank-spec checks; `--children` documents that `--state-root` is ignored — do not refuse a blank root there. Pause mixed case `pause --run banana --state-root ""` reports blank root first (does not fight D31: existing malformed-run pins use a nonblank temp root). Keep per-module copied guards; no helper in `errors.ts`/`main.ts`. Report: `.agent_workspace/loop5-r10-gpt-challenge.md`.
+
+**GPT-d37-recheck: KEEP.** Report: `.agent_workspace/loop5-r10-gpt-d37.md`. Merged to the integration branch as `a777832`.
 
 ## D38 — Round 10 rank 2: `init` and `migrate-legacy` target-directory contract
 
