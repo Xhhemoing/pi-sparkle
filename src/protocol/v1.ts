@@ -67,10 +67,24 @@ export interface MessageBase {
   to: AgentInstanceId | SupervisorAddress;
 }
 
+/**
+ * Per-child budget carried on a TASK_REQUEST. `run/child-coordinator.ts`
+ * honors the time/attempt fields directly and forwards the effective
+ * `maxCostUsd` ceiling to the selected executor.
+ */
 export interface ChildRunLimits {
   maxAttempts: number;
   timeoutMs: number;
   maxWallTimeMs: number;
+  /**
+   * Declared cost ceiling in USD. The child coordinator forwards the tighter
+   * of this value and the run-level ceiling on `AgentExecutionRequest`.
+   * `PiAgentExecutor` prices observed turn usage from the resolved model
+   * catalog and stops before another provider turn after the ceiling is
+   * reached. An executor that cannot price its own spend leaves the ceiling
+   * unenforced rather than inventing a dollar figure, so this remains a
+   * best-effort per-execution cap, not a cross-child run ledger.
+   */
   maxCostUsd?: number;
 }
 
@@ -105,9 +119,48 @@ export interface AgentQuestion extends MessageBase {
   approvalPlan?: ApprovalPlan;
 }
 
+/**
+ * One acceptance criterion's own outcome, inside the verdict that reported it.
+ *
+ * `id` is not correlated against the task's `TASK_REQUEST` here: this validator
+ * never sees the request, so correlation belongs to the tracking layer, where
+ * an id nobody asked for is ignored rather than fatal — a reporting slip must
+ * not destroy an otherwise sound result.
+ *
+ * A `FAILED` criterion must cite at least one evidence id, the same rule
+ * `tracking/types.ts` already enforces on a FAIL dimension. A criterion failure
+ * that gates a run has to be auditable back to something, and the alternative —
+ * accepting it unreferenced — is a verdict that vanishes between here and the
+ * gate, because `assessChildObservation` discards an unreferenced FAIL.
+ */
+export interface CriterionVerification {
+  id: string;
+  kind: VerificationKind;
+  evidenceIds: EvidenceId[];
+}
+
 export interface VerificationResult {
   kind: VerificationKind;
   evidenceIds: EvidenceId[];
+  /**
+   * Per-criterion outcomes, when the verifier reported any. Absent means the
+   * verifier spoke only about the task as a whole, and absence keeps exactly
+   * the meaning it had before this field existed — every log written without
+   * it still says what it always said.
+   *
+   * Optional rather than a `PROTOCOL_VERSION` bump on purpose: `messageError`
+   * does not reject unknown keys, so this is additive-compatible in both
+   * directions, while a bump would invalidate every persisted `CHILD_MESSAGE`
+   * payload on an append-only log. When present it must be non-empty — two
+   * spellings of "nothing" is how a channel rots — and its ids unique, because
+   * a repeated id is a protocol violation, not a last-wins merge.
+   *
+   * `UNOBSERVED` is expressible per criterion and means "the verifier did not
+   * look at this one", which is a different fact from omitting the criterion
+   * and a different fact again from `FAILED`. Only `FAILED` gates
+   * (`tracking/gates.ts::unmet-acceptance-criterion`).
+   */
+  criteria?: CriterionVerification[];
 }
 
 export interface FailureClassification {
@@ -194,13 +247,24 @@ function isBlocker(value: unknown): value is Blocker {
   return isOneOf(BLOCKER_KINDS, value.kind) && typeof value.description === "string" && value.description.trim() !== "";
 }
 
+function isCriterionVerification(value: unknown): value is CriterionVerification {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== "string" || value.id.trim() === "") return false;
+  if (!isOneOf(VERIFICATION_KINDS, value.kind)) return false;
+  if (!Array.isArray(value.evidenceIds) || !value.evidenceIds.every(isEvidenceId)) return false;
+  if (value.kind === "FAILED" && value.evidenceIds.length === 0) return false;
+  return true;
+}
+
 function isVerificationResult(value: unknown): value is VerificationResult {
   if (!isRecord(value)) return false;
-  return (
-    isOneOf(VERIFICATION_KINDS, value.kind) &&
-    Array.isArray(value.evidenceIds) &&
-    value.evidenceIds.every(isEvidenceId)
-  );
+  if (!isOneOf(VERIFICATION_KINDS, value.kind)) return false;
+  if (!Array.isArray(value.evidenceIds) || !value.evidenceIds.every(isEvidenceId)) return false;
+  if (value.criteria === undefined) return true;
+  if (!Array.isArray(value.criteria) || value.criteria.length === 0) return false;
+  if (!value.criteria.every(isCriterionVerification)) return false;
+  const ids = new Set(value.criteria.map((criterion: CriterionVerification) => criterion.id));
+  return ids.size === value.criteria.length;
 }
 
 function isFailureClassification(value: unknown): value is FailureClassification {
@@ -330,10 +394,17 @@ export function isTerminalMessage(message: AgentMessage): message is TaskResult 
   return message.type === "TASK_RESULT";
 }
 
-/** Rejects a second terminal message; an agent emits at most one TASK_RESULT. */
+/**
+ * Rejects a second terminal message; an agent emits at most one TASK_RESULT.
+ * This is the whole-transcript check, used where a batch of messages arrives
+ * at once. A live coordinator that sees messages one at a time enforces the
+ * same invariant incrementally (see `AttemptTranscript` in
+ * `run/child-coordinator.ts`) rather than re-scanning the prefix per message.
+ */
 export function assertAtMostOneTerminal(messages: readonly AgentMessage[]): void {
   let sawTerminal = false;
-  for (const message of messages) {
+  for (const value of messages) {
+    const message = validateAgentMessage(value);
     if (!isTerminalMessage(message)) continue;
     if (sawTerminal) {
       throw new DomainValidationError("Duplicate terminal TASK_RESULT message");

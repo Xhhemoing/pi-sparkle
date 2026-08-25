@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createEpisodeId, createEvidenceId, createProjectId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
-import { decideClosure } from "../../../src/episode/closure.js";
+import * as closure from "../../../src/episode/closure.js";
 
 function episode(overrides: Partial<ProjectEpisode> = {}): ProjectEpisode {
   return {
@@ -24,7 +24,7 @@ function episode(overrides: Partial<ProjectEpisode> = {}): ProjectEpisode {
 }
 
 test("a single unrelated evidence ref does not close every criterion", () => {
-  const decision = decideClosure(
+  const decision = closure.decideClosure(
     episode({ evidenceRefs: [createEvidenceId()] }),
     []
   );
@@ -34,10 +34,14 @@ test("a single unrelated evidence ref does not close every criterion", () => {
   assert.ok(decision.requiredEvidence.includes("ac-tests"));
 });
 
+test("closure policy does not duplicate the episode close mutation", () => {
+  assert.equal("closeEpisode" in closure, false);
+});
+
 test("each criterion must have validated passing evidence", () => {
   const privacyEvidence = createEvidenceId(() => "privacy-pass");
   const testsEvidence = createEvidenceId(() => "tests-pass");
-  const decision = decideClosure(
+  const decision = closure.decideClosure(
     episode({
       evidenceRefs: [privacyEvidence, testsEvidence],
       acceptanceEvidence: [

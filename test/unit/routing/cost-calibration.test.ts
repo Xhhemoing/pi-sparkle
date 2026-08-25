@@ -12,6 +12,7 @@ import {
 } from "../../../src/routing/primary-catalog.js";
 import {
   calibrateCatalogConfig,
+  calibrateCatalogFromState,
   calibrateCatalogRates,
   loadInvocationsFromStateRoot,
   withCalibratedRates
@@ -192,6 +193,54 @@ test("loadInvocationsFromStateRoot skips a missing file and malformed or incompl
     assert.equal(loaded.length, 2);
     assert.equal(loaded[0]?.tokensIn, 1000);
     assert.equal(loaded[1]?.tokensIn, undefined);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The loader documents "malformed or invalid rows are skipped" and feeds the
+ * calibrated router on `pi run`/`resume` startup, so a shape-drifted row has to
+ * be a skip. `isInvocation` used to throw on these, turning one bad row into a
+ * startup crash.
+ */
+test("loadInvocationsFromStateRoot skips shape-drifted rows instead of crashing startup", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-inv-log-bad-"));
+  try {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    const good = invocation();
+    const badRows = [
+      "null",
+      "42",
+      '"a row"',
+      "[]",
+      JSON.stringify({ ...good, config: null }),
+      JSON.stringify((() => {
+        const { config: _config, ...rest } = good;
+        return rest;
+      })()),
+      JSON.stringify({ ...good, config: "cheap" }),
+      JSON.stringify({ ...good, config: { ...good.config, modelVersion: 1 } }),
+      JSON.stringify({ ...good, pricing: null }),
+      JSON.stringify({ ...good, pricing: 7 })
+    ];
+    await writeFile(
+      join(stateRoot, "runtime", "invocations.jsonl"),
+      `${[...badRows, JSON.stringify(good)].join("\n")}\n`,
+      "utf8"
+    );
+
+    const loaded = await loadInvocationsFromStateRoot(stateRoot);
+    assert.equal(loaded.length, 1, "only the well-formed row survives");
+    assert.equal(loaded[0]?.config.modelVersion, "cheap-v1");
+
+    // A bad row ahead of a good one must not stop the scan, and calibration
+    // over the surviving rows still runs.
+    const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+    assert.equal(
+      (await calibrateCatalogFromState(catalog, stateRoot)).models.length,
+      catalog.models.length
+    );
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

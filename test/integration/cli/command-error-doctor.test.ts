@@ -1,0 +1,445 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { commandFailureNext, main, type CliIo } from "../../../src/cli/main.js";
+import { errorCodeOf, parseCliErrorJson } from "../../../src/cli/errors.js";
+import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
+import { createEventId, createRunId, type RunId } from "../../../src/domain/ids.js";
+import {
+  BANDIT_STATE_UNREADABLE_CODE,
+  BanditStateUnreadableError,
+  projectBanditPath
+} from "../../../src/learning/bandit-store.js";
+import { stableProjectKey } from "../../../src/learning/learned-routing.js";
+import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import {
+  PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+  PreferenceSnapshotUnreadableError
+} from "../../../src/preferences/store.js";
+import {
+  RUN_RECORDS_SURVIVED_CODE,
+  verifyRunRecordsRemoved
+} from "../../../src/privacy/deletion.js";
+import {
+  CATALOG_OBSERVED_CORRUPT_CODE,
+  CatalogObservedCorruptError
+} from "../../../src/routing/catalog-observed.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
+import { makeEvent, makeRun } from "../../helpers/event-factory.js";
+
+/**
+ * The last hop from a refused command to the surface that answers it.
+ *
+ * Two refusals are deliberate and unfixable by retrying: a cooperative lock
+ * this CLI never steals (`LOCK_TIMEOUT`) and a `delete --run` that could not
+ * prove the records are gone (`RUN_RECORDS_SURVIVED`). `pi-sparkle doctor`
+ * already inventories exactly what an operator needs for both — `locks[]`
+ * with per-entry remediation and `runStates[]` with inspect/resume/delete
+ * guidance — so the error surface names it.
+ *
+ * Routing is keyed on the frozen error codes only. The "same message, no
+ * code" case below is the negative control: a message-matching implementation
+ * would route it, and this one must not.
+ */
+
+function capture(): { io: CliIo; out: string[]; err: string[] } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
+    out,
+    err
+  };
+}
+
+async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise<void> {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-error-doctor-"));
+  try {
+    await run(stateRoot);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+}
+
+function restoreEnv(name: string, previous: string | undefined): void {
+  if (previous === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = previous;
+  }
+}
+
+let sequence = 0;
+const nextId = (): string => `error-doctor-${++sequence}`;
+
+/** A run log doctor's `runStates` inventory reports as a crash candidate. */
+async function seedRunningRun(stateRoot: string, occurredAt: string): Promise<RunId> {
+  const runId = createRunId(nextId);
+  const store = new EventStore(stateRoot, runId);
+  await store.append(
+    makeEvent(
+      "RUN_CREATED",
+      { run: { ...makeRun(), id: runId } },
+      { id: createEventId(nextId), runId, occurredAt }
+    )
+  );
+  await store.append(
+    makeEvent("RUN_STARTED", {}, { id: createEventId(nextId), runId, occurredAt })
+  );
+  return runId;
+}
+
+/** A real `FileLockTimeoutError`, produced by a real contended acquisition. */
+async function lockTimeout(lockPath: string): Promise<unknown> {
+  return withExclusiveFileLock(lockPath, async () =>
+    withExclusiveFileLock(lockPath, async () => undefined, { timeoutMs: 40, retryMs: 5 }).then(
+      () => assert.fail("the nested acquisition must time out"),
+      (error: unknown) => error
+    )
+  );
+}
+
+/** A real `RunRecordsSurvivedError`, produced by the delete's own verifier. */
+async function recordsSurvived(stateRoot: string, runId: RunId): Promise<unknown> {
+  return verifyRunRecordsRemoved(stateRoot, runId).then(
+    () => assert.fail("a run directory that is still on disk must refuse"),
+    (error: unknown) => error
+  );
+}
+
+test("a lock timeout routes the operator to doctor's locks inventory", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(nextId);
+    const error = await lockTimeout(runLockPath(stateRoot, runId));
+    assert.equal((error as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+
+    const next = commandFailureNext(error, ["--run", runId, "--state-root", stateRoot]);
+    assert.ok(
+      next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`),
+      `the remedy must name the doctor command for this state root: ${next}`
+    );
+    assert.match(next, /locks\[\]/, "the remedy must name the field that answers it");
+    assert.match(next, /never steals/, "the no-steal posture is why retrying does not help");
+  });
+});
+
+test("a run delete that cannot prove removal routes to runStates and locks", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = await seedRunningRun(stateRoot, "2026-08-24T17:59:00.000Z");
+    const error = await recordsSurvived(stateRoot, runId);
+    assert.equal((error as { code?: unknown }).code, RUN_RECORDS_SURVIVED_CODE);
+
+    const next = commandFailureNext(error, ["--run", runId, "--state-root", stateRoot]);
+    assert.ok(next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`), next);
+    assert.match(next, /runStates\[\]/);
+    assert.match(next, /locks\[\]/);
+
+    // The named surface answers: doctor lists this run as a live candidate
+    // with the inspect/resume/delete guidance the operator needs next.
+    const doctor = capture();
+    // Exit code is host-dependent here (the `node` check reads the real
+    // runtime version), and irrelevant to the routing: the report is stdout.
+    await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+    const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+    const entry = report.runStates.entries.find((candidate) => candidate.runId === runId);
+    assert.ok(entry, "doctor must inventory the run the delete refused to claim was gone");
+    assert.equal(entry.status, "RUNNING");
+    assert.match(entry.remediation, new RegExp(`delete --run ${runId}`));
+  });
+});
+
+test("the remedy omits --state-root only when the failing command did too", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const error = await lockTimeout(runLockPath(stateRoot, createRunId(nextId)));
+
+    assert.ok(commandFailureNext(error, []).includes("run pi-sparkle doctor --json and"));
+    assert.equal(
+      commandFailureNext(error, ["--run", "run_x"]).includes("--state-root"),
+      false,
+      "doctor must not be told to inspect a state root the operator never named"
+    );
+    // Both spellings the CLI accepts reach the same remedy.
+    assert.equal(
+      commandFailureNext(error, [`--state-root=${stateRoot}`]),
+      commandFailureNext(error, ["--state-root", stateRoot])
+    );
+    // A flag with no value must not swallow the next flag as a path.
+    assert.equal(
+      commandFailureNext(error, ["--state-root", "--json"]).includes("--state-root"),
+      false
+    );
+  });
+});
+
+test("routing is code-discriminated: the message is never matched", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const real = await lockTimeout(runLockPath(stateRoot, createRunId(nextId)));
+    const message = (real as Error).message;
+    assert.match(message, /^timed out waiting for lock at /, "the pinned message is unchanged");
+
+    // Negative control: the same message, no code. Message-matching routes
+    // this; code-discrimination must not.
+    const impostor = new Error(message);
+    assert.match(commandFailureNext(impostor, ["--state-root", stateRoot]), /fix the reported error/);
+
+    // The mirror case: the code with a message that says nothing at all.
+    const opaque = Object.assign(new Error("?"), { code: LOCK_TIMEOUT_CODE });
+    assert.match(commandFailureNext(opaque, ["--state-root", stateRoot]), /locks\[\]/);
+
+    // A wrapper must not drop the routing on the way out.
+    assert.match(
+      commandFailureNext(new Error("delete failed", { cause: real }), []),
+      /locks\[\]/
+    );
+  });
+});
+
+test("an unrouted failure keeps the generic next line", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const io = capture();
+    // A malformed run id: a typed failure with no code, and no doctor
+    // inventory that answers it.
+    const code = await main(["delete", "--run", "nope", "--state-root", stateRoot], io.io);
+    assert.equal(code, 1);
+    const parsed = parseCliErrorJson(io.err.join(""));
+    assert.equal(
+      parsed?.next,
+      "fix the reported error, then retry; use pi-sparkle doctor for preflight"
+    );
+  });
+});
+
+/**
+ * The adaptation plane's three fail-closed reads route to `learnedState[]`.
+ *
+ * Each refuses rather than reading damaged bytes as "nothing learned yet",
+ * and none of them is fixed by retrying. What separates them from the two run
+ * -plane routes is that the remedy is not the same for all three: bandit
+ * state and the preference snapshot are *learned* — no log replays them, so
+ * the move is repair-or-move-aside-and-relearn — while the observed catalog
+ * is *derived* and is simply rebuilt. Doctor's inventory draws that line per
+ * entry, so each `next:` names the half its own plane needs.
+ */
+const GENERIC_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
+
+test("the adaptation plane's fail-closed codes route to doctor's learnedState inventory", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const errors = [
+      new BanditStateUnreadableError(join(stateRoot, "bandit.json"), "not valid JSON"),
+      new PreferenceSnapshotUnreadableError(join(stateRoot, "preferences.json"), "not valid JSON"),
+      new CatalogObservedCorruptError(join(stateRoot, "catalog-observed.json"))
+    ];
+    assert.deepEqual(
+      errors.map((error) => error.code),
+      [
+        BANDIT_STATE_UNREADABLE_CODE,
+        PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+        CATALOG_OBSERVED_CORRUPT_CODE
+      ]
+    );
+
+    for (const error of errors) {
+      const next = commandFailureNext(error, ["--state-root", stateRoot]);
+      assert.ok(
+        next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`),
+        `${error.code} must name the doctor command for this state root: ${next}`
+      );
+      assert.match(next, /learnedState\[\]/, "the remedy must name the field that answers it");
+    }
+
+    // Learned and derived do not get the same advice — the distinction is the
+    // reason these are three entries and not one.
+    const [bandit, preferences, catalog] = errors.map((error) =>
+      commandFailureNext(error, ["--state-root", stateRoot])
+    );
+    assert.match(bandit ?? "", /relearn this project from zero/);
+    assert.match(preferences ?? "", /start from an empty store/);
+    assert.match(catalog ?? "", /rebuild from runtime\/invocations\.jsonl/);
+    assert.match(catalog ?? "", /derived-state remediation/);
+    assert.doesNotMatch(catalog ?? "", /relearn/, "derived state is never relearned");
+
+    // A wrapper must not drop these routes either.
+    assert.match(
+      commandFailureNext(new Error("adapt failed", { cause: errors[0] }), []),
+      /learnedState\[\]/
+    );
+    assert.equal(errorCodeOf(errors[0]), BANDIT_STATE_UNREADABLE_CODE);
+  });
+});
+
+/**
+ * End-to-end through the real producer: an enabled `adapt auto` sees a
+ * model-attributed Pi subagent run, attempts to update this project's bandit,
+ * and refuses the truncated bytes already stored at the stable project key.
+ */
+test("adapt auto over a damaged project bandit routes to an inventory that lists it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const projectRoot = join(stateRoot, "project");
+    const subagentRuns = join(projectRoot, ".pi", "subagents", "runs");
+    const projectKey = stableProjectKey(projectRoot);
+    const banditPath = projectBanditPath(stateRoot, projectKey);
+    const previousAutoAdapt = process.env.SPARKLE_AUTO_ADAPT;
+    process.env.SPARKLE_AUTO_ADAPT = "1";
+
+    try {
+      await mkdir(subagentRuns, { recursive: true });
+      await writeFile(join(projectRoot, "package.json"), "{}\n", "utf8");
+      await writeFile(
+        join(subagentRuns, "run-1.json"),
+        `${JSON.stringify({
+          id: "run-1",
+          status: "completed",
+          request: { agent: "implementer", cwd: projectRoot, task: "Implement parser" },
+          results: [
+            {
+              agent: "implementer",
+              exitCode: 0,
+              messages: [
+                {
+                  role: "assistant",
+                  model: "gpt-x",
+                  content: [{ type: "text", text: "implemented" }]
+                }
+              ]
+            }
+          ]
+        })}\n`,
+        "utf8"
+      );
+      await mkdir(dirname(banditPath), { recursive: true });
+      await writeFile(banditPath, "{ truncated", "utf8");
+
+      const io = capture();
+      assert.equal(
+        await main(
+          ["adapt", "auto", "--project", projectRoot, "--state-root", stateRoot],
+          io.io
+        ),
+        1
+      );
+      const parsed = parseCliErrorJson(io.err.join(""));
+      assert.equal(parsed?.command, "adapt");
+      assert.equal(parsed?.stage, "validation");
+      assert.ok(parsed?.message.includes(banditPath), parsed?.message);
+      assert.equal(
+        parsed?.next,
+        `this project's learned bandit state is damaged and no log can recompute it: run pi-sparkle doctor --json --state-root ${stateRoot} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to relearn this project from zero`
+      );
+
+      const doctor = capture();
+      await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+      const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+      const entry = report.learnedState.entries.find(
+        (candidate) => candidate.path === banditPath
+      );
+      assert.ok(entry, "doctor must inventory the bandit the adaptation write refused");
+      assert.equal(entry.kind, "bandit");
+      assert.equal(entry.stateClass, "learned");
+      assert.equal(entry.projectKey, projectKey);
+      assert.equal(entry.status, "damaged");
+      assert.match(entry.remediation, /move it aside and relearn from zero/);
+    } finally {
+      restoreEnv("SPARKLE_AUTO_ADAPT", previousAutoAdapt);
+    }
+  });
+});
+
+/**
+ * The route answers, end to end through the real CLI: a damaged
+ * `adaptation/preferences.json` makes `pref list` fail closed, its `next:`
+ * names doctor, and doctor's `learnedState[]` really does carry that file as
+ * damaged with the learned-state remediation attached.
+ */
+test("pref list over a damaged snapshot routes to an inventory that lists it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const snapshot = join(stateRoot, "adaptation", "preferences.json");
+    await mkdir(dirname(snapshot), { recursive: true });
+    await writeFile(snapshot, "{ truncated", "utf8");
+
+    const io = capture();
+    const doctor = capture();
+    assert.equal(await main(["pref", "list", "--state-root", stateRoot], io.io), 1);
+    const parsed = parseCliErrorJson(io.err.join(""));
+    assert.equal(parsed?.command, "pref");
+    assert.equal(parsed?.stage, "validation");
+    assert.match(parsed?.message ?? "", /preference snapshot at .* is unreadable/);
+    assert.notEqual(parsed?.next, GENERIC_NEXT);
+    assert.ok(parsed?.next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`));
+
+    await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+    const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+    const entry = report.learnedState.entries.find((candidate) => candidate.path === snapshot);
+    assert.ok(entry, "doctor must inventory the snapshot the pref read refused");
+    assert.equal(entry.status, "damaged");
+    assert.equal(entry.stateClass, "learned");
+    assert.match(entry.remediation, /move it aside/);
+  });
+});
+
+/**
+ * The negative control extends to the new routes: the frozen generic line is
+ * still what an untyped failure gets, and the two run-plane routes are
+ * unchanged by three neighbours arriving in the same table.
+ */
+test("adding routes did not move the generic line or the run-plane ones", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const impostor = new Error(
+      "bandit state at /tmp/bandit.json is unreadable (not valid JSON); repair the file"
+    );
+    assert.equal(commandFailureNext(impostor, ["--state-root", stateRoot]), GENERIC_NEXT);
+
+    const lock = await lockTimeout(runLockPath(stateRoot, createRunId(nextId)));
+    const next = commandFailureNext(lock, ["--state-root", stateRoot]);
+    assert.match(next, /locks\[\]/);
+    assert.doesNotMatch(next, /learnedState\[\]/);
+  });
+});
+
+/**
+ * End-to-end through the real CLI: `delete --run` against a lock held by
+ * someone else, on the default bound. `delete --lock-wait-ms` can now produce
+ * this refusal in milliseconds (`delete.test.ts` does), but this case pays
+ * `withExclusiveFileLock`'s 5s on purpose: what it witnesses is that the
+ * unflagged command an operator actually types still fails closed and still
+ * routes.
+ */
+test("delete --run refused by a held lock tells the operator to run doctor", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = await seedRunningRun(stateRoot, "2026-08-24T17:59:00.000Z");
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    const lockPath = runLockPath(stateRoot, runId);
+    const io = capture();
+    const doctor = capture();
+
+    await withExclusiveFileLock(lockPath, async () => {
+      assert.equal(await main(["delete", "--run", runId, "--state-root", stateRoot], io.io), 1);
+      await main(["doctor", "--json", "--state-root", stateRoot], doctor.io);
+    });
+
+    const text = io.err.join("");
+    // The existing surface is intact: the message still names the lock path.
+    assert.match(text, new RegExp(`^error: timed out waiting for lock at ${lockPath}$`, "m"));
+    assert.match(text, /^ {2}command: delete$/m);
+    assert.match(text, /^ {2}stage: validation$/m);
+    assert.match(text, /^ {2}next: .*pi-sparkle doctor --json --state-root /m);
+
+    const parsed = parseCliErrorJson(text);
+    assert.equal(parsed?.command, "delete");
+    assert.ok(parsed?.next.includes(`pi-sparkle doctor --json --state-root ${stateRoot}`));
+    assert.match(parsed.next, /locks\[\]/);
+    // Fail-closed: the refusal deleted nothing.
+    assert.equal(existsSync(runDir), true);
+
+    // The remedy answers: doctor's inventory names the lock the delete hit,
+    // with the remediation and the liveness advisory attached.
+    const report = JSON.parse(doctor.out.join("")) as DoctorJsonReport;
+    const entry = report.locks.entries.find((candidate) => candidate.path === lockPath);
+    assert.ok(entry, "doctor must inventory the lock the delete timed out on");
+    assert.equal(entry.pid, process.pid);
+    assert.match(entry.remediation, /never automatic|do not remove based on age alone/);
+    assert.match(report.locks.advisory, /doctor never steals or deletes locks/);
+  });
+});

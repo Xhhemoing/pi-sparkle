@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile  } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile  } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { parseTaskId, parseRunId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import {
   aggregateCatalogObserved,
   buildCatalogObservedFromStateRoot,
+  CATALOG_OBSERVED_CORRUPT_CODE,
+  CatalogObservedCorruptError,
   catalogObservedPath,
   loadCatalogObservedSnapshot,
   observedStatsForVersion,
@@ -240,6 +243,151 @@ test("buildCatalogObservedFromStateRoot reads invocations.jsonl and skips a miss
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
+});
+
+/** Large enough that a non-atomic writer would leave a reader mid-payload, not at a boundary. */
+function widePayload(marker: string, versions = 2_000): ReturnType<typeof aggregateCatalogObserved> {
+  return aggregateCatalogObserved(
+    Array.from({ length: versions }, (_unused, index) =>
+      invocation({
+        config: cheapConfig(`${marker}-v${index}`),
+        tokensIn: index,
+        tokensOut: index * 2,
+        latencyMs: index + 1
+      })
+    )
+  );
+}
+
+async function tempFiles(directory: string): Promise<string[]> {
+  return (await readdir(directory)).filter((entry) => entry.endsWith(".tmp")).toSorted();
+}
+
+async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise<void> {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-catalog-obs-torn-"));
+  try {
+    await run(stateRoot);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+}
+
+test("a reader beside concurrent persists sees whole snapshots, never a splice", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = catalogObservedPath(stateRoot);
+    const payloads = [widePayload("alpha"), widePayload("beta")];
+
+    let writing = true;
+    const observations: string[] = [];
+    let readerError: unknown;
+    const reader = (async () => {
+      while (writing) {
+        try {
+          observations.push(await readFile(path, "utf8"));
+        } catch (error: unknown) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          readerError = error;
+          return;
+        }
+      }
+    })();
+
+    try {
+      await Promise.all(payloads.map((snapshot) => persistCatalogObserved(stateRoot, snapshot)));
+    } finally {
+      writing = false;
+      await reader;
+    }
+
+    assert.equal(readerError, undefined);
+    assert.ok(observations.length > 0, "the concurrent reader never observed the snapshot");
+    for (const observed of observations) {
+      const parsed = JSON.parse(observed) as { versions: Record<string, unknown> };
+      assert.equal(Object.keys(parsed.versions).length, 2_000);
+    }
+    const loaded = await loadCatalogObservedSnapshot(stateRoot);
+    assert.equal(Object.keys(loaded.versions).length, 2_000);
+    assert.deepEqual(await tempFiles(dirname(path)), []);
+  });
+});
+
+test("a temp left by a crashed persist is neither adopted nor in the way of the next one", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = catalogObservedPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    const abandoned = `${path}.999999.crashed.tmp`;
+    await writeFile(abandoned, '{"versions": {"half-writ', "utf8");
+
+    await persistCatalogObserved(
+      stateRoot,
+      aggregateCatalogObserved([invocation({ config: cheapConfig("cheap-v1"), latencyMs: 7 })])
+    );
+
+    assert.equal((await loadCatalogObservedSnapshot(stateRoot)).versions["cheap-v1"]?.p50LatencyMs, 7);
+    assert.equal(await readFile(abandoned, "utf8"), '{"versions": {"half-writ');
+  });
+});
+
+test("an unreadable snapshot throws CatalogObservedCorruptError instead of a bare SyntaxError", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = catalogObservedPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    // The shape a truncate-then-write crash used to leave behind.
+    await writeFile(path, '{\n  "versions": {\n    "cheap-v1": {\n      "modelV', "utf8");
+
+    const error = await loadCatalogObservedSnapshot(stateRoot).then(
+      () => undefined,
+      (thrown: unknown) => thrown
+    );
+    assert.ok(error instanceof CatalogObservedCorruptError, `unexpected error ${String(error)}`);
+    assert.equal(error.code, CATALOG_OBSERVED_CORRUPT_CODE);
+    assert.equal(error.name, "CatalogObservedCorruptError");
+    assert.equal(error.path, path);
+    assert.ok(error instanceof DomainValidationError);
+    assert.ok(error.cause instanceof SyntaxError, "the JSON failure is attached as cause");
+    assert.match(error.message, /buildCatalogObservedFromStateRoot/);
+  });
+});
+
+test("an empty snapshot file is corruption, not an absence of observations", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = catalogObservedPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "", "utf8");
+    await assert.rejects(() => loadCatalogObservedSnapshot(stateRoot), {
+      code: CATALOG_OBSERVED_CORRUPT_CODE
+    });
+  });
+});
+
+test("the documented recovery works: rebuild from invocations.jsonl over a corrupt snapshot", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(
+      join(stateRoot, "runtime", "invocations.jsonl"),
+      `${JSON.stringify(invocation({ tokensIn: 11, tokensOut: 22, latencyMs: 33 }))}\n`,
+      "utf8"
+    );
+    await writeFile(catalogObservedPath(stateRoot), '{"versions": {"cheap', "utf8");
+
+    await persistCatalogObserved(stateRoot, await buildCatalogObservedFromStateRoot(stateRoot));
+
+    const loaded = await loadCatalogObservedSnapshot(stateRoot);
+    assert.equal(loaded.versions["cheap-v1"]?.p50TokensIn, 11);
+    assert.equal(loaded.versions["cheap-v1"]?.p50LatencyMs, 33);
+  });
+});
+
+test("JSON that parses but carries an unexpected shape still degrades to an empty snapshot", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = catalogObservedPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    // Version skew, not damage: a writer we do not recognise is tolerated, never thrown on.
+    for (const body of ["[]", "null", '{"versions": 3}', '{"schema": "v2"}']) {
+      await writeFile(path, body, "utf8");
+      assert.deepEqual((await loadCatalogObservedSnapshot(stateRoot)).versions, {}, body);
+    }
+  });
 });
 
 test("live assign, model-router, primary-catalog, and flowchart-run do not import catalog-observed", async () => {

@@ -11,6 +11,7 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxProvider,
+  Type,
   type Api,
   type AssistantMessageEventStream,
   type Context,
@@ -24,14 +25,27 @@ import type { ModelRef } from "../config/model-ref.js";
 import { tryParseModelRef } from "../config/model-ref.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
-import type { AgentInstanceId } from "../domain/ids.js";
-import { createInvocationId, createMessageId, type TaskId } from "../domain/ids.js";
+import {
+  createInvocationId,
+  createMessageId,
+  isArtifactId,
+  isEvidenceId,
+  type AgentInstanceId,
+  type ArtifactId,
+  type EvidenceId,
+  type TaskId
+} from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
-import { SUPERVISOR } from "../protocol/v1.js";
+import { SUPERVISOR, type TaskOutcome, type VerificationKind } from "../protocol/v1.js";
 import { hashInvocationResponse, recordInvocation } from "../telemetry/model-invocation.js";
 import type { InvocationCallOutcome, ModelInvocation } from "../telemetry/model-invocation.js";
 import { createClusterTools } from "./cluster-tools.js";
-import { CostGate, catalogPrices, type CostGateDisarmedReason, type CostGateLedger } from "./cost-gate.js";
+import {
+  CostGate,
+  catalogPrices,
+  type CostGateDisarmedReason,
+  type CostGateLedger
+} from "./cost-gate.js";
 import { AsyncEventQueue, SparkleKernel } from "./kernel.js";
 import {
   callOutcomeForFailure,
@@ -91,21 +105,16 @@ export interface PiExecutorOptions {
   maxCostUsd?: number;
   /**
    * Optional sink for what the spend ceiling did. Fires when a requested
-   * ceiling could not be enforced and when one stopped a run, so "we capped
-   * this" and "we could not price this" never look alike in a log.
+   * ceiling could not be enforced and when one stopped a run.
    */
   onCostGate?: (event: CostGateEvent) => void;
 }
 
-/**
- * What the spend ceiling did on one execution. There is no event for a run
- * with no ceiling: silence means nobody asked for one.
- */
+/** What the spend ceiling did on one execution. */
 export type CostGateEvent =
   | {
       readonly kind: "disarmed";
       readonly taskId: TaskId;
-      /** The ceiling as requested, including one rejected as unusable. */
       readonly maxCostUsd: number;
       readonly reason: CostGateDisarmedReason;
     }
@@ -123,9 +132,12 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         return { type: "TEXT_DELTA", text: event.assistantMessageEvent.delta };
       }
       if (event.assistantMessageEvent.type === "thinking_delta") {
-        // Only the size crosses the adapter boundary: the reasoning text stops
+        // Only the size crosses the adapter boundary: reasoning text stops
         // here so no downstream consumer can persist it.
-        return { type: "THINKING_DELTA", bytes: Buffer.byteLength(event.assistantMessageEvent.delta, "utf8") };
+        return {
+          type: "THINKING_DELTA",
+          bytes: Buffer.byteLength(event.assistantMessageEvent.delta, "utf8")
+        };
       }
       return undefined;
     }
@@ -176,9 +188,246 @@ function usageCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
+/**
+ * The tool through which a child states its own verdict. Named for the
+ * transcript: the `TOOL_STARTED`/`TOOL_FINISHED` pair under this name is what
+ * produced the `TASK_RESULT` between them.
+ */
+export const REPORT_TASK_RESULT_TOOL = "sparkle_report_task_result";
+
+/**
+ * Verdicts a child may state, for the task as a whole and for any one
+ * criterion. UNOBSERVED is deliberately absent from both: it is already what
+ * silence means — {@link PiAgentExecutor.finish} synthesizes it for a child
+ * that reports nothing, and omitting a criterion from the list says the same
+ * thing about that criterion. Protocol v1 can carry a per-criterion UNOBSERVED
+ * because a future verifier might want to be explicit about what it skipped;
+ * a child talking about its own work has no use for the distinction.
+ */
+const REPORTABLE_VERDICTS: readonly VerificationKind[] = ["PASSED", "FAILED"];
+
+/**
+ * Outcomes a child may claim. CANCELLED is excluded: cancellation is the
+ * parent's fact, observed here through the abort signal, so a child asserting
+ * it would replace an observation with a claim.
+ */
+const REPORTABLE_OUTCOMES: readonly TaskOutcome[] = ["SUCCESS", "PARTIAL", "FAILURE"];
+
+function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
+  return { content: [{ type: "text", text }], details: {} };
+}
+
+function describe(value: unknown): string {
+  return typeof value === "string" ? JSON.stringify(value) : String(value);
+}
+
+function idList<T extends string>(
+  field: string,
+  value: unknown,
+  isValid: (candidate: unknown) => candidate is T,
+  prefix: string
+): T[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new DomainValidationError(`${field} must be an array of ${prefix} ids`);
+  return value.map((candidate: unknown) => {
+    // A malformed reference is refused rather than dropped: silently shrinking
+    // the list would leave the verdict citing less than the child believes it
+    // cited, and a FAILED verdict with no surviving reference is not scored.
+    if (!isValid(candidate)) {
+      throw new DomainValidationError(`${field} entry ${describe(candidate)} is not a ${prefix} id`);
+    }
+    return candidate;
+  });
+}
+
+/**
+ * Per-criterion outcomes, refused as a whole rather than trimmed.
+ *
+ * The same rule as {@link idList}, one level up: a malformed entry means the
+ * child's statement is not the statement it thinks it is making, and a
+ * criterion list quietly missing its one FAILED entry is worse than no list.
+ * Omitting `criteria` says nothing about individual criteria; an empty array
+ * would be a second way to say that, so it is refused instead.
+ *
+ * Ids are not checked against the task's acceptance criteria: the executor's
+ * request carries the prompt, not the `TASK_REQUEST`, so there is nothing here
+ * to check against. The tracking layer ignores an id nobody asked for.
+ */
+function criterionList(
+  value: unknown
+): Array<{ id: string; kind: VerificationKind; evidenceIds: EvidenceId[] }> | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new DomainValidationError("criteria must be an array");
+  if (value.length === 0) {
+    throw new DomainValidationError(
+      "criteria must not be empty; omit it to say nothing about individual criteria"
+    );
+  }
+  const seen = new Set<string>();
+  return value.map((candidate: unknown, index: number) => {
+    const entry = candidate as { id?: unknown; verification?: unknown; evidenceIds?: unknown };
+    const id = typeof entry?.id === "string" ? entry.id.trim() : "";
+    if (id === "") {
+      throw new DomainValidationError(`criteria[${index}].id must be a non-empty string`);
+    }
+    if (seen.has(id)) {
+      throw new DomainValidationError(`criteria[${index}] repeats criterion ${describe(id)}`);
+    }
+    seen.add(id);
+    const kind = REPORTABLE_VERDICTS.find((verdict) => verdict === entry.verification);
+    if (kind === undefined) {
+      throw new DomainValidationError(
+        `criteria[${index}].verification must be one of ${REPORTABLE_VERDICTS.join(", ")}, got ${describe(entry.verification)}`
+      );
+    }
+    const evidenceIds = idList(`criteria[${index}].evidenceIds`, entry.evidenceIds, isEvidenceId, "evd_");
+    // Same reason the whole-task rule exists: an unreferenced FAILED criterion
+    // would block a run while naming nothing an operator could look at.
+    if (kind === "FAILED" && evidenceIds.length === 0) {
+      throw new DomainValidationError(
+        `criteria[${index}] reports FAILED and must cite at least one evidenceId`
+      );
+    }
+    return { id, kind, evidenceIds };
+  });
+}
+
+/**
+ * A child's own verdict channel, built per attempt from the leased request.
+ *
+ * Before this tool existed the adapter had no path to a `MESSAGE` at all —
+ * `translatePiEvent` maps pi's stream to text/tool/turn events only — so
+ * `finish` always synthesized `verification: { kind: "UNOBSERVED" }`, and
+ * `assessChildObservation` refuses UNOBSERVED. The tracking gate consequently
+ * had no live producer: its only scorable inputs came from the two fake
+ * executors. One tool call is the smallest thing that makes a real pi child's
+ * verdict a real observation.
+ *
+ * Message identity is stamped from the request, never taken from the model:
+ * the child coordinator refuses a message whose `from`/`runId`/`taskId` do not
+ * match the lease, and a child that could name them could impersonate a peer.
+ * The model supplies the verdict, its prose, and its references — nothing else.
+ *
+ * Exactly one verdict per attempt. A second call is refused at this boundary
+ * instead of being emitted, because the transcript rejects a duplicate
+ * terminal as a protocol violation and that would turn a model's slip into a
+ * failed task. The refusal text names the verdict already on the record. That
+ * is also why per-criterion outcomes ride the same call rather than arriving
+ * one at a time: the verifier speaks once, and the schema lets it say more in
+ * that one statement instead of more often.
+ */
+export function createTaskResultTool(
+  request: AgentExecutionRequest,
+  emit: (event: ExecutionEvent) => void
+): AgentTool<any> {
+  let reported: VerificationKind | undefined;
+  return {
+    name: REPORT_TASK_RESULT_TOOL,
+    label: "Sparkle Report Task Result",
+    description:
+      "Report this task's verdict, once, after you have checked the work. " +
+      "verification: PASSED or FAILED. summary: one line describing what you did. " +
+      "outcome (optional): SUCCESS, PARTIAL, or FAILURE. " +
+      "evidenceIds / artifactIds (optional): evd_ / art_ references the verdict rests on; " +
+      "a FAILED verdict must cite at least one evidenceId. " +
+      "criteria (optional): one entry per acceptance criterion you actually checked, " +
+      "each { id, verification: PASSED or FAILED, evidenceIds }; a FAILED criterion must cite " +
+      "at least one evidenceId, and reporting one blocks the run for review even if the task " +
+      "as a whole passed. Leave a criterion out if you did not check it — do not guess. " +
+      "Not calling this leaves the verdict unobserved, and an unobserved verdict is not scored.",
+    parameters: Type.Object({
+      verification: Type.String(),
+      summary: Type.String(),
+      outcome: Type.Optional(Type.String()),
+      evidenceIds: Type.Optional(Type.Array(Type.String())),
+      artifactIds: Type.Optional(Type.Array(Type.String())),
+      criteria: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            verification: Type.String(),
+            evidenceIds: Type.Optional(Type.Array(Type.String()))
+          })
+        )
+      )
+    }),
+    execute: async (_toolCallId: string, params: unknown) => {
+      const record = params as {
+        verification?: unknown;
+        summary?: unknown;
+        outcome?: unknown;
+        evidenceIds?: unknown;
+        artifactIds?: unknown;
+        criteria?: unknown;
+      };
+      if (reported !== undefined) {
+        throw new DomainValidationError(
+          `this task already reported ${reported}; a task carries exactly one verdict`
+        );
+      }
+      const kind = REPORTABLE_VERDICTS.find((candidate) => candidate === record.verification);
+      if (kind === undefined) {
+        throw new DomainValidationError(
+          `verification must be one of ${REPORTABLE_VERDICTS.join(", ")}, got ${describe(record.verification)}`
+        );
+      }
+      const summary = typeof record.summary === "string" ? record.summary.trim() : "";
+      if (summary === "") {
+        throw new DomainValidationError("summary must be a non-empty string");
+      }
+      const outcome =
+        record.outcome === undefined
+          ? kind === "PASSED"
+            ? "SUCCESS"
+            : "FAILURE"
+          : REPORTABLE_OUTCOMES.find((candidate) => candidate === record.outcome);
+      if (outcome === undefined) {
+        throw new DomainValidationError(
+          `outcome must be one of ${REPORTABLE_OUTCOMES.join(", ")}, got ${describe(record.outcome)}`
+        );
+      }
+      const evidenceIds: EvidenceId[] = idList("evidenceIds", record.evidenceIds, isEvidenceId, "evd_");
+      const artifactIds: ArtifactId[] = idList("artifactIds", record.artifactIds, isArtifactId, "art_");
+      // An unreferenced FAILED verdict does not gate: `assessChildObservation`
+      // discards an assessment whose FAIL dimensions carry no evidence refs, so
+      // the verdict would vanish between here and the gate. Refusing says why.
+      if (kind === "FAILED" && evidenceIds.length === 0) {
+        throw new DomainValidationError("a FAILED verdict must cite at least one evidenceId");
+      }
+      const criteria = criterionList(record.criteria);
+      emit({
+        type: "MESSAGE",
+        message: {
+          protocolVersion: 1,
+          id: createMessageId(),
+          occurredAt: nowIso(),
+          runId: request.runId,
+          taskId: request.taskId,
+          from: request.agentInstanceId,
+          to: SUPERVISOR,
+          type: "TASK_RESULT",
+          outcome,
+          summary,
+          artifactIds,
+          evidenceIds,
+          verification: {
+            kind,
+            evidenceIds: [...evidenceIds],
+            ...(criteria !== undefined ? { criteria } : {})
+          }
+        }
+      });
+      reported = kind;
+      return textResult(`recorded ${kind} for ${request.taskId}`);
+    }
+  };
+}
+
 /** One agent run: the events it produced and how it ended. */
 interface AttemptRun {
   readonly events: readonly ExecutionEvent[];
+  /** Leading agent events already yielded before a task verdict was buffered. */
+  readonly streamedCount: number;
   readonly failed: boolean;
   readonly error: unknown;
   readonly errorMessage: string | undefined;
@@ -196,9 +445,7 @@ export class PiAgentExecutor implements AgentExecutor {
   private readonly faux?: FauxProviderHandle;
   /**
    * Kernels for attempts currently in flight, keyed by agent instance. One
-   * executor is shared by every child task a run leases, so this is a map
-   * rather than a single reference; `steerText` refuses to guess when more
-   * than one agent is live.
+   * executor can serve concurrent child tasks; steering refuses ambiguity.
    */
   private readonly liveKernels = new Map<AgentInstanceId, SparkleKernel>();
 
@@ -249,14 +496,10 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /**
-   * Run the agent once, yielding each translated event as the agent emits it
-   * rather than after the run settles: a supervisor watching a long turn needs
-   * the tokens while they are still worth watching. The run itself is started
-   * but not awaited; the queue below is what makes it observable in flight.
-   *
-   * Failures are reported, not thrown: the agent loop folds stream errors into
-   * `state.errorMessage` and only surfaces an error object when the prompt call
-   * itself rejects, so both are captured in the returned `AttemptRun`.
+   * Run one fresh Pi agent attempt. Agent events are yielded live until the
+   * child reports a task verdict. That verdict and the events after it stay
+   * buffered so a failed attempt's verdict cannot leak into a retry, while
+   * tool-start events remain observable in time for steering.
    */
   private async *runAttempt(
     model: Model<Api>,
@@ -265,7 +508,16 @@ export class PiAgentExecutor implements AgentExecutor {
     signal: AbortSignal
   ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
+    const queue = new AsyncEventQueue<ExecutionEvent>();
+    let streamPrefixOpen = true;
+    let streamedCount = 0;
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
+    // Built per attempt: a verdict from an attempt that is retried must not
+    // survive into the final transcript.
+    const reportTaskResult = createTaskResultTool(request, (event) => {
+      streamPrefixOpen = false;
+      events.push(event);
+    });
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
     const kernel = SparkleKernel.fromFactory(
       () =>
@@ -274,7 +526,7 @@ export class PiAgentExecutor implements AgentExecutor {
             systemPrompt: this.options.systemPrompt ?? "",
             model,
             thinkingLevel,
-            tools: [...(this.options.tools ?? []), ...clusterTools]
+            tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult]
           },
           streamFn: (
             streamModel: Model<Api>,
@@ -288,37 +540,25 @@ export class PiAgentExecutor implements AgentExecutor {
                 : {})
             })
         }),
-      // Only installed when the gate can actually price this model; an
-      // unpriced run must not carry a predicate that can never fire.
-      //
-      // Ordering to know about: the loop consults this hook *before* it drains
-      // the steering queue, so text steered during the turn that crosses the
-      // ceiling is dropped with the rest of the attempt rather than delivered.
-      // Reordering it would need a Pi fork. What makes the loss auditable is
-      // the pair of records already written: a STEER_INJECTED event, and a
-      // TASK_RESULT saying the run stopped at the cost ceiling.
       gate.armed ? { stopAfterTurn: () => gate.requestStopIfExceeded() } : {}
     );
 
-    // Live for exactly this attempt. A retry builds a fresh Agent, so anything
-    // steered into the kernel below is gone the moment the attempt is retried.
     this.liveKernels.set(request.agentInstanceId, kernel);
-
-    const queue = new AsyncEventQueue<ExecutionEvent>();
     let thrown: unknown;
     let runFailed = false;
     const onAbort = () => kernel.abort();
     signal.addEventListener("abort", onAbort, { once: true });
+    // addEventListener does not fire for a signal that was already aborted.
+    if (signal.aborted) kernel.abort();
     const unsubscribe = kernel.subscribe((event) => {
-      // The kernel hands events back opaquely so its callers stay Pi-free;
-      // inside the adapter this is where the Pi shape is re-attached.
       const translated = translatePiEvent(event as AgentEvent);
       if (translated === undefined) return;
-      // Priced here rather than off the drained queue: the loop consults the
-      // stop predicate immediately after it emits turn_end, and the consumer
-      // of that queue may not have been scheduled yet.
       if (translated.type === "TURN_FINISHED") gate.recordTurn(translated.usage);
-      queue.push(translated);
+      events.push(translated);
+      if (streamPrefixOpen) {
+        streamedCount += 1;
+        queue.push(translated);
+      }
     });
     const running = (async () => {
       try {
@@ -328,7 +568,6 @@ export class PiAgentExecutor implements AgentExecutor {
         thrown = error;
         runFailed = !signal.aborted;
       } finally {
-        // Closes the stream the caller is draining; nothing else ends it.
         queue.close();
       }
     })();
@@ -336,7 +575,6 @@ export class PiAgentExecutor implements AgentExecutor {
     let drained = false;
     try {
       for await (const event of queue) {
-        events.push(event);
         yield event;
       }
       drained = true;
@@ -346,28 +584,30 @@ export class PiAgentExecutor implements AgentExecutor {
       if (this.liveKernels.get(request.agentInstanceId) === kernel) {
         this.liveKernels.delete(request.agentInstanceId);
       }
-      // The caller walked away mid-run: stop the agent rather than leave it
-      // streaming into a queue no one reads.
       if (!drained) kernel.abort();
     }
     await running;
     const errorMessage = kernel.errorMessage;
     return {
       events,
+      streamedCount,
       failed: runFailed || errorMessage !== undefined,
       error: thrown,
       errorMessage
     };
   }
 
+  /** Yield the portion of a final attempt that was not already streamed live. */
+  private *remainingAttemptEvents(run: AttemptRun): Generator<ExecutionEvent> {
+    for (let index = run.streamedCount; index < run.events.length; index += 1) {
+      const event = run.events[index];
+      if (event !== undefined) yield event;
+    }
+  }
+
   /**
-   * Drive `runAttempt` until it succeeds, the failure is terminal, or the
-   * attempt budget runs out. Each attempt uses a fresh agent so a failed turn
-   * never leaks into the retried transcript, and only the last attempt's
-   * events are reported as that run's transcript. Events already streamed from
-   * an abandoned attempt cannot be recalled — a live consumer saw them — but
-   * they are excluded from the invocation record, which describes the call the
-   * run actually ended on.
+   * Drive attempts until one succeeds, retry is refused, cancellation wins, or
+   * the cost gate stops another provider call.
    */
   private async *runWithRetry(
     model: Model<Api>,
@@ -379,21 +619,20 @@ export class PiAgentExecutor implements AgentExecutor {
     const policy = resolveRetryPolicy(options);
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
+    let latest: RetriedRun = { attempt: 1, events: [], failure: undefined };
     for (let attempt = 1; ; attempt += 1) {
+      if (signal.aborted) return latest;
       const run = yield* this.runAttempt(model, request, gate, signal);
       if (!run.failed || signal.aborted) {
+        yield* this.remainingAttemptEvents(run);
         return { attempt, events: run.events, failure: undefined };
       }
       const failure = classifyProviderFailure(run.error, run.errorMessage);
+      latest = { attempt, events: run.events, failure };
       const decision = decideRetry(failure, attempt, policy, random);
-      if (!decision.retry) {
-        return { attempt, events: run.events, failure };
-      }
-      // A retry is a fresh agent, so the stop predicate installed on the last
-      // one cannot hold the line: the ceiling has to be checked again here or
-      // a failing task would keep buying attempts past its budget.
-      if (gate.requestStopIfExceeded()) {
-        return { attempt, events: run.events, failure };
+      if (!decision.retry || gate.requestStopIfExceeded()) {
+        yield* this.remainingAttemptEvents(run);
+        return latest;
       }
       options?.onRetry?.({
         attempt,
@@ -404,25 +643,15 @@ export class PiAgentExecutor implements AgentExecutor {
       });
       await sleep(decision.delayMs, signal);
       if (signal.aborted) {
-        return { attempt, events: run.events, failure };
+        yield* this.remainingAttemptEvents(run);
+        return latest;
       }
     }
   }
 
   /**
-   * Queue user-authored text into the live agent loop; Pi delivers it once the
-   * current assistant turn ends, so a steer placed while a tool is blocked
-   * lands before the next model call.
-   *
-   * Three ways this refuses rather than swallowing the text: blank input, no
-   * attempt in flight, and more than one in flight. The last one matters
-   * because a single executor instance serves every child task of a run, and
-   * broadcasting one operator's correction to every concurrent agent is not
-   * something the caller asked for.
-   *
-   * Steering does not survive a retry. `runAttempt` builds a fresh `Agent` per
-   * attempt, so a queued message that has not been drained when the attempt
-   * fails is dropped along with the rest of that attempt's state.
+   * Queue user-authored text into the sole live attempt. Refuses blank text,
+   * no active attempt, and ambiguous concurrent attempts.
    */
   steerText(text: string): void {
     if (text.trim() === "") {
@@ -441,6 +670,16 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    const startedAtMs = Date.now();
+
+    // A pre-aborted request never constructs an Agent or opens a provider
+    // stream, but still records honest cancelled telemetry.
+    if (signal.aborted) {
+      this.reportInvocation(request, this.resolveIdentity(request), [], startedAtMs, 1, "cancelled");
+      yield* this.finish(request, [], "CANCELLED", false);
+      return;
+    }
+
     const resolved = this.resolveModel(request);
     if (resolved === undefined) {
       yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
@@ -448,10 +687,6 @@ export class PiAgentExecutor implements AgentExecutor {
     }
     const { identity, model } = resolved;
     const gate = this.buildCostGate(request, model);
-
-    const startedAtMs = Date.now();
-    // Delegation forwards every attempt's events to the consumer as they
-    // arrive and hands back the run summary once the retry loop is done.
     const { attempt, events: collected, failure } = yield* this.runWithRetry(
       model,
       request,
@@ -464,13 +699,7 @@ export class PiAgentExecutor implements AgentExecutor {
         ? "ok"
         : callOutcomeForFailure(failure);
 
-    if (this.options.onInvocation !== undefined) {
-      this.options.onInvocation(
-        recordInvocation(
-          this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
-        )
-      );
-    }
+    this.reportInvocation(request, identity, collected, startedAtMs, attempt, callOutcome);
 
     const gateState = gate.state;
     if (gate.stopRequested && gateState.armed) {
@@ -483,6 +712,32 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
+    yield* this.finish(request, collected, outcome, gate.stopRequested);
+  }
+
+  private reportInvocation(
+    request: AgentExecutionRequest,
+    identity: ModelRef,
+    collected: readonly ExecutionEvent[],
+    startedAtMs: number,
+    attempt: number,
+    callOutcome: InvocationCallOutcome
+  ): void {
+    if (this.options.onInvocation === undefined) return;
+    this.options.onInvocation(
+      recordInvocation(
+        this.buildInvocation(request, identity, collected, startedAtMs, attempt, callOutcome)
+      )
+    );
+  }
+
+  /** Close the already-yielded transcript with one terminal and completion. */
+  private *finish(
+    request: AgentExecutionRequest,
+    collected: readonly ExecutionEvent[],
+    outcome: "SUCCESS" | "FAILURE" | "CANCELLED",
+    stoppedAtCostCeiling: boolean
+  ): Generator<ExecutionEvent> {
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       yield {
         type: "MESSAGE",
@@ -496,10 +751,7 @@ export class PiAgentExecutor implements AgentExecutor {
           to: SUPERVISOR,
           type: "TASK_RESULT",
           outcome,
-          // The ceiling stops a turn boundary, which may or may not have been
-          // the one the agent was heading for anyway. Saying so keeps a
-          // budget-truncated task from reading like a completed one.
-          summary: gate.stopRequested ? "pi agent stopped at the cost ceiling" : "pi agent finished",
+          summary: stoppedAtCostCeiling ? "pi agent stopped at the cost ceiling" : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
           verification: { kind: "UNOBSERVED", evidenceIds: [] }
@@ -510,15 +762,8 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /**
-   * Build this execution's spend ceiling from the request (or the executor's
-   * default) and the resolved model's catalog rates — the same `cost` block
-   * `listed-model.ts` surfaces, so the gate can never price a run at a rate
-   * nobody could look up.
-   *
-   * A ceiling that cannot be enforced is reported through `onCostGate` and
-   * then ignored. That is the failure mode the caller has to be able to see:
-   * a run continuing past a budget nobody could price is bad, but a run that
-   * claims to have honored a budget it invented numbers for is worse.
+   * Build this execution's spend ceiling from the request (or executor
+   * default) and the resolved model's catalog rates.
    */
   private buildCostGate(request: AgentExecutionRequest, model: Model<Api>): CostGate {
     const maxCostUsd = request.maxCostUsd ?? this.options.maxCostUsd;

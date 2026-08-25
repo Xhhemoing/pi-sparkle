@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  createEpisodeId,
   createMessageId,
   createProjectId,
   createRunId,
@@ -13,12 +15,20 @@ import {
 } from "../../../src/domain/ids.js";
 import {
   outcomesFromRoutedRun,
-  proposeRoutingFromAssignments
+  proposeRoutingFromAssignments,
+  proposeRoutingFromRoutedEvents
 } from "../../../src/learning/from-episode.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { SUPERVISOR } from "../../../src/protocol/v1.js";
-import type { ModelRoutedPayload } from "../../../src/run/events.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import type { Event, ModelRoutedPayload } from "../../../src/run/events.js";
+import {
+  configurePreferencePersistence,
+  listObservations,
+  preferenceSnapshotPath,
+  resetPreferenceStore
+} from "../../../src/preferences/store.js";
 import { assignTasks } from "../../../src/routing/assign.js";
 import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
 import { loadAdaptationRegistry } from "../../../src/adaptation/promotion.js";
@@ -217,4 +227,165 @@ test("cascade retry binds the second result to the next model", () => {
   assert.equal(outcomes[1]?.modelVersion, "premium-v1");
   assert.equal(outcomes[1]?.outcome, "PASS");
 });
+
+/**
+ * The preference store is a process-global singleton, so an unbound store hides
+ * a stray write: it lands in memory and dies at exit, which is exactly how the
+ * inferred-preference recording escaped notice from `adapt learn`. Both pins
+ * below therefore bind the store first, and assert the in-memory history as
+ * well as the absence of the snapshot file.
+ */
+async function withBoundPreferenceStore<T>(
+  stateRoot: string,
+  body: () => Promise<T>
+): Promise<T> {
+  resetPreferenceStore();
+  configurePreferencePersistence(preferenceSnapshotPath(stateRoot));
+  try {
+    return await body();
+  } finally {
+    configurePreferencePersistence(undefined);
+    resetPreferenceStore();
+  }
+}
+
+test("proposing a candidate from outcomes leaves the preference store untouched", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-learn-pref-"));
+  try {
+    const outcome = parseOutcomeObservation({
+      taskFamily: "edit",
+      role: "implementer",
+      modelId: "cheap",
+      modelVersion: "cheap-v1",
+      featureVersion: ASSIGN_FEATURE_VERSION,
+      criterion: "taskSuccess",
+      outcome: "FAIL",
+      occurredAtMs: 1,
+      source: "deterministic-check",
+      failureClass: "model"
+    });
+    await withBoundPreferenceStore(stateRoot, async () => {
+      const result = await proposeRoutingFromAssignments({
+        stateRoot,
+        projectRoot: "/tmp/learn-pref-proj",
+        projectId: createProjectId(),
+        outcomes: [outcome],
+        primaryModelId: "premium"
+      });
+      assert.equal(result.created, true, result.reason);
+      assert.deepEqual(listObservations(), []);
+      assert.equal(existsSync(preferenceSnapshotPath(stateRoot)), false);
+    });
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("the routed-events learn path records no inferred preference for an episode-bound run", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-learn-routed-pref-"));
+  try {
+    const runId = createRunId();
+    const taskId = parseTaskId("tsk_pref01");
+    const store = new EventStore(stateRoot, runId);
+    for (const event of episodeBoundFailureRun(runId, taskId)) {
+      await store.append(event);
+    }
+
+    await withBoundPreferenceStore(stateRoot, async () => {
+      const result = await proposeRoutingFromRoutedEvents({
+        stateRoot,
+        runId,
+        primaryModelId: "premium"
+      });
+      // A created candidate proves the run reached the point where the
+      // inferred-preference recording used to fire.
+      assert.equal(result.created, true, result.reason);
+      assert.deepEqual(listObservations(), []);
+      assert.equal(existsSync(preferenceSnapshotPath(stateRoot)), false);
+    });
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A run whose log carries everything the learner keys on: a project snapshot,
+ * an episode binding (`RUN_ATTACHED`), and one routed task that failed on the
+ * model. Every event validates, so these go through `EventStore.append`.
+ */
+function episodeBoundFailureRun(
+  runId: ReturnType<typeof createRunId>,
+  taskId: ReturnType<typeof parseTaskId>
+): Event[] {
+  const projectId = createProjectId();
+  const episodeId = createEpisodeId();
+  return [
+    makeEvent(
+      "PROJECT_DISCOVERED",
+      {
+        project: {
+          id: projectId,
+          rootPath: "/tmp/learn-routed-proj",
+          discoveredAt: OCCURRED,
+          instructionFiles: [],
+          manifests: [],
+          commands: [],
+          facts: []
+        }
+      },
+      { runId }
+    ),
+    makeEvent("RUN_ATTACHED", { episodeId, runId, attachedAt: OCCURRED }, { runId }),
+    makeEvent(
+      "MODEL_ROUTED",
+      {
+        taskId,
+        role: "actor",
+        complexity: "MEDIUM",
+        model: "cheap",
+        justification: "cheapest eligible",
+        confidence: 0.8,
+        approvalPlan: {
+          id: "ap_learn",
+          items: [{ id: "go", label: "go", selectable: true }]
+        },
+        statusAfterRoute: "RUNNING",
+        policyVersion: "router-v1",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1000,
+        family: "edit",
+        featureVersion: ASSIGN_FEATURE_VERSION,
+        modelVersion: "cheap-v1",
+        highRisk: false,
+        eligibleModels: ["cheap", "premium"],
+        rejections: [],
+        behaviorDistribution: { cheap: 1, premium: 0 },
+        agentRole: "implementer"
+      },
+      { taskId, runId }
+    ),
+    makeEvent(
+      "CHILD_MESSAGE",
+      {
+        message: {
+          protocolVersion: 1 as const,
+          id: createMessageId(),
+          occurredAt: OCCURRED,
+          runId,
+          taskId,
+          from: AGENT,
+          to: SUPERVISOR,
+          type: "TASK_RESULT" as const,
+          outcome: "FAILURE" as const,
+          summary: "golden fixture mismatch",
+          artifactIds: [],
+          evidenceIds: ["evd_check"],
+          verification: { kind: "FAILED" as const, evidenceIds: ["evd_check"] },
+          failure: { category: "MODEL_ERROR" }
+        }
+      },
+      { taskId, runId }
+    )
+  ];
+}
 

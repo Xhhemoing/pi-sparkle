@@ -13,7 +13,7 @@ import {
 } from "../adaptation/promotion.js";
 import { ResourceRegistry } from "../adaptation/registry.js";
 import type { FeedbackRecord } from "../feedback/types.js";
-import { appendFeedback } from "../feedback/store.js";
+import { appendFeedbackWithRetry, type FeedbackAppendRetryOptions } from "../feedback/store.js";
 import type { Event } from "../run/events.js";
 import type { TaskAssignment } from "../routing/assign.js";
 import { updateProjectBandit } from "./bandit-store.js";
@@ -53,6 +53,12 @@ export interface AutoAdaptInput {
   readonly assignments?: readonly TaskAssignment[] | undefined;
   readonly subagentRunsDir?: string | undefined;
   readonly autoPromote?: boolean | undefined;
+  /**
+   * Retry budget and disclosure hook for the feedback persist step. Defaults
+   * to `appendFeedbackWithRetry`'s; tests inject the sleep seam to make the
+   * lock-timeout window deterministic.
+   */
+  readonly feedbackPersist?: FeedbackAppendRetryOptions | undefined;
 }
 
 export interface AutoAdaptResult {
@@ -65,6 +71,45 @@ export interface AutoAdaptResult {
   readonly candidateId?: string | undefined;
   readonly promotedVersionId?: string | undefined;
   readonly reason: string;
+  /** Collected signals whose feedback row reached the log on this call. */
+  readonly feedbackPersisted: number;
+  /**
+   * Collected signals whose feedback row was given up on after the bounded
+   * lock-timeout retry. `collected` counts what was observed; this counts what
+   * observation failed to keep, so the two are not silently conflated.
+   */
+  readonly feedbackDropped: number;
+  /** One line per dropped row, in drop order, naming the record and the lock. */
+  readonly feedbackDropReasons: readonly string[];
+}
+
+interface FeedbackPersistSummary {
+  readonly persisted: number;
+  readonly dropped: number;
+  readonly reasons: readonly string[];
+}
+
+/**
+ * A terminal feedback drop **warns**: the loop iteration still succeeds.
+ *
+ * The alternative — failing the iteration — was rejected because the run is
+ * already over by the time this loop runs, the diagnosis is already computed
+ * from the in-memory signals, and the only cause of a terminal drop is another
+ * writer (the episode-deletion cascade) holding the log's lock longer than the
+ * retry budget. Failing would throw away the bandit update and the candidate
+ * proposal to punish a contention window nobody can act on, and `pi run`
+ * would print "adapt skipped" for a run that adapted fine.
+ *
+ * Warning is only honest if the warning is unmissable, so the loss is reported
+ * three ways: `feedbackDropped` counts it, `feedbackDropReasons` names each
+ * row and the lock that blocked it, and `reason` — the one field both CLI
+ * surfaces print — carries the count. Silence is the option that is not
+ * available.
+ */
+function discloseDrops(reason: string, persist: FeedbackPersistSummary): string {
+  if (persist.dropped === 0) return reason;
+  const rows = persist.dropped === 1 ? "row" : "rows";
+  return `${reason} (warning: ${persist.dropped} feedback ${rows} dropped, feedback-log lock timeout)`;
 }
 
 /**
@@ -73,6 +118,12 @@ export interface AutoAdaptResult {
  * Never CAS-promotes (`autoPromote` is ignored). Use `adapt promote --approve`.
  *
  * Does not mutate a live run.
+ *
+ * Feedback persistence degrades rather than fails: a feedback-log lock held
+ * past the retry budget (a long episode-deletion cascade) drops the row and is
+ * disclosed through `feedbackDropped` / `feedbackDropReasons` / `reason`
+ * instead of rejecting — see `discloseDrops`. Every other persist failure
+ * still rejects.
  *
  * Kill switch (`SPARKLE_AUTO_ADAPT=0|false|off`): collection still happens —
  * signals are parsed, persisted as feedback, and diagnosed, because that is
@@ -95,7 +146,12 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
     context
   );
   const signals = [...fromEvents, ...fromExtra, ...fromPi];
-  await persistSignals(input.stateRoot, signals);
+  const persist = await persistSignals(input.stateRoot, signals, input.feedbackPersist);
+  const disclosure = {
+    feedbackPersisted: persist.persisted,
+    feedbackDropped: persist.dropped,
+    feedbackDropReasons: persist.reasons
+  };
 
   const issues = diagnoseModelProjectIssues(signals);
   if (!isAutoAdaptEnabled()) {
@@ -105,7 +161,11 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
       created: false,
       promoted: false,
       banditUpdated: false,
-      reason: "auto-adapt disabled; collected and diagnosed only, bandit not updated"
+      reason: discloseDrops(
+        "auto-adapt disabled; collected and diagnosed only, bandit not updated",
+        persist
+      ),
+      ...disclosure
     };
   }
 
@@ -130,11 +190,12 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
       created: proposed.created,
       promoted: proposed.promoted,
       banditUpdated,
-      reason: proposed.reason,
+      reason: discloseDrops(proposed.reason, persist),
       ...(proposed.candidateId !== undefined ? { candidateId: proposed.candidateId } : {}),
       ...(proposed.promotedVersionId !== undefined
         ? { promotedVersionId: proposed.promotedVersionId }
-        : {})
+        : {}),
+      ...disclosure
     };
   }
 
@@ -144,7 +205,11 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
     created: false,
     promoted: false,
     banditUpdated,
-    reason: signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue"
+    reason: discloseDrops(
+      signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue",
+      persist
+    ),
+    ...disclosure
   };
 }
 
@@ -230,7 +295,21 @@ async function proposeAndMaybePromote(input: {
   });
 }
 
-async function persistSignals(stateRoot: string, signals: readonly ObservedSignal[]): Promise<void> {
+/**
+ * Write one feedback row per episode-bound signal.
+ *
+ * Appends go through `appendFeedbackWithRetry`, so a deletion cascade holding
+ * the log's lock costs a bounded wait rather than the whole loop: a lock
+ * timeout is retried, a terminal give-up is counted and reported, and any
+ * other failure (malformed record, unwritable state root) still propagates.
+ */
+async function persistSignals(
+  stateRoot: string,
+  signals: readonly ObservedSignal[],
+  options: FeedbackAppendRetryOptions | undefined
+): Promise<FeedbackPersistSummary> {
+  let persisted = 0;
+  const reasons: string[] = [];
   for (const signal of signals) {
     if (signal.episodeId === undefined) continue;
     const record: FeedbackRecord = {
@@ -248,21 +327,14 @@ async function persistSignals(stateRoot: string, signals: readonly ObservedSigna
       ...(signal.runId !== undefined ? { runId: signal.runId } : {}),
       ...(signal.taskId !== undefined ? { taskId: signal.taskId } : {})
     };
-    try {
-      await appendFeedback(stateRoot, record);
-    } catch (error: unknown) {
-      // Lock timeout is a dropped adaptation sample, never a failed run.
-      // Other store failures (corrupt log, malformed tombstones) still abort
-      // the pass: those are not "one row could not serialize".
-      if (
-        error instanceof DomainValidationError &&
-        error.message.includes("timed out waiting for lock")
-      ) {
-        continue;
-      }
-      throw error;
+    const outcome = await appendFeedbackWithRetry(stateRoot, record, options ?? {});
+    if (outcome.status === "persisted") {
+      persisted += 1;
+      continue;
     }
+    reasons.push(outcome.reason);
   }
+  return { persisted, dropped: reasons.length, reasons };
 }
 
 async function ingestSubagentDirectory(
@@ -293,6 +365,7 @@ export async function runAutoAdaptFromEvents(input: {
   readonly primaryModelId: string;
   readonly projectRoot?: string | undefined;
   readonly autoPromote?: boolean | undefined;
+  readonly feedbackPersist?: FeedbackAppendRetryOptions | undefined;
 }): Promise<AutoAdaptResult> {
   let projectId: ProjectId | undefined;
   let projectRoot = input.projectRoot;
@@ -313,7 +386,10 @@ export async function runAutoAdaptFromEvents(input: {
       created: false,
       promoted: false,
       banditUpdated: false,
-      reason: "run has no project snapshot"
+      reason: "run has no project snapshot",
+      feedbackPersisted: 0,
+      feedbackDropped: 0,
+      feedbackDropReasons: []
     };
   }
   return runAutoAdaptLoop({
@@ -323,5 +399,6 @@ export async function runAutoAdaptFromEvents(input: {
     primaryModelId: input.primaryModelId,
     events: input.events,
     ...(episodeId !== undefined ? { episodeId } : {}),
-    ...(input.autoPromote !== undefined ? { autoPromote: input.autoPromote } : {})
+    ...(input.autoPromote !== undefined ? { autoPromote: input.autoPromote } : {}),
+    ...(input.feedbackPersist !== undefined ? { feedbackPersist: input.feedbackPersist } : {})
   });}

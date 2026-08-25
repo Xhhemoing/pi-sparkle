@@ -1,5 +1,5 @@
 import { DomainValidationError } from "../domain/errors.js";
-import type { EpisodeId, ProjectId, RunId } from "../domain/ids.js";
+import type { ProjectId, RunId } from "../domain/ids.js";
 import { isAgentRole } from "../domain/roles.js";
 import { hashCandidateContent } from "../adaptation/candidate.js";
 import { ResourceRegistry } from "../adaptation/registry.js";
@@ -8,9 +8,7 @@ import {
   saveAdaptationRegistry,
   withAdaptationRegistryLock
 } from "../adaptation/promotion.js";
-import { recordInferredPreference } from "../preferences/service.js";
 import { EventStore } from "../run/event-store.js";
-import { episodeIdFromEvents } from "../run/episode-bind.js";
 import type { Event, ModelRoutedPayload } from "../run/events.js";
 import type { TaskFamily } from "../task/taxonomy.js";
 import { oneHotDistribution } from "../routing/catalog-model.js";
@@ -48,7 +46,6 @@ export interface LearnFromOutcomesInput {
   readonly stateRoot: string;
   readonly projectRoot: string;
   readonly projectId: ProjectId;
-  readonly episodeId?: EpisodeId;
   readonly primaryModelId: string;
   readonly outcomes: readonly OutcomeObservation[];
 }
@@ -91,6 +88,16 @@ function policyFromOutcomes(
 /**
  * Proposal-first learning: write a routing-policy candidate from bound
  * taskSuccess outcomes. Selections without outcomes are not labels.
+ *
+ * The candidate is the only thing this writes. It also used to call
+ * `recordInferredPreference` for the run's episode, which no CLI invocation
+ * could ever keep: `adapt learn` does not bind the preference store, so the
+ * observation was discarded at process exit, and one-shot commands can never
+ * accumulate `MIN_INFERRED_RECURRENCE_DEFAULT` anyway. The CLI's
+ * inferred-preference plane is not live, and re-adding the call would not make
+ * it live. `recordInferredPreference` stays an embedder API for hosts that bind
+ * the store themselves; such a host is a preference-snapshot writer and owes
+ * `preferenceSnapshotLockPath` across bind, mutate and persist.
  */
 export async function proposeRoutingFromOutcomes(
   input: LearnFromOutcomesInput
@@ -157,15 +164,6 @@ export async function proposeRoutingFromOutcomes(
       parentVersionId: parent.versionId
     };
   });
-  if (input.episodeId !== undefined) {
-    recordInferredPreference(
-      "project",
-      input.projectId,
-      "primary-model",
-      input.primaryModelId,
-      input.episodeId
-    );
-  }
   return result;
 }
 
@@ -195,14 +193,12 @@ export async function proposeRoutingFromRoutedEvents(input: {
     return { created: false, reason: "run has no project snapshot" };
   }
   const outcomes = outcomesFromRoutedRun(read.events);
-  const episodeId = episodeIdFromEvents(read.events);
   return proposeRoutingFromOutcomes({
     stateRoot: input.stateRoot,
     projectRoot,
     projectId,
     outcomes,
-    primaryModelId: input.primaryModelId,
-    ...(episodeId !== undefined ? { episodeId } : {})
+    primaryModelId: input.primaryModelId
   });
 }
 

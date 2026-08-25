@@ -228,6 +228,44 @@ test("an exhausted failed graph is FAILED, not COMPLETED", async () => {
   });
 });
 
+test("a rejected verdict retries the task through BLOCKED -> READY until attempts run out", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const running = startSupervisedRun(
+      {
+        stateRoot,
+        executor: new ScriptedSupervisedExecutor(createTaskId(() => "a")),
+        registry: createAgentProfileRegistry(defaultAgentProfiles()),
+        judge: new DeterministicJudge(),
+        now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        generateId: sequenceGenerator()
+      },
+      {
+        projectRoot,
+        objective: "x",
+        tasks: [task("a")],
+        limits: {
+          maxTasks: 1,
+          maxConcurrentTasks: 1,
+          maxAttemptsPerTask: 3,
+          maxRounds: 10,
+          maxConsecutiveStalls: 10,
+          maxWallTimeMs: 600_000
+        }
+      }
+    );
+    const outcome = await running.done;
+    assert.equal(outcome.status, "FAILED");
+    const statuses = outcome.events
+      .filter((e) => e.type === "TASK_STATUS_CHANGED" && (e.payload as { taskId: string }).taskId === "tsk_a")
+      .map((e) => (e.payload as { status: string }).status);
+    assert.deepEqual(
+      statuses,
+      ["READY", "RUNNING", "BLOCKED", "READY", "RUNNING", "BLOCKED", "READY", "RUNNING", "BLOCKED", "FAILED"],
+      "every rejected attempt with retries left is retried; the last one exhausts them"
+    );
+  });
+});
+
 test("leased childRunId matches the child run that actually executes", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const running = startSupervisedRun(

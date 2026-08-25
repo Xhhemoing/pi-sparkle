@@ -8,6 +8,7 @@ import { episodeIdFromEvents } from "./episode-bind.js";
 import { applyTrackingGate, nextTrackingSeq, type GateApplyResult } from "./gate-apply.js";
 import type { Event } from "./events.js";
 
+/** Ledger, not control: callers append `events` and discard the rest — see {@link GateApplyResult}. */
 export function applyChildThreeLine(input: {
   readonly events: readonly Event[];
   readonly child: ChildRunOutcome;

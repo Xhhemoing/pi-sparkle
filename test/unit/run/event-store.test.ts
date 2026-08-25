@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createRunId } from "../../../src/domain/ids.js";
-import { EventStore } from "../../../src/run/event-store.js";
+import { createRunId, type RunId } from "../../../src/domain/ids.js";
+import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import { makeEvent, makeRun } from "../../helpers/event-factory.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
 
-async function withStore(run: (store: EventStore, stateRoot: string, runId: string) => Promise<void>) {
+async function withStore(run: (store: EventStore, stateRoot: string, runId: RunId) => Promise<void>) {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-test-"));
   try {
     const runId = createRunId(UUID);
@@ -96,6 +98,31 @@ test("appending an invalid event is rejected and writes nothing", async () => {
     await assert.rejects(() => store.append(invalid), /payload/);
     const read = await store.readAll();
     assert.deepEqual(read.events, []);
+  });
+});
+
+test("the run lock sits beside the run directory, not inside it", () => {
+  const runId = createRunId(UUID);
+  // A lock inside `runs/<runId>/` would be removed by the recursive delete
+  // that holds it. Beside it, the delete's own lock survives its own `rm`.
+  assert.equal(runLockPath("/state", runId), join("/state", "runtime", "runs", `${runId}.lock`));
+});
+
+/**
+ * Decision pin, not an aspiration: appending is the run's per-step hot path
+ * and deliberately does not take the run lock — measured at +372% per append
+ * and +22.5% end-to-end against a 5% bar (see the docstring in
+ * `src/run/event-store.ts`). Re-introducing the acquisition is allowed, but it
+ * must be a decision someone makes on purpose, with this test and that
+ * docstring updated together.
+ */
+test("append does not block on the run lock", async () => {
+  await withStore(async (store, stateRoot, runId) => {
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));
+    });
+    assert.equal((await store.readAll()).events.length, 1);
+    assert.equal(existsSync(runLockPath(stateRoot, runId)), false);
   });
 });
 

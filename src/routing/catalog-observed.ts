@@ -1,10 +1,51 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DomainValidationError } from "../domain/errors.js";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { loadInvocationsFromStateRoot } from "./cost-calibration.js";
 
 export const CATALOG_OBSERVED_RELATIVE = "routing/catalog-observed.json";
+
+export const CATALOG_OBSERVED_CORRUPT_CODE = "CATALOG_OBSERVED_CORRUPT" as const;
+
+/**
+ * `catalog-observed.json` exists but is not JSON.
+ *
+ * The snapshot is *derived* — every number in it is recomputable from `invocations.jsonl` via
+ * `buildCatalogObservedFromStateRoot`, so discarding a damaged one costs nothing but a
+ * rebuild. It still throws rather than reading as absent, because absent has a meaning here:
+ * an empty snapshot is consumed as "this model version has no observations", and answering a
+ * question about observed p50s from bytes we failed to read would be an invented answer, not
+ * a missing one. A caller that genuinely wants absent-on-damage says so by deleting the file —
+ * ENOENT is the one silent path, and it is the only one.
+ *
+ * Note the narrower scope: this is a JSON-integrity failure. Content that parses but carries
+ * unexpected shapes stays tolerated by `parseSnapshot` (unknown rows degrade to
+ * `emptyObservedStats`), because that is version skew between writers, not damage.
+ *
+ * The CLI route keyed by this error's code is defense-in-depth for a future command producer.
+ * Today doctor is the only command-path reader: it absorbs this error into its `learnedState`
+ * inventory as damaged derived state instead of propagating it to the command-failure surface.
+ *
+ * Discriminate on `code`, never on the message.
+ */
+export class CatalogObservedCorruptError extends DomainValidationError {
+  readonly code = CATALOG_OBSERVED_CORRUPT_CODE;
+  readonly path: string;
+
+  constructor(path: string, cause?: unknown) {
+    super(
+      `observed catalog snapshot at ${path} is not valid JSON; ` +
+        "it is derived state — rebuild it with buildCatalogObservedFromStateRoot + " +
+        "persistCatalogObserved, or delete the file to start from an empty snapshot"
+    );
+    this.name = "CatalogObservedCorruptError";
+    this.path = path;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
 
 export interface ObservedVersionStats {
   readonly modelVersion: string;
@@ -93,25 +134,32 @@ export async function persistCatalogObserved(
   snapshot: CatalogObservedSnapshot
 ): Promise<string> {
   const path = catalogObservedPath(stateRoot);
-  await mkdir(dirname(path), { recursive: true });
   const body = {
     versions: Object.fromEntries(
       Object.entries(snapshot.versions).map(([version, stats]) => [version, serializeStats(stats)])
     )
   };
-  await writeFile(path, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+  await writeFileAtomic(path, `${JSON.stringify(body, null, 2)}\n`);
   return path;
 }
 
+/** Throws `CatalogObservedCorruptError` on unreadable bytes; a missing file is an empty snapshot. */
 export async function loadCatalogObservedSnapshot(stateRoot: string): Promise<CatalogObservedSnapshot> {
+  const path = catalogObservedPath(stateRoot);
   let raw: string;
   try {
-    raw = await readFile(catalogObservedPath(stateRoot), "utf8");
+    raw = await readFile(path, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { versions: {} };
     throw error;
   }
-  return parseSnapshot(JSON.parse(raw) as unknown);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error: unknown) {
+    throw new CatalogObservedCorruptError(path, error);
+  }
+  return parseSnapshot(parsed);
 }
 
 export async function buildCatalogObservedFromStateRoot(

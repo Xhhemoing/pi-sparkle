@@ -16,7 +16,7 @@ import {
 import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
-import type { AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { PASSED_NODE_CONFIDENCE } from "../../../src/run/flowchart-executor.js";
 
@@ -380,6 +380,19 @@ class FailingExecutor implements AgentExecutor {
   }
 }
 
+/** Keeps the run-level signal each node was launched with, so teardown is observable. */
+class SignalRecordingExecutor implements AgentExecutor {
+  readonly signals: AbortSignal[] = [];
+  readonly abortedAtLaunch: boolean[] = [];
+  private readonly inner = new ProtocolChildExecutor();
+
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    this.signals.push(signal);
+    this.abortedAtLaunch.push(signal.aborted);
+    yield* this.inner.execute(request, signal);
+  }
+}
+
 test("an executor completes a one-node flowchart without childResults", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const outcome = await startFlowchartRun(
@@ -425,5 +438,51 @@ test("a failing executor without results fails the node", async () => {
     );
     assert.equal(outcome.status, "FAILED");
     assert.equal(outcome.snapshot.nodes["only"]?.state, "FAILED");
+  });
+});
+
+test("a cost-exhausted run aborts the executor signal and launches no further node", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const executor = new SignalRecordingExecutor();
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor },
+      {
+        projectRoot,
+        flowchart: {
+          id: "budget-teardown",
+          nodes: [
+            node("a", { models: ["premium"], preferred: "premium" }),
+            node("b", { models: ["premium"], preferred: "premium" })
+          ],
+          edges: [successEdge("a", "b")]
+        },
+        limits: { remainingCostUsd: 0.6 }
+      }
+    );
+
+    assert.equal(outcome.status, "FAILED");
+    assert.equal(outcome.snapshot.nodes["b"]?.state, "FAILED");
+    assert.equal(executor.signals.length, 1, "the unaffordable node is never launched");
+    assert.equal(executor.signals[0]?.aborted, true, "run failure aborts the signal node a was given");
+  });
+});
+
+test("an in-budget executor run keeps its nodes running until the run finishes", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const executor = new SignalRecordingExecutor();
+    const outcome = await startFlowchartRun(
+      { ...deps(stateRoot), executor },
+      {
+        projectRoot,
+        flowchart: { id: "budget-ok", nodes: [node("a"), node("b")], edges: [successEdge("a", "b")] }
+      }
+    );
+
+    assert.equal(outcome.status, "COMPLETED");
+    assert.deepEqual(
+      executor.abortedAtLaunch,
+      [false, false],
+      "an un-cancelled run never launches a node on an already-aborted signal"
+    );
   });
 });

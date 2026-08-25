@@ -174,6 +174,53 @@ export type FlowchartInjection =
   | { readonly kind: "override"; readonly nodeId: string; readonly confidence: ConfidenceScore }
   | { readonly kind: "skip"; readonly nodeId: string };
 
+/**
+ * What an authorized `RUN_UNBLOCKED` asks the flowchart state machine to undo.
+ *
+ * `retryNodeId` names the FAILED node to re-drive for a gate block; a
+ * run-level stall unblock leaves it absent and only clears the ledger latch.
+ */
+export interface FlowchartReopenRequest {
+  readonly retryNodeId?: string;
+}
+
+/**
+ * What a `RUN_UNBLOCKED_WITH_DISCARD` asks for. The target is required: the
+ * discard is defined relative to one node's consequences, so a run-level stall
+ * unblock has nothing for it to mean.
+ */
+export interface FlowchartDiscardRequest {
+  readonly retryNodeId: string;
+}
+
+/** Node states a reopen refuses to rewind, because they represent work already done. */
+const EXECUTED_NODE_STATES: ReadonlySet<FlowNodeState> = new Set([
+  "RUNNING",
+  "WAITING_FOR_USER",
+  "COMPLETED",
+  "FAILED"
+]);
+
+/**
+ * One node the discard transform rewound, as the state machine saw it.
+ *
+ * The plan carries control-state identity only. Attempt references, charged
+ * estimates and everything else the audit record needs live on the run log, and
+ * the supervisor has no view of it — deriving them here would mean inventing a
+ * second source for facts the log already holds.
+ */
+export interface RewoundNodeRecord {
+  readonly nodeId: string;
+  readonly taskId: TaskId;
+  readonly previousState: Exclude<FlowNodeState, "PENDING">;
+}
+
+/** A discard transform's result: the reopened snapshot and what it superseded. */
+export interface FlowchartDiscardPlan {
+  readonly snapshot: FlowchartSupervisorSnapshot;
+  readonly rewound: readonly RewoundNodeRecord[];
+}
+
 export interface AdvanceRoundResult {
   readonly round: number;
   readonly consecutiveStalls: number;
@@ -934,6 +981,156 @@ class FlowchartSupervisorImpl implements FlowchartSupervisor {
     this.roundEvent.completedTasks.push(this.node(nodeId).taskId);
   }
 
+  /**
+   * Undoes one block so the run can be driven again.
+   *
+   * This is the flowchart plane's own reopen and it is deliberately not the DAG
+   * scheduler's: that one moves a `TaskNode` from `TaskStatus` BLOCKED to READY
+   * and stays the sole producer of that transition, with its sole caller in
+   * `runSupervisorRounds`. This one moves a `FlowNodeState`, fabricates no
+   * `TaskNode`, and appends no `TASK_STATUS_CHANGED`. Two state machines, two
+   * transitions, no shared helper to blur them.
+   *
+   * The ledger latch is cleared for both block shapes, not only the stall one.
+   * A gate block leaves the ledger untouched (the failing round still recorded
+   * evidence, so it never stalled), which makes the clear a no-op there — but a
+   * run that is blocked in *both* senses must not have a reopened node
+   * immediately re-blocked by a ledger nobody authorized to stay set.
+   *
+   * With `retryNodeId` the node must be FAILED, its failed outcome fields and
+   * its stale active route go, and the consequences that failure had on nodes
+   * downstream are rewound to PENDING before the normal propagation fixpoint
+   * re-derives them. Rewinding a descendant that already executed would discard
+   * real work, so that fails closed instead: it needs its own contract, not a
+   * silent erase. Evidence counts and every logged event survive untouched —
+   * the old attempt stays visible, this only decides what runs next.
+   */
+  reopenAfterUnblock(request: FlowchartReopenRequest): void {
+    this.ledger = { ...this.ledger, isBlocked: false, consecutiveStalls: 0, requiredEvidence: [] };
+    const retryNodeId = request.retryNodeId;
+    if (retryNodeId === undefined) return;
+
+    const runtime = this.getRuntime(retryNodeId);
+    if (runtime.state !== "FAILED") {
+      throw new DomainValidationError(
+        `cannot reopen node ${retryNodeId} in state ${runtime.state}: only a FAILED node can be re-driven`
+      );
+    }
+    const consequences = this.downstreamConsequences(retryNodeId);
+    const executed = consequences.filter((nodeId) =>
+      EXECUTED_NODE_STATES.has(this.getRuntime(nodeId).state)
+    );
+    if (executed.length > 0) {
+      throw new DomainValidationError(
+        `cannot reopen node ${retryNodeId}: ${executed.join(", ")} already executed, and rewinding executed work is not authorized by an unblock`
+      );
+    }
+    for (const nodeId of consequences) {
+      const state = this.getRuntime(nodeId).state;
+      if (state === "READY" || state === "SKIPPED") this.setRuntime(nodeId, { state: "PENDING" });
+    }
+    this.reopenFailedTarget(retryNodeId, runtime);
+    this.propagate();
+    this.assertWaiterInvariant();
+  }
+
+  /**
+   * The same reopen, plus the executed descendants the ordinary one refuses.
+   *
+   * It is a separate method rather than a flag on {@link reopenAfterUnblock}
+   * because the guard above is the contract: an ordinary unblock must keep
+   * failing closed on executed work no matter what this one grows into. What
+   * the caller gets back is a *plan* — the nodes that were rewound and the
+   * state each was in — because the durable authorization has to record what it
+   * superseded, and only the state machine knows the consequence set.
+   *
+   * Discarding is a control-state operation, not an undo. Evidence counts, the
+   * routed model, the ledger's facts and both remaining budgets survive
+   * untouched: the attempts really happened and really cost what they cost, and
+   * re-execution has to pass the remaining-budget checks again. What does not
+   * survive is `success`/`confidence` on a rewound node — leaving a stale
+   * success behind would let it keep satisfying the very edges this rewind
+   * exists to re-decide.
+   */
+  reopenAfterUnblockWithDiscard(request: FlowchartDiscardRequest): RewoundNodeRecord[] {
+    this.ledger = { ...this.ledger, isBlocked: false, consecutiveStalls: 0, requiredEvidence: [] };
+    const retryNodeId = request.retryNodeId;
+    const runtime = this.getRuntime(retryNodeId);
+    if (runtime.state !== "FAILED") {
+      throw new DomainValidationError(
+        `cannot reopen node ${retryNodeId} in state ${runtime.state}: only a FAILED node can be re-driven`
+      );
+    }
+    const rewound: RewoundNodeRecord[] = [];
+    for (const nodeId of this.downstreamConsequences(retryNodeId).toSorted()) {
+      const state = this.getRuntime(nodeId).state;
+      // A PENDING consequence is already where the rewind would put it, so it
+      // changes nothing and claiming it in the audit record would overstate
+      // what the authorization did.
+      if (state === "PENDING") continue;
+      rewound.push({ nodeId, taskId: this.node(nodeId).taskId, previousState: state });
+      this.rewindToPending(nodeId);
+    }
+    if (!rewound.some((entry) => EXECUTED_NODE_STATES.has(entry.previousState))) {
+      throw new DomainValidationError(
+        `cannot discard executed work for node ${retryNodeId}: no descendant of it has executed; nothing to discard; omit --discard-executed`
+      );
+    }
+    this.reopenFailedTarget(retryNodeId, runtime);
+    this.propagate();
+    this.assertWaiterInvariant();
+    return rewound;
+  }
+
+  /** The FAILED retry target itself, returned to READY with its history intact. */
+  private reopenFailedTarget(retryNodeId: string, runtime: FlowNodeRuntime): void {
+    this.runtime.set(retryNodeId, {
+      state: "READY",
+      evidenceCount: runtime.evidenceCount,
+      ...(runtime.model !== undefined ? { model: runtime.model } : {}),
+      ...(runtime.parallelGroup !== undefined ? { parallelGroup: runtime.parallelGroup } : {})
+    });
+    this.activeRoutes.delete(retryNodeId);
+  }
+
+  /** One superseded descendant: outcome fields cleared, everything factual kept. */
+  private rewindToPending(nodeId: string): void {
+    const runtime = this.getRuntime(nodeId);
+    this.runtime.set(nodeId, {
+      state: "PENDING",
+      evidenceCount: runtime.evidenceCount,
+      ...(runtime.model !== undefined ? { model: runtime.model } : {}),
+      ...(runtime.parallelGroup !== undefined ? { parallelGroup: runtime.parallelGroup } : {})
+    });
+    this.activeRoutes.delete(nodeId);
+    // A node that was WAITING_FOR_USER holds the run's single approval, and the
+    // waiter invariant is checked at the end of the transform: leaving the
+    // approval pointed at a node that no longer waits would fail it.
+    if (this.pending?.nodeId === nodeId) this.pending = undefined;
+  }
+
+  /**
+   * The nodes whose state is a consequence of one node's result: everything
+   * reachable through outgoing edges that the destination's join actually
+   * reads. An edge a join policy does not require carries no consequence, so
+   * following it would rewind a node for a reason it never depended on.
+   */
+  private downstreamConsequences(nodeId: string): string[] {
+    const seen = new Set<string>();
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of this.outgoing.get(current) ?? []) {
+        if (edge.to === nodeId || seen.has(edge.to)) continue;
+        const join = this.joinPolicies.get(edge.to);
+        if (join !== undefined && !join.requiredNodeIds.includes(edge.from)) continue;
+        seen.add(edge.to);
+        queue.push(edge.to);
+      }
+    }
+    return [...seen];
+  }
+
   advanceRound(): AdvanceRoundResult {
     const event = this.roundEvent;
     const progress = classifyRoundProgress(event, this.ledger);
@@ -1014,4 +1211,46 @@ export function restoreFlowchartSupervisor(
   snapshot: FlowchartSupervisorSnapshot
 ): FlowchartSupervisor {
   return createFlowchartSupervisor({ ...config, snapshot });
+}
+
+/**
+ * The checkpoint transform an authorized unblock performs: snapshot in,
+ * reopened snapshot out.
+ *
+ * It runs through a restored supervisor rather than editing the JSON, so the
+ * reopen is checked by the same restore validation, the same waiter invariant
+ * and the same propagation fixpoint every other transition is. It is a pure
+ * function of its inputs and idempotent on an already-reopened snapshot in the
+ * only way that matters: a second call with the same `retryNodeId` refuses,
+ * because that node is no longer FAILED.
+ */
+export function reopenBlockedFlowchartSnapshot(
+  config: Omit<FlowchartSupervisorConfig, "snapshot">,
+  snapshot: FlowchartSupervisorSnapshot,
+  request: FlowchartReopenRequest = {}
+): FlowchartSupervisorSnapshot {
+  const impl = new FlowchartSupervisorImpl({ ...config, snapshot });
+  impl.reopenAfterUnblock(request);
+  return impl.snapshot();
+}
+
+/**
+ * The checkpoint transform a `RUN_UNBLOCKED_WITH_DISCARD` performs: snapshot
+ * in, reopened snapshot plus the rewind plan out.
+ *
+ * Like its ordinary sibling it runs through a restored supervisor, so the
+ * stronger transform is checked by the same restore validation, waiter
+ * invariant and propagation fixpoint. It is a pure function of its inputs,
+ * which is what lets both the producer and every restore path derive the same
+ * plan and compare them: a recovery that recomputed a different consequence set
+ * than the authorization recorded is one that must not apply.
+ */
+export function reopenBlockedFlowchartSnapshotWithDiscard(
+  config: Omit<FlowchartSupervisorConfig, "snapshot">,
+  snapshot: FlowchartSupervisorSnapshot,
+  request: FlowchartDiscardRequest
+): FlowchartDiscardPlan {
+  const impl = new FlowchartSupervisorImpl({ ...config, snapshot });
+  const rewound = impl.reopenAfterUnblockWithDiscard(request);
+  return { snapshot: impl.snapshot(), rewound };
 }

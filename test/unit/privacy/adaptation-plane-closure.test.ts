@@ -43,35 +43,12 @@ interface RuntimeAllowance {
 /**
  * Runtime modules currently reached by value imports.
  *
- * The from-episode pipe statically loads all of episode-bind's dependencies,
- * even though its caller only uses episodeIdFromEvents. Persist helpers are
- * intentionally absent: `src/persist/` is not a runtime-plane prefix.
+ * Loop 4 removed the inferred-preference episode lookup from the learning
+ * path, so the from-episode pipe no longer loads episode-bind or its
+ * dependencies. Persist helpers are intentionally absent: `src/persist/` is
+ * not a runtime-plane prefix.
  */
 const ALLOWED_RUNTIME_MODULES: readonly RuntimeAllowance[] = [
-  {
-    module: "src/episode/closure.ts",
-    because: "episode settlement dependency statically loaded by the sanctioned episode-id pipe"
-  },
-  {
-    module: "src/episode/events.ts",
-    because: "episode manager's inline type specifiers preserve this module edge under verbatimModuleSyntax"
-  },
-  {
-    module: "src/episode/manager.ts",
-    because: "episode binding and settlement dependency statically loaded by the sanctioned episode-id pipe"
-  },
-  {
-    module: "src/episode/store.ts",
-    because: "episode event persistence dependency statically loaded by the sanctioned episode-id pipe"
-  },
-  {
-    module: "src/run/episode-bind.ts",
-    because: "resolves the episode id used by the sanctioned derived-signal reader"
-  },
-  {
-    module: "src/run/episode-store.ts",
-    because: "episode snapshot persistence dependency statically loaded by episode-bind"
-  },
   {
     module: "src/run/event-store.ts",
     because: "sanctioned reader extracts taskSuccess PASS/FAIL signals from the run event stream"

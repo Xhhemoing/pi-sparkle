@@ -24,11 +24,17 @@ import {
 } from "../../../src/domain/ids.js";
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
-import { deleteRunRecords } from "../../../src/privacy/deletion.js";
+import { deleteRunRecords, verifyRunRecordsRemoved } from "../../../src/privacy/deletion.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
+import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { episodeLockPath } from "../../../src/run/episode-bind.js";
 import { feedbackTombstonesPath as fbTombPathStore } from "../../../src/feedback/store.js";
-import { EventStore } from "../../../src/run/event-store.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
 import type { Event } from "../../../src/run/events.js";
-import { createEventId } from "../../../src/domain/ids.js";
+import { createEventId, createTaskId } from "../../../src/domain/ids.js";
+import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
+import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { createModelRouter } from "../../../src/supervisor/model-router.js";
 
 // Distinct ids per call: each fixture episode/feedback must be unique.
 let uuidCounter = 0;
@@ -196,6 +202,18 @@ test("deleted episode text cannot be resurrected from disk or through the read A
   });
 });
 
+function runEvent(runId: RunId, type: Event["type"], payload: unknown): Event {
+  return {
+    id: createEventId(UUID),
+    schemaVersion: 1,
+    occurredAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z"),
+    runId,
+    type,
+    actor: "delete-cli-test",
+    payload
+  } as Event;
+}
+
 /**
  * A run attached to the episode whose append-only event log embeds the whole
  * episode snapshot — the copy `delete --episode` refuses to rewrite.
@@ -205,20 +223,10 @@ async function attachRunHoldingEpisodeText(
   episodeId: EpisodeId
 ): Promise<RunId> {
   const runId = createRunId(UUID);
-  const event = (type: Event["type"], payload: unknown): Event =>
-    ({
-      id: createEventId(UUID),
-      schemaVersion: 1,
-      occurredAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z"),
-      runId,
-      type,
-      actor: "delete-cli-test",
-      payload
-    }) as Event;
   const store = new EventStore(stateRoot, runId);
-  await store.append(event("EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
+  await store.append(runEvent(runId, "EPISODE_OPENED", { episode: episodeFixture(episodeId) }));
   await store.append(
-    event("RUN_ATTACHED", {
+    runEvent(runId, "RUN_ATTACHED", {
       episodeId,
       runId,
       attachedAt: parseIsoTimestamp("2026-08-22T00:00:00.000Z")
@@ -290,6 +298,342 @@ test("delete --run removes the whole runtime run subtree", async () => {
     const code = await deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
     assert.equal(code, 0, io.err.join(""));
     assert.equal(existsSync(runDir), false);
+  });
+});
+
+/**
+ * `delete --run` prints "removed: <runDir>" only for a removal it verified.
+ * The run lifecycle takes the run lock, but a bare `EventStore` driven from
+ * outside any lifecycle does not, so the second half of this test is the
+ * operator-visible consequence that remains: an appender that outlives the
+ * delete recreates the run directory on its next append, and the remedy is to
+ * stop it and delete again.
+ */
+test("delete --run proves the subtree is gone, and re-deletes a run that wrote again", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const store = new EventStore(stateRoot, runId);
+    const append = async (summary: string): Promise<void> =>
+      store.append(
+        runEvent(runId, "AGENT_EVENT", {
+          agentInstanceId: "agt_00000000-0000-4000-8000-00000000000a",
+          kind: "TEXT_DELTA",
+          summary
+        })
+      );
+    await append("work before the delete");
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+
+    const first = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], first.io),
+      0,
+      first.err.join("")
+    );
+    assert.match(first.out.join(""), new RegExp(`removed: .*${runId}`));
+    assert.equal(existsSync(runDir), false);
+    // The exit code the operator saw is backed by a check, not an assumption.
+    await verifyRunRecordsRemoved(stateRoot, runId);
+
+    await append("work after the delete");
+    assert.equal(existsSync(runDir), true, "a live appender recreates the deleted directory");
+    const second = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], second.io),
+      0,
+      second.err.join("")
+    );
+    assert.equal(existsSync(runDir), false);
+    await verifyRunRecordsRemoved(stateRoot, runId);
+  });
+});
+
+/**
+ * The operator-visible half of the run lock: `delete --run` does not delete
+ * around a live holder, it waits for it. Nothing in the CLI changed for this —
+ * the wait happens inside `deleteRunRecords` — so what this pins is that the
+ * command still exits 0 and reports the removal after the holder let go, and
+ * that it leaves no lock file behind for the next operator to puzzle over.
+ */
+test("delete --run waits for whoever holds the run lock, then reports the removal", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(
+      runEvent(runId, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-00000000000b",
+        kind: "TEXT_DELTA",
+        summary: "work before the delete"
+      })
+    );
+
+    const io = capture();
+    let pending: Promise<number> | undefined;
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      pending = deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(existsSync(runDir), true, "the delete must wait, not delete around the holder");
+    });
+
+    assert.ok(pending !== undefined);
+    assert.equal(await pending, 0, io.err.join(""));
+    assert.match(io.out.join(""), new RegExp(`removed: .*${runId}`));
+    assert.equal(existsSync(runDir), false);
+    await verifyRunRecordsRemoved(stateRoot, runId);
+    assert.equal(
+      existsSync(runLockPath(stateRoot, runId)),
+      false,
+      "a completed delete leaves no run lock behind"
+    );
+    assert.doesNotMatch(io.out.join(""), /\.lock/, "the lock is not a record the delete removed");
+  });
+});
+
+/**
+ * The same wait, driven by a real run rather than a hand-held lock: the run
+ * lifecycle holds the run lock (`withRunLifecycleLock`), so `delete --run`
+ * issued while the run is live blocks at the lock and then removes the records
+ * once the run has settled. What the operator no longer sees is the old
+ * outcome — a delete that removed part of a live run's subtree and then
+ * refused with `RUN_RECORDS_SURVIVED`.
+ */
+test("delete --run issued against a live run waits for the run, then removes it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-delete-proj-"));
+    try {
+      const io = capture();
+      let pending: Promise<number> | undefined;
+      let runDir: string | undefined;
+      let probed = false;
+
+      const outcome = await startFlowchartRun(
+        {
+          stateRoot,
+          router: createModelRouter({
+            policyVersion: "router-v1",
+            models: [
+              {
+                id: "cheap",
+                version: "cheap-v1",
+                roles: ["actor", "critic"],
+                maxComplexity: "MEDIUM",
+                estimatedCostUsd: 0.1,
+                estimatedDurationMs: 1_000
+              }
+            ]
+          }),
+          now: () => parseIsoTimestamp("2026-08-24T09:00:00.000Z"),
+          generateId: UUID,
+          pause: {
+            async requestPause() {
+              return { paused: false };
+            },
+            async clearPause() {},
+            async token(runId: RunId) {
+              if (!probed) {
+                probed = true;
+                runDir = join(stateRoot, "runtime", "runs", runId);
+                pending = deleteCommand(["--run", runId, "--state-root", stateRoot], io.io);
+                await new Promise((resolve) => setTimeout(resolve, 80));
+                assert.equal(existsSync(runDir), true, "a live run's records are not removed under it");
+              }
+              return { paused: false };
+            }
+          }
+        },
+        {
+          projectRoot,
+          flowchart: {
+            id: "delete-live-run",
+            nodes: [
+              {
+                id: "only",
+                taskId: createTaskId(() => "only"),
+                role: "actor",
+                objective: "Do only",
+                modelPolicy: { allowedModels: ["cheap"] },
+                confidenceThreshold: validateConfidenceScore(0.7),
+                approvalRequired: false
+              }
+            ],
+            edges: []
+          },
+          childResults: {
+            only: { outcome: "SUCCESS", confidence: validateConfidenceScore(0.9), evidenceIds: ["evd_only"] }
+          }
+        }
+      );
+
+      assert.equal(outcome.status, "COMPLETED", "the delete did not damage the run it raced");
+      assert.ok(pending !== undefined && runDir !== undefined);
+      assert.equal(await pending, 0, io.err.join(""));
+      assert.match(io.out.join(""), new RegExp(`removed: .*${outcome.runId}`));
+      assert.equal(existsSync(runDir), false);
+      await verifyRunRecordsRemoved(stateRoot, outcome.runId);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * `--lock-wait-ms` is the operator's answer to the wait above: a delete aimed
+ * at a live run waits for the run to finish, and until this flag the bound was
+ * `withExclusiveFileLock`'s fixed 5s with no way to say "I would rather wait".
+ *
+ * Three properties, and the first is the one that matters most: an unflagged
+ * delete is byte-identical to the delete that shipped before the flag existed.
+ */
+test("--lock-wait-ms bounds the delete's wait; omitting it changes nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "events.jsonl"), "{}\n", "utf8");
+
+    // An uncontended delete takes the same path with and without the flag, and
+    // says the same thing: the flag bounds a wait, it does not change output.
+    const flagged = capture();
+    assert.equal(
+      await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "60000", "--state-root", stateRoot],
+        flagged.io
+      ),
+      0,
+      flagged.err.join("")
+    );
+    assert.deepEqual(flagged.out, [`removed: ${runDir}\n`]);
+    assert.deepEqual(flagged.err, []);
+
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "events.jsonl"), "{}\n", "utf8");
+    const bare = capture();
+    assert.equal(
+      await deleteCommand(["--run", runId, "--state-root", stateRoot], bare.io),
+      0,
+      bare.err.join("")
+    );
+    assert.deepEqual(bare.out, flagged.out, "the flag is not an output change");
+    assert.deepEqual(bare.err, flagged.err);
+  });
+});
+
+/**
+ * The short end of the range: `--lock-wait-ms 0` refuses a held lock at once
+ * instead of waiting out a default the operator did not choose. This is the
+ * offline witness that the flag reaches `withExclusiveFileLock` at all — the
+ * pre-flag command could only produce this refusal by paying 5s of wall time
+ * (see `command-error-doctor.test.ts`, which still pays it on purpose to
+ * witness the default).
+ */
+test("--lock-wait-ms 0 refuses a held lock immediately, having removed nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", runId);
+    await new EventStore(stateRoot, runId).append(
+      runEvent(runId, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-00000000000c",
+        kind: "TEXT_DELTA",
+        summary: "work the delete must not destroy"
+      })
+    );
+
+    const io = capture();
+    let refusal: unknown;
+    let elapsedMs = 0;
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      const startedAt = Date.now();
+      refusal = await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "0", "--state-root", stateRoot],
+        io.io
+      ).then(
+        () => assert.fail("a held lock with a zero wait must refuse"),
+        (error: unknown) => error
+      );
+      elapsedMs = Date.now() - startedAt;
+    });
+
+    assert.equal((refusal as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    // Well inside the 5s default: the bound came from the flag, not the lock.
+    assert.ok(elapsedMs < 2_000, `the zero wait must not sit on the default: ${elapsedMs}ms`);
+    // Fail-closed, exactly as the default-bounded refusal is.
+    assert.equal(existsSync(runDir), true, "a refused delete removes nothing");
+    assert.deepEqual(io.out, []);
+  });
+});
+
+test("--lock-wait-ms refuses a value it cannot honour exactly", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    await mkdir(join(stateRoot, "runtime", "runs", runId), { recursive: true });
+
+    // Spellings Number() would silently accept as something else, plus the
+    // typo the ceiling exists for. `-1` goes through the `=` form because
+    // parseArgs refuses a dash-led value before this validator ever sees it.
+    for (const flag of [
+      "--lock-wait-ms=",
+      "--lock-wait-ms= ",
+      "--lock-wait-ms=-1",
+      "--lock-wait-ms=1.5",
+      "--lock-wait-ms=1e4",
+      "--lock-wait-ms=0x10",
+      "--lock-wait-ms= 5 ",
+      "--lock-wait-ms=abc",
+      "--lock-wait-ms=8640000001"
+    ]) {
+      const io = capture();
+      await assert.rejects(
+        deleteCommand(["--run", runId, flag, "--state-root", stateRoot], io.io),
+        (error: unknown) => {
+          assert.ok(error instanceof DomainValidationError);
+          assert.match(error.message, /^--lock-wait-ms must be a whole number of milliseconds/);
+          return true;
+        },
+        `${flag} must be refused`
+      );
+      assert.deepEqual(io.out, [], "a refused flag deletes nothing and says nothing");
+    }
+    // The refusal is a parse failure, so the records are still there.
+    assert.equal(existsSync(join(stateRoot, "runtime", "runs", runId)), true);
+    // The ceiling itself is honoured, not merely asserted about.
+    const io = capture();
+    assert.equal(
+      await deleteCommand(
+        ["--run", runId, "--lock-wait-ms", "86400000", "--state-root", stateRoot],
+        io.io
+      ),
+      0,
+      io.err.join("")
+    );
+  });
+});
+
+/**
+ * The wait is the target's, not the run plane's: `delete --episode` takes the
+ * episode's cooperative lock (and the feedback log's) through the same options
+ * object, so one flag covers both targets rather than only the one R5-1's
+ * disclosure named.
+ */
+test("--lock-wait-ms bounds delete --episode too", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const seed = await seedEpisodeWithFeedback(stateRoot);
+    const io = capture();
+    let refusal: unknown;
+    await withExclusiveFileLock(episodeLockPath(stateRoot, seed.episodeId), async () => {
+      refusal = await deleteCommand(
+        ["--episode", seed.episodeId, "--lock-wait-ms", "0", "--state-root", stateRoot],
+        io.io
+      ).then(
+        () => assert.fail("a held episode lock with a zero wait must refuse"),
+        (error: unknown) => error
+      );
+    });
+    assert.equal((refusal as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.equal(
+      existsSync(join(stateRoot, "runtime", "episodes", `${seed.episodeId}.jsonl`)),
+      true,
+      "the episode records survive the refusal"
+    );
   });
 });
 

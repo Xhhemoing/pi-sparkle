@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runAutoAdaptLoop } from "../../../src/learning/auto-loop.js";
-import { loadProjectBandit } from "../../../src/learning/bandit-store.js";
+import { runAutoAdaptFromEvents, runAutoAdaptLoop } from "../../../src/learning/auto-loop.js";
+import { loadProjectBanditByKey } from "../../../src/learning/bandit-store.js";
 import type { ObservedSignal } from "../../../src/learning/signals.js";
-import { readFeedbackRecordsRaw } from "../../../src/feedback/store.js";
+import {
+  feedbackLogLockPath,
+  feedbackLogPath,
+  readFeedbackRecordsRaw,
+  withFeedbackLogLock
+} from "../../../src/feedback/store.js";
 import { adaptationRoot } from "../../../src/privacy/state-layout.js";
 import { assignTasks } from "../../../src/routing/assign.js";
 import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
@@ -155,7 +160,7 @@ test("auto-adapt enabled updates the project bandit from deterministic signals",
     });
 
     assert.equal(result.banditUpdated, true);
-    const bandit = await loadProjectBandit(stateRoot, projectRoot);
+    const bandit = await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot));
     assert.ok(bandit, "the enabled loop must write the project bandit");
     assert.deepEqual(bandit.arms, ["cheap"]);
     assert.equal(bandit.pulls.cheap, 2);
@@ -195,7 +200,10 @@ test("kill switch SPARKLE_AUTO_ADAPT=0 collects signals without touching the ban
     // Learning does not: no bandit file, not even an empty one, and no lock
     // left behind by a write that never should have been attempted.
     assert.equal(result.banditUpdated, false);
-    assert.equal(await loadProjectBandit(stateRoot, projectRoot), undefined);
+    assert.equal(
+      await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot)),
+      undefined
+    );
     assert.equal(existsSync(banditFile(stateRoot, projectRoot)), false);
     assert.equal(existsSync(`${banditFile(stateRoot, projectRoot)}.lock`), false);
     assert.match(result.reason, /bandit not updated/);
@@ -237,6 +245,187 @@ test("the kill switch cannot be talked out of a bandit update by an earlier enab
     assert.equal(await readFile(banditFile(stateRoot, projectRoot), "utf8"), before);
   } finally {
     restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The drop window R2-4 closes: the episode-deletion cascade holds the feedback
+ * log's lock for a whole read-filter-write cycle, and before the retry an
+ * `appendFeedback` that waited it out rejected straight through the loop.
+ */
+test("a feedback lock held past the retry budget warns, and the iteration still adapts", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-fb-drop-"));
+  const projectRoot = "/tmp/proj-fb-drop";
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let result: Awaited<ReturnType<typeof runAutoAdaptLoop>> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      result = await runAutoAdaptLoop({
+        stateRoot,
+        projectRoot,
+        projectId,
+        primaryModelId: "premium",
+        episodeId,
+        extraSignals: failingPair(projectId, episodeId, "cheap"),
+        feedbackPersist: {
+          onDrop: (reason) => drops.push(reason),
+          maxAttempts: 2,
+          retryBackoffMs: 1,
+          timeoutMs: 20,
+          retryMs: 5,
+          sleep: async (ms) => {
+            backoffs.push(ms);
+          }
+        }
+      });
+    });
+
+    assert.ok(result, "a blocked feedback append must not fail the loop iteration");
+    assert.equal(result.feedbackPersisted, 0);
+    assert.equal(result.feedbackDropped, 2);
+    assert.deepEqual(result.feedbackDropReasons, drops, "every drop is disclosed on the result");
+    for (const reason of result.feedbackDropReasons) {
+      assert.match(reason, /lock timeout after 2 attempts/);
+      assert.ok(
+        reason.includes(feedbackLogLockPath(stateRoot)),
+        "the drop names the lock that blocked it"
+      );
+    }
+    assert.deepEqual(backoffs, [1, 1], "two tries per row means one backoff per row");
+    assert.match(
+      result.reason,
+      /\(warning: 2 feedback rows dropped, feedback-log lock timeout\)/,
+      "the one field both CLI surfaces print has to carry the loss"
+    );
+    assert.equal(existsSync(feedbackLogPath(stateRoot)), false, "no row reached the log");
+
+    // The rest of the iteration is untouched: signals were still collected,
+    // diagnosed, and learned from.
+    assert.equal(result.collected, 2);
+    assert.ok(result.issues.some((issue) => issue.modelId === "cheap"));
+    assert.equal(result.banditUpdated, true);
+    assert.equal(existsSync(banditFile(stateRoot, projectRoot)), true);
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a feedback lock that clears inside the budget costs nothing but a retry", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-fb-retry-"));
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let releaseLock = (): void => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    let pending: Promise<Awaited<ReturnType<typeof runAutoAdaptLoop>>> | undefined;
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = runAutoAdaptLoop({
+        stateRoot,
+        projectRoot: "/tmp/proj-fb-retry",
+        projectId,
+        primaryModelId: "premium",
+        episodeId,
+        extraSignals: failingPair(projectId, episodeId, "cheap"),
+        feedbackPersist: {
+          onDrop: (reason) => drops.push(reason),
+          maxAttempts: 3,
+          retryBackoffMs: 1,
+          timeoutMs: 60,
+          retryMs: 5,
+          // Attempt 1 has provably timed out by the time the backoff runs, so
+          // releasing here is "the cascade finished" without a sleep race.
+          sleep: async (ms) => {
+            backoffs.push(ms);
+            releaseLock();
+          }
+        }
+      });
+      await lockHeld;
+    });
+
+    assert.ok(pending !== undefined);
+    const result = await pending;
+    assert.deepEqual(backoffs, [1], "only the first row ever saw the lock");
+    assert.deepEqual(drops, []);
+    assert.equal(result.feedbackDropped, 0);
+    assert.equal(result.feedbackPersisted, 2);
+    assert.deepEqual(result.feedbackDropReasons, []);
+    assert.equal(result.reason.includes("warning:"), false, "nothing was lost, so nothing warns");
+    const stored = await readFeedbackRecordsRaw(stateRoot);
+    assert.equal(stored.length, 2);
+    assert.ok(stored.every((record) => record.episodeId === episodeId));
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a persist failure that is not lock contention still fails the iteration", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-fb-broken-"));
+  const projectRoot = "/tmp/proj-fb-broken";
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    // An unwritable log is not a contention window: retrying cannot fix it and
+    // degrading to a warning would hide a broken state root every single run.
+    await mkdir(feedbackLogPath(stateRoot), { recursive: true });
+
+    await assert.rejects(
+      () =>
+        runAutoAdaptLoop({
+          stateRoot,
+          projectRoot,
+          projectId,
+          primaryModelId: "premium",
+          episodeId,
+          extraSignals: failingPair(projectId, episodeId, "cheap"),
+          feedbackPersist: { maxAttempts: 3, retryBackoffMs: 1 }
+        }),
+      (error: unknown) => (error as NodeJS.ErrnoException).code === "EISDIR"
+    );
+    assert.equal(
+      existsSync(banditFile(stateRoot, projectRoot)),
+      false,
+      "the iteration stopped at the failure instead of learning past it"
+    );
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a run with no project snapshot reports zero persisted and zero dropped", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-fb-nosnap-"));
+  try {
+    const result = await runAutoAdaptFromEvents({
+      stateRoot,
+      events: [],
+      primaryModelId: "premium"
+    });
+    // The persist counters are never absent, so a caller reading them cannot
+    // mistake "nothing was attempted" for "the fields are not there".
+    assert.equal(result.reason, "run has no project snapshot");
+    assert.equal(result.feedbackPersisted, 0);
+    assert.equal(result.feedbackDropped, 0);
+    assert.deepEqual(result.feedbackDropReasons, []);
+  } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
 });

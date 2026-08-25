@@ -1,7 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
-import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
+import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects, type JsonlRecovery } from "../persist/jsonl.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { validateInvocation, type ModelInvocation } from "./model-invocation.js";
@@ -64,12 +68,6 @@ export async function withInvocationLogLock<T>(
  */
 const appendQueues = new Map<string, Promise<void>>();
 
-function isLockTimeout(error: unknown): error is DomainValidationError {
-  return (
-    error instanceof DomainValidationError && error.message.includes("timed out waiting for lock")
-  );
-}
-
 /**
  * Validate and append one invocation row under the log's exclusive lock.
  *
@@ -77,10 +75,6 @@ function isLockTimeout(error: unknown): error is DomainValidationError {
  * be read back is worse than a missing one, because calibration and the delete
  * filter both key off its fields. Callers on the live path treat a rejection
  * as a dropped telemetry row, never as a failed run.
- *
- * Lock timeouts get one immediate retry with the same options. Keeping the
- * same timeout bounds telemetry waiting to at most two acquisition windows;
- * a second timeout still rejects for the live caller to drop.
  */
 export async function appendInvocationRecord(
   stateRoot: string,
@@ -94,22 +88,130 @@ export async function appendInvocationRecord(
   const previous = appendQueues.get(path) ?? Promise.resolve();
   const queued = previous
     .catch(() => undefined)
-    .then(async () => {
-      const append = (): Promise<void> =>
-        withInvocationLogLock(stateRoot, () => appendJsonlLine(path, line, fsync), options);
-      try {
-        await append();
-      } catch (error: unknown) {
-        if (!isLockTimeout(error)) throw error;
-        await append();
-      }
-    });
+    .then(async () =>
+      withInvocationLogLock(stateRoot, () => appendJsonlLine(path, line, fsync), options)
+    );
   appendQueues.set(path, queued);
   try {
     await queued;
   } finally {
     if (appendQueues.get(path) === queued) appendQueues.delete(path);
   }
+}
+
+/** One live-path telemetry write. Never rejects: a dropped row is not a failed run. */
+export type InvocationSink = (invocation: ModelInvocation) => Promise<void>;
+
+export interface InvocationSinkOptions extends AppendInvocationOptions {
+  /** Called once per record the sink gives up on, with why it was dropped. */
+  readonly onDrop?: (reason: string) => void;
+  /** Tries per record, the first attempt included. Default 3. */
+  readonly maxAttempts?: number;
+  /** Pause before each retry. Default 50ms. */
+  readonly retryBackoffMs?: number;
+  /** Sleep seam; tests use it to observe retries and to order the lock release. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Per-log-path queue for sink writes, holding a record's retries together.
+ *
+ * `appendInvocationRecord` already serializes appends, but a retry re-enters
+ * that queue at the back: without a second chain around the whole retry loop,
+ * a record that waited out a lock timeout would land after rows issued later.
+ */
+const sinkQueues = new Map<string, Promise<void>>();
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True only for `withExclusiveFileLock`'s typed timeout.
+ *
+ * Deliberately exact: a validation failure is also a `DomainValidationError`,
+ * and retrying one would only re-reject three times. An unrecognized error
+ * fails closed to "do not retry" — the row drops instead of looping.
+ */
+function isLockTimeout(error: unknown): boolean {
+  return (
+    error instanceof DomainValidationError &&
+    "code" in error &&
+    error.code === LOCK_TIMEOUT_CODE
+  );
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A telemetry writer for the live path: bounded retry, then an honest drop.
+ *
+ * `appendInvocationRecord` rejects when a rewriter (`delete --run`) holds the
+ * lock past the timeout, and the live executor cannot fail a run over a
+ * telemetry row — so callers used to swallow the rejection and lose every
+ * invocation in that window. This sink retries a lock timeout a few times so
+ * the common case (a rewrite shorter than the retry budget) still lands, and
+ * reports the terminal give-up through `onDrop` so the loss is visible instead
+ * of silent. Validation failures are never retried: the record is wrong, and
+ * writing it later would not make it right.
+ *
+ * Readers stay lock-free and `appendInvocationRecord` keeps its signature;
+ * this is a wrapper, not a new writer surface.
+ */
+export function createInvocationSink(
+  stateRoot: string,
+  options: InvocationSinkOptions = {}
+): InvocationSink {
+  const {
+    onDrop,
+    maxAttempts = 3,
+    retryBackoffMs = 50,
+    sleep = defaultSleep,
+    ...appendOptions
+  } = options;
+  const path = invocationsLogPath(stateRoot);
+  const lockPath = invocationLogLockPath(stateRoot);
+  const tries = Math.max(1, Math.trunc(maxAttempts));
+  // A reporter that throws would turn a dropped telemetry row back into a
+  // failed live call, which is the whole thing this sink exists to prevent.
+  const report = (reason: string): void => {
+    try {
+      onDrop?.(reason);
+    } catch {
+      // nothing left to report it to
+    }
+  };
+
+  const deliver = async (invocation: ModelInvocation): Promise<void> => {
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      try {
+        await appendInvocationRecord(stateRoot, invocation, appendOptions);
+        return;
+      } catch (error: unknown) {
+        if (!isLockTimeout(error)) {
+          report(`invocation ${invocation.id} rejected: ${reasonOf(error)}`);
+          return;
+        }
+        if (attempt === tries) {
+          report(
+            `invocation ${invocation.id} dropped: lock timeout after ${tries} attempts on ${lockPath}`
+          );
+          return;
+        }
+        await sleep(retryBackoffMs);
+      }
+    }
+  };
+
+  return (invocation: ModelInvocation): Promise<void> => {
+    const previous = sinkQueues.get(path) ?? Promise.resolve();
+    const queued = previous.catch(() => undefined).then(() => deliver(invocation));
+    sinkQueues.set(path, queued);
+    return queued.finally(() => {
+      if (sinkQueues.get(path) === queued) sinkQueues.delete(path);
+    });
+  };
 }
 
 export interface InvocationLogRead {
@@ -150,10 +252,10 @@ export async function readInvocationRecords(
  */
 export async function writeInvocationRecords(
   stateRoot: string,
-  rows: readonly unknown[]
+  rows: readonly unknown[],
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   const path = invocationsLogPath(stateRoot);
   const body = rows.map((row) => JSON.stringify(row)).join("\n");
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
+  await writeFileAtomic(path, body === "" ? "" : `${body}\n`, options);
 }

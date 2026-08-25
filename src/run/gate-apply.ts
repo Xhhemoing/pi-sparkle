@@ -11,6 +11,33 @@ import {
 
 export type { GateDirective, GateRunStatus } from "./events.js";
 
+/**
+ * What the gate did with one assessment.
+ *
+ * `runStatus` is a consistency ledger for the transition record, not a control
+ * input (Loop 4 R9-6, parent-signed). It reports the status this apply wrote —
+ * or, when nothing was written, would have written — into
+ * `GATE_TRANSITION.payload.to`, so that a caller reconciling its own view
+ * against the record has the gate's answer in hand. It is deliberately not the
+ * channel through which the gate steers a run, and outside this module nothing
+ * reads it:
+ *
+ * - the flowchart plane (`flowchart-run.ts::executeClusteredNode`, reached
+ *   through `child-tracking.ts::applyChildThreeLine`) appends the returned
+ *   events and discards the result whole. Its control comes from the flowchart
+ *   supervisor's state machine and its reported status from `replayRun` over
+ *   the log, so the gate reaches that plane only as the `RUN_BLOCKED` /
+ *   `RUN_WAITING_FOR_USER` events appended below;
+ * - the parent DAG coordinator reads `directive` and nothing else.
+ *
+ * So the reconstruction is near-write-only on the flowchart plane, and that is
+ * the posture rather than an oversight to be tidied away. Wiring `runStatus`
+ * into either plane's control flow would move the gate from writing the record
+ * to driving the run, which is a decision needing its own justification: the
+ * gate's authority is deliberately bounded, and the adjacent question of how
+ * much it may block is settled — soft and hard both block (Loop 4 R8-4 C7).
+ * The absence of a reader is pinned, so growing one is a visible act.
+ */
 export interface GateApplyResult {
   readonly applied: boolean;
   readonly directive: GateDirective;
@@ -177,12 +204,46 @@ export function executionAuthority(input: {
   return input.taskContext;
 }
 
+/**
+ * The gate's own view of the run status, reconstructed for the `from` field of
+ * the next transition.
+ *
+ * It tracks the active `RUN_BLOCKED` id for the same reason replay does: only
+ * an unblock that names the block in force clears it. A stale or unmatched
+ * clearing event leaves the gate BLOCKED, so the two reconstructions agree
+ * about which run is running — without that, an unblocked run's next
+ * transition would claim to start from a block that no longer exists.
+ *
+ * Both clearing events count, and identically. `RUN_UNBLOCKED_WITH_DISCARD`
+ * authorizes a wider checkpoint transform, not a different lifecycle: reading
+ * only the ordinary one here would leave the gate recording `from: "BLOCKED"`
+ * for a run replay calls RUNNING, which is exactly the disagreement between the
+ * two reconstructions this function exists to prevent.
+ *
+ * Writing that field is its whole job: this reconstruction never decides
+ * anything. In production it is observable only through the `from` field of a
+ * *subsequently* written transition, and a run that recovers writes no such
+ * transition, because a passing re-verification maps to `directive: "none"`.
+ * Only the run that fails again reads it back, which is why exactly one
+ * end-to-end shape observes it at all — the re-block cycle in
+ * `test/integration/run/unblock-flow.test.ts`. Keeping it in step with replay
+ * is therefore an obligation about the record, on the same footing as
+ * {@link GateApplyResult}'s `runStatus`, and not a control path.
+ */
 function currentGateStatus(events: readonly Event[]): GateRunStatus {
   let status: GateRunStatus = "RUNNING";
+  let blockedEventId: EventId | undefined;
   for (const event of events) {
     if (event.type === "GATE_TRANSITION") status = event.payload.to;
-    else if (event.type === "RUN_BLOCKED") status = "BLOCKED";
-    else if (event.type === "RUN_WAITING_FOR_USER") status = "WAITING_FOR_USER";
+    else if (event.type === "RUN_BLOCKED") {
+      status = "BLOCKED";
+      blockedEventId = event.id;
+    } else if (event.type === "RUN_UNBLOCKED" || event.type === "RUN_UNBLOCKED_WITH_DISCARD") {
+      if (blockedEventId !== undefined && event.payload.blockedEventId === blockedEventId) {
+        status = "RUNNING";
+        blockedEventId = undefined;
+      }
+    } else if (event.type === "RUN_WAITING_FOR_USER") status = "WAITING_FOR_USER";
     else if (event.type === "USER_ANSWER" || event.type === "RUN_STARTED") status = "RUNNING";
   }
   return status;

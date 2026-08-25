@@ -21,9 +21,10 @@ import type { AgentProfile, AgentProfileRegistry } from "../agents/registry.js";
 import type { ContextPacket } from "../context/packet.js";
 import type { AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { formatChildPrompt } from "./child-prompt.js";
+import { CHILD_CRASH_PREFIX, recordChildCrashTerminal } from "./crash-terminal.js";
 import { tryParseModelRef } from "../config/model-ref.js";
 import {
-  assertAtMostOneTerminal,
+  isTerminalMessage,
   SUPERVISOR,
   validateAgentMessage,
   validateApprovalReplyForPlan,
@@ -83,6 +84,13 @@ export interface ChildTaskInput {
   profile: AgentProfile;
   inputArtifactIds: ArtifactId[];
   acceptanceCriteria: AcceptanceCriterion[];
+  /**
+   * Per-child budget. The coordinator enforces `maxAttempts` (the retry
+   * ladder), `timeoutMs` (per attempt), and `maxWallTimeMs` (one deadline for
+   * the whole child run). It cannot price spend itself, so it forwards the
+   * effective `maxCostUsd` to the executor; see {@link ChildRunLimits} for the
+   * executor-dependent enforcement contract.
+   */
   limits: ChildRunLimits;
   /** Optional predecessor task ids; used when compiling `--children` into a flowchart. */
   dependsOn?: readonly TaskId[];
@@ -114,6 +122,13 @@ export interface ChildRunHandle {
   childRunId: RunId;
   taskId: TaskId;
   done: Promise<ChildRunOutcome>;
+  /**
+   * Requests cancellation in every window: while the child is queued behind the
+   * concurrency gate, while an attempt is live, and between attempts. The
+   * request is durable for the lifetime of the child run, so a cancel that
+   * lands when no attempt controller exists still settles the child as
+   * CANCELLED instead of being dropped.
+   */
   cancel(): void;
 }
 
@@ -154,6 +169,33 @@ class ConcurrencyGate {
   }
 }
 
+/**
+ * Accumulates one attempt's validated messages and enforces the at-most-one
+ * terminal invariant incrementally. Each message is validated once by the
+ * caller and checked against a flag here, so a transcript of n messages costs
+ * O(n) validations instead of re-validating the whole prefix per message.
+ */
+class AttemptTranscript {
+  readonly messages: AgentMessage[] = [];
+  private sawTerminal = false;
+
+  /** Appends a validated message, rejecting a second terminal TASK_RESULT. */
+  accept(message: AgentMessage): void {
+    if (isTerminalMessage(message)) {
+      if (this.sawTerminal) {
+        // Wording pinned against protocol/v1's assertAtMostOneTerminal by
+        // test/unit/run/child-coordinator-limits.test.ts.
+        throw new DomainValidationError("Duplicate terminal TASK_RESULT message");
+      }
+      this.sawTerminal = true;
+    }
+    this.messages.push(message);
+  }
+}
+
+/** Delays above this are clamped by setTimeout and would fire immediately. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 const realSchedule = (fn: () => void, ms: number): { cancel(): void } => {
   const handle = setTimeout(fn, ms);
   return { cancel: () => clearTimeout(handle) };
@@ -179,6 +221,14 @@ export class ChildCoordinator {
 
   /** Active attempt controller per child run, for external cancellation. */
   private readonly attemptControllers = new Map<RunId, AbortController>();
+
+  /**
+   * Child runs whose cancellation was requested. An attempt controller only
+   * exists while an attempt is executing, so the request has to outlive it:
+   * `runTask` consults this set after the gate lets the child in and before
+   * every attempt.
+   */
+  private readonly cancelledChildren = new Set<RunId>();
   private readonly questionResolvers = new Map<MessageId, () => void>();
   private readonly pendingQuestionsList: AgentQuestion[] = [];
 
@@ -254,10 +304,16 @@ export class ChildCoordinator {
     const childRunId = options?.childRunId ?? createRunId(this.generateId);
     const taskId = input.taskId;
 
+    let settled = false;
     const done = this.gate.acquire().then(async () => {
       try {
         return await this.runTask(input, childRunId, parentSignal);
+      } catch (error) {
+        await this.recordCrashTerminal(childRunId, taskId, error);
+        throw error;
       } finally {
+        settled = true;
+        this.cancelledChildren.delete(childRunId);
         this.gate.release();
       }
     });
@@ -267,6 +323,8 @@ export class ChildCoordinator {
       taskId,
       done,
       cancel: () => {
+        if (settled) return;
+        this.cancelledChildren.add(childRunId);
         const controller = this.attemptControllers.get(childRunId);
         if (controller !== undefined) controller.abort();
       }
@@ -306,6 +364,27 @@ export class ChildCoordinator {
     taskId?: TaskId
   ): Promise<void> {
     return this.childStore(childRunId).append(this.makeEvent(type, payload, childRunId, taskId));
+  }
+
+  /**
+   * Closes the log of a child whose run threw instead of settling. Without it
+   * the child's own event log stops wherever the throw landed — replay sees a
+   * child that never ended, even though nothing is running it any more.
+   *
+   * The contract (already-terminal guard, best-effort append, caller rethrows)
+   * lives in `run/crash-terminal.ts` alongside the run planes'; the child's
+   * prefix and its own log are what this call supplies. Pinned by
+   * `test/integration/m2.5/children-flowchart.test.ts`.
+   */
+  private recordCrashTerminal(childRunId: RunId, taskId: TaskId, error: unknown): Promise<void> {
+    return recordChildCrashTerminal(
+      {
+        readEvents: async () => (await this.childStore(childRunId).readAll()).events,
+        appendFailed: (reason) => this.appendChildEvent(childRunId, "RUN_FAILED", { reason }, taskId)
+      },
+      error,
+      CHILD_CRASH_PREFIX
+    );
   }
 
   private buildTaskRequest(input: ChildTaskInput, childRunId: RunId, childAgentId: AgentInstanceId): TaskRequest {
@@ -371,93 +450,141 @@ export class ChildCoordinator {
     let summary = "child execution ended without a terminal result";
     let assignedModel = input.assignedModel;
 
-    for (let attempt = 1; attempt <= input.limits.maxAttempts; attempt += 1) {
-      attempts = attempt;
-      const attemptInput =
-        assignedModel === undefined ? input : { ...input, assignedModel };
-      const attemptResult = await this.runAttempt(attemptInput, childRunId, parentSignal, attempt);
-      messages.push(...attemptResult.messages);
+    // The protocol requires a positive integer wall budget; limits built
+    // in-process bypass that validator, so anything non-positive or
+    // non-representable fails closed as an already-exhausted deadline.
+    const wallLimitMs = input.limits.maxWallTimeMs;
+    const wallBudgetMs = Number.isFinite(wallLimitMs)
+      ? Math.min(Math.max(wallLimitMs, 0), MAX_TIMER_MS)
+      : 0;
+    let wallExpired = wallBudgetMs <= 0;
+    // One deadline timer for the whole child run: an attempt therefore ends at
+    // min(timeoutMs, remaining wall budget), whichever timer fires first.
+    const wallTimer = wallExpired
+      ? undefined
+      : this.schedule(() => {
+          wallExpired = true;
+          const controller = this.attemptControllers.get(childRunId);
+          if (controller !== undefined) controller.abort();
+        }, wallBudgetMs);
+    const wallSummary = (): string =>
+      `wall-clock limit of ${wallLimitMs}ms exhausted after ${attempts} attempt(s)`;
 
-      if (parentSignal.aborted) {
-        outcome = "CANCELLED";
-        summary = "parent run cancelled";
-        break;
-      }
-      if (attemptResult.timedOut) {
-        await this.appendParentEvent("TASK_TIMEOUT", { childRunId, attempt }, input.taskId);
+    try {
+      for (let attempt = 1; attempt <= input.limits.maxAttempts; attempt += 1) {
+        if (this.cancelledChildren.has(childRunId)) {
+          outcome = "CANCELLED";
+          summary = attempt === 1 ? "cancelled before start" : "cancelled between attempts";
+          break;
+        }
+        if (wallExpired) {
+          outcome = "TIMEOUT";
+          summary = wallSummary();
+          break;
+        }
+        attempts = attempt;
+        const attemptInput =
+          assignedModel === undefined ? input : { ...input, assignedModel };
+        const attemptResult = await this.runAttempt(attemptInput, childRunId, parentSignal, attempt);
+        messages.push(...attemptResult.messages);
+
+        if (parentSignal.aborted) {
+          outcome = "CANCELLED";
+          summary = "parent run cancelled";
+          break;
+        }
+        // The deadline timer aborts the live attempt, so report the wall limit
+        // instead of the abort's downstream shape (attempt timeout / executor
+        // cancellation). A terminal result or a protocol violation that still
+        // arrived keeps its own honest outcome below.
+        if (
+          wallExpired &&
+          attemptResult.terminalMessage === undefined &&
+          attemptResult.failureReason === undefined
+        ) {
+          await this.appendParentEvent("TASK_TIMEOUT", { childRunId, attempt }, input.taskId);
+          outcome = "TIMEOUT";
+          summary = wallSummary();
+          break;
+        }
+        if (attemptResult.timedOut) {
+          await this.appendParentEvent("TASK_TIMEOUT", { childRunId, attempt }, input.taskId);
+          if (attempt < input.limits.maxAttempts) {
+            await this.appendParentEvent(
+              "TASK_RETRY",
+              { childRunId, attempt, reason: "task timed out" },
+              input.taskId
+            );
+            continue;
+          }
+          outcome = "TIMEOUT";
+          summary = `task timed out after ${attempt} attempt(s)`;
+          break;
+        }
+
+        // Protocol violations (malformed messages, duplicate terminals, unleased
+        // senders) fail the task immediately: retrying reproduces the same error.
+        if (attemptResult.failureReason !== undefined) {
+          outcome = "FAILURE";
+          summary = attemptResult.failureReason;
+          break;
+        }
+
+        const terminal = attemptResult.terminalMessage;
+        if (terminal !== undefined) {
+          const cascaded = this.maybeCascadeRetry({
+            input,
+            assignedModel,
+            terminal,
+            attempt
+          });
+          if (cascaded !== undefined) {
+            assignedModel = cascaded.nextModelId;
+            await this.appendParentEvent(
+              "TASK_RETRY",
+              {
+                childRunId,
+                attempt,
+                reason: cascaded.reason,
+                previousModel: cascaded.previousModelId,
+                nextModel: cascaded.nextModelId,
+                ...(cascaded.nextVersion !== undefined ? { nextModelVersion: cascaded.nextVersion } : {})
+              },
+              input.taskId
+            );
+            continue;
+          }
+          terminalResult = terminal;
+          outcome = terminal.outcome === "CANCELLED" ? "CANCELLED" : terminal.outcome;
+          summary = terminal.summary;
+          break;
+        }
+
+        const executorOutcome = attemptResult.executorOutcome;
+        if (executorOutcome === "SUCCESS") {
+          outcome = "FAILURE";
+          summary = "executor finished without a terminal TASK_RESULT";
+          break;
+        }
+        if (executorOutcome === "CANCELLED") {
+          outcome = "CANCELLED";
+          summary = "executor cancelled";
+          break;
+        }
         if (attempt < input.limits.maxAttempts) {
           await this.appendParentEvent(
             "TASK_RETRY",
-            { childRunId, attempt, reason: "task timed out" },
+            { childRunId, attempt, reason: "attempt failed" },
             input.taskId
           );
           continue;
         }
-        outcome = "TIMEOUT";
-        summary = `task timed out after ${attempt} attempt(s)`;
-        break;
-      }
-
-      // Protocol violations (malformed messages, duplicate terminals, unleased
-      // senders) fail the task immediately: retrying reproduces the same error.
-      if (attemptResult.failureReason !== undefined) {
         outcome = "FAILURE";
-        summary = attemptResult.failureReason;
+        summary = executorOutcome === "FAILURE" ? "executor reported failure" : summary;
         break;
       }
-
-      const terminal = attemptResult.terminalMessage;
-      if (terminal !== undefined) {
-        const cascaded = this.maybeCascadeRetry({
-          input,
-          assignedModel,
-          terminal,
-          attempt
-        });
-        if (cascaded !== undefined) {
-          assignedModel = cascaded.nextModelId;
-          await this.appendParentEvent(
-            "TASK_RETRY",
-            {
-              childRunId,
-              attempt,
-              reason: cascaded.reason,
-              previousModel: cascaded.previousModelId,
-              nextModel: cascaded.nextModelId,
-              ...(cascaded.nextVersion !== undefined ? { nextModelVersion: cascaded.nextVersion } : {})
-            },
-            input.taskId
-          );
-          continue;
-        }
-        terminalResult = terminal;
-        outcome = terminal.outcome === "CANCELLED" ? "CANCELLED" : terminal.outcome;
-        summary = terminal.summary;
-        break;
-      }
-
-      const executorOutcome = attemptResult.executorOutcome;
-      if (executorOutcome === "SUCCESS") {
-        outcome = "FAILURE";
-        summary = "executor finished without a terminal TASK_RESULT";
-        break;
-      }
-      if (executorOutcome === "CANCELLED") {
-        outcome = "CANCELLED";
-        summary = "executor cancelled";
-        break;
-      }
-      if (attempt < input.limits.maxAttempts) {
-        await this.appendParentEvent(
-          "TASK_RETRY",
-          { childRunId, attempt, reason: "attempt failed" },
-          input.taskId
-        );
-        continue;
-      }
-      outcome = "FAILURE";
-      summary = executorOutcome === "FAILURE" ? "executor reported failure" : summary;
-      break;
+    } finally {
+      if (wallTimer !== undefined) wallTimer.cancel();
     }
 
     // Terminal child-run event.
@@ -560,7 +687,7 @@ export class ChildCoordinator {
       attemptController.abort();
     }, input.limits.timeoutMs);
 
-    const seen: AgentMessage[] = [];
+    const transcript = new AttemptTranscript();
     let terminalMessage: TaskResult | undefined;
     let executorOutcome: "SUCCESS" | "FAILURE" | "CANCELLED" | undefined;
     let failureReason: string | undefined;
@@ -573,11 +700,11 @@ export class ChildCoordinator {
           childRunId,
           input.taskId,
           childAgentId,
-          seen,
+          transcript,
           signal
         );
         // Do not break on the first terminal: a second TASK_RESULT must be
-        // rejected by assertAtMostOneTerminal as a protocol violation.
+        // rejected by the transcript as a protocol violation.
         if (terminal !== undefined) terminalMessage = terminal;
         if (executionEvent.type === "EXECUTION_FINISHED") {
           executorOutcome = executionEvent.outcome;
@@ -616,7 +743,7 @@ export class ChildCoordinator {
       ...(terminalMessage !== undefined ? { terminalMessage } : {}),
       ...(executorOutcome !== undefined ? { executorOutcome } : {}),
       ...(failureReason !== undefined ? { failureReason } : {}),
-      messages: seen
+      messages: transcript.messages
     };
   }
 
@@ -629,7 +756,7 @@ export class ChildCoordinator {
     childRunId: RunId,
     taskId: TaskId,
     childAgentId: AgentInstanceId,
-    seen: AgentMessage[],
+    transcript: AttemptTranscript,
     signal: AbortSignal
   ): Promise<TaskResult | undefined> {
     switch (event.type) {
@@ -690,8 +817,7 @@ export class ChildCoordinator {
         if (message.taskId !== taskId || message.runId !== childRunId) {
           throw new DomainValidationError(`Message does not match the leased task ${taskId}`);
         }
-        assertAtMostOneTerminal([...seen, message]);
-        seen.push(message);
+        transcript.accept(message);
         await this.appendParentEvent("CHILD_MESSAGE", { message }, taskId);
 
         if (message.type === "PEER_MESSAGE") {

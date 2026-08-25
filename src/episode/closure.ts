@@ -1,6 +1,5 @@
 import type { RunId } from "../domain/ids.js";
 import type { ProjectEpisode } from "../domain/episode.js";
-import { nowIso } from "../domain/timestamp.js";
 
 export interface ClosureDecision {
   readonly canClose: boolean;
@@ -37,13 +36,4 @@ export function decideClosure(episode: ProjectEpisode, _latestRunIds: readonly R
     return { canClose: false, reason: "acceptance-incomplete", requiredEvidence: missing };
   }
   return { canClose: true, reason: "all-criteria-met", requiredEvidence: [] };
-}
-
-export function closeEpisode(episode: ProjectEpisode, status: "COMPLETED" | "FAILED" | "ABANDONED"): ProjectEpisode {
-  return {
-    ...episode,
-    status,
-    closedAt: nowIso(),
-    runIds: [...episode.runIds]
-  };
 }

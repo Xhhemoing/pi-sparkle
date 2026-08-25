@@ -1,10 +1,13 @@
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { writeFileAtomic } from "../persist/atomic-file.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
 import { isIsoTimestamp, nowIso, type IsoTimestamp } from "../domain/timestamp.js";
+import { runLockPath } from "./event-store.js";
 
 export interface PauseToken {
   readonly paused: boolean;
@@ -20,27 +23,6 @@ export interface PauseController {
 
 function pausePath(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId, "pause.json");
-}
-
-async function writeAtomic(path: string, value: unknown): Promise<void> {
-  const serialized = `${JSON.stringify(value, null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.tmp`;
-  const handle = await open(tempPath, "w");
-  try {
-    await handle.writeFile(serialized, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tempPath, path);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EEXIST" && code !== "EACCES") throw error;
-    await unlink(path);
-    await rename(tempPath, path);
-  }
 }
 
 function parsePauseToken(raw: string): PauseToken {
@@ -66,9 +48,17 @@ function parsePauseToken(raw: string): PauseToken {
   };
 }
 
+/**
+ * `lockOptions` bounds the run-scoped cooperative lock `requestPause` takes
+ * (`runLockPath`), so a pause request and a `delete --run` of the same run
+ * cannot interleave: writing `pause.json` creates the run directory, which
+ * would otherwise put a subtree the delete just removed straight back.
+ * `token()` reads without the lock — the file is published by rename.
+ */
 export function createFilePauseController(
   stateRoot: string,
-  now: () => IsoTimestamp = nowIso
+  now: () => IsoTimestamp = nowIso,
+  lockOptions: FileLockOptions = {}
 ): PauseController {
   return {
     async requestPause(runId, reason) {
@@ -80,9 +70,16 @@ export function createFilePauseController(
         requestedAt: now(),
         ...(reason !== undefined ? { reason } : {})
       };
-      await writeAtomic(pausePath(stateRoot, runId), token);
+      await withExclusiveFileLock(
+        runLockPath(stateRoot, runId),
+        () => writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`),
+        lockOptions
+      );
       return token;
     },
+    // Unlocked on purpose: an unlink cannot recreate the run directory, so
+    // clearing a pause has nothing for a `delete --run` to lose a race with.
+    // Taking the lock here would only make a clear create `runtime/runs/`.
     async clearPause(runId) {
       await unlink(pausePath(stateRoot, runId)).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") throw error;

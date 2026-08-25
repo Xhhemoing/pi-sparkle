@@ -12,6 +12,8 @@ import {
 import { createModelRouter, type ModelRouterConfig } from "../../../src/supervisor/model-router.js";
 import {
   createFlowchartSupervisor,
+  reopenBlockedFlowchartSnapshot,
+  reopenBlockedFlowchartSnapshotWithDiscard,
   restoreFlowchartSupervisor,
   type FlowchartSupervisor
 } from "../../../src/supervisor/flowchart-supervisor.js";
@@ -601,6 +603,152 @@ test("a success:expected-false recovery that completes the graph is COMPLETED", 
   sv.applyChildResult("recover", success);
   assert.equal(sv.nodeState("recover"), "COMPLETED");
   assert.equal(sv.status, "COMPLETED");
+});
+
+/**
+ * Fail-closed contract for the executed-descendant case. A future explicit
+ * discard authorization adds a separate positive path; ordinary unblock must
+ * never acquire that authority by widening silently.
+ */
+test("ordinary unblock cannot rewind completed descendants of a failed node", () => {
+  const fc: Flowchart = {
+    id: "executed-descendant-refusal",
+    nodes: [node("failed"), node("left"), node("right")],
+    edges: [
+      { from: "failed", to: "left", condition: { type: "success", expected: false } },
+      { from: "failed", to: "right", condition: { type: "success", expected: false } }
+    ]
+  };
+  const sv = makeSupervisor(fc);
+
+  assert.deepEqual(sv.leaseReadyNodes().map((lease) => lease.nodeId), ["failed"]);
+  sv.applyChildResult("failed", { outcome: "FAILURE", evidenceIds: ["evd-failure"] });
+  assert.deepEqual(
+    sv.leaseReadyNodes().map((lease) => lease.nodeId),
+    ["left", "right"]
+  );
+  sv.applyChildResult("left", success);
+  sv.applyChildResult("right", success);
+  const before = sv.snapshot();
+
+  assert.throws(
+    () =>
+      reopenBlockedFlowchartSnapshot(
+        { flowchart: fc, router: router() },
+        before,
+        { retryNodeId: "failed" }
+      ),
+    {
+      name: "DomainValidationError",
+      message:
+        "cannot reopen node failed: left, right already executed, and rewinding executed work is not authorized by an unblock"
+    }
+  );
+  assert.deepEqual(sv.snapshot(), before, "a refused ordinary unblock leaves completed work untouched");
+});
+
+/**
+ * The positive path the refusal above was holding the door for.
+ *
+ * Same graph, same two COMPLETED branches, one explicit discard authorization.
+ * What it must do is rewind them; what it must *not* do is behave as though the
+ * work never happened. Evidence counts and both remaining budgets survive
+ * untouched, because the attempts really ran and really cost what they cost —
+ * re-execution spends again and has to pass the remaining-budget checks a
+ * second time. The outcome fields do not survive: a stale `success: true` left
+ * on a rewound node would keep satisfying the very edges the rewind exists to
+ * re-decide, which is the difference between "discarded" and "forgotten".
+ */
+test("an explicit discard rewinds completed descendants, clears their outcomes, and refunds nothing", () => {
+  const fc: Flowchart = {
+    id: "executed-descendant-discard",
+    nodes: [node("failed"), node("left"), node("right")],
+    edges: [
+      { from: "failed", to: "left", condition: { type: "success", expected: false } },
+      { from: "failed", to: "right", condition: { type: "success", expected: false } }
+    ]
+  };
+  const sv = createFlowchartSupervisor({
+    flowchart: fc,
+    router: router(),
+    limits: { maxConcurrentNodes: 4, maxConsecutiveStalls: 3, remainingCostUsd: 5, remainingTimeMs: 60_000 }
+  });
+  sv.leaseReadyNodes();
+  sv.applyChildResult("failed", { outcome: "FAILURE", evidenceIds: ["evd-failure"] });
+  sv.leaseReadyNodes();
+  sv.applyChildResult("left", success);
+  sv.applyChildResult("right", success);
+  const before = sv.snapshot();
+  assert.equal(before.nodes.left?.state, "COMPLETED");
+  assert.equal(before.nodes.left?.success, true);
+
+  const config = { flowchart: fc, router: router(), limits: { maxConcurrentNodes: 4, maxConsecutiveStalls: 3, remainingCostUsd: 5, remainingTimeMs: 60_000 } };
+  const plan = reopenBlockedFlowchartSnapshotWithDiscard(config, before, { retryNodeId: "failed" });
+
+  // The plan is the audit record's source: every node whose state changed, the
+  // state it was in, and its task identity — computed here, never supplied.
+  assert.deepEqual(plan.rewound, [
+    { nodeId: "left", taskId: createTaskId(() => "left"), previousState: "COMPLETED" },
+    { nodeId: "right", taskId: createTaskId(() => "right"), previousState: "COMPLETED" }
+  ]);
+
+  assert.equal(plan.snapshot.nodes.failed?.state, "READY", "the retry target reopens as it always did");
+  for (const nodeId of ["left", "right"] as const) {
+    const rewound = plan.snapshot.nodes[nodeId];
+    assert.equal(rewound?.state, "PENDING", `${nodeId} is rewound, not re-run`);
+    assert.equal(rewound?.success, undefined, `${nodeId} keeps no stale success`);
+    assert.equal(rewound?.confidence, undefined, `${nodeId} keeps no stale confidence`);
+    assert.equal(
+      rewound?.evidenceCount,
+      before.nodes[nodeId]?.evidenceCount,
+      `${nodeId} keeps the evidence its attempt produced`
+    );
+  }
+
+  // Discard is a control-state operation, not a refund.
+  assert.equal(plan.snapshot.remainingCostUsd, before.remainingCostUsd);
+  assert.equal(plan.snapshot.remainingTimeMs, before.remainingTimeMs);
+  assert.deepEqual(plan.snapshot.ledger.facts, before.ledger.facts, "ledger facts are history, not state");
+  assert.deepEqual(sv.snapshot(), before, "the transform is pure: the source supervisor is untouched");
+
+  // Nothing downstream executed is not a discard, and says so rather than
+  // writing a record of an authorization that superseded nothing.
+  const nothingExecuted = reopenBlockedFlowchartSnapshot(
+    { flowchart: fc, router: router() },
+    (() => {
+      const fresh = makeSupervisor(fc);
+      fresh.leaseReadyNodes();
+      fresh.applyChildResult("failed", { outcome: "FAILURE", evidenceIds: ["evd-failure"] });
+      return fresh.snapshot();
+    })(),
+    { retryNodeId: "failed" }
+  );
+  assert.equal(nothingExecuted.nodes.left?.state, "PENDING", "ordinary unblock already handles that shape");
+  assert.throws(
+    () =>
+      reopenBlockedFlowchartSnapshotWithDiscard(
+        { flowchart: fc, router: router() },
+        (() => {
+          const fresh = makeSupervisor(fc);
+          fresh.leaseReadyNodes();
+          fresh.applyChildResult("failed", { outcome: "FAILURE", evidenceIds: ["evd-failure"] });
+          return fresh.snapshot();
+        })(),
+        { retryNodeId: "failed" }
+      ),
+    {
+      name: "DomainValidationError",
+      message:
+        "cannot discard executed work for node failed: no descendant of it has executed; nothing to discard; omit --discard-executed"
+    }
+  );
+
+  // And the stronger transform inherits the narrow one's own guard: only a
+  // FAILED node can be re-driven, discard or not.
+  assert.throws(
+    () => reopenBlockedFlowchartSnapshotWithDiscard(config, plan.snapshot, { retryNodeId: "failed" }),
+    /only a FAILED node can be re-driven/
+  );
 });
 
 test("a high-confidence router gate auto-selects defaults and never becomes a RUNNING worker", () => {

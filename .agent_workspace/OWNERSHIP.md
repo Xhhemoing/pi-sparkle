@@ -1,16 +1,9 @@
-# File ownership — Loop 3 Round 1
+# File ownership — Loop 4 ending after Round 17 (`agent/opt-continuous`)
 
-Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit.
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `agent/opt-continuous`. Do not `git checkout` another branch.**
 
-If two slots need `src/cli/main.ts`, stay inside the function region listed. Do not reformat the rest of the file. Nobody else edits `package.json` except gpt-sol-1 (one scripts key, optional).
+Round 18 is cancelled on user request. Loop 4 ends with the Round 17 green gate; do not continue landings, dispatch freeze extras, or consume the in-flight fable audit.
 
-| Slot | Owns |
-|---|---|
-| fable-1 | `.agent_workspace/loop3-r1-fable1.md`, `docs/reports/2026-08-24-sota-loop3-architecture.md`, `README.md` (INSPECT_SUMMARY freeze + honesty only), `docs/status-matrix.md` |
-| fable-2 | `.agent_workspace/loop3-r1-fable2.md`, `docs/reports/2026-08-24-sota-loop3-isolation.md`, `docs/data-dictionary.md` |
-| opus-1 | `src/run/inspection.ts` (export frozen `InspectSummaryJson` + builder), `src/cli/main.ts` **only** `inspectCommand` (use the builder; `--json` stays event NDJSON), `test/unit/run/inspection.test.ts`, NEW `test/integration/cli/inspect-summary.test.ts` |
-| opus-2 | `src/feedback/store.ts` (locked append + rewrite, invocation-log pattern), `src/privacy/deletion.ts` **only** `cascadeFeedbackTombstones` (take the same lock for rewrite + tombstones), NEW `test/unit/feedback/store-lock.test.ts`, existing `test/unit/feedback/` tests if they must follow the lock |
-| gpt-sol-1 | `src/telemetry/invocation-log.ts` (one bounded retry on lock timeout, then still drop), `test/unit/telemetry/invocation-log.test.ts`, NEW `scripts/invocation-lock-probe.mjs`, `package.json` **scripts only** (`invocation:probe` key, no dep bumps) |
-| gpt-sol-2 | NEW `test/unit/privacy/adaptation-plane-closure.test.ts` (value-import transitive walker over adaptation dirs; pin runtime-prefix allowlist + model-router no-fs subtree). Do **not** edit `test/unit/routing/live-isolation.test.ts`. Optional: `src/` scan that computed `import(expr)` is absent |
+There are no active mutation slots.
 
-**Forbidden:** live R1/bandit/topology on the execution path, Outcome-supported, ADR-006 Accepted, P0 sign-off, auto-promote, `package.json` dependency bumps, closing F-PROD, inventing a `--children` contract, default retention bounds (unbounded stays the default).
+Frozen: exact eight `RunStatus` members; five `DOCTOR_ROUTED_NEXT` entries plus `GENERIC_FAILURE_NEXT`; the four-key `INSPECT_SUMMARY`; no live R1; ADR-006 Proposed; EventStore and CheckpointStore remain unlocked; preference locking stays at CLI writers; no 12th crash-probe case; no Outcome-supported or auto-promote claim.

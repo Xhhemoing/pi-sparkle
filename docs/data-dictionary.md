@@ -32,31 +32,19 @@ current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
-> Precision note (2026-08-24, revised Loop 3 Round 1): the allowlist pin
-> above is **direct-import only**; since Loop 3 Round 1 a second, transitive
-> pin closes the gap that left.
+> Precision note (2026-08-24, Loop 3 pin revised at Loop 4 closeout): the allowlist pin
+> above is **direct-import only**; the second pin closes the transitive gap.
 > `test/unit/privacy/adaptation-plane-closure.test.ts` walks the union
 > **value-import closure** (`import type` statements stripped, as
-> `verbatimModuleSyntax` erases them) of every adaptation-plane module and pins each
-> runtime-prefix module the closure reaches against an explicit, justified
-> allowlist — today the nine modules of the sanctioned `from-episode` pipe
-> plus `supervisor/model-router.ts`, which the plane loads at runtime through
-> `adaptation/eval-routing.ts -> routing/assign.ts` even though eval-routing's
-> own model-router import is type-only. A new transitive value edge from the
-> plane into any runtime prefix now fails the suite with its import chain
-> printed. The boundary rule still holds as stated because it is a claim
-> about *records*, not code loading: the suite also pins that
-> `model-router.ts`'s **entire value subtree** is filesystem-free (Loop 2 had
-> verified the subtree only by an out-of-suite closure walk; the shipped test
-> then covered the router file alone). Walker honesty: it is a fail-closed
-> regex walker, not a parser — comment text that looks like a value import
-> counts as an edge; only literal string specifiers are seen, and a repo-wide
-> companion test rejects any computed `import(expr)` in `src/` so that blind
-> spot cannot silently open; an `export type ... from` re-export would be
-> counted as a value edge (an over-approximation in the fail-closed
-> direction; none exist in `src/` today). See the
-> [Loop 3 R1 isolation report](reports/2026-08-24-sota-loop3-isolation.md)
-> §§1–2.
+> `verbatimModuleSyntax` erases them) of every adaptation-plane module and pins
+> each runtime-prefix module against an explicit, justified allowlist. Loop 4
+> removed the inferred-preference episode lookup from `from-episode`, shrinking
+> that pipe to `run/event-store.ts`, `run/events.ts`, and `run/injection.ts`;
+> the fourth allowed module is `supervisor/model-router.ts`, reached through
+> `adaptation/eval-routing.ts -> routing/assign.ts`. The router's entire value
+> subtree is pinned filesystem-free. The fail-closed regex walker counts
+> comment-shaped imports as edges, sees only literal specifiers, and is paired
+> with a repo-wide rejection of computed `import(expr)` in `src/`.
 
 > Layout note: this is a Developer Preview breaking change. Data written by
 > builds before 2026-08-22 sits at the legacy flat locations and is not
@@ -85,7 +73,7 @@ allowlist entry with a justification.
 | providers-config | runtime | `runtime/providers.json` | until-deleted | delete-files | 1 |
 | auth-credential | runtime | `runtime/auth.json` | until-deleted | delete-files | 1 |
 
-## Deletion tooling (Q2 remediation, extended 2026-08-24 Rounds 2–3)
+## Deletion tooling (Q2 remediation, extended through 2026-08-24 Round 6)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
 `runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
@@ -94,22 +82,213 @@ middle line fails the whole rewrite closed rather than reporting a partial
 delete as success), and — when rows were dropped — **invalidates the derived
 `runtime/routing/catalog-observed.json` snapshot** (unlinked, not recomputed;
 the class's recovery is "rebuild from invocations.jsonl" and readers treat a
-missing file as "no observations").
+missing file as "no observations"). The subtree removal is verified rather
+than assumed: if `runtime/runs/<id>/` survives or reappears during the removal,
+the command throws `RunRecordsSurvivedError` with code
+`RUN_RECORDS_SURVIVED` and refuses to report success. The removal and first
+verification hold the cooperative `runtime/runs/<runId>.lock`; the command
+then verifies a second time after releasing the lock. The second verification
+is essential because the per-step event and checkpoint writers deliberately
+do not take this lock and can recreate the subtree. A write after the final
+verification is a new write, so deletion after termination remains the
+supported flow.
 
-`pi-sparkle delete --episode <id>` removes both episode file shapes plus the
-operational `<id>.lock`, **and cascades into the adaptation plane**: every
-feedback record bound to that episode has **both free-text fields (`body` and
-`summary`) physically stripped from disk** and its id persisted to
-`adaptation/feedback/tombstones.json` (the record's audit shell — including
-its persisted `redactionClasses` — is kept). `readFeedback` filters
+The M0, parent, flowchart, and supervised start/resume paths, plus clarification
+runs, take `runtime/runs/<runId>.lock` once for the whole record-writing
+lifecycle and release it after teardown. Clarification discovery remains
+outside the acquisition; its event, checkpoint, episode, and questions writes
+are all inside one non-reentrant acquisition. Start preflight also remains
+outside the lock on the other planes, so a refused start persists nothing.
+That includes the M2 supervised DAG's empty-graph check:
+`validateTaskGraph([])` throws before lock acquisition, event append,
+checkpoint write, or executor entry.
+Resume must acquire before reading the records that deletion could remove; a
+refused resume of a nonexistent supervised or flowchart run therefore leaves
+an empty `runtime/runs/` directory, but no run subtree, lock, or record.
+
+`delete --run <id>` and `delete --episode <id>` accept
+`--lock-wait-ms <ms>`. Omitting it preserves the lock's 5 s default, `0`
+refuses a held lock immediately, and only decimal whole milliseconds through
+the 24 h ceiling are accepted. A delete aimed at a live run waits for clean
+teardown up to that bound instead of removing records underneath it; if the
+run outlives the wait, deletion fails with `LOCK_TIMEOUT` and removes nothing.
+`pause` deliberately has no matching flag: waiting longer can succeed only
+after the lifecycle holder has stopped, when writing a pause token would be a
+slow no-op rather than pausing a busy run. A cross-process pause therefore
+still fails closed with `LOCK_TIMEOUT` while the run is live.
+
+A process killed by SIGKILL cannot release its lock; locks are never stolen, so
+pause/delete/track-question writes remain blocked until an operator inspects
+the recorded PID and run state with `pi-sparkle doctor`, stops any live owner,
+and manually removes a confirmed abandoned lock. The crash-probe case
+`sigkill-run-lock-operator-recovery` crosses that OS-process boundary: it proves
+the recorded PID is dead, proves a timed-out delete changes no bytes, checks
+doctor's `pidLiveness: "not-running"` and manual-removal guidance, then removes
+the confirmed abandoned lock and verifies deletion. The standing probe has
+eleven ordered cases, each run for three iterations. The added tenth case,
+`unblock-append-before-checkpoint-sigkill`, proves exact-once recovery after an
+external kill between the complete `RUN_UNBLOCKED` append and checkpoint write;
+the eleventh,
+`unblock-discard-append-before-checkpoint-sigkill`, proves the corresponding
+single-event recovery for `RUN_UNBLOCKED_WITH_DISCARD` and re-executes only the
+retry target and discarded descendant. The name-list pin is
+`test/integration/persist/crash-recovery.test.ts`.
+
+A flowchart run has exactly one active replayed terminal. A tracking-gate
+`queue_analysis` therefore beats a later node failure, and a
+verification-failed child ends the run BLOCKED with `ANALYSIS_QUEUED`, the
+episode WAITING, and the run injectable and resumable. The flowchart terminal
+writers and replay anomaly rule share `TERMINAL_REPLAY_STATUSES` /
+`replayedTerminalStatus` rather than deriving terminal status separately. A
+matched `RUN_UNBLOCKED` explicitly ends the named BLOCKED interval; replay then
+has no terminal until a later COMPLETED, FAILED, or BLOCKED event becomes
+active.
+The library/test-only parent plane follows the same first-terminal rule:
+`runParentRun` routes its completion, ordinary failure, and crash exits through
+one `recordTerminal`, which consults `replayedTerminalStatus` and refuses a
+second terminal append. Two residuals are explicit decisions. A crash over a
+log replaying `WAITING_FOR_USER` still records `RUN_FAILED`: the parent loop's
+in-memory answering channel died with the process, so preserving the buried
+wait would advertise a responder that no longer exists. `RUN_CANCEL_REQUESTED`
+stays unguarded because it records an operator fact, not a status claim; replay
+keeps any existing terminal and reports the ordering anomaly.
+
+On flowchart resume, a node with a logged `TASK_REQUEST` is reconstructed from
+the durable parent log rather than from the checkpoint definition's thin node
+shape: the request restores objective, artifacts, criteria, and budget; the
+role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
+checkpointed edges restore dependencies. A node without a logged request keeps
+empty artifacts and uses the earliest logged sibling budget or the run's
+declared per-task limits. Its criteria come from the durable `taskCriteria`
+record when that record names the node; otherwise they remain empty/unknown.
+The optional run requirement contract is durable as
+`FlowchartCheckpointState.contract?` at unchanged checkpoint
+`schemaVersion: 1`; absence remains valid. Validation, every
+flowchart-checkpoint writer, pause/inject restoration, and both CLI
+continuation paths preserve it. Resume honours an explicit
+`FlowchartContinuation.contract` first and otherwise recovers the checkpointed
+value. It never synthesizes a contract from the episode, from per-task
+acceptance criteria, or as an empty `{ constraints: [] }` value.
+Round 11 also added the validated optional
+`FlowchartCheckpointState.taskCriteria?` seam. Absence means unknown, an
+entry's empty list means known-none, entries are ordered by `taskId`, and the
+field is never synthesized from the episode, flowchart definition, or run
+contract. Round 12 filled the seam in `81f5b81` from exactly three sources:
+caller specs at start, non-empty logged `TASK_REQUEST`s on checkpoint writes,
+and the checkpoint's existing record on restore. Writes are monotone
+first-write-wins. Empty logged requests are ignored because they cannot
+distinguish substituted re-dispatch from known-none; only the caller's own
+empty spec records known-none. The reader fills criteria only into substituted
+specs and never overrides a logged request. There is no
+`FlowchartContinuation.taskCriteria` input. Round 10's contract census and
+Round 12's `d592f8c` / `0e61063` pins require field carriage and at least one
+writer without freezing the writer count, while the source-wide episode-reader
+census rejects contract- or task-criteria-shaped output. The episode remains a
+deliberately lossy projection carrying acceptance criteria, never run-contract
+or task-dispatch authority. Commit `f6e4c04` corrected the two stale source
+comments to describe this shipped writer. Commit `e7d018c` behaviourally pins
+the persistence edges: a caller-recorded known-none entry survives unblock
+reopen and the following resume write when read back from disk; a valid legacy
+checkpoint with the field stripped recovers only non-empty logged requests.
+The substituted legacy node still re-dispatches with no criteria, logs `[]`,
+and remains absent from the record. That visible cost is recorded rather than
+hidden.
+
+Each real Pi-executor attempt exposes `sparkle_report_task_result`. A valid
+call writes one request-identity protocol-v1 `TASK_RESULT` with a non-empty
+summary and a whole-task `PASSED` or evidence-backed `FAILED` verdict into that
+attempt's transcript. `CANCELLED` is not a child claim; malformed `evd_` or
+`art_` references refuse the whole call; `FAILED` requires at least one
+evidence id. The first valid verdict wins, and a failed attempt's verdict does
+not leak into the retry. The adapter synthesizes `UNOBSERVED` only when the
+surviving attempt is silent or every report is refused. Measured reachability
+has `PASSED` open all 360 swept production-input cells (minimum 0.750 over the
+0.55 soft threshold) and `FAILED` hard-block all 180 swept cells with
+`deterministic-fail` leading. Round 11 added optional per-criterion results to
+the same tool call and protocol-v1 verification object without a protocol
+version bump. When present, the criterion list is non-empty with unique ids,
+and each reported `FAILED` criterion cites evidence. A reported criterion
+failure reaches the hard `unmet-acceptance-criterion` gate for every role,
+even when the whole-task verdict is `PASSED`. Omission, a protocol-level
+`UNOBSERVED` criterion, and a task that never ran remain unknown, not unmet,
+and do not trigger that gate. Round 12 commit `b8f784f` reaches the gate in
+production: the node is COMPLETED while the run is BLOCKED. Retry is refused
+for that completed node, no-retry `unblock` is the sanctioned exit, and
+`--discard-executed` is structurally unavailable because there is no failed
+retry node to name.
+Round 10's producer freeze additionally proves that model-supplied
+`from`/`runId`/`taskId` cannot displace the lease, an explicitly empty
+`FAILED.evidenceIds` emits nothing, an identical repeat is still a forbidden
+second verdict, and the tool remains an unconditional direct element of the
+attempt's `tools` array.
+
+`PrescoreInput.independentEvidence` is derived solely from that child-authored
+verdict and then discarded by `computePrescore`. It is a self-report posture,
+not independent corroboration. Round 10's whole-`src` dereference census allows
+only that `void` discard, and `95a2b25` separately requires zero mentions in
+the flowchart spine. Its 144-cell sweep shows the flag changes no score today;
+giving it a reader or a new name requires a separate decision.
+
+`GateApplyResult.runStatus` is a ledger projection, not a control input. Both
+runtime planes act on the directive and events and have zero
+`runStatus` readers; `applied` and `transitionId` are likewise result metadata,
+not transition authority.
+
+For a BLOCKED `run --flowchart` or `run --children`, the CLI renders the newest
+recorded reason and required evidence plus exactly four routed lines:
+`inspect`, `inject`, and `unblock` `next:` lines followed by a `note:` that
+resume alone replays BLOCKED. Flowchart `resume` and `answer` render the same
+block. The operator runs the locked
+`unblock --reason <text> [--retry-node <nodeId>]` command first, then resumes
+the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
+block and reopens state without executing it; stale, repeated, and wrong-node
+requests are refused. A BLOCKED result still exits 1.
+
+Ordinary `RUN_UNBLOCKED` keeps exactly its three signed-off keys
+(`blockedEventId`, `reason`, optional `retryNodeId`) and cannot discard
+executed descendants. The stronger `--discard-executed` authorization has the
+distinct exact-keyed event `RUN_UNBLOCKED_WITH_DISCARD`; it is neither a
+fourth ordinary-unblock key nor a two-event sequence. The implementation
+computes its required retry target and complete, canonically ordered consequence
+set under the lifecycle lock. Each executed entry cites its durable route and
+child-run records; charged estimates are sums over exactly the cited
+`MODEL_ROUTED` rows, never best-effort invocation telemetry or invented zero
+usage. The producer re-derives those sums before one append, restore recomputes
+the consequence set and fails closed on mismatch, then audits the recorded
+route ids, child-run ids, and charged sums against the cited log rows before
+resuming. The consequence-set check deliberately precedes the charge audit.
+The audit reads only cited rows, so later log growth cannot change its verdict.
+Its recorded completeness limit remains: an internally consistent payload
+citing only a subset of a task's routes passes; completeness is enforced by
+the sole producer, `chargedAttempts`, which takes every row. Both clearing
+events use the same replay/gate block matching. History and evidence survive,
+superseded control-state outcomes clear, pending approval is released when its
+waiter is rewound, and no budget is refunded. The authorization applies to one
+block, not to the rest of the run.
+
+> Round 15 sole docs-slot working-tree census (2026-08-25 02:15:43 UTC): HEAD
+> was `3793ea4`, with a clean tree and no sibling landing in flight. Round 14's
+> landings are committed: `25a3c2f` adds the scoped laundering coda at
+> `replay.ts:95-101` (the mechanics at `:85-93` are unchanged) and, as a
+> ride-along, retires the spent pointer in `option-a-preconditions.test.ts`;
+> `a1ea5f2` is the Round 13 docs truth-up. The hazard is bounded to a node
+> neither source records. A recorded node's substituted spec is restored before
+> the resumed node runs, while an unvouched logged-empty is detectable as
+> unknown, not the caller's known-none.
+> The `:89-91` counterfactual remains motivation prose bounded by the coda, not
+> a current-state bug. ADR-006 remains Proposed. This census is current at HEAD
+> because no sibling is in flight. Subsequent rounds need a new census note
+> only when a landing changes what these surfaces describe.
+
+`pi-sparkle delete --episode <id>` removes both episode file shapes while
+holding the operational `<id>.lock`, **and cascades into the adaptation
+plane**: every feedback record bound to that episode has **both free-text
+fields (`body` and `summary`) physically stripped from disk** and its id
+persisted to `adaptation/feedback/tombstones.json` (the record's audit shell —
+including its persisted `redactionClasses` — is kept). `readFeedback` filters
 tombstoned ids at the first layer, so a lingering shell is never re-surfaced
 **through that API**, and dataset exports keep listing tombstone ids without
-payloads. Since Loop 3 Round 1 the cascade's read, rewrite, and tombstone
-write all run inside the feedback log's cooperative lock
-(`src/feedback/store.ts`) — the same lock the auto-adapt appender takes — so
-a live append lands wholly before or wholly after the cascade instead of
-being clobbered by it; a cascade that cannot take the lock throws rather than
-rewriting unlocked. The episode delete also **discloses residual copies it is leaving
+payloads. The episode delete also **discloses residual copies it is leaving
 in place**: it reports every run whose records still hold the episode's text
 (`residualEpisodeTextRunIds`; the CLI prints one
 `residual episode text: run <id> …` line per run with the `delete --run`
@@ -121,17 +300,19 @@ names the episode, so the log cannot be declared clean). Run event logs are
 append-only evidence and are deliberately **not rewritten**; a repeat delete
 of an already-deleted episode still re-discloses the copies. The CLI fails
 closed: missing/ambiguous target flags exit 1, an unknown id ("nothing
-found") exits 1 rather than reporting success.
+found") exits 1 rather than reporting success. The delete does not unlink or
+report the lock as an episode record; normal owned lock release removes the
+sidecar. An abandoned lock is not stolen, so acquisition times out and the
+episode files remain for manual lock cleanup and a retry.
 
-### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 3 Round 1)
+### Known limits of the current delete commands (2026-08-24, Round 3 audit; revised Loop 2 Round 1)
 
 Honest gaps that remain after the Round 2 cascade, Round 3 disclosure work,
-the Loop 2 Round 1 invocation-lock fix, and the Loop 3 Round 1 feedback-lock
-and retry work ([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
+and the Loop 2 Round 1 invocation-lock fix
+([Round 1](reports/2026-08-24-sota-isolation-privacy.md),
 [Round 2](reports/2026-08-24-sota-r2-isolation.md),
 [Round 3](reports/2026-08-24-sota-r3-isolation.md),
-[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md),
-[Loop 3 R1](reports/2026-08-24-sota-loop3-isolation.md) reports); none of
+[Loop 2 R1](reports/2026-08-24-sota-loop2-isolation.md) reports); none of
 these are covered by the claims above:
 
 - **Episode text still physically survives inside attached runs** until each
@@ -147,31 +328,32 @@ these are covered by the claims above:
   the deletion suite pins that an episode delete leaves
   `adaptation/preferences.json` byte-identical. Use `pref delete` per
   observation.
-- **Deleting a run that is still executing no longer risks clobbering, but
-  delete-after-terminate is still the supported flow.** Since Loop 2 Round 1
-  both writers of the shared log go through the same cooperative lock
-  (`src/telemetry/invocation-log.ts`): the live appender uses
+- **Delete after termination remains the supported flow.** Since Loop 2
+  Round 1 both writers of the shared invocation log go through the same
+  cooperative lock (`src/telemetry/invocation-log.ts`): the live appender uses
   `appendInvocationRecord` and the delete's read-filter-write cycle runs
   inside `withInvocationLogLock`, so a live append lands wholly before or
   wholly after the rewrite (test-pinned, including the cannot-clobber case
-  and the append-times-out-instead-of-writing-unlocked case). What remains
-  true: rows a still-running run appends *after* the rewrite completes are
-  new rows and survive the delete, and an appender that cannot take the lock
-  in time — since Loop 3 Round 1 after **one bounded retry** with the same
-  timeout — still silently drops its telemetry row rather than fail the run.
-  The drop stays uncounted and unlogged; `pnpm invocation:probe` measures it.
-- **The feedback log's mirror of that race is closed the same way, with its
-  own residuals.** Since Loop 3 Round 1 `cascadeFeedbackTombstones` and
-  `appendFeedback` share the feedback log's cooperative lock (see the episode
-  paragraph above), so the cascade cannot clobber a concurrent append. What
-  remains true: a feedback row appended *after* the cascade and bound to the
-  deleted episode is a new row and keeps its text until `delete --episode` is
-  repeated (the tombstone filter is id-based; the new row's id is not
-  tombstoned). An appender lock-timeout is not retried — it rejects, and the
-  CLI absorbs the rejection at the whole-adaptation-pass boundary
-  (`adapt skipped: …` on stderr), dropping that pass's remaining signals
-  along with the row: coarser than the invocation drop, but disclosed rather
-  than silent.
+  and the append-times-out-instead-of-writing-unlocked case). The run-plane
+  lifecycle lock now prevents the locked M0, parent, flowchart, and supervised
+  paths and their deletion from overlapping: deletion waits for teardown or
+  times out having removed nothing. The subtree removal still verifies once
+  while holding that lock and once after release. Event appends and checkpoint
+  writes remain lock-free for measured end-to-end cost reasons, so a
+  direct/out-of-lifecycle writer can still make deletion refuse with
+  `RUN_RECORDS_SURVIVED`; a write after the final check is a new row and may
+  recreate the directory after success. Invocation rows appended after their
+  rewrite likewise survive. The live invocation sink retries a typed lock
+  timeout with a bounded default of three attempts and then drops the telemetry
+  row without failing the run, emitting one warning through its `onDrop` hook.
+- **The feedback log's mirror of that race is closed under its own lock.**
+  `cascadeFeedbackTombstones` and `appendFeedback` share
+  `adaptation/feedback/records.jsonl.lock`, so the cascade cannot clobber a
+  concurrent append. A row appended after the cascade is a new row and retains
+  text until deletion is repeated. The auto-adapt persistence path uses
+  `appendFeedbackWithRetry` (three attempts by default); terminal contention is
+  counted and disclosed in `feedbackDropped`, `feedbackDropReasons`, and the
+  result reason rather than aborting the already-completed run.
 - **`model-invocation` deletion is a filter-rewrite, not an unlink.** The
   class declares `delete-files`, but the log is one global file shared by all
   runs, so a run-scoped delete rewrites it without the run's rows instead of
@@ -181,7 +363,8 @@ these are covered by the claims above:
 Closed in Round 2 (2026-08-24, verified on-disk against a scratch state root):
 the cascade previously stripped only `body` and left derived user text in
 `summary`; `delete --run` previously never touched `invocations.jsonl` or
-`catalog-observed.json`; the episode `.lock` previously survived deletion; and
+`catalog-observed.json`; episode record unlinking moved inside the cooperative
+`<id>.lock` (the delete no longer hand-unlinks or reports that sidecar); and
 `record-classes.ts` previously declared an unimplemented `run-event → episode`
 propagation (now reconciled — `deletionPropagatesTo` is a behavioral claim).
 
@@ -195,11 +378,9 @@ Closed in Loop 2 Round 1 (2026-08-24): the delete-vs-live-appender race on
 `invocations.jsonl` — the appender previously wrote without the lock the
 rewrite takes; both writers now share it (see the revised bullet above).
 
-Closed in Loop 3 Round 1 (2026-08-24): the same race on the feedback log —
-`cascadeFeedbackTombstones` previously rewrote `records.jsonl` and published
-tombstones with no lock against the auto-adapt appender; both writers now
-share the log's cooperative lock, and the cascade fails closed on a lock
-timeout (see the new bullet above).
+Closed in Loop 3 Round 1 (2026-08-24): the corresponding feedback append vs
+episode-cascade rewrite race and the adaptation-plane transitive value-import
+gap (see the revised sections above).
 
 ## Completeness audit (2026-08-22)
 
@@ -215,16 +396,139 @@ state root. Findings and resolutions:
   (learned-routing-policy; model ids and avoid-list patterns only).
 - `.doctor-write-probe` (doctor preflight) is written and unlinked within one
   call — transient, not durable; no class needed.
-- `pause.json.tmp` is an atomic-write temp file, renamed or discarded within
-  one call — transient.
-- `episodes/<id>.lock` is an operational lock beside the episode log; it
-  shares the episode class's plane and lifetime.
+- Pause and checkpoint atomic writes use unique same-directory temp names:
+  `pause.json.<pid>.<random>.tmp` and
+  `checkpoint.json.<pid>.<random>.tmp`. The shared writer opens a new temp
+  exclusively, fsyncs it, then renames it over the destination. A handled
+  failure removes its temp; an abrupt process exit can leave a stale temp, but
+  later writes generate a different name and never adopt it.
+- Other rename sidecars currently below the state root are
+  `providers.json.tmp`, `auth.json.tmp`, and
+  `registry.json.<pid>.<random>.tmp`; they are transient and do not get their
+  own durable classes.
+- Operational lock files currently written below the state root are:
+  - `runtime/runs/<runId>.lock`, held by M0, parent, flowchart, supervised, and
+    clarification run lifecycles and shared with run deletion, pause writes,
+    and track-question writes (not per-step event/checkpoint writes);
+  - `runtime/invocations.jsonl.lock`, shared by invocation appends and the
+    run-deletion filter rewrite;
+  - `runtime/episodes/<id>.lock`, shared by CLI `episode close` and run-side
+    episode settlement;
+  - `runtime/auth.json.lock`, guarding credential changes;
+  - `adaptation/feedback/records.jsonl.lock`, shared by feedback appends and
+    the episode-deletion cascade rewrite;
+  - `adaptation/preferences.json.lock`, shared by `pref correct` and
+    `pref delete`;
+  - `adaptation/registry.json.lock`, guarding registry changes; and
+  - `adaptation/learning/projects/<stableProjectKey>/bandit.json.lock`,
+    guarding each project's bandit update.
+  These are transient operational sidecars, not durable record classes and not
+  entries in the completeness list above.
+  Normal release removes an owned lock; an abandoned lock is not stolen
+  automatically and may require manual cleanup. `pi-sparkle doctor`
+  recursively inventories every `*.lock` under the state root without
+  acquiring, stealing, or deleting it — which is why adding the preferences
+  lock needed no doctor change. Prose output and the additive
+  `DoctorJsonReport.locks` field report each lock's metadata status
+  (`valid`, `empty`, `invalid`, or `unreadable`), age and age source, recorded
+  PID, advisory PID liveness, and a per-entry `remediation`. A recorded dead
+  PID advises inspection and manual removal, never automatic removal; other
+  cases remain conservative because PID liveness cannot prove staleness. The
+  `lock-inventory` check also reports unreadable files and scan errors.
+  Doctor additionally exposes additive `runStates`: PLANNING/RUNNING event
+  logs with age, path, and inspect/resume/delete guidance. They are advisory
+  crash candidates, not proof of abandonment; `run-state-inventory` fails only
+  when a run-log scan fails. Command failures carrying the frozen
+  `LOCK_TIMEOUT` or `RUN_RECORDS_SURVIVED` code route their `next:` line to
+  `pi-sparkle doctor --json --state-root <the command's root>` and name the
+  answering `locks[]` and/or `runStates[]` inventory. Routing is by code
+  through a depth-bounded `cause` walk, never by message text; other failures
+  retain the generic `next:`.
+  Doctor also exposes frozen-additive `learnedState`: entries for every
+  discovered project-key `bandit.json`, plus `preferences.json` and
+  `catalog-observed.json`. Each entry carries `kind`, `stateClass`
+  (`learned` or `derived`), `projectKey`, `path`, `status` (`present`,
+  `absent`, `readable`, or `damaged`), and `remediation`; the inventory also
+  carries `advisory` and `scanErrors`. Typed snapshot damage is advisory and
+  does not fail doctor; only inventory scan/read errors fail
+  `learned-state-inventory`. The frozen route map has three typed entries:
+  `BANDIT_STATE_UNREADABLE` says repair or move aside to relearn the project
+  from zero, `PREFERENCE_SNAPSHOT_UNREADABLE` says repair or move aside to
+  start from an empty store, and `CATALOG_OBSERVED_CORRUPT` identifies derived
+  state that may be deleted and rebuilt from `runtime/invocations.jsonl`. The
+  catalog entry is defense-in-depth for a future command producer. No CLI
+  producer exists today: doctor is the only command-path reader and absorbs
+  the typed error into this inventory instead of propagating it.
 - `test/**` fixture writes are outside the state root and out of scope.
+
+## Snapshot integrity and recovery
+
+- `runtime/routing/catalog-observed.json` is crash-atomically published. Invalid
+  JSON throws `CatalogObservedCorruptError` with code
+  `CATALOG_OBSERVED_CORRUPT`; it is derived from
+  `runtime/invocations.jsonl`, so it can be rebuilt with
+  `buildCatalogObservedFromStateRoot` plus `persistCatalogObserved`, or deleted
+  to deliberately start from no observations. ENOENT is the only silent path;
+  parseable shape skew still degrades to empty observed stats. Its frozen CLI
+  route remains defense-in-depth; doctor absorbs this error into
+  `learnedState`, and no CLI producer currently reaches the route.
+- `adaptation/preferences.json` is also crash-atomically published, but it is
+  learned behavior-bearing state with no source log from which to rebuild it.
+  Invalid JSON or a damaged top-level snapshot shape throws
+  `PreferenceSnapshotUnreadableError` with code
+  `PREFERENCE_SNAPSHOT_UNREADABLE`. Persistence binds only after a successful
+  load, so the unreadable file is not silently replaced by empty state. Repair
+  it from a backup, or move it aside only as an explicit decision to start
+  over.
+  Its two writers — `pref correct` and `pref delete` — each rewrite the whole
+  snapshot from the whole loaded state, so since Round 16 each holds
+  `adaptation/preferences.json.lock` across load, mutation and republish, with
+  the load performed inside the lock. Unsynchronized, the pair was
+  last-writer-wins with no error either way, and the losing side could be the
+  delete: a `pref correct` that bound before the delete's write put the
+  tombstoned observation back on disk under a delete that had already reported
+  success. Acquisition is bounded by `--lock-wait-ms` (default 5000, ceiling 24
+  hours) and fails closed with the frozen `LOCK_TIMEOUT` code having written
+  nothing; locks are never stolen. The synchronous store API in
+  `src/preferences/store.ts` remains in-process-only — any new writer of this
+  snapshot must take the lock over the same span. `pref list`, `pref export`
+  and doctor's `readPreferenceSnapshot` are deliberately lock-free: the file is
+  published by rename, so a reader sees one whole version or another.
+- `adaptation/learning/projects/<stableProjectKey>/bandit.json` is learned
+  state too and is crash-atomically published. ENOENT is the only silent
+  absence. Empty, invalid JSON, or invalid core counters throw
+  `BanditStateUnreadableError` (a `DomainValidationError`) with code
+  `BANDIT_STATE_UNREADABLE`; the damaged bytes are left untouched because
+  pulls and rewards cannot be recomputed. Repair the file, or explicitly move
+  it aside to relearn that project from zero. A readable core with unknown
+  extra keys is version skew rather than damage: it loads, and unknown keys
+  are dropped at the read boundary. Under `run --children`, the automatic
+  post-run wrapper reports this as `adapt skipped: …` without changing the
+  run's own result; `adapt auto` and the tracked-run path propagate the typed
+  error to the CLI's `stage: "validation"` failure surface.
+- `runtime/runs/<runId>/checkpoint.json` remains a crash-atomic materialized
+  view. `CheckpointStore.read()` returns `undefined` only for ENOENT; malformed
+  JSON throws `DomainValidationError` and names the damaged checkpoint path
+  instead of leaking a raw `SyntaxError` or treating damage as absence.
+
+> Round 16 R16-1 landing census (2026-08-25 02:57:20 UTC): HEAD was `9c58b90`.
+> Two changes above ship in this landing's own diff because the landing changed
+> what they describe — the operational-lock list gained
+> `adaptation/preferences.json.lock`, and the preference bullet in this section
+> gained the writer-side locking contract. This is the landing-triggered census
+> note the Round 15 terminator prescribes, not a reopened treadmill. Sibling
+> slots were in flight in the working tree at the time (R16-2 on
+> `src/episode/store.ts`, R16-4 on `src/cli/migrate-legacy.ts`); their file sets
+> are disjoint from this one and neither touches this document, so nothing here
+> is contingent on them. Everything else in this document is unchanged and
+> current at `9c58b90`. Subsequent rounds need a new census note only when a
+> landing changes what these surfaces describe.
 
 The completeness guard lives in
 `test/unit/privacy/record-classes.test.ts`: any durable path added to `src/`
 must be added to `knownPaths` and to a record class together, or the suite
-fails.
+fails. Lock sidecars are not durable paths and are not listed there; the list
+of them lives in the completeness audit above.
 
 ## Rules
 

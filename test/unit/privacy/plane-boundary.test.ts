@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -56,7 +56,6 @@ const ALLOWED: ReadonlyArray<Exception> = [
   { module: "learning/signals.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
   // Derived-signal pipe: extracts taskSuccess PASS/FAIL only, never text.
   { module: "learning/from-episode.ts -> ../run/event-store.js", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
-  { module: "learning/from-episode.ts -> ../run/episode-bind.js", because: "episode id resolution for the derived-signal reader" },
   { module: "learning/from-episode.ts -> ../run/events.js", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },
   // The direct model-router import is type-only, but eval-routing value-imports
   // routing/assign, which value-imports and loads model-router at runtime.
@@ -65,6 +64,27 @@ const ALLOWED: ReadonlyArray<Exception> = [
     module: "adaptation/eval-routing.ts -> ../supervisor/model-router.js",
     because: "type-only ModelRouterConfig shape for offline routing replay",
     typeOnly: true
+  }
+];
+
+interface ValueRuntimeAllowance {
+  readonly edge: string;
+  readonly because: string;
+}
+
+/**
+ * Exact non-runtime -> runtime edges reachable from adaptation value imports.
+ * Runtime modules may import within their own plane after these boundary
+ * crossings; any new crossing from adaptation/shared policy code is blocked.
+ */
+const ALLOWED_VALUE_RUNTIME_EDGES: readonly ValueRuntimeAllowance[] = [
+  {
+    edge: "learning/from-episode.ts -> run/event-store.ts",
+    because: "sanctioned derived-signal reader extracts routed task PASS/FAIL only"
+  },
+  {
+    edge: "routing/assign.ts -> supervisor/model-router.ts",
+    because: "offline routing replay uses the filesystem-free deterministic model router"
   }
 ];
 
@@ -88,6 +108,103 @@ function listTs(dir: string): string[] {
   return out;
 }
 
+const VALUE_IMPORT_PATTERN =
+  /\bimport\s+(?!type\b)[^;]*?\bfrom\s*"([^"]+)"|\bexport\s+(?!type\b)[^;]*?\bfrom\s*"([^"]+)"|\bimport\s*\(\s*"([^"]+)"\s*\)|^\s*import\s*"([^"]+)"/gm;
+
+interface ImportEdge {
+  readonly importer: string;
+  readonly target: string;
+}
+
+interface ValueImportClosure {
+  readonly members: ReadonlySet<string>;
+  readonly edges: readonly ImportEdge[];
+}
+
+function valueImportSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  for (const match of source.matchAll(VALUE_IMPORT_PATTERN)) {
+    const specifier = match[1] ?? match[2] ?? match[3] ?? match[4];
+    if (specifier !== undefined) specifiers.push(specifier);
+  }
+  return specifiers;
+}
+
+function resolveRelativeModule(
+  importer: string,
+  specifier: string,
+  sources: ReadonlyMap<string, string>
+): string | undefined {
+  if (!specifier.startsWith(".")) return undefined;
+  const resolved = posix.normalize(posix.join(posix.dirname(importer), specifier));
+  const stem = resolved.endsWith(".js") ? resolved.slice(0, -3) : resolved;
+  return [`${stem}.ts`, posix.join(stem, "index.ts")].find((candidate) =>
+    sources.has(candidate)
+  );
+}
+
+function buildValueImportClosure(
+  entries: readonly string[],
+  sources: ReadonlyMap<string, string>
+): ValueImportClosure {
+  const members = new Set(entries);
+  const edges: ImportEdge[] = [];
+  const edgeKeys = new Set<string>();
+  const pending = [...entries];
+
+  while (pending.length > 0) {
+    const importer = pending.pop();
+    if (importer === undefined) break;
+    const source = sources.get(importer);
+    if (source === undefined) throw new Error(`missing source for closure member ${importer}`);
+    for (const specifier of valueImportSpecifiers(source)) {
+      const target = resolveRelativeModule(importer, specifier, sources);
+      if (target === undefined) continue;
+      const edge = `${importer} -> ${target}`;
+      if (!edgeKeys.has(edge)) {
+        edgeKeys.add(edge);
+        edges.push({ importer, target });
+      }
+      if (members.has(target)) continue;
+      members.add(target);
+      pending.push(target);
+    }
+  }
+
+  return { members, edges };
+}
+
+function isRuntimeModule(module: string): boolean {
+  return RUNTIME_MODULES.some((prefix) => module.startsWith(prefix.replace(/^\.\.\//, "")));
+}
+
+function runtimeIngresses(closure: ValueImportClosure): string[] {
+  return closure.edges
+    .filter((edge) => isRuntimeModule(edge.target) && !isRuntimeModule(edge.importer))
+    .map((edge) => `${edge.importer} -> ${edge.target}`)
+    .sort();
+}
+
+function assertOnlyAllowedRuntimeIngresses(
+  closure: ValueImportClosure,
+  allowed: readonly ValueRuntimeAllowance[]
+): void {
+  assert.deepEqual(
+    runtimeIngresses(closure),
+    allowed.map((entry) => entry.edge).sort(),
+    "adaptation value-import closure crossed into the runtime plane outside the allowlist"
+  );
+}
+
+function loadSourceTable(): ReadonlyMap<string, string> {
+  return new Map(
+    listTs("").map((file) => {
+      const normalized = file.split("\\").join("/");
+      return [normalized, readSrc(file)] as const;
+    })
+  );
+}
+
 test("adaptation plane does not import runtime modules outside the allowlist", () => {
   const violations: string[] = [];
   for (const dir of ADAPTATION_DIRS) {
@@ -108,8 +225,8 @@ test("adaptation plane does not import runtime modules outside the allowlist", (
 });
 
 test("every allowlisted exception states its justification", () => {
-  for (const entry of ALLOWED) {
-    assert.ok(entry.because.length > 5, entry.module);
+  for (const entry of [...ALLOWED, ...ALLOWED_VALUE_RUNTIME_EDGES]) {
+    assert.ok(entry.because.length > 5, "module" in entry ? entry.module : entry.edge);
   }
 });
 
@@ -133,21 +250,48 @@ test("every allowlisted exception still exists and type-only ones stay erased", 
   assert.deepEqual(valueImports, [], "allowlisted type-only import became a value import");
 });
 
-test("routing evaluation reaches only the filesystem-free model router through value imports", () => {
-  const evalRouting = readSrc("adaptation/eval-routing.ts");
-  const assign = readSrc("routing/assign.ts");
+test("adaptation value-import closure enters runtime only through sanctioned readers", () => {
+  const sources = loadSourceTable();
+  const entries = ADAPTATION_DIRS.flatMap((dir) =>
+    listTs(dir).map((file) => file.split("\\").join("/"))
+  );
+  const closure = buildValueImportClosure(entries, sources);
+
+  assertOnlyAllowedRuntimeIngresses(closure, ALLOWED_VALUE_RUNTIME_EDGES);
+});
+
+test("transitive walker rejects a simulated runtime edge and fails closed on comments", () => {
+  const sources = new Map<string, string>([
+    [
+      "adaptation/root.ts",
+      [
+        'import type { Event } from "../run/events.js";',
+        'import { route } from "../routing/synthetic.js";',
+        '// import { invocationPath } from "../telemetry/invocation-log.js";'
+      ].join("\n")
+    ],
+    ["routing/synthetic.ts", 'import { EventStore } from "../run/event-store.js";'],
+    ["run/events.ts", "export interface Event {}"],
+    ["run/event-store.ts", "export class EventStore {}"],
+    ["telemetry/invocation-log.ts", "export const invocationPath = '';"]
+  ]);
+  const closure = buildValueImportClosure(["adaptation/root.ts"], sources);
+
+  assert.equal(closure.members.has("run/events.ts"), false, "import type must stay erased");
+  assert.deepEqual(runtimeIngresses(closure), [
+    "adaptation/root.ts -> telemetry/invocation-log.ts",
+    "routing/synthetic.ts -> run/event-store.ts"
+  ]);
+  assert.throws(
+    () => assertOnlyAllowedRuntimeIngresses(closure, []),
+    assert.AssertionError,
+    "a synthetic transitive runtime import must make the guard go red"
+  );
+});
+
+test("the allowlisted model router remains free of filesystem record access", () => {
   const modelRouter = readSrc("supervisor/model-router.ts");
 
-  assert.match(
-    evalRouting,
-    /import\s+\{\s*assignTasks\s*\}\s+from\s+"\.\.\/routing\/assign\.js"/,
-    "eval-routing must value-import assignTasks"
-  );
-  assert.match(
-    assign,
-    /import\s+\{\s*createModelRouter\s*,[^}]*\}\s+from\s+"\.\.\/supervisor\/model-router\.js"/s,
-    "routing/assign must value-import createModelRouter"
-  );
   assert.doesNotMatch(
     modelRouter,
     /node:fs|\breadFile\b|\bwriteFile\b|\bappendFile\b/,

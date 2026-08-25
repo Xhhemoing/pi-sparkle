@@ -20,18 +20,29 @@ import type { AgentExecutor } from "../execution/contract.js";
 import { buildProjectContextIndex } from "../context/index.js";
 import { discoverProject } from "../project/discovery.js";
 import type { AgentQuestion } from "../protocol/v1.js";
-import { createClusterHost, type ClusterHost } from "../cluster/host.js";
-import { isAgentRole } from "../domain/roles.js";
+import {
+  createClusterHost,
+  type ClusterDeadLetterReasonCount,
+  type ClusterHost
+} from "../cluster/host.js";
+import { AGENT_ROLES, isAgentRole, type AgentRole } from "../domain/roles.js";
 import type { TaskAssignment } from "../routing/assign.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunHandle, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
 import { groundChildTask } from "./child-grounding.js";
-import { EventStore } from "./event-store.js";
+import { EventStore, runLockPath } from "./event-store.js";
 import { type AgentEventKind, type Event, type M0EventType, type ModelRoutedPayload, routingContextFields } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
 import { applyChildThreeLine } from "./child-tracking.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint, type RunCheckpoint } from "./replay.js";
+import {
+  materializeCheckpoint,
+  replayedTerminalStatus,
+  replayRun,
+  validateCheckpoint,
+  type RunCheckpoint
+} from "./replay.js";
 
 const SUMMARY_LIMIT = 500;
 
@@ -43,6 +54,62 @@ export interface CoordinatorDeps {
   generateId?: IdGenerator;
   /** Enable peer mailbox and bounded spawn (implied by `--track`). */
   cluster?: boolean;
+  /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
+  runLock?: FileLockOptions;
+}
+
+/**
+ * Holds the run's cooperative lock (`runLockPath`) for one whole run: taken
+ * before the run's first record and released by the same teardown that settles
+ * it, whether the run finishes, pauses, or dies with an error.
+ *
+ * ## What it buys
+ *
+ * `delete --run` takes the same lock across its removal, so a delete aimed at
+ * a live run now **waits** for the run instead of racing it. Before this, the
+ * delete found the lock free between two of the run's own writes, removed the
+ * subtree, watched the run's next append put it back, and threw
+ * `RunRecordsSurvivedError` — correct, but only after it had already destroyed
+ * part of a live run's records. Waiting means the two outcomes are now a clean
+ * delete (the run ended inside the delete's bounded wait) or a `LOCK_TIMEOUT`
+ * that removed nothing at all. Both are honest; neither damages a live run.
+ *
+ * The cost is one acquisition per *run*, not per write. The two per-step
+ * writers (`EventStore.append`, `CheckpointStore.write`) stay lock-free and
+ * their decision pins stay green: locking those measured +22.5% / +17.5%
+ * end-to-end, where this measures inside the 5% bar (see the slot report's
+ * bench).
+ *
+ * ## What it costs, stated rather than discovered
+ *
+ * While a run holds this lock, every other writer that takes it waits:
+ *
+ * - `delete --run` — the point of the change.
+ * - `requestPause`, i.e. `pi-sparkle pause --run` from another process. A
+ *   pause aimed at a live run now fails closed with `LOCK_TIMEOUT` instead of
+ *   writing `pause.json` and then settling the run's episode and checkpoint
+ *   from underneath the process that is still driving it. `doctor` names the
+ *   holder (age + recorded PID) and the run's state; the remedy for a run you
+ *   own is to stop its process.
+ * - A run killed by SIGKILL leaves the lock behind, because locks are never
+ *   stolen (`withExclusiveFileLock`). Delete, pause and track-question writes
+ *   for that run then fail closed until an operator removes the file, which
+ *   `doctor` inventories with the guidance for doing so. Accepted with parent
+ *   sign-off: a stale lock is a visible, diagnosable stop, where the failure
+ *   it replaces was a partially deleted live run.
+ *
+ * Not wrapped, deliberately: `pauseFlowchartRun` (its own `requestPause` takes
+ * this lock — the lock is not reentrant, so wrapping it would deadlock against
+ * itself) and `injectFlowchartRun` (a side channel documented as usable
+ * against a run another process is driving).
+ */
+export function withRunLifecycleLock<T>(
+  stateRoot: string,
+  runId: RunId,
+  body: () => Promise<T>,
+  options: FileLockOptions = {}
+): Promise<T> {
+  return withExclusiveFileLock(runLockPath(stateRoot, runId), body, options);
 }
 
 export interface StartRunInput {
@@ -63,12 +130,62 @@ export interface ParentRunInput {
   resolvedQuestionIds?: readonly string[];
 }
 
+export interface ClusterMailRoleCount {
+  readonly role: AgentRole;
+  readonly count: number;
+}
+
+/**
+ * Peer mail a cluster run never delivered, read once at run end. Two kinds,
+ * both invisible without this:
+ *
+ * - `pending`: role-cast mail still sitting in a role queue. The mailbox is
+ *   process-local, so mail still queued when the run returns is gone — a
+ *   resumed run builds an empty one.
+ * - `deadLettered`: mail the mailbox itself gave up on, straight from
+ *   {@link ClusterHost.deadLetterReport}.
+ */
+export interface ClusterMailReport {
+  readonly pending: number;
+  /** Roles with queued mail, most first, ties broken by role name. */
+  readonly pendingByRole: readonly ClusterMailRoleCount[];
+  readonly deadLettered: number;
+  readonly deadLetteredByRole: readonly ClusterMailRoleCount[];
+  readonly deadLetteredByReason: readonly ClusterDeadLetterReasonCount[];
+}
+
+/**
+ * Reads both undelivered-mail surfaces the host publishes. Pull, not the
+ * `onDeadLetter` push: the report is recomputed from the mailbox on every call,
+ * so it also carries drops caused by an out-of-band `mailbox()` claim, which
+ * the push seam only reports on the *next* registration — and a run that ends
+ * has no next registration. The push seam stays available for embedders that
+ * want a drop while the run is still going.
+ */
+export function summarizeClusterMail(host: ClusterHost): ClusterMailReport {
+  const mailbox = host.mailbox();
+  const pendingByRole = AGENT_ROLES.flatMap((role) => {
+    const count = mailbox.pendingForRole(role).length;
+    return count === 0 ? [] : [{ role, count }];
+  }).sort((a, b) => b.count - a.count || a.role.localeCompare(b.role));
+  const deadLetters = host.deadLetterReport();
+  return {
+    pending: pendingByRole.reduce((total, entry) => total + entry.count, 0),
+    pendingByRole,
+    deadLettered: deadLetters.total,
+    deadLetteredByRole: deadLetters.byRole,
+    deadLetteredByReason: deadLetters.byReason
+  };
+}
+
 export interface RunOutcome {
   runId: RunId;
   status: RunStatus;
   events: Event[];
   checkpoint: RunCheckpoint;
   project: ProjectSnapshot;
+  /** Undelivered peer mail; absent when the run had no cluster. */
+  clusterMail?: ClusterMailReport;
 }
 
 export interface SteerOptions {
@@ -165,11 +282,19 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
   const runId = createRunId(generateId);
   const steerChannel = new SteerChannel(deps.executor);
 
+  // Same acquisition as the parent run below: `run --objective` reaches this
+  // embedder, so a delete aimed at one of its runs must wait for it too.
+  // Discovery stays outside it — a run refused there has written nothing, and
+  // the lock would create `runtime/runs/` for a run that never started.
   const done = (async (): Promise<RunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runM0Run(project), deps.runLock);
+  })();
+
+  async function runM0Run(project: ProjectSnapshot): Promise<RunOutcome> {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
@@ -310,7 +435,7 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
     await checkpointStore.write(checkpoint);
     return { runId, status: state.status, events: read.events, checkpoint, project };
-  })();
+  }
 
   const running: RunningRun = {
     runId,
@@ -319,6 +444,29 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     steer: (text, options) => steerChannel.steer(text, options)
   };
   return running;
+}
+
+/**
+ * The terminal this run's log already replays, or `undefined` when it has none.
+ *
+ * Read through {@link replayedTerminalStatus} rather than by scanning for event
+ * types, because the parent plane has to mean the same thing by "terminal" as
+ * replay's anomaly rule and the flowchart loop's recorders do; a local
+ * re-derivation is how the two would drift.
+ *
+ * A log this cannot read counts as no terminal. The refusal it feeds is
+ * evidence-based — it withholds a crash terminal only where the log
+ * demonstrably carries one already — and an unreadable log is no such
+ * demonstration. Recording as before is also the smaller failure: it leaves a
+ * crashed run settling to FAILED the way it always has, instead of turning a
+ * corrupt log into a rejected `done` the caller cannot act on here.
+ */
+async function loggedTerminalStatus(eventStore: EventStore): Promise<RunStatus | undefined> {
+  try {
+    return replayedTerminalStatus((await eventStore.readAll()).events);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -352,11 +500,19 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     resolveQuestion = resolve;
   });
 
+  // Every record this run writes happens under the run's cooperative lock, so
+  // a concurrent `delete --run` waits for the run rather than removing its
+  // records mid-flight. Discovery stays outside, so a run that never starts
+  // leaves nothing behind — including the lock's own parent directory.
   const done = (async (): Promise<RunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runParentRun(project), deps.runLock);
+  })();
+
+  async function runParentRun(project: ProjectSnapshot): Promise<RunOutcome> {
     const index = buildProjectContextIndex(project);
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
@@ -407,6 +563,29 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     }
 
     let cancelWritten = false;
+    /**
+     * Records that someone asked this run to stop. Deliberately **not** routed
+     * through the terminal recorder below, and this is the owned decision, not
+     * an omission: a cancel request is an operator fact, not a status claim.
+     *
+     * It stays true whatever the log already says. It also claims nothing on
+     * its own — `replayRun` reads it as CANCELLED only on a log that carries no
+     * terminal, and reports the other case as the anomaly
+     * `RUN_CANCEL_REQUESTED after a terminal event`, so the ordering is visible
+     * without the fact being suppressed. Refusing to append it would make an
+     * already-finished run silently swallow the operator's request instead.
+     *
+     * No plane in the tree treats it as a status claim: the supervised plane's
+     * `recordCancel` appends it behind nothing but a once-only flag, and the
+     * flowchart plane writes none at all. R4-3's rule points the same way from
+     * the other side — `supervisor.ts` deliberately does *not* trip its abort
+     * controller on a crash, so that a cancellation nobody requested cannot
+     * stand in for the crash. The two vocabularies do not substitute for one
+     * another in either direction.
+     *
+     * Fires from the loop's cancelled exit and out of band from the abort
+     * listener; the flag is what keeps that pair to one event.
+     */
     const writeCancel = async (): Promise<void> => {
       if (cancelWritten) return;
       cancelWritten = true;
@@ -415,6 +594,77 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     controller.signal.addEventListener("abort", () => {
       void writeCancel();
     }, { once: true });
+
+    /**
+     * This run's one terminal recorder: appends the terminal the loop decided
+     * on unless the log already replays one, and reports the status the log
+     * ends up saying either way.
+     *
+     * The case that forces it is the tracking gate. `queue_analysis` appends
+     * `RUN_BLOCKED` — "terminal BLOCKED until an explicit unblock", per
+     * `gate-apply.ts` — and leaves a run an operator can still act on: the
+     * analysis is queued, the owed evidence is named, the episode is left
+     * waiting, and the run stays resumable. A `RUN_FAILED` landing after that
+     * would make the log say two things at once (`replayRun` flags the second
+     * terminal as an anomaly) and bury exactly the state that made the run
+     * actionable. So the gate wins here as it does on the flowchart plane,
+     * whose three recorders share this rule and this definition of "terminal".
+     *
+     * Reporting the *replayed* status rather than the intended one is what
+     * keeps the settle below, the checkpoint and the returned status agreeing
+     * with the log instead of with the branch that lost. The cost, stated
+     * rather than discovered: on the refusal path a crash's reason goes
+     * unrecorded, because the only place to put it would be a second terminal
+     * or an event type this run has no schema for — and a blocked run an
+     * operator can still clear is worth more than the reason a teardown that
+     * came after the block fell over.
+     *
+     * ## Terminal-keyed, and that is the decision
+     *
+     * The refusal asks what terminal the log replays, not whether the log is
+     * still in flight. `recordCrashTerminal` asks the broader question and so
+     * withholds a crash terminal over a paused, cancelled or waiting log too;
+     * this recorder does not, and the difference is owned here rather than
+     * inherited: **a crash over a log replaying WAITING_FOR_USER still records
+     * `RUN_FAILED`**, and the wait goes under it.
+     *
+     * That is the honest record, not a hole left open. This plane carries its
+     * own wait in the loop's `waiting` flag, and that flag is exactly what
+     * breaks the loop out *before* it can reach these recorders — so a wait
+     * still on the log when the loop dies was written by the child machinery
+     * while the loop was turning, and the channel that would have answered it,
+     * `ChildCoordinator`'s in-memory `questionResolvers`, died with the
+     * process. `RUN_FAILED` says the true thing about a run that ended by
+     * falling over; leaving the log reading WAITING_FOR_USER would advertise a
+     * wait no live process is holding. `RUN_BLOCKED` is the opposite case, and
+     * is why the refusal exists at all: the gate wrote it deliberately, it is
+     * terminal by `TERMINAL_REPLAY_STATUSES`, and the operator — not this
+     * process — owns clearing it.
+     *
+     * The cost is stated rather than hidden. A `USER_ANSWER` appended out of
+     * band (the CLI's `answer` writes one straight to the log) would have
+     * cleared a wait left standing; under a recorded `RUN_FAILED` it cannot,
+     * because replay reads the terminal first. No production caller can reach
+     * that combination today — `startParentRun` is an embedder entry point,
+     * and the CLI drives the flowchart plane — but the trade is the decision's,
+     * not an accident of reachability.
+     *
+     * Widening to the in-flight rule was considered and refused twice over:
+     * reusing `recordCrashTerminal` would falsify that module's frozen "the
+     * caller always rethrows" clause, because this catch settles on purpose,
+     * and re-deriving its rule locally is precisely the drift
+     * {@link replayedTerminalStatus} exists to prevent.
+     */
+    const recordTerminal = async (
+      type: "RUN_COMPLETED" | "RUN_FAILED",
+      payload: unknown,
+      intended: RunStatus
+    ): Promise<RunStatus> => {
+      const recorded = await loggedTerminalStatus(eventStore);
+      if (recorded !== undefined) return recorded;
+      await append(make(type, payload));
+      return intended;
+    };
 
     let releaseQuestionHang = (): void => {};
     const questionHang = new Promise<void>((resolve) => {
@@ -522,7 +772,6 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     startReady();
 
     let status: RunStatus = "RUNNING";
-    let failureReason: string | undefined;
     let trackingBlocked = false;
 
     // A parent run has no agent of its own, so a steer targets whichever child
@@ -600,21 +849,24 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
           status = "CANCELLED";
           await writeCancel();
         } else if (failures.length > 0 || remaining.length > 0) {
-          status = "FAILED";
-          failureReason =
+          const reason =
             failures.length > 0
               ? failures.map((childOutcome) => `${childOutcome.taskId}: ${childOutcome.summary}`).join("; ")
               : `unstarted children: ${remaining.map((child) => child.taskId).join(", ")}`;
-          await append(make("RUN_FAILED", { reason: failureReason }));
+          status = await recordTerminal("RUN_FAILED", { reason }, "FAILED");
         } else {
-          status = "COMPLETED";
-          await append(make("RUN_COMPLETED", {}));
+          status = await recordTerminal("RUN_COMPLETED", {}, "COMPLETED");
         }
       }
     } catch (error) {
-      status = "FAILED";
-      failureReason = error instanceof Error ? error.message : String(error);
-      await append(make("RUN_FAILED", { reason: failureReason }));
+      // A crash on the way out is a terminal like any other on this plane, so
+      // it goes through the same recorder — and is refused over a log that
+      // already says BLOCKED for the same reason the branches above are.
+      status = await recordTerminal(
+        "RUN_FAILED",
+        { reason: error instanceof Error ? error.message : String(error) },
+        "FAILED"
+      );
     } finally {
       steerChannel.close();
       releaseQuestionHang();
@@ -634,8 +886,15 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     const state = replayRun(read.events);
     const checkpoint = validateCheckpoint(materializeCheckpoint(state, now()));
     await checkpointStore.write(checkpoint);
-    return { runId, status, events: read.events, checkpoint, project };
-  })();
+    return {
+      runId,
+      status,
+      events: read.events,
+      checkpoint,
+      project,
+      ...(clusterHost !== undefined ? { clusterMail: summarizeClusterMail(clusterHost) } : {})
+    };
+  }
 
   const running: RunningRun = {
     runId,

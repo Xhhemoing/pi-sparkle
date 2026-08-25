@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   createAgentInstanceId,
@@ -12,6 +13,7 @@ import {
   type RunId,
   type TaskId
 } from "../../../src/domain/ids.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import {
   PROTOCOL_VERSION,
@@ -24,7 +26,8 @@ import {
   validateApprovalReplyForPlan,
   type AgentMessage,
   type TaskRequest,
-  type TaskResult
+  type TaskResult,
+  type VerificationResult
 } from "../../../src/protocol/v1.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -34,6 +37,15 @@ const taskId: TaskId = createTaskId(UUID);
 const parent: AgentInstanceId = createAgentInstanceId(UUID);
 const child: AgentInstanceId = createAgentInstanceId(() => "abcdef01-2345-6789-abcd-ef0123456789");
 const occurredAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+// R10-2 froze option (a) unimplemented with the inverse of this check. Loop 4
+// R11-1 shipped it, so the compile-level assertion flips with the field: the
+// channel now exists, and it is optional, so a verdict that says nothing about
+// individual criteria is still a `VerificationResult`.
+const verificationResultDeclaresCriteria: "criteria" extends keyof VerificationResult ? true : never = true;
+const verificationResultCriteriaIsOptional: VerificationResult = {
+  kind: "PASSED",
+  evidenceIds: []
+};
 
 function base(overrides: Partial<Record<"id" | "runId" | "taskId" | "from" | "to", unknown>> = {}): Record<string, unknown> {
   return {
@@ -103,6 +115,30 @@ test("all protocol v1 message types validate with conforming fixtures", () => {
     assert.deepEqual(validateAgentMessage(message), message);
     assert.equal(isAgentMessage(message), true);
   }
+});
+
+test("proto-pollution keys remain inert protocol data", () => {
+  const message = validRequest();
+  Object.defineProperties(message, {
+    ["__proto__"]: {
+      value: { polluted: true },
+      enumerable: true,
+      configurable: true,
+      writable: true
+    },
+    constructor: {
+      value: { prototype: { polluted: true } },
+      enumerable: true,
+      configurable: true,
+      writable: true
+    }
+  });
+
+  const validated = validateAgentMessage(message);
+  assert.equal(Object.hasOwn(validated, "__proto__"), true);
+  assert.equal(Object.hasOwn(validated, "constructor"), true);
+  assert.equal(Object.getPrototypeOf(validated), Object.prototype);
+  assert.equal(({} as { polluted?: unknown }).polluted, undefined);
 });
 
 test("only TASK_RESULT is a terminal message", () => {
@@ -245,12 +281,137 @@ test("TASK_RESULT payload validation rejects bad outcome, verification, and fail
   );
 });
 
+test("VerificationResult carries an optional per-criterion channel", async () => {
+  assert.equal(verificationResultDeclaresCriteria, true);
+  assert.equal(verificationResultCriteriaIsOptional.criteria, undefined);
+
+  const source = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
+  const region = /export interface VerificationResult\s*\{([\s\S]*?)\n\}/.exec(source);
+  assert.ok(region, "VerificationResult must remain a declared protocol interface");
+  assert.match(
+    region[1] ?? "",
+    /^\s*(?:readonly\s+)?criteria\?\s*:/m,
+    "the per-criterion channel stays optional: absence must keep meaning what it always meant"
+  );
+
+  // Additive-compatible in both directions is the property the design rests
+  // on, so it is asserted rather than assumed: a verdict written before the
+  // field existed still validates and round-trips byte-for-byte.
+  const legacy = JSON.parse(JSON.stringify(validResult())) as Record<string, unknown>;
+  assert.equal((legacy.verification as Record<string, unknown>).criteria, undefined);
+  assert.deepEqual(validateAgentMessage(legacy), legacy);
+});
+
+test("per-criterion outcomes validate as a set of distinct, evidenced criteria", () => {
+  const evidence = createEvidenceId(UUID);
+  const withCriteria = {
+    ...validResult(),
+    verification: {
+      kind: "PASSED",
+      evidenceIds: [evidence],
+      criteria: [
+        { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+        { id: "ac-2", kind: "FAILED", evidenceIds: [evidence] },
+        { id: "ac-3", kind: "UNOBSERVED", evidenceIds: [] }
+      ]
+    }
+  };
+  assert.deepEqual(validateAgentMessage(withCriteria), withCriteria);
+
+  const withVerification = (criteria: unknown): Record<string, unknown> => ({
+    ...validResult(),
+    verification: { kind: "PASSED", evidenceIds: [evidence], criteria }
+  });
+
+  // Absent and empty must not be two spellings of the same thing.
+  assert.throws(() => validateAgentMessage(withVerification([])), /verification/);
+  assert.throws(() => validateAgentMessage(withVerification({})), /verification/);
+  // A duplicate id is a protocol violation, not a last-wins merge.
+  assert.throws(
+    () =>
+      validateAgentMessage(
+        withVerification([
+          { id: "ac-1", kind: "PASSED", evidenceIds: [] },
+          { id: "ac-1", kind: "FAILED", evidenceIds: [evidence] }
+        ])
+      ),
+    /verification/
+  );
+  // A FAILED criterion gates a run, so it has to name something.
+  assert.throws(
+    () => validateAgentMessage(withVerification([{ id: "ac-1", kind: "FAILED", evidenceIds: [] }])),
+    /verification/
+  );
+  for (const bad of [
+    { id: "", kind: "PASSED", evidenceIds: [] },
+    { id: "   ", kind: "PASSED", evidenceIds: [] },
+    { id: "ac-1", kind: "MAYBE", evidenceIds: [] },
+    { id: "ac-1", kind: "PASSED", evidenceIds: ["not-an-evidence-id"] },
+    { id: "ac-1", kind: "PASSED" },
+    "ac-1"
+  ]) {
+    assert.throws(() => validateAgentMessage(withVerification([bad])), /verification/, JSON.stringify(bad));
+  }
+});
+
 test("assertAtMostOneTerminal rejects duplicate TASK_RESULT messages", () => {
   const one = validateAgentMessage(validResult());
   const two = validateAgentMessage(validResult());
   assert.doesNotThrow(() => assertAtMostOneTerminal([one]));
   assert.doesNotThrow(() => assertAtMostOneTerminal([one, validateAgentMessage(validProgress())]));
   assert.throws(() => assertAtMostOneTerminal([one, two]), /terminal|duplicate|TASK_RESULT/i);
+});
+
+test("assertAtMostOneTerminal rejects duplicate terminals at the first and last index", () => {
+  const first = validateAgentMessage(validResult());
+  const middle = validateAgentMessage(validProgress());
+  const last = validateAgentMessage(validResult());
+  assert.throws(
+    () => assertAtMostOneTerminal([first, middle, last]),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+});
+
+test("maxCostUsd discloses executor-dependent enforcement and is forwarded to execution", async () => {
+  const limits = { maxAttempts: 1, timeoutMs: 1_000, maxWallTimeMs: 1_000, maxCostUsd: 0.000_001 };
+  assert.doesNotThrow(() => validateAgentMessage({ ...validRequest(), limits }));
+
+  const protocolSource = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
+  assert.match(protocolSource, /maxCostUsd[\s\S]{0,800}?PiAgentExecutor[\s\S]{0,500}?cannot price/);
+  const coordinatorSource = await readFile(
+    new URL("../../../src/run/child-coordinator.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    coordinatorSource,
+    /const costCap = this\.costCapFor\(input\.limits\);[\s\S]{0,500}?maxCostUsd: costCap/,
+    "the effective child/run ceiling must reach AgentExecutionRequest"
+  );
+});
+
+test("assertAtMostOneTerminal rejects malformed entries with exactly DomainValidationError", () => {
+  assert.throws(
+    () => assertAtMostOneTerminal([null] as unknown as AgentMessage[]),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+});
+
+test("oversized arrays complete with DomainValidationError discipline", () => {
+  const evidenceId = createEvidenceId(UUID);
+  const oversizedEvidenceIds = Array.from({ length: 10_000 }, () => evidenceId);
+  const oversizedProgress = { ...validProgress(), evidenceIds: oversizedEvidenceIds };
+  const validatedProgress = validateAgentMessage(oversizedProgress);
+  assert.ok(validatedProgress.type === "PROGRESS");
+  assert.equal(validatedProgress.evidenceIds.length, oversizedEvidenceIds.length);
+
+  assert.throws(
+    () => validateAgentMessage({ ...oversizedProgress, evidenceIds: [...oversizedEvidenceIds, null] }),
+    (error: unknown) => error instanceof Error && error.constructor === DomainValidationError
+  );
+
+  const progress = validateAgentMessage(validProgress());
+  const oversizedMessageArray = Array.from({ length: 10_000 }, () => progress);
+  assert.doesNotThrow(() => assertAtMostOneTerminal(oversizedMessageArray));
 });
 
 test("non-object and non-message values fail closed", () => {

@@ -2,8 +2,24 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
-import { deleteRunRecords, deleteEpisodeRecords } from "../privacy/deletion.js";
+import { runtimeRoot } from "../privacy/state-layout.js";
+import {
+  deleteRunRecords,
+  deleteEpisodeRecords,
+  RUN_RECORDS_SURVIVED_CODE
+} from "../privacy/deletion.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
+import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
+import {
+  PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+  preferenceSnapshotLockPath,
+  preferenceSnapshotPath
+} from "../preferences/store.js";
+import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -17,14 +33,15 @@ import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
-import { startRun } from "../run/coordinator.js";
+import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
-import type { Event } from "../run/events.js";
+import type { Event, RewoundDescendant } from "../run/events.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
   startFlowchartRun,
+  unblockFlowchartRun,
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
@@ -50,7 +67,7 @@ import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-
 import { createModelRouter } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
-import { appendInvocationRecord } from "../telemetry/invocation-log.js";
+import { createInvocationSink } from "../telemetry/invocation-log.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { assignTasks } from "../routing/assign.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
@@ -72,7 +89,7 @@ import { modelsCommand } from "./models.js";
 import { doctorCommand } from "./doctor.js";
 import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, doctorJsonCommand, errorCodeOf } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
@@ -243,17 +260,19 @@ Usage:
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
-  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi]
+  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi] [--primary-model <id>] [--thinking <level>]
   pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--unpause] [--state-root <dir>]
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
   pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
   pi-sparkle pause --run <runId> [--reason <text>] [--state-root]
   pi-sparkle pause --clear --run <runId> [--state-root]
   pi-sparkle inject --run <runId> --type fact|override|skip [--key] [--value] [--node] [--confidence] [--actor] [--state-root]
+  pi-sparkle unblock --run <runId> --reason <text> [--retry-node <nodeId>] [--actor <who>] [--state-root <dir>]
+  pi-sparkle unblock --run <runId> --reason <text> --retry-node <nodeId> --discard-executed [--actor <who>] [--state-root <dir>]
   pi-sparkle auth status|login|logout [--state-root <dir>] ...
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
-  pi-sparkle delete --run <runId> | --episode <epId> [--state-root <dir>]
+  pi-sparkle delete --run <runId> | --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
   pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
@@ -297,7 +316,10 @@ ChildNodeResult and wins over --executor for those nodes. Optional --executor
 fake|pi runs remaining RUNNING nodes (--executor fake uses the protocol child
 fake, same as --children). Without --results or --executor, leased nodes stall.
 Resume of a flowchart checkpoint continues resumeFlowchartRun (optional --results,
---executor, and --selected / --selected-ids). --supervised still uses M2 DAG
+--executor, and --selected / --selected-ids). A run's executor configuration is
+not recorded, so resume takes --primary-model / --thinking again for the
+executor it rebuilds and prints one stderr line saying what it built (including
+when it fell back to defaults). --supervised still uses M2 DAG
 resume and refuses flowchart checkpoints. Answer on a flowchart waiting run
 requires --selected or --selected-ids, correlates against the stored approval
 plan, and resumes; plain-text --message/--text remains valid for non-flowchart
@@ -308,6 +330,21 @@ commit --allow-empty (optional --sign / --file for an edited JSON proposal).
 pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clears it
 and continues. inject records a typed fact/override/skip against DecisionPolicy
 without executing user strings.
+unblock is the only thing that ends a BLOCKED run: it records one RUN_UNBLOCKED
+naming the exact block it clears plus the operator's --reason, reopens the state
+the block left (--retry-node re-drives one FAILED flowchart node; a stall block
+takes no node), and executes nothing. resume runs the reopened work. A stale or
+repeated unblock is refused, and so is a --retry-node that is not the failed node
+the block names.
+Ordinary unblock refuses to rewind a descendant that already executed.
+--discard-executed is the stronger authorization for exactly that case: it
+records RUN_UNBLOCKED_WITH_DISCARD naming every descendant the reopen supersedes,
+its prior state, the routes and child runs behind it, and their charged
+estimates. The set is computed under the run lock, never listed by the operator;
+the flag needs a gate block and its exact --retry-node, and is refused when
+nothing downstream executed. Events and evidence survive; the discarded nodes
+lose their success/confidence outcome and go back to PENDING, and no budget is
+refunded — re-execution spends again.
 inspect --episode prints the latest bound episode snapshot (inspect --run also
 prints the episode id when a run is attached). inspect --run --json stays a pure
 event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
@@ -474,6 +511,61 @@ function reportFailedRun(
   });
 }
 
+/**
+ * The operator-facing block for a run that ended BLOCKED.
+ *
+ * `reportFailedRun`'s counterpart, and it exists because BLOCKED stopped being
+ * an exotic status: since the tracking gate started deciding the terminal, a
+ * clustered child that reports success with a failed verification ends the run
+ * BLOCKED (`ANALYSIS_QUEUED`) instead of FAILED. Only the FAILED branch printed
+ * a `reason:`/`next:` pair, so that shape lost its routing entirely — the
+ * operator saw the status and was told nothing about what to do with it.
+ *
+ * Both halves come off `RUN_BLOCKED.payload`, which is the only place either is
+ * recorded: the gate writes its reason code plus the evidence the queued
+ * analysis is owed, and the stall detector writes its own reason plus the
+ * ledger's outstanding evidence. Last writer wins, matching `inspectRun` — a
+ * run can block more than once and only the newest demand is current.
+ *
+ * The remedies are the ones that exist, and the order matters: inspect the
+ * block, unblock it, then resume. `unblock` is what ends the block — it records
+ * the authorization and reopens the state — and resume is what runs the
+ * reopened work. Resume on its own still replays BLOCKED, which is why the note
+ * says so rather than letting an operator find out by trying it.
+ *
+ * The discard note is appended rather than folded into the unblock line because
+ * `--discard-executed` is a different authorization, not a variant of that
+ * command: the ordinary four remain the remedies to try, in order, and this
+ * only says what the stronger one is for. It is unconditional because this
+ * report is built from the event log alone and cannot see the checkpoint that
+ * would say whether a descendant executed — so it states the precondition
+ * instead of implying the flag applies here.
+ */
+export function formatBlockedRunReport(
+  runId: RunId,
+  stateRoot: string,
+  events: readonly Event[]
+): string {
+  const blocked = events.findLast((event) => event.type === "RUN_BLOCKED");
+  const payload = blocked?.payload as
+    | { reason?: string; requiredEvidence?: readonly string[] }
+    | undefined;
+  const requiredEvidence = payload?.requiredEvidence ?? [];
+  return [
+    `  reason: ${payload?.reason ?? "unknown"}\n`,
+    `  required evidence: ${requiredEvidence.length === 0 ? "(none recorded)" : requiredEvidence.join(", ")}\n`,
+    `  next: pnpm cli inspect --run ${runId} --state-root ${stateRoot}\n`,
+    `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
+    `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`,
+    `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`,
+    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`
+  ].join("");
+}
+
+function reportBlockedRun(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
+  io.stderr(formatBlockedRunReport(outcome.runId, stateRoot, outcome.events));
+}
+
 function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string): number {
   return cliFail(io, {
     command,
@@ -482,6 +574,35 @@ function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string)
     next: `check --state-root and pnpm cli inspect --run ${runId}`,
     runId
   });
+}
+
+function formatRoleCounts(counts: readonly ClusterMailRoleCount[]): string {
+  return counts.map((entry) => `${entry.role}=${entry.count}`).join(", ");
+}
+
+/**
+ * The one operator-visible line for peer mail a cluster run never delivered
+ * (same shape as the invocation-drop warning: one stderr line, no failure).
+ * `undefined` when the run had no cluster or delivered everything.
+ */
+export function formatUndeliveredClusterMail(report: ClusterMailReport | undefined): string | undefined {
+  if (report === undefined) return undefined;
+  if (report.pending === 0 && report.deadLettered === 0) return undefined;
+  const pending =
+    report.pendingByRole.length === 0 ? "" : ` (${formatRoleCounts(report.pendingByRole)})`;
+  const reasons = report.deadLetteredByReason
+    .map((entry) => `${entry.reason}=${entry.count}`)
+    .join(", ");
+  const dropped =
+    report.deadLettered === 0
+      ? ""
+      : ` (${formatRoleCounts(report.deadLetteredByRole)}; ${reasons})`;
+  return `warning: cluster role-cast mail undelivered: pending=${report.pending}${pending}, dead-lettered=${report.deadLettered}${dropped}\n`;
+}
+
+function warnUndeliveredClusterMail(io: CliIo, report: ClusterMailReport | undefined): void {
+  const line = formatUndeliveredClusterMail(report);
+  if (line !== undefined) io.stderr(line);
 }
 
 function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
@@ -499,6 +620,7 @@ function printFlowchartOutcome(io: CliIo, outcome: FlowchartRunOutcome, stateRoo
       `  pending approval ${pending.plan.id}: ${pending.plan.items.map((item) => item.id).join(", ")}\n`
     );
   }
+  warnUndeliveredClusterMail(io, outcome.clusterMail);
 }
 
 async function readValidatedCheckpoint(stateRoot: string, runId: RunId): Promise<RunCheckpoint | undefined> {
@@ -547,11 +669,18 @@ function flowchartContinuation(opts: {
     }
     approvalReply = approvalReplyFromCheckpoint(opts.checkpoint, opts.selectedActionIds);
   }
+  // The CLI has only a run id, so a run's contract can only come off its own
+  // validated checkpoint. Both flowchart continuation paths — resume and
+  // answer — build their continuation here, so this one projection is what
+  // keeps either from crossing the resume boundary contract-less. Nothing is
+  // reconstructed when the checkpoint carries none.
+  const contract = opts.checkpoint?.flowchart?.contract;
   return {
     ...(approvalReply !== undefined ? { approvalReply } : {}),
     ...(opts.answer !== undefined && opts.answer.trim() !== "" ? { answer: opts.answer } : {}),
     ...(opts.childResults !== undefined ? { childResults: opts.childResults } : {}),
-    ...(opts.unpause === true ? { unpause: true } : {})
+    ...(opts.unpause === true ? { unpause: true } : {}),
+    ...(contract !== undefined ? { contract } : {})
   };
 }
 
@@ -620,6 +749,15 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   }
   const thinkingLevel = resolveThinkingLevel(values.thinking);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  // One telemetry sink for every executor this command builds. It writes each
+  // invocation through the log's exclusive lock, retries a lock timeout a few
+  // times so a concurrent `delete --run` rewrite does not silently erase the
+  // window, and never rejects: a lost row warns, it does not fail the run.
+  const invocationSink = createInvocationSink(stateRoot, {
+    onDrop: (reason) => {
+      io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
+    }
+  });
   if (values.flowchart !== undefined) {
     const liveCatalog = await buildLiveCatalogConfig(stateRoot);
     const flowchart = await parseFlowchartFile(
@@ -633,7 +771,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         ? await createExecutor(
             flowchartExecutorKind(values.executor),
             stateRoot,
-            undefined,
+            {
+              onInvocation: (invocation) => {
+                void invocationSink(invocation);
+              }
+            },
             undefined,
             thinkingLevel
           )
@@ -643,6 +785,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause: createFilePauseController(stateRoot),
+        // Same disclosure the tracked path makes, for the same reason: the
+        // summary below only arrives once the run is terminal, so until this
+        // line a live `--flowchart` run could be paused in principle and was
+        // unnameable in practice.
+        onRunStarted: (runId) => {
+          io.stdout(`Run ${runId}: started\n`);
+        },
         ...(executor !== undefined ? { executor } : {})
       },
       {
@@ -658,6 +807,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "run", "flowchart", outcome.runId, stateRoot, reason);
+    }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
     }
     return flowchartExitCode(outcome.status);
   }
@@ -678,13 +830,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     stateRoot,
     {
       onInvocation: (invocation) => {
-        // Fire-and-forget, but through the log's exclusive lock so a
-        // concurrent `delete --run` rewrite cannot clobber this row (see
-        // src/telemetry/invocation-log.ts). Errors — a lock timeout while a
-        // delete holds it, or a record that fails validation — drop the
-        // telemetry row rather than fail the run the executor is mid-way
-        // through.
-        void appendInvocationRecord(stateRoot, invocation).catch(() => undefined);
+        void invocationSink(invocation);
       }
     },
     flaggedPrimary,
@@ -734,6 +880,17 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       objective,
       stateRoot,
       executor,
+      // The same file controller every other command path builds. Without it
+      // the tracked loop observes no pause token, so `pause --run` on a live
+      // tracked run wrote a file nothing read.
+      pause: createFilePauseController(stateRoot),
+      // Printed while the run is still pausable, not after it has settled.
+      // `pause --run` keys its token by run id, and the summary line below
+      // only arrives once the run is terminal, so before this a tracked run
+      // could be paused in principle and unnameable in practice.
+      onRunStarted: (runId) => {
+        io.stdout(`Run ${runId}: started\n`);
+      },
       primaryModelId,
       fastModelId,
       assumeDefaults: values["assume-defaults"] === true,
@@ -764,6 +921,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
+    warnUndeliveredClusterMail(io, outcome.clusterMail);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
   }
 
@@ -815,7 +973,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         executor,
         registry: createAgentProfileRegistry(defaultAgentProfiles()),
         cluster: true,
-        pause: createFilePauseController(stateRoot)
+        pause: createFilePauseController(stateRoot),
+        // The third and last public run path to disclose its id early. A
+        // cluster run is the longest of the three, so it is the one an
+        // operator is most likely to want to pause before it settles.
+        onRunStarted: (runId) => {
+          io.stdout(`Run ${runId}: started\n`);
+        }
       },
       {
         projectRoot,
@@ -864,6 +1028,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       const reason =
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
+    }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
     }
     return flowchartExitCode(outcome.status);
   }
@@ -991,8 +1158,11 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     return 0;
   }
   if (summaryJson) {
-    // One object, not a domain Event: --json stays a pure event NDJSON stream.
     const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    // One object, not a domain Event: --json stays a pure event NDJSON stream.
+    // These four keys are the frozen-additive INSPECT_SUMMARY contract: they
+    // never change name, type or meaning, and a fifth arrives only in a diff
+    // that also updates the pins in `test/unit/run/inspection.test.ts`.
     io.stdout(`${JSON.stringify(summary)}\n`);
     return 0;
   }
@@ -1064,6 +1234,56 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
+/**
+ * Says what a resumed executor was actually built from.
+ *
+ * Nothing records the `--primary-model`/`--thinking` a run started with: no
+ * event payload carries executor configuration, and `materializeCheckpoint`
+ * derives `checkpoint.json` from the replayed log, so a field written there
+ * would not survive the next rebuild. Resume therefore takes the flags again
+ * (see `resumeCommand`) and discloses which configuration it built — including
+ * the silent fallback to ambient defaults, which is the case that made a run
+ * started on `--primary-model X --thinking high` continue on neither.
+ *
+ * `kind` is the executor resume is about to build, or undefined when it builds
+ * none (a plain checkpoint rebuild, or a flowchart resume without --executor).
+ */
+export function describeResumeExecutorConfig(input: {
+  readonly kind: string | undefined;
+  readonly primaryModelFlag: string | undefined;
+  readonly modelOverride: { readonly providerId: string; readonly modelId: string } | undefined;
+  readonly thinkingFlag: string | undefined;
+  readonly thinkingLevel: CliThinkingLevel;
+}): string | undefined {
+  const flagged = input.primaryModelFlag !== undefined || input.thinkingFlag !== undefined;
+  if (input.kind === undefined) {
+    return flagged
+      ? "warning: resume ignored --primary-model/--thinking: this resume rebuilds no executor (pass --executor to rebuild one)"
+      : undefined;
+  }
+  if (input.kind !== "pi") {
+    return flagged
+      ? `warning: resume ignored --primary-model/--thinking: they configure --executor pi, and this resume builds the ${input.kind} executor`
+      : undefined;
+  }
+  const model =
+    input.primaryModelFlag === undefined
+      ? "the default primary model"
+      : input.modelOverride === undefined
+        ? `primary model ${input.primaryModelFlag} (not a provider/model pair, so the default channel still applies)`
+        : `primary model ${input.modelOverride.providerId}/${input.modelOverride.modelId}`;
+  if (!flagged) {
+    return (
+      `warning: resume rebuilt the pi executor on defaults (${model}, thinking ${input.thinkingLevel}); ` +
+      "the run's own --primary-model/--thinking are not recorded, so pass them again if it did not start on defaults"
+    );
+  }
+  return (
+    `note: resume rebuilt the pi executor with ${model} and thinking ${input.thinkingLevel}; ` +
+    "the run's own executor configuration is not recorded, so this is what you asked for now, not what it started with"
+  );
+}
+
 async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -1072,6 +1292,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       "state-root": { type: "string" },
       supervised: { type: "boolean", default: false },
       executor: { type: "string" },
+      "primary-model": { type: "string" },
+      thinking: { type: "string" },
       results: { type: "string" },
       selected: { type: "string", multiple: true },
       "selected-ids": { type: "string" },
@@ -1087,6 +1309,14 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --run <runId> from a prior run or inspect"
     });
   }
+  if (values.thinking !== undefined && !isThinkingLevel(values.thinking)) {
+    return cliFail(io, {
+      command: "resume",
+      stage: "parse-args",
+      message: `--thinking must be one of ${THINKING_LEVELS.join(", ")}`,
+      next: `pass --thinking ${THINKING_LEVELS.join("|")}`
+    });
+  }
   const selectedActionIds = collectSelectedActionIds(values.selected, values["selected-ids"]);
   const wantsFlowchartFlags =
     values.results !== undefined || selectedActionIds !== undefined || values.text !== undefined;
@@ -1098,7 +1328,31 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       next: "omit flowchart flags when using --supervised"
     });
   }
+  // Same resolution `runCommand` uses, so a resumed executor can be given the
+  // configuration the run started with instead of silently taking defaults.
+  const thinkingLevel = resolveThinkingLevel(values.thinking);
+  const modelOverride =
+    values["primary-model"] !== undefined ? tryParseModelRef(values["primary-model"]) : undefined;
+  const discloseExecutorConfig = (kind: string | undefined): void => {
+    const notice = describeResumeExecutorConfig({
+      kind,
+      primaryModelFlag: values["primary-model"],
+      modelOverride,
+      thinkingFlag: values.thinking,
+      thinkingLevel
+    });
+    if (notice !== undefined) io.stderr(`${notice}\n`);
+  };
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  // Same telemetry sink `runCommand` builds: a resumed run makes real model
+  // calls, so without this its invocations never reach `invocations.jsonl` and
+  // cost calibration under-counts every run that was resumed rather than
+  // completed in one go. Shared across both executors this command may build.
+  const invocationSink = createInvocationSink(stateRoot, {
+    onDrop: (reason) => {
+      io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
+    }
+  });
   const runId = parseRunId(values.run);
   const eventStore = new EventStore(stateRoot, runId);
   const read = await eventStore.readAll();
@@ -1110,10 +1364,15 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   requireDurableFlowchartCheckpoint(runId, read.events, existing);
   if (values.supervised === true) {
     const executorKind = values.executor ?? "fake-children";
+    discloseExecutorConfig(executorKind);
     const running = resumeSupervisedRun(
       {
         stateRoot,
-        executor: await createExecutor(executorKind, stateRoot),
+        executor: await createExecutor(executorKind, stateRoot, {
+          onInvocation: (invocation) => {
+            void invocationSink(invocation);
+          }
+        }, modelOverride, thinkingLevel),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
       runId
@@ -1148,9 +1407,16 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     if ((token.paused || replayRun(read.events).status === "PAUSED") && values.unpause !== true) {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
+    discloseExecutorConfig(
+      values.executor !== undefined ? flowchartExecutorKind(values.executor) : undefined
+    );
     const executor =
       values.executor !== undefined
-        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot)
+        ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
+            onInvocation: (invocation) => {
+              void invocationSink(invocation);
+            }
+          }, modelOverride, thinkingLevel)
         : undefined;
     const outcome = await resumeFlowchartRun(
       {
@@ -1175,16 +1441,177 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "resume", "flowchart", outcome.runId, stateRoot, reason);
     }
+    // Same block `run` prints, on the command an operator reaches for after
+    // reading it. The supervised branch above is deliberately left alone: its
+    // stderr is byte-pinned, and a DAG resume has no flowchart node to reopen.
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }
     return flowchartExitCode(outcome.status);
   }
   if (wantsFlowchartFlags || values.unpause === true) {
     throw new DomainValidationError("resume --results/--selected/--text/--unpause require a flowchart checkpoint");
   }
+  discloseExecutorConfig(undefined);
   const state = replayRun(read.events);
   const checkpoint = validateCheckpoint(materializeCheckpoint(state, nowIso()));
   await checkpointStore.write(checkpoint);
   io.stdout(`Run ${runId}: checkpoint rebuilt (${state.status}, ${read.events.length} events)\n`);
   return 0;
+}
+
+/**
+ * The one command that ends a BLOCKED run.
+ *
+ * It is separate from `inject` on purpose: injection adds a typed fact and
+ * deliberately holds no lifecycle lock because it may be aimed at a live run,
+ * while this changes what every writer thinks the run's terminal is and has to
+ * serialize against resume and delete. `unblockFlowchartRun` takes that lock,
+ * insists the run is actually blocked, and refuses a stale or repeated attempt.
+ *
+ * It executes nothing. `resume` is still the only surface that spends money, so
+ * the operator authorizes and runs in two separately auditable steps — which is
+ * also why the success output ends by naming the resume rather than doing it.
+ *
+ * `--discard-executed` is the one flag that changes which authorization is
+ * recorded. It is boolean because the set it authorizes is computed under the
+ * run lock from the flowchart and the blocked checkpoint: an operator listing
+ * nodes could omit a consequential one and get a partially coherent rewind that
+ * still reads as authorized. Its output names every node discarded, the state
+ * it was in and what its attempts charged, because that is the record the
+ * operator is signing.
+ */
+async function unblockCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      run: { type: "string" },
+      reason: { type: "string" },
+      "retry-node": { type: "string" },
+      "discard-executed": { type: "boolean" },
+      actor: { type: "string" },
+      "state-root": { type: "string" }
+    }
+  });
+  const reason = values.reason;
+  if (values.run === undefined || reason === undefined || reason.trim() === "") {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock requires --run <runId> and a non-empty --reason <text>",
+      next: "pass --run <runId> and --reason <text> recording why the block is cleared",
+      ...(values.run !== undefined ? { runId: values.run } : {})
+    });
+  }
+  const retryNode = values["retry-node"];
+  if (retryNode !== undefined && retryNode.trim() === "") {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock --retry-node requires a non-empty flowchart node id",
+      next: "pass --retry-node <nodeId> from the flowchart line of pi-sparkle inspect, or omit it",
+      runId: values.run
+    });
+  }
+  const discardExecuted = values["discard-executed"] === true;
+  if (discardExecuted && retryNode === undefined) {
+    return cliFail(io, {
+      command: "unblock",
+      stage: "parse-args",
+      message: "unblock --discard-executed requires --retry-node <nodeId>",
+      next: "discarding is defined relative to one failed node: pass --retry-node <nodeId>, or drop --discard-executed",
+      runId: values.run
+    });
+  }
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const runId = parseRunId(values.run);
+  const outcome = await unblockRun(io, {
+    stateRoot,
+    runId,
+    reason,
+    discardExecuted,
+    ...(retryNode !== undefined ? { retryNode } : {}),
+    ...(values.actor !== undefined ? { actor: values.actor } : {})
+  });
+  if (typeof outcome === "number") return outcome;
+  const nodes = Object.entries(outcome.snapshot.nodes)
+    .map(([id, node]) => `${id}=${node.state}`)
+    .join(" ");
+  io.stdout(`Run ${runId}: unblocked (${outcome.status})\n`);
+  io.stdout(`  reason: ${reason}\n`);
+  if (retryNode !== undefined) {
+    io.stdout(`  reopened: ${retryNode}\n`);
+  }
+  for (const descendant of discardedDescendants(outcome.events)) {
+    io.stdout(
+      `  discarded: ${descendant.nodeId} (was ${descendant.previousState}; charged estimate ${descendant.chargedEstimatedCostUsd} USD / ${descendant.chargedEstimatedDurationMs} ms across ${descendant.modelRouteEventIds.length} route(s), not refunded)\n`
+    );
+  }
+  io.stdout(`  flowchart: ${outcome.snapshot.status}${nodes === "" ? "" : ` (${nodes})`}\n`);
+  io.stdout(`  resume: pnpm cli resume --run ${runId} --state-root ${stateRoot}\n`);
+  return CLI_EXIT.ok;
+}
+
+/** What the stronger authorization on this log says it superseded, if it is one. */
+function discardedDescendants(events: readonly Event[]): readonly RewoundDescendant[] {
+  const discard = events.findLast(
+    (event): event is Extract<Event, { type: "RUN_UNBLOCKED_WITH_DISCARD" }> =>
+      event.type === "RUN_UNBLOCKED_WITH_DISCARD"
+  );
+  return discard?.payload.rewoundDescendants ?? [];
+}
+
+/**
+ * The unblock call, with one refusal turned into routing.
+ *
+ * An operator who reopens a node whose downstream work already ran meets a
+ * refusal that is correct and, on its own, a dead end: it names the blocking
+ * nodes but not the command that can proceed. The refusal message itself is the
+ * state machine's and stays exactly as it is — this adds the `next:` line the
+ * operator needs beside it, at the only surface that knows the flag exists.
+ */
+async function unblockRun(
+  io: CliIo,
+  request: {
+    readonly stateRoot: string;
+    readonly runId: RunId;
+    readonly reason: string;
+    readonly discardExecuted: boolean;
+    readonly retryNode?: string;
+    readonly actor?: string;
+  }
+): Promise<FlowchartRunOutcome | number> {
+  try {
+    return await unblockFlowchartRun(
+      {
+        stateRoot: request.stateRoot,
+        router: await createCalibratedCliModelRouter(request.stateRoot),
+        pause: createFilePauseController(request.stateRoot)
+      },
+      request.runId,
+      {
+        reason: request.reason,
+        ...(request.retryNode !== undefined ? { retryNodeId: request.retryNode } : {}),
+        ...(request.actor !== undefined ? { actor: request.actor } : {}),
+        ...(request.discardExecuted ? { discardExecuted: true } : {})
+      }
+    );
+  } catch (error) {
+    if (
+      request.retryNode === undefined ||
+      !(error instanceof DomainValidationError) ||
+      !error.message.includes("rewinding executed work is not authorized by an unblock")
+    ) {
+      throw error;
+    }
+    return cliFail(io, {
+      command: "unblock",
+      stage: "validation",
+      message: error.message,
+      next: `re-run with --retry-node ${request.retryNode} --discard-executed to authorize discarding that executed work, or leave the run blocked`,
+      runId: request.runId
+    });
+  }
 }
 
 const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;
@@ -1205,13 +1632,54 @@ const PREF_USAGE = `pi-sparkle pref — preference inspection and correction
 
 Usage:
   pi-sparkle pref list [--scope user|project|task-family|role|model] [--state-root <dir>]
-  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--state-root <dir>]
+  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--lock-wait-ms <ms>] [--state-root <dir>]
   pi-sparkle pref export [--scope <scope>] [--state-root <dir>]
-  pi-sparkle pref delete --id <preferenceId> [--state-root <dir>]
+  pi-sparkle pref delete --id <preferenceId> [--lock-wait-ms <ms>] [--state-root <dir>]
+
+correct and delete rewrite the whole preference snapshot, so each holds the
+cooperative lock adaptation/preferences.json.lock while it reads, changes and
+republishes the file. --lock-wait-ms bounds that wait (default 5000); 0 refuses
+immediately rather than waiting at all. Either way the mutation fails closed: a
+wait that runs out writes nothing. list and export do not take the lock — the
+snapshot is published by rename, so a reader sees one whole version or another.
 `;
 
 function bindPreferenceStore(stateRoot: string): void {
-  configurePreferencePersistence(join(adaptationRoot(stateRoot), "preferences.json"));
+  configurePreferencePersistence(preferenceSnapshotPath(stateRoot));
+}
+
+/**
+ * One preference mutation, serialized against every other process mutating the
+ * same snapshot.
+ *
+ * `bindPreferenceStore` loads the whole snapshot and every mutator persists the
+ * whole in-memory state, so the read-modify-write window is the entire command.
+ * Two unsynchronized `pref` mutations that overlap in that window are
+ * last-writer-wins, and the loser vanishes without an error — including a
+ * `pref delete` whose tombstone a concurrent `pref correct` bound a moment
+ * earlier would write back out, resurrecting an observation the CLI already
+ * reported deleted. The lock therefore has to cover the load as well as the
+ * write: binding happens *inside* it, so what gets persisted derives from bytes
+ * read while no other writer could be between its own load and its own write.
+ *
+ * Acquisition is bounded and fails closed. A timeout throws the frozen
+ * `LOCK_TIMEOUT` before anything binds or is written, and the CLI's failure
+ * surface routes that code to `pi-sparkle doctor --json`, whose `locks[]`
+ * inventory names the holder. Locks are never stolen.
+ */
+async function withPreferenceSnapshotLock<T>(
+  stateRoot: string,
+  mutate: () => T,
+  options: FileLockOptions
+): Promise<T> {
+  return await withExclusiveFileLock(
+    preferenceSnapshotLockPath(stateRoot),
+    () => {
+      bindPreferenceStore(stateRoot);
+      return Promise.resolve(mutate());
+    },
+    options
+  );
 }
 
 async function answerCommand(args: string[], io: CliIo): Promise<number> {
@@ -1294,6 +1762,9 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
         failed !== undefined ? String((failed.payload as { reason?: string }).reason ?? "unknown") : "unknown";
       return reportFailedRun(io, "answer", "flowchart", outcome.runId, stateRoot, reason);
     }
+    if (outcome.status === "BLOCKED") {
+      reportBlockedRun(io, outcome, stateRoot);
+    }
     return flowchartExitCode(outcome.status);
   }
   if (values.message === undefined || values.text === undefined) {
@@ -1369,10 +1840,10 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
       key: { type: "string" },
       value: { type: "string" },
       episode: { type: "string" },
+      "lock-wait-ms": { type: "string" },
       "state-root": { type: "string" }
     }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   const scope = values.scope;
   const scopeKey = values["scope-key"];
   const key = values.key;
@@ -1386,7 +1857,14 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
     return 1;
   }
   const episodeId = values.episode !== undefined ? parseEpisodeId(values.episode) : createEpisodeId();
-  const obs = correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId);
+  // Arguments are checked first, so the lock is only ever asked for by an
+  // invocation that is going to write: a misspelled scope has no business
+  // making a concurrent mutator wait behind it.
+  const obs = await withPreferenceSnapshotLock(
+    values["state-root"] ?? defaultStateRoot(),
+    () => correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId),
+    lockWaitOptions(values["lock-wait-ms"])
+  );
   io.stdout(`recorded explicit preference ${obs.id}\n`);
   return 0;
 }
@@ -1413,15 +1891,23 @@ async function prefExport(args: string[], io: CliIo): Promise<number> {
 async function prefDelete(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { id: { type: "string" }, "state-root": { type: "string" } }
+    options: {
+      id: { type: "string" },
+      "lock-wait-ms": { type: "string" },
+      "state-root": { type: "string" }
+    }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
-  if (values.id === undefined) {
+  const id = values.id;
+  if (id === undefined) {
     io.stderr("pref delete requires --id <preferenceId>\n");
     return 1;
   }
-  const deleted = deletePreference(values.id);
-  io.stdout(deleted ? `tombstoned preference ${values.id}\n` : `preference not found: ${values.id}\n`);
+  const deleted = await withPreferenceSnapshotLock(
+    values["state-root"] ?? defaultStateRoot(),
+    () => deletePreference(id),
+    lockWaitOptions(values["lock-wait-ms"])
+  );
+  io.stdout(deleted ? `tombstoned preference ${id}\n` : `preference not found: ${id}\n`);
   return deleted ? 0 : 1;
 }
 
@@ -1450,14 +1936,53 @@ async function prefCommand(args: string[], io: CliIo): Promise<number> {
 }
 
 const DELETE_USAGE = `Usage:
-  pi-sparkle delete --run <runId> [--state-root <dir>]
-  pi-sparkle delete --episode <epId> [--state-root <dir>]
+  pi-sparkle delete --run <runId> [--lock-wait-ms <ms>] [--state-root <dir>]
+  pi-sparkle delete --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
 
 Deletes the target's runtime records. Deleting an episode also cascades into
 the adaptation plane: feedback bound to that episode is tombstoned and its
 free-text body is stripped (see docs/data-dictionary.md). Exactly one of
 --run / --episode must be given.
+
+--lock-wait-ms bounds how long the delete waits for the cooperative lock its
+target is under (default 5000). A live run holds its lock for as long as it
+runs, so a larger value is how an operator says "wait for that run to finish"
+instead of stopping it; 0 refuses immediately rather than waiting at all. The
+delete fails closed either way: a wait that runs out removes nothing.
 `;
+
+/**
+ * Upper bound on `--lock-wait-ms`, in milliseconds (24 hours).
+ *
+ * The flag exists to let an operator wait out a long run, so the ceiling is
+ * deliberately far above any real one. What it buys is that a typo — an extra
+ * digit on an otherwise reasonable value — is refused at parse time instead of
+ * presenting as a CLI that hung.
+ */
+const MAX_LOCK_WAIT_MS = 86_400_000;
+
+/**
+ * `--lock-wait-ms` as `withExclusiveFileLock` options, shared by `delete` and
+ * the two locked `pref` mutators.
+ *
+ * An absent flag yields an empty object rather than an explicit default, so an
+ * unflagged command makes exactly the call it made before this flag existed:
+ * the 5s bound stays the lock's own, in one place, and cannot drift here.
+ *
+ * Only whole non-negative decimal milliseconds are accepted. `Number` would
+ * also take `1e4`, `0x10` and ` 5 `; a command that waits a different amount
+ * of time than the operator typed is worse than one that refuses the spelling.
+ */
+function lockWaitOptions(raw: string | undefined): FileLockOptions {
+  if (raw === undefined) return {};
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value > MAX_LOCK_WAIT_MS) {
+    throw new DomainValidationError(
+      `--lock-wait-ms must be a whole number of milliseconds between 0 and ${MAX_LOCK_WAIT_MS}, got: ${raw}`
+    );
+  }
+  return { timeoutMs: value };
+}
 
 export async function deleteCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
@@ -1465,6 +1990,7 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     options: {
       run: { type: "string" },
       episode: { type: "string" },
+      "lock-wait-ms": { type: "string" },
       "state-root": { type: "string" }
     }
   });
@@ -1475,10 +2001,11 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
     io.stderr(DELETE_USAGE);
     return 1;
   }
+  const lock = lockWaitOptions(values["lock-wait-ms"]);
   const result =
     values.run !== undefined
-      ? await deleteRunRecords(stateRoot, parseRunId(values.run))
-      : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string));
+      ? await deleteRunRecords(stateRoot, parseRunId(values.run), lock)
+      : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string), lock);
   for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
     io.stderr(`${result.target}: nothing found under ${stateRoot}; refusing to report success\n`);
@@ -1492,6 +2019,100 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
   }
   return 0;
 }
+
+/** What a command that failed for no routed reason tells the operator to do. */
+const GENERIC_FAILURE_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
+
+/**
+ * The two refusals whose entire remedy is an inventory `pi-sparkle doctor`
+ * already prints, and which no amount of retrying resolves on its own: a
+ * cooperative lock this CLI will never steal, and a `delete --run` that could
+ * not prove the records are gone. Both are deliberate fail-closed outcomes, so
+ * the operator's next move is to find out who holds what.
+ *
+ * Keyed by the frozen error codes only. The messages name paths, ids and
+ * timeouts and are not a classification surface.
+ *
+ * The adaptation plane's three fail-closed reads join them, for the same
+ * reason and under the same precondition: each refuses rather than reading
+ * damaged bytes as "nothing learned yet", and `doctor`'s `learnedState[]`
+ * inventory now lists those files with a remediation that distinguishes
+ * learned state (repair or move aside and relearn) from derived state (delete
+ * and rebuild). A route is a promise that the named field answers the
+ * refusal, so each `next:` names the distinction its own plane needs.
+ */
+const DOCTOR_ROUTED_NEXT: ReadonlyMap<string, (doctor: string) => string> = new Map([
+  [
+    LOCK_TIMEOUT_CODE,
+    (doctor: string): string =>
+      `the lock is held and pi-sparkle never steals one: run ${doctor} and read locks[] for the holder's pid, age and remediation, then retry`
+  ],
+  [
+    RUN_RECORDS_SURVIVED_CODE,
+    (doctor: string): string =>
+      `the run's records are still on disk: run ${doctor} and read runStates[] for a live run and locks[] for its lock, stop that run, then delete again`
+  ],
+  [
+    BANDIT_STATE_UNREADABLE_CODE,
+    (doctor: string): string =>
+      `this project's learned bandit state is damaged and no log can recompute it: run ${doctor} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to relearn this project from zero`
+  ],
+  [
+    PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+    (doctor: string): string =>
+      `the learned preference snapshot is damaged and has no second copy on disk: run ${doctor} and read learnedState[] for the file and its learned-state remediation, then repair it or move it aside to start from an empty store`
+  ],
+  [
+    CATALOG_OBSERVED_CORRUPT_CODE,
+    (doctor: string): string =>
+      `the observed catalog snapshot is damaged, and it is derived state: run ${doctor} and read learnedState[] for the file and its derived-state remediation, then delete it and let it rebuild from runtime/invocations.jsonl`
+  ]
+]);
+
+/**
+ * Depth-bounded walk of the `cause` chain so a future wrapper cannot quietly
+ * drop the routing; the thrown error itself is always classified first.
+ */
+function doctorRoutedNext(error: unknown, doctor: string): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current === null || typeof current !== "object") return undefined;
+    const routed = DOCTOR_ROUTED_NEXT.get(errorCodeOf(current) ?? "");
+    if (routed !== undefined) return routed(doctor);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * `--state-root` as the failing command received it. Scanned rather than
+ * parsed: this runs on the failure path, where `parseArgs` throwing on another
+ * command's flags would replace the operator's error with a worse one.
+ */
+function stateRootArgument(args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--state-root") {
+      const value = args[index + 1];
+      return value === undefined || value.startsWith("--") ? undefined : value;
+    }
+    if (arg.startsWith("--state-root=")) {
+      const value = arg.slice("--state-root=".length);
+      return value === "" ? undefined : value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The `next:` line for a command that threw: the doctor remedy when the
+ * failure carries a routed code, the generic advice otherwise.
+ */
+export function commandFailureNext(error: unknown, args: readonly string[]): string {
+  return doctorRoutedNext(error, doctorJsonCommand(stateRootArgument(args))) ?? GENERIC_FAILURE_NEXT;
+}
+
 export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
   const [command, ...rest] = argv;
   try {
@@ -1524,6 +2145,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await pauseCommand(rest, io);
       case "inject":
         return await injectCommand(rest, io);
+      case "unblock":
+        return await unblockCommand(rest, io);
       case "doctor":
         return await doctorCommand(rest, io);
       case "pi-compat":
@@ -1555,7 +2178,7 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       command: command ?? "pi-sparkle",
       stage: error instanceof DomainValidationError ? "validation" : "execute",
       message: error instanceof Error ? error.message : String(error),
-      next: "fix the reported error, then retry; use pi-sparkle doctor for preflight"
+      next: commandFailureNext(error, rest)
     });
   }
 }

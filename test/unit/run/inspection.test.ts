@@ -1,3 +1,11 @@
+// INSPECT_SUMMARY is a frozen additive contract, like the doctor --json report.
+// `inspect --run --summary-json` prints exactly one object whose enumerable keys
+// are { type, runId, status, requiredEvidence }: no event `id`, a `type` that
+// stays outside the domain `Event` union, and `--json` untouched as a pure event
+// NDJSON stream. Existing keys never change name, type, or meaning and are never
+// removed. A new key may only arrive in a diff that also updates
+// SUMMARY_CONTRACT_KEYS and the exact-shape pins below, so internal inspection
+// state cannot leak into the machine-readable surface by accident.
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,15 +28,18 @@ import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../..
 import { SUPERVISOR, validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import {
-  buildInspectSummaryJson,
-  inspectRun,
-  type InspectSummaryJson,
-  type RunInspection
-} from "../../../src/run/inspection.js";
+import { EVENT_TYPES, validateEvent } from "../../../src/run/events.js";
+import { inspectRun } from "../../../src/run/inspection.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
+
+/**
+ * The frozen enumerable keys of one `--summary-json` object, in print order.
+ * Order is not a consumer contract, but pinning it the way doctor's
+ * CONTRACT_KEYS does keeps a reshuffle a deliberate edit rather than a drift.
+ */
+const SUMMARY_CONTRACT_KEYS = ["type", "runId", "status", "requiredEvidence"];
 
 function sequenceGenerator(): () => string {
   let n = 0;
@@ -415,9 +426,8 @@ test("inspect prose omits the required evidence block when nothing stalled", asy
 });
 
 // Contract: `inspect --run --json` stays a pure NDJSON stream of domain events.
-// The aggregated evidence view is opt-in via `--summary-json`, which prints one
-// INSPECT_SUMMARY object that is deliberately NOT an Event (no event id, and a
-// type outside the Event union), so existing --json consumers keep working.
+// The aggregated evidence view is opt-in via `--summary-json`, so existing
+// --json consumers keep working; nothing is appended to this stream.
 test("inspect --json stays a pure event stream with no summary line", async () => {
   await withTempState(async (stateRoot) => {
     const seq = sequenceGenerator();
@@ -445,7 +455,7 @@ test("inspect --json stays a pure event stream with no summary line", async () =
   });
 });
 
-test("inspect --summary-json prints one INSPECT_SUMMARY object with requiredEvidence", async () => {
+test("inspect --summary-json prints exactly the frozen INSPECT_SUMMARY keys, no more", async () => {
   await withTempState(async (stateRoot) => {
     const seq = sequenceGenerator();
     const runId = createRunId(seq);
@@ -460,7 +470,14 @@ test("inspect --summary-json prints one INSPECT_SUMMARY object with requiredEvid
     const lines = json.out.join("").trim().split("\n");
     assert.equal(lines.length, 1);
     const summary = JSON.parse(lines[0]!) as Record<string, unknown>;
+    assert.deepEqual(
+      Object.keys(summary),
+      SUMMARY_CONTRACT_KEYS,
+      "frozen additive: an extra enumerable key is a new public field, not an implementation detail"
+    );
     assert.ok(!("id" in summary), "the summary is not a domain Event");
+    // deepStrictEqual rejects an extra key as well as a changed one: this is the
+    // freeze, not a spot check of the four values.
     assert.deepEqual(summary, {
       type: "INSPECT_SUMMARY",
       runId,
@@ -482,13 +499,40 @@ test("inspect --summary-json reports an empty requiredEvidence list for a clean 
       json.io
     );
     assert.equal(code, 0, json.err.join(""));
-    const summary = JSON.parse(json.out.join("").trim()) as {
-      status: string;
-      requiredEvidence: string[];
-    };
-    assert.equal(summary.status, "COMPLETED");
-    assert.deepEqual(summary.requiredEvidence, []);
+    const summary = JSON.parse(json.out.join("").trim()) as Record<string, unknown>;
+    assert.deepEqual(
+      Object.keys(summary),
+      SUMMARY_CONTRACT_KEYS,
+      "the frozen key set does not vary with run state"
+    );
+    assert.deepEqual(summary, {
+      type: "INSPECT_SUMMARY",
+      runId,
+      status: "COMPLETED",
+      requiredEvidence: []
+    });
   });
+});
+
+test("INSPECT_SUMMARY is outside the Event union and no log can carry it", () => {
+  assert.ok(
+    !(EVENT_TYPES as readonly string[]).includes("INSPECT_SUMMARY"),
+    "the summary is a CLI view, not a domain event: adding it to the vocabulary would make it replayable"
+  );
+  assert.throws(
+    () =>
+      validateEvent({
+        id: createEventId(UUID),
+        schemaVersion: 1,
+        occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+        runId: "run_01234567-89ab-cdef-0123-456789abcdef",
+        type: "INSPECT_SUMMARY",
+        actor: "test",
+        payload: { status: "BLOCKED", requiredEvidence: [] }
+      }),
+    /type must be a known event type/,
+    "an otherwise well-formed row typed INSPECT_SUMMARY is refused by the event validator"
+  );
 });
 
 test("inspect rejects --json together with --summary-json", async () => {
@@ -527,66 +571,30 @@ test("inspect --summary-json is refused for --episode", async () => {
   assert.match(err.join(""), /only available with --run/);
 });
 
-// The frozen `--summary-json` contract. Consumers pin these four keys, so a key
-// may be added here only together with a deliberate update of this list — and
-// none of the four may be renamed, retyped, or dropped.
-const INSPECT_SUMMARY_KEYS = ["type", "runId", "status", "requiredEvidence"] as const;
-
-test("buildInspectSummaryJson emits exactly the frozen key set", async () => {
+test("rich child inspection state cannot add a fifth INSPECT_SUMMARY key", async () => {
   await withTempState(async (stateRoot) => {
     const seq = sequenceGenerator();
-    const runId = createRunId(seq);
-    await seedStalledRun(stateRoot, runId, seq);
-
-    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
-    assert.deepEqual(Object.keys(summary).sort(), [...INSPECT_SUMMARY_KEYS].sort());
-    assert.deepEqual(summary, {
-      type: "INSPECT_SUMMARY",
-      runId,
-      status: "BLOCKED",
-      requiredEvidence: ["failing test output", "parser benchmark"]
+    const coordinator = new ChildCoordinator({
+      stateRoot,
+      executor: new SuccessChildExecutor(),
+      parentRunId: createRunId(seq),
+      project,
+      registry: createAgentProfileRegistry(defaultAgentProfiles()),
+      maxConcurrentTasks: 1,
+      now: () => parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+      generateId: seq
     });
-    assert.ok(!("id" in summary), "the summary is not a domain Event");
-    assert.ok(!("preview" in summary), "inspect is a run inspection, not a preview surface");
-  });
-});
-
-test("buildInspectSummaryJson keeps the frozen key set for a clean run", async () => {
-  await withTempState(async (stateRoot) => {
-    const seq = sequenceGenerator();
-    const runId = createRunId(seq);
+    const runId = coordinator.parentRunId;
     await seedParentRun(stateRoot, runId);
+    const outcome = await coordinator.startChildTask(
+      childInput(createTaskId(seq)),
+      new AbortController().signal
+    ).done;
+    assert.equal(outcome.outcome, "SUCCESS");
 
-    const summary = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
-    assert.deepEqual(Object.keys(summary).sort(), [...INSPECT_SUMMARY_KEYS].sort());
-    assert.equal(summary.status, "COMPLETED");
-    assert.deepEqual(summary.requiredEvidence, [], "no stall means no invented demand");
-  });
-});
-
-test("buildInspectSummaryJson copies requiredEvidence instead of aliasing the inspection", () => {
-  const evidence = ["repro log"];
-  const inspection: RunInspection = {
-    runId: createRunId(UUID),
-    status: "BLOCKED",
-    children: [],
-    pendingQuestions: [],
-    answers: [],
-    agentInstanceIds: [],
-    requiredEvidence: evidence
-  };
-
-  const summary = buildInspectSummaryJson(inspection);
-  assert.deepEqual(summary.requiredEvidence, ["repro log"]);
-  evidence.push("mutated after the fact");
-  assert.deepEqual(summary.requiredEvidence, ["repro log"], "the summary snapshot is stable");
-});
-
-test("inspect --summary-json prints exactly the builder's frozen keys", async () => {
-  await withTempState(async (stateRoot) => {
-    const seq = sequenceGenerator();
-    const runId = createRunId(seq);
-    await seedStalledRun(stateRoot, runId, seq);
+    const richInspection = await inspectRun(stateRoot, runId);
+    assert.equal(richInspection.children.length, 1, "the fixture must carry summary-adjacent child state");
+    assert.ok(richInspection.children[0]?.terminalResult, "the terminal result is available to inspection");
 
     const json = capture();
     const code = await main(
@@ -594,13 +602,17 @@ test("inspect --summary-json prints exactly the builder's frozen keys", async ()
       json.io
     );
     assert.equal(code, 0, json.err.join(""));
-    const printed = JSON.parse(json.out.join("").trim()) as Record<string, unknown>;
-    const built: InspectSummaryJson = buildInspectSummaryJson(await inspectRun(stateRoot, runId));
+    const summary = JSON.parse(json.out.join("").trim()) as Record<string, unknown>;
     assert.deepEqual(
-      Object.keys(printed).sort(),
-      [...INSPECT_SUMMARY_KEYS].sort(),
-      "the CLI adds no keys of its own on top of the builder"
+      Object.keys(summary),
+      SUMMARY_CONTRACT_KEYS,
+      "children, terminal results, and verification detail remain internal inspection state"
     );
-    assert.deepEqual(printed, JSON.parse(JSON.stringify(built)));
+    assert.deepEqual(summary, {
+      type: "INSPECT_SUMMARY",
+      runId,
+      status: "COMPLETED",
+      requiredEvidence: []
+    });
   });
 });

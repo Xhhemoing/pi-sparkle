@@ -1,10 +1,68 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { clearAll, configurePreferencePersistence } from "../../../src/preferences/service.js";
+import {
+  preferenceSnapshotLockPath,
+  preferenceSnapshotPath
+} from "../../../src/preferences/store.js";
+
+const REPO_ROOT = process.cwd();
+const execFileAsync = promisify(execFile);
+
+/** One real `pi-sparkle` process, so the snapshot lock is exercised across processes. */
+async function runCli(args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--import", "tsx", "src/cli/main.ts", ...args],
+    { cwd: REPO_ROOT, encoding: "utf8" }
+  );
+  return stdout;
+}
+
+/**
+ * Holds the snapshot lock the way another process does — `wx` plus the owner
+ * record `withExclusiveFileLock` writes. Release removes only this file.
+ */
+async function holdSnapshotLock(stateRoot: string): Promise<() => Promise<void>> {
+  const lockPath = preferenceSnapshotLockPath(stateRoot);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(
+    JSON.stringify({
+      ownerToken: "test-holder",
+      pid: process.pid,
+      acquiredAt: new Date().toISOString()
+    }),
+    "utf8"
+  );
+  return async () => {
+    await handle.close();
+    await rm(lockPath, { force: true });
+  };
+}
+
+/**
+ * Long enough for a spawned `tsx` CLI to have reached its mutation had nothing
+ * held it back. A lock-respecting child is merely slower by this much; only an
+ * unlocked one gets far enough to be caught by it.
+ */
+const CHILD_REACHES_ITS_MUTATION_MS = 1_500;
+
+interface Snapshot {
+  readonly observations: Array<{ id: string; value: unknown }>;
+  readonly tombstones: string[];
+}
+
+async function readSnapshot(stateRoot: string): Promise<Snapshot> {
+  return JSON.parse(await readFile(preferenceSnapshotPath(stateRoot), "utf8")) as Snapshot;
+}
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -208,6 +266,154 @@ describe("M4-T5: preference CLI workflow", () => {
       const code = await main(withRoot(stateRoot, ["pref", "delete"]), io);
       assert.equal(code, 1);
       assert.match(err.join(""), /--id/);
+    });
+  });
+
+  /**
+   * The P1 this lock exists for, with the mutator in a real second process:
+   * a `pref delete` that printed success must stay true on disk.
+   *
+   * Both mutators rewrite the whole snapshot from the whole state they loaded,
+   * so unsynchronized they are last-writer-wins in both directions. Here this
+   * process plays the concurrent `pref correct` — it publishes a snapshot in
+   * which the observation is still live — while a genuine child process runs
+   * the delete. Unlocked, the child loads before that publish and writes after
+   * it, and the tombstone is gone with no error anywhere. Locked, the child
+   * cannot load until the publish is done, so it tombstones out of the bytes
+   * that were actually on disk.
+   *
+   * The interleaving is forced rather than raced: the child is launched into a
+   * held lock, so what it does next is a property of the code, not of process
+   * scheduling.
+   */
+  it("a pref delete in another process stays true on disk against a concurrent write", async () => {
+    await withPrefRoot(async (stateRoot) => {
+      const seed = capture();
+      await main(
+        withRoot(stateRoot, [
+          "pref",
+          "correct",
+          "--scope",
+          "user",
+          "--scope-key",
+          "u1",
+          "--key",
+          "format",
+          "--value",
+          "compact"
+        ]),
+        seed.io
+      );
+      const id = seed.out.join("").match(/recorded explicit preference (\S+)/)?.[1];
+      assert.ok(id);
+      const seeded = await readSnapshot(stateRoot);
+
+      const release = await holdSnapshotLock(stateRoot);
+      const deleting = runCli(
+        withRoot(stateRoot, ["pref", "delete", "--id", id, "--lock-wait-ms", "60000"])
+      );
+      await new Promise((resolve) => setTimeout(resolve, CHILD_REACHES_ITS_MUTATION_MS));
+
+      // The concurrent correction publishes while the delete is still waiting:
+      // the original observation is live again in these bytes, tombstones empty.
+      await writeFile(
+        preferenceSnapshotPath(stateRoot),
+        JSON.stringify({
+          observations: [...seeded.observations, { ...seeded.observations[0], id: "pref_other" }],
+          tombstones: []
+        }),
+        "utf8"
+      );
+      await release();
+
+      assert.match(await deleting, new RegExp(`tombstoned preference ${id}`));
+      const after = await readSnapshot(stateRoot);
+      assert.deepEqual(after.tombstones, [id], "the reported delete must stay true on disk");
+      assert.equal(
+        after.observations.some((row) => row.id === id),
+        false,
+        "the deleted observation must not survive the delete that reported success"
+      );
+      assert.equal(
+        after.observations.some((row) => row.id === "pref_other"),
+        true,
+        "the concurrent write must not be lost either"
+      );
+      assert.equal(existsSync(preferenceSnapshotLockPath(stateRoot)), false);
+    });
+  });
+
+  /**
+   * The same pair with nothing forcing the interleaving: two real processes,
+   * started together, each doing a whole mutation. Serialized, the two possible
+   * orders converge on one state, which is what lets this assert an exact
+   * result rather than "one of two acceptable outcomes" — delete-then-correct
+   * leaves the tombstone plus the correction, and correct-then-delete records
+   * the correction and then tombstones the original id out of the snapshot it
+   * just wrote.
+   *
+   * This is an end-to-end smoke check over the real spawn path, not the
+   * regression net: whether the two windows actually overlap is up to process
+   * scheduling. The forced-interleaving proofs are the test above and
+   * `test/unit/preferences/snapshot-lock.test.ts`.
+   */
+  it("two concurrent pref mutator processes converge on one snapshot", async () => {
+    await withPrefRoot(async (stateRoot) => {
+      const seed = capture();
+      await main(
+        withRoot(stateRoot, [
+          "pref",
+          "correct",
+          "--scope",
+          "user",
+          "--scope-key",
+          "u1",
+          "--key",
+          "format",
+          "--value",
+          "compact"
+        ]),
+        seed.io
+      );
+      const id = seed.out.join("").match(/recorded explicit preference (\S+)/)?.[1];
+      assert.ok(id);
+
+      const wait = ["--lock-wait-ms", "60000"];
+      const [deleteOut, correctOut] = await Promise.all([
+        runCli(withRoot(stateRoot, ["pref", "delete", "--id", id, ...wait])),
+        runCli(
+          withRoot(stateRoot, [
+            "pref",
+            "correct",
+            "--scope",
+            "user",
+            "--scope-key",
+            "u1",
+            "--key",
+            "format",
+            "--value",
+            "roomy",
+            ...wait
+          ])
+        )
+      ]);
+      assert.match(deleteOut, new RegExp(`tombstoned preference ${id}`));
+      assert.match(correctOut, /recorded explicit preference/);
+
+      const snapshot = await readSnapshot(stateRoot);
+      assert.deepEqual(snapshot.tombstones, [id], "the reported delete must stay true on disk");
+      assert.equal(
+        snapshot.observations.some((row) => row.id === id),
+        false,
+        "the deleted observation must not be resurrected by the concurrent correction"
+      );
+      assert.equal(snapshot.observations.length, 1, "the concurrent correction must not be lost");
+      assert.equal(snapshot.observations[0]?.value, "roomy");
+      assert.equal(
+        existsSync(preferenceSnapshotLockPath(stateRoot)),
+        false,
+        "both processes must release the lock"
+      );
     });
   });
 

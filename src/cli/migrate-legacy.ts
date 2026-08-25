@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { copyFile, link, mkdir, open, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
@@ -24,11 +24,22 @@ import { CLI_EXIT, cliFail } from "./errors.js";
  *    fixed in LEGACY_SOURCES below, and it is never inferred at runtime.
  *  - Sources are copied, never moved or deleted. An operator who is unhappy
  *    with the result still has the original tree.
+ *
+ * A third rule holds for --apply, and is what makes this tool survivable: no
+ * destination ever exists holding a partial copy. See publishCopy.
  */
 
 export interface MigrateLegacyIo {
   stdout(text: string): void;
   stderr(text: string): void;
+}
+
+/** Seams that let the tests drive the publish protocol's failure paths portably. */
+export interface MigrateLegacyOptions {
+  /** Injection seam for the temp -> destination publish. Defaults to fs.link. */
+  readonly link?: (existingPath: string, newPath: string) => Promise<void>;
+  /** Injection seam for the temp-name suffix. Defaults to a random UUID. */
+  readonly uniqueSuffix?: () => string;
 }
 
 /** Legacy entries at the state root, each pinned to the plane that owns it. */
@@ -68,7 +79,10 @@ Without --apply this is a dry run: nothing is written. feedback/ goes to the
 adaptation plane; runs/, episodes/, and invocations.jsonl go to the runtime
 plane. Sources are copied, never deleted, and re-running is a no-op once the
 destinations match. A JSONL file with a corrupt line is refused outright
-rather than half-copied.
+rather than half-copied. An interrupted --apply never leaves a half-written
+destination: each file is staged beside its destination as a *.tmp and
+published in one step, so re-running finishes the job. A leftover *.tmp is
+inert and safe to delete.
 
 Exit codes: 0 when a dry run finds nothing to do or when --apply succeeds;
 1 when a dry run finds pending work (so scripts can gate on it), when a
@@ -83,7 +97,11 @@ function planeRoot(stateRoot: string, plane: Plane): string {
   return plane === "runtime" ? runtimeRoot(stateRoot) : adaptationRoot(stateRoot);
 }
 
-export async function migrateLegacyCommand(args: string[], io: MigrateLegacyIo): Promise<number> {
+export async function migrateLegacyCommand(
+  args: string[],
+  io: MigrateLegacyIo,
+  options: MigrateLegacyOptions = {}
+): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -158,12 +176,11 @@ export async function migrateLegacyCommand(args: string[], io: MigrateLegacyIo):
   const failures: string[] = [];
   for (const item of pending) {
     try {
-      await mkdir(dirname(item.destination), { recursive: true });
-      await copyFile(item.source, item.destination, constants.COPYFILE_EXCL);
+      await publishCopy(item.source, item.destination, options);
       copied += 1;
       io.stdout(`  copied: ${item.relativePath} -> ${describeDestination(stateRoot, item)}\n`);
     } catch (error) {
-      const raced = (error as NodeJS.ErrnoException).code === "EEXIST";
+      const raced = errorCode(error) === "EEXIST";
       // A destination that appeared mid-run is only benign when it matches.
       if (raced && (await sameContent(item.source, item.destination))) {
         io.stdout(`  already migrated: ${item.relativePath}\n`);
@@ -187,6 +204,100 @@ export async function migrateLegacyCommand(args: string[], io: MigrateLegacyIo):
     });
   }
   return CLI_EXIT.ok;
+}
+
+/** `link` failures that mean the filesystem cannot hard-link, not that the destination exists. */
+const LINK_UNSUPPORTED_CODES = new Set(["EPERM", "EOPNOTSUPP", "ENOTSUP", "ENOSYS"]);
+
+const MAX_TEMP_NAME_ATTEMPTS = 3;
+
+function errorCode(error: unknown): unknown {
+  return error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+}
+
+function tempName(destination: string, uniqueSuffix: () => string): string {
+  return `${destination}.${process.pid}.${uniqueSuffix()}.tmp`;
+}
+
+/**
+ * Copy one legacy file so that the destination only ever exists holding the
+ * source's whole content, and an existing destination is still never
+ * overwritten.
+ *
+ * The bytes go to a uniquely named temp beside the destination first and are
+ * fsynced there; `link` then publishes them under the real name in one step
+ * and fails EEXIST rather than clobbering, so the never-overwrite contract is
+ * enforced by the kernel at the instant of publish instead of by the earlier
+ * stat in destinationStatus. The caller's EEXIST branch handles that failure
+ * exactly as it handled the old copyFile(COPYFILE_EXCL) race: digest the two
+ * files and call it already-migrated only when they match.
+ *
+ * The point of the temp is recovery. A crash anywhere before the link leaves
+ * the destination absent and one `<destination>.<pid>.<uuid>.tmp` file next to
+ * it — a name no reader in the tree looks for, and one the operator can delete
+ * — so the re-run still plans the file as `copy` and completes. A plain
+ * copyFile straight to the destination instead left a prefix of the source
+ * under the real name, which every later run read as `conflict (destination
+ * differs)`: a disaster-recovery tool that could not recover from its own
+ * interrupted apply.
+ */
+async function publishCopy(
+  source: string,
+  destination: string,
+  options: MigrateLegacyOptions
+): Promise<void> {
+  const linkFile = options.link ?? link;
+  const uniqueSuffix = options.uniqueSuffix ?? randomUUID;
+  await mkdir(dirname(destination), { recursive: true });
+
+  const tempPath = await copyToUniqueTemp(source, destination, uniqueSuffix);
+  try {
+    await syncFile(tempPath);
+    try {
+      await linkFile(tempPath, destination);
+    } catch (error) {
+      if (!LINK_UNSUPPORTED_CODES.has(String(errorCode(error)))) throw error;
+      // No hard links here (some mounts, some Windows filesystems). Fall back to
+      // the exclusive copy: never-overwrite still holds, the crash window is back.
+      await copyFile(tempPath, destination, constants.COPYFILE_EXCL);
+    }
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * COPYFILE_EXCL never truncates, so a temp left behind by a crashed apply is
+ * refused rather than adopted; the retry then picks a fresh name. Exhaustion
+ * throws without an EEXIST code, because to the caller EEXIST means one thing
+ * only: the destination is already there.
+ */
+async function copyToUniqueTemp(
+  source: string,
+  destination: string,
+  uniqueSuffix: () => string
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_TEMP_NAME_ATTEMPTS; attempt += 1) {
+    const tempPath = tempName(destination, uniqueSuffix);
+    try {
+      await copyFile(source, tempPath, constants.COPYFILE_EXCL);
+      return tempPath;
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(
+    `no free temp name beside ${destination} after ${MAX_TEMP_NAME_ATTEMPTS} attempts`
+  );
+}
+
+async function syncFile(path: string): Promise<void> {
+  const handle = await open(path, "r+");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

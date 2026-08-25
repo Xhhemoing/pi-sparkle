@@ -2,7 +2,6 @@ import {
   createEventId,
   createRunId,
   createTaskId,
-  type EventId,
   type IdGenerator,
   type RunId,
   type TaskId
@@ -12,6 +11,7 @@ import type { ProjectSnapshot } from "../domain/project.js";
 import type { Run } from "../domain/run.js";
 import { assertTransitionTask, expandTaskTransition } from "../domain/state.js";
 import type { RunStatus, TaskStatus } from "../domain/status.js";
+import type { TaskNode } from "../domain/task.js";
 import { nowIso, type IsoTimestamp } from "../domain/timestamp.js";
 import type { AgentProfileRegistry } from "../agents/registry.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -20,14 +20,15 @@ import { DeterministicJudge } from "../graph/judge.js";
 import { validateTaskGraph, type TaskGraph } from "../graph/validate.js";
 import { discoverProject } from "../project/discovery.js";
 import { advanceLedgerRound, classifyRoundProgress, createLedger, type LedgerRoundEvent, type RunLedger } from "../supervisor/ledger.js";
+import type { FileLockOptions } from "../persist/file-lock.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunOutcome } from "./child-coordinator.js";
+import { withRunLifecycleLock } from "./coordinator.js";
+import { recordCrashTerminal } from "./crash-terminal.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
-import { applyTrackingGate, nextTrackingSeq } from "./gate-apply.js";
 import { bindEpisodeToRun, settleBoundEpisode } from "./episode-bind.js";
-import { hashAssessment, type TrackingAssessment } from "../tracking/types.js";
 import {
   checkpointCarriesFlowchart,
   materializeCheckpoint,
@@ -36,7 +37,7 @@ import {
   type RunCheckpoint
 } from "./replay.js";
 import { allDependenciesSatisfied } from "../graph/readiness.js";
-import { applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
+import { applyRetry, applyTaskOutcome, LeaseRegistry, planRound, type TaskOutcome } from "./scheduler.js";
 import { decideTopology } from "../routing/topology.js";
 import type { TopologyDecision } from "../routing/topology.js";
 
@@ -84,12 +85,14 @@ export interface SupervisorDeps {
   judge?: JudgeAdapter;
   now?: () => IsoTimestamp;
   generateId?: IdGenerator;
+  /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
+  runLock?: FileLockOptions;
 }
 
 export interface SupervisedRunInput {
   projectRoot: string;
   objective: string;
-  tasks: import("../domain/task.js").TaskNode[];
+  tasks: TaskNode[];
   limits?: RunLimits;
   contract?: import("../domain/contract.js").RequirementContract;
   resolvedQuestionIds?: readonly string[];
@@ -219,7 +222,27 @@ export function reconstructSupervisorState(
   return { graph, statuses, attempts, leases, ledger };
 }
 
+/**
+ * Runs the supervised rounds and guarantees the log ends honestly. An error
+ * that escapes the loop — a judge that throws, a rejected append, a child that
+ * fails to launch — used to leave the run replaying RUNNING forever; it now
+ * records a terminal first and is rethrown regardless, so the caller still
+ * learns the run crashed.
+ */
 export async function runSupervisorRounds(
+  ctx: SupervisorContext,
+  state: SupervisorState,
+  objective: string
+): Promise<{ status: RunStatus; reason?: string }> {
+  try {
+    return await executeSupervisorRounds(ctx, state, objective);
+  } catch (error) {
+    await recordCrashTerminal(ctx, error);
+    throw error;
+  }
+}
+
+async function executeSupervisorRounds(
   ctx: SupervisorContext,
   state: SupervisorState,
   _objective: string
@@ -242,6 +265,16 @@ export async function runSupervisorRounds(
     }
   };
 
+  // BLOCKED -> READY goes through the scheduler's declared rule rather than a
+  // literal, so editing that rule changes what the supervisor does. The status
+  // handed to it is the one just recorded, not the graph node's stale copy,
+  // which is what makes its guard real: a retry can only follow a recorded
+  // BLOCKED.
+  const recordRetry = async (node: TaskNode, attempt: number): Promise<void> => {
+    const retry = applyRetry({ ...node, status: statuses.get(node.id) ?? "PENDING", attempt });
+    await recordStatus(node.id, retry.status, retry.attempt);
+  };
+
   let cancelRecorded = false;
   const recordCancel = async (): Promise<void> => {
     if (cancelRecorded) return;
@@ -250,8 +283,11 @@ export async function runSupervisorRounds(
     await append(make("RUN_CANCEL_REQUESTED", {}));
   };
 
-  // Recover orphaned or expired leases: a reconstructed RUNNING lease has no
-  // live worker, so resume must not wait for wall-clock expiry.
+  // Recover orphaned leases: a reconstructed RUNNING lease has no live worker.
+  // Nothing expires a lease (see LeaseRegistry), so every restored lease is
+  // recovered here unconditionally rather than on a wall-clock deadline. The
+  // appended event type is still TASK_LEASE_EXPIRED — its name predates this
+  // contract; orphaning, not expiry, is what triggers it.
   for (const lease of leases.list()) {
     const node = graph.byId.get(lease.taskId);
     if (node === undefined) continue;
@@ -260,7 +296,7 @@ export async function runSupervisorRounds(
     await append(make("TASK_LEASE_EXPIRED", { taskId: lease.taskId, childRunId: lease.runId }, lease.taskId));
     await recordStatus(lease.taskId, transition.status, transition.attempt);
     if (transition.status === "BLOCKED") {
-      await recordStatus(lease.taskId, "READY", transition.attempt);
+      await recordRetry(node, transition.attempt);
     }
     leases.release(lease.taskId);
   }
@@ -272,7 +308,7 @@ export async function runSupervisorRounds(
       break;
     }
 
-    const ready = planRound(graph, statuses, limits.maxConcurrentTasks, LEASE_MS, leases);
+    const ready = planRound(graph, statuses, limits.maxConcurrentTasks, leases);
     if (ready.length === 0) {
       const lookup = (id: TaskId): TaskStatus => statuses.get(id) ?? "PENDING";
       const failed = graph.tasks.filter((node) => lookup(node.id) === "FAILED");
@@ -418,7 +454,7 @@ export async function runSupervisorRounds(
           const transition = applyTaskOutcome({ ...node, attempt: attempt - 1 }, toTaskOutcome(outcome.outcome));
           await recordStatus(taskId, transition.status, transition.attempt);
           if (transition.status === "BLOCKED") {
-            await recordStatus(taskId, "READY", transition.attempt);
+            await recordRetry(node, transition.attempt);
           }
           break;
         }
@@ -429,7 +465,15 @@ export async function runSupervisorRounds(
       }
     });
 
-    await Promise.all(taskPromises);
+    // Settle the whole round before letting a rejection out. A task that throws
+    // must not leave its round-mates appending events after the crash terminal,
+    // and the run must not return while a child it launched is still spending.
+    // The abort controller is deliberately not tripped here: the per-task abort
+    // check records RUN_CANCEL_REQUESTED, which would bury the crash as a
+    // cancellation nobody requested.
+    const settled = await Promise.allSettled(taskPromises);
+    const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failure !== undefined) throw failure.reason;
     if (cancelRecorded) break;
 
     const progress = classifyRoundProgress(roundEvent, ledger);
@@ -469,29 +513,109 @@ export async function runSupervisorRounds(
   return { status: finalStatus, ...(finalReason !== undefined ? { reason: finalReason } : {}) };
 }
 
-/** Applies a tracking gate after a settle only when an assessment is supplied. */
-export async function settleSupervisedOutcome(opts: {
-  events: readonly Event[];
-  append: (event: Event) => Promise<void>;
-  nowIso: string;
-  generateEventId: () => EventId;
-  trackingAssessment?: TrackingAssessment;
-  policyVersion?: string;
-  expectedSeq?: number;
-}): Promise<void> {
-  const assessment = opts.trackingAssessment;
-  if (assessment === undefined) return;
-  const applied = applyTrackingGate({
-    events: opts.events,
-    assessment,
-    assessmentHash: hashAssessment(assessment),
-    expectedSeq: opts.expectedSeq ?? nextTrackingSeq(opts.events),
-    policyVersion: opts.policyVersion ?? "track-v1",
-    nowIso: opts.nowIso,
-    generateEventId: opts.generateEventId
+/**
+ * The settle tail both embedders run once the rounds return a status: close the
+ * bound episode and write the checkpoint that records the run's final state.
+ */
+async function finishSupervisedRun(
+  ctx: SupervisorContext,
+  status: RunStatus
+): Promise<{ events: Event[]; checkpoint: RunCheckpoint }> {
+  const beforeSettle = await ctx.eventStore.readAll();
+  await settleBoundEpisode({
+    stateRoot: ctx.deps.stateRoot,
+    events: beforeSettle.events,
+    status,
+    append: ctx.append,
+    make: (type, payload) => ctx.make(type, payload)
   });
-  for (const event of applied.events.slice(opts.events.length)) {
-    await opts.append(event);
+  const finalRead = await ctx.eventStore.readAll();
+  const checkpoint = validateCheckpoint(materializeCheckpoint(replayRun(finalRead.events), ctx.now()));
+  await ctx.checkpointStore.write(checkpoint);
+  return { events: finalRead.events, checkpoint };
+}
+
+/**
+ * Runs the same settle tail for a run that died on its way out.
+ *
+ * The tail lives after `runSupervisorRounds` in both embedders, so the rethrow
+ * skipped it: a crashed run left its episode bound forever, and its durable
+ * checkpoint kept the last pre-crash status — resumable — while its own log
+ * already read FAILED. The two disagreed about a run nobody was driving.
+ *
+ * The status is re-read from the log rather than passed in, because the crash
+ * terminal `runSupervisorRounds` just recorded is what makes it honest; a log
+ * that got no terminal (already cancelled, blocked, settled) settles to the
+ * state it honestly recorded, which is the in-flight-only rule doing its job,
+ * not an exception to it. Each step swallows its own failure so an episode that
+ * will not close does not also cost the checkpoint, and the caller rethrows the
+ * original error regardless.
+ */
+async function settleCrashedSupervisedRun(ctx: SupervisorContext): Promise<void> {
+  try {
+    const read = await ctx.eventStore.readAll();
+    const status = replayRun(read.events).status;
+    try {
+      await settleBoundEpisode({
+        stateRoot: ctx.deps.stateRoot,
+        events: read.events,
+        status,
+        append: ctx.append,
+        make: (type, payload) => ctx.make(type, payload)
+      });
+    } catch {
+      // Best effort: an episode that will not close must not cost the
+      // checkpoint below.
+    }
+    const afterEpisode = await ctx.eventStore.readAll();
+    const checkpoint = validateCheckpoint(materializeCheckpoint(replayRun(afterEpisode.events), ctx.now()));
+    await ctx.checkpointStore.write(checkpoint);
+  } catch {
+    // Best effort throughout: the error on its way out is the one worth
+    // reporting, and settling is bookkeeping.
+  }
+}
+
+/**
+ * Runs the supervised rounds and settles the run either way. A crash still
+ * rethrows — settling never converts it into a run that finished.
+ *
+ * `open` is the run's own pre-rounds window: the opening appends, the episode
+ * bind, and the state the rounds will drive. It is protected by the same two
+ * steps the rounds get, because a run that dies in there used to get neither.
+ * Reproduced on this VM with failures inside the window. The former empty-task
+ * seed no longer reaches it: `validateTaskGraph([])` now refuses in preflight,
+ * before the lock or any write. Once opening has begun, a death before graph
+ * acceptance can still leave no resumable graph: `resumeSupervisedRun` refuses
+ * a log with no accepted graph. So the window records a terminal (in-flight
+ * only, as ever: an empty or already-settled log gets nothing) and then settles
+ * to what the log honestly replays.
+ *
+ * A resume passes a trivial `open`. Its pre-flight reads and refuses before it
+ * writes anything, and it must stay outside: a resume that refuses a log must
+ * not append a terminal to it.
+ */
+async function runAndSettleSupervisedRun(
+  ctx: SupervisorContext,
+  open: () => Promise<SupervisorState>,
+  objective: string
+): Promise<{ status: RunStatus; events: Event[]; checkpoint: RunCheckpoint }> {
+  let state: SupervisorState;
+  try {
+    state = await open();
+  } catch (error) {
+    // The same two steps the rounds get, in the same order: `runSupervisorRounds`
+    // records the terminal and the catch below settles to it.
+    await recordCrashTerminal(ctx, error);
+    await settleCrashedSupervisedRun(ctx);
+    throw error;
+  }
+  try {
+    const { status } = await runSupervisorRounds(ctx, state, objective);
+    return { status, ...(await finishSupervisedRun(ctx, status)) };
+  } catch (error) {
+    await settleCrashedSupervisedRun(ctx);
+    throw error;
   }
 }
 
@@ -515,16 +639,39 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
   const judge = deps.judge ?? new DeterministicJudge();
   const runId = createRunId(generateId);
 
+  // The supervised plane mirrors the flowchart and parent lifecycles: one
+  // acquisition of the run's cooperative lock, held from before the run's first
+  // record until after its teardown, so a concurrent `delete --run` waits for
+  // the run rather than removing its records mid-flight. The trade it buys and
+  // the writers it blocks are stated on the helper.
+  //
+  // Pre-flight stays outside it. Discovery and graph validation can refuse the
+  // run, and `withExclusiveFileLock` creates the lock's parent directory, so
+  // acquiring first left `runtime/runs/` behind for a run that never happened —
+  // where the M0, parent and flowchart planes all persist nothing. The handle
+  // is still returned synchronously and `runId` is still known before either.
   const done = (async (): Promise<SupervisedRunOutcome> => {
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
+    const graph = validateTaskGraph(input.tasks);
+    return withRunLifecycleLock(
+      deps.stateRoot,
+      runId,
+      () => startLockedSupervisedRun(project, graph),
+      deps.runLock
+    );
+  })();
+
+  async function startLockedSupervisedRun(
+    project: ProjectSnapshot,
+    graph: TaskGraph
+  ): Promise<SupervisedRunOutcome> {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
 
-    const graph = validateTaskGraph(input.tasks);
     const run: Run = {
       id: runId,
       projectId: project.id,
@@ -549,29 +696,8 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
 
     const append = (event: Event) => eventStore.append(event);
 
-    await append(make("PROJECT_DISCOVERED", { project }));
-    await append(make("RUN_CREATED", { run }));
-    await bindEpisodeToRun({
-      stateRoot: deps.stateRoot,
-      runId,
-      projectId: project.id,
-      objective: input.objective,
-      ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : {}),
-      append,
-      make: (type, payload) => make(type, payload),
-      ...(generateId !== undefined ? { generateId } : {})
-    });
-    await append(make("RUN_STARTED", {}));
-    await append(make("TASK_GRAPH_ACCEPTED", { tasks: graph.tasks }));
-
-    const state: SupervisorState = {
-      graph,
-      statuses: new Map(graph.tasks.map((t) => [t.id, t.status])),
-      attempts: new Map(graph.tasks.map((t) => [t.id, t.attempt])),
-      leases: new LeaseRegistry(() => Date.parse(now())),
-      ledger: createLedger(input.objective, input.limits?.maxConsecutiveStalls ?? 3)
-    };
-
+    // Built before the run's first record, so the opening appends and the
+    // episode bind run inside the crash settle rather than ahead of it.
     const ctx: SupervisorContext = {
       deps,
       runId,
@@ -588,29 +714,34 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
       make
     };
 
-    const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
-    const status = result.status;
+    const openRun = async (): Promise<SupervisorState> => {
+      await append(make("PROJECT_DISCOVERED", { project }));
+      await append(make("RUN_CREATED", { run }));
+      await bindEpisodeToRun({
+        stateRoot: deps.stateRoot,
+        runId,
+        projectId: project.id,
+        objective: input.objective,
+        ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : {}),
+        append,
+        make: (type, payload) => make(type, payload),
+        ...(generateId !== undefined ? { generateId } : {})
+      });
+      await append(make("RUN_STARTED", {}));
+      await append(make("TASK_GRAPH_ACCEPTED", { tasks: graph.tasks }));
 
-    const beforeSettle = await eventStore.readAll();
-    await settleBoundEpisode({
-      stateRoot: deps.stateRoot,
-      events: beforeSettle.events,
-      status,
-      append,
-      make: (type, payload) => make(type, payload)
-    });
-    await settleSupervisedOutcome({
-      events: beforeSettle.events,
-      append,
-      nowIso: now(),
-      generateEventId: () => createEventId(generateId)
-    });
-    const finalRead = await eventStore.readAll();
-    const finalReplayed = replayRun(finalRead.events);
-    const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
-    await checkpointStore.write(checkpoint);
-    return { runId, status, events: finalRead.events, checkpoint, project: project };
-  })();
+      return {
+        graph,
+        statuses: new Map(graph.tasks.map((t) => [t.id, t.status])),
+        attempts: new Map(graph.tasks.map((t) => [t.id, t.attempt])),
+        leases: new LeaseRegistry(() => Date.parse(now())),
+        ledger: createLedger(input.objective, input.limits?.maxConsecutiveStalls ?? 3)
+      };
+    };
+
+    const settled = await runAndSettleSupervisedRun(ctx, openRun, run.rootTaskId);
+    return { runId, status: settled.status, events: settled.events, checkpoint: settled.checkpoint, project };
+  }
 
   return {
     runId,
@@ -626,7 +757,22 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
   const generateId = deps.generateId;
   const judge = deps.judge ?? new DeterministicJudge();
 
-  const done = (async (): Promise<SupervisedRunOutcome> => {
+  // Same acquisition as a fresh start, and it also serializes a resume against
+  // the run it is resuming: two processes cannot drive one run's records at
+  // once.
+  //
+  // Unlike a start, resume has no pre-flight it can run outside the lock: every
+  // check below is a read of the very records the lock protects, and reading
+  // first would let a `delete --run` land in between and have the resume write
+  // records that were just deleted. The disclosed cost is that a resume of a run
+  // id that does not exist leaves an empty `runtime/runs/` directory behind,
+  // because `withExclusiveFileLock` creates the lock's parent before the read
+  // that refuses. Nothing else is left — no run subtree, no lock file — and
+  // `deleteRunRecords` still treats such a run as a no-op. This is the posture
+  // for every resume plane, not a supervised-plane quirk; the start paths keep
+  // the strict "a refused run persists nothing" contract instead, because their
+  // pre-flight is outside the lock.
+  const done = withRunLifecycleLock(deps.stateRoot, runId, async (): Promise<SupervisedRunOutcome> => {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
 
@@ -647,12 +793,13 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
       throw new Error(`Run ${runId} has no RUN_CREATED event`);
     }
 
-    const state = reconstructSupervisorState(read.events, () => Date.parse(now()));
-    if (!state) {
-      throw new Error(`Run ${runId} has no TASK_GRAPH_ACCEPTED event`);
-    }
-
-    // If already terminal, return immediately without appending events.
+    // If already terminal, return immediately without appending events. This
+    // precedes the state reconstruction below because a settled run is resumed
+    // read-only and has nothing to reconstruct: a run that died in its opening
+    // appends settles with a terminal but never recorded a graph, and refusing
+    // to report its status would leave the honest FAILED on its log, checkpoint
+    // and episode unreadable through the one command an operator points at a
+    // run id.
     if (replayed.status === "COMPLETED" || replayed.status === "FAILED" || replayed.status === "CANCELLED" || replayed.status === "BLOCKED") {
       const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, now()));
       await checkpointStore.write(checkpoint);
@@ -663,6 +810,11 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
         checkpoint,
         project: replayed.project!
       };
+    }
+
+    const state = reconstructSupervisorState(read.events, () => Date.parse(now()));
+    if (!state) {
+      throw new Error(`Run ${runId} has no TASK_GRAPH_ACCEPTED event`);
     }
 
     const run = replayed.run;
@@ -698,29 +850,17 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
       make
     };
 
-    const result = await runSupervisorRounds(ctx, state, run.rootTaskId);
-    const status = result.status;
-
-    const beforeSettle = await eventStore.readAll();
-    await settleBoundEpisode({
-      stateRoot: deps.stateRoot,
-      events: beforeSettle.events,
-      status,
-      append,
-      make: (type, payload) => make(type, payload)
-    });
-    await settleSupervisedOutcome({
-      events: beforeSettle.events,
-      append,
-      nowIso: now(),
-      generateEventId: () => createEventId(generateId)
-    });
-    const finalRead = await eventStore.readAll();
-    const finalReplayed = replayRun(finalRead.events);
-    const checkpoint = validateCheckpoint(materializeCheckpoint(finalReplayed, now()));
-    await checkpointStore.write(checkpoint);
-    return { runId, status, events: finalRead.events, checkpoint, project: replayed.project! };
-  })();
+    // Nothing to open: the state is already reconstructed and a resume appends
+    // no records of its own before the rounds.
+    const settled = await runAndSettleSupervisedRun(ctx, async () => state, run.rootTaskId);
+    return {
+      runId,
+      status: settled.status,
+      events: settled.events,
+      checkpoint: settled.checkpoint,
+      project: replayed.project!
+    };
+  }, deps.runLock);
 
   return {
     runId,

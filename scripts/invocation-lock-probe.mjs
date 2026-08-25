@@ -2,8 +2,9 @@
 /**
  * Diagnostic probe for invocation-log lock contention.
  *
- * The held-lock case intentionally keeps the lock through both equal timeout
- * windows, documenting the accepted telemetry drop after the single retry.
+ * The held-lock case intentionally keeps the lock through the live sink's
+ * bounded timeout windows, documenting the accepted telemetry drop after the
+ * Loop 4 retry budget is exhausted.
  * The live run remains higher priority than this telemetry row.
  */
 import { mkdtemp, rm } from "node:fs/promises";
@@ -12,9 +13,10 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { tsImport } from "tsx/esm/api";
 
-const RETRIES = 1;
+const RETRIES = 2;
 const LOCK_TIMEOUT_MS = 25;
 const LOCK_RETRY_MS = 2;
+const RETRY_BACKOFF_MS = 2;
 const CONTENDED_APPENDS = 32;
 
 function invocation(suffix) {
@@ -44,27 +46,35 @@ function milliseconds(value) {
 
 let stateRoot;
 try {
-  const { appendInvocationRecord, readInvocationRecords, withInvocationLogLock } = await tsImport(
+  const {
+    appendInvocationRecord,
+    createInvocationSink,
+    readInvocationRecords,
+    withInvocationLogLock
+  } = await tsImport(
     "../src/telemetry/invocation-log.ts",
     import.meta.url
   );
 
   stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-invocation-lock-"));
   const heldRecord = invocation("held");
-  let heldError;
+  let heldDrop;
+  const sink = createInvocationSink(stateRoot, {
+    maxAttempts: RETRIES + 1,
+    retryBackoffMs: RETRY_BACKOFF_MS,
+    timeoutMs: LOCK_TIMEOUT_MS,
+    retryMs: LOCK_RETRY_MS,
+    onDrop: (reason) => {
+      heldDrop = reason;
+    }
+  });
   const heldStartedAt = performance.now();
   await withInvocationLogLock(stateRoot, async () => {
-    heldError = await appendInvocationRecord(stateRoot, heldRecord, {
-      timeoutMs: LOCK_TIMEOUT_MS,
-      retryMs: LOCK_RETRY_MS
-    }).then(
-      () => undefined,
-      (error) => error
-    );
+    await sink(heldRecord);
   });
   const heldAppendMs = performance.now() - heldStartedAt;
 
-  if (!(heldError instanceof Error) || !heldError.message.includes("timed out waiting for lock")) {
+  if (typeof heldDrop !== "string" || !heldDrop.includes("lock timeout")) {
     throw new Error("held-lock append did not end in the expected lock-timeout drop");
   }
   if (heldAppendMs < LOCK_TIMEOUT_MS * (RETRIES + 1) - LOCK_RETRY_MS) {

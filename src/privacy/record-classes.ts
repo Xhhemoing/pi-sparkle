@@ -83,10 +83,11 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     deletion: "delete-files",
     deletionPropagatesTo: ["feedback"],
     migrationVersion: 1,
-    // Variant file shapes sharing this class, all removed by delete --episode:
-    // runtime/episodes/<id>.events.jsonl (event log) and
-    // runtime/episodes/<id>.lock (the cooperative lock `episode close` takes;
-    // no user text, but a deleted episode must not keep a footprint).
+    // Variant record shape sharing this class:
+    // runtime/episodes/<id>.events.jsonl (event log). delete --episode unlinks
+    // both record shapes while holding runtime/episodes/<id>.lock; it does not
+    // unlink or report that operational sidecar as an episode record. Normal
+    // owned lock release removes it.
     recovery: "duplicate open/attach/terminal must fail closed on the reducer"
   },
   {

@@ -1,3 +1,371 @@
+# Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)
+
+- **Branch:** `agent/opt-continuous`
+- **Parent:** Cursor Grok 4.6 orchestrator (20+ round × 10-agent loop)
+- **Base:** `main` @ `2a921ee` (PR #6 Loop 2 merged)
+- **Started:** 2026-08-24
+- **Quality bar:** measurable ≥5% for perf; defensive tests on every landing; no cosmetic refactors
+- **Forbidden:** live R1/bandit/topology, Outcome-supported, ADR-006 Accepted, P0 sign-off, auto-promote, silent cross-family model fallback
+
+## Protocol
+
+Each round: fable audit → 10 concurrent landings (opus-fast + gpt-sol) → parent `pnpm gate` + benches → fable review → commit/push/PR. Subagents do **not** git commit. Saturation: if a module gains <2% for 2 consecutive rounds, move to I/O, races, protocol, or disaster recovery.
+
+## Seed residuals (historical branch-start snapshot)
+
+At Loop 4 branch start, Loop 3 (`agent/sota-opt-loop3-7e63`) had claimed but not yet landed: INSPECT_SUMMARY freeze; feedback append/rewrite lock; invocation lock-timeout retry; adaptation-plane import closure. The closeout merge integrates those landings plus kernel reuse; where Loop 4 independently evolved the same surface, the Loop 4 implementation and freeze remain authoritative. The archived Loop 3 and kernel-reuse logs follow the Loop 4 record below.
+
+## Round 1 — in flight
+
+Fable audit landed: `.agent_workspace/loop4-r1-fable.md` + `loop4-r1-tasks.md`. T1–T10 dispatched (6 opus-fast + 4 gpt-sol). Exclusive ownership in `OWNERSHIP.md`.
+
+| Slot | Agent | Model |
+|---|---|---|
+| T1 | bc-1dd89357-b04d-5d7f-a849-37c2be55eb9f | opus-fast |
+| T2 | bc-2a25b067-1389-58ae-a1e2-f9b0c8d0861f | opus-fast |
+| T3 | bc-bd35c3f0-45e3-50e1-84f7-dc0f6072cedf | opus-fast |
+| T4 | bc-39199fe8-0b42-51fa-a291-3dd6d602bfbc | opus-fast |
+| T5 | bc-6637a686-1796-50e1-856a-3919d246be91 | opus-fast |
+| T6 | bc-5a5390cc-42fe-5b80-99c2-f5d90bf5bf3d | opus-fast |
+| T7 | bc-6dc4f05c-9629-5df2-96ef-7fe793150b2d | gpt-sol |
+| T8 | bc-b9ea274b-2222-584d-a2c6-d2eb5a6a7432 | gpt-sol |
+| T9 | bc-85399aab-2a9e-5502-b83e-cb2f61f8e765 | gpt-sol |
+| T10 | bc-6d529890-48af-5198-b9c8-95366843ef2f | gpt-sol |
+
+**Parent baseline (this VM, Node v22.14.0, engines want >=22.19.0):** `scripts/bench-runtime.mjs` → jsonlAppend 69.320ms/1000, jsonlRead 0.600ms/1000, lockSerial 195.377ms, lockContended 205.303ms. Perf landings must beat this by ≥5% or roll back. Fable re-measured jsonlAppend 68.264ms; T7 must record its own same-VM baseline before optimizing. Two host-dependent doctor test failures are T9's to hermeticize.
+
+## Round 1 landings (parent gate GREEN after review)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1508 / 1507 pass / 0 fail / 1 skip**. Reviewer independently re-verified T7 (−31.5% / −28.6%) and crash-probe `ok: true`. 7 ACCEPT, 3 ACCEPT-WITH-NITS (T2/T8/T9), 0 ROLLBACK. Doctor host-Node baseline retired.
+
+| Slot | Result |
+|---|---|
+| T1 | Feedback `records.jsonl.lock`; cascade fail-closed on corrupt log |
+| T2 | `createInvocationSink` lock-timeout retry; flowchart `onInvocation` wired |
+| T3 | Shared `writeFileAtomic` unique temps; checkpoint+pause torn-write closed |
+| T4 | `validateEpisodeEvent`; settle under `episodes/<id>.lock` |
+| T5 | Pre-aborted execute short-circuit; no provider call after cancel |
+| T6 | Durable cancel set; `maxWallTimeMs` enforced |
+| T7 | jsonlAppend −36%, fsync −34% (same-VM bench); signatures frozen |
+| T8 | Seeded protocol fuzz; `assertAtMostOneTerminal` no TypeError escape |
+| T9 | Doctor `nodeVersion` inject; adaptation-plane transitive value-import closure |
+| T10 | SIGKILL crash probe: jsonl tail, checkpoint old-then-next, no-steal lock |
+
+Saturated after Round 1: `persist/jsonl`, `protocol/v1` parse.
+
+## Round 2 landings (parent gate GREEN)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1550 / 1548 pass / 0 fail / 2 skip**. Fable: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R2-4, R2-10), 0 ROLLBACK. Lock perf independently re-verified (−14.4% / −12.0%). Crash-probe 6×3 `ok: true`.
+
+| Slot | Result |
+|---|---|
+| R2-1 | Flowchart `RunAbortScope` fires abort into executors and children |
+| R2-2 | Typed `LOCK_TIMEOUT`; lock serial/contended ~−12.5% |
+| R2-3 | `delete --episode` acquires episode lock before unlink |
+| R2-4 | `appendFeedbackWithRetry`; auto-adapt warns on lock drop, does not fail |
+| R2-5 | Incremental terminal check; `maxCostUsd` disclosed unenforced |
+| R2-6 | Crash probe: cascade, settle-lock, `writeFileAtomic` |
+| R2-7 | Persistence-row fuzzer; invocation TypeError documented unowned |
+| R2-8 | Sender-only role-cast requeues dead-lettered after bound |
+| R2-9 | Dropped dead `expired()`; kept `restore()` for resume |
+| R2-10 | Dictionary: unique temps, lock inventory, wall vs cost honesty |
+
+Saturated after Round 2: lock acquisition perf, mailbox starvation semantics.
+
+## Round 3 landings (parent gate GREEN)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1604 / 1603 pass / 0 fail / 1 skip** (PI_SMOKE only). Fable: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R3-7, R3-10), 0 ROLLBACK. Crash-probe 8×3 `ok: true`.
+
+| Slot | Result |
+|---|---|
+| R3-1 | Invocation decoders fail closed; `isInvocation` never throws |
+| R3-2 | Atomic feedback/invocation rewrites; crash-probe 8×3 |
+| R3-3 | `delete --run` verifies removal (`RunRecordsSurvivedError`) |
+| R3-4 | Event log `DomainValidationError` + row fuzz |
+| R3-5 | Escaping errors append `RUN_FAILED` |
+| R3-6 | Doctor stale-lock inventory (no steal) |
+| R3-7 | Host `deadLetterReport` / `onDeadLetter` (CLI embedders not yet wired) |
+| R3-8 | Dropped `applySkipped` and unread `_leaseDurationMs` |
+| R3-9 | Resume `createExecutor` shares invocation sink |
+| R3-10 | Docs: no checkpoint leases; episode lock honesty |
+
+## Round 4 landings (parent gate GREEN; fable 8 ACCEPT / 2 nits / 0 rollback)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1680 / 1679 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe 8×3 `ok: true`. Per-step run-lock on append/checkpoint rolled back (+22.5% / +17.5% e2e vs 5% bar).
+
+| Slot | Result |
+|---|---|
+| R4-1 | `runtime/runs/<id>.lock`; delete verifies again after release; hot-path writers unlocked |
+| R4-2 | Undelivered cluster mail on outcome + one CLI stderr line (pending + dead letters) |
+| R4-3 | Supervised `RUN_FAILED` on escape; both retries through `applyRetry` |
+| R4-4 | Flush resumable flowchart checkpoint on crash; in-flight-only terminal unchanged |
+| R4-5 | Doctor per-lock remediation + PLANNING/RUNNING inventory (no steal) |
+| R4-6 | Resume `--primary-model`/`--thinking` + rebuild disclosure; config not persisted |
+| R4-7 | Atomic `tombstones.json`; malformed JSON is `DomainValidationError`; fuzz fail-closed |
+| R4-8 | Docs truth-up for R3 (in-flight R4-1/2/6 timestamp-disclosed) |
+| R4-9 | Atomic catalog-observed + preferences; additive `writeFileAtomicSync` |
+| R4-10 | Offline pi loopback run/resume/calibration fixture |
+
+Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R4-8 stale snapshots; R4-10 empty-stderr joint). 0 ROLLBACK. Brief: `.agent_workspace/ROUND4-BRIEF.md`.
+
+## Round 5 landings (parent gate GREEN; fable 8 ACCEPT / 2 nits / 0 rollback)
+
+**Parent verification (Node v22.14.0):** `pnpm gate` exit 0. Tests **1725 / 1724 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe 8×3 `ok: true`. Lifecycle lock +0.148 ms/run (inside 5% bar).
+
+| Slot | Result |
+|---|---|
+| R5-1 | CLI-reachable lifecycles hold `runLockPath`; delete waits; pause-on-live times out |
+| R5-2 | Shared `crash-terminal.ts`; supervised crash settles episode + FAILED checkpoint |
+| R5-3 | Bandit store atomic; torn read `BANDIT_STATE_UNREADABLE` |
+| R5-4 | Providers/credentials/adaptation registry through `writeFileAtomic` |
+| R5-5 | Resume-time adoption declined; unaccepted-result window pinned as accepted cost |
+| R5-6 | Role-holder requeue count; `dead-lettered=` reachable in production-shaped runs |
+| R5-7 | Docs truth-up (R5-6 reachability landed after; may be stale) |
+| R5-8 | Loopback wire witness for resume model/thinking |
+| R5-9 | `LOCK_TIMEOUT` / `RUN_RECORDS_SURVIVED` `next:` routes to doctor |
+| R5-10 | Unused episode replay deleted; checkpoint parse typed |
+
+Parent joints: loopback supervised resume clears abandoned lock (`a770a24`).
+
+Fable review: 8 ACCEPT, 2 ACCEPT-WITH-NITS (R5-2 supervised lock-before-preflight; R5-7 stale snapshots). 0 ROLLBACK. Brief: `.agent_workspace/ROUND5-BRIEF.md`.
+
+## Round 6 — landings (parent gate GREEN)
+
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1769 / 1768 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **9 cases × 3**. Sole owners held. ADR-006 stays Proposed.
+
+10 slots from `.agent_workspace/ROUND5-BRIEF.md`. Stay on `agent/opt-continuous`.
+
+Parent sign-off: R6-1 option (a) — loop respects the gate (BLOCKED stays BLOCKED).
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R6-1 | bc-ffac634f-11f6-5b8c-903d-74689e0a7a40 | gate BLOCKED vs loop FAILED |
+| R6-2 | bc-c9fcea17-8a38-5ac8-8289-81f82cf53d3d | resume rebuilds children without criteria (invest.) |
+| R6-3 | bc-169e516d-6a23-5fab-913c-bdb663ffc190 | track-loop lock + supervised pre-flight |
+| R6-4 | bc-90bf9ac5-8915-59c0-b337-8a948d327a84 | doctor learned/derived state inventory |
+| R6-5 | bc-85d0aaa9-49e8-501b-a23b-f2e142c8a1c4 | route three codes; bounded delete wait |
+| R6-6 | bc-58f2ba17-2b13-5a5c-800f-9a0f7dc571f4 | cascade wire witness + process-death helper |
+| R6-7 | bc-5b3b394e-6541-531e-b2e2-36c37315bfc0 | docs truth-up |
+| R6-8 | bc-e2934355-33b8-5e45-b123-7de4e94cf0ef | SIGKILL run-lock crash-probe |
+| R6-9 | bc-fe0b8831-a06e-599c-8a78-1ae7b8fdc3e0 | exported-unused census |
+| R6-10 | bc-5d84790a-665a-5485-870f-e9cd99df2e8e | flowchart dead-letter pin + requeue countdown |
+
+Landed: all ten slots + parent joints. Fable **7 ACCEPT, 3 ACCEPT-WITH-NITS, 0 ROLLBACK**.
+
+## Round 7 — landings (parent gate GREEN; fable 9 ACCEPT / 1 nit / 0 rollback)
+
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1804 / 1803 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **9 cases × 3**. ADR-006 stays Proposed.
+
+Fable review (`.agent_workspace/loop4-r7-review.md` at `bdc4cb9`): **9 ACCEPT, 1 ACCEPT-WITH-NITS (R7-6), 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND7-BRIEF.md`.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R7-1 | bc-fd5480c5-7ecd-5c11-925a-d9c7ddac8f99 | reconstruct child specs from the parent log |
+| R7-2 | bc-4fcfcfbb-158b-5c72-a828-cdd0bf5e54d0 | criteria are prompt-guidance (option b) |
+| R7-3 | bc-95c21c01-92e7-5262-a6d8-f51d862da704 | BLOCKED unblock design (no src) |
+| R7-4 | bc-1d383424-003c-5403-8981-d7e8fd40c768 | parent-plane crash terminal |
+| R7-5 | bc-7e2f994b-d4fb-58e1-a435-6172aff4bc0e | BLOCKED `next:` |
+| R7-6 | bc-a9ad6ea7-f226-5884-9c00-fc96f67fb59b | docs truth-up |
+| R7-7 | bc-57f5db89-4e89-55a4-b1a5-0e94c9cbcd0d | drop unused trackingAssessment |
+| R7-8 | bc-70a8c878-c620-5046-b2ef-4f43160c1de4 | keyed doctor readers |
+| R7-9 | bc-fb413605-1f00-5c45-8d8b-0cd905834e00 | reject empty task graphs |
+| R7-10 | bc-ba95ad7e-7665-5ecd-963d-98f38dc68121 | real-command bandit/catalog routes |
+
+Landed: R7-10 STOP (catalog has no CLI producer); R7-6 Round 6 docs truth-up (ADR-006 stays Proposed; nit: in-flight disclosure undercounted siblings); R7-7 deleted unused `settleSupervisedOutcome`; R7-9 empty graphs fail in pre-flight; R7-3 absorbing-BLOCKED pins + Round 8 `RUN_UNBLOCKED` design (no schema); R7-8 keyed `loadProjectBanditByKey` + pure preference reader; R7-2 option (b) recorded in-source (criteria are prompt-guidance); R7-5 BLOCKED `next:` on `run`; R7-1 reconstruct child specs from the parent log; R7-4 parent-plane crash refuses over a replayed terminal.
+
+## Round 8 — landings (parent gate GREEN; fable 9 ACCEPT / 1 nit / 0 rollback)
+
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1845 / 1844 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **9 cases × 3**. ADR-006 stays Proposed.
+
+Fable review (`.agent_workspace/loop4-r8-review.md` at `b65ad06`): **9 ACCEPT, 1 ACCEPT-WITH-NITS (R8-2), 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND8-BRIEF.md`.
+
+10 slots from `.agent_workspace/ROUND7-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R8-1 **YES** `RUN_UNBLOCKED` schema; R8-2 no schema this half; R8-4 design-only; R8-6 option (b); R8-7 do not amend crash-terminal rethrow; R8-9 delete `loadProjectBandit`. Brief R8-3 folded into R8-1 (same `main.ts`). Durable contract implementation deferred until after R8-1 (file contention on `replay.ts` / `flowchart-run.ts`). ADR-006 stays Proposed.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R8-1 | bc-04e9b0fd-7eac-5257-99ec-80f014de2983 | ship `RUN_UNBLOCKED` + folded resume/answer BLOCKED `next:` |
+| R8-2 | bc-e54c339d-20d2-599e-89ca-e9e129dcecad | durable-contract design + absence pins (no src) |
+| R8-3 | bc-6f365607-85cc-5b6f-94bc-ccb7a9424536 | flowchart `applyRetry` absence pin (no src) |
+| R8-4 | bc-4f1f0ff5-4040-5760-a667-45e9554bfa73 | option (a) design-only |
+| R8-5 | bc-d3903dd3-62a2-5c09-9715-4288654bb589 | Round 7 docs truth-up |
+| R8-6 | bc-0909b159-52b0-5839-ab9e-dc4aef25892e | catalog route posture (b) + bandit producer pin |
+| R8-7 | bc-5ac3620f-d1e6-552f-8d6f-2511b8b8c97a | parent-plane crash residuals (no crash-terminal edit) |
+| R8-8 | bc-faed627a-27aa-592a-abaf-747f13f608fc | freeze `INSPECT_SUMMARY` additive |
+| R8-9 | bc-fa848108-24c4-5b92-8430-a0dc6683f100 | delete unused `loadProjectBandit` |
+| R8-10 | bc-6d55b575-e843-5581-bac0-6370415d16ac | re-seed bound-episode pre-rounds settle |
+
+Landed: R8-1 `RUN_UNBLOCKED` + locked `unblock` + honesty repair on BLOCKED `next:`; R8-2 contract-absence pins (schema deferred; nit: resumeCommand region regex swallows unblockCommand); R8-3 flowchart `applyRetry` absence pin; R8-4 option-(a) design (no live verdict producer — four preconditions); R8-5 Round 7 docs (ADR-006 Proposed); R8-6 catalog posture (b) + bandit `adapt auto` pin; R8-7 WAITING_FOR_USER crash / cancel-request decisions; R8-8 `INSPECT_SUMMARY` frozen-additive; R8-9 deleted `loadProjectBandit`; R8-10 bound-episode pre-rounds settle reseed.
+
+## Round 9 — landings (parent gate GREEN; fable 9 ACCEPT / 1 nit / 0 rollback)
+
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1880 / 1879 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **10 cases × 3** (R9-5 added `unblock-append-before-checkpoint-sigkill`). ADR-006 stays Proposed. Zero parent fix-joints.
+
+Fable review (`.agent_workspace/loop4-r9-review.md` at `8e933a7`): **9 ACCEPT, 1 ACCEPT-WITH-NITS (R9-4), 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND9-BRIEF.md`.
+
+10 slots from `.agent_workspace/ROUND8-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R9-1 **YES** durable `contract` on the flowchart checkpoint; R9-2 **YES** `report_task_result` tool (no protocol schema); R9-3 design-only; R9-6 in-source gate-reconstruction posture (no new consumer). R9-3 did not co-schedule src with R9-1.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R9-1 | bc-d41cfdf0-7c32-5e6d-af12-8f2cefdb8a40 | durable run contract on resume |
+| R9-2 | bc-764849e3-e92b-50d3-8bfd-d54192981ec5 | Pi executor verdict producer |
+| R9-3 | bc-9e1dfd8f-5dc6-59f5-b393-21e2519eba9b | executed-descendant discard design |
+| R9-4 | bc-5fe54953-33ef-5e3e-9f08-a66f55080c5d | Round 8 docs truth-up |
+| R9-5 | bc-bdc88c7c-e40c-5daf-b259-94f27c9a13ed | unblock crash-probe case |
+| R9-6 | bc-072db4be-339b-56d0-8b92-78cae7897a76 | gate-reconstruction posture |
+| R9-7 | bc-64d2a703-3819-5377-a20c-f04dffa452f9 | freeze five `DOCTOR_ROUTED_NEXT` routes |
+| R9-8 | bc-b4529b1e-ded7-5625-ac6b-b812409bcffc | freeze `childTasksFromLog` reconstruction |
+| R9-9 | bc-f5f50053-06b0-52d5-9751-64ec03b655c6 | freeze isolation after `loadProjectBandit` delete |
+| R9-10 | bc-ca262099-fbf9-5870-839e-a213db8117f4 | freeze `RUN_UNBLOCKED` payload keys |
+
+Landed: R9-1 `aeb14dc` durable `contract?` on `FlowchartCheckpointState` (CLI flip-pin; unblock carries contract); R9-2 `dff71f1` `sparkle_report_task_result` + pin 2 re-derived (PASSED opens / FAILED hard-blocks for `--executor pi`); R9-3 `97e475e` fail-closed pin + design `RUN_UNBLOCKED_WITH_DISCARD` (no payload field); R9-4 `af9f993` Round 8 docs (ADR-006 Proposed; ADR `0005` body still names deleted `loadProjectBandit` — flag-only; nit: nine-case probe line); R9-5 `25a57d9` 10th probe case; R9-6 `4d21a96` `runStatus` is a ledger not a control input (zero `src` readers); R9-7 `73363a2` character-exact `DOCTOR_ROUTED_NEXT` freeze; R9-8 `1b5ed59` `childTasksFromLog` resume call-site + FAIL-unreachable tripwire; R9-9 `8f45505` `loadProjectBandit` gone / `selectArm` shadow-only; R9-10 `5970a2f` `RUN_UNBLOCKED` payload three keys type-frozen.
+
+## Round 10 — landings (parent gate GREEN; fable 10 ACCEPT / 0 nits / 0 rollback)
+
+Parent verification (Node v22.14.0): `pnpm gate` exit 0. Tests **1915 / 1914 pass / 0 fail / 1 skip** (`PI_SMOKE` only). Crash-probe `ok: true`, **10 cases × 3** (discard-window probe deferred). ADR-006 stays Proposed. Zero parent fix-joints.
+
+Fable review (`.agent_workspace/loop4-r10-review.md` at `6c60ba6`): **10 ACCEPT, 0 ACCEPT-WITH-NITS, 0 ROLLBACK**. Independent gate matched. Zero parent fix-joints. Brief: `.agent_workspace/ROUND10-BRIEF.md`.
+
+10 slots from `.agent_workspace/ROUND9-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R10-1 **YES** `RUN_UNBLOCKED_WITH_DISCARD`; R10-2 option (a) **deferred**; R10-5 comment-only `independentEvidence` posture; R10-6 probe **deferred**.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R10-1 | bc-8d7c884e-6da9-545d-871b-605a7f741b50 | ship `RUN_UNBLOCKED_WITH_DISCARD` |
+| R10-2 | bc-64c0af54-0446-5ec0-a3ea-b4171207450f | freeze option-(a) unimplemented |
+| R10-3 | bc-bdae1351-6b79-56c4-8400-04696de7ffd2 | Round 9 docs truth-up |
+| R10-4 | bc-1f578743-69b2-59bb-a5e7-90b537a57860 | CLI `--track` contract retention + writer census |
+| R10-5 | bc-98bf40a8-1a82-5b06-b361-192f22bb7378 | `independentEvidence` + `applyChildThreeLine` posture |
+| R10-6 | bc-2cb4c60a-9d36-5365-9d14-e5f5dff2c916 | freeze verdict-producer rules (probe deferred) |
+| R10-7 | bc-f0ce5a46-674b-5598-b95a-485c83f8056c | freeze never-synthesize-from-episode |
+| R10-8 | bc-c2395186-968e-5e87-be28-66f89f4d0b55 | keep `applyRetry` AST pin over discard path |
+| R10-9 | bc-33009d74-85e5-5914-8616-76c9d244c74c | keep `runStatus` ledger no-reader pin |
+| R10-10 | bc-179325e9-b579-5eaa-9d28-17af209d4a6f | freeze `TERMINAL_REPLAY_STATUSES` (new event is not a status) |
+
+Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-executed` (charged estimates fail-closed vs `MODEL_ROUTED`; fourth checkpoint writer carries `contract`); R10-2 `a57fd7d` option (a) unimplemented freeze; R10-3 `66edccb` Round 9 docs; R10-4 `2e22453` writer-census pin (pure-CLI `--track`→pause STOP: tracked run has no pause controller); R10-5 `9b9888a` `independentEvidence` self-report posture; R10-6 `05d146c` verdict-producer standing rules; R10-7 `366df19` never-synthesize-from-episode; R10-8 `2399346` `applyRetry` absence over discard identifiers; R10-9 `d4b52b1` matched discard ledger status; R10-10 `d4741e6` `TERMINAL_REPLAY_STATUSES` / `RUN_UNBLOCKED*` not a status.
+
+## Round 11 — CLOSED
+
+10 slots from `.agent_workspace/ROUND10-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R11-1 **YES** option (a); R11-3 **YES** tracked pause controller (no race; fold declined); R11-4 **YES** restore-path charge validation.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R11-1 | bc-bac929b5-19fa-5a19-b5cf-fc7af45eed6e | implement option (a) |
+| R11-2 | bc-3be62857-82a1-5523-9ef1-cae7b3339bb7 | discard crash-probe eleventh case |
+| R11-3 | bc-52d9f74c-f0f1-593a-9372-24ee72f4f2fc | tracked-run pause controller |
+| R11-4 | bc-e3adef72-a50c-5c80-b871-70aee430ac51 | restore-path discard audit validation |
+| R11-5 | bc-7096a9fa-0d14-5551-98e7-a5af5ce05f22 | Round 10 docs truth-up |
+| R11-6 | bc-8b43b955-c413-54c7-b9f1-094ec7a911de | keep live-isolation pins |
+| R11-7 | bc-37fcffbf-7f45-5103-8de6-3a5d15860354 | keep INSPECT_SUMMARY + BLOCKED prefix |
+| R11-8 | bc-6b194f70-5131-591a-bc46-c2bc3793cb50 | keep `applyRetry` AST pin |
+| R11-9 | bc-9b740fbd-b914-5ee5-8aed-9ce8e9c09f14 | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R11-10 | bc-63703673-58ec-55f2-b9ad-9595d7b2e887 | keep never-synthesize-from-episode |
+
+Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-6 report-only (existing live-isolation pins covered R11-1's import); R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`; R11-10 `f99a0c8` never-synthesize covers `taskCriteria`. Parent joint `6926592` spent R9-1 reserved pin in `resume.test.ts`; parent docs `df2c395` truth-up coverage-gate row.
+
+**Parent gate GREEN** at `2767321`: **1938 tests / 1937 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r11-review.md`. Two parent joints (`6926592`, `df2c395`) and one 20-second red-tree window at `6096da6`, counted. Residual closed into Round 12: `taskCriteria` writer + early run-id (same slot — `flowchart-run.ts` contention).
+
+## Round 12 — CLOSED
+
+10 slots from `.agent_workspace/ROUND11-BRIEF.md` (four real candidates; R12-1 absorbs brief R12-1+R12-2 because they share `flowchart-run.ts`). Stay on `agent/opt-continuous`. Parent sign-off: R12-1 **YES** `taskCriteria` writer+reader (semantic approved); R12-1 **YES** early run-id disclosure in the same diff.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R12-1 | bc-212fd2df-0600-53f2-bd66-5121bdc1bf2d | `taskCriteria` writer+reader + early run-id |
+| R12-2 | bc-75d55f82-927e-5aea-8272-e6c69eee2bc4 | keep `independentEvidence` one-void pin |
+| R12-3 | bc-bc71ea8f-6c61-554a-9d34-1540610648f3 | criteria-gate production-reachability |
+| R12-4 | bc-5a2f7f6b-48ee-5c7f-898b-b68a823994e0 | Round 11 docs truth-up |
+| R12-5 | bc-f245e65f-6620-5996-a508-b328dd155738 | keep `applyRetry` absence + restore audit |
+| R12-6 | bc-14b01583-7004-55a5-b392-cece0307e44c | keep never-synthesize-from-episode |
+| R12-7 | bc-47ac0ed7-a754-5634-9e52-1e93958bcd56 | keep routes / INSPECT_SUMMARY / BLOCKED prefix |
+| R12-8 | bc-d5d9b6aa-16af-5c77-9448-99f89b0f40a8 | keep live-isolation pins |
+| R12-9 | bc-b03d3f9a-d0aa-5194-85c0-15cfef2a6d07 | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R12-10 | bc-0551ba4d-479f-5f00-9bb5-6d9e2e29a23b | keep writer-carriage `contract` property |
+
+Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded joint in `flowchart-run-abort.test.ts`); R12-2 `95a2b25`; R12-3 `b8f784f`; R12-4 `d1b451c`; R12-5/6/7/8 report-only; R12-9 `b65a8b1`; R12-10 `d592f8c` + successor `0e61063`. Stale Round 11 "no writer" source docstrings in `replay.ts`/`prescore.ts` prescribed, not parent-edited.
+
+**Parent gate GREEN** at `aa7282f`: **1947 tests / 1946 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r12-review.md`. Two joints counted (abort-test fold inside `81f5b81`; successor `0e61063` 7s after the writer). Zero red-tree commit points. Brief: `.agent_workspace/ROUND12-BRIEF.md`.
+
+## Round 13 — CLOSED (parent gate GREEN; fable in flight)
+
+10 slots from `.agent_workspace/ROUND12-BRIEF.md` (four real candidates; freeze extras fill the rest). Stay on `agent/opt-continuous`. Parent sign-off: R13-1 **YES** comment-only truth-up of the two false "no writer" docstrings; R13-3 **YES** early `onRunStarted` on `--flowchart` and `--children`.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R13-1 | bc-8f305442-b89e-5027-8a3f-0fe1bd1d3c95 | comment-only `replay.ts` / `prescore.ts` "no writer" truth-up — landed |
+| R13-2 | bc-8638f5c8-c39c-5c1d-94a3-b357cf0fd70e | behavioural pins: unblock `taskCriteria` carry-forward + `advanceTaskCriteria` log-derived arm — landed |
+| R13-3 | bc-7a65b4d9-3e73-5963-96ef-1dfdca2e6c75 | early run-id on `--flowchart` / `--children` — landed |
+| R13-4 | bc-a1cff01d-f85e-5307-9cd3-5fefc24656cf | Round 12 docs truth-up — landed |
+| R13-5 | bc-de6bdc78-aeff-5f90-9dd0-1bef638bdfc7 | keep live-isolation pins — report-only |
+| R13-6 | bc-9df1a46b-08b6-50c8-b5a6-22c75b0ceb0d | keep `applyRetry` absence — report-only |
+| R13-7 | bc-977f733c-6ed5-58a9-bd4e-13e3d4a28069 | keep never-synthesize-from-episode — report-only |
+| R13-8 | bc-f4713dbe-1c9a-5951-bf28-48713a6884b6 | keep `independentEvidence` posture — report-only |
+| R13-9 | bc-70ecf5aa-503e-59cc-9503-07346eda5bec | keep exact eight `RunStatus` members — report-only |
+| R13-10 | bc-d9c4877b-4caa-53d4-bd55-50d469c7469e | keep writer-carriage property — report-only |
+
+Landed: R13-1 `f6e4c04` comment-only "no writer" truth-up; R13-2 `e7d018c` unblock carry-forward + log-derived merge pins; R13-3 `1e78220` early run-id on `--flowchart` / `--children`; R13-4 `8faf8f4` Round 12 docs (re-staled by R13-3); R13-5…R13-10 report-only.
+
+**Parent gate GREEN** at `16212ba`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r13-review.md`. One joint counted (mandated `main.ts`+census fold inside `1e78220`). Zero red-tree commit points. Brief: `.agent_workspace/ROUND13-BRIEF.md`.
+
+## Round 14 — CLOSED (parent gate GREEN; fable in flight)
+
+Two real candidates from `.agent_workspace/ROUND13-BRIEF.md` (freeze extras not re-dispatched: six-for-six correct declinations last round). Stay on `agent/opt-continuous`. Parent sign-off: R14-2 **YES** comment-only scoping of `replay.ts:85-93`. Parent commits R14-2 before R14-1. Landing commits are slot files + report only (no PROGRESS ticks).
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R14-2 | bc-6fe42e12-b7d6-58d8-a1a5-569ec66c7470 | comment-only scope of `replay.ts:85-93` laundering narrative |
+| R14-1 | bc-1c805383-8352-5b87-81df-eb042c90dad3 | Round 13 docs truth-up |
+
+Landed: R14-2 `25a3c2f` then R14-1 `a1ea5f2` (source-truth before docs). No PROGRESS ticks in landing commits.
+
+**Parent gate GREEN** at `3b39353`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r14-review.md`. Zero joints, zero red-tree points, both Round 13 process nits fixed. Brief: `.agent_workspace/ROUND14-BRIEF.md`. Loop is prose-saturated; freeze extras not re-dispatched.
+
+## Round 15 — CLOSED (parent gate GREEN; fable in flight)
+
+Sole landing from `.agent_workspace/ROUND14-BRIEF.md` (zero code candidates; docs truth-up valid only alone). Stay on `agent/opt-continuous`. ADR-006 stays Proposed. Landing commits are slot files + report only (no PROGRESS ticks).
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R15-1 | bc-572d2b10-e026-54f4-983d-2beeb4a8a862 | terminate census-note treadmill (docs only) |
+
+Landed: R15-1 `5d7c0d6` (sole landing; no sibling).
+
+**Parent gate GREEN** at `6d625d1`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **1 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r15-review.md`. Zero joints. Brief: `.agent_workspace/ROUND15-BRIEF.md`. Census-note treadmill terminated; surfaces current at HEAD.
+
+## Round 16 — CLOSED
+
+Four real candidates from `.agent_workspace/ROUND16-BRIEF.md` (audit: `.agent_workspace/loop4-r16-audit.md`). Stay on `agent/opt-continuous`. Parent sign-off: R16-1 **YES** lock at CLI layer; R16-4 **YES** atomic never-overwrite publish, **NO** 12th crash-probe case. Landing commits are slot files + report only (no PROGRESS ticks). Do not pad to ten.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-audit | bc-c35e018c-0f65-50db-89b0-89f8f434415c | I/O · races · protocol · disaster-recovery audit |
+| R16-1 | bc-de9f6564-72a2-550b-9c66-97b990097e6c | lock preference-store cross-process RMW |
+| R16-2 | bc-09e5e246-1ee3-5def-96c9-c09ba1a4b6dd | `EpisodeEventStore.append` validates before write |
+| R16-3 | bc-b02498fc-02dc-569f-8cb3-c6e3a27d136f | eval-routing report via `writeFileAtomic` |
+| R16-4 | bc-21baf251-e902-5849-92e2-16ccab8ac0b2 | crashed `migrate-legacy --apply` self-heal (atomic never-overwrite) |
+
+Landed: R16-3 `9c58b90` eval-routing atomic publish; R16-2 `ee24d86` episode-event append validation; R16-4 `92ffd15` migrate-legacy never-overwrite `link`; R16-1 `16691b3` CLI-layer `preferences.json.lock` across bind+mutate+persist. No 12th crash-probe case. No freeze extras.
+
+**Parent gate GREEN** against code HEAD `16691b3` (orchestrator record `5ed437a`): **1977 tests / 1976 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 15: **+26**. Fable SOTA review: **3 ACCEPT, 1 ACCEPT-WITH-NITS (R16-4 fallback never-overwrite unpinned), 0 ROLLBACK** at `.agent_workspace/loop4-r16-review.md`. Zero red-tree commit points. Brief: `.agent_workspace/ROUND17-BRIEF.md`. Two proven Round 17 candidates; do not pad.
+
+## Round 17 — CLOSED
+
+Two real candidates from `.agent_workspace/ROUND17-BRIEF.md`. Stay on `agent/opt-continuous`. Parent sign-off: R17-1 **YES (b) remove** the persistence-dead `recordInferredPreference` call from `adapt learn` (CLI advertised contract is routing-candidate only; store inferred machinery stays for embedders). R17-2 test-only pin, no extra sign-off. Landing commits are slot files + report only (no PROGRESS ticks). Do not pad.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-review | bc-9e193417-ef51-53ee-ad15-c35d506cc024 | Round 16 SOTA review |
+| R17-1 | bc-6f0c02aa-6311-5709-99ad-12cfb15b9b9a | remove persistence-dead inferred-preference call |
+| R17-2 | bc-039fec19-aced-5ae0-b6ac-b5b58e480925 | pin migrate-legacy fallback never-overwrite |
+
+Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove persistence-dead `recordInferredPreference` from `adapt learn` (direction (b)). No freeze extras.
+
+**Parent gate GREEN** against code HEAD `223e3dd` (orchestrator record `6b8124d`): **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r17-review.md`. One required joint (plane-boundary allowlist shrink inside `223e3dd`). Brief: `.agent_workspace/ROUND18-BRIEF.md`. Retarget plane closed; Round 18 has zero candidates.
+
+## Round 18 — cancelled; loop ending
+
+The parent ended the SOTA loop on user request after the Round 17 green gate. No Round 18 landings are accepted; the in-flight fable audit is ignored. Do not pad, reopen frozen surfaces, or continue on a new evidence plane.
+
+---
+
 # Loop 3 — SOTA follow-on (2026-08-24)
 
 - **Branch:** `agent/sota-opt-loop3-7e63`

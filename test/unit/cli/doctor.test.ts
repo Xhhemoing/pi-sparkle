@@ -1,11 +1,26 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
-import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
+import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
+import { createEpisodeId, createEventId, createRunId } from "../../../src/domain/ids.js";
+import { stableProjectKey } from "../../../src/learning/learned-routing.js";
+import {
+  configurePreferencePersistence,
+  isTombstoned,
+  listObservations,
+  recordPreference,
+  resetPreferenceStore
+} from "../../../src/preferences/store.js";
+import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { makeEvent, makeRun } from "../../helpers/event-factory.js";
+
+const COMPLIANT_NODE_VERSION = "22.19.0";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -26,16 +41,44 @@ test("doctor reports developer preview and fake-executor next steps", async () =
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     const { io, out, err } = capture();
-    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
     assert.equal(code, 0, err.join(""));
     const text = out.join("");
     assert.match(text, /developer preview/);
     assert.match(text, /not a production capability/);
-    assert.match(text, /ok {2}node:/);
+    assert.match(text, new RegExp(`ok {2}node: ${COMPLIANT_NODE_VERSION}`));
     assert.match(text, /ok {2}state-root:/);
     assert.match(text, /live R1\/bandit\/topology: off/);
     assert.match(text, /fake executor/);
     assert.deepEqual(err, []);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed for an injected Node version below engines", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-old-node-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-old-node-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: "22.18.9" }
+    );
+
+    assert.equal(code, 1);
+    assert.match(
+      out.join(""),
+      /^ {2}FAIL {2}node: 22\.18\.9 \(engines >=22\.19\.0\) — need >= 22\.19\.0$/m
+    );
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
@@ -72,7 +115,11 @@ test("doctor reports the pinned Pi packages and the offline compat status", asyn
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     const { io, out, err } = capture();
-    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    const code = await doctorCommand(
+      ["--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
     assert.equal(code, 0, err.join(""));
     const text = out.join("");
     assert.match(text, /ok {2}pi-packages: agent-core=\d+\.\d+\.\d+ ai=\d+\.\d+\.\d+/);
@@ -109,7 +156,17 @@ test("doctor fails closed when --project has no package.json", async () => {
 // engine-dependent — so `ok` is only ever asserted against the checks
 // themselves and against the exit code.
 
-const CONTRACT_KEYS = ["version", "preview", "liveAdaptive", "ok", "checks", "next"];
+const CONTRACT_KEYS = [
+  "version",
+  "preview",
+  "liveAdaptive",
+  "ok",
+  "checks",
+  "next",
+  "locks",
+  "runStates",
+  "learnedState"
+];
 
 async function runDoctorJson(
   args: string[]
@@ -138,6 +195,29 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
     assert.equal(typeof report.ok, "boolean");
     assert.ok(Array.isArray(report.checks));
     assert.ok(report.next.every((step) => typeof step === "string"));
+    assert.deepEqual(Object.keys(report.locks), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.locks.advisory, "string");
+    assert.ok(Array.isArray(report.locks.entries));
+    assert.ok(Array.isArray(report.locks.scanErrors));
+    assert.deepEqual(Object.keys(report.runStates), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.runStates.advisory, "string");
+    assert.ok(Array.isArray(report.runStates.entries));
+    assert.ok(Array.isArray(report.runStates.scanErrors));
+    assert.deepEqual(Object.keys(report.learnedState), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.learnedState.advisory, "string");
+    assert.ok(Array.isArray(report.learnedState.entries));
+    assert.ok(Array.isArray(report.learnedState.scanErrors));
+    assert.deepEqual(
+      report.learnedState.entries.map((entry) => Object.keys(entry)),
+      report.learnedState.entries.map(() => [
+        "kind",
+        "stateClass",
+        "projectKey",
+        "path",
+        "status",
+        "remediation"
+      ])
+    );
 
     for (const check of report.checks) {
       assert.deepEqual(Object.keys(check), ["name", "ok", "detail"]);
@@ -158,7 +238,10 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "skill-route",
         "agent-drift",
         "pi-packages",
-        "pi-compat"
+        "pi-compat",
+        "lock-inventory",
+        "run-state-inventory",
+        "learned-state-inventory"
       ]
     );
   } finally {
@@ -259,5 +342,578 @@ test("doctor --json reports a legacy state root without failing the preflight", 
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories nested locks with additive JSON diagnostics and never removes them", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-locks-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-locks-proj-"));
+  const nowMs = Date.parse("2026-08-24T18:00:00.000Z");
+  const acquiredAt = "2026-08-24T17:59:50.000Z";
+  const validLock = join(stateRoot, "runtime", "episodes", "episode-1.lock");
+  const emptyLock = join(stateRoot, "adaptation", "feedback", "records.jsonl.lock");
+  const invalidLock = join(stateRoot, "runtime", "invocations.jsonl.lock");
+  const validRaw = JSON.stringify({ ownerToken: "owner-1", pid: 4242, acquiredAt });
+  const invalidRaw = "{not json";
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime", "episodes"), { recursive: true });
+    await mkdir(join(stateRoot, "adaptation", "feedback"), { recursive: true });
+    await writeFile(validLock, validRaw, "utf8");
+    await writeFile(emptyLock, "", "utf8");
+    await writeFile(invalidLock, invalidRaw, "utf8");
+    await writeFile(join(stateRoot, "runtime", "ignored.lock.tmp"), "not a lock", "utf8");
+    await utimes(emptyLock, new Date(nowMs - 30_000), new Date(nowMs - 30_000));
+
+    const checkedPids: number[] = [];
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs,
+        pidLiveness: (pid) => {
+          checkedPids.push(pid);
+          return "not-running";
+        }
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.match(report.locks.advisory, /PID reuse/);
+    assert.match(report.locks.advisory, /never steals or deletes locks/);
+    assert.deepEqual(report.locks.scanErrors, []);
+    assert.equal(report.locks.entries.length, 3);
+    const valid = report.locks.entries.find((entry) => entry.path === validLock);
+    assert.deepEqual(valid, {
+      path: validLock,
+      ageMs: 10_000,
+      ageSource: "acquiredAt",
+      acquiredAt,
+      pid: 4242,
+      pidLiveness: "not-running",
+      metadata: "valid",
+      remediation: `age 10000ms; recorded PID 4242 is not running: inspect and remove manually; never automatic (${validLock})`
+    });
+    const empty = report.locks.entries.find((entry) => entry.path === emptyLock);
+    assert.equal(empty?.metadata, "empty");
+    assert.equal(empty?.ageSource, "mtime");
+    assert.ok(
+      empty?.ageMs !== null && empty?.ageMs !== undefined && Math.abs(empty.ageMs - 30_000) <= 1,
+      `unexpected mtime-derived age: ${empty?.ageMs}`
+    );
+    assert.equal(empty?.pid, null);
+    assert.equal(empty?.pidLiveness, "not-recorded");
+    const invalid = report.locks.entries.find((entry) => entry.path === invalidLock);
+    assert.equal(invalid?.metadata, "invalid");
+    assert.equal(invalid?.pid, null);
+    assert.equal(invalid?.pidLiveness, "not-recorded");
+    assert.match(valid?.remediation ?? "", /age 10000ms/);
+    assert.match(valid?.remediation ?? "", /inspect and remove manually; never automatic/);
+    assert.match(empty?.remediation ?? "", /inspect metadata and ownership/);
+    assert.deepEqual(checkedPids, [4242]);
+
+    const lockCheck = report.checks.find((check) => check.name === "lock-inventory");
+    assert.equal(lockCheck?.ok, true, "empty and invalid metadata are diagnostics, not stale proof");
+    assert.match(lockCheck?.detail ?? "", /3 lock file\(s\) found/);
+    assert.match(lockCheck?.detail ?? "", /advisory only/);
+
+    assert.equal(await readFile(validLock, "utf8"), validRaw);
+    assert.equal(await readFile(emptyLock, "utf8"), "");
+    assert.equal(await readFile(invalidLock, "utf8"), invalidRaw);
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs,
+        pidLiveness: () => "not-running"
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}lock-inventory: 3 lock file\(s\) found/);
+    assert.match(text, /episode-1\.lock: age=10000ms source=acquiredAt pid=4242/);
+    assert.match(text, /records\.jsonl\.lock: age=30000ms source=mtime pid=not-recorded/);
+    assert.match(text, /metadata=empty/);
+    assert.match(text, /inspect and remove manually; never automatic/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories PLANNING and RUNNING logs as read-only advisory crash candidates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-run-states-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-run-states-proj-"));
+  const nowMs = Date.parse("2026-08-24T18:00:00.000Z");
+  const planningAt = "2026-08-24T17:59:00.000Z";
+  const runningAt = "2026-08-24T17:59:30.000Z";
+  const planningRunId = createRunId(() => "doctor-planning");
+  const runningRunId = createRunId(() => "doctor-running");
+  const completedRunId = createRunId(() => "doctor-completed");
+  const planningPath = join(stateRoot, "runtime", "runs", planningRunId, "events.jsonl");
+  const runningPath = join(stateRoot, "runtime", "runs", runningRunId, "events.jsonl");
+  const completedPath = join(stateRoot, "runtime", "runs", completedRunId, "events.jsonl");
+  let eventSequence = 0;
+  const eventId = () => createEventId(() => `doctor-${++eventSequence}`);
+
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const planningStore = new EventStore(stateRoot, planningRunId);
+    await planningStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: planningRunId } }, {
+        id: eventId(),
+        runId: planningRunId,
+        occurredAt: planningAt
+      })
+    );
+    const runningStore = new EventStore(stateRoot, runningRunId);
+    await runningStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: runningRunId } }, {
+        id: eventId(),
+        runId: runningRunId,
+        occurredAt: "2026-08-24T17:58:00.000Z"
+      })
+    );
+    await runningStore.append(
+      makeEvent("RUN_STARTED", {}, {
+        id: eventId(),
+        runId: runningRunId,
+        occurredAt: runningAt
+      })
+    );
+    const completedStore = new EventStore(stateRoot, completedRunId);
+    await completedStore.append(
+      makeEvent("RUN_CREATED", { run: { ...makeRun(), id: completedRunId } }, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:57:00.000Z"
+      })
+    );
+    await completedStore.append(
+      makeEvent("RUN_STARTED", {}, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:57:30.000Z"
+      })
+    );
+    await completedStore.append(
+      makeEvent("RUN_COMPLETED", {}, {
+        id: eventId(),
+        runId: completedRunId,
+        occurredAt: "2026-08-24T17:58:30.000Z"
+      })
+    );
+    const originalLogs = await Promise.all(
+      [planningPath, runningPath, completedPath].map((path) => readFile(path, "utf8"))
+    );
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION, nowMs }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.match(report.runStates.advisory, /advisory crash candidates only/);
+    assert.match(report.runStates.advisory, /live process may still own the run/);
+    assert.match(report.runStates.advisory, /doctor never changes run state/);
+    assert.deepEqual(report.runStates.scanErrors, []);
+    assert.equal(report.runStates.entries.length, 2);
+    assert.deepEqual(
+      report.runStates.entries.find((entry) => entry.runId === planningRunId),
+      {
+        runId: planningRunId,
+        path: planningPath,
+        status: "PLANNING",
+        ageMs: 60_000,
+        lastEventAt: planningAt,
+        remediation: `inspect with pi-sparkle inspect --run ${planningRunId}; then resume --run ${planningRunId} or delete --run ${planningRunId}`
+      }
+    );
+    assert.deepEqual(
+      report.runStates.entries.find((entry) => entry.runId === runningRunId),
+      {
+        runId: runningRunId,
+        path: runningPath,
+        status: "RUNNING",
+        ageMs: 30_000,
+        lastEventAt: runningAt,
+        remediation: `inspect with pi-sparkle inspect --run ${runningRunId}; then resume --run ${runningRunId} or delete --run ${runningRunId}`
+      }
+    );
+    assert.equal(
+      report.runStates.entries.some((entry) => entry.runId === completedRunId),
+      false,
+      "terminal logs are not crash candidates"
+    );
+    const runStateCheck = report.checks.find((check) => check.name === "run-state-inventory");
+    assert.equal(runStateCheck?.ok, true);
+    assert.match(runStateCheck?.detail ?? "", /2 PLANNING\/RUNNING run log\(s\)/);
+    assert.match(runStateCheck?.detail ?? "", /advisory crash candidate/);
+
+    assert.deepEqual(
+      await Promise.all(
+        [planningPath, runningPath, completedPath].map((path) => readFile(path, "utf8"))
+      ),
+      originalLogs,
+      "doctor must not modify run logs"
+    );
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        nowMs
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}run-state-inventory: 2 PLANNING\/RUNNING run log\(s\)/);
+    assert.match(text, new RegExp(`run: ${planningRunId}: status=PLANNING age=60000ms`));
+    assert.match(text, new RegExp(`resume --run ${runningRunId} or delete --run ${runningRunId}`));
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports the current local PID as running but only advisory", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-live-lock-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-live-lock-proj-"));
+  const lockPath = join(stateRoot, "runtime", "active.lock");
+  const raw = JSON.stringify({
+    ownerToken: "active-owner",
+    pid: process.pid,
+    acquiredAt: new Date().toISOString()
+  });
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(lockPath, raw, "utf8");
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(report.locks.entries[0]?.pid, process.pid);
+    assert.equal(report.locks.entries[0]?.pidLiveness, "running");
+    assert.match(report.locks.advisory, /cannot prove a lock is stale/);
+    assert.equal(await readFile(lockPath, "utf8"), raw);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor inventories learned and derived state through the shipped readers without changing bytes", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-proj-"));
+  const damagedProjectRoot = `${projectRoot}-damaged`;
+  const absentProjectRoot = `${projectRoot}-absent`;
+  const readableProjectKey = stableProjectKey(projectRoot);
+  const damagedProjectKey = stableProjectKey(damagedProjectRoot);
+  const absentProjectKey = stableProjectKey(absentProjectRoot);
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  const readableBanditPath = join(projectsDir, readableProjectKey, "bandit.json");
+  const damagedBanditPath = join(projectsDir, damagedProjectKey, "bandit.json");
+  const absentBanditPath = join(projectsDir, absentProjectKey, "bandit.json");
+  const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+  const observedPath = catalogObservedPath(stateRoot);
+  const readableBandit = `${JSON.stringify(
+    {
+      arms: ["model-a"],
+      pulls: { "model-a": 1 },
+      rewardSum: { "model-a": 1 },
+      explorationsUsed: 0,
+      highRiskExplorations: 0
+    },
+    null,
+    2
+  )}\n`;
+  const damagedBandit = '{"arms":';
+  const damagedPreferences = '{"observations":';
+  const damagedObserved = '{"versions":';
+
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(projectsDir, readableProjectKey), { recursive: true });
+    await mkdir(join(projectsDir, damagedProjectKey), { recursive: true });
+    await mkdir(join(projectsDir, absentProjectKey), { recursive: true });
+    await mkdir(join(adaptationRoot(stateRoot)), { recursive: true });
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(readableBanditPath, readableBandit, "utf8");
+    await writeFile(damagedBanditPath, damagedBandit, "utf8");
+    await writeFile(preferencesPath, damagedPreferences, "utf8");
+    await writeFile(observedPath, damagedObserved, "utf8");
+
+    const first = capture();
+    const firstCode = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      first.io,
+      { nodeVersion: COMPLIANT_NODE_VERSION }
+    );
+    assert.equal(firstCode, 0, first.err.join(""));
+    const report = JSON.parse(first.out.join("")) as DoctorJsonReport;
+    assert.deepEqual(report.learnedState.scanErrors, []);
+    assert.match(report.learnedState.advisory, /shipped state readers/);
+    assert.match(report.learnedState.advisory, /doctor never repairs, moves, deletes, or rebuilds/);
+    assert.equal(report.learnedState.entries.length, 5);
+
+    const byPath = new Map(report.learnedState.entries.map((entry) => [entry.path, entry]));
+    assert.deepEqual(byPath.get(readableBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: readableProjectKey,
+      path: readableBanditPath,
+      status: "readable",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(damagedBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: damagedProjectKey,
+      path: damagedBanditPath,
+      status: "damaged",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(absentBanditPath), {
+      kind: "bandit",
+      stateClass: "learned",
+      projectKey: absentProjectKey,
+      path: absentBanditPath,
+      status: "absent",
+      remediation:
+        "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(preferencesPath), {
+      kind: "preferences",
+      stateClass: "learned",
+      projectKey: null,
+      path: preferencesPath,
+      status: "damaged",
+      remediation:
+        "learned state: repair the file or move it aside and relearn preferences from an empty store; doctor never changes it"
+    });
+    assert.deepEqual(byPath.get(observedPath), {
+      kind: "catalog-observed",
+      stateClass: "derived",
+      projectKey: null,
+      path: observedPath,
+      status: "damaged",
+      remediation:
+        "derived state: delete the damaged file and rebuild it from runtime/invocations.jsonl; doctor never changes it"
+    });
+
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, true, "damaged state is advisory, not a scan failure");
+    assert.match(learnedCheck?.detail ?? "", /1 readable, 1 absent, 3 damaged/);
+    assert.equal(report.ok, true);
+    assert.deepEqual(
+      await Promise.all(
+        [readableBanditPath, damagedBanditPath, preferencesPath, observedPath].map((path) =>
+          readFile(path, "utf8")
+        )
+      ),
+      [readableBandit, damagedBandit, damagedPreferences, damagedObserved],
+      "doctor must leave learned and derived state byte-identical"
+    );
+
+    const validPreferences = '{"observations":[],"tombstones":[]}\n';
+    const validObserved = '{"versions":{}}\n';
+    await writeFile(preferencesPath, validPreferences, "utf8");
+    await writeFile(observedPath, validObserved, "utf8");
+    const second = capture();
+    assert.equal(
+      await doctorCommand(
+        ["--json", "--state-root", stateRoot, "--project", projectRoot],
+        second.io,
+        { nodeVersion: COMPLIANT_NODE_VERSION }
+      ),
+      0,
+      second.err.join("")
+    );
+    const reread = JSON.parse(second.out.join("")) as DoctorJsonReport;
+    const rereadByPath = new Map(reread.learnedState.entries.map((entry) => [entry.path, entry]));
+    assert.equal(rereadByPath.get(preferencesPath)?.status, "readable");
+    assert.equal(rereadByPath.get(observedPath)?.status, "readable");
+    assert.equal(await readFile(preferencesPath, "utf8"), validPreferences);
+    assert.equal(await readFile(observedPath, "utf8"), validObserved);
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}learned-state-inventory: 5 state file\(s\) inventoried/);
+    assert.match(
+      text,
+      new RegExp(`state: bandit: project-key=${damagedProjectKey} class=learned status=damaged`)
+    );
+    assert.match(text, /state: catalog-observed: class=derived status=readable/);
+    assert.match(text, /derived state: delete the damaged file and rebuild it/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * R7-8. Doctor reaches a stored bandit file through the keyed reader, so the
+ * inventory no longer depends on the project-key hash being invertible. The key
+ * below is well-formed for the scan but outside the magnitude any project root
+ * can hash to, which is exactly what the deleted base-31 preimage refused: it
+ * used to push a scan error and report the file `present but unclassified`,
+ * failing the check. Read by key, the same bytes classify normally.
+ */
+test("doctor inventories a stored project key it could not have hashed back to a root", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-keyed-"));
+  const unreachableKey = "pffffffff";
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  const banditPath = join(projectsDir, unreachableKey, "bandit.json");
+  const damagedBandit = '{"arms":';
+  try {
+    await mkdir(join(projectsDir, unreachableKey), { recursive: true });
+    await writeFile(banditPath, damagedBandit, "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.deepEqual(report.learnedState.scanErrors, []);
+    assert.deepEqual(
+      report.learnedState.entries.find((entry) => entry.path === banditPath),
+      {
+        kind: "bandit",
+        stateClass: "learned",
+        projectKey: unreachableKey,
+        path: banditPath,
+        status: "damaged",
+        remediation:
+          "learned state: repair the file or move it aside and relearn from zero; doctor never changes it"
+      }
+    );
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, true, "an unmapped key is no longer a scan failure");
+    assert.equal(await readFile(banditPath, "utf8"), damagedBandit);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * R7-8. The preferences probe reads through a pure reader instead of binding the
+ * process-global store and unbinding it again. The bind was observable: it
+ * replaced this process's in-memory history with the inventoried file's, and the
+ * unbind left the store unbound whatever it had been before. Doctor is a
+ * read-only inventory, so neither may happen.
+ */
+test("doctor inventories preferences without adopting them into the process store", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-pref-pure-"));
+  const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+  const planted = {
+    id: "pref_planted",
+    scope: "user",
+    scopeKey: "u1",
+    key: "format",
+    value: "planted",
+    evidenceEpisodeId: "epi_planted",
+    weight: 1,
+    createdAt: "2026-08-24T18:00:00.000Z",
+    explicit: true,
+    recurrenceCount: 1
+  };
+  const snapshot = `${JSON.stringify({ observations: [planted], tombstones: ["pref_gone"] })}\n`;
+  try {
+    await mkdir(adaptationRoot(stateRoot), { recursive: true });
+    await writeFile(preferencesPath, snapshot, "utf8");
+
+    configurePreferencePersistence(undefined);
+    resetPreferenceStore();
+    const mine = recordPreference("user", "u1", "format", "mine", createEpisodeId(), 1, true);
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(
+      report.learnedState.entries.find((entry) => entry.path === preferencesPath)?.status,
+      "readable"
+    );
+
+    assert.deepEqual(
+      listObservations().map((row) => row.id),
+      [mine.id],
+      "doctor must not load the inventoried snapshot into this process's store"
+    );
+    assert.equal(isTombstoned("pref_gone"), false, "nor its tombstones");
+
+    // Still unbound, exactly as doctor found it: a later observation cannot land
+    // on top of the file doctor only read.
+    recordPreference("user", "u1", "format", "later", createEpisodeId(), 1, true);
+    assert.equal(await readFile(preferencesPath, "utf8"), snapshot);
+  } finally {
+    configurePreferencePersistence(undefined);
+    resetPreferenceStore();
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails the learned-state check only for scan errors", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-learned-scan-"));
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  try {
+    await mkdir(join(adaptationRoot(stateRoot), "learning"), { recursive: true });
+    await writeFile(projectsDir, "not a directory", "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    assert.equal(report.learnedState.scanErrors.length, 1);
+    assert.match(report.learnedState.scanErrors[0] ?? "", /projects/);
+    assert.deepEqual(
+      report.learnedState.entries.map((entry) => [entry.kind, entry.status]),
+      [
+        ["preferences", "absent"],
+        ["catalog-observed", "absent"]
+      ]
+    );
+    const learnedCheck = report.checks.find((check) => check.name === "learned-state-inventory");
+    assert.equal(learnedCheck?.ok, false);
+    assert.match(learnedCheck?.detail ?? "", /1 scan error/);
+    assert.equal(
+      report.checks.filter((check) => !check.ok).map((check) => check.name).includes(
+        "learned-state-inventory"
+      ),
+      true
+    );
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
+    assert.equal(await readFile(projectsDir, "utf8"), "not a directory");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
   }
 });

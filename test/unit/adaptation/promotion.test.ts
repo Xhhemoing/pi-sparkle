@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   canAutoPromote,
   createDefaultApprovalProfile
@@ -11,6 +11,7 @@ import type { ApprovalProfile } from "../../../src/adaptation/approval-profile.j
 import type { EvaluationPlan } from "../../../src/adaptation/candidate.js";
 import type { RoutingEvalReport } from "../../../src/adaptation/eval-routing.js";
 import {
+  adaptationRegistryPath,
   loadAdaptationRegistry,
   parsePromotionReview,
   promoteWithRegistry,
@@ -313,6 +314,40 @@ describe("M6-T5: compare-and-swap promotion", () => {
     });
     assert.equal(reloaded.getActiveVersion(id)?.versionId, result.newVersion?.versionId);
     assert.equal(reloaded.ledger().at(-1)?.kind, "promoted");
+  });
+
+  it("registry saves preserve bytes and concurrent publishes leave no owned temp", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-atomic-"));
+    try {
+      const first = registry();
+      first.registerBaseline({ identity: identity(), content: "v1", author: AUTHOR });
+      const second = registry();
+      const firstBytes = `${JSON.stringify(first.snapshot(), null, 2)}\n`;
+      const secondBytes = `${JSON.stringify(second.snapshot(), null, 2)}\n`;
+
+      await Promise.all(
+        Array.from({ length: 12 }, (_, index) =>
+          saveAdaptationRegistry(dir, index % 2 === 0 ? first : second)
+        )
+      );
+
+      const path = adaptationRegistryPath(dir);
+      assert.ok([firstBytes, secondBytes].includes(await readFile(path, "utf8")));
+      assert.deepEqual(
+        (await readdir(dirname(path))).filter((entry) => entry.endsWith(".tmp")),
+        []
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("registry publishing delegates cleanup and collision handling to the shared writer", async () => {
+    const source = await readFile("src/adaptation/promotion.ts", "utf8");
+    assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/persist\/atomic-file\.js";/);
+    assert.match(source, /await writeFileAtomic\(path, serialized\);/);
+    assert.doesNotMatch(source, /\b(?:open|rename)\(/);
+    assert.doesNotMatch(source, /tempPath|randomUUID|`[^`]*\.tmp`/);
   });
 
   it("concurrent promotions cannot lose an update", () => {

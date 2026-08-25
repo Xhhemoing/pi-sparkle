@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { validateRequirementContract, type RequirementContract } from "../domain/contract.js";
 import {
   createEpisodeId,
@@ -11,9 +12,20 @@ import { hash32 } from "../domain/hash.js";
 import { decideClosure } from "../episode/closure.js";
 import { attachRun, closeEpisode, openEpisode, waitForUser } from "../episode/manager.js";
 import { EpisodeEventStore } from "../episode/store.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import type { RunStatus } from "../domain/status.js";
 import type { Event } from "./events.js";
 import { EpisodeStore } from "./episode-store.js";
+
+/**
+ * The cooperative lock guarding a single episode's read-decide-append.
+ * Must stay byte-identical to the path `episode close` takes (`src/cli/episode.ts`),
+ * otherwise the CLI and the run side would serialize against different files.
+ */
+export function episodeLockPath(stateRoot: string, episodeId: EpisodeId): string {
+  return join(runtimeRoot(stateRoot), "episodes", `${episodeId}.lock`);
+}
 
 export function contractFromObjective(objective: string, skipped: boolean): RequirementContract {
   return validateRequirementContract({
@@ -66,6 +78,9 @@ export async function bindEpisodeToRun(opts: {
     acceptance: contract.acceptanceCriteria
   });
   const attached = attachRun(opened.episode, opts.runId, opts.projectId);
+  // No episode lock here: `episodeId` was just generated, so no other writer can
+  // know it yet. The lock only matters once the id is reachable from the run log
+  // (see settleBoundEpisode and `episode close`).
   const snapshots = new EpisodeStore(opts.stateRoot, episodeId);
   const episodeEvents = new EpisodeEventStore(opts.stateRoot, episodeId);
   await snapshots.append(opened.episode);
@@ -114,6 +129,11 @@ function episodeCloseStatus(
  * Aligns the bound episode with the run's inspectable status.
  * Terminal runs close the episode; waiting/paused/blocked runs mark it waiting.
  * Missing attachments and already-settled episodes are no-ops.
+ *
+ * The decision runs under the episode's cooperative lock, the same one
+ * `episode close` holds, so a concurrent operator close cannot interleave into a
+ * second terminal snapshot or a WAITING appended after CLOSED. A lock we cannot
+ * acquire fails closed: the caller sees the timeout and nothing is appended.
  */
 export async function settleBoundEpisode(opts: {
   stateRoot: string;
@@ -121,6 +141,7 @@ export async function settleBoundEpisode(opts: {
   status: RunStatus;
   append: (event: Event) => Promise<void>;
   make: (type: Event["type"], payload: unknown) => Event;
+  lockOptions?: FileLockOptions;
 }): Promise<void> {
   const action = episodeCloseStatus(opts.status);
   if (action === undefined) return;
@@ -128,6 +149,25 @@ export async function settleBoundEpisode(opts: {
   const episodeId = episodeIdFromEvents(opts.events);
   if (episodeId === undefined) return;
 
+  await withExclusiveFileLock(
+    episodeLockPath(opts.stateRoot, episodeId),
+    () => settleLockedEpisode({ ...opts, episodeId, action }),
+    opts.lockOptions ?? {}
+  );
+}
+
+/** Runs with the episode lock held; every read below must stay inside it. */
+async function settleLockedEpisode(opts: {
+  stateRoot: string;
+  events: readonly Event[];
+  status: RunStatus;
+  append: (event: Event) => Promise<void>;
+  make: (type: Event["type"], payload: unknown) => Event;
+  episodeId: EpisodeId;
+  action: "COMPLETED" | "FAILED" | "ABANDONED" | "WAITING";
+}): Promise<void> {
+  const { episodeId, action } = opts;
+  // Re-read under the lock: whatever we saw before acquiring it may be stale.
   const snapshots = new EpisodeStore(opts.stateRoot, episodeId);
   const latest = (await snapshots.readAll()).episodes.at(-1);
   if (latest === undefined) return;

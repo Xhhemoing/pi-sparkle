@@ -1,25 +1,93 @@
-# Round 3 conclusion — SOTA close-out
+# ROUND 3 BRIEF — injection context for Loop 4 · Round 4
 
-Parent orchestrator, 2026-08-24. Branch `cursor/pi-adapt-aux-features-e1e3`.
+Provenance: written by the Round 3 SOTA reviewer (claude-fable-5-thinking-xhigh) after evidence-based review of R3-1…R3-10; verdicts and measurements in `.agent_workspace/loop4-r3-review.md` (8 ACCEPT, 2 ACCEPT-WITH-NITS, 0 ROLLBACK). Every candidate below cites evidence the reviewer reproduced at `62cb3ff`, not report hearsay.
 
-## Outcome
+## 1. What landed in Round 3 (all committed on `agent/opt-continuous`, `50fbc15`…`62cb3ff`)
 
-Pi-sparkle is adapted to **Pi 0.84.3** with auxiliary tooling so later Pi bumps can be detected and absorbed behind `src/pi-adapter/` (ADR-001). ADR-006 still holds: overlay, not an extension.
+| Slot | Landed | Key symbols (do not re-implement) |
+|---|---|---|
+| R3-1 | Invocation-row decoders fail closed: `invocationError` total over `unknown`, `isInvocation` never throws, loader skips bad rows; fuzz un-skipped (skip count 2→1) | `invocationError(value: unknown)`, `describe()` in `telemetry/model-invocation.ts`; loader contract test in `test/unit/routing/cost-calibration.test.ts` |
+| R3-2 | Privacy rewrites crash-atomic: both filter-rewrites through `writeFileAtomic` with an additive `AtomicWriteOptions` seam; feedback lock-timeout retry migrated to `LOCK_TIMEOUT_CODE` (R2-2/R2-4 residual closed) | `writeFeedbackRecords(…, options?)`, `writeInvocationRecords(…, options?)`; probe cases `feedback-rewrite-kill-before-rename`, `invocation-rewrite-kill-before-rename` |
+| R3-3 | `delete --run` fails closed when records survive: `rm` race caught mid-walk (`cause`d) or by post-check; typed error, code-discriminated; p50 invalidation moved into the rewrite | `RunRecordsSurvivedError` / `RUN_RECORDS_SURVIVED_CODE`, `verifyRunRecordsRemoved(stateRoot, runId)` in `privacy/deletion.ts` |
+| R3-4 | Run event log decoder discipline: corrupt middle line throws exactly `DomainValidationError`; seeded fuzz (seed `0x4f33_0004`) over all 34 event types + 180 corrupted-file reads found no further defect | `EventStore.readAll` posture; `test/unit/run/event-row-fuzz.test.ts` |
+| R3-5 | Crash terminal honesty on flowchart + child planes: escaping error appends `RUN_FAILED` best-effort, only when the log replays in-flight (`PLANNING`/`RUNNING`); paused/waiting/terminal logs untouched; child log closed via terminal-type check | `recordCrashTerminal` in `run/flowchart-run.ts` (module-private) and `run/child-coordinator.ts`; exactly-one-terminal pins |
+| R3-6 | Read-only `doctor` lock inventory: recursive `*.lock` discovery, metadata status (`valid`/`empty`/`invalid`/`unreadable`), age + source, recorded PID, advisory-only liveness, never steals/deletes; `--json` additive (`locks`, `lock-inventory` check) | `src/cli/doctor.ts` parses lock JSON locally; `file-lock.ts` untouched |
+| R3-7 | Dead letters surfaced at the host: pull `deadLetterReport()` (computed from the mailbox, cannot drift) + push `onDeadLetter` (register-driven, watermarked exactly-once, observer throws tallied) | `ClusterDeadLetterReport`, `ClusterHostOptions.onDeadLetter` in `cluster/host.ts`; **no production consumer yet — see R4-2** |
+| R3-8 | Dead code removed with pins: `applySkipped` gone (no DAG-plane skip producer exists), `planRound` down to 4 args (arity-pinned), supervisor comment now discloses the `TASK_LEASE_EXPIRED` name-vs-trigger mismatch; R2-9 pins re-mutation-checked | `planRound(graph, statusOf, maxConcurrentTasks, leases?)`; new finding: `applyRetry` divergence (R4-3) |
+| R3-9 | Resume records invocations: one shared sink in `resumeCommand`, both `createExecutor` sites hooked; pin forbids any unhooked `createExecutor` in `main.ts` (mutation-controlled) | sink at `main.ts:1120`; `test/unit/cli/invocation-sink-wiring.test.ts` |
+| R3-10 | Docs truth-up: checkpoint carries no lease registry (leases rebuild from `TASK_LEASED`), episode lock documented as a released sidecar; `record-classes.ts` comments only | `docs/data-dictionary.md`, `docs/specs/m0-m2-architecture.md` — `delete --run` wording still stale, see R4-8 |
 
-`pnpm gate` **green** (1213 pass / 1 skipped live-smoke). No merge conflicts vs `origin/main`.
+## 2. Current baseline (this VM, Node v22.14.0, pnpm 10.17.1)
 
-## Round 3 landed
+- **`pnpm gate` GREEN, exit 0**: 1604 tests / 1603 pass / 0 fail / **1 skipped**. The only skip is the `PI_SMOKE=1` real-provider smoke gate (`test/integration/pi-adapter/provider-smoke.test.ts`) — there are no named defect skips left in the tree. Any slot whose report shows a second skip has introduced one and must say so.
+- `node scripts/crash-probe.mjs` → `ok: true`, **8 cases × 3 iterations**.
+- No fresh bench this round (no slot made a perf claim). Any Round 4 perf claim records its **own** same-VM before/after; ≥5% regression or rollback. R4-1 in particular must bench the event-append hot path.
 
-- Overlay/README: `run --thinking` documented as **shipped** (flag > env > `off`; includes `max`; TUI `/thinking` remains session-scoped).
-- Status matrix: Pi pin + `pi-compat` + doctor checks + `--thinking` rows (preview, not Outcome-supported).
-- Google clamp **characterized** in tests; adapter still forwards `xhigh`/`max` unchanged.
-- Fixture guards + probe offline/strict tests.
-- Adapter-only probe: docs mentioning the legacy Google identifier do not fail doctor.
-- `prerelease` now runs `pi:probe` after `security:probe` (redaction waiver still required for the full chain — pre-existing).
+## 3. Forbidden / frozen for Round 4
 
-## Residual (out of scope)
+Global forbidden list, unchanged: live R1/bandit/topology on the execution path; Outcome-supported claims; ADR-006 stays Proposed; auto-promote; P0 privacy sign-off stays human; `package.json`/dependency edits; git history rewrites; subagents do not commit.
 
-- Additive thinking-level drift (new union members) is a manual per-bump check.
-- Invalid `--thinking` vs invalid `PI_THINKING_LEVEL` use different CLI `stage` labels.
-- Live provider smoke remains `PI_SMOKE=1`.
-- Security redaction findings still block unwaved `prerelease`.
+Frozen contracts (Rounds 1–2 set, all held through Round 3, plus new):
+- `appendJsonlLine(filePath, line, fsync)` / `readJsonlObjects(filePath, corrupt)`; `writeFileAtomic(path, contents, options?)`; `withExclusiveFileLock` + `FileLockTimeoutError`/`LOCK_TIMEOUT_CODE` (code-based discrimination only — the last message-matching classifier is gone; do not add one); `episodeLockPath` ⇔ `cli/episode.ts` symmetry; `runCommand` sink wiring; `deleteEpisodeRecords` semantics; `appendFeedbackWithRetry`/`FeedbackAppendOutcome`; `AutoAdaptResult` disclosure fields; `deadLetters`/`requeueCount`; `AttemptTranscript` + duplicate-terminal wording parity; R2-5's `maxCostUsd` source pin; R2-9's `restore()` liveness and expiry-absence pins.
+- **New from Round 3:** `invocationError(value: unknown)` totality and `isInvocation`'s never-throws contract (fuzz-pinned; do not re-narrow the parameter); `RunRecordsSurvivedError`/`RUN_RECORDS_SURVIVED_CODE` (R4-1 may *narrow the window* but must keep the fail-closed check and code); `writeFeedbackRecords`/`writeInvocationRecords` atomic posture + `AtomicWriteOptions` seam; `EventStore.readAll`'s `DomainValidationError` posture; `recordCrashTerminal`'s in-flight-only + best-effort contract on both planes (R4-4 owns any deliberate widening); `deadLetterReport()`/`onDeadLetter` shapes (R4-2 consumes, does not reshape); doctor's additive JSON (`locks`, `lock-inventory`); `planRound` 4-arg arity pin and the no-skip-transition pin; the invocation-sink-wiring pin — **R4-6 owns that pin file and must keep it green while changing the resume call sites**.
+- Saturated — do not spend a slot: jsonl internals and perf, protocol/v1 parse, event-log corrupt-line discipline and event fuzz (R3-4 emptied it), lock acquisition perf, mailbox starvation semantics (TTL/durability stay accepted non-goals), invocation-row decoding.
+
+Process requirements per slot (carried forward — they worked): scoped `eslint` on owned files + whole-tree `tsc --noEmit` before reporting; attribute shared-tree transients to files, never edit unowned files to "fix" them; unowned defects get the named-skip + report treatment; timing-sensitive owned tests run 3×; census before trusting this brief's claims; full gate is the parent's job.
+
+## 4. Ranked Round 4 candidates (mutually exclusive ownership)
+
+The round's tilt: close the disclosed windows Round 3 quantified (run-delete race, dead-letter last hop, supervised-plane crash honesty), finish the atomic-write sweep the same round started, and make the no-steal recovery operable end to end. Two files are region-shared this round (`main.ts`: R4-2/R4-6; `flowchart-run.ts`: R4-2/R4-4) — regions are stated explicitly below; the R3-2×R3-3 cross-slot coupling worked with disclosure, follow that pattern.
+
+### R4-1 (P1, privacy/races) — Writer-side run delete lock
+**Evidence (reviewer-verified):** R3-3's fail-closed check is point-in-time; its own adversarial measurement leaked ~6/30 deletes (writer lands after `verifyRunRecordsRemoved`, delete already returned success). No run-plane lock exists: `EventStore.append` (`run/event-store.ts`), `checkpoint-store.ts`, `pause-controller.ts`, and `track/loop.ts` all write under `runtime/runs/<id>/` uncoordinated, and `appendJsonlLine` recreates the directory by design.
+**Change:** run-scoped cooperative lock (suggest `runtime/runs/<id>.lock`, `withExclusiveFileLock`, no-steal posture identical to episodes) acquired by all four writers and held by `deleteRunRecords` across `rm` + verify. Keep `RunRecordsSurvivedError` and the verify as belt-and-braces; update its message's remedy wording. Mind `EventStore`'s in-process `queue` (lock inside or outside it — decide and document). **Bench the append hot path** same-VM before/after (per-append lock cost was ~0.16 ms serial at the Round 2 baseline; measure, don't assume); ≥5% end-to-end run regression or rollback. While in `track/loop.ts`, route its plain `writeFile` of `track-questions.json` (`loop.ts:254`) through `writeFileAtomic` (R3-2 precedent: slot owns the file). Apply the one-line `writeFeedbackTombstones` call-site swap in `deletion.ts` when R4-7's helper lands (coordinate; disclose the coupling).
+**Ownership:** `src/run/event-store.ts`, `src/run/checkpoint-store.ts`, `src/run/pause-controller.ts`, `src/track/loop.ts`, `src/privacy/deletion.ts`, `test/unit/privacy/deletion.test.ts`, `test/integration/cli/delete.test.ts`, plus the owned writers' unit tests.
+
+### R4-2 (P2, operability) — Dead letters actually reach an operator (the last hop)
+**Evidence (reviewer-verified at HEAD):** `createClusterHost` at `run/coordinator.ts:322` and `run/flowchart-run.ts:267` pass only `onSpawn`; no production caller of `deadLetterReport()` or `onDeadLetter` exists. R3-7 built and tested the seam; a starved role-cast is still invisible to a CLI operator.
+**Change:** pass `onDeadLetter` (or read `deadLetterReport()` at run end) in both embedders and surface a stable operator-visible line through the CLI's existing output path (the invocation-drop stderr warning is the established shape). End-to-end test: a sender-only starvation in a cluster run produces the line. No TTL, no durability, no mailbox reshaping — consume R3-7's surface as published.
+**Ownership:** `src/run/coordinator.ts`, `src/run/flowchart-run.ts` (**only** the `createClusterHost` option objects and outcome/summary plumbing — the `recordCrashTerminal`/teardown region is R4-4's), `src/cli/main.ts` (**only** the run-summary/warning output region — `resumeCommand` is R4-6's), `test/integration/cluster/`, and integration additions in `test/integration/m2.5/` if the flowchart path needs one.
+
+### R4-3 (P2, honesty) — Supervised-plane crash terminal + `applyRetry` divergence
+**Evidence (reviewer-verified):** `runSupervisorRounds` (`supervisor.ts:222`) has **no try/catch anywhere** — an executor throw, judge failure, or rejected append escapes with no `RUN_FAILED`; the supervised log replays `RUNNING` forever. Exactly the class R3-5 closed on the planes it owned. Separately (R3-8's verified finding): production performs BLOCKED→READY inline at `supervisor.ts:266` and `:423` and never calls the declared `applyRetry` rule — editing the rule changes nothing, a live divergence risk.
+**Change:** (a) R3-5's pattern on this plane: best-effort in-flight-only terminal append when an error escapes the round loop, rethrow regardless, pin replay/resume for a crashed supervised run; (b) wire both inline retry sites through `applyRetry` (behavior-neutral; it adds the BLOCKED-status validation the literal skips) or remove the rule with an R3-8-style pin — census first, don't trust this brief. Keep R2-9's and R3-8's pins green (both live in these files).
+**Ownership:** `src/run/supervisor.ts`, `src/run/scheduler.ts`, `test/unit/run/scheduler.test.ts`, `test/integration/m2/` (supervisor/resume tests).
+
+### R4-4 (P2/P3, disaster-recovery honesty) — Paused/waiting crash semantics, decided
+**Evidence (R3-5 disclosure, reviewer-verified):** a run that crashes while tearing down a `PAUSED`/`WAITING_FOR_USER` state ends its log in that state with no marker — deliberately, because those states are still actionable and a terminal would bury them. But the operator cannot distinguish "paused, waiting for me" from "paused, then the process died mid-teardown (children were cancelled)". R3-5 also disclosed the child-side duplicate guard is defensive and unpinned.
+**Change:** investigation-first; the deliverable is a *decided and pinned* contract, which may be behavior or may be pins+docs. Options in rough order of least invasive: pin that resume-from-paused after a teardown crash loses no recorded work and re-cancels/re-settles cleanly (may already be true — prove it); surface crash provenance at resume/inspect time; or an explicit non-terminal marker event (schema addition — only with parent sign-off). Forbidden outcome: a paused run that silently lost work. Pin or delete the child-side defensive guard while here.
+**Ownership:** `src/run/flowchart-run.ts` (**only** the `recordCrashTerminal`/teardown region — `createClusterHost` options are R4-2's), `src/run/child-coordinator.ts`, `test/unit/run/flowchart-run-abort.test.ts`, `test/integration/m2.5/children-flowchart.test.ts`.
+
+### R4-5 (P3, no-steal operability follow-through) — From failure to remedy, inside doctor
+**Evidence:** `FileLockTimeoutError`'s message (frozen) names the path but no next step; the no-steal recovery (manual cleanup after inspection) is now diagnosable via R3-6's inventory, but nothing routes an operator there, and doctor itself stops at listing locks. Separately, after R3-3/R3-5 a log that replays in-flight with no live process is diagnosable too, and nothing surfaces it.
+**Change:** extend doctor (read-only, additive JSON, same advisory posture): per-lock remediation text in the inventory output (age + dead-recorded-PID ⇒ "inspect and remove manually; never automatic"), and a run-state inventory — runs under the state root whose logs replay `PLANNING`/`RUNNING`, with age, as advisory crash candidates for resume or `delete --run`. Do not touch `file-lock.ts` (frozen) or the CLI error paths (`main.ts` is region-owned elsewhere).
+**Ownership:** `src/cli/doctor.ts`, `test/unit/cli/doctor.test.ts`.
+
+### R4-6 (P2, CLI parity) — Resume rebuilds the executor blind
+**Evidence (reviewer-verified):** `resumeCommand`'s `parseArgs` (`main.ts:1082-1095`) accepts neither `--primary-model` nor `--thinking`; both resume `createExecutor` calls pass no `modelOverride`/`thinkingLevel`, so a run started with `--primary-model X --thinking high` resumes on defaults with no disclosure. Same silent-divergence class as R3-9's missing sink, one field over.
+**Change:** census first — decide between accepting the flags on resume (operator re-specifies; smallest) and persisting executor config at run start for resume to reuse (honest by default; touches checkpoint/RUN_CREATED payload — schema, needs parent sign-off). Either way, disclose the divergence when a resumed executor's config differs from defaults. Extend the wiring pin file for the new call-site shape — that pin (no unhooked `createExecutor` in `main.ts`) **must stay green**.
+**Ownership:** `src/cli/main.ts` (**only** the `resumeCommand` region — run-summary output is R4-2's), `test/unit/cli/invocation-sink-wiring.test.ts`, plus a behavioral resume test.
+
+### R4-7 (P2, privacy crash-atomicity) — Tombstones can tear; the fuzzer may no longer skip on this plane
+**Evidence (reviewer-verified):** `cascadeFeedbackTombstones` writes `tombstones.json` with plain `writeFile` (`deletion.ts:674`); `readFeedbackTombstoneIds` (`store.ts:79`) parses with an uncaught `JSON.parse`. A SIGKILL mid-write tears the file; every subsequent `readFeedback` then throws a bare `SyntaxError` — fail-closed in direction, wrong class, and a read-side outage until manual repair.
+**Change:** add `writeFeedbackTombstones` (or similar) in `feedback/store.ts` using `writeFileAtomic` (same `AtomicWriteOptions` seam); make the reader throw `DomainValidationError` on unparseable content; crash-probe case via the rename seam. The one-line call swap in `deletion.ts` belongs to R4-1 (owns the file) — coordinate, R3-2×R3-3 pattern. Flip the feedback-row fuzz case's two `skipUnowned` calls to `failFuzz` — this slot owns the decoder now, so a found defect must fail, not skip.
+**Ownership:** `src/feedback/store.ts`, `test/unit/feedback/store.test.ts`, `test/unit/persist/row-fuzz.test.ts`, `scripts/crash-probe.mjs` (sole owner this round).
+
+### R4-8 (P3, docs) — Docs truth-up for Rounds 3's landings
+**Evidence (reviewer-verified stale at HEAD):** `docs/data-dictionary.md` "Deletion tooling" and `docs/status-matrix.md`'s privacy row predate R3-3 (no verified-removal / `RUN_RECORDS_SURVIVED` wording; status-matrix still says `delete --episode` removes `.lock`); `m0-m2-architecture.md:169` claims a declared `SKIPPED` transition rule (removed by R3-8) and wall-clock lease expiry (false since R2-9), with the `-> SKIPPED` edge at `:159`; doctor's lock inventory and the host dead-letter surfaces are undocumented.
+**Change:** doc-only truth-up; sync with R4-1/R4-2/R4-6 outcomes at end of round rather than predicting them (R3-10's timestamped-coordination pattern was correct — repeat it, later).
+**Ownership:** `docs/**`.
+
+### R4-9 (P2/P3, crash-atomicity) — Derived/learned JSON stragglers
+**Evidence (reviewer-verified):** `persistCatalogObserved` (`routing/catalog-observed.ts:102`) and the preference store (`preferences/store.ts:35`) write pretty-printed multi-line JSON non-atomically; `loadCatalogObservedSnapshot` (`:115`) parses uncaught, so a torn derived file breaks every load with a bare `SyntaxError`. Checkpoint and pause token are already atomic — these are the last non-atomic JSON writers outside R4-1/R4-7's files.
+**Change:** route both through `writeFileAtomic`. Read posture per class: `catalog-observed.json` is *derived* (declared recovery: rebuild from `invocations.jsonl`) — decide between typed error and treat-torn-as-absent, and document the choice; `preferences.json` is learned behavior-bearing state — torn must fail closed with a typed error, never silently reset. Mind the preference store's sync API and process-global singleton (documented in `deletion.ts`'s non-goal block) — no rebinding, no API change.
+**Ownership:** `src/routing/catalog-observed.ts`, `src/preferences/store.ts`, `test/unit/routing/` (observed-catalog tests), `test/unit/preferences/`.
+
+### R4-10 (P3, verification infrastructure) — Drive `--executor pi` offline through a loopback provider
+**Evidence:** the tree's single remaining skip is the `PI_SMOKE` gate; R3-9 had to pin rather than execute the resumed-pi-records-a-row joint because `createConfiguredPiExecutor` always uses real provider models. But `providers.json` already supports `customProviders[].baseUrl` (`config/providers-config.ts`) — a local HTTP fixture speaking the provider protocol can make `--executor pi` runnable in CI with no src changes.
+**Change:** test-only: a loopback provider fixture + integration tests proving run → invocation rows persisted → resume → rows appended → calibration reads them (executes R3-9's pinned joint, R3-1's loader, and R2-4/R3-2's telemetry path end to end). Keep the `PI_SMOKE` gate as-is for real providers. If the protocol surface turns out to require src changes, stop and report — that converts this slot into evidence for Round 5, not a license to edit the adapter.
+**Ownership:** `test/integration/pi-adapter/` (new fixture + test files), `test/helpers/`.
+
+## 5. Explicitly NOT for Round 4 (unchanged or newly settled)
+
+Live R1/bandit/topology (standing); jsonl anything and lock perf (saturated); protocol/v1 parse and event-log fuzz (R3-4 emptied it); mailbox TTL/durability/drain-ack (R4-2 adds the consumer; drain stays out until someone needs more than reporting); lock stealing in any form (no-steal is deliberate, probed, doctor-visible — R4-5 makes it *guided*, never automatic); `maxCostUsd` enforcement (still blocked on a real pricing source; R2-5's pin stands); `TASK_LEASE_EXPIRED` rename (persisted-schema change; the R3-8 comment discloses the mismatch — leave it until a schema round); getter-throw hardening in validators (deliberate non-goal, `JSON.parse` output is the blast radius); rewriting append-only run logs for any privacy purpose (disclosure + `delete --run` is the contract).

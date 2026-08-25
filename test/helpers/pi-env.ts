@@ -1,12 +1,13 @@
 /**
  * Ambient pi sessions (or user shells) may export PI_PROVIDER / PI_MODEL /
- * PI_FAST_MODEL. Without isolation these leak into the CLI's default model
- * resolution and make integration tests environment-dependent.
+ * PI_FAST_MODEL / PI_API_KEY. Without isolation these leak into the CLI's
+ * model and credential resolution and make integration tests
+ * environment-dependent.
  *
  * Saves the variables, unsets them for the duration of the test body, and
  * restores them afterwards (including on failure).
  */
-const PI_ENV_KEYS = ["PI_PROVIDER", "PI_MODEL", "PI_FAST_MODEL"] as const;
+const PI_ENV_KEYS = ["PI_PROVIDER", "PI_MODEL", "PI_FAST_MODEL", "PI_API_KEY"] as const;
 
 export async function withIsolatedPiEnv<T>(run: () => Promise<T>): Promise<T> {
   const saved = PI_ENV_KEYS.map((key) => ({ key, value: process.env[key] }));

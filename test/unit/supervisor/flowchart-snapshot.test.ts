@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { RequirementContract } from "../../../src/domain/contract.js";
 import { createTaskId } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { validateConfidenceScore, type Flowchart, type FlowNode } from "../../../src/domain/flowchart.js";
-import { materializeCheckpoint, replayRun, validateCheckpoint } from "../../../src/run/replay.js";
+import {
+  materializeCheckpoint,
+  replayRun,
+  validateCheckpoint,
+  validateFlowchartCheckpointState
+} from "../../../src/run/replay.js";
 import { makeEvent } from "../../helpers/event-factory.js";
 import { createModelRouter } from "../../../src/supervisor/model-router.js";
 import {
@@ -169,9 +175,8 @@ test("restoreFlowchartSupervisor rejects a snapshot that does not match the flow
   );
 });
 
-test("validateCheckpoint fails closed on a malformed flowchart snapshot rather than JSON.parse-only", () => {
-  const { fc, snapshot } = liveSnapshot();
-  const base = materializeCheckpoint(
+function baseCheckpoint() {
+  return materializeCheckpoint(
     replayRun([
       makeEvent("RUN_CREATED", {
         run: {
@@ -194,7 +199,35 @@ test("validateCheckpoint fails closed on a malformed flowchart snapshot rather t
     ]),
     parseIsoTimestamp("2026-08-12T10:00:00.000Z")
   );
-  const limits = { maxConcurrentNodes: 4, maxConsecutiveStalls: 3, remainingTimeMs: Number.MAX_SAFE_INTEGER };
+}
+
+const LIMITS = {
+  maxConcurrentNodes: 4,
+  maxConsecutiveStalls: 3,
+  remainingTimeMs: Number.MAX_SAFE_INTEGER
+};
+
+function contract(): RequirementContract {
+  return {
+    schemaVersion: 1,
+    objective: "Ship the migration",
+    deliverables: [],
+    constraints: [{ id: "con-no-legacy", description: "do not touch src/legacy", enforceable: true }],
+    nonGoals: [],
+    acceptanceCriteria: [
+      { id: "crit-suite", description: "the suite passes", observableCheck: "pnpm test" }
+    ],
+    assumptions: [],
+    questions: [],
+    authority: [],
+    sourceRefs: []
+  };
+}
+
+test("validateCheckpoint fails closed on a malformed flowchart snapshot rather than JSON.parse-only", () => {
+  const { fc, snapshot } = liveSnapshot();
+  const base = baseCheckpoint();
+  const limits = LIMITS;
   const valid = { ...base, flowchart: { definition: fc, snapshot, limits } };
   assert.equal(validateCheckpoint(valid).flowchart?.snapshot.flowchartId, "snap");
 
@@ -218,6 +251,61 @@ test("validateCheckpoint fails closed on a malformed flowchart snapshot rather t
         flowchart: { definition: fc, snapshot: { ...snapshot, flowchartId: "other" }, limits }
       }),
     /not restorable|does not match/
+  );
+});
+
+/**
+ * The durable run contract. It is what lets a resume holding nothing but a run
+ * id assess its children against the constraints the start ran under, so the
+ * three cases that matter are: a stored contract survives the round trip
+ * intact, a damaged one fails closed under its own field name, and a
+ * checkpoint written before the field existed still loads.
+ */
+test("a stored run contract round-trips through the flowchart checkpoint validator", () => {
+  const { fc, snapshot } = liveSnapshot();
+  const stored = contract();
+  const validated = validateCheckpoint({
+    ...baseCheckpoint(),
+    flowchart: { definition: fc, snapshot, limits: LIMITS, contract: stored }
+  });
+  assert.deepEqual(validated.flowchart?.contract, stored);
+  assert.deepEqual(
+    validated.flowchart?.contract?.constraints.map((entry) => entry.id),
+    ["con-no-legacy"],
+    "the constraints the tracking gate reads survive the checkpoint, not just the criteria"
+  );
+});
+
+test("a malformed stored contract fails closed under the flowchart.contract field name", () => {
+  const { fc, snapshot } = liveSnapshot();
+  const base = baseCheckpoint();
+  for (const [broken, pattern] of [
+    [{ ...contract(), objective: "" }, /flowchart\.contract: Contract\.objective must be non-empty/],
+    [{ ...contract(), constraints: "all of them" }, /flowchart\.contract: constraints must be array/],
+    [{ ...contract(), schemaVersion: 2 }, /flowchart\.contract: Contract\.schemaVersion must be 1/],
+    ["a contract, honest", /flowchart\.contract: Contract must be an object/]
+  ] as const) {
+    assert.throws(
+      () =>
+        validateCheckpoint({
+          ...base,
+          flowchart: { definition: fc, snapshot, limits: LIMITS, contract: broken }
+        }),
+      pattern
+    );
+  }
+});
+
+test("a flowchart checkpoint written before the contract field existed still validates", () => {
+  const { fc, snapshot } = liveSnapshot();
+  const old = { ...baseCheckpoint(), flowchart: { definition: fc, snapshot, limits: LIMITS } };
+  const validated = validateCheckpoint(old);
+  assert.equal(validated.schemaVersion, 1, "absence is valid at the same schema version");
+  assert.equal(validated.flowchart?.contract, undefined);
+  assert.equal(
+    "contract" in (validateFlowchartCheckpointState(old.flowchart) as object),
+    false,
+    "absence stays absence: the validator invents no empty contract"
   );
 });
 

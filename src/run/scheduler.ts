@@ -13,10 +13,26 @@ export interface TaskLease {
   taskId: TaskId;
   runId: RunId;
   leasedAt: IsoTimestamp;
+  /** Descriptive only: nothing reclaims a lease when this passes. See LeaseRegistry. */
   expiresAt: IsoTimestamp;
 }
 
-/** Exactly one active lease per task; expiry never silently duplicates work. */
+/**
+ * In-memory, single-process mutual exclusion: at most one active lease per
+ * task, cleared only by `release()`.
+ *
+ * Leases do **not** expire. `leasedAt` / `expiresAt` are descriptive metadata —
+ * recorded on the `TASK_LEASED` event and rebuilt by
+ * `reconstructSupervisorState` — but nothing sweeps them, and `planRound` skips
+ * a leased task regardless of `expiresAt`. A lease that outlives its stated
+ * window keeps its task unschedulable until its owner releases it. Bounding the
+ * work itself belongs to the child coordinator (per-attempt `timeoutMs` and
+ * `maxWallTimeMs`), not to this registry.
+ *
+ * Resume does not depend on expiry either: `runSupervisorRounds` recovers every
+ * restored lease unconditionally, because a reconstructed RUNNING lease has no
+ * live worker.
+ */
 export class LeaseRegistry {
   private readonly leases = new Map<TaskId, TaskLease>();
   private readonly nowMs: () => number;
@@ -49,7 +65,11 @@ export class LeaseRegistry {
     }
   }
 
-  /** Restores a previously persisted lease (used by resume). */
+  /**
+   * Restores a lease reconstructed from `TASK_LEASED` events. Live caller:
+   * `reconstructSupervisorState` in `run/supervisor.ts`, whose restored leases
+   * are then recovered by `runSupervisorRounds` — not awaited.
+   */
   restore(lease: TaskLease): void {
     if (this.leases.has(lease.taskId)) {
       throw new DomainValidationError(`Task ${lease.taskId} is already leased`);
@@ -61,15 +81,6 @@ export class LeaseRegistry {
     return this.leases.get(taskId);
   }
 
-  isExpired(lease: TaskLease): boolean {
-    return this.nowMs() >= Date.parse(lease.expiresAt);
-  }
-
-  /** Returns leases whose expiry time has passed, without releasing them. */
-  expired(): TaskLease[] {
-    return Array.from(this.leases.values()).filter((lease) => this.isExpired(lease));
-  }
-
   list(): TaskLease[] {
     return Array.from(this.leases.values());
   }
@@ -79,12 +90,14 @@ export class LeaseRegistry {
  * Plans one scheduling round: ready tasks in deterministic topological order,
  * capped at maxConcurrentTasks, excluding currently leased tasks. Both PENDING
  * and READY (retried) tasks are schedulable.
+ *
+ * No lease duration is accepted: planning never consults lease expiry, only
+ * whether a lease is currently held.
  */
 export function planRound(
   graph: TaskGraph,
   statusOf: ReadonlyMap<TaskId, TaskStatus> | ((id: TaskId) => TaskStatus),
   maxConcurrentTasks: number,
-  _leaseDurationMs: number,
   leases?: LeaseRegistry
 ): TaskId[] {
   const lookup = (id: TaskId): TaskStatus => {
@@ -139,7 +152,13 @@ export function applyTaskOutcome(
   }
 }
 
-/** Declared retry transition: BLOCKED -> READY (supervisor decision). */
+/**
+ * Retry transition: BLOCKED -> READY (supervisor decision). Live caller:
+ * `runSupervisorRounds` in `run/supervisor.ts`, at both of its retry sites —
+ * lease recovery and a rejected judge verdict. It passes the status the log
+ * recorded, so the guard below rejects a retry the state machine does not
+ * allow instead of quietly recording READY.
+ */
 export function applyRetry(task: TaskNode): TaskTransition {
   if (task.status !== "BLOCKED") {
     throw new DomainValidationError(`Cannot retry task in status ${task.status}`);
@@ -147,7 +166,10 @@ export function applyRetry(task: TaskNode): TaskTransition {
   return { status: "READY", attempt: task.attempt };
 }
 
-/** Declared skip rule: a task becomes SKIPPED only through this transition. */
-export function applySkipped(task: TaskNode): TaskTransition {
-  return { status: "SKIPPED", attempt: task.attempt };
-}
+// There is deliberately no skip transition here. `TaskStatus` includes SKIPPED
+// and `allDependenciesSatisfied` accepts it, but no DAG-plane caller ever
+// produces it: the only skip decision in the system is the flowchart plane's
+// `skip` injection, which moves a `FlowNodeState` — a different union handled
+// by `supervisor/flowchart-supervisor.ts`. A DAG skip rule may be added back
+// once a live caller exists; until then it would advertise a transition that
+// nothing performs.

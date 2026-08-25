@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -19,8 +20,11 @@ import { fileURLToPath } from "node:url";
  *   - `src/routing/bandit.ts` — reached through `src/learning/bandit-store.ts`,
  *     which the post-run adaptation loop uses to *write* per-project reward
  *     counters. Only the constructor/writer symbols are imported; `selectArm`
- *     (the exploratory selector) has no caller in the closure, and nothing in
- *     the closure reads the stored state back via `loadProjectBandit`.
+ *     (the exploratory selector) has no caller in the closure. The stored state is
+ *     read back by `bandit-store.ts` itself and by `src/cli/doctor.ts`, which calls
+ *     `loadProjectBanditByKey` for the read-only `learnedState` inventory (R6-4;
+ *     parent sign-off: read-only inventory, never a selector — doctor never feeds
+ *     routing). No other live module may read the stored state back.
  *   - `src/routing/topology.ts` — reached through `src/run/supervisor.ts`, which
  *     defines the parked `planTaskTopology` wrapper. The run loop does not call
  *     it (M5-T5 / Checkpoint F owns that integration), which the pinned
@@ -118,6 +122,21 @@ function readModule(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
 }
 
+function listTypeScriptModules(relativeDirectory: string): string[] {
+  const modules: string[] = [];
+  const pending = [relativeDirectory];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (directory === undefined) break;
+    for (const entry of readdirSync(resolve(REPO_ROOT, directory), { withFileTypes: true })) {
+      const module = toPosix(`${directory}/${entry.name}`);
+      if (entry.isDirectory()) pending.push(module);
+      else if (entry.isFile() && entry.name.endsWith(".ts")) modules.push(module);
+    }
+  }
+  return modules.sort();
+}
+
 function importSpecifiers(source: string): string[] {
   const out: string[] = [];
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
@@ -183,6 +202,7 @@ function importChain(closure: Closure, module: string): string {
 }
 
 const LIVE_CLOSURE = buildClosure(LIVE_ENTRY_POINTS);
+const SRC_MODULES = listTypeScriptModules("src");
 
 test("every entry point and watched module path still exists", () => {
   const missing = [...LIVE_ENTRY_POINTS, ...WATCHED_MODULES].filter(
@@ -248,11 +268,45 @@ test("bandit reaches the live closure as a reward writer, never as a selector", 
     .sort();
   assert.deepEqual(selectors, [], "selectArm gained a caller inside the live execution plane");
 
+  // R7-8 narrowed the exception: doctor now reaches the stored state through the
+  // keyed reader instead of inverting the project-key hash, so the symbol this pin
+  // requires moved with it. The sign-off it encodes is unchanged — read-only
+  // inventory, never a selector.
+  assert.match(
+    readModule("src/cli/doctor.ts"),
+    /\bloadProjectBanditByKey\b/,
+    "doctor's signed-off exception is the learnedState inventory reader, not a selector"
+  );
   const readers = [...LIVE_CLOSURE.members]
     .filter((module) => module !== "src/learning/bandit-store.ts")
-    .filter((module) => /\bloadProjectBandit\b/.test(readModule(module)))
+    .filter((module) => module !== "src/cli/doctor.ts")
+    .filter((module) => /\bloadProjectBandit(?:ByKey)?\b/.test(readModule(module)))
     .sort();
-  assert.deepEqual(readers, [], "live code must not read learned bandit state back");
+  assert.deepEqual(
+    readers,
+    [],
+    "live execution must not read learned bandit state back (doctor inventory is the signed-off diagnostic exception)"
+  );
+});
+
+test("selectArm stays shadow-only and R8-9's root-keyed reader stays deleted", () => {
+  const selectArmCallers = SRC_MODULES.filter(
+    (module) => module !== "src/routing/bandit.ts" && /\bselectArm\b/.test(readModule(module))
+  );
+  assert.deepEqual(
+    selectArmCallers,
+    ["src/routing/shadow.ts"],
+    "selectArm's only src caller must remain the shadow router outside the live closure"
+  );
+
+  const deletedReaderUsers = SRC_MODULES.filter((module) =>
+    /\bloadProjectBandit\b/.test(readModule(module))
+  );
+  assert.deepEqual(
+    deletedReaderUsers,
+    [],
+    "R8-9 deleted the root-keyed loadProjectBandit export/call; only the keyed reader may remain"
+  );
 });
 
 test("DAG supervisor parks topology routing instead of calling it per round", () => {

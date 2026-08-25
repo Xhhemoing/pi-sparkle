@@ -1,5 +1,5 @@
-import { chmod, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { chmod, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type {
   AuthOperationOptions,
@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 
 export function authStorePath(stateRoot: string): string {
@@ -84,23 +85,7 @@ export class FileCredentialStore implements CredentialStore {
 
   private async save(all: Record<string, Credential>): Promise<void> {
     const serialized = `${JSON.stringify(all, null, 2)}\n`;
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.tmp`;
-    const handle = await open(tempPath, "w");
-    try {
-      await handle.writeFile(serialized, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await rename(tempPath, this.filePath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EPERM" && code !== "EEXIST" && code !== "EACCES") throw error;
-      await unlink(this.filePath);
-      await rename(tempPath, this.filePath);
-    }
+    await writeFileAtomic(this.filePath, serialized);
     await chmod(this.filePath, 0o600).catch(() => undefined);
   }
 }

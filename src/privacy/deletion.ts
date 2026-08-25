@@ -1,8 +1,11 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeRoot } from "./state-layout.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
+import { episodeLockPath } from "../run/episode-bind.js";
+import { runLockPath } from "../run/event-store.js";
 import {
   invocationsLogPath,
   readInvocationRecords,
@@ -12,12 +15,13 @@ import {
 import type { FeedbackRecord } from "../feedback/types.js";
 import {
   feedbackLogPath,
-  feedbackTombstonesPath,
   readFeedbackRecordsRaw,
   readFeedbackTombstoneIds,
   withFeedbackLogLock,
-  writeFeedbackRecords
+  writeFeedbackRecords,
+  writeFeedbackTombstones
 } from "../feedback/store.js";
+import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 
 export function tombstoneIds(ids: readonly string[]): ReadonlySet<string> {
   return new Set(ids);
@@ -35,11 +39,18 @@ export function materializeWithoutTombstones<T extends { id: string }>(
  *
  * Deleting a run removes its runtime subtree AND filter-rewrites the shared
  * `runtime/invocations.jsonl` so the run's rows stop backing derived routing
- * numbers. Deleting an episode removes its runtime records (including the
- * operational lock that sits next to them) and cascades into the adaptation
- * plane: every feedback record bound to that episode loses all of its
- * free-text fields and its id is persisted as a tombstone, so dataset exports
- * and materialized views can never resurrect it.
+ * numbers. The subtree removal holds the run's cooperative lock
+ * (`runLockPath`) and is verified under it and again after it, because a
+ * deleted run directory comes straight back on the next write from a writer
+ * that does not take that lock; a delete that cannot prove the records are
+ * gone fails loudly instead of returning success.
+ *
+ * Deleting an episode removes its runtime records — under the episode's own
+ * cooperative lock, so no live writer is operating on them while they go —
+ * and cascades into the adaptation plane: every feedback record bound to that
+ * episode loses all of its free-text fields and its id is persisted as a
+ * tombstone, so dataset exports and materialized views can never resurrect
+ * it.
  *
  * What an episode delete deliberately does NOT do is edit an attached run's
  * append-only event log, which can hold its own copy of the objective. Those
@@ -109,6 +120,113 @@ async function statExists(path: string): Promise<boolean> {
   }
 }
 
+export const RUN_RECORDS_SURVIVED_CODE = "RUN_RECORDS_SURVIVED" as const;
+
+/**
+ * A `delete --run` that cannot prove the run's records are gone.
+ *
+ * Thrown when `runtime/runs/<runId>/` is still on disk after the delete tried
+ * to remove it — either because a live writer put it back or because the
+ * removal itself failed (the failure is attached as `cause`). Discriminate on
+ * `code`, never on the message.
+ */
+export class RunRecordsSurvivedError extends DomainValidationError {
+  readonly code = RUN_RECORDS_SURVIVED_CODE;
+  readonly runDir: string;
+  /** What was found under `runDir`, sorted; empty for a bare directory. */
+  readonly survivingEntries: readonly string[];
+
+  constructor(
+    message: string,
+    runDir: string,
+    survivingEntries: readonly string[],
+    cause?: unknown
+  ) {
+    super(message);
+    this.name = "RunRecordsSurvivedError";
+    this.runDir = runDir;
+    this.survivingEntries = survivingEntries;
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/**
+ * Fail-closed post-condition for a run delete: throw unless
+ * `runtime/runs/<runId>/` is absent.
+ *
+ * `deleteRunRecords` calls this inside the run's cooperative lock, where no
+ * lock-taking writer can recreate the directory between the removal and the
+ * check. Called on its own — as an operator re-assertion or an audit surface —
+ * it takes no lock and is therefore a point-in-time check, not a guarantee
+ * about the future.
+ */
+export async function verifyRunRecordsRemoved(stateRoot: string, runId: RunId): Promise<void> {
+  const runDir = join(runtimeRoot(stateRoot), "runs", runId);
+  const survivors = await survivingRunEntries(runDir);
+  if (survivors === undefined) return;
+  throw runRecordsSurvived(runId, runDir, runLockPath(stateRoot, runId), survivors, undefined);
+}
+
+/** Entries left under the run directory, or `undefined` when it is gone. */
+async function survivingRunEntries(runDir: string): Promise<readonly string[] | undefined> {
+  const entries = await readdir(runDir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    // The path is there but is not a directory: still a survivor, just one
+    // with nothing to list.
+    if (error.code === "ENOTDIR") return [];
+    throw error;
+  });
+  return entries === undefined ? undefined : [...entries].sort();
+}
+
+function runRecordsSurvived(
+  runId: RunId,
+  runDir: string,
+  lockPath: string,
+  survivors: readonly string[],
+  cause: unknown
+): RunRecordsSurvivedError {
+  const listed = survivors.length === 0 ? "an empty directory" : survivors.join(", ");
+  const what =
+    cause === undefined
+      ? `${runDir} was removed and is on disk again (${listed})`
+      : `${runDir} could not be removed (${cause instanceof Error ? cause.message : String(cause)}) and is still on disk (${listed})`;
+  return new RunRecordsSurvivedError(
+    `run:${runId}: ${what}; refusing to report the delete as successful. A run delete removes the subtree while holding the run's cooperative lock (${lockPath}), and the CLI-reachable run lifecycles hold that same lock for as long as they run — so a delete aimed at a live run waits for it, and only times out. These records were therefore written by a writer that does not take the lock: the run's event appender or its checkpoint writer, driven either by an embedder that does not take the lifecycle lock or by a write that landed after the delete's final verification. Stop or cancel the run before deleting it again.`,
+    runDir,
+    survivors,
+    cause
+  );
+}
+
+/**
+ * Remove the run subtree and prove it is gone. Runs inside the run's
+ * cooperative lock (see `deleteRunRecords`).
+ *
+ * The verification stays even though the lock is held, because the lock is
+ * cooperative: `rm` can still lose the race to a writer that does not take it,
+ * two ways. A writer that recreates the directory mid-walk makes `rm` itself
+ * fail (`ENOTEMPTY`), and one that recreates it just after the walk leaves a
+ * fresh directory behind. Both end in the same operator-visible state — run
+ * records on disk after a delete — so both raise the same typed error, with
+ * the removal failure attached as `cause` when there was one. A removal error
+ * that left nothing behind is rethrown unchanged: it is an I/O failure, not a
+ * resurrection, and mislabelling it would send the operator hunting a live
+ * writer that does not exist.
+ */
+async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string): Promise<void> {
+  try {
+    await rm(runDir, { recursive: true, force: true });
+  } catch (error) {
+    const survivors = await survivingRunEntries(runDir);
+    if (survivors !== undefined) {
+      throw runRecordsSurvived(runId, runDir, runLockPath(stateRoot, runId), survivors, error);
+    }
+    throw error;
+  }
+  await verifyRunRecordsRemoved(stateRoot, runId);
+}
+
 /**
  * Delete one run's records: the runtime subtree (events, checkpoint, pause
  * state, track questions) under `runtime/runs/<runId>/`, plus that run's rows
@@ -119,23 +237,81 @@ async function statExists(path: string): Promise<boolean> {
  * The invocation rewrite runs first and fails closed: if the log has a corrupt
  * middle line we cannot prove which rows belong to this run, so nothing is
  * deleted at all rather than reporting a partial delete as success.
+ *
+ * ## The subtree removal happens under the run's lock, and is verified twice
+ *
+ * `runtime/runs/<runId>.lock` (`runLockPath`) is the run plane's cooperative
+ * lock, and this delete holds it across the removal *and* the verification, so
+ * a writer that takes it lands wholly before the removal or wholly after the
+ * verification instead of into the window between them. Writing under
+ * `runtime/runs/<runId>/` recreates the directory — the writers `mkdir` it and
+ * `appendJsonlLine` retries ENOENT through `mkdir` — which is how a delete
+ * used to report success over records that were already back.
+ *
+ * `options` bounds that acquisition, and it fails closed: a live writer that
+ * holds the lock for longer than the timeout means the delete throws with
+ * nothing removed rather than deleting around it. Locks are never stolen here
+ * either, so a lock left by a killed writer makes the delete fail until an
+ * operator removes it — identical to `delete --episode`, and diagnosable with
+ * `doctor`.
+ *
+ * Which writers take the lock is a measured decision, not a full set: the two
+ * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
+ * because acquiring per append or per checkpoint costs +22.5% / +17.5% on an
+ * end-to-end run. `requestPause` does, and so do the run lifecycles themselves
+ * (`withRunLifecycleLock`, one acquisition held for a whole run — including the
+ * track loop's clarification run, whose questions write is covered by it rather
+ * than by an acquisition of its own). Each exclusion is argued where it is made.
+ *
+ * The verification stays as belt-and-braces (`verifyRunRecordsRemoved`), and
+ * it runs twice: once inside the lock, and once after it is released. The lock
+ * is cooperative and one run-plane writer deliberately does not take it
+ * (`EventStore.append` — see there for the measured reason), so a resurrection
+ * is still possible; and releasing a lock is itself two I/O turns, which such
+ * a writer can use. Verifying again on the way out is what makes the returned
+ * `DeletionResult` a statement about the moment the call returns rather than
+ * about the moment it let go of the lock. The invocation rows dropped before
+ * any of this stay dropped (with the derived p50 snapshot invalidated with
+ * them), which is the privacy-safe half to have completed, and a re-delete is
+ * idempotent about the rest.
+ *
+ * Measured on this VM against a tight-loop writer running for the whole
+ * delete, 30 attempts per writer (event appends, checkpoint writes, both, and
+ * a raw `mkdir` + append): every one of the 120 deletes failed closed, and
+ * none reported success with records on disk. The same probes against the
+ * previous code reported success over records that were already back 5, 2, 0
+ * and 5 times out of 30.
+ *
+ * Those probes drive the run's writers directly, with nothing holding the
+ * lifecycle lock — which is what a live run *does* hold. Against a real live
+ * run the delete no longer reaches the removal at all: it waits, and then
+ * either removes cleanly (the run ended inside the bounded wait) or fails with
+ * `LOCK_TIMEOUT` having touched nothing. The refusal it replaces happened
+ * *after* `rm` had already run, so a delete racing a live run used to destroy
+ * part of that run's records on its way to failing closed.
+ *
+ * The one limit that cannot be closed from here: a write that lands after the
+ * final verification is a new fact, not a resurrection — the same posture the
+ * shared invocation log documents. The operator's remedy is unchanged: stop
+ * the run, then delete again.
  */
 export async function deleteRunRecords(
   stateRoot: string,
-  runId: RunId
+  runId: RunId,
+  options: FileLockOptions = {}
 ): Promise<DeletionResult> {
   const invocations = await dropRunFromInvocationLog(stateRoot, runId);
 
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
-  const removed: string[] = [];
-  if (await statExists(runDir)) {
-    await rm(runDir, { recursive: true, force: true });
-    removed.push(runDir);
-  }
+  const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
+  // Re-assert outside the lock, so the claim this call returns with is about
+  // the moment it returns and not about the moment it let go: releasing a lock
+  // is itself two I/O turns, and a writer that does not take the lock can use
+  // them. One `readdir` on an absent directory, once per delete.
+  if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
   if (invocations.droppedRows > 0) {
     removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
-    const staleAggregate = await invalidateCatalogObserved(stateRoot);
-    if (staleAggregate !== undefined) removed.push(staleAggregate);
+    if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
   }
   return {
     target: `run:${runId}`,
@@ -147,46 +323,146 @@ export async function deleteRunRecords(
 }
 
 /**
+ * Take the run's cooperative lock and remove the subtree under it.
+ *
+ * Nothing on disk for this run — no records and no lock — is a genuine no-op:
+ * no lock is taken and `runtime/runs/` is not created just to delete from it,
+ * exactly as `unlinkEpisodeFiles` treats an absent episode. A lock with no
+ * records still means a live writer, so it is waited on and whatever that
+ * writer leaves behind is then removed.
+ *
+ * The presence check is re-done inside the lock: what the pre-check saw is
+ * stale by the time the lock is held, in both directions.
+ */
+async function removeRunSubtreeLocked(
+  stateRoot: string,
+  runId: RunId,
+  runDir: string,
+  options: FileLockOptions
+): Promise<string[]> {
+  const lockPath = runLockPath(stateRoot, runId);
+  const onDisk = await Promise.all([runDir, lockPath].map(statExists));
+  if (!onDisk.includes(true)) return [];
+
+  return withExclusiveFileLock(
+    lockPath,
+    async () => {
+      if (!(await statExists(runDir))) return [];
+      await removeRunSubtree(stateRoot, runId, runDir);
+      return [runDir];
+    },
+    options
+  );
+}
+
+/**
  * Delete one episode's runtime records and cascade into feedback. Idempotent:
  * deleting an already-deleted episode succeeds and re-asserts the tombstones.
  *
- * The episode's own text is read before the unlink so the residual scan can
- * recognise copies of it in attached runs; those runs are reported, never
- * rewritten (see `findResidualEpisodeText`).
+ * `options` bounds every cooperative lock this delete takes (the feedback log
+ * and the episode); the defaults are `withExclusiveFileLock`'s.
+ *
+ * The feedback cascade runs first and fails closed, for the same reason the
+ * invocation rewrite does in `deleteRunRecords`: if the free text bound to
+ * this episode cannot be stripped, the operator must see a failed delete with
+ * the records still in place, not a successful one that removed the episode's
+ * own files and left its feedback text on disk.
+ *
+ * The two locks are taken one after the other, never nested. The cascade
+ * rewrites the feedback log and touches nothing under `runtime/episodes/`, so
+ * holding the episode lock across it would only make `episode close` wait on
+ * an unrelated file — and would fix a lock order that no other writer is
+ * bound by. The cost is disclosed: a delete that strips the feedback text and
+ * then cannot take the episode lock leaves the episode's own files in place.
+ * That is the privacy-safe half to have completed, and the re-delete is
+ * idempotent.
  */
 export async function deleteEpisodeRecords(
   stateRoot: string,
-  episodeId: EpisodeId
+  episodeId: EpisodeId,
+  options: FileLockOptions = {}
 ): Promise<DeletionResult> {
-  const episodesDir = join(runtimeRoot(stateRoot), "episodes");
-  const episodeText = await readEpisodeText(episodesDir, episodeId);
-  const removed: string[] = [];
-  // Three episode-scoped files can sit under runtime/episodes/: the
-  // project-episode log (`<id>.jsonl`), the episode event log
-  // (`<id>.events.jsonl`), and the cooperative lock `episode close` takes
-  // (`<id>.lock`). The lock holds no user text, but leaving it behind means a
-  // deleted episode still has a footprint on disk — and any holder of it is
-  // operating on records that no longer exist.
-  for (const file of [
-    join(episodesDir, `${episodeId}.jsonl`),
-    join(episodesDir, `${episodeId}.events.jsonl`),
-    join(episodesDir, `${episodeId}.lock`)
-  ]) {
-    if (await statExists(file)) {
-      await rm(file, { force: true });
-      removed.push(file);
-    }
-  }
+  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId, options);
+  const unlinked = await unlinkEpisodeFiles(stateRoot, episodeId, options);
 
-  const cascaded = await cascadeFeedbackTombstones(stateRoot, episodeId);
-  const residual = await findResidualEpisodeText(stateRoot, episodeId, episodeText);
+  const residual = await findResidualEpisodeText(stateRoot, episodeId, unlinked.episodeText);
   return {
     target: `episode:${episodeId}`,
-    removedPaths: removed,
+    removedPaths: unlinked.removed,
     cascadedFeedbackTombstones: cascaded,
     droppedInvocations: 0,
     residualEpisodeTextRunIds: [...new Set(residual.map((entry) => entry.runId))].sort()
   };
+}
+
+interface EpisodeUnlink {
+  /** Episode-scoped record files this delete unlinked, in listing order. */
+  readonly removed: readonly string[];
+  /** The episode's own text, read under the lock that guards the unlink. */
+  readonly episodeText: readonly string[];
+}
+
+/**
+ * Unlink the episode's runtime records while holding its cooperative lock.
+ *
+ * Two record files can sit under `runtime/episodes/`: the project-episode log
+ * (`<id>.jsonl`) and the episode event log (`<id>.events.jsonl`). Both are
+ * written by `episode close` and by the run-side settle, and both writers
+ * serialize on `<id>.lock` (`episodeLockPath`). Deleting the records from
+ * outside that lock — which is what this used to do, lock file included —
+ * lets a settle that is mid read-decide-append write its snapshot back after
+ * the delete, resurrecting the episode; unlinking the lock itself while a
+ * holder was alive additionally let a second writer acquire it and reopen the
+ * interleaving the lock exists to prevent.
+ *
+ * Contract details:
+ *  - Acquisition is bounded and fails closed: `withExclusiveFileLock` throws
+ *    `DomainValidationError` on timeout and nothing is unlinked. Locks are
+ *    never stolen here either, so a lock left behind by a killed holder makes
+ *    the delete fail until an operator removes it — the same posture (and the
+ *    same manual recovery) every other holder of this lock has. Failing is
+ *    the honest outcome: from the outside a stale lock is indistinguishable
+ *    from a live writer that is about to write the records back.
+ *  - The lock file is not unlinked by this function. Releasing the lock
+ *    removes it, so a completed delete still leaves no `<id>.lock` behind,
+ *    but it is a file this delete created rather than an episode record it
+ *    found, so it is not reported in `removedPaths`.
+ *  - Nothing on disk for this id — no records and no lock — is a genuine
+ *    no-op: no lock is taken and `runtime/episodes/` is not created just to
+ *    delete from it. A lock with no records still means a live writer, so it
+ *    is waited on: whatever it writes is then found and removed.
+ *  - The episode's own text is read inside the lock and before the unlink, so
+ *    the residual scan sees exactly the text that is being deleted.
+ */
+async function unlinkEpisodeFiles(
+  stateRoot: string,
+  episodeId: EpisodeId,
+  options: FileLockOptions
+): Promise<EpisodeUnlink> {
+  const episodesDir = join(runtimeRoot(stateRoot), "episodes");
+  const records = [
+    join(episodesDir, `${episodeId}.jsonl`),
+    join(episodesDir, `${episodeId}.events.jsonl`)
+  ];
+  const lockPath = episodeLockPath(stateRoot, episodeId);
+  const onDisk = await Promise.all([...records, lockPath].map(statExists));
+  if (!onDisk.includes(true)) return { removed: [], episodeText: [] };
+
+  return withExclusiveFileLock(
+    lockPath,
+    async () => {
+      const episodeText = await readEpisodeText(episodesDir, episodeId);
+      const removed: string[] = [];
+      for (const file of records) {
+        if (await statExists(file)) {
+          await rm(file, { force: true });
+          removed.push(file);
+        }
+      }
+      return { removed, episodeText };
+    },
+    options
+  );
 }
 
 /**
@@ -423,44 +699,57 @@ async function readTextFile(path: string): Promise<string> {
  * kept for audit; `body` and `summary` — the only user-text fields — are
  * removed from disk, not just hidden behind the tombstone filter.
  *
- * Read, rewrite, and the `tombstones.json` write all happen inside the feedback
- * log's cooperative lock (`withFeedbackLogLock`), the same lock
- * `appendFeedback` takes. A live append therefore lands either wholly before
- * the read or wholly after the write, instead of into the window between them
- * where the rewrite would clobber it — which here would mean a deleted
- * episode's body surviving the delete. Publishing the tombstone inside the same
- * critical section keeps the id list and the stripped rows from disagreeing.
- *
- * A lock timeout throws rather than rewriting unlocked: a privacy delete that
- * cannot serialize against the live writer must refuse, not race it.
+ * Contract details:
+ *  - Read, filter, rewrite, and tombstone-write all happen inside the feedback
+ *    log's cooperative lock (`withFeedbackLogLock`), the same lock
+ *    `appendFeedback` takes. A live auto-adapt append therefore lands either
+ *    wholly before the read or wholly after the write, instead of into the
+ *    window between them where the rewrite would clobber it — or after it,
+ *    putting text back on disk under an id that was just tombstoned.
+ *  - A corrupt line throws. Reading it as "no records" is how this cascade
+ *    used to report a successful delete while the episode's feedback text sat
+ *    on disk untouched; a log we cannot parse is a log whose rows we cannot
+ *    prove we stripped, so the delete fails closed instead.
+ *  - No log at all is a genuine no-op: nothing is read, no lock is taken, and
+ *    the adaptation plane is not created just to delete from it.
+ *  - The text is stripped before the tombstones are persisted. A crash between
+ *    the two leaves stripped shells that are not yet tombstoned, which is the
+ *    privacy-safe direction: the text is already gone. Both writes are
+ *    crash-atomic in themselves (`writeFeedbackRecords`,
+ *    `writeFeedbackTombstones`), so neither can leave a torn file that the
+ *    next read cannot parse.
  */
 export async function cascadeFeedbackTombstones(
   stateRoot: string,
-  episodeId: EpisodeId
+  episodeId: EpisodeId,
+  options: FileLockOptions = {}
 ): Promise<string[]> {
-  // No log, nothing to strip — and no reason to create the adaptation plane
-  // just to take a lock over a file that does not exist.
   if (!(await statExists(feedbackLogPath(stateRoot)))) return [];
-  return withFeedbackLogLock(stateRoot, async () => {
-    const records = await readFeedbackRecordsRaw(stateRoot).catch(() => []);
-    if (records.length === 0) return [];
+  return withFeedbackLogLock(
+    stateRoot,
+    async () => {
+      const records = await readFeedbackRecordsRaw(
+        stateRoot,
+        "refusing to cascade an episode delete through it"
+      );
+      if (records.length === 0) return [];
 
-    const tombstones = await readFeedbackTombstoneIds(stateRoot);
-    const cascaded: string[] = [];
-    const updated = records.map((record) => {
-      if (record.episodeId !== episodeId) return record;
-      cascaded.push(record.id);
-      tombstones.add(record.id);
-      return stripFreeText(record);
-    });
-    if (cascaded.length === 0) return [];
+      const tombstones = await readFeedbackTombstoneIds(stateRoot);
+      const cascaded: string[] = [];
+      const updated = records.map((record) => {
+        if (record.episodeId !== episodeId) return record;
+        cascaded.push(record.id);
+        tombstones.add(record.id);
+        return stripFreeText(record);
+      });
+      if (cascaded.length === 0) return [];
 
-    await writeFeedbackRecords(stateRoot, updated);
-    const tombstonePath = feedbackTombstonesPath(stateRoot);
-    await mkdir(dirname(tombstonePath), { recursive: true });
-    await writeFile(tombstonePath, `${JSON.stringify([...tombstones].sort(), null, 2)}\n`, "utf8");
-    return cascaded.sort();
-  });
+      await writeFeedbackRecords(stateRoot, updated);
+      await writeFeedbackTombstones(stateRoot, tombstones);
+      return cascaded.sort();
+    },
+    options
+  );
 }
 
 /**
@@ -476,6 +765,8 @@ function stripFreeText(record: FeedbackRecord): FeedbackRecord {
 interface InvocationRewrite {
   readonly path: string;
   readonly droppedRows: number;
+  /** The stale p50 snapshot this rewrite invalidated, when there was one. */
+  readonly staleAggregate: string | undefined;
 }
 
 /**
@@ -498,6 +789,10 @@ interface InvocationRewrite {
  *    A live invocation append therefore lands either wholly before the read or
  *    wholly after the write, instead of into the window between them where the
  *    rewrite would clobber it.
+ *  - The derived p50 snapshot is invalidated here, with the rows, rather than
+ *    at the end of the delete: the subtree removal that follows can fail
+ *    closed (`RunRecordsSurvivedError`), and a failed delete must not leave an
+ *    aggregate that still averages rows this rewrite already dropped.
  */
 async function dropRunFromInvocationLog(
   stateRoot: string,
@@ -506,7 +801,7 @@ async function dropRunFromInvocationLog(
   const path = invocationsLogPath(stateRoot);
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
-  if (!(await statExists(path))) return { path, droppedRows: 0 };
+  if (!(await statExists(path))) return { path, droppedRows: 0, staleAggregate: undefined };
   const droppedRows = await withInvocationLogLock(stateRoot, async () => {
     const { values } = await readInvocationRecords(
       stateRoot,
@@ -518,7 +813,9 @@ async function dropRunFromInvocationLog(
     await writeInvocationRecords(stateRoot, kept);
     return dropped;
   });
-  return { path, droppedRows };
+  const staleAggregate =
+    droppedRows > 0 ? await invalidateCatalogObserved(stateRoot) : undefined;
+  return { path, droppedRows, staleAggregate };
 }
 
 function rowNamesRun(row: unknown, runId: RunId): boolean {

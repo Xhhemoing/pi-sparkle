@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile, unlink } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, stat, writeFile, unlink } from "node:fs/promises";
 import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,13 +11,41 @@ import {
   listPiAgentProfilesFromDirs
 } from "../agents/dispatch-preflight.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
+import { isRunId, type RunId } from "../domain/ids.js";
+import {
+  BanditStateUnreadableError,
+  loadProjectBanditByKey,
+  projectBanditPath
+} from "../learning/bandit-store.js";
+import { stableProjectKey } from "../learning/learned-routing.js";
 import { readPinnedPiVersions } from "../pi-compat/check.js";
+import {
+  PreferenceSnapshotUnreadableError,
+  readPreferenceSnapshot
+} from "../preferences/store.js";
+import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
+import {
+  CatalogObservedCorruptError,
+  catalogObservedPath,
+  loadCatalogObservedSnapshot
+} from "../routing/catalog-observed.js";
+import { EventStore } from "../run/event-store.js";
+import { replayRun } from "../run/replay.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
 import { legacyLayoutCheck, skillRouteLogCheck, unknownAgentDriftCheck } from "./doctor-overlay.js";
 import { buildOfflinePiCompatReport, piCompatBreakage, readSparklePackageJson } from "./pi-compat.js";
 
 export interface DoctorIo extends CliErrorIo {
   stdout(text: string): void;
+}
+
+export interface DoctorOptions {
+  /** Test seam; the real CLI defaults to the current process version. */
+  readonly nodeVersion?: string;
+  /** Test seam for deterministic lock ages. */
+  readonly nowMs?: number;
+  /** Test seam; production checks the recorded PID on the local host. */
+  readonly pidLiveness?: (pid: number) => RecordedPidLiveness;
 }
 
 /**
@@ -33,6 +61,66 @@ export interface DoctorJsonReport {
   readonly ok: boolean;
   readonly checks: readonly DoctorCheck[];
   readonly next: readonly string[];
+  readonly locks: DoctorLockInventory;
+  readonly runStates: DoctorRunStateInventory;
+  readonly learnedState: DoctorLearnedStateInventory;
+}
+
+export type DoctorLockPidLiveness = "running" | "not-running" | "unknown" | "not-recorded";
+type RecordedPidLiveness = Exclude<DoctorLockPidLiveness, "not-recorded">;
+export type DoctorLockMetadata = "valid" | "empty" | "invalid" | "unreadable";
+
+export interface DoctorLockEntry {
+  readonly path: string;
+  readonly ageMs: number | null;
+  readonly ageSource: "acquiredAt" | "mtime" | null;
+  readonly acquiredAt: string | null;
+  readonly pid: number | null;
+  readonly pidLiveness: DoctorLockPidLiveness;
+  readonly metadata: DoctorLockMetadata;
+  readonly remediation: string;
+}
+
+export interface DoctorLockInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorLockEntry[];
+  readonly scanErrors: readonly string[];
+}
+
+export type DoctorInFlightRunStatus = "PLANNING" | "RUNNING";
+
+export interface DoctorRunStateEntry {
+  readonly runId: RunId;
+  readonly path: string;
+  readonly status: DoctorInFlightRunStatus;
+  readonly ageMs: number;
+  readonly lastEventAt: string;
+  readonly remediation: string;
+}
+
+export interface DoctorRunStateInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorRunStateEntry[];
+  readonly scanErrors: readonly string[];
+}
+
+export type DoctorLearnedStateKind = "bandit" | "preferences" | "catalog-observed";
+export type DoctorLearnedStateClass = "learned" | "derived";
+export type DoctorLearnedStateStatus = "present" | "absent" | "readable" | "damaged";
+
+export interface DoctorLearnedStateEntry {
+  readonly kind: DoctorLearnedStateKind;
+  readonly stateClass: DoctorLearnedStateClass;
+  readonly projectKey: string | null;
+  readonly path: string;
+  readonly status: DoctorLearnedStateStatus;
+  readonly remediation: string;
+}
+
+export interface DoctorLearnedStateInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorLearnedStateEntry[];
+  readonly scanErrors: readonly string[];
 }
 
 export interface PackageEngines {
@@ -53,6 +141,18 @@ const NEXT_STEPS: readonly string[] = [
 ];
 
 const FIX_FAILURES_NEXT = "fix the failing entries in checks[], then re-run pi-sparkle doctor";
+const LOCK_PID_ADVISORY =
+  "PID liveness is advisory only: PID reuse and shared/container filesystems mean it cannot prove a lock is stale; doctor never steals or deletes locks";
+const RUN_STATE_ADVISORY =
+  "PLANNING/RUNNING logs are advisory crash candidates only: a live process may still own the run; inspect before resume or delete --run, and doctor never changes run state";
+const LEARNED_STATE_ADVISORY =
+  "Integrity is reported through the shipped state readers; damaged state is advisory, scan errors fail this check, and doctor never repairs, moves, deletes, or rebuilds files";
+const LEARNED_STATE_REMEDIATION =
+  "learned state: repair the file or move it aside and relearn from zero; doctor never changes it";
+const PREFERENCE_STATE_REMEDIATION =
+  "learned state: repair the file or move it aside and relearn preferences from an empty store; doctor never changes it";
+const DERIVED_STATE_REMEDIATION =
+  "derived state: delete the damaged file and rebuild it from runtime/invocations.jsonl; doctor never changes it";
 
 function readPackageEngines(): PackageEngines {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -106,9 +206,478 @@ async function stateRootWritable(stateRoot: string): Promise<DoctorCheck> {
   }
 }
 
-function nodeCheck(engines: PackageEngines): DoctorCheck {
+function errorCode(error: unknown): unknown {
+  return error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+}
+
+function localPidLiveness(pid: number): RecordedPidLiveness {
+  try {
+    process.kill(pid, 0);
+    return "running";
+  } catch (error) {
+    if (errorCode(error) === "ESRCH") return "not-running";
+    return "unknown";
+  }
+}
+
+function recordValue(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  return key in record ? record[key] : undefined;
+}
+
+function lockRemediation(
+  path: string,
+  ageMs: number | null,
+  pid: number | null,
+  pidLiveness: DoctorLockPidLiveness
+): string {
+  const age = ageMs === null ? "unknown age" : `age ${Math.round(ageMs)}ms`;
+  if (pid !== null && pidLiveness === "not-running") {
+    return `${age}; recorded PID ${pid} is not running: inspect and remove manually; never automatic (${path})`;
+  }
+  if (pid !== null && pidLiveness === "running") {
+    return `${age}; recorded PID ${pid} appears to be running: do not remove based on age alone`;
+  }
+  if (pid !== null) {
+    return `${age}; recorded PID ${pid} liveness is unknown: inspect ownership before any manual removal; never automatic`;
+  }
+  return `${age}; no valid PID is recorded: inspect metadata and ownership before any manual removal; never automatic`;
+}
+
+async function inspectLock(
+  path: string,
+  nowMs: number,
+  pidLiveness: (pid: number) => RecordedPidLiveness
+): Promise<DoctorLockEntry | undefined> {
+  let raw: string | undefined;
+  let mtimeMs: number | undefined;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return undefined;
+  }
+  try {
+    mtimeMs = (await stat(path)).mtimeMs;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return undefined;
+  }
+
+  if (raw === undefined) {
+    const ageMs = mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs);
+    return {
+      path,
+      ageMs,
+      ageSource: mtimeMs === undefined ? null : "mtime",
+      acquiredAt: null,
+      pid: null,
+      pidLiveness: "not-recorded",
+      metadata: "unreadable",
+      remediation: lockRemediation(path, ageMs, null, "not-recorded")
+    };
+  }
+
+  if (raw.trim() === "") {
+    const ageMs = mtimeMs === undefined ? null : Math.max(0, nowMs - mtimeMs);
+    return {
+      path,
+      ageMs,
+      ageSource: mtimeMs === undefined ? null : "mtime",
+      acquiredAt: null,
+      pid: null,
+      pidLiveness: "not-recorded",
+      metadata: "empty",
+      remediation: lockRemediation(path, ageMs, null, "not-recorded")
+    };
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw) as unknown;
+  } catch {
+    value = undefined;
+  }
+  const ownerToken = recordValue(value, "ownerToken");
+  const recordedPid = recordValue(value, "pid");
+  const recordedAcquiredAt = recordValue(value, "acquiredAt");
+  const pid =
+    typeof recordedPid === "number" && Number.isSafeInteger(recordedPid) && recordedPid > 0
+      ? recordedPid
+      : null;
+  const acquiredAt =
+    typeof recordedAcquiredAt === "string" && Number.isFinite(Date.parse(recordedAcquiredAt))
+      ? recordedAcquiredAt
+      : null;
+  const acquiredAtMs = acquiredAt === null ? undefined : Date.parse(acquiredAt);
+  const ageSource = acquiredAtMs === undefined ? (mtimeMs === undefined ? null : "mtime") : "acquiredAt";
+  const sourceMs = acquiredAtMs ?? mtimeMs;
+  const metadata =
+    typeof ownerToken === "string" && ownerToken.length > 0 && pid !== null && acquiredAt !== null
+      ? "valid"
+      : "invalid";
+  const ageMs = sourceMs === undefined ? null : Math.max(0, nowMs - sourceMs);
+  const recordedPidLiveness = pid === null ? "not-recorded" : pidLiveness(pid);
+
+  return {
+    path,
+    ageMs,
+    ageSource,
+    acquiredAt,
+    pid,
+    pidLiveness: recordedPidLiveness,
+    metadata,
+    remediation: lockRemediation(path, ageMs, pid, recordedPidLiveness)
+  };
+}
+
+async function lockInventory(
+  stateRoot: string,
+  options: DoctorOptions
+): Promise<DoctorLockInventory> {
+  const entries: DoctorLockEntry[] = [];
+  const scanErrors: string[] = [];
+  const nowMs = options.nowMs ?? Date.now();
+  const pidLiveness = options.pidLiveness ?? localPidLiveness;
+
+  async function visit(dir: string): Promise<void> {
+    let children;
+    try {
+      children = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") {
+        const message = error instanceof Error ? error.message : String(error);
+        scanErrors.push(`${dir}: ${message}`);
+      }
+      return;
+    }
+    children.sort((left, right) => left.name.localeCompare(right.name));
+    for (const child of children) {
+      const path = join(dir, child.name);
+      if (child.isDirectory()) {
+        await visit(path);
+      } else if (child.isFile() && child.name.endsWith(".lock")) {
+        const entry = await inspectLock(path, nowMs, pidLiveness);
+        if (entry !== undefined) entries.push(entry);
+      }
+    }
+  }
+
+  await visit(stateRoot);
+  entries.sort((left, right) => left.path.localeCompare(right.path));
+  return { advisory: LOCK_PID_ADVISORY, entries, scanErrors };
+}
+
+async function runStateInventory(
+  stateRoot: string,
+  options: DoctorOptions
+): Promise<DoctorRunStateInventory> {
+  const entries: DoctorRunStateEntry[] = [];
+  const scanErrors: string[] = [];
+  const nowMs = options.nowMs ?? Date.now();
+  const runsDir = join(runtimeRoot(stateRoot), "runs");
+  let children;
+  try {
+    children = await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${runsDir}: ${message}`);
+    }
+    return { advisory: RUN_STATE_ADVISORY, entries, scanErrors };
+  }
+
+  children.sort((left, right) => left.name.localeCompare(right.name));
+  for (const child of children) {
+    if (!child.isDirectory() || !isRunId(child.name)) continue;
+    const runId = child.name;
+    const path = join(runsDir, runId, "events.jsonl");
+    try {
+      const read = await new EventStore(stateRoot, runId).readAll();
+      if (read.events.length === 0) continue;
+      const status = replayRun(read.events).status;
+      if (status !== "PLANNING" && status !== "RUNNING") continue;
+      const lastEventAt = read.events[read.events.length - 1]?.occurredAt;
+      if (lastEventAt === undefined) continue;
+      entries.push({
+        runId,
+        path,
+        status,
+        ageMs: Math.max(0, nowMs - Date.parse(lastEventAt)),
+        lastEventAt,
+        remediation: `inspect with pi-sparkle inspect --run ${runId}; then resume --run ${runId} or delete --run ${runId}`
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${path}: ${message}`);
+    }
+  }
+
+  entries.sort((left, right) => left.runId.localeCompare(right.runId));
+  return { advisory: RUN_STATE_ADVISORY, entries, scanErrors };
+}
+
+function learnedStateEntry(
+  kind: DoctorLearnedStateKind,
+  stateClass: DoctorLearnedStateClass,
+  projectKey: string | null,
+  path: string,
+  status: DoctorLearnedStateStatus,
+  remediation: string
+): DoctorLearnedStateEntry {
+  return { kind, stateClass, projectKey, path, status, remediation };
+}
+
+async function pathPresent(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function learnedStateInventory(
+  stateRoot: string,
+  projectRoot: string | undefined
+): Promise<DoctorLearnedStateInventory> {
+  const entries: DoctorLearnedStateEntry[] = [];
+  const scanErrors: string[] = [];
+  const projectsDir = join(adaptationRoot(stateRoot), "learning", "projects");
+  const projectKeys = new Set<string>();
+  if (projectRoot !== undefined) projectKeys.add(stableProjectKey(projectRoot));
+
+  try {
+    const children = await readdir(projectsDir, { withFileTypes: true });
+    for (const child of children) {
+      if (child.isDirectory() && /^p(?:0|[1-9a-f][0-9a-f]*)$/.test(child.name)) {
+        projectKeys.add(child.name);
+      }
+    }
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${projectsDir}: ${message}`);
+    }
+  }
+
+  for (const projectKey of [...projectKeys].sort((left, right) => left.localeCompare(right))) {
+    const path = projectBanditPath(stateRoot, projectKey);
+    try {
+      const bandit = await loadProjectBanditByKey(stateRoot, projectKey);
+      entries.push(
+        learnedStateEntry(
+          "bandit",
+          "learned",
+          projectKey,
+          path,
+          bandit === undefined ? "absent" : "readable",
+          LEARNED_STATE_REMEDIATION
+        )
+      );
+    } catch (error) {
+      if (error instanceof BanditStateUnreadableError) {
+        entries.push(
+          learnedStateEntry(
+            "bandit",
+            "learned",
+            projectKey,
+            path,
+            "damaged",
+            LEARNED_STATE_REMEDIATION
+          )
+        );
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        scanErrors.push(`${path}: ${message}`);
+        entries.push(
+          learnedStateEntry(
+            "bandit",
+            "learned",
+            projectKey,
+            path,
+            "present",
+            LEARNED_STATE_REMEDIATION
+          )
+        );
+      }
+    }
+  }
+
+  const preferencesPath = join(adaptationRoot(stateRoot), "preferences.json");
+  try {
+    if (!(await pathPresent(preferencesPath))) {
+      entries.push(
+        learnedStateEntry(
+          "preferences",
+          "learned",
+          null,
+          preferencesPath,
+          "absent",
+          PREFERENCE_STATE_REMEDIATION
+        )
+      );
+    } else {
+      // The pure reader validates the snapshot without binding it, so inventorying
+      // preferences cannot leave this process persisting to — or holding — an
+      // operator's preference history.
+      const snapshot = readPreferenceSnapshot(preferencesPath);
+      entries.push(
+        learnedStateEntry(
+          "preferences",
+          "learned",
+          null,
+          preferencesPath,
+          snapshot === undefined ? "absent" : "readable",
+          PREFERENCE_STATE_REMEDIATION
+        )
+      );
+    }
+  } catch (error) {
+    if (error instanceof PreferenceSnapshotUnreadableError) {
+      entries.push(
+        learnedStateEntry(
+          "preferences",
+          "learned",
+          null,
+          preferencesPath,
+          "damaged",
+          PREFERENCE_STATE_REMEDIATION
+        )
+      );
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${preferencesPath}: ${message}`);
+      entries.push(
+        learnedStateEntry(
+          "preferences",
+          "learned",
+          null,
+          preferencesPath,
+          "present",
+          PREFERENCE_STATE_REMEDIATION
+        )
+      );
+    }
+  }
+
+  const observedPath = catalogObservedPath(stateRoot);
+  try {
+    if (!(await pathPresent(observedPath))) {
+      entries.push(
+        learnedStateEntry(
+          "catalog-observed",
+          "derived",
+          null,
+          observedPath,
+          "absent",
+          DERIVED_STATE_REMEDIATION
+        )
+      );
+    } else {
+      await loadCatalogObservedSnapshot(stateRoot);
+      entries.push(
+        learnedStateEntry(
+          "catalog-observed",
+          "derived",
+          null,
+          observedPath,
+          "readable",
+          DERIVED_STATE_REMEDIATION
+        )
+      );
+    }
+  } catch (error) {
+    if (error instanceof CatalogObservedCorruptError) {
+      entries.push(
+        learnedStateEntry(
+          "catalog-observed",
+          "derived",
+          null,
+          observedPath,
+          "damaged",
+          DERIVED_STATE_REMEDIATION
+        )
+      );
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      scanErrors.push(`${observedPath}: ${message}`);
+      entries.push(
+        learnedStateEntry(
+          "catalog-observed",
+          "derived",
+          null,
+          observedPath,
+          "present",
+          DERIVED_STATE_REMEDIATION
+        )
+      );
+    }
+  }
+
+  return { advisory: LEARNED_STATE_ADVISORY, entries, scanErrors };
+}
+
+function lockInventoryCheck(inventory: DoctorLockInventory): DoctorCheck {
+  const unreadable = inventory.entries.filter((entry) => entry.metadata === "unreadable").length;
+  const errors = inventory.scanErrors.length;
+  const ok = unreadable === 0 && errors === 0;
+  const problems = [
+    ...(unreadable === 0 ? [] : [`${unreadable} unreadable lock file(s)`]),
+    ...(errors === 0 ? [] : [`${errors} directory scan error(s)`])
+  ];
+  return {
+    name: "lock-inventory",
+    ok,
+    detail: `${inventory.entries.length} lock file(s) found${
+      problems.length === 0 ? "" : `; ${problems.join("; ")}`
+    }; ${inventory.advisory}`
+  };
+}
+
+function runStateInventoryCheck(inventory: DoctorRunStateInventory): DoctorCheck {
+  const errors = inventory.scanErrors.length;
+  return {
+    name: "run-state-inventory",
+    ok: errors === 0,
+    detail: `${inventory.entries.length} PLANNING/RUNNING run log(s) found as advisory crash candidate(s)${
+      errors === 0 ? "" : `; ${errors} log scan error(s)`
+    }; ${inventory.advisory}`
+  };
+}
+
+function learnedStateInventoryCheck(inventory: DoctorLearnedStateInventory): DoctorCheck {
+  const errors = inventory.scanErrors.length;
+  const count = (status: DoctorLearnedStateStatus): number =>
+    inventory.entries.filter((entry) => entry.status === status).length;
+  return {
+    name: "learned-state-inventory",
+    ok: errors === 0,
+    detail: `${inventory.entries.length} state file(s) inventoried: ${count("readable")} readable, ${count("absent")} absent, ${count("damaged")} damaged, ${count("present")} present but unclassified${
+      errors === 0 ? "" : `; ${errors} scan error(s)`
+    }; ${inventory.advisory}`
+  };
+}
+
+function lockEntryDetail(entry: DoctorLockEntry): string {
+  return `${entry.path}: age=${
+    entry.ageMs === null ? "unknown" : `${Math.round(entry.ageMs)}ms`
+  } source=${entry.ageSource ?? "unknown"} pid=${entry.pid ?? "not-recorded"} pid-liveness=${
+    entry.pidLiveness
+  } metadata=${entry.metadata}; remediation=${entry.remediation}`;
+}
+
+function runStateEntryDetail(entry: DoctorRunStateEntry): string {
+  return `${entry.runId}: status=${entry.status} age=${Math.round(entry.ageMs)}ms path=${entry.path}; remediation=${entry.remediation}`;
+}
+
+function learnedStateEntryDetail(entry: DoctorLearnedStateEntry): string {
+  const project = entry.projectKey === null ? "" : ` project-key=${entry.projectKey}`;
+  return `${entry.kind}:${project} class=${entry.stateClass} status=${entry.status} path=${entry.path}; remediation=${entry.remediation}`;
+}
+
+function nodeCheck(engines: PackageEngines, actual: string): DoctorCheck {
   const minimum = minimumFromEngineRange(engines.enginesNode);
-  const actual = process.versions.node;
   const ok = versionAtLeast(actual, minimum);
   return {
     name: "node",
@@ -187,7 +756,13 @@ function piDispatchCheck(projectRoot: string | undefined, agentsDir: string | un
   };
 }
 
-function buildDoctorJsonReport(version: string, checks: readonly DoctorCheck[]): DoctorJsonReport {
+function buildDoctorJsonReport(
+  version: string,
+  checks: readonly DoctorCheck[],
+  locks: DoctorLockInventory,
+  runStates: DoctorRunStateInventory,
+  learnedState: DoctorLearnedStateInventory
+): DoctorJsonReport {
   const ok = checks.every((check) => check.ok);
   return {
     version,
@@ -195,7 +770,10 @@ function buildDoctorJsonReport(version: string, checks: readonly DoctorCheck[]):
     liveAdaptive: false,
     ok,
     checks,
-    next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS]
+    next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS],
+    locks,
+    runStates,
+    learnedState
   };
 }
 
@@ -224,7 +802,11 @@ function piCompatCheck(): DoctorCheck {
   };
 }
 
-export async function doctorCommand(args: string[], io: DoctorIo): Promise<number> {
+export async function doctorCommand(
+  args: string[],
+  io: DoctorIo,
+  options: DoctorOptions = {}
+): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -236,8 +818,11 @@ export async function doctorCommand(args: string[], io: DoctorIo): Promise<numbe
   });
   const engines = readPackageEngines();
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const locks = await lockInventory(stateRoot, options);
+  const runStates = await runStateInventory(stateRoot, options);
+  const learnedState = await learnedStateInventory(stateRoot, values.project);
   const checks: DoctorCheck[] = [
-    nodeCheck(engines),
+    nodeCheck(engines, options.nodeVersion ?? process.versions.node),
     pnpmCheck(engines),
     await stateRootWritable(stateRoot),
     legacyLayoutCheck(stateRoot),
@@ -247,17 +832,31 @@ export async function doctorCommand(args: string[], io: DoctorIo): Promise<numbe
     skillRouteLogCheck(values.project),
     unknownAgentDriftCheck(values.project),
     piPackagesCheck(),
-    piCompatCheck()
+    piCompatCheck(),
+    lockInventoryCheck(locks),
+    runStateInventoryCheck(runStates),
+    learnedStateInventoryCheck(learnedState)
   ];
   const failed = checks.some((check) => !check.ok);
 
   if (values.json === true) {
-    io.stdout(`${JSON.stringify(buildDoctorJsonReport(engines.version, checks))}\n`);
+    io.stdout(
+      `${JSON.stringify(buildDoctorJsonReport(engines.version, checks, locks, runStates, learnedState))}\n`
+    );
   } else {
     io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
     io.stdout("  live R1/bandit/topology: off until Checkpoint F-PROD closes\n");
     for (const check of checks) {
       io.stdout(`  ${check.ok ? "ok" : "FAIL"}  ${check.name}: ${check.detail}\n`);
+    }
+    for (const entry of locks.entries) {
+      io.stdout(`    lock: ${lockEntryDetail(entry)}\n`);
+    }
+    for (const entry of runStates.entries) {
+      io.stdout(`    run: ${runStateEntryDetail(entry)}\n`);
+    }
+    for (const entry of learnedState.entries) {
+      io.stdout(`    state: ${learnedStateEntryDetail(entry)}\n`);
     }
     for (const step of NEXT_STEPS) {
       io.stdout(`  next: ${step}\n`);

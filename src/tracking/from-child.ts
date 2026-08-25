@@ -6,6 +6,13 @@ import type { PrescoreResult } from "./types.js";
 
 export type ObservedChildOutcome = "SUCCESS" | "PARTIAL" | "FAILURE" | "CANCELLED" | "TIMEOUT";
 
+/** One criterion's reported outcome, as it arrives on the child's verdict. */
+export interface CriterionObservation {
+  readonly id: string;
+  readonly kind: VerificationKind;
+  readonly evidenceIds: readonly string[];
+}
+
 export interface ChildObservation {
   readonly taskId: string;
   readonly role: string;
@@ -16,9 +23,34 @@ export interface ChildObservation {
   readonly verification?: {
     readonly kind: VerificationKind;
     readonly evidenceIds: readonly string[];
+    /**
+     * Per-criterion outcomes the verifier reported, carried through from
+     * `protocol/v1.ts::VerificationResult`. Absent means the verifier spoke
+     * only about the task as a whole — which is what every child said before
+     * this channel existed, and still what a silent one says.
+     */
+    readonly criteria?: readonly CriterionObservation[];
   };
   readonly requiredChecks: readonly string[];
   readonly constraints: readonly ConstraintRecord[];
+}
+
+/**
+ * The criteria this child reported FAILED — the only per-criterion fact that
+ * gates anything.
+ *
+ * `UNOBSERVED` and absence both stay open: "the verifier did not look at this
+ * criterion" and "the verifier said nothing about criteria at all" are not
+ * "the child did not meet it". A node that never ran reports nothing, so it
+ * is unknown, not unmet, with no special case needed to keep it that way.
+ *
+ * Criterion ids are not correlated against the task's spec. The observation is
+ * the child's own statement about work it did; an id nobody asked for is a
+ * reporting slip, and treating a slip as grounds to discard a real FAILED
+ * outcome would be the wrong way round.
+ */
+export function unmetCriteriaOf(observation: ChildObservation): readonly CriterionObservation[] {
+  return (observation.verification?.criteria ?? []).filter((criterion) => criterion.kind === "FAILED");
 }
 
 export function shouldApplyThreeLine(input: {
@@ -42,6 +74,23 @@ export type ChildTrackingDecision =
 /**
  * Decides whether a routed child's TASK_RESULT has enough protocol facts to
  * run three-line scoring. Does not invent tracker prose or fill UNOBSERVED as 0.5.
+ *
+ * `verification.kind` still decides admission: PASSED or FAILED from the
+ * verifier admits the child to scoring, UNOBSERVED does not, and FAILED is
+ * what becomes `deterministicFail`.
+ *
+ * Two facts now reach the gate rather than one (Loop 4 R11-1, option (a)).
+ * The second is `criterionUnmet`, and it is built here from what the child
+ * *reported*, not from what the caller asked for: `unmetCriteriaOf` reads the
+ * verdict's own per-criterion outcomes. A criterion the child listed as FAILED
+ * blocks even when the whole-task verdict is PASSED, which is the case the
+ * channel exists for — a child that finished, said so, and is honest about the
+ * one thing it did not meet.
+ *
+ * The criteria the caller *asked for* remain what they were: `requiredChecks`
+ * feeds check-coverage, whose range still has no FAIL, and constraints still
+ * read back their own ids. See `prescore.ts::coverageOutcome` for why those
+ * two dimensions are records rather than gates.
  */
 export function assessChildObservation(input: {
   readonly observation: ChildObservation;
@@ -82,7 +131,10 @@ export function assessChildObservation(input: {
     window,
     prescoreInput,
     humanInput: {},
-    gateFacts: { deterministicFail: verification.kind === "FAILED" }
+    gateFacts: {
+      deterministicFail: verification.kind === "FAILED",
+      criterionUnmet: unmetCriteriaOf(input.observation).length > 0
+    }
   });
   return {
     apply: true,
@@ -111,6 +163,26 @@ export function assessChildObservation(input: {
   };
 }
 
+/**
+ * The sole production producer of a `PrescoreInput`.
+ *
+ * `completedChecks` and `retainedConstraintIds` are derived from the request,
+ * not observed, and they stay that way (Loop 4 R7-2, re-affirmed at R11-1).
+ * A terminal TASK_RESULT may now carry per-criterion outcomes, so there *is*
+ * something observed to put in `completedChecks` — and putting it there was
+ * rejected. Doing so would turn `turn.ts`'s
+ * `derivedClaimedVerificationWithoutChecks` into the leading hard code for a
+ * PASSED child with an unmet criterion, conditioned on whether the child's own
+ * prose matches `isSuccessClaim`; that hands an untrusted-text match a gating
+ * decision and misses the child that reports the gap without boasting. The
+ * reported outcomes reach the gate directly instead, as
+ * `unmet-acceptance-criterion` — see {@link unmetCriteriaOf} and
+ * `prescore.ts::coverageOutcome`.
+ *
+ * The consequence is worth stating plainly: the two criteria-shaped dimensions
+ * still compare a list against a copy of itself and still cannot fail a child.
+ * They are a record of what was asked for. The gate reads what was reported.
+ */
 export function prescoreInputFromObservation(observation: ChildObservation): PrescoreInput {
   const verification = observation.verification;
   const claims = observation.summary.trim() === "" ? [] : [observation.summary];
@@ -143,13 +215,33 @@ export function prescoreInputFromObservation(observation: ChildObservation): Pre
     retainedConstraintIds: observation.constraints.map((constraint) => constraint.id),
     progressed,
     stalledTurns: 0,
+    // Not third-party verification, despite the name. This says only that the
+    // verifier reached a verdict; it does not say a party other than the actor
+    // produced one. Since Loop 4 R9-2 a pi child can author its own terminal
+    // TASK_RESULT via `sparkle_report_task_result`, so on that path
+    // `verification.kind` — and this flag with it — is the child's report of
+    // what it ran. Nothing reads the flag today (`prescore.ts` discards it),
+    // which is what keeps the gap harmless: a future consumer that reads it as
+    // independent corroboration would be scoring a claim as if it were a
+    // check. Recorded, deliberately not renamed (Loop 4 R10-5, parent-signed);
+    // pinned in `test/unit/tracking/independent-evidence-posture.test.ts`.
     independentEvidence: verification?.kind === "PASSED" || verification?.kind === "FAILED"
   };
 }
 
+/**
+ * Every reference the child's verdict rests on, including the ones cited by an
+ * individual criterion. A criterion outcome that gates a run has to leave its
+ * evidence on the recorded assessment, or the anomaly names a criterion nobody
+ * can look up afterwards. Which criterion it was stays readable from the
+ * child's own `CHILD_MESSAGE` row, which carries the whole array durably.
+ */
 function evidenceRefsOf(observation: ChildObservation): string[] {
   const refs = new Set<string>();
   for (const id of observation.evidenceIds) refs.add(id);
   for (const id of observation.verification?.evidenceIds ?? []) refs.add(id);
+  for (const criterion of observation.verification?.criteria ?? []) {
+    for (const id of criterion.evidenceIds) refs.add(id);
+  }
   return [...refs];
 }

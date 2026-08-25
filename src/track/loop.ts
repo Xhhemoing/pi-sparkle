@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../persist/atomic-file.js";
+import type { FileLockOptions } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import {
@@ -7,10 +8,12 @@ import {
   createMessageId,
   createRunId,
   createTaskId,
-  type IdGenerator
+  type IdGenerator,
+  type RunId
 } from "../domain/ids.js";
 import { defaultRunLimits } from "../domain/limits.js";
 import type { RequirementContract } from "../domain/contract.js";
+import type { ProjectSnapshot } from "../domain/project.js";
 import { nowIso } from "../domain/timestamp.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
 import { buildLiveCatalogConfig } from "../cli/model-catalog.js";
@@ -21,9 +24,10 @@ import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
 import { loadLearnedRouting } from "../learning/learned-routing.js";
 import type { PublicPriorSnapshot } from "../routing/public-prior.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
-import { type RunOutcome } from "../run/coordinator.js";
+import { withRunLifecycleLock, type RunOutcome } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { startFlowchartRun } from "../run/flowchart-run.js";
+import type { PauseController } from "../run/pause-controller.js";
 import { createModelRouter } from "../supervisor/model-router.js";
 import { bindEpisodeToRun, episodeIdFromEvents, settleBoundEpisode } from "../run/episode-bind.js";
 import { EventStore } from "../run/event-store.js";
@@ -48,6 +52,30 @@ export interface TrackRunInput {
   readonly answers?: Readonly<Record<string, string>>;
   readonly generateId?: IdGenerator;
   readonly prior?: PublicPriorSnapshot;
+  /**
+   * Observes pause requests for the run this input starts, at the flowchart
+   * loop's round boundaries.
+   *
+   * Optional, and absence is not a no-op detail: `pauseIfRequested` returns
+   * immediately when the loop context carries no controller, so a tracked run
+   * started without one cannot be paused at all — its `pause.json` is written
+   * and never read. Every other command path already supplies the file
+   * controller, which is why this is the seam the tracked path was missing
+   * rather than a new capability.
+   */
+  readonly pause?: PauseController;
+  /**
+   * Discloses the flowchart run's id as soon as that run exists, before it can
+   * be paused for the first time.
+   *
+   * Forwarded verbatim to `startFlowchartRun`, which documents the guarantee.
+   * The clarification path deliberately does not fire it: that run never
+   * reaches the flowchart loop, is `WAITING_FOR_USER` before it returns, and
+   * has nothing to pause.
+   */
+  readonly onRunStarted?: (runId: RunId) => void;
+  /** Bounds the clarification run's acquisition of {@link withRunLifecycleLock}. */
+  readonly runLock?: FileLockOptions;
 }
 
 export interface TrackRunOutcome extends RunOutcome {
@@ -156,7 +184,9 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       executor: input.executor,
       registry,
       cluster: true,
-      ...(input.generateId !== undefined ? { generateId: input.generateId } : {})
+      ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
+      ...(input.pause !== undefined ? { pause: input.pause } : {}),
+      ...(input.onRunStarted !== undefined ? { onRunStarted: input.onRunStarted } : {})
     },
     {
       projectRoot: input.projectRoot,
@@ -194,6 +224,20 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   };
 }
 
+/**
+ * The clarification path is a run lifecycle like any other — it mints a run id
+ * and writes that run's whole record set — so it holds the run's cooperative
+ * lock for all of it, the way `startRun`, `startParentRun` and the flowchart
+ * embedders do. Without the acquisition it wrote a discovery event, a bound
+ * episode and a `RUN_WAITING_FOR_USER` straight past a `delete --run` already
+ * removing that subtree, and only then failed closed at the questions write —
+ * leaving a half-written run behind. It was the last CLI-reachable embedder the
+ * survivors error's "an embedder that does not take the lifecycle lock" clause
+ * described.
+ *
+ * Discovery stays outside, per the helper's rules: a run refused there must not
+ * create `runtime/runs/` for a run that never happened.
+ */
 async function waitForClarification(
   input: TrackRunInput,
   contract: RequirementContract,
@@ -206,6 +250,23 @@ async function waitForClarification(
     now,
     ...(generateId !== undefined ? { generateId } : {})
   });
+  return withRunLifecycleLock(
+    input.stateRoot,
+    runId,
+    () => recordClarificationRun(input, contract, questions, runId, project),
+    input.runLock
+  );
+}
+
+async function recordClarificationRun(
+  input: TrackRunInput,
+  contract: RequirementContract,
+  questions: readonly { id: string; question: string }[],
+  runId: RunId,
+  project: ProjectSnapshot
+): Promise<TrackRunOutcome> {
+  const generateId = input.generateId;
+  const now = nowIso;
   const eventStore = new EventStore(input.stateRoot, runId);
   const checkpointStore = new CheckpointStore(input.stateRoot, runId);
   const rootTaskId = createTaskId(generateId);
@@ -250,11 +311,15 @@ async function waitForClarification(
   await append(make("RUN_STARTED", {}));
   const messageId = createMessageId(generateId);
   await append(make("RUN_WAITING_FOR_USER", { messageId }));
-  await mkdir(join(runtimeRoot(input.stateRoot), "runs", runId), { recursive: true });
-  await writeFile(
+  // Crash-atomic: the questions file holds the objective (and is scanned for
+  // residual episode text), and writing it creates the run directory, so a
+  // plain write here could tear. `writeFileAtomic` creates the directory
+  // itself. Its own run-lock acquisition is gone — the whole run holds that
+  // lock now, and the lock is not reentrant, so keeping it would self-deadlock.
+  // The exclusion it bought against `delete --run` is unchanged and wider.
+  await writeFileAtomic(
     join(runtimeRoot(input.stateRoot), "runs", runId, "track-questions.json"),
-    JSON.stringify({ questions, objective: input.objective, contract }, null, 2),
-    "utf8"
+    `${JSON.stringify({ questions, objective: input.objective, contract }, null, 2)}\n`
   );
   await settleBoundEpisode({
     stateRoot: input.stateRoot,

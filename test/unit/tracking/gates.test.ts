@@ -26,6 +26,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: true,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -37,6 +38,54 @@ describe("tracking anomaly gates", () => {
     assert.ok(decision.codes.includes("deterministic-fail"));
   });
 
+  it("fires a hard gate on an unmet acceptance criterion, behind the codes that outrank it", () => {
+    const base = {
+      P: 0.92,
+      score: 0.92,
+      human: { kind: "unobserved" } as const,
+      config: DEFAULT_TRACKING_CONFIG,
+      deterministicFail: false,
+      ownershipEscape: false,
+      claimedVerificationWithoutChecks: false,
+      criterionUnmet: true,
+      repeatedNoProgress: false,
+      userRejectStop: false,
+      safetyRejected: false,
+      openMinors: []
+    };
+
+    // On its own it leads: a child whose work passed as a whole but whose
+    // verifier reported a criterion FAILED blocks, and the transition's reason
+    // code names the criterion rather than a score.
+    const alone = evaluateGates(base);
+    assert.equal(alone.kind, "hard");
+    assert.deepEqual(alone.codes, ["unmet-acceptance-criterion"]);
+    assert.equal(alone.askUser, false, "an unmet criterion queues analysis; it does not stop for the user");
+
+    // Ordering is the contract, not an accident: each of these says something
+    // about the whole task, so each keeps the leading position.
+    assert.deepEqual(evaluateGates({ ...base, deterministicFail: true }).codes, [
+      "deterministic-fail",
+      "unmet-acceptance-criterion"
+    ]);
+    assert.deepEqual(evaluateGates({ ...base, ownershipEscape: true }).codes, [
+      "ownership-escape",
+      "unmet-acceptance-criterion"
+    ]);
+    assert.deepEqual(evaluateGates({ ...base, claimedVerificationWithoutChecks: true }).codes, [
+      "claimed-verification-without-checks",
+      "unmet-acceptance-criterion"
+    ]);
+    assert.deepEqual(evaluateGates({ ...base, repeatedNoProgress: true }).codes, [
+      "unmet-acceptance-criterion",
+      "repeated-no-progress"
+    ]);
+
+    // And it is the fact, not a score, that fires it: the same high P with the
+    // fact withdrawn leaves the gate open.
+    assert.equal(evaluateGates({ ...base, criterionUnmet: false }).kind, "none");
+  });
+
   it("wakes analysis on the soft threshold when score is 0.41", () => {
     const decision = evaluateGates({
       P: 0.9,
@@ -46,6 +95,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -65,6 +115,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -78,6 +129,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -98,6 +150,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -116,6 +169,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -134,6 +188,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: false,
@@ -161,6 +216,7 @@ describe("tracking anomaly gates", () => {
       deterministicFail: false,
       ownershipEscape: false,
       claimedVerificationWithoutChecks: false,
+      criterionUnmet: false,
       repeatedNoProgress: false,
       userRejectStop: false,
       safetyRejected: true,

@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   appendFeedback,
+  appendFeedbackWithRetry,
+  feedbackLogLockPath,
   feedbackLogPath,
+  feedbackTombstonesPath,
   FEEDBACK_REDACTION_POLICY,
   readFeedback,
-  readFeedbackRecordsRaw
+  readFeedbackRecordsRaw,
+  readFeedbackTombstoneIds,
+  withFeedbackLogLock,
+  writeFeedbackRecords,
+  writeFeedbackTombstones
 } from "../../../src/feedback/store.js";
 import { redactFeedback } from "../../../src/feedback/redaction.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
@@ -52,6 +60,8 @@ async function writeRawRows(stateRoot: string, rows: readonly unknown[]): Promis
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf8");
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function readRawLines(stateRoot: string): Promise<Record<string, unknown>[]> {
   const raw = await readFile(feedbackLogPath(stateRoot), "utf8");
@@ -236,6 +246,403 @@ test("an oversized body is dropped on append and cannot come back on re-append",
     const reappended = await appendFeedback(stateRoot, reloaded);
     assert.equal(reappended.body, undefined);
     assert.deepEqual(reappended.redactionClasses, ["pii", "oversized"]);
+  });
+});
+
+test("the write lock sits beside the log it guards", () => {
+  const stateRoot = join(tmpdir(), "pi-sparkle-feedback-path-check");
+  assert.equal(feedbackLogLockPath(stateRoot), `${feedbackLogPath(stateRoot)}.lock`);
+  assert.match(feedbackLogLockPath(stateRoot), /records\.jsonl\.lock$/);
+});
+
+test("unparseable tombstones fail with the domain validation error contract", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackTombstonesPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '["fb-complete",', "utf8");
+
+    for (const read of [readFeedbackTombstoneIds, readFeedback]) {
+      await assert.rejects(
+        () => read(stateRoot),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal(error.constructor, DomainValidationError);
+          assert.equal(error.message, "malformed feedback tombstones.json: not valid JSON");
+          return true;
+        }
+      );
+    }
+  });
+});
+
+test("tombstone replacement keeps the old complete JSON visible until rename", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackTombstonesPath(stateRoot);
+    await writeFeedbackTombstones(stateRoot, new Set(["fb-old"]));
+    const before = await readFile(path, "utf8");
+    const expected = `${JSON.stringify(["fb-a", "fb-z"], null, 2)}\n`;
+    let enterRename = (): void => undefined;
+    const renameEntered = new Promise<void>((resolve) => {
+      enterRename = resolve;
+    });
+    let releaseRename = (): void => undefined;
+    const renameReleased = new Promise<void>((resolve) => {
+      releaseRename = resolve;
+    });
+    let sourcePath = "";
+
+    const pending = writeFeedbackTombstones(stateRoot, new Set(["fb-z", "fb-a"]), {
+      uniqueSuffix: () => "feedback-tombstones-test",
+      rename: async (source, destination) => {
+        sourcePath = source;
+        assert.equal(destination, path);
+        enterRename();
+        await renameReleased;
+        await rename(source, destination);
+      }
+    });
+
+    await renameEntered;
+    assert.equal(await readFile(path, "utf8"), before, "the destination is never truncated");
+    assert.equal(await readFile(sourcePath, "utf8"), expected, "the complete update is staged");
+    releaseRename();
+    await pending;
+
+    assert.equal(await readFile(path, "utf8"), expected);
+    assert.deepEqual(await readFeedbackTombstoneIds(stateRoot), new Set(["fb-a", "fb-z"]));
+  });
+});
+
+test("an append waits for the log lock instead of writing under another writer", async () => {
+  await withStateRoot(async (stateRoot) => {
+    let pending: Promise<FeedbackRecord> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = appendFeedback(stateRoot, feedback({ id: "fb-queued", body: "note" }));
+      await sleep(80);
+      assert.equal(
+        existsSync(feedbackLogPath(stateRoot)),
+        false,
+        "the append must not touch the log while another writer holds the lock"
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    await pending;
+    assert.deepEqual((await readRawLines(stateRoot)).map((line) => line.id), ["fb-queued"]);
+    assert.equal(existsSync(feedbackLogLockPath(stateRoot)), false, "lock is released");
+  });
+});
+
+test("concurrent appends from one process all land, whole and in call order", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const ids = Array.from({ length: 12 }, (_, index) => `fb-concurrent-${index}`);
+    await Promise.all(ids.map((id) => appendFeedback(stateRoot, feedback({ id, body: "note" }))));
+
+    assert.deepEqual(
+      (await readRawLines(stateRoot)).map((line) => line.id),
+      ids,
+      "every row lands exactly once, in the order the appends were issued"
+    );
+  });
+});
+
+/**
+ * The shape of the deletion cascade's rewrite — read, filter, write — with an
+ * append issued right inside that window. Unlocked, the write erased the
+ * appended row; locked, the append is still queued when the rewrite finishes.
+ */
+test("a rewrite under the lock cannot clobber a concurrent append", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await appendFeedback(stateRoot, feedback({ id: "fb-kept", body: "keep me" }));
+    await appendFeedback(stateRoot, feedback({ id: "fb-dropped", body: "drop me" }));
+    let pending: Promise<FeedbackRecord> | undefined;
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      const records = await readFeedbackRecordsRaw(stateRoot);
+      pending = appendFeedback(stateRoot, feedback({ id: "fb-live", body: "live note" }));
+      await sleep(50);
+      await writeFeedbackRecords(
+        stateRoot,
+        records.filter((record) => record.id !== "fb-dropped")
+      );
+    });
+
+    assert.ok(pending !== undefined);
+    await pending;
+    const rows = await readRawLines(stateRoot);
+    assert.deepEqual(rows.map((row) => row.id), ["fb-kept", "fb-live"]);
+    // Whole, not merely present: a torn line would not have survived JSON.parse
+    // in readRawLines, and the payload has to be the one that was appended.
+    assert.equal(rows[1]?.body, "live note");
+  });
+});
+
+test("a rewrite keeps the old log visible until its atomic rename publishes", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await appendFeedback(stateRoot, feedback({ id: "fb-old-a", body: "first" }));
+    await appendFeedback(stateRoot, feedback({ id: "fb-old-b", body: "second" }));
+    const path = feedbackLogPath(stateRoot);
+    const before = await readFile(path, "utf8");
+    const records = await readFeedbackRecordsRaw(stateRoot);
+    const rewritten = records.filter((record) => record.id !== "fb-old-a");
+    const expected = `${rewritten.map((record) => JSON.stringify(record)).join("\n")}\n`;
+    let enterRename = (): void => undefined;
+    const renameEntered = new Promise<void>((resolve) => {
+      enterRename = resolve;
+    });
+    let releaseRename = (): void => undefined;
+    const renameReleased = new Promise<void>((resolve) => {
+      releaseRename = resolve;
+    });
+    let sourcePath = "";
+
+    await withFeedbackLogLock(stateRoot, async () => {
+      const pending = writeFeedbackRecords(stateRoot, rewritten, {
+        uniqueSuffix: () => "feedback-rewrite-test",
+        rename: async (source, destination) => {
+          sourcePath = source;
+          assert.equal(destination, path);
+          enterRename();
+          await renameReleased;
+          await rename(source, destination);
+        }
+      });
+
+      await renameEntered;
+      assert.equal(await readFile(path, "utf8"), before, "the destination is never truncated");
+      assert.equal(await readFile(sourcePath, "utf8"), expected, "the complete rewrite is staged");
+      releaseRename();
+      await pending;
+    });
+
+    assert.equal(await readFile(path, "utf8"), expected);
+    assert.deepEqual((await readRawLines(stateRoot)).map((row) => row.id), ["fb-old-b"]);
+  });
+});
+
+test("appendFeedback honours a caller's lock timeout instead of waiting the default out", async () => {
+  await withStateRoot(async (stateRoot) => {
+    let rejection: unknown = "never rejected";
+    await withFeedbackLogLock(stateRoot, async () => {
+      rejection = await appendFeedback(stateRoot, feedback({ id: "fb-impatient" }), {
+        timeoutMs: 20,
+        retryMs: 5
+      }).then(
+        () => "resolved",
+        (error: unknown) => error
+      );
+    });
+
+    assert.ok(rejection instanceof DomainValidationError);
+    assert.equal(rejection.message, `timed out waiting for lock at ${feedbackLogLockPath(stateRoot)}`);
+    assert.equal(existsSync(feedbackLogPath(stateRoot)), false, "a timed-out append writes nothing");
+  });
+});
+
+test("a message-only imitation of a lock timeout is never retried or dropped", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const probePath = join(stateRoot, "probe");
+    const probe = await open(probePath, "w");
+    type Handle = typeof probe;
+    type HandlePrototype = {
+      writeFile: Handle["writeFile"];
+    };
+    const prototype = Object.getPrototypeOf(probe) as HandlePrototype;
+    const originalWriteFile = prototype.writeFile;
+    await probe.close();
+    await rm(probePath);
+
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let metadataWrites = 0;
+    const lockPath = feedbackLogLockPath(stateRoot);
+    prototype.writeFile = (async function (): Promise<void> {
+      metadataWrites += 1;
+      throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
+    }) as Handle["writeFile"];
+
+    let outcome: unknown;
+    try {
+      outcome = await appendFeedbackWithRetry(stateRoot, feedback({ id: "fb-message-only" }), {
+        onDrop: (reason) => drops.push(reason),
+        maxAttempts: 3,
+        retryBackoffMs: 1,
+        sleep: async (ms) => {
+          backoffs.push(ms);
+        }
+      }).catch((error: unknown) => error);
+    } finally {
+      prototype.writeFile = originalWriteFile;
+    }
+
+    assert.ok(outcome instanceof DomainValidationError);
+    assert.equal(metadataWrites, 1, "an error without LOCK_TIMEOUT is attempted only once");
+    assert.deepEqual(backoffs, [], "message text alone must not enter the retry path");
+    assert.deepEqual(drops, [], "a non-timeout failure rejects instead of becoming a drop");
+  });
+});
+
+test("a retried append lands once the lock clears inside the budget", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let releaseLock = (): void => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    let pending: Promise<unknown> | undefined;
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = appendFeedbackWithRetry(stateRoot, feedback({ id: "fb-retried", body: "note" }), {
+        onDrop: (reason) => drops.push(reason),
+        maxAttempts: 3,
+        retryBackoffMs: 1,
+        timeoutMs: 60,
+        retryMs: 5,
+        // The retry backoff is the synchronization point: attempt 1 has
+        // provably timed out by the time this runs, so releasing here
+        // exercises "lock cleared between attempts" without a sleep race.
+        sleep: async (ms) => {
+          backoffs.push(ms);
+          releaseLock();
+        }
+      });
+      await lockHeld;
+    });
+
+    assert.ok(pending !== undefined);
+    assert.deepEqual(await pending, {
+      status: "persisted",
+      record: redactFeedback(feedback({ id: "fb-retried", body: "note" }), FEEDBACK_REDACTION_POLICY)
+        .feedback
+    });
+    assert.deepEqual(backoffs, [1], "exactly one retry was needed");
+    assert.deepEqual(drops, [], "a row that lands is never reported as dropped");
+    assert.deepEqual((await readRawLines(stateRoot)).map((line) => line.id), ["fb-retried"]);
+  });
+});
+
+test("a lock held past the budget drops the row honestly instead of rejecting", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await appendFeedback(stateRoot, feedback({ id: "fb-earlier", body: "kept" }));
+    const before = await readFile(feedbackLogPath(stateRoot), "utf8");
+
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+    let outcome: unknown = "never settled";
+    await withFeedbackLogLock(stateRoot, async () => {
+      outcome = await appendFeedbackWithRetry(stateRoot, feedback({ id: "fb-lost", body: "note" }), {
+        onDrop: (reason) => drops.push(reason),
+        maxAttempts: 3,
+        retryBackoffMs: 1,
+        timeoutMs: 20,
+        retryMs: 5,
+        sleep: async (ms) => {
+          backoffs.push(ms);
+        }
+      }).catch((error: unknown) => error);
+    });
+
+    assert.deepEqual(outcome, {
+      status: "dropped",
+      reason: `feedback fb-lost dropped: lock timeout after 3 attempts on ${feedbackLogLockPath(stateRoot)}`
+    });
+    assert.deepEqual(backoffs, [1, 1], "three tries means two backoffs, no more");
+    assert.deepEqual(drops, [(outcome as { reason: string }).reason], "reported exactly once");
+    assert.equal(
+      await readFile(feedbackLogPath(stateRoot), "utf8"),
+      before,
+      "a dropped row leaves the log byte-identical"
+    );
+  });
+});
+
+test("a failure that is not a lock timeout is never retried and still rejects", async () => {
+  await withStateRoot(async (stateRoot) => {
+    // A directory where the log belongs is the cheapest stand-in for an
+    // unwritable state root: the append fails EISDIR, not with a lock timeout.
+    await mkdir(feedbackLogPath(stateRoot), { recursive: true });
+    const drops: string[] = [];
+    const backoffs: number[] = [];
+
+    await assert.rejects(
+      () =>
+        appendFeedbackWithRetry(stateRoot, feedback({ id: "fb-eisdir" }), {
+          onDrop: (reason) => drops.push(reason),
+          maxAttempts: 3,
+          retryBackoffMs: 1,
+          sleep: async (ms) => {
+            backoffs.push(ms);
+          }
+        }),
+      (error: unknown) => (error as NodeJS.ErrnoException).code === "EISDIR"
+    );
+    assert.deepEqual(backoffs, [], "an error that retrying cannot fix is not retried");
+    assert.deepEqual(drops, [], "a broken state root is a failure, not a disclosed drop");
+    assert.equal(existsSync(feedbackLogLockPath(stateRoot)), false, "the lock is still released");
+  });
+});
+
+test("a retrying row still lands ahead of the rows queued after it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const ids = ["fb-first", "fb-second", "fb-third"];
+    const drops: string[] = [];
+    let releaseLock = (): void => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    let pending: Promise<unknown>[] = [];
+    await withFeedbackLogLock(stateRoot, async () => {
+      pending = ids.map((id) =>
+        appendFeedbackWithRetry(stateRoot, feedback({ id, body: "note" }), {
+          onDrop: (reason) => drops.push(reason),
+          maxAttempts: 3,
+          retryBackoffMs: 1,
+          timeoutMs: 60,
+          retryMs: 5,
+          sleep: async () => {
+            releaseLock();
+          }
+        })
+      );
+      await lockHeld;
+    });
+
+    const outcomes = await Promise.all(pending);
+    assert.deepEqual(drops, []);
+    assert.deepEqual(
+      outcomes.map((outcome) => (outcome as { status: string }).status),
+      ["persisted", "persisted", "persisted"]
+    );
+    assert.deepEqual((await readRawLines(stateRoot)).map((line) => line.id), ids);
+  });
+});
+
+test("the writer-side read names the corrupt line and what it is refusing to do", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const path = feedbackLogPath(stateRoot);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify(feedback({ id: "fb-ok" }))}\n{ not json\n${JSON.stringify(feedback({ id: "fb-late" }))}\n`,
+      "utf8"
+    );
+
+    await assert.rejects(
+      () => readFeedbackRecordsRaw(stateRoot, "refusing to rewrite it for a delete"),
+      (error: unknown) => {
+        assert.ok(error instanceof DomainValidationError);
+        assert.equal(
+          error.message,
+          `corrupt feedback jsonl at line 2 of ${path}; refusing to rewrite it for a delete`
+        );
+        return true;
+      }
+    );
+    // readFeedback keeps failing closed too, with its own default refusal.
+    await assert.rejects(() => readFeedback(stateRoot), DomainValidationError);
   });
 });
 

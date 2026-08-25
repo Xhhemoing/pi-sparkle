@@ -1,0 +1,49 @@
+[Model: claude-fable-5]
+
+# ROUND 15 BRIEF — injection context for Loop 4 · Round 16
+
+Provenance: written by the Round 15 SOTA reviewer (claude-fable-5) after evidence-based review of R15-1 at `6d625d1`; verdict and verifications in `.agent_workspace/loop4-r15-review.md` (**1 ACCEPT, 0 ACCEPT-WITH-NITS, 0 ROLLBACK; zero joints; zero red-tree commit points; zero parent process nits — second consecutive clean-parent round**). Every claim below was verified at HEAD against the actual diff `3b39353..6d625d1`, not report hearsay. All landings are committed. **Stay on `agent/opt-continuous`.**
+
+## 1. What landed in Round 15 (all committed)
+
+| Slot | Landed | Key facts (do not re-implement) |
+|---|---|---|
+| R15-1 (`5d7c0d6`) | **The census-note treadmill is terminated.** The Round 14 brief's sole conditional candidate ran as the round's **sole landing** — reviewer-confirmed: the range's only non-orchestrator commit, with `src/**`, `test/**`, `scripts/**`, `package.json`, and `docs/decisions/**` all diff-empty. The three pre-coda "then lines 85–93" notes are gone; the identical replacement note (`status-matrix.md:14-26`, `m0-m2-architecture.md:14-26`, `data-dictionary.md:270-282`) records Round 14's two landings against their real commits (`25a3c2f` = the scoped coda at `replay.ts:95-101` + the ride-along pointer retirement; `a1ea5f2` = the Round 13 docs truth-up — both reviewer-verified against their actual diffs), describes the coda faithfully (hazard bounded to nodes neither source records; recorded node's substituted spec restored before the resumed node runs; unvouched logged-empty detectable as unknown, not the caller's known-none), leaves the `:89-91` counterfactual as motivation prose bounded by the coda, keeps ADR-006 Proposed, and — because no sibling was in flight — is **current at HEAD**. The note states the terminator explicitly: **subsequent rounds owe a new census note only when a landing changes what these surfaces describe.** Five timestamped censuses; no sibling commit id invented | `docs/status-matrix.md`, `docs/specs/m0-m2-architecture.md`, `docs/data-dictionary.md` |
+| Parent | Dispatched exactly one slot (the brief's condition honored); landing commit slot-files-plus-report only (no PROGRESS ticks); gate GREEN recorded at `6d625d1` with numbers matching the reviewer's independent run | — |
+
+## 2. Current baseline (this VM, Node v22.14.0, engine warning only)
+
+- **`pnpm gate` GREEN, exit 0**: **1951 tests / 1950 pass / 0 fail / 1 skipped / 0 cancelled** (111 suites). The only skip is the `PI_SMOKE=1` real-provider gate; exactly one `# SKIP` line. `tsc -p tsconfig.build.json` clean. Delta vs Round 14: **+0**, closed structurally — the range's `test/**` diff is empty.
+- `node scripts/crash-probe.mjs` → `ok: true`, **11 cases × 3 iterations**; original ten names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last.
+- Perf: no fresh bench needed — the range's `src` diff is empty. Any future perf claim records its own same-VM before/after with an unchanged-arm control; ≥5% end-to-end or it is not a candidate.
+- Parent bookkeeping: clean and matching the reviewer's independent numbers.
+
+## 3. Forbidden / frozen for Round 16
+
+Global forbidden list, unchanged: live R1/bandit/topology on the execution path (doctor's `loadProjectBanditByKey` inventory read is the **only** exception — re-swept at HEAD: `bandit-store.ts` + `doctor.ts` only; `selectArm` definition + `shadow.ts` only; bare `loadProjectBandit` zero `src` matches); Outcome-supported claims; **ADR-006 stays Proposed** (fifteen rounds; keep it); auto-promote; P0 privacy sign-off stays human; `package.json`/dependency edits; git history rewrites; subagents do not commit; no `git checkout` of other branches. `independentEvidence` is never read as corroboration (exactly the one `void` at `prescore.ts:89` at HEAD). No new `RunStatus` (exact eight-member freeze, re-read at `domain/status.ts:1-12`). No fourth key on `RUN_UNBLOCKED`; `RUN_UNBLOCKED_WITH_DISCARD` stays exact-keyed.
+
+Frozen contracts (Rounds 1–14 set, all held through Round 15 — structurally, since the round's `src` diff is empty — plus new):
+- **Rounds 1–14 carry-overs, verbatim from the Round 14 brief §3**: the whole R1–R11 block (jsonl/atomic-write/lock/delete/crash-terminal/`applyRetry`/resume-disclosure/doctor/routes/`INSPECT_SUMMARY`/BLOCKED-prefix/episode-boundary/option (a)/discard-audit/probe/verdict-producer freezes); the `taskCriteria` writer as shipped (three sources, first-write-wins, empty logged requests ignored, absence = unknown forever, reader fills only substituted specs at the sole rebuild call site, no `continuation.taskCriteria`, never synthesized, both behavioural arms pinned); `onRunStarted` as shipped; the uniform three-path early-id disclosure and its sequence pins; the exact eight-member `RunStatus` vocabulary; the scoped laundering coda as citable source prose (`replay.ts:95-101`) with the `:89-91` counterfactual staying as-is (twice ratified); the comparator soundness rule (parser-driven leaf-token walk on template-bearing files, never a bare `createScanner` loop as sole proof).
+- **New from Round 15:**
+  - **The census terminator is part of the docs record.** The three runtime surfaces are current at HEAD and say so. A new census note is owed **only when a landing changes what the surfaces describe** — that is, a `src`/`test` landing that alters the described runtime, or a decision-record change. **Declining further census notes while the surfaces stay current is valid and is the default.** Adding a census note in a round with no such landing reopens the treadmill Round 15 closed and is forbidden busywork.
+- Saturated — do not spend a slot: everything in the Round 14 saturated list (the `FlowchartCheckpointState` docstring in its entirety; the spent-pointer class; the six freeze-extra files, still six-for-six declinations), plus: the three runtime-surface census notes themselves (current at HEAD; see terminator above); re-verifying the Round 14 comment-only identity (done twice, two methods); and any re-litigation of the treadmill decision.
+
+Process requirements per slot (carried forward — all held this round — keep them): census first, against the working tree; verify handed paths exist before writing; scoped `eslint` + whole-tree `tsc --noEmit` before reporting (docs-only slots: `git diff --check` minimum, and show your stale-claim search — R15-1 did, keep that bar); census your consumers and ship or prescribe their updates in your own diff; timing-sensitive owned tests 3×; full gate is the parent's job; no scratch files at report time; mutations out-of-tree, full copy under `/tmp` with `node_modules` symlinked, then deleted. Parent: keep the model — source-truth commits before docs-truth commits, landing commits free of PROGRESS ticks.
+
+## 4. Round 16 candidates
+
+**There are ZERO candidates. Round 16 dispatches nothing.**
+
+This is stated per protocol, and it is the whole section. Round 14 closed the last honesty-debt item on the seam (the laundering coda). Round 15 closed the last honesty-debt item in the loop (the six-occurrence census race, terminated under its sole-landing condition). At HEAD: every behavioural seam is pinned; the source prose is debt-free; the runtime surfaces are current by construction and carry the terminator sentence; the gate is green at +0 with an empty `src` diff; the freeze surface verified clean on direct reads. Nothing is stale, nothing is red, nothing is unpinned.
+
+**The loop idles until genuinely new schema arrives.** Valid reasons to dispatch a Round 16-or-later slot, exhaustively:
+1. A **new seam** — new code, a new feature, or an externally requested change lands or is mandated.
+2. A **behavioural gap surfaced by usage** — a real caller hits a wrong or surprising behaviour the pins do not cover.
+3. A **probe or gate failure** — `pnpm gate` goes red or `crash-probe` reports `ok: false` on any future run.
+4. A **landing that changes what the surfaces describe** — which then, and only then, owes the docs a new census note per the terminator.
+
+Do not manufacture work to fill the round: no freeze-census extras (six-for-six declined, idempotent), no seventh docs pass (the treadmill is closed; reopening it is the one way to make Round 15's landing retroactively pointless), no re-proofs of settled identities, no speculative pins on behaviour nobody exercises.
+
+## 5. Explicitly NOT for Round 16 (unchanged or newly settled)
+
+Everything in the Round 14 brief §5, verbatim — live R1/bandit/topology; reading `independentEvidence` as corroboration; any new `RunStatus`; a fourth `RUN_UNBLOCKED` key; re-litigating or re-pinning any part of the `taskCriteria` surface; overloading `onRunStarted`; per-path liveness/pause proofs; a third `Run <id>: <word>` line; synthesizing `contract`/`taskCriteria`; a writer that drops either field; re-litigating option (a), the discard audit, the unblock fail-closed default, the gate-ledger posture, or set-before-sums; protocol-layer criterion correlation; per-criterion `UNOBSERVED`; manufactured pauses; jsonl/lock perf; mailbox/cluster work; lock stealing; resume-time adoption; `maxCostUsd` enforcement; non-terminal `RUN_CRASHED`; rewriting append-only logs; ADR-006 status changes; P0 sign-off; dependency bumps; in-tree mutation testing; editing the `replay.ts` docstring in any form; bare-`createScanner` comment-only proofs on template-bearing files; re-dispatching the six freeze-extra censuses absent a diff touching their subject — **plus, new this round:** adding any census note to the three runtime surfaces absent a landing that changes what they describe (§3, binding — the terminator is the surfaces' own stated contract now); and dispatching any slot at all absent one of §4's four conditions.

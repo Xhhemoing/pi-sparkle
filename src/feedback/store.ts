@@ -1,54 +1,48 @@
-import { dirname, join } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { isRedactionClass, REDACTION_CLASSES } from "./types.js";
 import type { FeedbackRecord, RedactionClass } from "./types.js";
 import { redactFeedback, type RedactionPolicy } from "./redaction.js";
-import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
+import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import { DomainValidationError } from "../domain/errors.js";
-
-/**
- * The one writer surface for `adaptation/feedback/records.jsonl`.
- *
- * The log has two writers that do incompatible things to the same file: the
- * auto-adapt loop appends a row per feedback item, and the episode-delete
- * cascade (`cascadeFeedbackTombstones`) filter-rewrites the whole file to strip
- * free text. A read-filter-write rewrite is not atomic against an append — an
- * append that lands after the rewrite's read but before its `writeFile` is
- * silently clobbered, which for this file means a deleted episode's body can
- * survive the delete — so both writers go through the same cooperative lock
- * (`records.jsonl.lock`) via `withFeedbackLogLock`. The lock also covers the
- * `tombstones.json` sidecar the cascade writes: a tombstone published outside
- * the lock would reopen the same window for the id list.
- *
- * The lock is not re-entrant. `appendFeedback` takes it; `writeFeedbackRecords`
- * deliberately does not, because it is the write half of a read-filter-write
- * whose caller is already holding the lock.
- *
- * A lock timeout throws `DomainValidationError` (from `withExclusiveFileLock`)
- * rather than falling back to an unlocked write. That is fail-closed in both
- * directions: a delete that cannot serialize refuses instead of racing a live
- * append, and an append that cannot serialize is a dropped feedback row, which
- * the auto-adapt caller can absorb.
- *
- * Readers stay lock-free, the same honesty as the invocation log: a torn tail
- * costs one adaptation sample rather than blocking a live run behind a writer.
- */
 
 export function feedbackLogPath(stateRoot: string): string {
   return join(adaptationRoot(stateRoot), "feedback", "records.jsonl");
 }
 
-/** Cooperative lock guarding every write to the feedback log and its tombstones. */
+/**
+ * Cooperative lock guarding every write to the feedback log.
+ *
+ * The log has two writers with incompatible shapes: the auto-adapt loop
+ * appends one row at a time, and the episode-deletion cascade
+ * (`privacy/deletion.ts`) read-filter-rewrites the whole file to strip free
+ * text. An append that lands between the cascade's read and its write is
+ * silently clobbered; an append that lands after the write puts user text back
+ * on disk under an id the cascade just tombstoned — hidden from `readFeedback`
+ * by the tombstone filter, but present in the bytes, which is exactly what the
+ * cascade promises not to leave behind. Both writers therefore go through
+ * `records.jsonl.lock`, the treatment `invocations.jsonl.lock` already gives
+ * the shared invocation log. Anything that appends to or rewrites this log
+ * outside `appendFeedback` / `withFeedbackLogLock` reopens that race.
+ *
+ * Readers are deliberately lock-free: they fail closed on a corrupt line
+ * rather than needing to exclude a live writer.
+ */
 export function feedbackLogLockPath(stateRoot: string): string {
   return `${feedbackLogPath(stateRoot)}.lock`;
 }
 
 /**
- * Run `operation` while holding the feedback log's exclusive lock. The delete
- * cascade uses this to wrap read + rewrite + tombstone write in one critical
- * section; a live append then lands either wholly before or wholly after it.
+ * Run `operation` while holding the feedback log's exclusive lock. The
+ * deletion cascade uses this so a live append cannot interleave with its
+ * read-filter-write cycle.
  */
 export async function withFeedbackLogLock<T>(
   stateRoot: string,
@@ -57,6 +51,18 @@ export async function withFeedbackLogLock<T>(
 ): Promise<T> {
   return withExclusiveFileLock(feedbackLogLockPath(stateRoot), operation, options);
 }
+
+/**
+ * In-process append queue, keyed by log path.
+ *
+ * The file lock alone is correct but polls: N concurrent appends in one
+ * process would each spin on `EEXIST` until their turn, and a busy auto-adapt
+ * batch could burn the lock timeout waiting on its own siblings. Chaining
+ * appends per path means the process asks for the lock once at a time and
+ * queued callers wait in JS, which also preserves call order within the
+ * process.
+ */
+const appendQueues = new Map<string, Promise<void>>();
 
 /** Sidecar listing deleted feedback ids; payloads of these ids never reload. */
 export function feedbackTombstonesPath(stateRoot: string): string {
@@ -70,11 +76,31 @@ export async function readFeedbackTombstoneIds(stateRoot: string): Promise<Set<s
       throw error;
     }
   );
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new DomainValidationError("malformed feedback tombstones.json: not valid JSON");
+  }
   if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === "string")) {
     throw new DomainValidationError("malformed feedback tombstones.json: expected a string array");
   }
   return new Set(parsed as string[]);
+}
+
+/**
+ * Crash-atomically replace the feedback tombstone sidecar.
+ *
+ * Callers own serialization with feedback-log rewrites. `options` exists only
+ * as the atomic writer's deterministic rename seam for crash verification.
+ */
+export async function writeFeedbackTombstones(
+  stateRoot: string,
+  tombstones: ReadonlySet<string>,
+  options: AtomicWriteOptions = {}
+): Promise<void> {
+  const body = `${JSON.stringify([...tombstones].sort(), null, 2)}\n`;
+  await writeFileAtomic(feedbackTombstonesPath(stateRoot), body, options);
 }
 
 /**
@@ -89,26 +115,17 @@ export const FEEDBACK_REDACTION_POLICY = {
 } as const satisfies RedactionPolicy;
 
 /**
- * In-process append queue, keyed by log path.
- *
- * The file lock alone is correct but polls: N concurrent appends in one process
- * would each spin on `EEXIST` until their turn, and a busy fan-out could burn
- * the lock timeout waiting on its own siblings. Chaining appends per path means
- * the process asks for the lock once at a time and queued callers wait in JS,
- * which also preserves call order within the process.
- */
-const appendQueues = new Map<string, Promise<void>>();
-
-/**
  * Redact, then persist the redacted record *with* the classes the decision
  * reported. Storing the classes is what makes the log auditable after the
  * fact: `redacted: true` only says the pass ran, while the class list says
  * whether anything was actually found and removed.
  *
- * The append happens under the log's exclusive lock, so it cannot land in the
- * window between a delete cascade's read and its rewrite. A lock timeout
- * rejects the append; callers on the live path treat that as a dropped
- * feedback row, never as a failed run.
+ * The append happens under the log's exclusive lock, so it lands either wholly
+ * before or wholly after a deletion cascade's rewrite, never inside it.
+ *
+ * `options` tunes only that lock acquisition (timeout, retry cadence); the
+ * defaults are `withExclusiveFileLock`'s. A caller that cannot afford to
+ * reject when a rewriter holds the lock wants `appendFeedbackWithRetry`.
  */
 export async function appendFeedback(
   stateRoot: string,
@@ -131,13 +148,143 @@ export async function appendFeedback(
   return feedback;
 }
 
+export interface FeedbackAppendRetryOptions extends FileLockOptions {
+  /** Called once per record the retry gives up on, with why it was dropped. */
+  readonly onDrop?: (reason: string) => void;
+  /** Tries per record, the first attempt included. Default 3. */
+  readonly maxAttempts?: number;
+  /** Pause before each retry. Default 50ms. */
+  readonly retryBackoffMs?: number;
+  /** Sleep seam; tests use it to observe retries and to order the lock release. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Either the row reached the log, or it did not and says so. There is no third
+ * state: a caller cannot mistake a drop for a write by ignoring a return value.
+ */
+export type FeedbackAppendOutcome =
+  | { readonly status: "persisted"; readonly record: FeedbackRecord }
+  | { readonly status: "dropped"; readonly reason: string };
+
+/**
+ * Per-log-path queue holding one record's retries together.
+ *
+ * `appendFeedback` already serializes appends, but a retry re-enters that
+ * queue at the back: without a second chain around the whole retry loop, a
+ * record that waited out a lock timeout would land after rows issued later.
+ */
+const retryQueues = new Map<string, Promise<void>>();
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True only for `withExclusiveFileLock`'s typed timeout.
+ *
+ * Deliberately exact: a redaction or row-validation failure is also a
+ * `DomainValidationError`, and retrying one would only re-reject. An
+ * unrecognized error fails closed to "not a lock timeout", so the error
+ * propagates instead of looping.
+ */
+function isLockTimeout(error: unknown): boolean {
+  return (
+    error instanceof DomainValidationError &&
+    "code" in error &&
+    error.code === LOCK_TIMEOUT_CODE
+  );
+}
+
+/**
+ * Append one record, retrying a lock timeout a bounded number of times, then
+ * reporting an honest drop instead of rejecting.
+ *
+ * The drop window this closes: the episode-deletion cascade holds the feedback
+ * log's lock for a whole read-filter-write cycle, and a cascade longer than
+ * the 5 s lock timeout turns a plain `appendFeedback` into a rejection. For
+ * the post-run auto-adapt persist that rejection is the wrong shape — the run
+ * already happened, the signal is already diagnosed, and failing the whole
+ * adaptation over "someone else was writing" loses more than the row does.
+ *
+ * Retry classification mirrors `createInvocationSink`: lock timeouts are
+ * retried, everything else is not. The terminal disposition deliberately does
+ * *not* mirror it. The invocation sink swallows every failure because it sits
+ * on the live executor path; this is a persist path off the live path, so only
+ * the contention outcome degrades to a drop. A redaction/validation failure or
+ * a real I/O error (`EACCES`, `ENOSPC`, a log path that is a directory) still
+ * rejects: those mean the record or the state root is broken, and an operator
+ * needs to hear that once, loudly, rather than watch persisted counts diverge
+ * quietly on every run.
+ */
+export async function appendFeedbackWithRetry(
+  stateRoot: string,
+  record: FeedbackRecord,
+  options: FeedbackAppendRetryOptions = {}
+): Promise<FeedbackAppendOutcome> {
+  const {
+    onDrop,
+    maxAttempts = 3,
+    retryBackoffMs = 50,
+    sleep = defaultSleep,
+    ...lockOptions
+  } = options;
+  const path = feedbackLogPath(stateRoot);
+  const lockPath = feedbackLogLockPath(stateRoot);
+  const tries = Math.max(1, Math.trunc(maxAttempts));
+
+  const deliver = async (): Promise<FeedbackAppendOutcome> => {
+    let attempt = 1;
+    for (;;) {
+      try {
+        return { status: "persisted", record: await appendFeedback(stateRoot, record, lockOptions) };
+      } catch (error: unknown) {
+        if (!isLockTimeout(error)) throw error;
+        if (attempt >= tries) {
+          const reason = `feedback ${record.id} dropped: lock timeout after ${tries} attempts on ${lockPath}`;
+          // A reporter that throws would turn a disclosed drop back into the
+          // rejection this function exists to avoid.
+          try {
+            onDrop?.(reason);
+          } catch {
+            // nothing left to report it to
+          }
+          return { status: "dropped", reason };
+        }
+        attempt += 1;
+        await sleep(retryBackoffMs);
+      }
+    }
+  };
+
+  const previous = retryQueues.get(path) ?? Promise.resolve();
+  const outcome = previous.then(deliver);
+  const chained = outcome.then(
+    () => undefined,
+    () => undefined
+  );
+  retryQueues.set(path, chained);
+  try {
+    return await outcome;
+  } finally {
+    if (retryQueues.get(path) === chained) retryQueues.delete(path);
+  }
+}
+
 /**
  * Unfiltered record access for the deletion engine (privacy/deletion.ts).
  * Same corruption contract as readFeedback: a bad line fails closed.
+ *
+ * `refusal` completes the error message with what the caller is declining to
+ * do, so a corrupt log reads as a named refusal rather than an anonymous parse
+ * failure the caller might be tempted to swallow.
  */
-export async function readFeedbackRecordsRaw(stateRoot: string): Promise<FeedbackRecord[]> {
-  const { values } = await readJsonlObjects(feedbackLogPath(stateRoot), (line) => {
-    return new DomainValidationError(`corrupt feedback jsonl at line ${line}`);
+export async function readFeedbackRecordsRaw(
+  stateRoot: string,
+  refusal = "refusing to use it"
+): Promise<FeedbackRecord[]> {
+  const path = feedbackLogPath(stateRoot);
+  const { values } = await readJsonlObjects(path, (line) => {
+    return new DomainValidationError(`corrupt feedback jsonl at line ${line} of ${path}; ${refusal}`);
   });
   return loadFeedbackRows(values);
 }
@@ -146,17 +293,16 @@ export async function readFeedbackRecordsRaw(stateRoot: string): Promise<Feedbac
  * Rewrite the whole feedback log (used by the episode-deletion cascade).
  * Callers must already hold the lock (`withFeedbackLogLock`) — this is the
  * write half of a read-filter-write rewrite, and running it unlocked is
- * exactly the race the lock exists for. It does not take the lock itself
- * because the lock is not re-entrant.
+ * exactly the race the lock exists for.
  */
 export async function writeFeedbackRecords(
   stateRoot: string,
-  records: readonly FeedbackRecord[]
+  records: readonly FeedbackRecord[],
+  options: AtomicWriteOptions = {}
 ): Promise<void> {
   const path = feedbackLogPath(stateRoot);
-  await mkdir(dirname(path), { recursive: true });
   const body = records.map((record) => JSON.stringify(record)).join("\n");
-  await writeFile(path, body === "" ? "" : `${body}\n`, "utf8");
+  await writeFileAtomic(path, body === "" ? "" : `${body}\n`, options);
 }
 
 export async function readFeedback(stateRoot: string): Promise<readonly FeedbackRecord[]> {

@@ -8,6 +8,12 @@ export interface FileLockOptions {
   readonly retryMs?: number;
 }
 
+export const LOCK_TIMEOUT_CODE = "LOCK_TIMEOUT" as const;
+
+export class FileLockTimeoutError extends DomainValidationError {
+  readonly code = LOCK_TIMEOUT_CODE;
+}
+
 function errorCode(error: unknown): unknown {
   return error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
 }
@@ -40,18 +46,32 @@ export async function withExclusiveFileLock<T>(
   const retryMs = options.retryMs ?? 10;
   const startedAt = Date.now();
   const ownerToken = randomUUID();
-  await mkdir(dirname(lockPath), { recursive: true });
+  const parentDir = dirname(lockPath);
 
   let lock: Awaited<ReturnType<typeof open>> | undefined;
+  let contentionRetries = 0;
   while (lock === undefined) {
     try {
       lock = await open(lockPath, "wx");
     } catch (error: unknown) {
-      if (errorCode(error) !== "EEXIST") throw error;
-      if (Date.now() - startedAt >= timeoutMs) {
-        throw new DomainValidationError(`timed out waiting for lock at ${lockPath}`);
+      const code = errorCode(error);
+      if (code === "ENOENT") {
+        await mkdir(parentDir, { recursive: true });
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, retryMs));
+      if (code !== "EEXIST") throw error;
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) {
+        throw new FileLockTimeoutError(`timed out waiting for lock at ${lockPath}`);
+      }
+      contentionRetries += 1;
+      if (contentionRetries === 1) {
+        // One I/O turn catches short holds without paying the timer floor.
+        // Longer contention uses the caller's configured polling cadence.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(retryMs, remainingMs)));
+      }
       continue;
     }
 

@@ -17,6 +17,9 @@
 - Do not import `@earendil-works/pi-*` from `src/tracking/` or `src/run/gate-apply.ts`.
 - Do not change `ModelRouter` / R0 live selection in this phase.
 - Do not add `REPAIRING` or `ANALYSIS_QUEUED` as public `RunStatus` values; store them on the gate directive / ledger fact while the run stays `RUNNING`, `WAITING_FOR_USER`, or `BLOCKED`.
+- Round 12 commit `b65a8b1` freezes the exact eight public statuses:
+  `PLANNING`, `RUNNING`, `WAITING_FOR_USER`, `PAUSED`, `BLOCKED`, `COMPLETED`,
+  `FAILED`, and `CANCELLED`.
 - Hidden CoT reader must not be registered.
 - Keep existing hyphenated dimension ids (`evidence-consistency`, not `evidence_consistency`).
 - Tests: `corepack pnpm exec tsx --test <files>` then `corepack pnpm run typecheck`.
@@ -165,6 +168,62 @@ P         = round(quality * coverage, 4)
 `requiredChecks.length === 0` → check-coverage is `NOT_APPLICABLE` (not UNOBSERVED).  
 Nothing applicable-and-observed → `quality = 0`, `coverage = 0`, `P = 0`.  
 Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.30)`. **`P` itself is not capped** — hard gate is the control path.
+
+> Implemented-semantics note (2026-08-24): this plan's dimension examples do
+> not make acceptance criteria an independent child verdict. Criteria are
+> prompt guidance plus a plan-time coverage obligation; at child assessment the
+> deterministic verifier is the sole gate. Production `check-coverage` has no
+> `FAIL` outcome, and the producer echoes constraints into
+> `constraint-retention`, so neither criteria-shaped dimension can change the
+> directive today. `cappedByHardFail` / `displayPrescore` are display-only:
+> `combineScore` and `evaluateGates` receive uncapped `P`. In the sentence
+> above, "hard gate is the control path" refers to verifier/anomaly gate facts,
+> not to the display cap. Round 9 closed the fourth precondition that sat
+> before any per-criterion gate work: `PiAgentExecutor` now exposes
+> `sparkle_report_task_result` on every leased attempt. Identity comes from the
+> request, never the model; accepted outcomes are `PASSED` and `FAILED` only,
+> summaries are non-empty, malformed evidence/artifact references refuse the
+> whole call, and `FAILED` requires evidence. The first valid verdict wins, and
+> a verdict from an attempt that later fails cannot leak into its retry.
+> `UNOBSERVED` is synthesized only for a surviving silent/refused attempt.
+> Round 10 freezes the remaining producer edges: adversarial model-supplied
+> identity cannot displace the lease, an explicitly empty `FAILED.evidenceIds`
+> emits nothing, an identical repeat is still a forbidden second verdict, and
+> the verdict tool is an unconditional direct element of every attempt's
+> `tools` array.
+> Measured production-input sweeps have `PASSED` open all 360 cells (minimum
+> 0.750 over the 0.55 soft threshold) and `FAILED` hard-block all 180 cells with
+> `deterministic-fail` leading. Round 11 subsequently added the optional
+> per-criterion result channel to that same tool and protocol-v1 verification
+> object. An evidence-backed reported `FAILED` criterion reaches the hard
+> `unmet-acceptance-criterion` gate for every role, even beside a whole-task
+> `PASSED`; omission, `UNOBSERVED`, and never-ran remain unknown-not-unmet.
+> Round 12 commit `b8f784f` reaches that gate in production: the node remains
+> COMPLETED while the run is BLOCKED. A retry request is refused; no-retry
+> `unblock` is the sanctioned exit, and `--discard-executed` is structurally
+> unavailable because there is no failed retry node.
+> The optional durable `taskCriteria` seam was declared and validated in the
+> same Round 11 landing, then filled by `81f5b81`: caller specs at start,
+> non-empty logged requests on checkpoint writes, and the existing checkpoint
+> record on restore are its three monotone first-write-wins sources. Empty
+> logged requests are ignored, absence remains unknown, a caller's empty spec
+> records known-none, the reader fills only substituted specs, and there is no
+> `continuation.taskCriteria`. `d592f8c` and successor `0e61063` pin carriage
+> and writer existence. Round 13 commit `f6e4c04` corrected the two stale
+> source comments to describe that writer. Commit `e7d018c` behaviourally pins
+> both persistence edges: known-none survives the unblock reopen and following
+> resume write when read from disk; a valid checkpoint with the field stripped
+> recovers non-empty logged requests only. The substituted legacy node
+> re-dispatches with no criteria, logs `[]`, and stays absent from the record —
+> a visible legacy cost, not a hidden recovery claim.
+>
+> `PrescoreInput.independentEvidence` does not mean third-party corroboration:
+> its sole production writer derives it from that child verdict, including the
+> child's own report, and `computePrescore` deliberately discards it. It is
+> inert today. Round 10's whole-`src` AST census permits only that `void`
+> discard, and `95a2b25` separately requires zero mentions in the flowchart
+> spine. Its 144-cell sweep confirms that flipping the flag changes no score.
+> A future scoring reader or rename needs a separate justification.
 
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 
@@ -401,6 +460,12 @@ export function executionAuthority(input: {
   readonly rollingSummaryText?: string;
 }): unknown; // returns taskContext; ignores rollingSummaryText
 ```
+
+> Implemented posture (2026-08-24, Round 9): `GateApplyResult.runStatus` is a
+> ledger projection, not a control input. The coordinator and flowchart planes
+> consume the directive/events and have zero `runStatus` readers; `applied` and
+> `transitionId` are result metadata in the same posture. Adding a reader is a
+> separate control decision.
 
 Event payloads:
 

@@ -199,11 +199,13 @@ confirm `/skill:pi-sparkle` and `/sparkle` still resolve, and update
 health-check section in `SKILL.md`. Skill files are prose, not code — a
 discovery change never justifies touching `src/`.
 
-### 7. Never import Pi types outside `src/pi-adapter/`
+### 7. Keep Pi imports inside the accepted adapter boundaries
 
 `test/unit/pi-boundary.test.ts` enforces this, and
-`docs/specs/m0-m2-architecture.md` states it: only `src/pi-adapter/` may
-import Pi packages. The tripwire matches import/require *specifiers*
+`docs/specs/m0-m2-architecture.md` states it: only `src/pi-adapter/` and a
+future `extensions/pi-sparkle/` inbound adapter may import Pi packages.
+No extension exists today, so every current import remains under
+`src/pi-adapter/`. The tripwire matches import/require *specifiers*
 (`from "…"`, `import("…")`, `require("…")`), not raw string mentions, so
 naming a Pi package as data does not trip it. New Pi capabilities are absorbed by *extending the
 adapter's pi-sparkle-owned interfaces* (`AgentExecutor`, `ExecutionEvent`,

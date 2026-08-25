@@ -1,8 +1,9 @@
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
+import { writeFileAtomic } from "../persist/atomic-file.js";
 import { parseModelRef } from "./model-ref.js";
 
 export const PROVIDERS_CONFIG_VERSION = 1 as const;
@@ -66,7 +67,10 @@ export async function loadProvidersConfig(stateRoot: string): Promise<ProvidersC
 
 export async function saveProvidersConfig(stateRoot: string, config: ProvidersConfig): Promise<ProvidersConfig> {
   const validated = parseProvidersConfig(config);
-  await writeAtomicJson(providersConfigPath(stateRoot), validated);
+  await writeFileAtomic(
+    providersConfigPath(stateRoot),
+    `${JSON.stringify(validated, null, 2)}\n`
+  );
   return validated;
 }
 
@@ -184,25 +188,4 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
       ...(typeof entry.envVar === "string" ? { envVar: entry.envVar } : {})
     };
   });
-}
-
-async function writeAtomicJson(path: string, value: unknown): Promise<void> {
-  const serialized = `${JSON.stringify(value, null, 2)}\n`;
-  await mkdir(dirname(path), { recursive: true });
-  const tempPath = `${path}.tmp`;
-  const handle = await open(tempPath, "w");
-  try {
-    await handle.writeFile(serialized, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tempPath, path);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EEXIST" && code !== "EACCES") throw error;
-    await unlink(path);
-    await rename(tempPath, path);
-  }
 }

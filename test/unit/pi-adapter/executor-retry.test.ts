@@ -203,6 +203,7 @@ describe("PiAgentExecutor 429 retry", () => {
     const events = await drain(scripted.executor, controller.signal);
 
     assert.equal(outcomeOf(events), "CANCELLED");
+    assert.equal(scripted.callCount(), 0, "a run cancelled before it started must not be paid for");
     assert.deepEqual(scripted.retries, [], "a cancelled run must not schedule a backoff");
     assert.equal(scripted.invocations[0]?.callOutcome, "cancelled");
   });
