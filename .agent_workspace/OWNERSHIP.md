@@ -1,4 +1,10 @@
-# File ownership — Loop 4 Round 22 (`cursor/opt-r22-42b1`)
+# File ownership — Loop 4 Round 23 (`cursor/opt-r22-42b1`)
+
+Round 22 CLOSED (3 ACCEPT). Round 23 is a recorded **zero-slot** round — `.agent_workspace/ROUND23-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
+
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r22-42b1`. Do not `git checkout` another branch.**
+
+# File ownership — Loop 4 Round 22 (closed)
 
 Three real candidates from `.agent_workspace/ROUND22-BRIEF.md`. **Do not pad.** Files are disjoint. **Land in order: R22-1 → R22-2 → R22-3.** Landing commits are slot files + report only — no PROGRESS ticks.
 

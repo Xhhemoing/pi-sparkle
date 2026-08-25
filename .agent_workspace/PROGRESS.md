@@ -411,7 +411,11 @@ Branch: `cursor/opt-r22-42b1`.
 | R22-2 | `8f11e5c` | flowchart run-level cap → ChildCoordinator |
 | R22-3 | `21a470a` | CLI `--max-cost-usd` + `onCostGate` stderr |
 
-**Parent gate GREEN** against code HEAD `21a470a`: **2070 tests / 2069 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites). Crash-probe **11 cases × 3**, `ok: true`. Kernel-reuse probe 3 PASS. Delta vs Round 20: **+20**. Fable SOTA review dispatched.
+**Parent gate GREEN** against code HEAD `21a470a`: **2070 tests / 2069 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites). Crash-probe **11 cases × 3**, `ok: true`. Kernel-reuse probe 3 PASS. Delta vs Round 20: **+20**. Fable SOTA review: **3 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r22-review.md`. Brief: `.agent_workspace/ROUND23-BRIEF.md`. Round 23 has zero candidates.
+
+## Round 23 — CLOSED (zero-slot)
+
+`.agent_workspace/ROUND23-BRIEF.md` §4: **no proven candidates**. Every R22 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras.
 
 ---
 
