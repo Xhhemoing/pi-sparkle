@@ -2,9 +2,10 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
-import { parseEpisodeId } from "../domain/ids.js";
+import { isEpisodeId, parseEpisodeId } from "../domain/ids.js";
 import { decideClosure } from "../episode/closure.js";
 import { closeEpisode, waitForUser } from "../episode/manager.js";
+import type { EpisodeEvent } from "../episode/events.js";
 import { EpisodeEventStore } from "../episode/store.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
@@ -23,6 +24,55 @@ type TerminalStatus = (typeof TERMINAL_STATUSES)[number];
 
 function isTerminalStatus(value: string): value is TerminalStatus {
   return (TERMINAL_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * An operator-authored detail rendered safe for a one-line-per-event surface.
+ *
+ * The event schema constrains timestamps, ids and statuses, but leaves the
+ * objective, the waiting reason, each evidence entry and the outcome id free
+ * text. A tab or a newline in any of them would forge a column or a whole row
+ * in this output, so they are escaped rather than refused: the event is already
+ * valid and persisted, and a reader that cannot print it is worse than one that
+ * prints it unambiguously. Backslash goes first, or the escapes it introduces
+ * would be indistinguishable from a backslash the operator typed.
+ */
+function humanField(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\t", "\\t")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\n", "\\n");
+}
+
+/**
+ * One tab-separated line per event, timestamp first: an operator polls this
+ * command to learn what the episode is doing and since when, and a bare type
+ * name answers neither. Every field printed here is already in the `--json`
+ * twin of the same event, so this widens no disclosure.
+ *
+ * The switch is per type because the events carry no shared timestamp field —
+ * each shape names its own moment (`occurredAt`/`attachedAt`/`closedAt`), and
+ * inventing a common alias would put a field in the CLI that the schema does
+ * not have.
+ */
+function episodeEventLine(event: EpisodeEvent): string {
+  switch (event.type) {
+    case "EPISODE_OPENED":
+      return `${event.occurredAt}\tEPISODE_OPENED\t${humanField(event.episode.objective)}`;
+    case "RUN_ATTACHED":
+      return `${event.attachedAt}\tRUN_ATTACHED\t${humanField(event.runId)}`;
+    case "EPISODE_WAITING":
+      return `${event.occurredAt}\tEPISODE_WAITING\t${humanField(event.reason)}${
+        event.requiredEvidence.length > 0
+          ? `: ${event.requiredEvidence.map(humanField).join(", ")}`
+          : ""
+      }`;
+    case "EPISODE_CLOSED":
+      return `${event.closedAt}\tEPISODE_CLOSED\t${event.status}${
+        event.outcomeId !== undefined ? ` outcome=${humanField(event.outcomeId)}` : ""
+      }`;
+  }
 }
 
 export async function episodeCommand(args: string[], io: CliIo): Promise<number> {
@@ -57,12 +107,36 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
     io.stdout(EPISODE_USAGE);
     return CLI_EXIT.ok;
   }
+  // Which verb was asked for is settled before anything that verb's flags are
+  // judged: an operator who typed a subcommand this CLI does not have has not
+  // yet made an `--episode` mistake, and reporting the id first would name the
+  // wrong defect and hide the one they can act on.
+  if (subcommand !== "events" && subcommand !== "close") {
+    io.stderr(EPISODE_USAGE);
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `Unknown episode command: ${subcommand}`,
+      next: "use episode events or episode close"
+    });
+  }
   if (values.episode === undefined) {
     return cliFail(io, {
       command: "episode",
       stage: "parse-args",
       message: "episode command requires --episode <epId>",
       next: "pass --episode <epId>"
+    });
+  }
+  // A pasted-wrong id is an argv mistake, not a validation failure of stored
+  // state: refusing here keeps the operator off the doctor-preflight remedy and
+  // hands them the same episodes inventory the not-found path points at.
+  if (!isEpisodeId(values.episode)) {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `invalid --episode "${values.episode}": expected an episode id of the form ep_<suffix>`,
+      next: `pass --episode <epId> as printed by pnpm cli list --state-root ${stateRoot} --episodes`
     });
   }
   const episodeId = parseEpisodeId(values.episode);
@@ -85,20 +159,11 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
     if (values.json) {
       for (const event of read.events) io.stdout(`${JSON.stringify(event)}\n`);
     } else {
-      for (const event of read.events) io.stdout(`${event.type}\n`);
+      for (const event of read.events) io.stdout(`${episodeEventLine(event)}\n`);
     }
     return CLI_EXIT.ok;
   }
 
-  if (subcommand !== "close") {
-    io.stderr(EPISODE_USAGE);
-    return cliFail(io, {
-      command: "episode",
-      stage: "parse-args",
-      message: `Unknown episode command: ${subcommand}`,
-      next: "use episode events or episode close"
-    });
-  }
   // `--json` is parsed for every subcommand but only `events` honours it.
   // Refusing beats silently printing the plain-text close line to a caller
   // that is about to `JSON.parse` it.
