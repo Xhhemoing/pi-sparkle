@@ -305,7 +305,7 @@ Landed: R13-1 `f6e4c04` comment-only "no writer" truth-up; R13-2 `e7d018c` unblo
 
 **Parent gate GREEN** at `16212ba`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r13-review.md`. One joint counted (mandated `main.ts`+census fold inside `1e78220`). Zero red-tree commit points. Brief: `.agent_workspace/ROUND13-BRIEF.md`.
 
-## Round 14 — in flight
+## Round 14 — CLOSED (parent gate GREEN; fable in flight)
 
 Two real candidates from `.agent_workspace/ROUND13-BRIEF.md` (freeze extras not re-dispatched: six-for-six correct declinations last round). Stay on `agent/opt-continuous`. Parent sign-off: R14-2 **YES** comment-only scoping of `replay.ts:85-93`. Parent commits R14-2 before R14-1. Landing commits are slot files + report only (no PROGRESS ticks).
 
@@ -313,6 +313,10 @@ Two real candidates from `.agent_workspace/ROUND13-BRIEF.md` (freeze extras not 
 |---|---|---|
 | R14-2 | bc-6fe42e12-b7d6-58d8-a1a5-569ec66c7470 | comment-only scope of `replay.ts:85-93` laundering narrative |
 | R14-1 | bc-1c805383-8352-5b87-81df-eb042c90dad3 | Round 13 docs truth-up |
+
+Landed: R14-2 `25a3c2f` then R14-1 `a1ea5f2` (source-truth before docs). No PROGRESS ticks in landing commits.
+
+**Parent gate GREEN** at this write-up: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review in flight.
 
 ---
 
