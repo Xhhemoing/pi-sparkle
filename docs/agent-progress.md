@@ -139,26 +139,22 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 | D32 | merged `53dccde` from `cursor/commits-refusal-retarget-0da8` `c91af7b` | GPT-d32-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d32.md`. |
 | D33 | merged `82e6ad4` from `cursor/episode-id-events-lines-0da8` `08219b2` | GPT-d33b-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d33b.md`. |
 
-### Round 9 (implementing)
+### Round 9 (closed)
 
-Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r9-fable-next.md`) at `6bdeb4e`. Through-line: D31–D33 taught the run-state verbs to refuse bad flag values before the plane; config-plane verbs and the spec checker still throw value and environment faults into generic catches. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r9 KEEP.
+Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r9-fable-next.md`) at `6bdeb4e`. Through-line: config-plane verbs and the spec checker still threw value and environment faults into generic catches. GPT-r9-challenge: D34 **FIX**, D35 **FIX**, D36 **KEEP**. All three merged after independent KEEP rechecks.
+
+| Slot | Landing | Recheck |
+|---|---|---|
+| D34 | merged `de2f459` from `cursor/models-id-preflight-0da8` `09c2f0d` | GPT-d34-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d34.md`. |
+| D35 | merged `2afc5f8` from `cursor/auth-login-envelopes-0da8` `a8e80d5` | GPT-d35-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d35.md`. |
+| D36 | merged `367bd45` from `cursor/validate-path-retarget-0da8` `2e9d35e` | GPT-d36-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d36.md`. |
+
+### Round 10 (ranking in flight)
+
+Fable-r10-next ranks the next three file-disjoint operator batches after D34–D36 KEEP. Spec lands only as `.agent_workspace/loop5-r10-fable-next.md` on `cursor/loop5-r10-fable-next-0da8` — no `src/` edits.
+
+HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
-| Fable-r9-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-2c5ef557-a068-53b5-b999-a20499e36e4d` |
-| GPT-r9-challenge | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-598bdca3-69c5-5bd3-be1e-c96eb8e2b6c9` |
-| GPT-d36-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-de111362-e5c1-5498-9cba-7fd649c3b10c` |
-| GPT-d35-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-288495d5-5b36-5ada-8788-51e2e5f88478` |
-| D34 | Opus-d34-models-preflight | claude-opus-5-thinking-high-fast | cloud | `bc-b562f78d-b1c3-54a0-b8c1-888e62b1e14f` |
-| D35 | Opus-d35-auth-envelopes | claude-opus-5-thinking-high-fast | cloud | `bc-fa4e5bc2-9f01-52aa-9ec4-088227f06a42` |
-| D36 | Opus-d36-validate-paths | claude-opus-5-thinking-high-fast | cloud | `bc-2cbcd19b-8fdb-5a2e-b433-e86c4b2c3c1c` |
-
-| Slot | Owns | Branch | Status |
-|---|---|---|---|
-| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | PR #19; GPT-r9 **FIX** rider landed `09c2f0d`; KEEP recheck in flight |
-| D35 | `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts` | `cursor/auth-login-envelopes-0da8` | **KEEP** merged `2afc5f8`; PR #20; report `.agent_workspace/loop5-r9-gpt-d35.md` |
-| D36 | `src/cli/validate.ts`, `test/unit/cli/validate.test.ts` | `cursor/validate-path-retarget-0da8` | **KEEP** merged `367bd45`; PR #18; report `.agent_workspace/loop5-r9-gpt-d36.md` |
-
-### Round 3 still running / next implementers
-
-- Windows smoke and status-matrix still HOLD behind PR #12.
+| Fable-r10-next | Fable | claude-fable-5-thinking-xhigh | cloud | (dispatching) |
