@@ -146,6 +146,8 @@ The post-publish assertion must confirm the leaf is a directory and is the **sam
 
 Post-publish must not only re-read directory identity; it must `lstat` `manifest.json` inside that same directory and require a regular file. If the originally bound directory is restored empty after the write went to a replacement, fail at stage `"publish"` and do not return a path whose manifest is missing. Keep D18 symlink refusals and the D19 one-way replacement pin. Add a rename-seam pin: move bound leaf aside → publish into a replacement → move replacement aside → restore original leaf → export rejects. Do not search the filesystem for the displaced directory. Do not change `--dir` or `main.ts`.
 
+**Landed** (Opus-d23-manifest-exists): `assertDefaultEvalDatasetPublished` `lstat`s `EVAL_DATASET_MANIFEST_FILE` on the bound path and requires `isFile()`. Independent GPT recheck dispatched.
+
 ## D20 — Round 5 rank 1: CLI claims only the work it did
 
 Fable-r5-next: **HIGH VALUE**. GPT-r5-challenge: **FIX** the two remedies, keep the slot.
