@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -7,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
-import { createTaskId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
+import { createTaskId, parseRunId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
+import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import type { RequirementContract } from "../../../src/domain/contract.js";
 import type { AcceptanceCriterion } from "../../../src/domain/task.js";
@@ -413,6 +415,20 @@ test("the flowchart checkpoint, its validator, its writer and both restorers car
     /validateTaskCriteria/,
     "the sibling field fails closed the way the contract does"
   );
+
+  // Loop 4 R12-1 filled it. Every seam the contract travels, the record now
+  // travels too — same writer, same two restorers, same reopen — because a
+  // side command that rewrites the checkpoint learns nothing about what a
+  // child was asked to check and so may not forget it. The behavioural halves
+  // are the pause test below and the substitution pins above; these are the
+  // per-seam tripwires that fail by location when one writer drops it.
+  assert.match(checkpointWriter, /ctx\.taskCriteria !== undefined \? \{ taskCriteria: ctx\.taskCriteria \}/);
+  assert.match(sessionRestorer, /checkpoint\.flowchart\.taskCriteria/);
+  assert.match(resumeRestorer, /const taskCriteria = checkpoint\.flowchart\.taskCriteria;/);
+  assert.match(unblockWriter, /\.\.\.\(taskCriteria !== undefined \? \{ taskCriteria \} : \{\}\)/);
+  // No `continuation.taskCriteria` counterpart: unlike the contract, this is a
+  // record of what the run already dispatched, not an answer a caller may give.
+  assert.doesNotMatch(resumeRestorer, /continuation\.taskCriteria/);
 });
 
 test("every flowchart-payload writer carries contract", async () => {
@@ -701,10 +717,22 @@ test("a node the resume has to substitute for gets a budget the caller authorise
     assert.ok(started, "the first node ran under the caller's spec");
     assert.ok(restarted, "the second node ran under a rebuilt one");
 
-    // The second node has no request of its own on the log, so its criteria and
-    // artifacts stay empty — there is nothing to restore and nothing is invented.
+    // **Disclosure: half of this pin is flipped.** Until Loop 4 R12-1 the
+    // assertion here was `restarted.acceptanceCriteria` deep-equal `[]`, on the
+    // reasoning that the second node has no request of its own on the log, so
+    // there is nothing to restore. That was true of the log and is no longer
+    // true of the run: the checkpoint now records what each task was dispatched
+    // with, written when the caller's specs are accepted rather than when a
+    // child starts, so the node the pause caught before dispatch is re-asked
+    // for the criteria the caller actually set.
     assert.deepEqual(started.acceptanceCriteria.map((criterion) => criterion.id), [CONTRACT_CRITERION]);
-    assert.deepEqual(restarted.acceptanceCriteria, []);
+    assert.deepEqual(
+      restarted.acceptanceCriteria.map((criterion) => criterion.id),
+      [CONTRACT_CRITERION],
+      "the resumed node is re-dispatched with the criteria it was originally given"
+    );
+    // Artifacts are *not* on that seam, and the difference is the point: only
+    // the recorded field comes back, so nothing else is quietly invented.
     assert.deepEqual(restarted.inputArtifactIds, []);
 
     // The budget is the one substitution that is made rather than left empty,
@@ -718,6 +746,120 @@ test("a node the resume has to substitute for gets a budget the caller authorise
     // constraint dimension keeps applying across the resume boundary.
     assert.equal(dimensionVerdicts(resumed.events, "tsk_first")["constraint-retention"], "PASS");
     assert.equal(dimensionVerdicts(resumed.events, "tsk_second")["constraint-retention"], "PASS");
+  });
+});
+
+/**
+ * The durable per-task criteria record, and the distinction it exists to keep:
+ * *unknown* is not *known-none*.
+ *
+ * R11-1 shipped `taskCriteria` on the flowchart checkpoint with no writer, and
+ * named the laundering it was declared to stop. `childTasksFromLog` rebuilds a
+ * resumed child from the parent log, and a `TASK_REQUEST` only reaches the log
+ * when a child actually starts — so a run paused before some child is
+ * dispatched leaves that child with no recorded criteria at all, the resume
+ * substitutes an empty list, the node runs, and the empty list it logs becomes
+ * the authoritative answer for every later resume. One pause silently and
+ * permanently downgrades what that node is asked to satisfy.
+ *
+ * Both halves are asserted here against one run, because the contrast is the
+ * evidence: `tsk_second` is a child the caller specified and the pause caught
+ * before dispatch, so the record carries its criteria and the resume re-asks
+ * for them; `tsk_unspecified` is a flowchart node the caller supplied no spec
+ * for and the log never saw, so it is absent from the record and is
+ * re-dispatched with the empty list it has always had. Nothing is invented for
+ * the node nobody described.
+ */
+const UNSPECIFIED_TASK = "tsk_unspecified";
+
+async function pausedWithAnUnspecifiedNode(
+  stateRoot: string,
+  projectRoot: string
+): Promise<{ runId: RunId; contract: RequirementContract }> {
+  const children = [testerChild("tsk_first"), testerChild("tsk_second")];
+  const contract = contractCovering(CONTRACT_CRITERION);
+  // Three flowchart nodes, two child specs: the third is a node the caller
+  // never described, which is the only shape that can still be unknown once a
+  // writer exists.
+  const flowchart = compileChildrenToFlowchart([
+    { taskId: children[0]!.taskId, role: "tester" as const, objective: children[0]!.objective },
+    {
+      taskId: children[1]!.taskId,
+      role: "tester" as const,
+      objective: children[1]!.objective,
+      dependsOn: [children[0]!.taskId]
+    },
+    {
+      taskId: parseTaskId(UNSPECIFIED_TASK),
+      role: "tester" as const,
+      objective: "Verify something nobody specified",
+      dependsOn: [children[1]!.taskId]
+    }
+  ]);
+
+  const pause = new TogglePause();
+  const first = new PassingExecutor(() => {
+    pause.paused = true;
+  });
+  const paused = await startFlowchartRun(
+    { ...deps(stateRoot), executor: first, pause },
+    { projectRoot, flowchart, childTasks: children, contract }
+  );
+  assert.equal(paused.status, "PAUSED");
+  assert.deepEqual(first.taskIds, ["tsk_first"]);
+  return { runId: paused.runId, contract };
+}
+
+async function storedTaskCriteria(
+  stateRoot: string,
+  runId: RunId
+): Promise<Record<string, readonly string[]> | undefined> {
+  const raw = await new CheckpointStore(stateRoot, runId).read();
+  const recorded = validateCheckpoint(raw).flowchart?.taskCriteria;
+  if (recorded === undefined) return undefined;
+  return Object.fromEntries(
+    recorded.map((entry) => [entry.taskId, entry.acceptanceCriteria.map((criterion) => criterion.id)])
+  );
+}
+
+test("a resume re-dispatches recorded criteria and leaves an unrecorded node unknown", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, contract } = await pausedWithAnUnspecifiedNode(stateRoot, projectRoot);
+
+    // The durable half. `tsk_unspecified` is absent rather than present-and-
+    // empty: the record says nothing about a task nobody described.
+    assert.deepEqual(await storedTaskCriteria(stateRoot, runId), {
+      tsk_first: [CONTRACT_CRITERION],
+      tsk_second: [CONTRACT_CRITERION]
+    });
+
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: new PassingExecutor(), pause: new TogglePause() },
+      runId,
+      { unpause: true, contract }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+
+    const dispatched = Object.fromEntries(
+      loggedTaskRequests(resumed.events).map((request) => [
+        request.taskId,
+        request.acceptanceCriteria.map((criterion) => criterion.id)
+      ])
+    );
+    assert.deepEqual(dispatched, {
+      tsk_first: [CONTRACT_CRITERION],
+      tsk_second: [CONTRACT_CRITERION],
+      [UNSPECIFIED_TASK]: []
+    });
+
+    // And the resume's own writes neither revised nor forgot the record: the
+    // node that ran with an empty list under a substituted spec is still
+    // absent, so a second resume would still know it is unknown rather than
+    // read back the emptiness this run just logged.
+    assert.deepEqual(await storedTaskCriteria(stateRoot, runId), {
+      tsk_first: [CONTRACT_CRITERION],
+      tsk_second: [CONTRACT_CRITERION]
+    });
   });
 });
 
@@ -906,6 +1048,8 @@ test("a pause taken between the legs does not strip the run contract", async () 
   await withTempState(async (stateRoot, projectRoot) => {
     const { runId, contract } = await pausedBeforeSecondChild(stateRoot, projectRoot);
 
+    const recorded = await storedTaskCriteria(stateRoot, runId);
+
     const paused = await cli(["pause", "--run", runId, "--reason", "operator stepped away", "--state-root", stateRoot]);
     assert.equal(paused.code, 0, paused.err);
     assert.deepEqual(
@@ -913,6 +1057,11 @@ test("a pause taken between the legs does not strip the run contract", async () 
       contract,
       "the pause rewrote the checkpoint and kept the contract on it"
     );
+    // The same rewrite, the same hazard, for the per-task criteria record: an
+    // operator action that has nothing to do with what a child was asked to
+    // check must not be able to delete it.
+    assert.deepEqual(recorded, { tsk_first: [CONTRACT_CRITERION], tsk_second: [CONTRACT_CRITERION] });
+    assert.deepEqual(await storedTaskCriteria(stateRoot, runId), recorded);
 
     const resumed = await cli([
       "resume",
@@ -1066,15 +1215,18 @@ test("a tracked run's own extracted contract survives a CLI pause and a CLI resu
 });
 
 /**
- * The CLI half of the same wiring. A pure-CLI tracked run cannot be paused
- * offline — `runCommand` prints its run id only once the run is terminal, and
- * a tracked run driven by the fake executor is always terminal in one process,
- * so a live pause is a two-terminal act with no deterministic offline seam.
- * That leaves the call site itself as the thing to pin, and it is worth
- * pinning: dropping this argument silently restores R10-4's dead end without
- * failing anything else.
+ * The CLI half of the same wiring, and the disclosure R11-3 left standing:
+ * both the controller and the early run-id callback have to survive every
+ * `main.ts` and `loop.ts` edit, and dropping either silently restores a dead
+ * end without failing anything else.
+ *
+ * The behavioural successor is below. R11-3 could only pin the call site
+ * because `runCommand` printed the run id after the awaited outcome, and a
+ * tracked run driven by the fake executor is always terminal in one process —
+ * so there was no offline moment at which an operator could name the run and
+ * still pause it. `onRunStarted` is that moment.
  */
-test("runCommand hands the tracked run the file pause controller", async () => {
+test("runCommand hands the tracked run the file pause controller and an early run id", async () => {
   const [cliSource, loopSource] = await Promise.all([
     readFile(new URL("../../../src/cli/main.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../src/track/loop.ts", import.meta.url), "utf8")
@@ -1090,6 +1242,91 @@ test("runCommand hands the tracked run the file pause controller", async () => {
   assert.match(trackedCall, /pause: createFilePauseController\(stateRoot\)/);
   assert.match(trackInput, /pause\?: PauseController/);
   assert.match(forwarder, /\.\.\.\(input\.pause !== undefined \? \{ pause: input\.pause \} : \{\}\)/);
+
+  assert.match(trackedCall, /onRunStarted: \(runId\) => \{/);
+  assert.match(trackInput, /onRunStarted\?: \(runId: RunId\) => void/);
+  assert.match(
+    forwarder,
+    /\.\.\.\(input\.onRunStarted !== undefined \? \{ onRunStarted: input\.onRunStarted \} : \{\}\)/
+  );
+});
+
+/**
+ * The behavioural pure-CLI tracked pause R11-3 designed and declined to build
+ * through a sibling's file.
+ *
+ * Nothing here races and nothing here is killed. `onRunStarted` fires
+ * synchronously inside `startFlowchartRun`, after the run directory and the
+ * `RUN_CREATED` row exist and before round 1 reads the pause token, so a
+ * `stdout` handler that writes the token has strictly ordered itself ahead of
+ * the first poll — the run is not running concurrently with this test, it is
+ * suspended inside the callback. Removing `onRunStarted` from either the deps
+ * or the CLI call site turns this run COMPLETED.
+ *
+ * The token is written directly rather than through `createFilePauseController`
+ * for two reasons that are both properties of the shipped code:
+ * `requestPause` is async and cannot be awaited from a synchronous `stdout`
+ * sink, and it takes the run's cooperative lock — which this very run holds for
+ * its whole lifetime, so an in-process request would block rather than pause.
+ * The bytes still have to satisfy the production reader: `PauseController.token`
+ * throws on a malformed `pause.json`, so a format drift fails this loudly.
+ */
+test("a pure-CLI tracked run is paused from the id its own early disclosure printed", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+
+    const out: string[] = [];
+    let disclosed: RunId | undefined;
+    const io: CliIo = {
+      stdout: (text) => {
+        out.push(text);
+        const started = /^Run (run_[A-Za-z0-9_-]+): started\n$/.exec(text);
+        if (started === null || disclosed !== undefined) return;
+        disclosed = parseRunId(started[1]!);
+        writeFileSync(
+          join(runtimeRoot(stateRoot), "runs", disclosed, "pause.json"),
+          `${JSON.stringify({ paused: true, requestedAt: "2026-08-12T09:00:00.000Z" }, null, 2)}\n`
+        );
+      },
+      stderr: () => undefined
+    };
+
+    const code = await withIsolatedPiEnv(() =>
+      main(
+        [
+          "run",
+          "--track",
+          "--assume-defaults",
+          "--project",
+          projectRoot,
+          "--objective",
+          TRACKED_OBJECTIVE,
+          "--state-root",
+          stateRoot,
+          "--executor",
+          "fake"
+        ],
+        io
+      )
+    );
+
+    assert.ok(disclosed, "the tracked run disclosed its id before it finished");
+    assert.equal(code, 1, `a paused run is not a success: ${out.join("")}`);
+    assert.match(out.join(""), new RegExp(`Run ${disclosed}: PAUSED`));
+
+    // The pause landed at the loop's first poll, so no child was ever
+    // dispatched — the token was read, not merely written.
+    const events = await eventsOf(stateRoot, disclosed);
+    assert.deepEqual(
+      events.filter((event) => event.type === "CHILD_MESSAGE"),
+      [],
+      "the run stopped before it leased any child work"
+    );
+    assert.ok(
+      events.some((event) => event.type === "PAUSE_REQUESTED"),
+      "the run recorded the pause it observed"
+    );
+  });
 });
 
 /**

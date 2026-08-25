@@ -64,6 +64,16 @@ export interface TrackRunInput {
    * rather than a new capability.
    */
   readonly pause?: PauseController;
+  /**
+   * Discloses the flowchart run's id as soon as that run exists, before it can
+   * be paused for the first time.
+   *
+   * Forwarded verbatim to `startFlowchartRun`, which documents the guarantee.
+   * The clarification path deliberately does not fire it: that run never
+   * reaches the flowchart loop, is `WAITING_FOR_USER` before it returns, and
+   * has nothing to pause.
+   */
+  readonly onRunStarted?: (runId: RunId) => void;
   /** Bounds the clarification run's acquisition of {@link withRunLifecycleLock}. */
   readonly runLock?: FileLockOptions;
 }
@@ -175,7 +185,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       registry,
       cluster: true,
       ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
-      ...(input.pause !== undefined ? { pause: input.pause } : {})
+      ...(input.pause !== undefined ? { pause: input.pause } : {}),
+      ...(input.onRunStarted !== undefined ? { onRunStarted: input.onRunStarted } : {})
     },
     {
       projectRoot: input.projectRoot,

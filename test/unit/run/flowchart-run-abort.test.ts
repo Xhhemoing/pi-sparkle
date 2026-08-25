@@ -859,8 +859,10 @@ test("a terminal append that cannot land still rethrows the original error", asy
  *
  * The tests below pin both halves of what that means now. A node whose request
  * is on the log resumes as the task the caller wrote, role included. A node
- * that never ran has no request to restore, so the rebuild substitutes — and
- * the substitution is a budget this run's caller really authorised, not the old
+ * that never ran has no request to restore, so the rebuild substitutes — from
+ * the durable checkpoint for the criteria the caller dispatched it with (Loop 4
+ * R12-1; a node nobody recorded still gets none), and for the budget from a
+ * sibling's logged request, this run's caller having really authorised it, not the old
  * `{2, 60_000, 3_600_000}` that let a resumed node spend twelve times the
  * caller's wall budget. **A resumed run therefore now honours *tighter* caller
  * limits than it used to**: this section is where a run that used to get two
@@ -1005,13 +1007,27 @@ test("a node the log never saw run is re-specified against a budget the caller a
     assert.deepEqual(original[0]?.limits, { maxAttempts: 1, timeoutMs: 30_000, maxWallTimeMs: 300_000 });
 
     // Node b was still unstarted when the crash landed, so every attempt it ever
-    // got came from a resume. The log carries no request of the caller's for it
-    // and the rebuild invents none: criteria and artifacts stay empty, honestly.
+    // got came from a resume, and the log carries no request of the caller's
+    // for it.
+    //
+    // **Disclosure (Loop 4 R12-1): the criteria half of this pin is flipped.**
+    // It used to assert `[]` here, on the reasoning that a node the log never
+    // saw has nothing to restore. The log still has nothing — but the durable
+    // checkpoint now records what each task was dispatched with, written when
+    // the caller's specs are accepted rather than when a child starts, so the
+    // resume re-asks node b for the criteria its caller actually set instead of
+    // logging an empty list that every later resume would have believed.
+    // Artifacts are deliberately *not* on that record, which is what keeps this
+    // a restoration rather than an invention: they stay empty.
     const rebuilt = taskRequestsFor(events, "tsk_b");
     assert.equal(rebuilt.length, 2, "node b was attempted twice, both times from a resume");
     for (const attempt of rebuilt) {
-      assert.deepEqual(attempt.acceptanceCriteria, [], "a node that never ran has no criteria to restore");
-      assert.deepEqual(attempt.inputArtifactIds, [], "nor any input artifacts");
+      assert.deepEqual(
+        attempt.acceptanceCriteria.map((criterion) => criterion.id),
+        ["crit-integration", "crit-regression"],
+        "the criteria the caller dispatched node b with survive the crash"
+      );
+      assert.deepEqual(attempt.inputArtifactIds, [], "and nothing outside that record is invented");
       // The budget is the substitution R7-1 made explicit: node a's logged
       // request, which is a budget this run's caller really authorised.
       assert.deepEqual(attempt.limits, original[0]?.limits, "a sibling's authorised budget");

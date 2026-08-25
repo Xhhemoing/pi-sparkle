@@ -91,7 +91,8 @@ import {
   validateCheckpoint,
   type FlowchartCheckpointState,
   type ReconstructedRun,
-  type RunCheckpoint
+  type RunCheckpoint,
+  type TaskAcceptanceCriteria
 } from "./replay.js";
 
 export interface FlowchartRunDeps {
@@ -107,6 +108,25 @@ export interface FlowchartRunDeps {
   cluster?: boolean;
   /** Bounds the run's own acquisition of {@link withRunLifecycleLock}. */
   runLock?: FileLockOptions;
+  /**
+   * Discloses the run's id to the caller once the run exists on disk and
+   * before the loop's first pause poll.
+   *
+   * `startFlowchartRun` mints the id and then does not return it until the run
+   * is terminal, which leaves an operator of a long run with nothing to name:
+   * `pause --run` keys its token by run id, so a live run that has not
+   * disclosed its id cannot be paused at all. Firing here — after the run
+   * directory and the `RUN_CREATED` row exist, while the lifecycle lock is
+   * held, and before round 1 reads the pause token — makes the id available
+   * for exactly as long as the run is pausable.
+   *
+   * A notification, not a control channel: the run does not wait for it, does
+   * not read anything back from it, and a throwing handler cannot take the run
+   * down with it (see the call site). Anything that wants to *stop* the run
+   * still goes through {@link PauseController}, which is a separate dependency
+   * on purpose.
+   */
+  onRunStarted?: (runId: RunId) => void;
 }
 
 export interface FlowchartRunInput {
@@ -289,6 +309,84 @@ function loggedTaskRequests(events: readonly Event[]): Map<TaskId, TaskRequest> 
   return requests;
 }
 
+/** Ascending `taskId`, the order the checkpoint validator insists on. */
+function byTaskId(left: TaskAcceptanceCriteria, right: TaskAcceptanceCriteria): number {
+  if (left.taskId === right.taskId) return 0;
+  return left.taskId < right.taskId ? -1 : 1;
+}
+
+/**
+ * The per-task criteria record a fresh run opens with: the child specs its
+ * caller handed it, recorded when the run accepts them rather than when it
+ * dispatches them.
+ *
+ * That gap is the whole reason the durable field exists. A `TASK_REQUEST`
+ * reaches the log only when a child actually starts, so a run paused, blocked
+ * or crashed before some child was dispatched has nothing on its log for that
+ * child — and {@link childTasksFromLog}, whose spec source *is* the log,
+ * rebuilds it with an empty criteria list. The node then runs under that empty
+ * list and appends a real `TASK_REQUEST` carrying it, which the
+ * last-request-wins rule makes authoritative for every later resume. Without a
+ * record written before dispatch, one pause permanently downgrades what a node
+ * is asked to satisfy, and nothing afterwards can tell that it happened.
+ *
+ * These are the same `acceptanceCriteria` arrays `ChildCoordinator` copies
+ * verbatim into each `TASK_REQUEST`, so recording them is recording a
+ * dispatch fact early, not inventing one. Nothing here reads the bound
+ * episode, the flowchart definition or the run contract, and a definition node
+ * the caller supplied no spec for is simply absent — it stays *unknown*, which
+ * is the distinction the field is for.
+ */
+function plannedTaskCriteria(tasks: readonly ChildTaskInput[]): TaskAcceptanceCriteria[] | undefined {
+  const planned = new Map<TaskId, TaskAcceptanceCriteria>();
+  // Last spelling of a repeated task wins, exactly as `childTaskMap` resolves
+  // the same duplicate, so the record describes the spec that would run.
+  for (const task of tasks) {
+    planned.set(task.taskId, { taskId: task.taskId, acceptanceCriteria: [...task.acceptanceCriteria] });
+  }
+  if (planned.size === 0) return undefined;
+  return [...planned.values()].sort(byTaskId);
+}
+
+/**
+ * The record carried forward by one checkpoint write: what the run already
+ * recorded, plus any task the log has a `TASK_REQUEST` for that the record
+ * does not yet name.
+ *
+ * **First write wins, and nothing is ever dropped.** The record is a statement
+ * about what a task was dispatched with, and a later request cannot revise it:
+ * a record that took the newest request would launder itself the first time a
+ * substituted node logged its empty list (see {@link plannedTaskCriteria}). By
+ * the same rule an entry already present survives every rewrite — a pause, an
+ * injection and an unblock all rewrite the checkpoint, and none of them learn
+ * anything new about what a child was asked to check.
+ *
+ * A task neither source names is absent, not empty: absence is "nobody
+ * recorded this task's criteria", while an entry with an empty list is the
+ * stronger, durable "this task was dispatched with none".
+ *
+ * Which is why a logged request carrying *no* criteria adds nothing here. On
+ * the log those two states look identical — a caller who really asked for none
+ * and a node the rebuild had to substitute for both produce an empty
+ * `acceptanceCriteria` — and recording the second as the first is precisely
+ * the laundering this field exists to stop. The one producer that can tell
+ * them apart is the caller's own spec, which {@link plannedTaskCriteria}
+ * records before dispatch and empty list included.
+ */
+function advanceTaskCriteria(
+  recorded: readonly TaskAcceptanceCriteria[] | undefined,
+  requests: ReadonlyMap<TaskId, TaskRequest>
+): TaskAcceptanceCriteria[] | undefined {
+  const merged = new Map<TaskId, TaskAcceptanceCriteria>();
+  for (const entry of recorded ?? []) merged.set(entry.taskId, entry);
+  for (const [taskId, request] of requests) {
+    if (merged.has(taskId) || request.acceptanceCriteria.length === 0) continue;
+    merged.set(taskId, { taskId, acceptanceCriteria: [...request.acceptanceCriteria] });
+  }
+  if (merged.size === 0) return undefined;
+  return [...merged.values()].sort(byTaskId);
+}
+
 /**
  * The routing decision that carries a task's true {@link AgentRole}.
  *
@@ -423,6 +521,36 @@ function childTasksFromLog(
     });
   }
   return tasks;
+}
+
+/**
+ * Restores the criteria a resumed child was originally dispatched with, for
+ * the specs {@link childTasksFromLog} had to substitute for.
+ *
+ * The rebuild's spec source is the parent log, and that is deliberately left
+ * alone here: a task whose `TASK_REQUEST` the log carries keeps that request's
+ * criteria, whatever the checkpoint records. Only the substitution case — a
+ * node the log has never seen run, which the rebuild gives an empty list — is
+ * filled, and only from the run's own durable record. A task neither the log
+ * nor the record names keeps the empty list, because unknown must not be
+ * turned into a claim about what the caller asked for.
+ *
+ * Applied at the rebuild's sole call site rather than inside it so the
+ * reconstruction seam R6-2 left behind keeps its exact shape.
+ */
+function withRecordedCriteria(
+  tasks: readonly ChildTaskInput[],
+  events: readonly Event[],
+  recorded: readonly TaskAcceptanceCriteria[] | undefined
+): ChildTaskInput[] {
+  if (recorded === undefined || recorded.length === 0) return [...tasks];
+  const requests = loggedTaskRequests(events);
+  const criteriaByTask = new Map(recorded.map((entry) => [entry.taskId, entry.acceptanceCriteria]));
+  return tasks.map((task) => {
+    if (requests.has(task.taskId)) return task;
+    const criteria = criteriaByTask.get(task.taskId);
+    return criteria === undefined ? task : { ...task, acceptanceCriteria: [...criteria] };
+  });
 }
 
 function attachChildRuntime(input: {
@@ -670,6 +798,13 @@ interface FlowchartLoopContext {
   clusterHost?: ClusterHost;
   index?: ProjectContextIndex;
   contract?: RequirementContract;
+  /**
+   * What each task was dispatched with, so far. Seeded from the caller's child
+   * specs on a start and from the durable checkpoint on every restore, then
+   * advanced by {@link advanceTaskCriteria} on each write; absence means this
+   * run has recorded nothing about any task yet.
+   */
+  taskCriteria?: TaskAcceptanceCriteria[];
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -677,6 +812,10 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
   ctx.flowchartLimits = limitsFromSnapshot(ctx.flowchartLimits, snapshot);
   const read = await ctx.eventStore.readAll();
   const replayed = replayRun(read.events);
+  // Only ever set, never cleared: the merge returns `undefined` exactly when
+  // both sources are empty, which is the state the context is already in.
+  const advanced = advanceTaskCriteria(ctx.taskCriteria, loggedTaskRequests(read.events));
+  if (advanced !== undefined) ctx.taskCriteria = advanced;
   const flowchart: FlowchartCheckpointState = {
     definition: ctx.definition,
     snapshot,
@@ -684,7 +823,12 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
     // Written on every checkpoint, not just the pre-loop one: a resume, a
     // pause and an injection all rewrite this record, and a writer that
     // omitted the contract would silently strip it from the run.
-    ...(ctx.contract !== undefined ? { contract: ctx.contract } : {})
+    ...(ctx.contract !== undefined ? { contract: ctx.contract } : {}),
+    // Same rule, same reason, for what each task was asked to satisfy — and
+    // one more: this is the only record that can still tell a task dispatched
+    // with no criteria from a task nobody recorded, once the log's own answer
+    // has been overwritten by a substituted re-dispatch.
+    ...(ctx.taskCriteria !== undefined ? { taskCriteria: ctx.taskCriteria } : {})
   };
   const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, ctx.now(), flowchart));
   await ctx.checkpointStore.write(checkpoint);
@@ -1132,6 +1276,16 @@ async function startLockedFlowchartRun(
   const append = (event: Event) => eventStore.append(event);
   await append(make("PROJECT_DISCOVERED", { project }));
   await append(make("RUN_CREATED", { run }));
+  // The earliest honest moment: the run directory exists (the appends created
+  // it), the log names the run, and the lifecycle lock is held, so nothing can
+  // delete the records out from under the id being handed out. Swallowed on
+  // purpose — a disclosure that could throw would abandon a run that has
+  // written records but no checkpoint, and no resume can recover that.
+  try {
+    deps.onRunStarted?.(runId);
+  } catch {
+    // A notification cannot be allowed to fail a run.
+  }
   await bindEpisodeToRun({
     stateRoot: deps.stateRoot,
     runId,
@@ -1153,6 +1307,7 @@ async function startLockedFlowchartRun(
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   const plannedChildren = input.childTasks ?? [];
   const childByTaskId = childTaskMap(plannedChildren);
+  const plannedCriteria = plannedTaskCriteria(plannedChildren);
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
   let childCoordinator: ChildCoordinator | undefined;
@@ -1200,7 +1355,8 @@ async function startLockedFlowchartRun(
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
     ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
-    ...(input.contract !== undefined ? { contract: input.contract } : {})
+    ...(input.contract !== undefined ? { contract: input.contract } : {}),
+    ...(plannedCriteria !== undefined ? { taskCriteria: plannedCriteria } : {})
   };
   await persistCheckpoint(ctx);
   return withRunTeardown(ctx, () => runFlowchartLoop(ctx));
@@ -1324,6 +1480,9 @@ async function resumeLockedFlowchartRun(
   // resume a contract meant that one — while an ordinary CLI resume, which has
   // only a run id, recovers the run's own durable value.
   const contract = continuation.contract ?? checkpoint.flowchart.contract;
+  // No continuation counterpart on purpose: `taskCriteria` is a record of what
+  // this run already dispatched, not a knob a caller may re-answer.
+  const taskCriteria = checkpoint.flowchart.taskCriteria;
   const supervisor = await restoreCheckpointedSupervisor({
     deps,
     runId,
@@ -1341,10 +1500,13 @@ async function resumeLockedFlowchartRun(
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   // Reuses the read the resume already did: the log is the spec source, and
   // reading it twice would only widen the window for the two copies to differ.
-  const rebuilt =
+  const fromLog =
     deps.executor !== undefined
       ? childTasksFromLog(read.events, definition, registry, deps.router.config.models)
       : [];
+  // The one thing the log cannot supply: what a node it never saw run was
+  // originally asked to satisfy. Substitutions only; see `withRecordedCriteria`.
+  const rebuilt = withRecordedCriteria(fromLog, read.events, taskCriteria);
   const childByTaskId = childTaskMap(rebuilt);
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
@@ -1392,7 +1554,8 @@ async function resumeLockedFlowchartRun(
     ...(childCoordinator !== undefined ? { childCoordinator } : {}),
     ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
-    ...(contract !== undefined ? { contract } : {})
+    ...(contract !== undefined ? { contract } : {}),
+    ...(taskCriteria !== undefined ? { taskCriteria } : {})
   };
 
   return withRunTeardown(ctx, () => resumeRestoredRun(ctx, continuation));
@@ -1517,7 +1680,12 @@ async function restoreFlowchartSession(
     // this the next side command would rewrite the checkpoint without the
     // contract, and the run would lose it to an operator action that had
     // nothing to do with it.
-    ...(checkpoint.flowchart.contract !== undefined ? { contract: checkpoint.flowchart.contract } : {})
+    ...(checkpoint.flowchart.contract !== undefined ? { contract: checkpoint.flowchart.contract } : {}),
+    // And for the same reason: neither a pause nor an injection learns
+    // anything about what a child was asked to check, so neither may forget it.
+    ...(checkpoint.flowchart.taskCriteria !== undefined
+      ? { taskCriteria: checkpoint.flowchart.taskCriteria }
+      : {})
   };
   return { ctx, replayed };
 }
@@ -1946,7 +2114,7 @@ async function unblockLockedFlowchartRun(
   if (checkpoint.flowchart === undefined) {
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
-  const { definition, snapshot, limits, contract } = checkpoint.flowchart;
+  const { definition, snapshot, limits, contract, taskCriteria } = checkpoint.flowchart;
   const gateFailedNode = gateBlockedFailedNode(read.events, blockedEventId, definition, snapshot);
   const retryNodeId = resolveRetryTarget(gateFailedNode, request.retryNodeId);
   const discardExecuted = request.discardExecuted === true;
@@ -2006,7 +2174,10 @@ async function unblockLockedFlowchartRun(
       // The reopen rewrites the checkpoint from parts, so it has to carry the
       // run contract forward explicitly: authorizing a blocked run changes what
       // may execute, never what the run was asked to honour.
-      ...(contract !== undefined ? { contract } : {})
+      ...(contract !== undefined ? { contract } : {}),
+      // Nor what each task was asked to satisfy — a rewound node is re-run
+      // against the criteria it was dispatched with, not against none.
+      ...(taskCriteria !== undefined ? { taskCriteria } : {})
     })
   );
   await checkpointStore.write(nextCheckpoint);

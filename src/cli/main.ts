@@ -869,6 +869,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       // the tracked loop observes no pause token, so `pause --run` on a live
       // tracked run wrote a file nothing read.
       pause: createFilePauseController(stateRoot),
+      // Printed while the run is still pausable, not after it has settled.
+      // `pause --run` keys its token by run id, and the summary line below
+      // only arrives once the run is terminal, so before this a tracked run
+      // could be paused in principle and unnameable in practice.
+      onRunStarted: (runId) => {
+        io.stdout(`Run ${runId}: started\n`);
+      },
       primaryModelId,
       fastModelId,
       assumeDefaults: values["assume-defaults"] === true,
