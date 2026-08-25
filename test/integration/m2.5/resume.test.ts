@@ -35,6 +35,7 @@ import {
 import type { PauseController, PauseToken } from "../../../src/run/pause-controller.js";
 import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
 import { validateCheckpoint } from "../../../src/run/replay.js";
+import { startTrackedRun } from "../../../src/track/loop.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
@@ -927,6 +928,166 @@ test("a pause taken between the legs does not strip the run contract", async () 
       "PASS"
     );
   });
+});
+
+/**
+ * The tracked path's own pause arc, and the last contract-retention leg that
+ * had no proof at all.
+ *
+ * R10-4 stopped here: `startTrackedRun` passed no `pause` dependency into
+ * `startFlowchartRun`, and `pauseIfRequested` returns immediately without one,
+ * so a tracked run could not be paused — the token was written and never read.
+ * The dependency now exists, and the control below is R10-4's finding kept as
+ * the falsifiable half: the same objective, the same executor, the same
+ * flipped flag, differing only in whether the input carries a controller.
+ */
+const TRACKED_OBJECTIVE = "Implement the smallest possible change and add tests";
+
+async function trackedRun(
+  stateRoot: string,
+  projectRoot: string,
+  options: { readonly executor: PassingExecutor; readonly pause?: PauseController }
+): Promise<{ runId: RunId; status: string }> {
+  await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+  const outcome = await withIsolatedPiEnv(() =>
+    startTrackedRun({
+      projectRoot,
+      objective: TRACKED_OBJECTIVE,
+      stateRoot,
+      executor: options.executor,
+      primaryModelId: "premium",
+      fastModelId: "cheap",
+      assumeDefaults: true,
+      ...(options.pause !== undefined ? { pause: options.pause } : {})
+    })
+  );
+  return { runId: outcome.runId, status: outcome.status };
+}
+
+function constraintRetentionByTurn(events: readonly Event[]): Record<string, string> {
+  const verdicts: Record<string, string> = {};
+  for (const event of events) {
+    if (event.type !== "TRACKING_ASSESSMENT") continue;
+    const assessment = event.payload.assessment as unknown as {
+      turnId: string;
+      dimensions: readonly { id: string; verdict: string }[];
+    };
+    const dimension = assessment.dimensions.find((entry) => entry.id === "constraint-retention");
+    if (dimension !== undefined) verdicts[assessment.turnId] = dimension.verdict;
+  }
+  return verdicts;
+}
+
+test("a tracked run observes a pause request only once its input carries a controller", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    // Control. The flag is flipped by the very first child here too; with no
+    // controller to poll it, the loop runs the whole plan out to a terminal.
+    const unwatched = new PassingExecutor();
+    const ignored = await trackedRun(stateRoot, projectRoot, { executor: unwatched });
+    assert.equal(ignored.status, "COMPLETED");
+    assert.ok(unwatched.taskIds.length > 1, "the tracked plan is more than one child of work");
+
+    const pause = new TogglePause();
+    const watched = new PassingExecutor(() => {
+      pause.paused = true;
+    });
+    const stopped = await trackedRun(stateRoot, projectRoot, { executor: watched, pause });
+    assert.equal(stopped.status, "PAUSED");
+    assert.deepEqual(
+      watched.taskIds.length,
+      1,
+      "the round boundary after the first child is where the tracked loop now stops"
+    );
+  });
+});
+
+/**
+ * The arc R10-4 was dispatched to prove, minus the one leg that is not
+ * reachable offline (see the report): the contract is the tracked path's own
+ * extraction from the objective — no test authored it and no CLI flag accepts
+ * one — and everything after the tracked run is the shipped command path.
+ */
+test("a tracked run's own extracted contract survives a CLI pause and a CLI resume", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const pause = new TogglePause();
+    const executor = new PassingExecutor(() => {
+      pause.paused = true;
+    });
+    const { runId, status } = await trackedRun(stateRoot, projectRoot, { executor, pause });
+    assert.equal(status, "PAUSED");
+
+    const contract = (await storedContract(stateRoot, runId)) as RequirementContract | undefined;
+    assert.ok(contract, "a tracked run checkpoints the contract it extracted");
+    assert.deepEqual(
+      contract.constraints.map((constraint) => constraint.id),
+      ["c-smallest", "c-tests"],
+      "these come from the tracked extractor, not from this test"
+    );
+
+    const paused = await cli([
+      "pause",
+      "--run",
+      runId,
+      "--reason",
+      "operator stepped away",
+      "--state-root",
+      stateRoot
+    ]);
+    assert.equal(paused.code, 0, paused.err);
+    assert.match(paused.out, new RegExp(`Run ${runId}: PAUSED`));
+    assert.deepEqual(await storedContract(stateRoot, runId), contract);
+
+    const resumed = await cli([
+      "resume",
+      "--run",
+      runId,
+      "--state-root",
+      stateRoot,
+      "--executor",
+      "fake",
+      "--unpause"
+    ]);
+    assert.equal(resumed.code, 0, resumed.err);
+    assert.match(resumed.out, new RegExp(`Run ${runId}: COMPLETED`));
+
+    // The resume held nothing but a run id, so every turn it assessed was
+    // assessed against the contract it read back off the checkpoint. Turns the
+    // paused leg had already run are excluded by name rather than by count.
+    const verdicts = constraintRetentionByTurn(await eventsOf(stateRoot, runId));
+    const resumedTurns = Object.keys(verdicts).filter((turnId) => !executor.taskIds.includes(turnId));
+    assert.ok(resumedTurns.length > 0, "the resume assessed turns of its own");
+    for (const turnId of Object.keys(verdicts)) {
+      assert.equal(verdicts[turnId], "PASS", `${turnId} is assessed against the run's own constraints`);
+    }
+    assert.deepEqual(await storedContract(stateRoot, runId), contract);
+  });
+});
+
+/**
+ * The CLI half of the same wiring. A pure-CLI tracked run cannot be paused
+ * offline — `runCommand` prints its run id only once the run is terminal, and
+ * a tracked run driven by the fake executor is always terminal in one process,
+ * so a live pause is a two-terminal act with no deterministic offline seam.
+ * That leaves the call site itself as the thing to pin, and it is worth
+ * pinning: dropping this argument silently restores R10-4's dead end without
+ * failing anything else.
+ */
+test("runCommand hands the tracked run the file pause controller", async () => {
+  const [cliSource, loopSource] = await Promise.all([
+    readFile(new URL("../../../src/cli/main.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../../src/track/loop.ts", import.meta.url), "utf8")
+  ]);
+  const trackedCall = cliSource.match(/const outcome = await startTrackedRun\(\{[\s\S]*?^ {4}\}\);$/m)?.[0];
+  const trackInput = loopSource.match(/export interface TrackRunInput \{[\s\S]*?^\}$/m)?.[0];
+  const forwarder = loopSource.match(/export async function startTrackedRun\b[\s\S]*?^\}$/m)?.[0];
+
+  assert.ok(trackedCall, "the tracked run's CLI call site remains structurally inspectable");
+  assert.ok(trackInput, "TrackRunInput remains structurally inspectable");
+  assert.ok(forwarder, "startTrackedRun remains structurally inspectable");
+
+  assert.match(trackedCall, /pause: createFilePauseController\(stateRoot\)/);
+  assert.match(trackInput, /pause\?: PauseController/);
+  assert.match(forwarder, /\.\.\.\(input\.pause !== undefined \? \{ pause: input\.pause \} : \{\}\)/);
 });
 
 /**

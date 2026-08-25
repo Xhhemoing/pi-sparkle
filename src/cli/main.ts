@@ -865,6 +865,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       objective,
       stateRoot,
       executor,
+      // The same file controller every other command path builds. Without it
+      // the tracked loop observes no pause token, so `pause --run` on a live
+      // tracked run wrote a file nothing read.
+      pause: createFilePauseController(stateRoot),
       primaryModelId,
       fastModelId,
       assumeDefaults: values["assume-defaults"] === true,

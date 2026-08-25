@@ -27,6 +27,7 @@ import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { withRunLifecycleLock, type RunOutcome } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { startFlowchartRun } from "../run/flowchart-run.js";
+import type { PauseController } from "../run/pause-controller.js";
 import { createModelRouter } from "../supervisor/model-router.js";
 import { bindEpisodeToRun, episodeIdFromEvents, settleBoundEpisode } from "../run/episode-bind.js";
 import { EventStore } from "../run/event-store.js";
@@ -51,6 +52,18 @@ export interface TrackRunInput {
   readonly answers?: Readonly<Record<string, string>>;
   readonly generateId?: IdGenerator;
   readonly prior?: PublicPriorSnapshot;
+  /**
+   * Observes pause requests for the run this input starts, at the flowchart
+   * loop's round boundaries.
+   *
+   * Optional, and absence is not a no-op detail: `pauseIfRequested` returns
+   * immediately when the loop context carries no controller, so a tracked run
+   * started without one cannot be paused at all — its `pause.json` is written
+   * and never read. Every other command path already supplies the file
+   * controller, which is why this is the seam the tracked path was missing
+   * rather than a new capability.
+   */
+  readonly pause?: PauseController;
   /** Bounds the clarification run's acquisition of {@link withRunLifecycleLock}. */
   readonly runLock?: FileLockOptions;
 }
@@ -161,7 +174,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       executor: input.executor,
       registry,
       cluster: true,
-      ...(input.generateId !== undefined ? { generateId: input.generateId } : {})
+      ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
+      ...(input.pause !== undefined ? { pause: input.pause } : {})
     },
     {
       projectRoot: input.projectRoot,
