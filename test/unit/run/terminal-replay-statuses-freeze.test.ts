@@ -27,6 +27,21 @@ test("option (a) adds no fourth terminal RunStatus", () => {
   }
 });
 
+test("R12-1 adds no new RunStatus", () => {
+  const signedOffRunStatuses = [
+    "PLANNING",
+    "RUNNING",
+    "WAITING_FOR_USER",
+    "PAUSED",
+    "BLOCKED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED"
+  ] as const satisfies readonly RunStatus[];
+
+  assert.deepEqual([...RUN_STATUSES].toSorted(), [...signedOffRunStatuses].toSorted());
+});
+
 test("every RUN_UNBLOCKED event stays outside RunStatus and the terminal replay set", () => {
   const runUnblockedEvents = EVENT_TYPES.filter((type) => type.startsWith("RUN_UNBLOCKED"));
   const runStatuses: ReadonlySet<string> = new Set(RUN_STATUSES);
