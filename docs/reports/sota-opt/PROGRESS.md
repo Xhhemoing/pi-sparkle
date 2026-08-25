@@ -29,8 +29,8 @@
 | 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
 | 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
-| 15 | 第 4 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-15/PLAN.md](./round-15/PLAN.md) |
-| 16 | 第 1 波进行中 | 3 / 10（A 已合入；B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-16/PLAN.md](./round-16/PLAN.md) |
+| 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
+| 16 | 第 1–2 波进行中 | 4 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-16/PLAN.md](./round-16/PLAN.md) |
 
 ### Round 1 波次
 
@@ -165,13 +165,14 @@
 | 1 | R15-A 跟踪门控、R15-B live 路由、R15-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R15-D 自优化、R15-E 学习、R15-F 实验 | D/E/F 完成已合入 |
 | 3 | R15-G 运行时/图、R15-H 评价/需求 | G/H 完成已合入 |
-| 4 | R15-I CLI/适配器、R15-J cluster/privacy | I 完成已合入；J 运行中 |
+| 4 | R15-I CLI/适配器、R15-J cluster/privacy | I/J 完成已合入 |
 
 ### Round 16 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R16-A 跟踪门控、R16-B live 路由、R16-C 离线路由 | A 完成已合入；B 运行中；C 本波派出 |
+| 1 | R16-A 跟踪门控、R16-B live 路由、R16-C 离线路由 | A 完成已合入；B/C 运行中 |
+| 2 | R16-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -327,10 +328,11 @@
 | R15-G | `cursor/r15-g-runtime-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-G.md`）。无新排除 ID；计算顶复核 0.290–0.297 ms vs I/O 89.7–103.5 ms；A/A + 引擎代轴归档；digest 第六次逐位相同 |
 | R15-H | `cursor/r15-h-eval-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-H.md`）。无新排除 ID；热层默认复核 9.46–9.57 µs/run；A/A 决斗地板轴归档；S5-H-1 维持 |
 | R15-I | `cursor/r15-i-cli-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-I.md`）。无新排除 ID；custom−builtin 复核 +23.2~+65.9 ms；七连空；A/A + 引擎代 + 堆足迹轴归档 |
-| R15-J | `cursor/r15-j-persist-fifteenth-pass-83a1` | 已派出 |
+| R15-J | `cursor/r15-j-persist-fifteenth-pass-83a1` | 已合入专属分支（仅 `R15-J.md`）。无新排除 ID；I/O 地板复核；A/A + 引擎代轴归档；切片关闭 |
 | R16-A | `cursor/r16-a-tracking-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-A.md`）。无新排除 ID；预算复核 66–76 µs/run；payload 形态轴 L/V/S 归档 |
 | R16-B | `cursor/r16-b-live-routing-sixteenth-pass-83a1` | 已派出 |
 | R16-C | `cursor/r16-c-offline-routing-sixteenth-pass-83a1` | 已派出 |
+| R16-D | `cursor/r16-d-adaptation-sixteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
