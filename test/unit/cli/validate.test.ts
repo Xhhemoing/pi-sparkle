@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { VALIDATE_USAGE } from "../../../src/cli/validate.js";
+import { enableModel, providersConfigPath } from "../../../src/config/providers-config.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -56,25 +57,28 @@ const FLOWCHART_SPEC = {
 };
 
 /**
- * The whole point of `validate` is that it reads a spec and touches nothing
- * else, so every case runs with `HOME` pointed at an empty directory: that is
- * where the default state root would be created if this command ever grew a
- * writer, and the directory is asserted empty afterwards.
+ * `validate --flowchart` reads the model catalog under a state root, so every
+ * case passes its own empty `--state-root` and `HOME` still points at an empty
+ * directory: the state root proves the read creates no run, event log or
+ * checkpoint, and the empty `HOME` proves the default state root
+ * (`~/.pi-sparkle`) is never materialised behind the operator's back.
  */
 async function withSpecDir(
-  run: (specDir: string, home: string) => Promise<void>
+  run: (specDir: string, stateRoot: string) => Promise<void>
 ): Promise<void> {
   const specDir = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-spec-"));
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-state-"));
   const home = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-home-"));
   const savedHome = process.env.HOME;
   process.env.HOME = home;
   try {
-    await run(specDir, home);
+    await run(specDir, stateRoot);
     assert.deepEqual(await readdir(home), [], "validate writes nothing under the default state root");
   } finally {
     if (savedHome === undefined) delete process.env.HOME;
     else process.env.HOME = savedHome;
     await rm(specDir, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
   }
 }
@@ -129,19 +133,25 @@ test("validate --children refuses a missing dependency", async () => {
   });
 });
 
-test("validate --flowchart accepts a tiny flowchart and counts nodes and edges", async () => {
-  await withSpecDir(async (specDir) => {
+test("validate --flowchart accepts a tiny flowchart against an empty state root's default catalog", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
     const path = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
     const { io, out, err } = capture();
-    const code = await main(["validate", "--flowchart", path], io);
-    assert.equal(code, 0);
+    const code = await main(["validate", "--flowchart", path, "--state-root", stateRoot], io);
+    assert.equal(code, 0, err.join(""));
     assert.match(out.join(""), /valid: flowchart tiny \(2 nodes, 1 edges\)/);
+    assert.match(out.join(""), new RegExp(`live catalog at ${stateRoot}`));
     assert.deepEqual(err, []);
+    assert.deepEqual(
+      await readdir(stateRoot),
+      [],
+      "reading the catalog creates no run, event log or checkpoint under --state-root"
+    );
   });
 });
 
-test("validate --flowchart fails closed on a model outside the CLI catalog", async () => {
-  await withSpecDir(async (specDir) => {
+test("validate --flowchart fails closed on a model the live catalog does not expose", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
     const path = await writeSpec(specDir, "unknown-model.json", {
       ...FLOWCHART_SPEC,
       nodes: [
@@ -150,12 +160,87 @@ test("validate --flowchart fails closed on a model outside the CLI catalog", asy
       ]
     });
     const { io, out, err } = capture();
-    const code = await main(["validate", "--flowchart", path], io);
+    const code = await main(["validate", "--flowchart", path, "--state-root", stateRoot], io);
     assert.equal(code, 1);
     assert.deepEqual(out, []);
     const parsed = parseCliErrorJson(err.join(""));
     assert.equal(parsed?.stage, "validation");
     assert.match(parsed?.message ?? "", /unavailable model "mystery"/);
+  });
+});
+
+/**
+ * The bug this pins: with a static cheap/premium list, `validate` refused a
+ * flowchart `run --flowchart` accepts, because `run` builds its catalog from
+ * the models enabled under the state root. Both paths must answer the same.
+ */
+test("validate --flowchart accepts a model enabled under --state-root and refuses it elsewhere", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    await enableModel(stateRoot, "openai/gpt-4o-mini");
+    const enabledEntries = await readdir(stateRoot);
+    const path = await writeSpec(specDir, "live-model.json", {
+      ...FLOWCHART_SPEC,
+      nodes: [
+        { ...FLOWCHART_SPEC.nodes[0], modelPolicy: { allowedModels: ["openai/gpt-4o-mini"] } },
+        FLOWCHART_SPEC.nodes[1]
+      ]
+    });
+
+    const accepted = capture();
+    assert.equal(
+      await main(["validate", "--flowchart", path, "--state-root", stateRoot], accepted.io),
+      0,
+      accepted.err.join("")
+    );
+    assert.match(accepted.out.join(""), /valid: flowchart tiny/);
+    assert.deepEqual(
+      await readdir(stateRoot),
+      enabledEntries,
+      "validate adds nothing to the state root it read the catalog from"
+    );
+
+    const otherRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-other-"));
+    try {
+      const refused = capture();
+      assert.equal(
+        await main(["validate", "--flowchart", path, "--state-root", otherRoot], refused.io),
+        1,
+        "a state root without that model must refuse the same flowchart"
+      );
+      assert.match(
+        parseCliErrorJson(refused.err.join(""))?.message ?? "",
+        /unavailable model "openai\/gpt-4o-mini"/
+      );
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("validate --flowchart without --state-root reads the default root without creating it", async () => {
+  await withSpecDir(async (specDir) => {
+    const path = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
+    const { io, out, err } = capture();
+    assert.equal(await main(["validate", "--flowchart", path], io), 0, err.join(""));
+    assert.match(out.join(""), new RegExp(`live catalog at ${join(process.env.HOME as string, ".pi-sparkle")}`));
+  });
+});
+
+test("validate --flowchart reports a broken catalog as a catalog problem, not a spec problem", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const configPath = providersConfigPath(stateRoot);
+    await mkdir(dirname(configPath), { recursive: true });
+    await writeFile(configPath, "{ not json", "utf8");
+    const path = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
+    const { io, out, err } = capture();
+    assert.equal(await main(["validate", "--flowchart", path, "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.match(parsed?.message ?? "", new RegExp(`could not build the model catalog at ${stateRoot}`));
+    assert.equal(
+      parsed?.next,
+      "fix the enabled models with pi-sparkle models list, or pass --state-root <dir>"
+    );
   });
 });
 
@@ -180,7 +265,7 @@ test("validate requires exactly one of --children and --flowchart", async () => 
 });
 
 test("validate reports unparseable JSON and a missing file with the path", async () => {
-  await withSpecDir(async (specDir) => {
+  await withSpecDir(async (specDir, stateRoot) => {
     const broken = await writeSpec(specDir, "broken.json", "{ \"tasks\": [");
     const badJson = capture();
     assert.equal(await main(["validate", "--children", broken], badJson.io), 1);
@@ -190,7 +275,7 @@ test("validate reports unparseable JSON and a missing file with the path", async
 
     const absent = join(specDir, "absent.json");
     const missing = capture();
-    assert.equal(await main(["validate", "--flowchart", absent], missing.io), 1);
+    assert.equal(await main(["validate", "--flowchart", absent, "--state-root", stateRoot], missing.io), 1);
     const parsedMissing = parseCliErrorJson(missing.err.join(""));
     assert.equal(parsedMissing?.stage, "execute");
     assert.ok(parsedMissing?.message.includes(absent), "the failure names the file it could not read");
@@ -199,7 +284,7 @@ test("validate reports unparseable JSON and a missing file with the path", async
 });
 
 test("validate --json prints the frozen VALIDATE_OK contract and nothing on failure", async () => {
-  await withSpecDir(async (specDir) => {
+  await withSpecDir(async (specDir, stateRoot) => {
     const childrenPath = await writeSpec(specDir, "children.json", CHILDREN_SPEC);
     const children = capture();
     assert.equal(await main(["validate", "--children", childrenPath, "--json"], children.io), 0);
@@ -217,7 +302,11 @@ test("validate --json prints the frozen VALIDATE_OK contract and nothing on fail
 
     const flowchartPath = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
     const flowchart = capture();
-    assert.equal(await main(["validate", "--flowchart", flowchartPath, "--json"], flowchart.io), 0);
+    assert.equal(
+      await main(["validate", "--flowchart", flowchartPath, "--state-root", stateRoot, "--json"], flowchart.io),
+      0,
+      flowchart.err.join("")
+    );
     assert.deepEqual(JSON.parse(flowchart.out.join("").trim()), {
       type: "VALIDATE_OK",
       preview: true,
@@ -225,7 +314,9 @@ test("validate --json prints the frozen VALIDATE_OK contract and nothing on fail
       path: flowchartPath,
       nodeCount: 2,
       edgeCount: 1,
-      flowchartId: "tiny"
+      flowchartId: "tiny",
+      catalogSource: "live",
+      stateRoot
     });
 
     const failing = capture();

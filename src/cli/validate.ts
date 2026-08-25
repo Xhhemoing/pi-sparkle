@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
 import type { Flowchart } from "../domain/flowchart.js";
@@ -6,6 +8,7 @@ import { compileChildrenToFlowchart, type CompilableChild } from "../graph/compi
 import { parseChildSpec } from "./children-spec.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { parseFlowchartFile } from "./flowchart-io.js";
+import { buildLiveCatalogConfig } from "./model-catalog.js";
 
 export interface ValidateIo {
   stdout(text: string): void;
@@ -16,11 +19,11 @@ export const VALIDATE_USAGE = `pi-sparkle validate — check a spec file without
 
 Usage:
   pi-sparkle validate --children <spec.json> [--json]
-  pi-sparkle validate --flowchart <flowchart.json> [--json]
+  pi-sparkle validate --flowchart <flowchart.json> [--state-root <dir>] [--json]
 
 Exactly one of --children / --flowchart. This command creates no run, writes
-nothing under any state root, loads no provider, and executes no task: it runs
-the same parsers the run path runs and reports what they said.
+nothing under any state root, opens no provider connection, and executes no
+task: it runs the same parsers the run path runs and reports what they said.
 
 --children is parsed exactly as run --children parses it (ids, roles,
 objectives, acceptance criteria, limits.maxCostUsd, dependsOn) and then
@@ -29,13 +32,18 @@ missing dependency is refused here. The compile uses the default cheap/premium
 model policy; a real run assigns catalog models instead, so this does not
 check model availability for children.
 
---flowchart runs the flowchart validator and the same CLI catalog check
-run --flowchart applies, so a node naming a model outside the catalog fails.
+--flowchart runs the flowchart validator and then the same live-catalog check
+run --flowchart applies: node models are checked against the catalog built
+from the providers config under --state-root (default ~/.pi-sparkle), so a
+node naming a model that state root does not expose fails, and a node naming a
+model you enabled there passes. Reading that config is a read — it creates no
+run and writes nothing. --state-root is ignored by --children, which never
+consults the catalog.
 
 --json prints one VALIDATE_OK object on success (frozen-additive: type,
-preview, kind, path, taskCount, nodeCount, edgeCount, flowchartId keep their
-name, type and meaning). A failure prints the CLI error report on stderr and
-exits 1 — never a VALIDATE_OK object.
+preview, kind, path, taskCount, nodeCount, edgeCount, flowchartId,
+catalogSource, stateRoot keep their name, type and meaning). A failure prints
+the CLI error report on stderr and exits 1 — never a VALIDATE_OK object.
 `;
 
 /**
@@ -55,6 +63,18 @@ export interface ValidateOkJson {
   readonly nodeCount: number;
   readonly edgeCount?: number;
   readonly flowchartId?: string;
+  /**
+   * Present for `--flowchart` only, and only ever `"live"`: the model check
+   * came from the catalog built out of `stateRoot`, the same one
+   * `run --flowchart` builds. `--children` omits both keys because it compiles
+   * with the default cheap/premium policy and checks no catalog at all.
+   */
+  readonly catalogSource?: "live";
+  readonly stateRoot?: string;
+}
+
+function defaultStateRoot(): string {
+  return join(homedir(), ".pi-sparkle");
 }
 
 /**
@@ -83,6 +103,7 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
     options: {
       children: { type: "string" },
       flowchart: { type: "string" },
+      "state-root": { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", default: false }
     }
@@ -119,7 +140,24 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
       };
       prose = `valid: children ${tasks.length} tasks → flowchart ${flowchart.id} (${flowchart.nodes.length} nodes)\n`;
     } else {
-      const flowchart = await parseFlowchartFile(flowchartPath as string);
+      // The catalog `run --flowchart` would check against, built the same way
+      // from the same state root: a static cheap/premium list here would
+      // refuse flowcharts a run accepts and accept ones a run refuses.
+      const stateRoot = values["state-root"] ?? defaultStateRoot();
+      let catalogIds: readonly string[];
+      try {
+        catalogIds = (await buildLiveCatalogConfig(stateRoot)).models.map((model) => model.id);
+      } catch (error) {
+        // A broken or unresolvable catalog is not a broken spec, so it does
+        // not get the "fix the spec" remedy.
+        return cliFail(io, {
+          command: "validate",
+          stage: error instanceof DomainValidationError ? "validation" : "execute",
+          message: `could not build the model catalog at ${stateRoot}: ${error instanceof Error ? error.message : String(error)}`,
+          next: "fix the enabled models with pi-sparkle models list, or pass --state-root <dir>"
+        });
+      }
+      const flowchart = await parseFlowchartFile(flowchartPath as string, catalogIds);
       report = {
         type: "VALIDATE_OK",
         preview: true,
@@ -127,9 +165,11 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
         path: flowchartPath as string,
         nodeCount: flowchart.nodes.length,
         edgeCount: flowchart.edges.length,
-        flowchartId: flowchart.id
+        flowchartId: flowchart.id,
+        catalogSource: "live",
+        stateRoot
       };
-      prose = `valid: flowchart ${flowchart.id} (${flowchart.nodes.length} nodes, ${flowchart.edges.length} edges)\n`;
+      prose = `valid: flowchart ${flowchart.id} (${flowchart.nodes.length} nodes, ${flowchart.edges.length} edges) checked against the live catalog at ${stateRoot}\n`;
     }
   } catch (error) {
     // A refusal is the whole point of this command, so it reports the parser's

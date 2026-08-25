@@ -260,7 +260,7 @@ Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
-  pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--json]
+  pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
   pi-sparkle init [--dir <path>] [--force] [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]

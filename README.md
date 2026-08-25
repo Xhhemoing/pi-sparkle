@@ -166,7 +166,7 @@ pnpm cli run \
 | `pnpm cli inject --run <runId> --type fact\|override\|skip` | Record a typed fact/override/skip against the run's decision policy; user strings are recorded, never executed |
 | `pnpm cli unblock --run <runId> --reason <text>` | Clear an active `RUN_BLOCKED` (optional `--retry-node`, `--discard-executed`). Resume alone replays BLOCKED; unblock is the sanctioned exit. Developer preview |
 | `pnpm cli list [--runs\|--episodes]` | Catalog runs (every `RunStatus`) or episodes under the state root. Doctor still lists only PLANNING/RUNNING crash candidates. `--json` is a separate frozen-additive `RUN_LIST`/`EPISODE_LIST` object, not `INSPECT_SUMMARY` |
-| `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Parse the same specs as `run` without creating a run or writing state |
+| `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json> [--state-root <dir>]` | Parse the same specs as `run` without creating a run or writing state. `--flowchart` checks node models against the same live catalog `run --flowchart` builds from the providers config under `--state-root` (default `~/.pi-sparkle`); `--children` compiles with the default cheap/premium policy and checks no catalog |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart JSON (embedded constants; also in `examples/`). Does not start a run |
 | `pnpm cli episode events\|close --episode <epId>` | Print the episode event view, or close an episode with an acceptance-gated status (`COMPLETED`/`FAILED`/`ABANDONED`) |
 | `pnpm cli pref list\|correct\|export\|delete` | Inspect, correct, export, or delete recorded preferences. Export is tombstone-aware and drops deleted payloads |
