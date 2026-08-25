@@ -353,8 +353,8 @@ Two real candidates from `.agent_workspace/ROUND17-BRIEF.md`. Stay on `agent/opt
 | Slot | Agent | Focus |
 |---|---|---|
 | fable-review | bc-9e193417-ef51-53ee-ad15-c35d506cc024 | Round 16 SOTA review |
-| R17-1 | pending | remove persistence-dead inferred-preference call |
-| R17-2 | pending | pin migrate-legacy fallback never-overwrite |
+| R17-1 | bc-6f0c02aa-6311-5709-99ad-12cfb15b9b9a | remove persistence-dead inferred-preference call |
+| R17-2 | bc-039fec19-aced-5ae0-b6ac-b5b58e480925 | pin migrate-legacy fallback never-overwrite |
 
 ---
 

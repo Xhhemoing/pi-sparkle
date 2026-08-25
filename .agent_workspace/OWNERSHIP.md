@@ -6,7 +6,7 @@ Two real candidates from `.agent_workspace/ROUND17-BRIEF.md`. **Do not pad.** Fr
 
 **Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
 
-Injection: `.agent_workspace/ROUND17-BRIEF.md`, `.agent_workspace/loop4-r16-review.md`.
+Injection: `.agent_workspace/ROUND17-BRIEF.md`, `.agent_workspace/loop4-r16-review.md`. Dispatch: R17-1 `bc-6f0c02aa-6311-5709-99ad-12cfb15b9b9a`; R17-2 `bc-039fec19-aced-5ae0-b6ac-b5b58e480925`.
 
 | Slot | Model | Owns |
 |---|---|---|
