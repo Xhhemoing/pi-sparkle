@@ -13,20 +13,49 @@ export interface PauseIo {
   stderr(text: string): void;
 }
 
+export const PAUSE_USAGE = `pi-sparkle pause — write a pause token for a live run
+
+Usage:
+  pi-sparkle pause --run <runId> [--reason <text>] [--state-root <dir>]
+  pi-sparkle pause --clear --run <runId> [--state-root <dir>]
+`;
+
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
 export async function pauseCommand(args: string[], io: PauseIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      run: { type: "string" },
-      reason: { type: "string" },
-      clear: { type: "boolean", default: false },
-      "state-root": { type: "string" }
-    }
-  });
+  const first = args[0];
+  if (first === "help" || first === "--help" || first === "-h") {
+    io.stdout(PAUSE_USAGE);
+    return CLI_EXIT.ok;
+  }
+
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        run: { type: "string" },
+        reason: { type: "string" },
+        clear: { type: "boolean", default: false },
+        "state-root": { type: "string" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "pause",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle pause --help"
+    });
+  }
+
+  if (values.help === true) {
+    io.stdout(PAUSE_USAGE);
+    return CLI_EXIT.ok;
+  }
   if (values.run === undefined) {
     return cliFail(io, {
       command: "pause",

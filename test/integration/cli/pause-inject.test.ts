@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { INJECT_USAGE } from "../../../src/cli/inject.js";
+import { PAUSE_USAGE } from "../../../src/cli/pause.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
@@ -273,6 +276,44 @@ test("pause and inject fail closed on a completed run", async () => {
     );
     assert.match(injected.err.join(""), /COMPLETED|fail/i);
   });
+});
+
+test("inject --help and inject help print the usage and exit 0", async () => {
+  for (const form of ["--help", "help", "-h"]) {
+    const { io, out, err } = capture();
+    assert.equal(await main(["inject", form], io), 0);
+    assert.equal(out.join(""), INJECT_USAGE);
+    assert.deepEqual(err, []);
+  }
+});
+
+test("a malformed inject flag reports parse-args and points at inject --help", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["inject", "--run", "x", "--typ", "fact"], io), 1);
+  assert.deepEqual(out, []);
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "inject");
+  assert.equal(report?.stage, "parse-args");
+  assert.match(report?.next ?? "", /inject --help/);
+});
+
+test("pause --help and pause help print the usage and exit 0", async () => {
+  for (const form of ["--help", "help", "-h"]) {
+    const { io, out, err } = capture();
+    assert.equal(await main(["pause", form], io), 0);
+    assert.equal(out.join(""), PAUSE_USAGE);
+    assert.deepEqual(err, []);
+  }
+});
+
+test("a malformed pause flag reports parse-args and points at pause --help", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["pause", "--run", "x", "--rason", "hold"], io), 1);
+  assert.deepEqual(out, []);
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "pause");
+  assert.equal(report?.stage, "parse-args");
+  assert.match(report?.next ?? "", /pause --help/);
 });
 
 test("pause fails closed on a BLOCKED flowchart", async () => {
