@@ -233,6 +233,7 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "state-root",
         "legacy-layout",
         "providers",
+        "auth",
         "project",
         "pi-dispatch",
         "skill-route",
@@ -579,6 +580,221 @@ test("doctor inventories PLANNING and RUNNING logs as read-only advisory crash c
     assert.match(text, /ok {2}run-state-inventory: 2 PLANNING\/RUNNING run log\(s\)/);
     assert.match(text, new RegExp(`run: ${planningRunId}: status=PLANNING age=60000ms`));
     assert.match(text, new RegExp(`resume --run ${runningRunId} or delete --run ${runningRunId}`));
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+// --- auth preflight ---------------------------------------------------------
+// Hermetic on every CI leg, Windows included: state lives in a temp dir, the
+// only ambient input is an environment variable this file sets and restores,
+// and the seam below keeps the multi-provider cases off Pi's resolver
+// entirely. Nothing here reaches the network.
+
+const CLAUDE = "anthropic/claude-sonnet-4-20250514";
+const GPT = "openai/gpt-4o";
+/** Never a real key, and asserted *against* everything doctor prints. */
+const FAKE_KEY = "fake-doctor-key-do-not-log-71b3";
+
+async function writeProviders(
+  stateRoot: string,
+  config: Record<string, unknown>
+): Promise<void> {
+  await mkdir(join(stateRoot, "runtime"), { recursive: true });
+  await writeFile(
+    join(stateRoot, "runtime", "providers.json"),
+    `${JSON.stringify({ version: 1, ...config })}\n`,
+    "utf8"
+  );
+}
+
+async function withEnv(
+  overrides: Readonly<Record<string, string | undefined>>,
+  run: () => Promise<void>
+): Promise<void> {
+  const saved = Object.keys(overrides).map((key) => ({ key, value: process.env[key] }));
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    await run();
+  } finally {
+    for (const { key, value } of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+/** Every variable Pi resolves anthropic from, so the host cannot decide these. */
+const ANTHROPIC_ENV = {
+  ANTHROPIC_AUTH_TOKEN: undefined,
+  ANTHROPIC_OAUTH_TOKEN: undefined,
+  ANTHROPIC_API_KEY: undefined
+} as const;
+
+test("doctor says the fake executor needs no credentials when nothing is enabled", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-none-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-none-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    // `code` is not asserted here: `node` is engine-dependent, so this file
+    // only ever reads the check it is about.
+    const { report } = await runDoctorJson(["--state-root", stateRoot, "--project", projectRoot]);
+    const auth = report.checks.find((check) => check.name === "auth");
+    assert.equal(auth?.ok, true);
+    assert.match(auth?.detail ?? "", /fake executor needs no credentials/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports the credential source of every provider a run would use", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-ok-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-ok-proj-"));
+  const asked: string[] = [];
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [CLAUDE, GPT], primary: CLAUDE, fast: GPT });
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        authCheck: async (_root, providerId) => {
+          asked.push(providerId);
+          return providerId === "anthropic"
+            ? { type: "api_key", source: "stored credential" }
+            : { type: "api_key", source: "OPENAI_API_KEY" };
+        }
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    const auth = report.checks.find((check) => check.name === "auth");
+    assert.equal(auth?.ok, true);
+    assert.match(auth?.detail ?? "", /anthropic=api_key via stored credential/);
+    assert.match(auth?.detail ?? "", /openai=api_key via OPENAI_API_KEY/);
+
+    // One question per provider, not per enabled model, and only for the
+    // providers this state root would actually route to.
+    assert.deepEqual(asked, ["anthropic", "openai"]);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed for an enabled provider with no credential", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-missing-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-missing-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [CLAUDE, GPT], primary: CLAUDE });
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        authCheck: async (_root, providerId) =>
+          providerId === "anthropic" ? { type: "api_key", source: "stored credential" } : undefined
+      }
+    );
+    // The whole point: this is discovered before a run exists, not as Pi's
+    // "Provider is not configured" once there is state to clean up.
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    const auth = report.checks.find((check) => check.name === "auth");
+    assert.equal(auth?.ok, false);
+    assert.equal(report.ok, false);
+    assert.match(auth?.detail ?? "", /openai=no credential/);
+    assert.match(auth?.detail ?? "", /pi-sparkle auth login <provider>/);
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor resolves a real environment credential and prints its name, never its value", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-env-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-env-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [CLAUDE], primary: CLAUDE });
+
+    // No seam here: the shipped resolver is what the operator's run will use,
+    // so the check is only worth anything if it agrees with it.
+    await withEnv({ ...ANTHROPIC_ENV, ANTHROPIC_API_KEY: FAKE_KEY }, async () => {
+      const { report, out } = await runDoctorJson([
+        "--state-root",
+        stateRoot,
+        "--project",
+        projectRoot
+      ]);
+      const auth = report.checks.find((check) => check.name === "auth");
+      assert.equal(auth?.ok, true);
+      assert.match(auth?.detail ?? "", /anthropic=api_key via ANTHROPIC_API_KEY/);
+      assert.equal(out.includes(FAKE_KEY), false, "doctor must never print a credential value");
+    });
+
+    await withEnv(ANTHROPIC_ENV, async () => {
+      const { report, code } = await runDoctorJson([
+        "--state-root",
+        stateRoot,
+        "--project",
+        projectRoot
+      ]);
+      assert.equal(code, 1, "a missing credential fails the preflight");
+      const auth = report.checks.find((check) => check.name === "auth");
+      assert.equal(auth?.ok, false);
+      assert.match(auth?.detail ?? "", /anthropic=no credential/);
+    });
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor prints the auth check in prose without leaking a credential", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-prose-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-prose-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [CLAUDE], primary: CLAUDE });
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--state-root", stateRoot, "--project", projectRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION,
+      authCheck: async () => ({ type: "api_key", source: "ANTHROPIC_API_KEY" })
+    });
+    assert.equal(code, 0, err.join(""));
+    const text = out.join("");
+    assert.match(text, /ok {2}auth: anthropic=api_key via ANTHROPIC_API_KEY/);
+    assert.equal(text.includes(FAKE_KEY), false);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable providers.json fails the providers check without a second auth failure", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-broken-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-broken-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(join(stateRoot, "runtime", "providers.json"), "{not json", "utf8");
+    const { report, code } = await runDoctorJson(["--state-root", stateRoot, "--project", projectRoot]);
+    assert.equal(code, 1);
+    assert.equal(report.checks.find((check) => check.name === "providers")?.ok, false);
+    const auth = report.checks.find((check) => check.name === "auth");
+    assert.equal(auth?.ok, true, "one cause, one failure");
+    assert.match(auth?.detail ?? "", /see the providers check/);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });
