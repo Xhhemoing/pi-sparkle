@@ -360,9 +360,9 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 **Parent gate GREEN** against code HEAD `223e3dd` (orchestrator record `6b8124d`): **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r17-review.md`. One required joint (plane-boundary allowlist shrink inside `223e3dd`). Brief: `.agent_workspace/ROUND18-BRIEF.md`. Retarget plane closed; Round 18 has zero candidates.
 
-## Round 18 — in flight (post-merge seam)
+## Round 18 — CLOSED
 
-PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge is a **new seam** under ROUND18-BRIEF §4 reason 1. Continue the 20+ round loop on `cursor/opt-r18-postmerge-42b1`. Audit the merged tree for operator-honesty, fail-closed, embedder-contract, and merge-induced holes (steer, thinking redaction, `maxCostUsd` forward, live kernel events, isolation allowlists). **Do not pad. Do not freeze extras. Do not reopen inferred-preference liveness.**
+Two real candidates from the post-merge `.agent_workspace/ROUND18-BRIEF.md` (audit: `.agent_workspace/loop4-r18-audit.md`). Stay on `cursor/opt-r18-postmerge-42b1`. Parent sign-off: R18-1 **YES (a) re-deliver** accepted steers into each retry kernel. R18-2 no extra sign-off. Landing commits are slot files + report only (no PROGRESS ticks). Do not pad.
 
 | Slot | Agent | Focus |
 |---|---|---|
@@ -371,9 +371,13 @@ PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge
 | R18-2 | bc-1a36546b-f73f-5f8c-b7f9-259950beb25d | parseChildSpec forwards declared maxCostUsd |
 | fable-review | bc-bcb38c47-39c5-5e38-8b39-211d8a2201b6 | Round 18 SOTA review + ROUND19-BRIEF |
 
-Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (invalid refused by task); R18-1 `4412fac` re-deliver accepted steers into each retry kernel after the new attempt's first turn. Direction (a). No freeze extras. No 12th crash-probe case.
+Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (invalid refused by task); R18-1 `4412fac` re-deliver accepted steers into each retry kernel after the new attempt's first turn. Direction (a). No freeze extras. No 12th crash-probe case. Zero joints.
 
-**Parent gate GREEN** against code HEAD `4412fac`: **2042 tests / 2041 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs post-merge audit baseline 2038: **+4** (R18-2 +2, R18-1 +2). Fable SOTA review dispatched. Do not pad.
+**Parent gate GREEN** against code HEAD `4412fac` (orchestrator record `a5535fb`): **2042 tests / 2041 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs post-merge audit baseline 2038: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r18-review.md`. Brief: `.agent_workspace/ROUND19-BRIEF.md`. Post-merge seam closed; Round 19 has zero candidates.
+
+## Round 19 — CLOSED (zero-slot)
+
+`.agent_workspace/ROUND19-BRIEF.md` §4: **no proven candidates**. Every R18 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras. Round 20 waits for one of those four reasons.
 
 ---
 

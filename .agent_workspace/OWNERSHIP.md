@@ -1,4 +1,10 @@
-# File ownership — Loop 4 Round 18 (`cursor/opt-r18-postmerge-42b1`)
+# File ownership — Loop 4 Round 19 (`cursor/opt-r18-postmerge-42b1`)
+
+Round 18 CLOSED (2 ACCEPT). Round 19 is a recorded **zero-slot** round — `.agent_workspace/ROUND19-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
+
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r18-postmerge-42b1`. Do not `git checkout` another branch.**
+
+# File ownership — Loop 4 Round 18 (closed)
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r18-postmerge-42b1`. Do not `git checkout` another branch.**
 
