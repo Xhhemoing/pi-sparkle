@@ -259,7 +259,7 @@ Landed: R10-1 `54cf5e5` `RUN_UNBLOCKED_WITH_DISCARD` + `unblock --discard-execut
 | R11-9 | bc-9b740fbd-b914-5ee5-8aed-9ce8e9c09f14 | keep `TERMINAL_REPLAY_STATUSES` freeze |
 | R11-10 | bc-63703673-58ec-55f2-b9ad-9595d7b2e887 | keep never-synthesize-from-episode |
 
-Landed: R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`. Held: R11-10 until R11-1. In flight: R11-1, R11-6.
+Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th crash-probe case; R11-3 `ac3faa3` tracked-run pause controller; R11-4 `9663294` restore-path discard charge audit; R11-5 `9efc715` Round 10 docs; R11-7 `3bbb8dc` INSPECT_SUMMARY / BLOCKED prefix freeze; R11-8 `39c97c3` restore-audit under `applyRetry` absence pin; R11-9 `330466a` option (a) cannot add a fourth `RunStatus`; R11-10 `f99a0c8` never-synthesize covers `taskCriteria`. Parent joint `6926592` spent R9-1 reserved pin in `resume.test.ts`. In flight: R11-6. Residual: `taskCriteria` has no `persistCheckpoint` writer.
 
 ---
 
