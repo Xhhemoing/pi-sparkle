@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -180,6 +180,81 @@ test("eval cannot emit an improvement claim without a passing comparison validat
 
   const registry = await loadAdaptationRegistry(seeded.stateRoot);
   assert.equal(registry.getActiveVersion(routingIdentity())?.versionId, seeded.activeVersionId);
+});
+
+test("report publication exposes the previous or new complete report at the rename seam", async () => {
+  const seeded = await seedRoutingCandidate();
+  await writeDataset(seeded.datasetDir, [editEpisode(1, seeded.frozenWorkspace, "PASS")]);
+  const previous = await evalRoutingPolicy({
+    stateRoot: seeded.stateRoot,
+    candidateId: seeded.candidateId,
+    datasetDir: seeded.datasetDir
+  });
+  const previousBytes = await readFile(previous.reportPath, "utf8");
+
+  await writeDataset(seeded.datasetDir, [editEpisode(1, seeded.frozenWorkspace, "FAIL")]);
+  let signalRename!: (value: {
+    readonly source: string;
+    readonly destination: string;
+    readonly tempBytes: string;
+  }) => void;
+  let rejectRename!: (reason?: unknown) => void;
+  const renameReached = new Promise<{
+    readonly source: string;
+    readonly destination: string;
+    readonly tempBytes: string;
+  }>((resolve, reject) => {
+    signalRename = resolve;
+    rejectRename = reject;
+  });
+  let releaseRename!: () => void;
+  const renameAllowed = new Promise<void>((resolve) => {
+    releaseRename = resolve;
+  });
+
+  const publishing = evalRoutingPolicy(
+    {
+      stateRoot: seeded.stateRoot,
+      candidateId: seeded.candidateId,
+      datasetDir: seeded.datasetDir
+    },
+    {
+      uniqueSuffix: () => "rename-seam",
+      rename: async (source, destination) => {
+        try {
+          signalRename({ source, destination, tempBytes: await readFile(source, "utf8") });
+          await renameAllowed;
+          await rename(source, destination);
+        } catch (error: unknown) {
+          rejectRename(error);
+          throw error;
+        }
+      }
+    }
+  );
+  const seam = await Promise.race([
+    renameReached,
+    publishing.then(() => {
+      throw new Error("report published without reaching the atomic rename seam");
+    })
+  ]);
+  const whileRenamePaused = await readFile(previous.reportPath, "utf8");
+  releaseRename();
+  const next = await publishing;
+  const publishedBytes = await readFile(next.reportPath, "utf8");
+
+  assert.equal(seam.destination, previous.reportPath);
+  assert.notEqual(seam.source, seam.destination);
+  assert.notEqual(seam.tempBytes, previousBytes);
+  assert.equal(whileRenamePaused, previousBytes);
+  assert.equal(publishedBytes, seam.tempBytes);
+  for (const observed of [whileRenamePaused, publishedBytes]) {
+    assert.ok(
+      observed === previousBytes || observed === seam.tempBytes,
+      "destination exposed bytes other than one complete report"
+    );
+    assert.doesNotThrow(() => JSON.parse(observed));
+  }
 });
 
 test("cacheKey follows replayCacheKey and changes with contentHash", async () => {

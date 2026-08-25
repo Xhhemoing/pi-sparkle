@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import { adaptationRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
@@ -133,7 +134,10 @@ interface ReplayAction {
   readonly candidateCostUsd: number;
 }
 
-export async function evalRoutingPolicy(request: RoutingEvalRequest): Promise<RoutingEvalResult> {
+export async function evalRoutingPolicy(
+  request: RoutingEvalRequest,
+  writeOptions: AtomicWriteOptions = {}
+): Promise<RoutingEvalResult> {
   if (!isCandidateId(request.candidateId)) {
     throw new DomainValidationError(`invalid candidate id: ${request.candidateId}`);
   }
@@ -204,7 +208,7 @@ export async function evalRoutingPolicy(request: RoutingEvalRequest): Promise<Ro
 
   await mkdir(outputRoot, { recursive: true });
   const reportPath = join(outputRoot, `${candidateId}.${cacheKey}.json`);
-  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await writeFileAtomic(reportPath, `${JSON.stringify(report, null, 2)}\n`, writeOptions);
   return { report, reportPath };
 }
 
