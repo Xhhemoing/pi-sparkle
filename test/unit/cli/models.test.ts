@@ -207,6 +207,179 @@ test("list annotates an enabled model the catalog no longer resolves", async () 
   });
 });
 
+/**
+ * The frozen `MODELS_LIST` shape, pinned exactly the day it ships (D3) and as
+ * whole objects: what a consumer must not have to guess is which keys are
+ * always there. `primary` / `fast` are named once at the top level and are
+ * `null` when unset — never omitted, and never restated per row where the two
+ * copies could disagree.
+ *
+ * The object reports the stored configuration, not what a run will use: run
+ * flags and PI_PROVIDER / PI_MODEL outrank these defaults.
+ */
+test("list --json emits the exact enabled shape, defaults and staleness included", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(
+      join(stateRoot, "runtime", "providers.json"),
+      `${JSON.stringify({
+        version: 1,
+        enabled: ["local/m1", "local/m2", "local/retired"],
+        primary: "local/m1",
+        customProviders: [
+          {
+            id: "local",
+            baseUrl: "http://127.0.0.1:9/v1",
+            models: LOCAL_MODELS.map((id) => ({ id }))
+          }
+        ]
+      })}\n`,
+      "utf8"
+    );
+    const { io, out, err } = capture();
+    assert.equal(await modelsCommand(["list", "--json", "--state-root", stateRoot], io), 0, err.join(""));
+    assert.deepEqual(err, []);
+    assert.deepEqual(JSON.parse(out.join("")), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "enabled",
+      primary: "local/m1",
+      fast: null,
+      models: [
+        { id: "local/m1", inCatalog: true },
+        { id: "local/m2", inCatalog: true },
+        { id: "local/retired", inCatalog: false }
+      ]
+    });
+  });
+});
+
+test("list --json prints exactly one parseable line and no prose", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["set-default", "--primary", "local/m1", "--fast", "gateway/fast"]);
+
+    const { io, out, err } = capture();
+    assert.equal(await modelsCommand(["list", "--json", "--state-root", stateRoot], io), 0, err.join(""));
+    assert.deepEqual(err, []);
+    const stdout = out.join("");
+    assert.equal(stdout.endsWith("\n"), true);
+    const lines = stdout.split("\n").slice(0, -1);
+    assert.equal(lines.length, 1, stdout);
+    // The two defaults are read off the top level, which is the only place the
+    // object states them.
+    assert.deepEqual(JSON.parse(lines[0] as string), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "enabled",
+      primary: "local/m1",
+      fast: "gateway/fast",
+      models: [
+        { id: "local/m1", inCatalog: true },
+        { id: "gateway/fast", inCatalog: true }
+      ]
+    });
+  });
+});
+
+test("list --json on an empty store is the object with no models, not the notice", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const { io, out, err } = capture();
+    assert.equal(await modelsCommand(["list", "--json", "--state-root", stateRoot], io), 0, err.join(""));
+    assert.deepEqual(err, []);
+    assert.deepEqual(JSON.parse(out.join("")), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "enabled",
+      primary: null,
+      fast: null,
+      models: []
+    });
+    assert.doesNotMatch(out.join(""), /No models enabled/);
+  });
+});
+
+test("list --available --json carries the same builtin+custom merge as the human path", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    const human = await available(stateRoot);
+
+    const { io, out, err } = capture();
+    assert.equal(
+      await modelsCommand(["list", "--available", "--json", "--state-root", stateRoot], io),
+      0,
+      err.join("")
+    );
+    assert.deepEqual(err, []);
+    // Available mode states no defaults at all: browsing the catalog is not a
+    // question about what this state root has configured.
+    assert.deepEqual(JSON.parse(out.join("")), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "available",
+      models: human.map((id) => ({ id }))
+    });
+
+    const scoped = capture();
+    assert.equal(
+      await modelsCommand(
+        ["list", "--available", "--json", "--provider", "local", "--state-root", stateRoot],
+        scoped.io
+      ),
+      0,
+      scoped.err.join("")
+    );
+    assert.deepEqual(JSON.parse(scoped.out.join("")), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "available",
+      models: [{ id: "local/m1" }, { id: "local/m2" }]
+    });
+  });
+});
+
+test("an unknown models subcommand speaks the house dialect and still echoes the usage", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await modelsCommand(["lsit"], io), 1);
+  assert.equal(out.join(""), "");
+  const stderr = err.join("");
+  assert.match(stderr, /pi-sparkle models list \[--available\]/);
+  const report = parseCliErrorJson(stderr);
+  assert.ok(report !== undefined, "an unknown subcommand must emit a parseable report");
+  assert.equal(report.command, "models");
+  assert.equal(report.stage, "parse-args");
+  assert.equal(report.message, "Unknown models command: lsit");
+  assert.equal(report.next, "use models list, enable, disable, or set-default");
+});
+
+test("models list --help prints the usage and exits 0", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await modelsCommand(["list", "--help"], io), 0, err.join(""));
+  assert.deepEqual(err, []);
+  assert.match(out.join(""), /pi-sparkle models list \[--available\] \[--provider <id>\] \[--state-root <dir>\] \[--json\]/);
+});
+
+test("a mistyped flag on a models subcommand is a parse-args failure, not the doctor remedy", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const cases = [
+      { argv: ["list", "--jsn"], command: "models list" },
+      { argv: ["enable", "local/m1", "--stateroot", stateRoot], command: "models enable" },
+      { argv: ["disable", "local/m1", "--stateroot", stateRoot], command: "models disable" },
+      { argv: ["set-default", "--primry", "local/m1"], command: "models set-default" }
+    ];
+    for (const { argv, command } of cases) {
+      const { io, out, err } = capture();
+      assert.equal(await modelsCommand(argv, io), 1, `${command} must fail`);
+      assert.equal(out.join(""), "");
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${command} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.next, "run pi-sparkle models --help");
+    }
+  });
+});
+
 test("the argument errors of enable, disable and set-default speak the house dialect", async () => {
   await withStateRoot(async (stateRoot) => {
     const cases = [
