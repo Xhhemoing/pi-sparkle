@@ -293,6 +293,22 @@ export async function listCommand(args: string[], io: ListIo): Promise<number> {
     });
   }
 
+  // An explicitly blank `--state-root` is what an unset shell variable leaves
+  // behind (`--state-root "$SR"`), and resolving it made the inventory answer
+  // about a cwd-relative tree the operator never named: `(no runs)` for a root
+  // that was never read, or the runs of whatever directory they happened to be
+  // in. Refused after the path-free argv checks above and before the root is
+  // resolved, so a mistyped `--status` or `--sort` still reports first.
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "list",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
+
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const json = values.json === true;
 
