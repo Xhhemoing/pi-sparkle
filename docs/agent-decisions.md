@@ -95,3 +95,7 @@ GPT-gate-cause-recheck: event pairing, four-key `--summary-json`, stall-path pre
 ## D12 — Auth `--from-env` must succeed when the environment is configured, even if `auth.json` is corrupt
 
 GPT-auth-landing-recheck: **FIX**. Keep the empty-store probe and flag exclusivity. After `checkProviderEnvAuth` succeeds, do not let `listStoredCredentials` (or any real-store parse) fail the command. Omit the stored-wins note when the store cannot be listed. Add the corrupt-file + env-key CLI pin (exit 0, env source named, no secret, bytes unchanged). Add stored-OAuth `--from-env` pins (env absent → fail; env key set → succeed). Describe the check as environment/ambient auth with `auth.json` ignored — do not say “environment variables only” unless the probe is actually process-env-only. Do not change store-first `checkProviderAuth()`.
+
+## D13 — One-model catalog must emit both `cheap` and `premium`
+
+Fable-catalog-honesty: **HIGH VALUE**, freeze-safe. The `primaryId !== fastId` guard in `src/cli/model-catalog.ts` is not load-bearing (`cheap` is already a same-content alias). Drop that conjunct only; do not touch `catalogFromPrimary` / `primary-catalog.ts` (pinned `length === 1`). No `main.ts` / README / example-file edits — existing claims become true. Implement C1–C4 in `.agent_workspace/loop5-r3-fable-catalog.md` as one commit.

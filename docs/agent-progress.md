@@ -92,6 +92,6 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 still running / next implementers
 
 - Track T1+T2 (D8/D9) in flight on a cloud VM.
-- Fable catalog-honesty implementer spec.
-- D12 auth `--from-env` corrupt-store success dispatched on a cloud VM.
+- D12 auth `--from-env` corrupt-store success in flight.
+- D13 catalog honesty (C1–C4) dispatched on a cloud VM.
 - After that: D11 gate-cause wording; D10 dataset privacy; episode/inject/commits.
