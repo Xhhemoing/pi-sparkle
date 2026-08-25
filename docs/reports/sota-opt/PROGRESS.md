@@ -30,7 +30,7 @@
 | 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
 | 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
-| 16 | 第 1–3 波进行中 | 7 / 10（A–D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-16/PLAN.md](./round-16/PLAN.md) |
+| 16 | 第 1–3 波进行中 | 8 / 10（A–E 已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-16/PLAN.md](./round-16/PLAN.md) |
 
 ### Round 1 波次
 
@@ -172,8 +172,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R16-A 跟踪门控、R16-B live 路由、R16-C 离线路由 | A/B/C 完成已合入 |
-| 2 | R16-D 自优化、R16-E 学习、R16-F 实验 | D 完成已合入；E/F 运行中 |
-| 3 | R16-G 运行时/图 | G 本波派出 |
+| 2 | R16-D 自优化、R16-E 学习、R16-F 实验 | D/E 完成已合入；F 运行中 |
+| 3 | R16-G 运行时/图、R16-H 评价/需求 | G 运行中；H 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -334,9 +334,10 @@
 | R16-B | `cursor/r16-b-live-routing-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-B.md`）。无新排除 ID；天花板复核 M=2 8.8–9.4 / M=10 17.7–18.5 ms/eval；剖析站点预算 + 语料基底轴归档 |
 | R16-C | `cursor/r16-c-offline-routing-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-C.md`）。无新排除 ID；生产中位复核 672.8–686.3 ms/报告；ICOL/SFILL 不铸 ID；ITERX/COLDX 轴归档 |
 | R16-D | `cursor/r16-d-adaptation-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-D.md`）。无新排除 ID；eval 地板复核 3.47–3.62 ms；payload 形态轴 L/H/O/σ/P 归档 |
-| R16-E | `cursor/r16-e-learning-sixteenth-pass-83a1` | 已派出 |
+| R16-E | `cursor/r16-e-learning-sixteenth-pass-83a1` | 已合入专属分支（仅 `R16-E.md`）。无新排除 ID；SLICE-CPU 复核 19.0–22.0 µs/run；累积状态 + payload 形态轴归档；S13-B-1 重开条件量化未触发 |
 | R16-F | `cursor/r16-f-experiments-sixteenth-pass-83a1` | 已派出 |
 | R16-G | `cursor/r16-g-runtime-sixteenth-pass-83a1` | 已派出 |
+| R16-H | `cursor/r16-h-eval-sixteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
