@@ -1,3 +1,25 @@
+# Preview merge + 发行内测 (`cursor/merge-preview-release-8011`)
+
+- **Branch:** `cursor/merge-preview-release-8011`
+- **Parent:** Cursor Grok 4.6 orchestrator (3 rounds × 6 agents)
+- **Base:** `main` @ `80eb0bd` + PR #11 + Loop 4 closeout
+- **Started:** 2026-08-25
+- **Goal:** merge remaining unique production; make developer-preview `pnpm prerelease` honest and green if findings are closed
+- **Forbidden:** wholesale merge of PR #9; live R1; ADR-006 Accepted; Outcome-supported; silent model fallback
+
+## Parent ingest (pre-Round 1)
+
+| Source | Verdict |
+|---|---|
+| PR #11 `cursor/opt-r22-42b1` | INGESTED (mergeable, CI green) |
+| `cursor/loop4-closeout-summary-42b1` | INGESTED (1 docs commit, 0 behind) |
+| PR #9 `cursor/sota-persistent-opt-83a1` | NOT ingested (CONFLICTING, 427/278, tracker) |
+| 200+ `rN-*-pass-83a1` slices | NOT ingested (campaign reports) |
+
+Round 1 brief: `.agent_workspace/ROUND1-PREVIEW-BRIEF.md`.
+
+---
+
 # Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)
 
 - **Branch:** `agent/opt-continuous`

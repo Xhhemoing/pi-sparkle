@@ -1,3 +1,20 @@
+# File ownership — Preview merge + 内测 (`cursor/merge-preview-release-8011`)
+
+Parent campaign: merge remaining unique branches and unblock developer-preview `pnpm prerelease`. Subagents never git commit. **Stay on `cursor/merge-preview-release-8011`. Do not `git checkout` another branch.**
+
+Injection: `.agent_workspace/ROUND1-PREVIEW-BRIEF.md`.
+
+| Slot | Model | Owns |
+|---|---|---|
+| R1-fable-A | fable | `docs/reports/2026-08-25-branch-merge-disposition.md`; `.agent_workspace/r1-fable-a.md` |
+| R1-fable-B | fable | `docs/reports/2026-08-25-preview-release-gap.md`; `.agent_workspace/r1-fable-b.md` |
+| R1-opus-A | opus-fast | `src/feedback/redaction.ts`; `test/unit/feedback/redaction.test.ts`; `test/unit/privacy/redaction.test.ts`; `.agent_workspace/r1-opus-a.md` |
+| R1-opus-B | opus-fast | `docs/specs/release-gate.md`; `docs/reports/2026-08-20-developer-preview-readiness.md`; optional `test/unit/feedback/release-gate-policy.test.ts`; `.agent_workspace/r1-opus-b.md` |
+| R1-gpt-A | gpt-sol | `scripts/security-probe.mjs` (only if probe is the bug); `.agent_workspace/r1-gpt-a.md` |
+| R1-gpt-B | gpt-sol | `scripts/preview-release-probe.mjs` (new); `.agent_workspace/r1-gpt-b.md` |
+
+Do not touch `src/cli/main.ts` / `src/run/flowchart-run.ts` / `src/pi-adapter/runtime.ts` in Round 1 (already ingested from PR #11). Do not wholesale-merge PR #9.
+
 # File ownership — Loop 4 Round 23 (`cursor/opt-r22-42b1`)
 
 Round 22 CLOSED (3 ACCEPT). Round 23 is a recorded **zero-slot** round — `.agent_workspace/ROUND23-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
