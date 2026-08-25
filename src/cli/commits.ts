@@ -26,7 +26,7 @@ export interface CommitsIo {
   stderr(text: string): void;
 }
 
-const COMMITS_USAGE = `pi-sparkle commits — decision ledger to conventional commits
+export const COMMITS_USAGE = `pi-sparkle commits — decision ledger to conventional commits
 
 Usage:
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
@@ -174,15 +174,30 @@ function partialApplyNote(
 }
 
 async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      run: { type: "string" },
-      "state-root": { type: "string" },
-      json: { type: "boolean", default: false },
-      nodes: { type: "string" }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        run: { type: "string" },
+        "state-root": { type: "string" },
+        json: { type: "boolean", default: false },
+        nodes: { type: "string" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "commits",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle commits --help"
+    });
+  }
+  if (values.help === true) {
+    io.stdout(COMMITS_USAGE);
+    return CLI_EXIT.ok;
+  }
   if (values.run === undefined) {
     return cliFail(io, {
       command: "commits",
@@ -206,17 +221,32 @@ async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
 }
 
 async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      run: { type: "string" },
-      "state-root": { type: "string" },
-      repo: { type: "string" },
-      file: { type: "string" },
-      sign: { type: "boolean", default: false },
-      nodes: { type: "string" }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        run: { type: "string" },
+        "state-root": { type: "string" },
+        repo: { type: "string" },
+        file: { type: "string" },
+        sign: { type: "boolean", default: false },
+        nodes: { type: "string" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "commits",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle commits --help"
+    });
+  }
+  if (values.help === true) {
+    io.stdout(COMMITS_USAGE);
+    return CLI_EXIT.ok;
+  }
   if (values.run === undefined) {
     return cliFail(io, {
       command: "commits",

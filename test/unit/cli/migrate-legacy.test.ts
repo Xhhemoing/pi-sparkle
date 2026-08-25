@@ -4,8 +4,13 @@ import { link, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { migrateLegacyCommand, planLegacyMigration } from "../../../src/cli/migrate-legacy.js";
+import {
+  MIGRATE_LEGACY_USAGE,
+  migrateLegacyCommand,
+  planLegacyMigration
+} from "../../../src/cli/migrate-legacy.js";
 import type { MigrateLegacyIo } from "../../../src/cli/migrate-legacy.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { adaptationRoot, runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { readFeedback } from "../../../src/feedback/store.js";
 
@@ -122,6 +127,28 @@ describe("migrate-legacy dry run", () => {
       assert.equal(existsSync(runtimeRoot(stateRoot)), false, "a dry run must not create plane dirs");
       assert.equal(existsSync(adaptationRoot(stateRoot)), false);
     });
+  });
+});
+
+describe("migrate-legacy argv", () => {
+  it("reports a mistyped flag as an argv error that names --help", async () => {
+    const captured = capture();
+    const code = await migrateLegacyCommand(["--aply"], captured.io);
+
+    assert.equal(code, 1);
+    assert.equal(captured.out(), "", "a refusal scans nothing and prints nothing on stdout");
+    const parsed = parseCliErrorJson(captured.err());
+    assert.equal(parsed?.command, "migrate-legacy");
+    assert.equal(parsed?.stage, "parse-args");
+    assert.match(parsed?.message ?? "", /--aply/);
+    assert.match(parsed?.next ?? "", /--help/);
+  });
+
+  it("prints usage for --help and exits 0", async () => {
+    const captured = capture();
+    assert.equal(await migrateLegacyCommand(["--help"], captured.io), 0);
+    assert.equal(captured.out(), MIGRATE_LEGACY_USAGE);
+    assert.equal(captured.err(), "");
   });
 });
 

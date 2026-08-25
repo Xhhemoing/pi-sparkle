@@ -99,16 +99,26 @@ function compilableChildren(tasks: Awaited<ReturnType<typeof parseChildSpec>>): 
 }
 
 export async function validateCommand(args: string[], io: ValidateIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      children: { type: "string" },
-      flowchart: { type: "string" },
-      "state-root": { type: "string" },
-      json: { type: "boolean", default: false },
-      help: { type: "boolean", default: false }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        children: { type: "string" },
+        flowchart: { type: "string" },
+        "state-root": { type: "string" },
+        json: { type: "boolean", default: false },
+        help: { type: "boolean", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "validate",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle validate --help"
+    });
+  }
   if (values.help === true) {
     io.stdout(VALIDATE_USAGE);
     return CLI_EXIT.ok;
