@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
-import { doctorCommand, type DoctorJsonReport } from "../../../src/cli/doctor.js";
+import {
+  doctorCommand,
+  type DoctorJsonReport,
+  type DoctorStorageFs
+} from "../../../src/cli/doctor.js";
 import { createEpisodeId, createEventId, createRunId } from "../../../src/domain/ids.js";
 import { stableProjectKey } from "../../../src/learning/learned-routing.js";
 import {
@@ -165,7 +169,8 @@ const CONTRACT_KEYS = [
   "next",
   "locks",
   "runStates",
-  "learnedState"
+  "learnedState",
+  "storage"
 ];
 
 async function runDoctorJson(
@@ -207,6 +212,10 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
     assert.equal(typeof report.learnedState.advisory, "string");
     assert.ok(Array.isArray(report.learnedState.entries));
     assert.ok(Array.isArray(report.learnedState.scanErrors));
+    assert.deepEqual(Object.keys(report.storage), ["advisory", "entries", "scanErrors"]);
+    assert.equal(typeof report.storage.advisory, "string");
+    assert.ok(Array.isArray(report.storage.entries));
+    assert.ok(Array.isArray(report.storage.scanErrors));
     assert.deepEqual(
       report.learnedState.entries.map((entry) => Object.keys(entry)),
       report.learnedState.entries.map(() => [
@@ -217,6 +226,10 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "status",
         "remediation"
       ])
+    );
+    assert.deepEqual(
+      report.storage.entries.map((entry) => Object.keys(entry)),
+      report.storage.entries.map(() => ["path", "plane", "kind", "bytes", "files", "links"])
     );
 
     for (const check of report.checks) {
@@ -242,7 +255,8 @@ test("doctor --json prints exactly one JSON object and no prose on stdout", asyn
         "pi-compat",
         "lock-inventory",
         "run-state-inventory",
-        "learned-state-inventory"
+        "learned-state-inventory",
+        "storage"
       ]
     );
   } finally {
@@ -1129,6 +1143,320 @@ test("doctor fails the learned-state check only for scan errors", async () => {
     );
     assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
     assert.equal(await readFile(projectsDir, "utf8"), "not a directory");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+// --- storage inventory ------------------------------------------------------
+// Windows-hermetic like the rest of this file: temp dirs, `path.join`, no shell,
+// no POSIX mode bits. The scan-error case runs through the injected `storageFs`
+// seam and through a wrong-node fixture (a plane root that is a regular file),
+// both of which fail identically on POSIX and Windows.
+
+const INVOCATIONS = '{"invocation":1}\n{"invocation":2}\n';
+const EPISODE = '{"episode":"epi-1"}\n';
+const CATALOG_OBSERVED = '{"versions":{}}\n';
+const REGISTRY = '{"agents":[]}\n';
+const PREFERENCES = '{"observations":[],"tombstones":[]}\n';
+const PROJECT_BANDIT = '{"arms":["model-a"]}\n';
+const bytes = (text: string): number => Buffer.byteLength(text, "utf8");
+
+test("doctor reports an empty state root as zero storage without a scan error", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-storage-empty-"));
+  try {
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.deepEqual(report.storage.entries, [], "a state root with no plane roots has no entries");
+    assert.deepEqual(report.storage.scanErrors, [], "an absent plane root is not a scan error");
+    const storage = report.checks.find((check) => check.name === "storage");
+    assert.equal(storage?.ok, true);
+    assert.match(storage?.detail ?? "", /runtime=0 logical byte\(s\) in 0 file\(s\)/);
+    assert.match(storage?.detail ?? "", /adaptation=0 logical byte\(s\) in 0 file\(s\)/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The inventory walks the immediate entries of both plane roots and totals each
+ * recursively, so the record classes a hand-maintained path list omitted —
+ * `runtime/routing/catalog-observed.json`, `adaptation/registry.json`, and
+ * everything under `adaptation/learning/projects/**` — are counted here without
+ * being named. `adaptation/preferences.json` is a file, not a `preferences/`
+ * directory.
+ */
+test("doctor totals both plane roots by immediate entry, including state no path list named", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-storage-tree-"));
+  const runtimeDir = join(stateRoot, "runtime");
+  const adaptationDir = join(stateRoot, "adaptation");
+  const invocationsPath = join(runtimeDir, "invocations.jsonl");
+  const routingDir = join(runtimeDir, "routing");
+  const episodesDir = join(runtimeDir, "episodes");
+  const learningDir = join(adaptationDir, "learning");
+  const preferencesPath = join(adaptationDir, "preferences.json");
+  const registryPath = join(adaptationDir, "registry.json");
+  const banditPath = join(learningDir, "projects", "p1", "bandit.json");
+  try {
+    await mkdir(routingDir, { recursive: true });
+    await mkdir(join(episodesDir, "epi-1"), { recursive: true });
+    await mkdir(join(learningDir, "projects", "p1"), { recursive: true });
+    await writeFile(invocationsPath, INVOCATIONS, "utf8");
+    await writeFile(join(routingDir, "catalog-observed.json"), CATALOG_OBSERVED, "utf8");
+    await writeFile(join(episodesDir, "epi-1", "episode.json"), EPISODE, "utf8");
+    await writeFile(registryPath, REGISTRY, "utf8");
+    await writeFile(preferencesPath, PREFERENCES, "utf8");
+    await writeFile(banditPath, PROJECT_BANDIT, "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.deepEqual(report.storage.scanErrors, []);
+    assert.deepEqual(report.storage.entries, [
+      {
+        path: episodesDir,
+        plane: "runtime",
+        kind: "directory",
+        bytes: bytes(EPISODE),
+        files: 1,
+        links: 0
+      },
+      {
+        path: invocationsPath,
+        plane: "runtime",
+        kind: "file",
+        bytes: bytes(INVOCATIONS),
+        files: 1,
+        links: 0
+      },
+      {
+        path: routingDir,
+        plane: "runtime",
+        kind: "directory",
+        bytes: bytes(CATALOG_OBSERVED),
+        files: 1,
+        links: 0
+      },
+      {
+        path: learningDir,
+        plane: "adaptation",
+        kind: "directory",
+        bytes: bytes(PROJECT_BANDIT),
+        files: 1,
+        links: 0
+      },
+      {
+        path: preferencesPath,
+        plane: "adaptation",
+        kind: "file",
+        bytes: bytes(PREFERENCES),
+        files: 1,
+        links: 0
+      },
+      {
+        path: registryPath,
+        plane: "adaptation",
+        kind: "file",
+        bytes: bytes(REGISTRY),
+        files: 1,
+        links: 0
+      }
+    ]);
+
+    const runtimeBytes = bytes(EPISODE) + bytes(INVOCATIONS) + bytes(CATALOG_OBSERVED);
+    const adaptationBytes = bytes(PROJECT_BANDIT) + bytes(PREFERENCES) + bytes(REGISTRY);
+    const storage = report.checks.find((check) => check.name === "storage");
+    assert.equal(storage?.ok, true);
+    assert.match(
+      storage?.detail ?? "",
+      new RegExp(`runtime=${runtimeBytes} logical byte\\(s\\) in 3 file\\(s\\)`)
+    );
+    assert.match(
+      storage?.detail ?? "",
+      new RegExp(`adaptation=${adaptationBytes} logical byte\\(s\\) in 3 file\\(s\\)`)
+    );
+    assert.match(report.storage.advisory, /Retention is unbounded by accepted policy/);
+    assert.match(report.storage.advisory, /doctor measures and never deletes/);
+    assert.match(report.storage.advisory, /delete --run and episode deletion are the reclaim verbs/);
+    assert.match(report.storage.advisory, /logical bytes of regular files/);
+    assert.match(report.storage.advisory, /best-effort snapshot/);
+    assert.doesNotMatch(report.storage.advisory, /never follows/);
+
+    // Read-only: measuring the tree changes none of its bytes.
+    assert.deepEqual(
+      await Promise.all(
+        [invocationsPath, registryPath, preferencesPath, banditPath].map((path) =>
+          readFile(path, "utf8")
+        )
+      ),
+      [INVOCATIONS, REGISTRY, PREFERENCES, PROJECT_BANDIT]
+    );
+
+    const prose = capture();
+    assert.equal(
+      await doctorCommand(["--state-root", stateRoot], prose.io, {
+        nodeVersion: COMPLIANT_NODE_VERSION
+      }),
+      0,
+      prose.err.join("")
+    );
+    const text = prose.out.join("");
+    assert.match(text, /ok {2}storage: runtime=\d+ logical byte\(s\)/);
+    assert.match(text, new RegExp(`storage: .*routing: plane=runtime kind=directory bytes=\\d+`));
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * The only way a directory read fails after `lstat` called it a directory is a
+ * runtime error, and POSIX mode bits do not reproduce one on Windows (nor under
+ * a privileged runner). The seam injects it directly instead.
+ */
+test("doctor fails the storage check when a subtree cannot be read", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-storage-scan-"));
+  const feedbackDir = join(stateRoot, "adaptation", "feedback");
+  const unreadable: DoctorStorageFs = {
+    readdir: async (dir) => {
+      if (dir === feedbackDir) {
+        const error: NodeJS.ErrnoException = new Error(
+          `EACCES: permission denied, scandir '${dir}'`
+        );
+        error.code = "EACCES";
+        throw error;
+      }
+      return readdir(dir);
+    },
+    lstat: (path) => lstat(path)
+  };
+  try {
+    await mkdir(feedbackDir, { recursive: true });
+    await writeFile(join(feedbackDir, "records.jsonl"), REGISTRY, "utf8");
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION,
+      storageFs: unreadable
+    });
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.equal(report.storage.scanErrors.length, 1);
+    assert.match(report.storage.scanErrors[0] ?? "", /feedback/);
+    assert.match(report.storage.scanErrors[0] ?? "", /EACCES/);
+    assert.deepEqual(report.storage.entries, [
+      { path: feedbackDir, plane: "adaptation", kind: "directory", bytes: 0, files: 0, links: 0 }
+    ]);
+    const storage = report.checks.find((check) => check.name === "storage");
+    assert.equal(storage?.ok, false);
+    assert.match(storage?.detail ?? "", /1 scan error\(s\)/);
+    assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/** The same failure without a seam, from a fixture that is wrong on every OS. */
+test("doctor reports a plane root that is not a directory as a storage scan error", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-storage-wrong-node-"));
+  const adaptationDir = join(stateRoot, "adaptation");
+  try {
+    await writeFile(adaptationDir, "not a directory", "utf8");
+
+    const { io, out } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.equal(report.storage.scanErrors.length, 1);
+    assert.match(report.storage.scanErrors[0] ?? "", /adaptation/);
+    assert.deepEqual(report.storage.entries, []);
+    assert.equal(report.checks.find((check) => check.name === "storage")?.ok, false);
+    assert.equal(await readFile(adaptationDir, "utf8"), "not a directory");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A directory link is counted where it sits and never descended, so the bytes
+ * behind it are attributed to the entry that really holds them and never twice.
+ * Attempted everywhere; skipped only when the host cannot create the link at
+ * all (unprivileged Windows without junction support, exotic filesystems).
+ */
+test("doctor counts a directory link without descending into its target", async (t) => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-storage-link-"));
+  const adaptationDir = join(stateRoot, "adaptation");
+  const targetDir = join(adaptationDir, "eval-datasets");
+  const nestedDir = join(adaptationDir, "feedback");
+  const topLink = join(adaptationDir, "linked-datasets");
+  const nestedLink = join(nestedDir, "linked-datasets");
+  try {
+    await mkdir(join(targetDir, "run-1"), { recursive: true });
+    await mkdir(nestedDir, { recursive: true });
+    await writeFile(join(targetDir, "run-1", "rows.jsonl"), INVOCATIONS, "utf8");
+    try {
+      const type = process.platform === "win32" ? "junction" : "dir";
+      await symlink(targetDir, topLink, type);
+      await symlink(targetDir, nestedLink, type);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES" || code === "ENOSYS" || code === "UNKNOWN") {
+        t.skip(`this host cannot create directory links (${code})`);
+        return;
+      }
+      throw error;
+    }
+
+    const { io, out, err } = capture();
+    const code = await doctorCommand(["--json", "--state-root", stateRoot], io, {
+      nodeVersion: COMPLIANT_NODE_VERSION
+    });
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+
+    assert.deepEqual(report.storage.scanErrors, []);
+    const byPath = new Map(report.storage.entries.map((entry) => [entry.path, entry]));
+    assert.deepEqual(byPath.get(topLink), {
+      path: topLink,
+      plane: "adaptation",
+      kind: "link",
+      bytes: 0,
+      files: 0,
+      links: 1
+    });
+    assert.deepEqual(
+      byPath.get(nestedDir),
+      { path: nestedDir, plane: "adaptation", kind: "directory", bytes: 0, files: 0, links: 1 },
+      "a link inside a subtree is counted there, not walked through"
+    );
+    assert.deepEqual(byPath.get(targetDir), {
+      path: targetDir,
+      plane: "adaptation",
+      kind: "directory",
+      bytes: bytes(INVOCATIONS),
+      files: 1,
+      links: 0
+    });
+    assert.equal(
+      report.storage.entries.reduce((sum, entry) => sum + entry.bytes, 0),
+      bytes(INVOCATIONS),
+      "the linked target's bytes are counted exactly once"
+    );
+    const storage = report.checks.find((check) => check.name === "storage");
+    assert.equal(storage?.ok, true);
+    assert.match(storage?.detail ?? "", /2 link\(s\) counted but not followed/);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }

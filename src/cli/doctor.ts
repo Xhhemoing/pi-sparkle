@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, stat, writeFile, unlink } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, stat, writeFile, unlink } from "node:fs/promises";
 import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -24,7 +24,7 @@ import {
   PreferenceSnapshotUnreadableError,
   readPreferenceSnapshot
 } from "../preferences/store.js";
-import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
+import { adaptationRoot, runtimeRoot, type Plane } from "../privacy/state-layout.js";
 import {
   CatalogObservedCorruptError,
   catalogObservedPath,
@@ -50,6 +50,26 @@ export interface DoctorOptions {
   readonly pidLiveness?: (pid: number) => RecordedPidLiveness;
   /** Test seam; production resolves credentials the way a run would. */
   readonly authCheck?: DoctorAuthCheck;
+  /**
+   * Test seam for the storage walk. Directory reads that fail for anything but
+   * ENOENT are the only way `storage.scanErrors` is populated, and no portable
+   * fixture produces that failure on both POSIX and Windows, so the tests
+   * inject it here instead of relying on mode bits.
+   */
+  readonly storageFs?: DoctorStorageFs;
+}
+
+/** The subset of `node:fs` Stats the storage walk reads; `Stats` satisfies it. */
+export interface DoctorStorageStats {
+  isDirectory(): boolean;
+  isFile(): boolean;
+  isSymbolicLink(): boolean;
+  readonly size: number;
+}
+
+export interface DoctorStorageFs {
+  readdir(dir: string): Promise<readonly string[]>;
+  lstat(path: string): Promise<DoctorStorageStats>;
 }
 
 export type DoctorAuthCheck = (
@@ -74,6 +94,7 @@ export interface DoctorJsonReport {
   readonly locks: DoctorLockInventory;
   readonly runStates: DoctorRunStateInventory;
   readonly learnedState: DoctorLearnedStateInventory;
+  readonly storage: DoctorStorageInventory;
 }
 
 export type DoctorLockPidLiveness = "running" | "not-running" | "unknown" | "not-recorded";
@@ -133,6 +154,25 @@ export interface DoctorLearnedStateInventory {
   readonly scanErrors: readonly string[];
 }
 
+export type DoctorStorageEntryKind = "file" | "directory" | "link" | "other";
+
+export interface DoctorStorageEntry {
+  readonly path: string;
+  readonly plane: Plane;
+  readonly kind: DoctorStorageEntryKind;
+  /** Logical bytes of the regular files totalled here, not disk allocation. */
+  readonly bytes: number;
+  readonly files: number;
+  /** Links found in this entry's subtree, counted rather than descended. */
+  readonly links: number;
+}
+
+export interface DoctorStorageInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorStorageEntry[];
+  readonly scanErrors: readonly string[];
+}
+
 export interface PackageEngines {
   readonly version: string;
   readonly enginesNode: string;
@@ -163,6 +203,8 @@ const PREFERENCE_STATE_REMEDIATION =
   "learned state: repair the file or move it aside and relearn preferences from an empty store; doctor never changes it";
 const DERIVED_STATE_REMEDIATION =
   "derived state: delete the damaged file and rebuild it from runtime/invocations.jsonl; doctor never changes it";
+const STORAGE_ADVISORY =
+  "Retention is unbounded by accepted policy: doctor measures and never deletes, and delete --run and episode deletion are the reclaim verbs; sizes are logical bytes of regular files rather than disk allocation, links are counted but never descended, and the whole walk is a best-effort snapshot of a tree that can change while it is read";
 
 function readPackageEngines(): PackageEngines {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -628,6 +670,119 @@ async function learnedStateInventory(
   return { advisory: LEARNED_STATE_ADVISORY, entries, scanErrors };
 }
 
+interface StorageTotals {
+  bytes: number;
+  files: number;
+  links: number;
+}
+
+const REAL_STORAGE_FS: DoctorStorageFs = {
+  readdir: (dir) => readdir(dir),
+  lstat: (path) => lstat(path)
+};
+
+function scanError(scanErrors: string[], path: string, error: unknown): void {
+  if (errorCode(error) === "ENOENT") return;
+  scanErrors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+async function storageSubtreeTotals(
+  dir: string,
+  fs: DoctorStorageFs,
+  scanErrors: string[]
+): Promise<StorageTotals> {
+  const totals: StorageTotals = { bytes: 0, files: 0, links: 0 };
+  let names: readonly string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (error) {
+    scanError(scanErrors, dir, error);
+    return totals;
+  }
+  for (const name of [...names].sort((left, right) => left.localeCompare(right))) {
+    const child = await storageNodeTotals(join(dir, name), fs, scanErrors);
+    totals.bytes += child.totals.bytes;
+    totals.files += child.totals.files;
+    totals.links += child.totals.links;
+  }
+  return totals;
+}
+
+/**
+ * `lstat` before recursion so a link is counted where it sits instead of being
+ * descended into. That is best-effort, not an identity guarantee: a directory
+ * can be replaced between this `lstat` and the `readdir` below it, and Node has
+ * no portable fd-relative no-follow walk to close that window with.
+ */
+async function storageNodeTotals(
+  path: string,
+  fs: DoctorStorageFs,
+  scanErrors: string[]
+): Promise<{ kind: DoctorStorageEntryKind | null; totals: StorageTotals }> {
+  let stats: DoctorStorageStats;
+  try {
+    stats = await fs.lstat(path);
+  } catch (error) {
+    scanError(scanErrors, path, error);
+    return { kind: null, totals: { bytes: 0, files: 0, links: 0 } };
+  }
+  if (stats.isSymbolicLink()) {
+    return { kind: "link", totals: { bytes: 0, files: 0, links: 1 } };
+  }
+  if (stats.isDirectory()) {
+    return { kind: "directory", totals: await storageSubtreeTotals(path, fs, scanErrors) };
+  }
+  if (stats.isFile()) {
+    return { kind: "file", totals: { bytes: stats.size, files: 1, links: 0 } };
+  }
+  return { kind: "other", totals: { bytes: 0, files: 0, links: 0 } };
+}
+
+/**
+ * Growth, measured from the two authoritative plane roots rather than from a
+ * hand-maintained list of record classes: every immediate entry under
+ * `runtime/` and `adaptation/` is totalled recursively, so a file nobody
+ * thought to enumerate here is still counted under the entry containing it.
+ * Read-only — doctor measures and never deletes.
+ */
+async function storageInventory(
+  stateRoot: string,
+  options: DoctorOptions
+): Promise<DoctorStorageInventory> {
+  const fs = options.storageFs ?? REAL_STORAGE_FS;
+  const entries: DoctorStorageEntry[] = [];
+  const scanErrors: string[] = [];
+  const planes: readonly (readonly [Plane, string])[] = [
+    ["runtime", runtimeRoot(stateRoot)],
+    ["adaptation", adaptationRoot(stateRoot)]
+  ];
+
+  for (const [plane, root] of planes) {
+    let names: readonly string[];
+    try {
+      names = await fs.readdir(root);
+    } catch (error) {
+      scanError(scanErrors, root, error);
+      continue;
+    }
+    for (const name of [...names].sort((left, right) => left.localeCompare(right))) {
+      const path = join(root, name);
+      const node = await storageNodeTotals(path, fs, scanErrors);
+      if (node.kind === null) continue;
+      entries.push({
+        path,
+        plane,
+        kind: node.kind,
+        bytes: node.totals.bytes,
+        files: node.totals.files,
+        links: node.totals.links
+      });
+    }
+  }
+
+  return { advisory: STORAGE_ADVISORY, entries, scanErrors };
+}
+
 function lockInventoryCheck(inventory: DoctorLockInventory): DoctorCheck {
   const unreadable = inventory.entries.filter((entry) => entry.metadata === "unreadable").length;
   const errors = inventory.scanErrors.length;
@@ -669,6 +824,26 @@ function learnedStateInventoryCheck(inventory: DoctorLearnedStateInventory): Doc
   };
 }
 
+function storageInventoryCheck(inventory: DoctorStorageInventory): DoctorCheck {
+  const errors = inventory.scanErrors.length;
+  const planeTotal = (plane: Plane): string => {
+    const planeEntries = inventory.entries.filter((entry) => entry.plane === plane);
+    const bytes = planeEntries.reduce((sum, entry) => sum + entry.bytes, 0);
+    const files = planeEntries.reduce((sum, entry) => sum + entry.files, 0);
+    return `${plane}=${bytes} logical byte(s) in ${files} file(s)`;
+  };
+  const links = inventory.entries.reduce((sum, entry) => sum + entry.links, 0);
+  return {
+    name: "storage",
+    ok: errors === 0,
+    detail: `${planeTotal("runtime")}; ${planeTotal("adaptation")}; ${
+      inventory.entries.length
+    } top-level entr(y|ies), ${links} link(s) counted but not followed${
+      errors === 0 ? "" : `; ${errors} scan error(s)`
+    }; ${inventory.advisory}`
+  };
+}
+
 function lockEntryDetail(entry: DoctorLockEntry): string {
   return `${entry.path}: age=${
     entry.ageMs === null ? "unknown" : `${Math.round(entry.ageMs)}ms`
@@ -684,6 +859,10 @@ function runStateEntryDetail(entry: DoctorRunStateEntry): string {
 function learnedStateEntryDetail(entry: DoctorLearnedStateEntry): string {
   const project = entry.projectKey === null ? "" : ` project-key=${entry.projectKey}`;
   return `${entry.kind}:${project} class=${entry.stateClass} status=${entry.status} path=${entry.path}; remediation=${entry.remediation}`;
+}
+
+function storageEntryDetail(entry: DoctorStorageEntry): string {
+  return `${entry.path}: plane=${entry.plane} kind=${entry.kind} bytes=${entry.bytes} files=${entry.files} links=${entry.links}`;
 }
 
 function nodeCheck(engines: PackageEngines, actual: string): DoctorCheck {
@@ -851,7 +1030,8 @@ function buildDoctorJsonReport(
   checks: readonly DoctorCheck[],
   locks: DoctorLockInventory,
   runStates: DoctorRunStateInventory,
-  learnedState: DoctorLearnedStateInventory
+  learnedState: DoctorLearnedStateInventory,
+  storage: DoctorStorageInventory
 ): DoctorJsonReport {
   const ok = checks.every((check) => check.ok);
   return {
@@ -863,7 +1043,8 @@ function buildDoctorJsonReport(
     next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS],
     locks,
     runStates,
-    learnedState
+    learnedState,
+    storage
   };
 }
 
@@ -911,6 +1092,7 @@ export async function doctorCommand(
   const locks = await lockInventory(stateRoot, options);
   const runStates = await runStateInventory(stateRoot, options);
   const learnedState = await learnedStateInventory(stateRoot, values.project);
+  const storage = await storageInventory(stateRoot, options);
   const checks: DoctorCheck[] = [
     nodeCheck(engines, options.nodeVersion ?? process.versions.node),
     pnpmCheck(engines),
@@ -926,13 +1108,16 @@ export async function doctorCommand(
     piCompatCheck(),
     lockInventoryCheck(locks),
     runStateInventoryCheck(runStates),
-    learnedStateInventoryCheck(learnedState)
+    learnedStateInventoryCheck(learnedState),
+    storageInventoryCheck(storage)
   ];
   const failed = checks.some((check) => !check.ok);
 
   if (values.json === true) {
     io.stdout(
-      `${JSON.stringify(buildDoctorJsonReport(engines.version, checks, locks, runStates, learnedState))}\n`
+      `${JSON.stringify(
+        buildDoctorJsonReport(engines.version, checks, locks, runStates, learnedState, storage)
+      )}\n`
     );
   } else {
     io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
@@ -948,6 +1133,9 @@ export async function doctorCommand(
     }
     for (const entry of learnedState.entries) {
       io.stdout(`    state: ${learnedStateEntryDetail(entry)}\n`);
+    }
+    for (const entry of storage.entries) {
+      io.stdout(`    storage: ${storageEntryDetail(entry)}\n`);
     }
     for (const step of NEXT_STEPS) {
       io.stdout(`  next: ${step}\n`);
