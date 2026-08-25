@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–23 已对各区做过二十三遍穷尽裁决（Round 23 已关闭），并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S23-* 条目（含已合入的 S13-B-1 与 R12–R23 全部空枚举收口，含刚合入的 R23-A … R23-J / R24-A … R24-H；R24-I / R24-J 仍在飞，勿触其分支）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX** / **XPROC** / **YMIX** / **SCHEDWIN** / **KFAN** / **NVG** / **SEEDX** / **TERMCLASS** / **SHAPEK** / **ORDX** / **CKMIX** / **CALLB** / **OCCX** / **JB** / **RUNLIM**。空枚举轴「M=1 catalog collapse」「approval-authority face」「state serialization-boundary provenance face」「operand-residency census」不铸 ID、不写入排除表，但禁止再编号或跨区移植。
+Round 1–23 已对各区做过二十三遍穷尽裁决（Round 23 已关闭），并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S23-* 条目（含已合入的 S13-B-1 与 R12–R23 全部空枚举收口，含刚合入的 R23-A … R23-J / R24-A … R24-I；R24-J 仍在飞，勿触其分支）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX** / **XPROC** / **YMIX** / **SCHEDWIN** / **KFAN** / **NVG** / **SEEDX** / **TERMCLASS** / **SHAPEK** / **ORDX** / **CKMIX** / **CALLB** / **OCCX** / **JB** / **RUNLIM**。空枚举轴「M=1 catalog collapse」「approval-authority face」「state serialization-boundary provenance face」「operand-residency census」「adaptation-state coordinate」不铸 ID、不写入排除表，但禁止再编号或跨区移植。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R24-A … R24-J），报告写入 `docs/reports/sota-opt/round-24/`。
 
-状态：第 1–3 波 A–H 已合入；第 4 波 I/J 运行中。Round 25 已开卷（A 本波派出）。
+状态：第 1–4 波 A–I 已合入；J 运行中。Round 25 已开卷（A 运行中、B 本波派出）。
 
 A 切片已合入：空枚举，未铸 S24-A-*。切片 `git diff 7acb666..HEAD` 为空。预算复核 67–84 µs/run（与 R23-A 66–78 同带）。本轮新增 residual input-face list-dimension 普查（N_op 5.89–6.03 ns/op；N_cl 29.80–31.38 ns/claim×3；W×O / Q×D 二次位点生产流量为零；CF 平坦）。R23-A G×E / R22-A 公开导出普查 / R21-A H 输入面 / R20-A openMinors 不补铸。基线 `7acb666` 空 diff 再确认。
 
@@ -26,6 +26,6 @@ G 切片已合入：空枚举，未铸 S24-G-*（连续第十三次）。切片 
 
 H 切片已合入：空枚举，未铸 S24-H-*。切片 `git diff fd437a9..HEAD` 为空。热层默认复核 9.37–9.76 µs/run（两跑落在 R23-H 9.32–9.65 带内，一跑高 1.1%，同 R16-H 抖动型）。S5-H-1 再核保留。PATH_RE 重开条件未触发。本轮新增 operand-residency census（OR 身份轮换 +38–67 ns；OF 新鲜配对差 764–782 ns，新鲜免费；OT 老/新生代比 1.05–1.21）。R23-H rubric-registry membership-mix 与 R22-H 调用上下文 / R21-H 异步调度面不补铸。基线 `fd437a9` 空 diff 再确认。
 
-I 切片 = 25 文件。S8-I-1 两臂文件级 blocked。R23-I `.pi/` 可观测树与 R22-I run-record 回读 / R21-I flowchart 平面 / R20-I 累积遥测 N 不补铸。R24-A list-dimension 普查 / R24-B M=1 catalog collapse / R24-D approval-authority face / R24-F state serialization-boundary provenance face / R24-H operand-residency census / **JB** / **OCCX** / **CALLB** / **CKMIX** / **RUNLIM** 不要移植。custom−builtin R23-I：children +42.9/+22.0、track +53.5/+25.4、flowchart-flat64 +39.2/+21.6 ms。若落地：重跑 r4i/r5i/r7i（68 / 119 / 80）+ r24i。基线 `8dee7fb` 预期空 diff。运行中。
+I 切片已合入：空枚举，未铸 S24-I-*（连续第十七次）。切片 `git diff 8dee7fb..HEAD` 为空。S8-I-1 仍文件级 blocked。custom−builtin 复核 children +44.2/+26.5、track +48.0/+25.9、flowchart-flat64 +48.7/+16.3 ms（与 R23-I 同带）。本轮新增 adaptation-state coordinate（`adaptation/registry.json` 存在 × 规模 × 命令类：承重 children/track 每 run 双装载；真实规模 +1–9 ms；I 切片份额为零行，税在 fs/engine/D/E）。R23-I `.pi/` 可观测树与 R22-I run-record 回读 / R21-I flowchart 平面 / R20-I 累积遥测 N 不补铸。基线 `8dee7fb` 空 diff 再确认。
 
-J 切片 = 29 文件。J1 / S5-J-3 / S6-J-1 / S8-J-2 钉死。禁止去 fsync。R23-J **CALLB** 与 R22-J **SHAPEK** / R21-J **KFAN** / R20-J 输入类组成不补铸。R24-A list-dimension 普查 / R24-B M=1 catalog collapse / R24-D approval-authority face / R24-F state serialization-boundary provenance face / R24-H operand-residency census / **JB** / **OCCX** / **CKMIX** / **RUNLIM** / R23-G 轴不要移植。file-lock retryMs 已由 D/E 定价，勿作为 J ID 补铸。若落地：重跑 J1（2468）+ r24j。基线 `fb41417` 预期空 diff。运行中。
+J 切片 = 29 文件。J1 / S5-J-3 / S6-J-1 / S8-J-2 钉死。禁止去 fsync。R23-J **CALLB** 与 R22-J **SHAPEK** / R21-J **KFAN** / R20-J 输入类组成不补铸。R24-A list-dimension 普查 / R24-B M=1 catalog collapse / R24-D approval-authority face / R24-F state serialization-boundary provenance face / R24-H operand-residency census / R24-I adaptation-state coordinate / **JB** / **OCCX** / **CKMIX** / **RUNLIM** / R23-G 轴不要移植。file-lock retryMs 已由 D/E 定价，勿作为 J ID 补铸。若落地：重跑 J1（2468）+ r24j。基线 `fb41417` 预期空 diff。运行中。

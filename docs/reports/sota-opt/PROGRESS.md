@@ -38,8 +38,8 @@
 | 21 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-21/PLAN.md](./round-21/PLAN.md) |
 | 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
-| 24 | 第 1–4 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-24/PLAN.md](./round-24/PLAN.md) |
-| 25 | 第 1 波进行中 | 0 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
+| 24 | 第 1–4 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-24/PLAN.md](./round-24/PLAN.md) |
+| 25 | 第 1 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
 
 ### Round 1 波次
 
@@ -255,13 +255,13 @@
 | 1 | R24-A 跟踪门控、R24-B live 路由、R24-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R24-D 自优化、R24-E 学习 | D/E 完成已合入 |
 | 3 | R24-F 实验、R24-G 运行时/图、R24-H 评价/需求 | F/G/H 完成已合入 |
-| 4 | R24-I CLI/适配器、R24-J cluster/privacy | I/J 运行中 |
+| 4 | R24-I CLI/适配器、R24-J cluster/privacy | I 完成已合入；J 运行中 |
 
 ### Round 25 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R25-A 跟踪门控 | A 本波派出 |
+| 1 | R25-A 跟踪门控、R25-B live 路由 | A 运行中；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -506,9 +506,10 @@
 | R24-F | `cursor/r24-f-experiments-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-F.md`）。无新排除 ID；锚点复核 r5f 120.1–121.3 / r6f 126.9；state serialization-boundary provenance face 归档 |
 | R24-G | `cursor/r24-g-runtime-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-G.md`）。无新排除 ID；计算顶复核 0.289–0.312 vs I/O 92.3–111.6 ms；RUNLIM 不铸 ID；digest 第十五次逐位相同 |
 | R24-H | `cursor/r24-h-eval-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-H.md`）。无新排除 ID；热层默认复核 9.37–9.76 µs/run；operand-residency census 归档 |
-| R24-I | `cursor/r24-i-cli-twenty-fourth-pass-83a1` | 已派出 |
+| R24-I | `cursor/r24-i-cli-twenty-fourth-pass-83a1` | 已合入专属分支（仅 `R24-I.md`）。无新排除 ID；custom−builtin 复核 +44.2/+26.5 / +48.0/+25.9 / +48.7/+16.3 ms；adaptation-state coordinate 归档 |
 | R24-J | `cursor/r24-j-persist-twenty-fourth-pass-83a1` | 已派出 |
 | R25-A | `cursor/r25-a-tracking-twenty-fifth-pass-83a1` | 已派出 |
+| R25-B | `cursor/r25-b-live-routing-twenty-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
