@@ -2,14 +2,21 @@
 
 Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r18-postmerge-42b1`. Do not `git checkout` another branch.**
 
-Round 18 audits the **post-merge tree** (`main` @ `985250b` = Loop 4 + Loop 3 + kernel-reuse). That merge is a new seam. **Do not pad. Do not dispatch freeze extras.**
+Two real candidates from `.agent_workspace/ROUND18-BRIEF.md`. **Do not pad.** Files are disjoint. Landing commits are slot files + report only — no PROGRESS ticks.
 
 **Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted.
 
+Injection: `.agent_workspace/ROUND18-BRIEF.md`, `.agent_workspace/loop4-r18-audit.md`.
+
 | Slot | Model | Owns |
 |---|---|---|
-| fable-audit | fable | `.agent_workspace/loop4-r18-audit.md`; rewrite `.agent_workspace/ROUND18-BRIEF.md` with proven candidates or confirmed zero |
+| R18-1 | opus | `src/pi-adapter/pi-executor.ts`; new `test/integration/pi-adapter/steer-retry.test.ts`; `test/unit/pi-adapter/steer-inflight.test.ts` only if adding executor-level steer state needs a unit pin. **Direction (a):** keep accepted steer texts for the current `execute()` and re-deliver into each fresh retry kernel (poll after the new attempt's first turn). Do **not** add a new event type or edit `coordinator.ts`/`events.ts`. Existing 10 steer pins stay green. Tests 3×. |
+| R18-2 | opus | `src/cli/main.ts` **`parseChildSpec` region only** (do not edit `runCommand`, routes, `INSPECT_SUMMARY`, `onRunStarted`, pref lock); `test/integration/m1/cli-children.test.ts`; `docs/specs/m0-m2-architecture.md` (stale lines ~359–360 only). Copy a positive finite `maxCostUsd`; refuse any other non-undefined value with `DomainValidationError` naming the task. Fake-children executor ignoring the cap stays the pinned contract. |
 
-Dispatch: fable-audit `bc-f8e930d3-5a33-5efa-a612-d648ed088f69`. PR https://github.com/Xhhemoing/pi-sparkle/pull/10
+**Parent sign-off**
+- **R18-1 YES — (a) re-deliver** accepted steers into each retry kernel. `STEER_INJECTED` must stay true after a 429/5xx retry.
+- **R18-2:** no extra sign-off.
 
-Frozen: ROUND17/18 briefs §3/§5 — CLI inferred-preference plane not live; migrate-legacy both publish arms pinned; five routes; `INSPECT_SUMMARY` four keys; exact eight `RunStatus`; EventStore/CheckpointStore unlocked; no live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json` dep bumps. Adaptation-plane import-edge changes must include `test/unit/privacy/plane-boundary.test.ts` (and Loop 3 `adaptation-plane-closure.test.ts` if it still fails closed on stale allowances). Kernel-reuse landings (`steer`, thinking redaction, `maxCostUsd` forward) are **in** the tree — do not revert them; hunt holes around them.
+Frozen: ROUND18-BRIEF §3/§5. Do not revert kernel-reuse. Live-through-tool-start as shipped. Thinking bytes-only. Adaptation closure exactly 4 modules — this round's slots must not change adaptation-plane `src` import edges. Five routes character-exact. No live R1 / Outcome-supported / ADR-006 Accepted / auto-promote / `package.json`.
+
+Every slot: census first; verify paths exist; scoped eslint + whole-tree `tsc --noEmit`; report `.agent_workspace/loop4-r18-tN.md`. No full gate.
