@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–15 已对各区做过十五遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S15-* 条目（含已合入的 S13-B-1 与 R12–R15 全部空枚举收口，含刚合入的 R15-J / R16-A / R16-B / R16-C / R16-D / R16-E）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
+Round 1–15 已对各区做过十五遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S15-* 条目（含已合入的 S13-B-1 与 R12–R15 全部空枚举收口，含刚合入的 R15-J / R16-A / R16-B / R16-C / R16-D / R16-E / R16-F）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R16-A … R16-J），报告写入 `docs/reports/sota-opt/round-16/`。
 
-状态：第 3 波 H 本波派出；F/G 运行中。Round 15 已收口 10/10。A–E 已合入（空枚举）。
+状态：第 3 波 I 本波派出；G/H 运行中。Round 15 已收口 10/10。A–F 已合入（空枚举）。
 
 A 切片已合入：空枚举，未铸 S16-A-*。预算复核 66–76 µs/run（13.1–15.3 µs/gate，与 R15-A 69–83 同带）。本轮新增 payload 形态轴：id 字节 L 被 schema 结构性封闭（合法顶 +4.8–5.4 µs/run，无越线）；evidenceRefs 基数 V 越 10 ms 于 ≈21,447–25,331（约 4.0–4.1 量级高于生产 V=2）；摘要字节 S 越 10 ms 于 ≈1.32×10⁶ chars（约 4.9 量级）。R14-A E/max-codes 与 R15-A C/R/GC/JIT 不补铸。4 项换名拒绝不铸 ID。基线 `7acb666` 空 diff 再确认。
 
@@ -20,8 +20,10 @@ D 切片已合入：空枚举，未铸 S16-D-*。eval 地板复核配置态 3.47
 
 E 切片已合入：空枚举，未铸 S16-E-*。SLICE-CPU 复核 19.0–22.0 µs/run（夹具 collected=17，落在 R14-E/R15-E 包络）。本轮新增累积状态轴（A\*≈6,571–6,925；C\*单载入 1,857–2,141 / S8-E-1 双载入 927–1,067，O(C) 在 D 辖区）与 payload 形态轴（|avoid| 越 10 ms 于 ≈16,404–16,973；自由文本 ≈0.89–1.12M chars）。S13-B-1 重开条件首次量化为 |avoid|≈965–1,063，生产写入方不可达、未触发。R13–R15 轴不补铸。基线 `adb20d7` 空 diff 再确认。
 
-F 切片 = `src/experiments/`（15 文件）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F…R15-F 空枚举、未铸 ID。全实验锚点 R15-F：120.7–132.3 ms。R15-F A/A MDE（max-abs 1.04–2.64 ms）、条目长度格与引擎代格不补铸。R14-F GC/出处/deopt 与无名哈希规范化不补铸。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r16f 仿真。基线 `519101f` 预期空 diff。
+F 切片已合入：空枚举，未铸 S16-F-*。全实验锚点复核 118.5–133.5 ms（与 R15-F 120.7–132.3 重叠）。S7-F-1 ≠ S6-F-5 落地代码逐行再确认。本轮新增剖析归属轴（`assertUniqueNonEmpty` self 67.7–68.0%）、A 越线点格（10 ms 于 A\*≈1.8k–4.9k，生产 A≪1000 未触发）与编码格（two-byte +29–31%，夹具侧）。R14-F / R15-F 轴不补铸。r1f/r5f/r6f/r7f 绿（2668 / 224 / 27 / 169）。基线 `519101f` 空 diff 再确认。
 
 G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G…R15-G 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希。计算顶 R15-G：0.290–0.297 ms vs I/O 89.7–103.5 ms。R15-G A/A（16 胞 0/16 伪稳）与引擎代轴不补铸。R14-G 引擎态/规模轴与 digest `06cbcf92c098c8f0` 不补铸。基线 `4efee23` 预期空 diff。
 
 H 切片 = 21 文件：`src/evaluation/` **8**（不是 9）+ `src/requirement/` 7 + `src/review/` 4 + `src/rubric/` 2。S5-H-1 必须保留。不要重开 S1-H-* … S9-H-2。R10-H…R15-H 空枚举、未铸 ID。热层默认 R15-H：9.46–9.57 µs/run。R15-H A/A 决斗地板（CHAIN ±0.82–2.25 µs）不补铸。R14-H 引擎底 GC/JIT 与 throw 路径消息装配不补铸。基线 `fd437a9` 预期空 diff。
+
+I 切片 = 25 文件：`src/cli/` 13 + `src/pi-adapter/` 9 + `src/config/` 2 + `src/telemetry/` 1。必须站在已落地 S1-I / S4-I / S5-I-1 / S7-I-1。S4-I 淘汰项是 S4-I-2..5（无 S4-I-1）。S8-I-1 两臂文件级 blocked（含 Node 24），不要重开。R9-I…R15-I 七连空，未铸 ID。R15-I spawn A/A（22.14 单窗 max-abs 34.5 ms）、引擎代格与堆足迹格（`providers/all` ~2.4–2.7 MiB）不补铸。R13-I 无名微观与 R14-I 肥配置态不补铸。若落地代码：重跑 r4i/r5i/r7i（68 / 119 / 80）+ 新 r16i 仿真。基线 `8dee7fb` 预期空 diff。
