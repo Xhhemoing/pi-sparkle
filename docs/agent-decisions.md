@@ -290,7 +290,9 @@ Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable
 
 **Status:** landed on `cursor/validate-path-retarget-0da8` (`2e9d35e`). PR #18.
 
-**GPT-r9-challenge: KEEP.** Report: `.agent_workspace/loop5-r9-gpt-challenge.md`. Merge gated on GPT-d36-recheck of the landing.
+**GPT-r9-challenge: KEEP.** Report: `.agent_workspace/loop5-r9-gpt-challenge.md`.
+
+**GPT-d36-recheck: KEEP.** Report: `.agent_workspace/loop5-r9-gpt-d36.md`. Merged to the integration branch as `367bd45`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
