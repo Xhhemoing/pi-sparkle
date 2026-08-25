@@ -160,7 +160,9 @@ Fable-r5-next: **HIGH VALUE**. GPT-r5-challenge: **FIX** the two remedies, keep 
 
 No `main.ts`. Spec: `.agent_workspace/loop5-r5-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r5-gpt-challenge.md`.
 
-**Landed** (Opus-d20-cli-honesty + GPT-r5 riders): truncation warnings, `episode close --json` refuse, partial-apply notes that prescribe `--nodes` only for CSV-round-trippable generated ids, `--file` suffix-file recovery, `unlinkPauseToken` result-bearing clear. Independent GPT recheck dispatched.
+**Landed** (Opus-d20-cli-honesty + GPT-r5 riders): truncation warnings, `episode close --json` refuse, partial-apply notes that prescribe `--nodes` only for CSV-round-trippable generated ids, `--file` suffix-file recovery, `unlinkPauseToken` result-bearing clear.
+
+**GPT-d20-recheck: KEEP.** Report: `.agent_workspace/loop5-r5-gpt-d20.md`.
 
 ## D21 — Round 5 rank 2: auth/models operator remainder
 

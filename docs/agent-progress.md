@@ -98,7 +98,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D18 default eval-dataset leaf-symlink bind/refuse. Implementer: Opus-dataset-symlink-cascade (`bc-83d49ea6-9b87-5659-9b3e-14d88c42e729`). GPT-d18-recheck **FIX** (pathname equality ≠ directory identity).
 - D19 default-export directory-identity bind. Implementer: Opus-d19-publish-identity (`bc-2ad751d1-e327-5807-8907-90a681f9aeac`). GPT-d19-recheck **FIX** (restored bound directory, missing manifest).
 - D23 bound-dir `manifest.json` exists check. Implementer: Opus-d23-manifest-exists (`bc-5c880308-f7bb-5147-8c7c-a61c4917d8e2`). GPT-d23-recheck **KEEP**. `adapt dataset` merge-ready.
-- D20 claim-only-what-happened CLI. Implementer: Opus-d20-cli-honesty (`bc-ef8d6111-15dc-5bf1-a83c-c80ed59b5b93`). GPT recheck in flight.
+- D20 claim-only-what-happened CLI. Implementer: Opus-d20-cli-honesty (`bc-ef8d6111-15dc-5bf1-a83c-c80ed59b5b93`). GPT-d20-recheck **KEEP**.
 - D21 auth/models remainder. Implementer: Opus-d21-auth-models (`bc-c4dd2d65-355c-5243-940b-875d1e342896`). GPT recheck in flight.
 
 ### Round 5 (in flight)
@@ -108,5 +108,5 @@ Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fab
 ### Round 3 still running / next implementers
 
 - D22 doctor storage inventory dispatched (GPT-r5 plane-root walk).
-- D20 and D21 merged with GPT-r5 riders; independent rechecks dispatched.
+- D21 independent GPT recheck still in flight.
 - Windows smoke and status-matrix still HOLD behind PR #12.
