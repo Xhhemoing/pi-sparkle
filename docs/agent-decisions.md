@@ -262,7 +262,9 @@ Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-arg
 
 **Status:** GPT dispatch-order + escape rider landed (`8ca3026` on `cursor/episode-id-events-lines-0da8`).
 
-**GPT-d33-recheck: FIX** (keep the slot; tests only). Source behavior is correct. (1) Each `requiredEvidence` entry in the escape fixture must contain literal `\`, tab, CR, and LF — current `["tests\tunit", "docs\nadr", "plain"]` does not. (2) Raw-JSONL pins must compare stdout to the file bytes directly, not via `trimEnd().split("\n")`. Report: `.agent_workspace/loop5-r8-gpt-d33.md`. Rider in flight; do not merge until KEEP.
+**GPT-d33-recheck: FIX** (keep the slot; tests only). Source behavior is correct. (1) Each `requiredEvidence` entry in the escape fixture must contain literal `\`, tab, CR, and LF — current `["tests\tunit", "docs\nadr", "plain"]` does not. (2) Raw-JSONL pins must compare stdout to the file bytes directly, not via `trimEnd().split("\n")`. Report: `.agent_workspace/loop5-r8-gpt-d33.md`.
+
+**Status:** test-pin rider landed (`08219b2` on `cursor/episode-id-events-lines-0da8`). Merge gated on a KEEP recheck of those pins.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 

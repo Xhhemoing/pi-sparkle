@@ -148,7 +148,7 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 |---|---|---|---|
 | D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | **KEEP** merged; PR #14; report `.agent_workspace/loop5-r8-gpt-d31.md` |
 | D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | **KEEP** merged; PR #15; report `.agent_workspace/loop5-r8-gpt-d32.md` |
-| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | PR #16; GPT-d33-recheck **FIX** (tests only); pin rider in flight |
+| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | PR #16; GPT-d33-recheck **FIX**; pin rider `08219b2` landed; KEEP recheck in flight |
 
 ### Round 3 still running / next implementers
 
