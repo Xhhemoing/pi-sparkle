@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { parseRunId } from "../domain/ids.js";
 import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { pauseFlowchartRun } from "../run/flowchart-run.js";
-import { createFilePauseController } from "../run/pause-controller.js";
+import { createFilePauseController, unlinkPauseToken } from "../run/pause-controller.js";
 import { EventStore } from "../run/event-store.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 
@@ -88,20 +88,10 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
     });
   }
   if (values.clear === true) {
-    // What the clear removed decides what it may claim. A malformed token
-    // still gets cleared — the clear *is* the remedy for a damaged one — but
-    // it is not the same event as lifting a live pause, and an absent token is
-    // no work at all.
-    let existing: "paused" | "absent" | "malformed";
-    try {
-      existing = (await pause.token(runId)).paused ? "paused" : "absent";
-    } catch {
-      existing = "malformed";
-    }
-    await pause.clearPause(runId);
-    if (existing === "paused") io.stdout(`Cleared pause for ${runId}\n`);
-    else if (existing === "malformed") io.stdout(`Cleared malformed pause token for ${runId}\n`);
-    else io.stdout(`No pause token for ${runId}; nothing to clear\n`);
+    // The unlink itself decides what the message may claim; reading the token
+    // first would only describe a file the clear never saw.
+    const { removed } = await unlinkPauseToken(stateRoot, runId);
+    io.stdout(removed ? `Cleared pause for ${runId}\n` : `No pause token for ${runId}; nothing to clear\n`);
     return CLI_EXIT.ok;
   }
   const outcome = await pauseFlowchartRun(

@@ -364,8 +364,8 @@ test("pause on a run that does not exist gives inject's remedy verbatim", async 
   });
 });
 
-// `clearPause` swallows ENOENT, so the message is the only thing that can tell
-// an operator whether a pause was actually lifted.
+// The unlink swallows ENOENT, so the message is the only thing that can tell an
+// operator whether a pause was actually lifted.
 test("pause --clear claims only the token it removed", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const runId = await startWaiting(stateRoot, projectRoot);
@@ -390,7 +390,10 @@ test("pause --clear claims only the token it removed", async () => {
   });
 });
 
-test("pause --clear on a malformed pause.json clears it and says so", async () => {
+// A token that will not parse is still a token: what the operator needs to
+// know is that the file is gone, which is exactly what the unlink reports. No
+// second vocabulary for damaged JSON.
+test("pause --clear removes a malformed pause.json and reports it as cleared", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const runId = await startWaiting(stateRoot, projectRoot);
     const pausePath = join(stateRoot, "runtime", "runs", runId, "pause.json");
@@ -398,7 +401,7 @@ test("pause --clear on a malformed pause.json clears it and says so", async () =
 
     const { io, out, err } = capture();
     assert.equal(await main(["pause", "--clear", "--run", runId, "--state-root", stateRoot], io), 0);
-    assert.equal(out.join(""), `Cleared malformed pause token for ${runId}\n`);
+    assert.equal(out.join(""), `Cleared pause for ${runId}\n`);
     assert.deepEqual(err, []);
     await assert.rejects(access(pausePath));
   });
