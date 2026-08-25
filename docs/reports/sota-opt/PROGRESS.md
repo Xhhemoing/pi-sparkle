@@ -40,7 +40,7 @@
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
-| 26 | 第 1–4 波进行中 | 6 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
+| 26 | 第 1–4 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
 
 ### Round 1 波次
 
@@ -273,8 +273,8 @@
 | --- | --- | --- |
 | 1 | R26-A 跟踪门控、R26-B live 路由、R26-C 离线路由 | A/B/C 已合入 |
 | 2 | R26-D 自优化、R26-E 学习 | D/E 已合入 |
-| 3 | R26-F 实验、R26-G 运行时/图、R26-H 评价/需求 | F 已合入；G/H 运行中 |
-| 4 | R26-I CLI/适配器 | I 本波派出 |
+| 3 | R26-F 实验、R26-G 运行时/图、R26-H 评价/需求 | F/G 已合入；H 运行中 |
+| 4 | R26-I CLI/适配器、R26-J cluster/privacy | I 运行中；J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -537,9 +537,10 @@
 | R26-D | `cursor/r26-d-adaptation-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-D.md`）。无新排除 ID；eval 地板复核与 3.55–4.28 ms 带重叠；injection-seam default-arm face 归档 |
 | R26-E | `cursor/r26-e-learning-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-E.md`）。无新排除 ID；SLICE-CPU 复核 14.7–15.2 µs/run；RTL 不铸 ID |
 | R26-F | `cursor/r26-f-experiments-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-F.md`）。无新排除 ID；锚点复核 r5f 119.27/120.95 / r6f 119.37 / r7f 128.85/128.88；input storage-state face 归档 |
-| R26-G | `cursor/r26-g-runtime-twenty-sixth-pass-83a1` | 已派出 |
+| R26-G | `cursor/r26-g-runtime-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-G.md`）。无新排除 ID；计算顶复核 0.286–0.305 vs I/O 90.7–96.9 ms；edge condition-kind face 归档；digest 第十七次逐位相同 |
 | R26-H | `cursor/r26-h-eval-twenty-sixth-pass-83a1` | 已派出 |
 | R26-I | `cursor/r26-i-cli-twenty-sixth-pass-83a1` | 已派出 |
+| R26-J | `cursor/r26-j-persist-twenty-sixth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
