@@ -1838,7 +1838,8 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   // `USER_ANSWER` this used to write had no consumer, and worse, `replayRun`
   // clears `sawWaiting` on it — the run then replays as RUNNING while nothing
   // is running. Existence of the file is enough to refuse; the questions
-  // themselves are only needed to print them, which `inspect` does.
+  // themselves are only needed to print them, which `inspect` does. A wait
+  // that lost the file is caught further down, by correlation instead.
   const clarification = await readTrackClarification(stateRoot, runId);
   if (isTrackClarificationWait(clarification)) {
     const facts = trackContinuationFacts({
