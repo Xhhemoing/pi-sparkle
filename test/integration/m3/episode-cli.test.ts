@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,7 +9,9 @@ import { EPISODE_USAGE } from "../../../src/cli/episode.js";
 import {
   createEpisodeId,
   createEvidenceId,
-  createProjectId
+  createProjectId,
+  createRunId,
+  type EpisodeId
 } from "../../../src/domain/ids.js";
 import type { ProjectEpisode } from "../../../src/domain/episode.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
@@ -37,6 +39,34 @@ async function seedEpisode(stateRoot: string, episode: ProjectEpisode): Promise<
   });
   await new EpisodeStore(stateRoot, episode.id).append(episode);
   await new EpisodeEventStore(stateRoot, episode.id).append(opened.event);
+}
+
+function episodesDir(stateRoot: string): string {
+  return join(stateRoot, "runtime", "episodes");
+}
+
+/** The raw bytes on disk, so `--json` can be pinned as verbatim JSONL. */
+async function rawEventLogLines(stateRoot: string, episodeId: EpisodeId): Promise<string[]> {
+  const text = await readFile(join(episodesDir(stateRoot), `${episodeId}.events.jsonl`), "utf8");
+  return text.trimEnd().split("\n");
+}
+
+async function humanEventLines(stateRoot: string, episodeId: EpisodeId): Promise<string[]> {
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", episodeId, "--state-root", stateRoot],
+    captured.io
+  );
+  assert.equal(code, 0, captured.err.join(""));
+  return captured.out.join("").trimEnd().split("\n");
+}
+
+function assertTimestampedLine(line: string, type: string, detail: string): void {
+  const fields = line.split("\t");
+  assert.equal(fields.length, 3, `expected three tab-separated fields, got ${JSON.stringify(line)}`);
+  assert.ok(!Number.isNaN(Date.parse(fields[0] ?? "")), `not a timestamp: ${String(fields[0])}`);
+  assert.equal(fields[1], type);
+  assert.equal(fields[2], detail);
 }
 
 test("episode close refuses completion when acceptance evidence is missing and records waiting", async () => {
@@ -171,7 +201,9 @@ test("a crash-truncated episode event log is disclosed and the surviving events 
 
   assert.equal(code, 0, captured.err.join(""));
   assert.match(captured.err.join(""), /warning: ignored truncated episode event log at line \d+/);
-  assert.deepEqual(captured.out.join("").trimEnd().split("\n"), ["EPISODE_OPENED"]);
+  const lines = captured.out.join("").trimEnd().split("\n");
+  assert.equal(lines.length, 1);
+  assertTimestampedLine(lines[0] ?? "", "EPISODE_OPENED", episode.objective);
 });
 
 test("a crash-truncated episode snapshot log is disclosed on close", async () => {
@@ -293,4 +325,189 @@ test("episode close on an unknown episode points at list --episodes, not at a ru
   assert.match(report?.next ?? "", /pnpm cli list/);
   assert.match(report?.next ?? "", /--episodes/);
   assert.ok((report?.next ?? "").includes(stateRoot));
+});
+
+test("episode events names what the episode waits for, and --json keeps its raw bytes", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-waiting-line-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "lines0001"),
+    projectId: createProjectId(() => "lines0001"),
+    objective: "ship the operator contract",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [{ id: "tests", description: "tests pass", observableCheck: "pnpm test" }],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+  const refused = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", episode.id, "--status", "COMPLETED", "--state-root", stateRoot],
+      refused.io
+    ),
+    1
+  );
+
+  const lines = await humanEventLines(stateRoot, episode.id);
+  assert.equal(lines.length, 2);
+  assertTimestampedLine(lines[0] ?? "", "EPISODE_OPENED", episode.objective);
+  assertTimestampedLine(lines[1] ?? "", "EPISODE_WAITING", "acceptance-incomplete: tests");
+
+  // The human view is a rendering of events the JSON view already discloses:
+  // `--json` stays verbatim JSONL of the rows on disk.
+  const asJson = capture();
+  assert.equal(
+    await main(
+      ["episode", "events", "--episode", episode.id, "--state-root", stateRoot, "--json"],
+      asJson.io
+    ),
+    0,
+    asJson.err.join("")
+  );
+  assert.deepEqual(asJson.out.join("").trimEnd().split("\n"), await rawEventLogLines(stateRoot, episode.id));
+  const events = asJson.out.map((line) => JSON.parse(line) as { type: string; reason?: string });
+  assert.deepEqual(events.map((event) => event.type), ["EPISODE_OPENED", "EPISODE_WAITING"]);
+  assert.equal(events[1]?.reason, "acceptance-incomplete");
+});
+
+test("episode events prints the closed status, and the outcome id only when one was recorded", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-closed-line-"));
+  const bare: ProjectEpisode = {
+    id: createEpisodeId(() => "lines0002"),
+    projectId: createProjectId(() => "lines0002"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  const withOutcome: ProjectEpisode = { ...bare, id: createEpisodeId(() => "lines0003") };
+  await seedEpisode(stateRoot, bare);
+  await seedEpisode(stateRoot, withOutcome);
+
+  const first = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", bare.id, "--status", "ABANDONED", "--state-root", stateRoot],
+      first.io
+    ),
+    0,
+    first.err.join("")
+  );
+  const second = capture();
+  assert.equal(
+    await main(
+      [
+        "episode", "close", "--episode", withOutcome.id, "--status", "FAILED",
+        "--outcome", "oc_r8probe", "--state-root", stateRoot
+      ],
+      second.io
+    ),
+    0,
+    second.err.join("")
+  );
+
+  const bareLines = await humanEventLines(stateRoot, bare.id);
+  assert.equal(bareLines.length, 2);
+  assertTimestampedLine(bareLines[1] ?? "", "EPISODE_CLOSED", "ABANDONED");
+
+  const outcomeLines = await humanEventLines(stateRoot, withOutcome.id);
+  assert.equal(outcomeLines.length, 2);
+  assertTimestampedLine(outcomeLines[1] ?? "", "EPISODE_CLOSED", "FAILED outcome=oc_r8probe");
+});
+
+test("episode events prints the attached run id for a RUN_ATTACHED event", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-attached-line-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "lines0004"),
+    projectId: createProjectId(() => "lines0004"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+  const runId = createRunId(() => "attached01");
+  // Appended through the store, so the seeded row is one `validateEpisodeEvent`
+  // accepts — the human line renders a real event, not a test-only shape.
+  await new EpisodeEventStore(stateRoot, episode.id).append({
+    type: "RUN_ATTACHED",
+    episodeId: episode.id,
+    runId,
+    attachedAt: nowIso()
+  });
+
+  const lines = await humanEventLines(stateRoot, episode.id);
+  assert.equal(lines.length, 2);
+  assertTimestampedLine(lines[0] ?? "", "EPISODE_OPENED", episode.objective);
+  assertTimestampedLine(lines[1] ?? "", "RUN_ATTACHED", runId);
+});
+
+test("a malformed --episode is an argv refusal on events, not a validation failure", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-bad-id-events-"));
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", "banana", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(
+    report?.message,
+    'invalid --episode "banana": expected an episode id of the form ep_<suffix>'
+  );
+  assert.match(report?.next ?? "", /--episodes/);
+  assert.ok((report?.next ?? "").includes(stateRoot));
+});
+
+test("a malformed --episode is an argv refusal on close and writes nothing", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-bad-id-close-"));
+  const episode: ProjectEpisode = {
+    id: createEpisodeId(() => "badid0001"),
+    projectId: createProjectId(() => "badid0001"),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  await seedEpisode(stateRoot, episode);
+  const before = (await readdir(episodesDir(stateRoot))).sort();
+  const snapshotPath = join(episodesDir(stateRoot), `${episode.id}.jsonl`);
+  const snapshotBefore = await readFile(snapshotPath, "utf8");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", "banana", "--status", "FAILED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(
+    report?.message,
+    'invalid --episode "banana": expected an episode id of the form ep_<suffix>'
+  );
+  assert.match(report?.next ?? "", /--episodes/);
+  assert.ok((report?.next ?? "").includes(stateRoot));
+  // The refusal precedes the lock and both stores: no new file, no new row.
+  assert.deepEqual((await readdir(episodesDir(stateRoot))).sort(), before);
+  assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
 });
