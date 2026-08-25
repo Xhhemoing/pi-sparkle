@@ -448,6 +448,17 @@ export class PiAgentExecutor implements AgentExecutor {
    * executor can serve concurrent child tasks; steering refuses ambiguity.
    */
   private readonly liveKernels = new Map<AgentInstanceId, SparkleKernel>();
+  /**
+   * Steer texts accepted during each in-flight execution, keyed by agent
+   * instance. Scoped to the whole execution rather than one attempt because
+   * {@link runWithRetry} builds a fresh Agent per attempt: a steer consumed
+   * into the context of an attempt that a 429 or 5xx then retries dies with
+   * that discarded context. The run's `STEER_INJECTED` record is written once
+   * this executor accepts the text, so dropping it would leave the log
+   * permanently claiming the run was told something no surviving model call
+   * ever saw — the state `execution/contract.ts` calls worse than a refusal.
+   */
+  private readonly acceptedSteers = new Map<AgentInstanceId, string[]>();
 
   constructor(private readonly options: PiExecutorOptions) {
     if (options.models !== undefined) {
@@ -500,12 +511,16 @@ export class PiAgentExecutor implements AgentExecutor {
    * child reports a task verdict. That verdict and the events after it stay
    * buffered so a failed attempt's verdict cannot leak into a retry, while
    * tool-start events remain observable in time for steering.
+   *
+   * `replay` carries steers this execution already accepted under an earlier,
+   * now-discarded attempt; see {@link acceptedSteers}.
    */
   private async *runAttempt(
     model: Model<Api>,
     request: AgentExecutionRequest,
     gate: CostGate,
-    signal: AbortSignal
+    signal: AbortSignal,
+    replay: readonly string[]
   ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
     const queue = new AsyncEventQueue<ExecutionEvent>();
@@ -550,10 +565,23 @@ export class PiAgentExecutor implements AgentExecutor {
     signal.addEventListener("abort", onAbort, { once: true });
     // addEventListener does not fire for a signal that was already aborted.
     if (signal.aborted) kernel.abort();
+    let replayPending = replay.length > 0;
     const unsubscribe = kernel.subscribe((event) => {
       const translated = translatePiEvent(event as AgentEvent);
       if (translated === undefined) return;
-      if (translated.type === "TURN_FINISHED") gate.recordTurn(translated.usage);
+      if (translated.type === "TURN_FINISHED") {
+        gate.recordTurn(translated.usage);
+        if (replayPending) {
+          replayPending = false;
+          // Queued after this attempt's first turn, not folded into its
+          // opening prompt: the loop polls its steering queue once a turn
+          // ends, so a re-delivered steer lands exactly where a live one
+          // would have. Delivering it before the prompt would instead make
+          // it part of the first request, which is not what "picked up after
+          // its current turn" promised the operator.
+          for (const text of replay) kernel.steerText(text);
+        }
+      }
       events.push(translated);
       if (streamPrefixOpen) {
         streamedCount += 1;
@@ -608,6 +636,10 @@ export class PiAgentExecutor implements AgentExecutor {
   /**
    * Drive attempts until one succeeds, retry is refused, cancellation wins, or
    * the cost gate stops another provider call.
+   *
+   * This is also the scope of {@link acceptedSteers}: the log opens here and
+   * is discarded here, so every attempt after the first starts from whatever
+   * the operator has told this execution so far.
    */
   private async *runWithRetry(
     model: Model<Api>,
@@ -620,31 +652,41 @@ export class PiAgentExecutor implements AgentExecutor {
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
     let latest: RetriedRun = { attempt: 1, events: [], failure: undefined };
-    for (let attempt = 1; ; attempt += 1) {
-      if (signal.aborted) return latest;
-      const run = yield* this.runAttempt(model, request, gate, signal);
-      if (!run.failed || signal.aborted) {
-        yield* this.remainingAttemptEvents(run);
-        return { attempt, events: run.events, failure: undefined };
+    const steers: string[] = [];
+    this.acceptedSteers.set(request.agentInstanceId, steers);
+    try {
+      for (let attempt = 1; ; attempt += 1) {
+        if (signal.aborted) return latest;
+        // Snapshotted before the attempt starts, so a steer accepted live
+        // during it is delivered once by the kernel rather than twice.
+        const run = yield* this.runAttempt(model, request, gate, signal, [...steers]);
+        if (!run.failed || signal.aborted) {
+          yield* this.remainingAttemptEvents(run);
+          return { attempt, events: run.events, failure: undefined };
+        }
+        const failure = classifyProviderFailure(run.error, run.errorMessage);
+        latest = { attempt, events: run.events, failure };
+        const decision = decideRetry(failure, attempt, policy, random);
+        if (!decision.retry || gate.requestStopIfExceeded()) {
+          yield* this.remainingAttemptEvents(run);
+          return latest;
+        }
+        options?.onRetry?.({
+          attempt,
+          nextAttempt: attempt + 1,
+          delayMs: decision.delayMs,
+          reason: decision.reason,
+          failure
+        });
+        await sleep(decision.delayMs, signal);
+        if (signal.aborted) {
+          yield* this.remainingAttemptEvents(run);
+          return latest;
+        }
       }
-      const failure = classifyProviderFailure(run.error, run.errorMessage);
-      latest = { attempt, events: run.events, failure };
-      const decision = decideRetry(failure, attempt, policy, random);
-      if (!decision.retry || gate.requestStopIfExceeded()) {
-        yield* this.remainingAttemptEvents(run);
-        return latest;
-      }
-      options?.onRetry?.({
-        attempt,
-        nextAttempt: attempt + 1,
-        delayMs: decision.delayMs,
-        reason: decision.reason,
-        failure
-      });
-      await sleep(decision.delayMs, signal);
-      if (signal.aborted) {
-        yield* this.remainingAttemptEvents(run);
-        return latest;
+    } finally {
+      if (this.acceptedSteers.get(request.agentInstanceId) === steers) {
+        this.acceptedSteers.delete(request.agentInstanceId);
       }
     }
   }
@@ -652,12 +694,15 @@ export class PiAgentExecutor implements AgentExecutor {
   /**
    * Queue user-authored text into the sole live attempt. Refuses blank text,
    * no active attempt, and ambiguous concurrent attempts.
+   *
+   * Accepted text is also kept for the rest of the execution so a retry
+   * re-delivers it; see {@link acceptedSteers}.
    */
   steerText(text: string): void {
     if (text.trim() === "") {
       throw new DomainValidationError("steer text must be a non-empty string");
     }
-    const live = [...this.liveKernels.values()];
+    const live = [...this.liveKernels.entries()];
     if (live.length === 0) {
       throw new DomainValidationError("cannot steer: no agent run is in flight");
     }
@@ -666,7 +711,12 @@ export class PiAgentExecutor implements AgentExecutor {
         `cannot steer: ${live.length} agent runs are in flight and steering has no target`
       );
     }
-    (live[0] as SparkleKernel).steerText(text);
+    const [agentInstanceId, kernel] = live[0] as [AgentInstanceId, SparkleKernel];
+    kernel.steerText(text);
+    // Recorded only once the kernel has taken the text: a steer the live
+    // attempt refused was never delivered, and re-delivering it to the next
+    // attempt would turn that refusal into a silent acceptance.
+    this.acceptedSteers.get(agentInstanceId)?.push(text);
   }
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
