@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -410,5 +410,291 @@ test("the argument errors of enable, disable and set-default speak the house dia
       assert.equal(report.message, message);
       assert.equal(report.next, "run pi-sparkle models --help");
     }
+  });
+});
+
+function providersJsonPath(stateRoot: string): string {
+  return join(stateRoot, "runtime", "providers.json");
+}
+
+async function providersJsonBytes(stateRoot: string): Promise<string> {
+  return await readFile(providersJsonPath(stateRoot), "utf8");
+}
+
+async function refusal(
+  stateRoot: string | undefined,
+  argv: string[]
+): Promise<{ report: NonNullable<ReturnType<typeof parseCliErrorJson>>; stdout: string }> {
+  const { io, out, err } = capture();
+  const full = stateRoot === undefined ? argv : [...argv, "--state-root", stateRoot];
+  assert.equal(await modelsCommand(full, io), 1, `${full.join(" ")} must fail`);
+  const report = parseCliErrorJson(err.join(""));
+  assert.ok(report !== undefined, `${full.join(" ")} must emit a parseable report`);
+  return { report, stdout: out.join("") };
+}
+
+/**
+ * A typo'd id is argv. It used to reach the operator as the top-level `models`
+ * verb failing validation with the doctor remedy, which cannot fix a mistyped
+ * positional — and the positional itself was never named.
+ */
+test("a malformed model id is a parse-args refusal that names what was typed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const listRemedy = `pnpm cli models list --available --state-root ${stateRoot}`;
+    const cases = [
+      {
+        argv: ["enable", "banana"],
+        command: "models enable",
+        label: "<provider/model>",
+        value: "banana",
+        subject: "<provider/model>"
+      },
+      {
+        argv: ["enable", ""],
+        command: "models enable",
+        label: "<provider/model>",
+        value: "",
+        subject: "<provider/model>"
+      },
+      {
+        argv: ["disable", "banana"],
+        command: "models disable",
+        label: "<provider/model>",
+        value: "banana",
+        subject: "<provider/model>"
+      },
+      {
+        argv: ["disable", ""],
+        command: "models disable",
+        label: "<provider/model>",
+        value: "",
+        subject: "<provider/model>"
+      },
+      {
+        argv: ["set-default", "--primary", "banana"],
+        command: "models set-default",
+        label: "--primary",
+        value: "banana",
+        subject: "--primary <provider/model>"
+      },
+      {
+        argv: ["set-default", "--primary", ""],
+        command: "models set-default",
+        label: "--primary",
+        value: "",
+        subject: "--primary <provider/model>"
+      },
+      {
+        argv: ["set-default", "--primary", "local/m1", "--fast", "banana"],
+        command: "models set-default",
+        label: "--fast",
+        value: "banana",
+        subject: "--fast <provider/model>"
+      },
+      {
+        argv: ["set-default", "--primary", "local/m1", "--fast", "trailing/"],
+        command: "models set-default",
+        label: "--fast",
+        value: "trailing/",
+        subject: "--fast <provider/model>"
+      }
+    ];
+    await writeCustomProviders(stateRoot);
+    for (const { argv, command, label, value, subject } of cases) {
+      const { report, stdout } = await refusal(stateRoot, argv);
+      assert.equal(stdout, "", `${command} must not claim anything on stderr's behalf`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(
+        report.message,
+        `invalid ${label} "${value}": expected a model id of the form provider/model`
+      );
+      assert.equal(report.next, `pass ${subject} as printed by ${listRemedy}`);
+      // No run is in play on any models verb.
+      assert.equal(report.runId, undefined);
+    }
+  });
+});
+
+test("--primary is checked before --fast when both are malformed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const { report } = await refusal(stateRoot, [
+      "set-default",
+      "--primary",
+      "banana",
+      "--fast",
+      "apple"
+    ]);
+    assert.match(report.message, /^invalid --primary "banana"/);
+  });
+});
+
+/**
+ * The guard has to fire before the state root is opened at all: the operator
+ * who mistyped the id has not made a configuration mistake, and a refusal about
+ * their providers.json would send them to the wrong file.
+ */
+test("a malformed id refuses on argv before any config is read", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const missing = join(stateRoot, "no-such-dir");
+    const absent = await refusal(missing, ["enable", "banana"]);
+    assert.equal(absent.report.stage, "parse-args");
+    assert.match(absent.report.message, /^invalid <provider\/model> "banana"/);
+
+    // A providers.json this command could not parse is the sharper proof: the
+    // load would throw past the verb, so reaching a parse-args report means
+    // nothing read it.
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(providersJsonPath(stateRoot), "{ not json", "utf8");
+    for (const argv of [
+      ["enable", "banana"],
+      ["disable", "banana"],
+      ["set-default", "--primary", "banana"]
+    ]) {
+      const { report } = await refusal(stateRoot, argv);
+      assert.equal(report.stage, "parse-args", argv.join(" "));
+      assert.match(report.message, /^invalid /);
+    }
+    assert.equal(await providersJsonBytes(stateRoot), "{ not json");
+  });
+});
+
+/**
+ * Catalog membership is stored config plus catalog state, so this stays
+ * `validation` — but the remedy is now the inventory this install can print,
+ * including the ids only providers.json knows about.
+ */
+test("an unknown model keeps its message and names the inventory that lists valid ids", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    const next =
+      `pass an id printed by pnpm cli models list --available --state-root ${stateRoot}; ` +
+      "providers.json customProviders adds ids the builtin catalog does not have";
+    const cases = [
+      { argv: ["enable", "local/nope"], command: "models enable", id: "local/nope" },
+      {
+        argv: ["set-default", "--primary", "bogus/model"],
+        command: "models set-default",
+        id: "bogus/model"
+      },
+      {
+        argv: ["set-default", "--primary", "local/m1", "--fast", "local/nope"],
+        command: "models set-default",
+        id: "local/nope"
+      }
+    ];
+    for (const { argv, command, id } of cases) {
+      const { report, stdout } = await refusal(stateRoot, argv);
+      assert.equal(stdout, "");
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "validation");
+      assert.equal(report.message, `unknown model "${id}"`);
+      assert.equal(report.next, next);
+    }
+  });
+});
+
+test("a refused set-default --fast writes nothing at all", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    const before = await providersJsonBytes(stateRoot);
+
+    await refusal(stateRoot, ["set-default", "--primary", "local/m1", "--fast", "local/nope"]);
+    assert.equal(await providersJsonBytes(stateRoot), before);
+
+    await refusal(stateRoot, ["set-default", "--primary", "local/m1", "--fast", "banana"]);
+    assert.equal(await providersJsonBytes(stateRoot), before);
+  });
+});
+
+/**
+ * `Disabled <id>` for an id that was never enabled is a claim about work that
+ * did not happen: the operator walks away believing an expensive model is off
+ * while routing still resolves it.
+ */
+test("disable says so instead of claiming a disable that never happened", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["enable", "local/m1"]);
+    const before = await providersJsonBytes(stateRoot);
+
+    const { io, out, err } = capture();
+    assert.equal(
+      await modelsCommand(["disable", "local/m2", "--state-root", stateRoot], io),
+      0,
+      err.join("")
+    );
+    assert.deepEqual(err, []);
+    assert.equal(
+      out.join(""),
+      `local/m2 was not enabled; nothing to disable (pnpm cli models list --state-root ${stateRoot} shows the enabled models)\n`
+    );
+    assert.doesNotMatch(out.join(""), /Disabled/);
+    // Idempotent, and the enabled set is exactly what it was.
+    assert.equal(await providersJsonBytes(stateRoot), before);
+    assert.equal(await run(stateRoot, ["list"]), "local/m1\n");
+  });
+});
+
+/**
+ * A hand-edited config can name a default that is not in `enabled`. Dropping it
+ * is real work, so the mutation still runs and the D21 disclosure still fires —
+ * only the "Disabled" claim is keyed on what was enabled before.
+ */
+test("disable of a dangling default drops it without claiming a disable", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(
+      providersJsonPath(stateRoot),
+      `${JSON.stringify({
+        version: 1,
+        enabled: ["local/m2"],
+        primary: "local/m1",
+        customProviders: [
+          {
+            id: "local",
+            baseUrl: "http://127.0.0.1:9/v1",
+            models: LOCAL_MODELS.map((id) => ({ id }))
+          }
+        ]
+      })}\n`,
+      "utf8"
+    );
+
+    const disabled = await run(stateRoot, ["disable", "local/m1"]);
+    assert.doesNotMatch(disabled, /Disabled/);
+    assert.match(disabled, /^local\/m1 was not enabled; nothing to disable/m);
+    assert.match(disabled, /note: local\/m1 was the primary default; the default is now unset/);
+
+    assert.equal(await run(stateRoot, ["list"]), "local/m2\n");
+  });
+});
+
+/**
+ * `--provider` was parsed and silently ignored outside `--available`, so "which
+ * anthropic models are enabled" answered with the whole enabled list and exit
+ * 0. Refused rather than filtered: filtering the enabled view would be a new
+ * feature, and the silent ignore is the defect.
+ */
+test("list --provider without --available refuses instead of being ignored", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["enable", "local/m1"]);
+    for (const argv of [
+      ["list", "--provider", "gateway"],
+      ["list", "--provider", "gateway", "--json"]
+    ]) {
+      const { report, stdout } = await refusal(stateRoot, argv);
+      assert.equal(stdout, "", "no MODELS_LIST and no prose on a refusal");
+      assert.equal(report.command, "models list");
+      assert.equal(report.stage, "parse-args");
+      assert.equal(
+        report.message,
+        "models list --provider filters the --available catalog and does not apply to enabled models"
+      );
+      assert.equal(report.next, "add --available, or drop --provider");
+    }
+    // The enabled view without the flag is untouched.
+    assert.equal(await run(stateRoot, ["list"]), "local/m1\n");
   });
 });
