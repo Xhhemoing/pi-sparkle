@@ -10,7 +10,8 @@ import {
   defaultUserPiAgentsDir,
   listPiAgentProfilesFromDirs
 } from "../agents/dispatch-preflight.js";
-import { loadProvidersConfig } from "../config/providers-config.js";
+import { loadProvidersConfig, type CustomProviderConfig } from "../config/providers-config.js";
+import { tryParseModelRef } from "../config/model-ref.js";
 import { isRunId, type RunId } from "../domain/ids.js";
 import {
   BanditStateUnreadableError,
@@ -29,6 +30,7 @@ import {
   catalogObservedPath,
   loadCatalogObservedSnapshot
 } from "../routing/catalog-observed.js";
+import { checkProviderAuth, type SparkleAuthCheck } from "../pi-adapter/auth-session.js";
 import { EventStore } from "../run/event-store.js";
 import { replayRun } from "../run/replay.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
@@ -46,7 +48,15 @@ export interface DoctorOptions {
   readonly nowMs?: number;
   /** Test seam; production checks the recorded PID on the local host. */
   readonly pidLiveness?: (pid: number) => RecordedPidLiveness;
+  /** Test seam; production resolves credentials the way a run would. */
+  readonly authCheck?: DoctorAuthCheck;
 }
+
+export type DoctorAuthCheck = (
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+) => Promise<SparkleAuthCheck | undefined>;
 
 /**
  * Frozen `--json` contract. Additive changes only: consumers pin `checks[].name`
@@ -715,6 +725,86 @@ async function providersCheck(stateRoot: string): Promise<DoctorCheck> {
   }
 }
 
+/**
+ * Whether the models this state root would actually route to can authenticate.
+ *
+ * Without it, a missing credential is discovered mid-run, as Pi's
+ * `Provider is not configured` — after run state exists and after the operator
+ * has waited. The question is asked of exactly the providers a run would use
+ * (`primary`, `fast`, and everything enabled), and it is asked the way `auth
+ * status` asks it: a stored credential first, ambient environment second.
+ *
+ * Nothing is reported but the provider id and the *source* of its credential
+ * (an environment variable name, or "stored credential") — the same posture as
+ * `auth status`, and never the value. `--json` consumers read this detail, so
+ * a secret leaked here would be a secret written to whatever collects it.
+ */
+async function authCheck(stateRoot: string, options: DoctorOptions): Promise<DoctorCheck> {
+  let config;
+  try {
+    config = await loadProvidersConfig(stateRoot);
+  } catch {
+    // The `providers` check already fails on this and names the reason; a
+    // second failure for one cause would just be noise.
+    return {
+      name: "auth",
+      ok: true,
+      detail: "skipped: providers.json could not be read (see the providers check)"
+    };
+  }
+
+  const providerIds = uniqueProviderIds([
+    ...(config.primary !== undefined ? [config.primary] : []),
+    ...(config.fast !== undefined ? [config.fast] : []),
+    ...config.enabled
+  ]);
+  if (providerIds.length === 0) {
+    return {
+      name: "auth",
+      ok: true,
+      detail: "no models enabled — the fake executor needs no credentials"
+    };
+  }
+
+  const check = options.authCheck ?? checkProviderAuth;
+  const parts: string[] = [];
+  const missing: string[] = [];
+  for (const providerId of providerIds) {
+    try {
+      const resolved = await check(stateRoot, providerId, config.customProviders);
+      if (resolved === undefined) {
+        missing.push(providerId);
+        parts.push(`${providerId}=no credential`);
+      } else {
+        parts.push(`${providerId}=${resolved.type} via ${resolved.source ?? "unnamed source"}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      missing.push(providerId);
+      parts.push(`${providerId}=unresolved (${message})`);
+    }
+  }
+
+  const ok = missing.length === 0;
+  return {
+    name: "auth",
+    ok,
+    detail: ok
+      ? parts.join("; ")
+      : `${parts.join("; ")} — run pi-sparkle auth login <provider> or set the provider's environment variable; --executor pi fails mid-run without one`
+  };
+}
+
+function uniqueProviderIds(catalogIds: readonly string[]): string[] {
+  const ids: string[] = [];
+  for (const catalogId of catalogIds) {
+    const providerId = tryParseModelRef(catalogId)?.providerId;
+    if (providerId === undefined || ids.includes(providerId)) continue;
+    ids.push(providerId);
+  }
+  return ids;
+}
+
 async function projectCheck(projectRoot: string | undefined): Promise<DoctorCheck> {
   if (projectRoot === undefined) {
     return { name: "project", ok: true, detail: "omitted (pass --project to check package.json)" };
@@ -827,6 +917,7 @@ export async function doctorCommand(
     await stateRootWritable(stateRoot),
     legacyLayoutCheck(stateRoot),
     await providersCheck(stateRoot),
+    await authCheck(stateRoot, options),
     await projectCheck(values.project),
     piDispatchCheck(values.project, values["agents-dir"]),
     skillRouteLogCheck(values.project),
