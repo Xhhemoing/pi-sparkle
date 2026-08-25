@@ -402,14 +402,16 @@ test("the flowchart checkpoint, its validator, its writer and both restorers car
   // learned nothing about this field, which is why no store change was needed.
   assert.doesNotMatch(checkpointStore, /\bcontract\b/);
 
-  // R8-4 §5.3 wants per-task acceptance criteria on this same seam later. The
-  // seam is reserved in prose only; implementing the field is option (a)'s own
-  // signed-off diff, so the type must not have grown it here.
-  assert.match(checkpointState, /Reserved: per-task acceptance criteria/);
-  assert.doesNotMatch(
-    checkpointState,
-    /acceptanceCriteria\??:/,
-    "the reserved sibling field stays reserved, not implemented"
+  // R8-4 §5.3's reservation is spent: Loop 4 R11-1 implemented per-task
+  // acceptance criteria on this seam as `taskCriteria`, validated fail-closed
+  // and still never synthesized. Behavioural coverage is in
+  // test/unit/tracking/option-a-preconditions.test.ts.
+  assert.match(checkpointState, /taskCriteria\?: TaskAcceptanceCriteria\[\]/);
+  assert.match(checkpointState, /never \*synthesized\*/);
+  assert.match(
+    checkpointValidator,
+    /validateTaskCriteria/,
+    "the sibling field fails closed the way the contract does"
   );
 });
 
