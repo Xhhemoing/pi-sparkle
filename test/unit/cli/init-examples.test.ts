@@ -218,6 +218,24 @@ describe("init contracts", () => {
     });
   });
 
+  it("prints the --json object as exactly one line", async () => {
+    await withDir(async (dir) => {
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", dir, "--json"], captured.io), 0);
+
+      const lines = captured.out().trim().split("\n");
+      assert.equal(lines.length, 1);
+      assert.deepEqual(JSON.parse(lines[0]!) as unknown, {
+        type: "INIT_EXAMPLES",
+        preview: true,
+        dir,
+        files: [join(dir, CHILDREN_EXAMPLE_FILENAME), join(dir, FLOWCHART_EXAMPLE_FILENAME)],
+        overwritten: false
+      });
+      assert.equal(captured.err(), "");
+    });
+  });
+
   it("prints usage for --help and exits 0", async () => {
     const captured = capture();
     assert.equal(await initExamplesCommand(["--help"], captured.io), 0);
