@@ -377,7 +377,15 @@ Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (in
 
 ## Round 19 — CLOSED (zero-slot)
 
-`.agent_workspace/ROUND19-BRIEF.md` §4: **no proven candidates**. Every R18 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras. Round 20 waits for one of those four reasons.
+`.agent_workspace/ROUND19-BRIEF.md` §4: **no proven candidates**. Every R18 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras.
+
+## Round 20 — in flight (saturation retarget)
+
+Post-merge honesty plane is closed (R18 two holes, R19 zero-slot). Saturation protocol: move to **I/O, races, protocol, disaster recovery** on HEAD `f449416` (code tree `4412fac`). Do not re-litigate ROUND19-BRIEF §5. Do not pad. A zero-slot Round 20 is valid if the auditor proves nothing.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| fable-audit | pending | I/O · races · protocol · DR on post-R18 tree; prove or kill |
 
 ---
 
