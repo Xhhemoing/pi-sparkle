@@ -41,7 +41,7 @@
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
-| 27 | 第 1 波进行中 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
+| 27 | 第 1–2 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-27/PLAN.md](./round-27/PLAN.md) |
 
 ### Round 1 波次
 
@@ -281,7 +281,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R27-A 跟踪门控、R27-B live 路由、R27-C 离线路由 | A/B 运行中；C 本波派出 |
+| 1 | R27-A 跟踪门控、R27-B live 路由、R27-C 离线路由 | A 已合入；B/C 运行中 |
+| 2 | R27-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -548,9 +549,10 @@
 | R26-H | `cursor/r26-h-eval-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-H.md`）。无新排除 ID；热层默认复核 9.22–9.75 µs/run；consumer-stage operand-realm face 归档 |
 | R26-I | `cursor/r26-i-cli-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-I.md`）。无新排除 ID；custom−builtin 复核 +43.4~+61.7 / +24.0~+27.8 / +48.5~+52.6 / +25.7~+36.9 / +47.1~+49.2 / +12.0~+28.2 ms；argv surface-form face 归档 |
 | R26-J | `cursor/r26-j-persist-twenty-sixth-pass-83a1` | 已合入专属分支（仅 `R26-J.md`）。无新排除 ID；I/O 地板复核；DELINV 不铸 ID；切片关闭 |
-| R27-A | `cursor/r27-a-tracking-twenty-seventh-pass-83a1` | 已派出 |
+| R27-A | `cursor/r27-a-tracking-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-A.md`）。无新排除 ID；预算复核 ~68–84 µs/run；scalar numeric value-class face 归档 |
 | R27-B | `cursor/r27-b-live-routing-twenty-seventh-pass-83a1` | 已派出 |
 | R27-C | `cursor/r27-c-offline-routing-twenty-seventh-pass-83a1` | 已派出 |
+| R27-D | `cursor/r27-d-adaptation-twenty-seventh-pass-83a1` | 已派出 |
 
 ## 合并策略
 
