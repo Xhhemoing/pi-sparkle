@@ -18,6 +18,19 @@
 
 Round 1 brief: `.agent_workspace/ROUND1-PREVIEW-BRIEF.md`.
 
+## Round 1 — complete (2026-08-25)
+
+Parent verification: 58/58 on redaction + release-gate-policy suites; `preview-release-probe` ok; `security-probe` ok (14 passed, 0 open, no waiver). CI on `e88f2ce` green (3/3).
+
+| Slot | Agent | Outcome |
+|---|---|---|
+| R1-fable-A | `claude-fable-5-thinking-xhigh` | 274 remotes classified. MERGE-NOW: `cursor/agent-market-eval-opt-cae9`. CHERRY-PICK: 6. PR #9 TRACKER-ONLY. |
+| R1-fable-B | `claude-fable-5-thinking-xhigh` | Spec stale, probe green. 内测 = conditional GREEN; npm publish stays BLOCKED (`private: true`). |
+| R1-opus-A | `claude-opus-5-thinking-high-fast` | Production redaction unchanged (already green). Pin tests + probe drift guard. |
+| R1-opus-B | `claude-opus-5-thinking-high-fast` | `release-gate.md` Status GREEN — 2026-08-25. Preview readiness addendum. Policy tests. Flagged packaged-secrets waiver hole. |
+| R1-gpt-A | `gpt-5.6-sol-xhigh-fast` | Live probes exit 0; probe file untouched. Node engine mismatch noted. |
+| R1-gpt-B | `gpt-5.6-sol-xhigh-fast` | `scripts/preview-release-probe.mjs` (5 checks ok). Recommend `preview:probe` first in `prerelease`. |
+
 ---
 
 # Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)

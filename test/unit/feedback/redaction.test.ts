@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   applyRedaction,
   redactFeedback,
   redactSensitiveText,
-  REDACTION_PLACEHOLDER
+  REDACTION_PLACEHOLDER,
+  type RedactionClass
 } from "../../../src/feedback/redaction.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
 import { createEpisodeId } from "../../../src/domain/ids.js";
@@ -70,66 +74,77 @@ const GATE_CORES: readonly {
   readonly body: string;
   readonly core: string;
   readonly expected: string;
+  readonly classes: readonly RedactionClass[];
 }[] = [
   {
     name: "email",
     body: "contact john.doe@example.com now",
     core: "john.doe@example.com",
-    expected: `contact ${REDACTION_PLACEHOLDER.email} now`
+    expected: `contact ${REDACTION_PLACEHOLDER.email} now`,
+    classes: ["pii"]
   },
   {
     name: "ipv4",
     body: "server 192.168.1.100 up",
     core: "192.168.1.100",
-    expected: `server ${REDACTION_PLACEHOLDER.ipv4} up`
+    expected: `server ${REDACTION_PLACEHOLDER.ipv4} up`,
+    classes: ["pii"]
   },
   {
     name: "phone-intl",
     body: "call +1-555-123-4567",
     core: "+1-555-123-4567",
-    expected: `call ${REDACTION_PLACEHOLDER.phone}`
+    expected: `call ${REDACTION_PLACEHOLDER.phone}`,
+    classes: ["pii"]
   },
   {
     name: "phone-cn",
     body: "phone 13812345678",
     core: "13812345678",
-    expected: `phone ${REDACTION_PLACEHOLDER.phone}`
+    expected: `phone ${REDACTION_PLACEHOLDER.phone}`,
+    classes: ["pii"]
   },
   {
     name: "credit-card",
     body: "card 4111111111111111",
     core: "4111111111111111",
-    expected: `card ${REDACTION_PLACEHOLDER.card}`
+    expected: `card ${REDACTION_PLACEHOLDER.card}`,
+    classes: ["pii"]
   },
   {
     name: "unix-path",
     body: "see /home/john/.ssh/id_rsa",
     core: "/home/john/.ssh/id_rsa",
-    expected: `see ${REDACTION_PLACEHOLDER.path}`
+    expected: `see ${REDACTION_PLACEHOLDER.path}`,
+    classes: ["pii", "path"]
   },
   {
     name: "macos-path",
     body: "open /Users/alice/Library/Application Support/pi/auth.json",
     core: "/Users/alice/Library/Application Support/pi/auth.json",
-    expected: `open ${REDACTION_PLACEHOLDER.path}`
+    expected: `open ${REDACTION_PLACEHOLDER.path}`,
+    classes: ["pii", "path"]
   },
   {
     name: "windows-path",
     body: "saved C:\\Users\\john\\secret.txt",
     core: "Users\\john\\secret.txt",
-    expected: `saved ${REDACTION_PLACEHOLDER.path}`
+    expected: `saved ${REDACTION_PLACEHOLDER.path}`,
+    classes: ["pii", "path"]
   },
   {
     name: "windows-unc-path",
     body: "copied \\\\fileserver\\private\\alice\\credentials.json",
     core: "\\\\fileserver\\private\\alice\\credentials.json",
-    expected: `copied ${REDACTION_PLACEHOLDER.path}`
+    expected: `copied ${REDACTION_PLACEHOLDER.path}`,
+    classes: ["pii", "path"]
   },
   {
     name: "openai-key-body",
     body: "key sk-proj-abcdefghijklmnop1234567890",
     core: "abcdefghijklmnop1234567890",
-    expected: `key ${REDACTION_PLACEHOLDER.secret}`
+    expected: `key ${REDACTION_PLACEHOLDER.secret}`,
+    classes: ["secret", "pii"]
   },
   {
     name: "api-key-value",
@@ -137,7 +152,8 @@ const GATE_CORES: readonly {
     core: "supersecretvalue123",
     // "api_key" is also a forbidden substring in the gate policy, so the strip
     // removes the key name after the value is already a placeholder.
-    expected: `=${REDACTION_PLACEHOLDER.secret}`
+    expected: `=${REDACTION_PLACEHOLDER.secret}`,
+    classes: ["secret", "pii"]
   },
   {
     name: "bearer-token-body",
@@ -145,7 +161,8 @@ const GATE_CORES: readonly {
     core: "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
     // "Bearer" is itself a forbidden substring, so the scheme the transform
     // preserved is then stripped by the needle pass.
-    expected: `Authorization:  ${REDACTION_PLACEHOLDER.secret}`
+    expected: `Authorization:  ${REDACTION_PLACEHOLDER.secret}`,
+    classes: ["secret", "pii"]
   },
   {
     name: "pem-private-key-body",
@@ -155,7 +172,8 @@ const GATE_CORES: readonly {
       "-----END PRIVATE KEY-----"
     ].join("\n"),
     core: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ",
-    expected: REDACTION_PLACEHOLDER.secret
+    expected: REDACTION_PLACEHOLDER.secret,
+    classes: ["secret", "pii"]
   }
 ];
 
@@ -176,6 +194,166 @@ for (const sample of GATE_CORES) {
     assert.equal(result.feedback.redacted, true);
   });
 }
+
+test("release-gate cores classify under the existing taxonomy", () => {
+  // The gate only checks that the core is gone. The class list is what tells a
+  // reader *why* a stored record lost text, so each sample pins it: `pii` is
+  // the policy flag, `path`/`secret` are added only by an actual match.
+  for (const sample of GATE_CORES) {
+    const result = redactFeedback(feedback({ body: sample.body }), GATE_POLICY);
+    assert.deepEqual(result.decision.classes, sample.classes, sample.name);
+    assert.deepEqual(result.feedback.redactionClasses, sample.classes, sample.name);
+    assert.equal(result.decision.classes.includes("oversized"), false, sample.name);
+  }
+});
+
+test("release-gate cores stay removed when a stored record is redacted again", () => {
+  // appendFeedback re-redacts records it reads back, so a second pass over an
+  // already-placeholdered body must be a no-op rather than a chance to re-wrap
+  // (or, worse, to reconstruct) the value.
+  for (const sample of GATE_CORES) {
+    const first = redactFeedback(feedback({ body: sample.body }), GATE_POLICY);
+    const second = redactFeedback(first.feedback, GATE_POLICY);
+    assert.equal(second.feedback.body, first.feedback.body, sample.name);
+    assert.equal(second.feedback.body?.includes(sample.core), false, sample.name);
+    assert.deepEqual(second.feedback.redactionClasses, sample.classes, sample.name);
+  }
+});
+
+test("release-gate cores survive nowhere in the persisted record, not just the body", () => {
+  // The gate reads `feedback.body` only. A record is persisted whole, so the
+  // same core carried in `summary` has to be gone from the serialized form too.
+  for (const sample of GATE_CORES) {
+    const result = redactFeedback(
+      feedback({ body: sample.body, summary: sample.body }),
+      GATE_POLICY
+    );
+    assert.equal(result.feedback.summary?.includes(sample.core), false, sample.name);
+    assert.equal(JSON.stringify(result.feedback).includes(sample.core), false, sample.name);
+  }
+});
+
+// --- drift guard: the pins above are a copy of the gate's own sample list ----
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const probeSource = readFileSync(join(repoRoot, "scripts/security-probe.mjs"), "utf8");
+
+interface ProbeSample {
+  readonly id: string;
+  readonly name: string;
+  readonly body: string;
+  readonly core: string;
+}
+
+const STRING_LITERAL = /"(?:[^"\\]|\\.)*"/g;
+// Every sample field is one or more double-quoted literals, optionally joined
+// with `+` across lines (the PEM body). JSON's escape set covers what the probe
+// writes, so parsing the literals is faithful without executing the script —
+// importing it would run `npm pack` as a side effect.
+const SAMPLE_FIELD = /\b(id|name|body|core)\s*:\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+)/g;
+
+function joinLiterals(expression: string): string {
+  return (expression.match(STRING_LITERAL) ?? [])
+    .map((literal) => JSON.parse(literal) as string)
+    .join("");
+}
+
+function drain(pending: Map<string, string>): ProbeSample {
+  const id = pending.get("id");
+  const name = pending.get("name");
+  const body = pending.get("body");
+  const core = pending.get("core");
+  if (id === undefined || name === undefined || body === undefined || core === undefined) {
+    throw new Error(
+      `security-probe.mjs sample is missing a field (have: ${[...pending.keys()].join(", ")})`
+    );
+  }
+  pending.clear();
+  return { id, name, body, core };
+}
+
+function parseProbeSamples(source: string): readonly ProbeSample[] {
+  const start = source.indexOf("const redactionSamples = [");
+  const end = source.indexOf("\n];", start);
+  if (start < 0 || end <= start) {
+    throw new Error("security-probe.mjs no longer declares a `redactionSamples` array literal");
+  }
+
+  const samples: ProbeSample[] = [];
+  const pending = new Map<string, string>();
+  for (const match of source.slice(start, end).matchAll(SAMPLE_FIELD)) {
+    const key = match[1];
+    const expression = match[2];
+    if (key === undefined || expression === undefined) continue;
+    if (key === "id" && pending.size > 0) samples.push(drain(pending));
+    pending.set(key, joinLiterals(expression));
+  }
+  if (pending.size > 0) samples.push(drain(pending));
+  return samples;
+}
+
+function parseProbePolicy(source: string): {
+  redactPII: boolean;
+  maxBodyChars: number;
+  forbiddenSubstrings: string[];
+} {
+  const start = source.indexOf("const policy = {");
+  const end = source.indexOf("};", start);
+  if (start < 0 || end <= start) {
+    throw new Error("security-probe.mjs no longer declares a `policy` object literal");
+  }
+  const block = source.slice(start, end);
+  const maxBodyChars = /maxBodyChars:\s*(\d+)/.exec(block)?.[1];
+  const forbidden = /forbiddenSubstrings:\s*\[([^\]]*)\]/.exec(block)?.[1];
+  if (maxBodyChars === undefined || forbidden === undefined) {
+    throw new Error("security-probe.mjs policy no longer declares maxBodyChars/forbiddenSubstrings");
+  }
+  return {
+    redactPII: /redactPII:\s*true/.test(block),
+    maxBodyChars: Number(maxBodyChars),
+    forbiddenSubstrings: (forbidden.match(STRING_LITERAL) ?? []).map(
+      (literal) => JSON.parse(literal) as string
+    )
+  };
+}
+
+const PROBE_SAMPLES = parseProbeSamples(probeSource);
+
+test("every gate sample read straight from the probe loses its core", () => {
+  // Reproduces scripts/security-probe.mjs in-process against src/, so a sample
+  // added to the gate is exercised here even before anyone hand-copies it into
+  // GATE_CORES. `pnpm test` then fails for the same reason the gate would.
+  assert.ok(PROBE_SAMPLES.length > 0, "parsed no samples out of security-probe.mjs");
+  const policy = parseProbePolicy(probeSource);
+  for (const sample of PROBE_SAMPLES) {
+    const result = redactFeedback(feedback({ body: sample.body }), policy);
+    assert.equal(
+      (result.feedback.body ?? "").includes(sample.core),
+      false,
+      `gate sample "${sample.name}" (${sample.id}) leaks its core: ${sample.core}`
+    );
+  }
+});
+
+test("GATE_CORES covers every sample the probe checks, verbatim", () => {
+  for (const sample of PROBE_SAMPLES) {
+    const pinned = GATE_CORES.find((candidate) => candidate.name === sample.name);
+    assert.ok(
+      pinned !== undefined,
+      `security-probe.mjs sample "${sample.name}" has no GATE_CORES pin — add one`
+    );
+    assert.equal(pinned.body, sample.body, `body drifted for "${sample.name}"`);
+    assert.equal(pinned.core, sample.core, `core drifted for "${sample.name}"`);
+  }
+});
+
+test("GATE_POLICY is the policy the probe actually drives redaction with", () => {
+  assert.deepEqual(parseProbePolicy(probeSource), {
+    redactPII: GATE_POLICY.redactPII,
+    maxBodyChars: GATE_POLICY.maxBodyChars,
+    forbiddenSubstrings: [...GATE_POLICY.forbiddenSubstrings]
+  });
+});
 
 test("summary is redacted with the same rules as body", () => {
   const result = redactFeedback(

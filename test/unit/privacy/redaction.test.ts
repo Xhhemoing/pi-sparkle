@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyRedaction, redactFeedback } from "../../../src/feedback/redaction.js";
+import { FEEDBACK_REDACTION_POLICY } from "../../../src/feedback/store.js";
 import type { FeedbackRecord } from "../../../src/feedback/types.js";
 import { materializeWithoutTombstones, tombstoneIds } from "../../../src/privacy/deletion.js";
 import { createEpisodeId } from "../../../src/domain/ids.js";
@@ -97,4 +98,134 @@ test("a record whose PII is redacted is never written back with its raw body", (
   assert.equal(JSON.stringify(redacted).includes("ops@example.com"), false);
   // The source record is not mutated in place; only the copy is safe to persist.
   assert.equal(raw.body, "ping ops@example.com");
+});
+
+// The release gate (scripts/security-probe.mjs) drives redaction with its own
+// policy, which seeds one needle — "Bearer" — that FEEDBACK_REDACTION_POLICY
+// does not carry. So a green gate does not by itself prove the *shipped* store
+// policy removes the same payloads. These pin the gate's samples against the
+// policy feedback records are actually persisted with.
+const GATE_CORES: readonly {
+  readonly name: string;
+  readonly body: string;
+  readonly core: string;
+  readonly expected: string;
+}[] = [
+  {
+    name: "email",
+    body: "contact john.doe@example.com now",
+    core: "john.doe@example.com",
+    expected: "contact [email] now"
+  },
+  { name: "ipv4", body: "server 192.168.1.100 up", core: "192.168.1.100", expected: "server [ipv4] up" },
+  { name: "phone-intl", body: "call +1-555-123-4567", core: "+1-555-123-4567", expected: "call [phone]" },
+  { name: "phone-cn", body: "phone 13812345678", core: "13812345678", expected: "phone [phone]" },
+  {
+    name: "credit-card",
+    body: "card 4111111111111111",
+    core: "4111111111111111",
+    expected: "card [card]"
+  },
+  {
+    name: "unix-path",
+    body: "see /home/john/.ssh/id_rsa",
+    core: "/home/john/.ssh/id_rsa",
+    expected: "see [path]"
+  },
+  {
+    name: "macos-path",
+    body: "open /Users/alice/Library/Application Support/pi/auth.json",
+    core: "/Users/alice/Library/Application Support/pi/auth.json",
+    expected: "open [path]"
+  },
+  {
+    name: "windows-path",
+    body: "saved C:\\Users\\john\\secret.txt",
+    core: "Users\\john\\secret.txt",
+    expected: "saved [path]"
+  },
+  {
+    name: "windows-unc-path",
+    body: "copied \\\\fileserver\\private\\alice\\credentials.json",
+    core: "\\\\fileserver\\private\\alice\\credentials.json",
+    expected: "copied [path]"
+  },
+  {
+    name: "openai-key-body",
+    body: "key sk-proj-abcdefghijklmnop1234567890",
+    core: "abcdefghijklmnop1234567890",
+    // "sk-" is a store needle, but the value is already a placeholder by the
+    // time the needle pass runs — the strip is not what removes the key body.
+    expected: "key [secret]"
+  },
+  {
+    name: "api-key-value",
+    body: "api_key=supersecretvalue123",
+    core: "supersecretvalue123",
+    expected: "=[secret]"
+  },
+  {
+    name: "bearer-token-body",
+    body: "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
+    core: "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature",
+    // No "Bearer" needle in the store policy: the scheme survives here and the
+    // credential is removed by the transform alone. This is the sample that
+    // would regress silently if value removal ever went back to prefix strips.
+    expected: "Authorization: Bearer [secret]"
+  },
+  {
+    name: "pem-private-key-body",
+    body: [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ",
+      "-----END PRIVATE KEY-----"
+    ].join("\n"),
+    core: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ",
+    expected: "[secret]"
+  }
+];
+
+test("the shipped store policy removes every release-gate core from the body", () => {
+  for (const sample of GATE_CORES) {
+    const redacted = applyRedaction(feedback({ body: sample.body }), FEEDBACK_REDACTION_POLICY);
+    assert.equal(redacted.body?.includes(sample.core), false, `core survived: ${sample.name}`);
+    assert.equal(redacted.body, sample.expected, sample.name);
+    assert.equal(redacted.redacted, true, sample.name);
+  }
+});
+
+test("no release-gate core survives anywhere in the persisted record", () => {
+  // The gate inspects `body` only. Persistence writes the whole record, so a
+  // core carried in `summary` has to be gone from the serialized form as well.
+  for (const sample of GATE_CORES) {
+    const redacted = applyRedaction(
+      feedback({ body: sample.body, summary: sample.body }),
+      FEEDBACK_REDACTION_POLICY
+    );
+    assert.equal(
+      JSON.stringify(redacted).includes(sample.core),
+      false,
+      `core survived serialization: ${sample.name}`
+    );
+  }
+});
+
+test("secret bodies lose the value, not just the recognisable prefix", () => {
+  // The failure mode this guards is a redactor that deletes "sk-"/"api_key"
+  // and leaves the credential material sitting in the body.
+  const body = [
+    "key sk-proj-abcdefghijklmnop1234567890",
+    "api_key=supersecretvalue123",
+    "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature"
+  ].join("; ");
+  const redacted = applyRedaction(feedback({ body }), FEEDBACK_REDACTION_POLICY);
+  for (const value of [
+    "abcdefghijklmnop1234567890",
+    "supersecretvalue123",
+    "eyJhbGciOiJIUzI1NiJ9.cHJvYmUtdXNlcg.sensitive-signature"
+  ]) {
+    assert.equal(redacted.body?.includes(value), false, `value survived redaction: ${value}`);
+  }
+  assert.equal(redacted.body, "key [secret]; =[secret]; Authorization: Bearer [secret]");
+  assert.equal(redacted.redactionClasses?.includes("secret"), true);
 });

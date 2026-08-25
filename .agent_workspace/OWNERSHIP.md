@@ -1,3 +1,16 @@
+# File ownership — Preview merge + 内测 Round 2 (`cursor/merge-preview-release-8011`)
+
+Injection: `.agent_workspace/ROUND2-PREVIEW-BRIEF.md`. Subagents never git commit. Stay on this branch.
+
+| Slot | Model | Owns |
+|---|---|---|
+| R2-fable-A | fable | `docs/reports/2026-08-25-r2-sota-review.md`; `.agent_workspace/r2-fable-a.md` |
+| R2-fable-B | fable | `docs/reports/2026-08-25-r2-cherry-pick-plan.md`; `.agent_workspace/r2-fable-b.md` |
+| R2-opus-A | opus-fast | `src/run/inspection.ts`; inspect-follow tests; `src/cli/main.ts` (follow/USAGE); `scripts/market-eval-probe.mjs` |
+| R2-opus-B | opus-fast | `SECURITY.md`; `CHANGELOG.md`; `.github/CODEOWNERS`; `.env.example`; `src/cli/adapt.ts`; `src/cli/inspect-format.ts` |
+| R2-gpt-A | gpt-sol | `scripts/security-probe.mjs`; `.github/workflows/ci.yml` |
+| R2-gpt-B | gpt-sol | `package.json` scripts only; `test/unit/package/preview-release-probe.test.ts` |
+
 # File ownership — Preview merge + 内测 (`cursor/merge-preview-release-8011`)
 
 Parent campaign: merge remaining unique branches and unblock developer-preview `pnpm prerelease`. Subagents never git commit. **Stay on `cursor/merge-preview-release-8011`. Do not `git checkout` another branch.**

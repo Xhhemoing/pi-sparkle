@@ -1,21 +1,79 @@
 # Release gate
 
-`pnpm prerelease` = `pnpm gate` (typecheck/lint/test/build) **plus**
-`pnpm security:probe`. The probe runs against the built `dist/` artifact and
-blocks release while any finding is open. CI (`ci.yml`) runs the quality
-gate on every push; the security probe is the extra bar for **publishing**.
+`pnpm prerelease` is the release bar. It is three commands in sequence:
 
-## Status: currently BLOCKED
+```bash
+pnpm gate            # typecheck && lint && test && build
+pnpm security:probe  # node scripts/security-probe.mjs, against the built dist/
+pnpm pi:probe        # node scripts/pi-compat-probe.mjs, adapter/pin contract
+```
 
-Open findings (2026-08-22, from the weak-areas data collection):
+CI (`.github/workflows/ci.yml`) runs the quality gate — and only the quality
+gate — on pushes to `main` and pull requests targeting it. Neither probe runs
+in CI, so the status below is a **local, dated claim**, not a continuously
+enforced one. Re-run the probes before treating them as current.
 
-| id | probe | finding | candidate fixes (owner decision pending) |
-|---|---|---|---|
-| `pii-redaction` | redaction coverage | email/IP/phone/CN-phone/credit-card/paths survive `redactFeedback`; the flag labels but never removes | real PII regex removal pass |
-| `secret-bodies` | redaction coverage | secret stripping removes only literal prefixes; key values survive | value-aware secret patterns (`key[:=]\s*\S+`) |
+## Status: GREEN — 2026-08-25
 
-Until fixed, every `pnpm prerelease` exits 1. That is intentional: this
-package is `private: true`, so nothing can ship accidentally.
+Live evidence, branch `cursor/merge-preview-release-8011`, Node `v22.14.0`,
+pnpm `10.17.1`, `src/feedback/redaction.ts` clean in the worktree at
+`d4b16e1`:
+
+```console
+$ pnpm build
+exit 0
+
+$ node scripts/security-probe.mjs
+{
+  "status": "ok",
+  "passed": 14,
+  "openFindings": [],
+  "waivedFindings": []
+}
+exit 0
+
+$ node scripts/pi-compat-probe.mjs
+PASS pin @earendil-works/pi-agent-core: 0.84.3
+PASS pin @earendil-works/pi-ai: 0.84.3
+PASS legacy identifier GoogleThinkingLevel is absent from src/pi-adapter
+PASS ThinkingLevel imports use @earendil-works/pi-agent-core only (1 found)
+exit 0
+```
+
+No `SECURITY_WAIVER` was set for that run: `waivedFindings` is empty because
+nothing failed, not because anything was suppressed.
+
+| id | what it proved on 2026-08-25 |
+|---|---|
+| `pii-redaction` | 9 samples (email, IPv4, `+1` phone, CN mobile, Luhn-valid card, unix/macOS/Windows/UNC paths) — no core survives `redactFeedback` with `redactPII: true` |
+| `secret-bodies` | 4 samples (`sk-proj-…`, `api_key=…`, `Bearer eyJ…`, PEM private-key body) — the value is removed, not just the prefix |
+| `packaged-secrets` | 233 text files of the 451-entry `npm pack --dry-run` list scanned; no credential pattern matched |
+
+### What GREEN does not mean
+
+- It is **not** a release authorization. `package.json` keeps `private: true`,
+  the P0 privacy sign-off is still open, ADR-006 stays Proposed, and F-PROD has
+  not started. Nothing here is Outcome-supported.
+- The probe imports `dist/feedback/redaction.js`. A green result is only valid
+  for the `dist/` that was built from the current redaction source — **run
+  `pnpm build` immediately before `pnpm security:probe`**, or the result
+  describes an artifact nobody is shipping.
+- The run above was on Node `v22.14.0` while `engines.node` declares
+  `>=22.19.0`. pnpm warns (`WARN Unsupported engine`) and continues; the
+  supported-Node result is unverified here.
+
+### History
+
+- **2026-08-22 — BLOCKED.** `pii-redaction` and `secret-bodies` were open:
+  `redactFeedback` labelled records but left email/IP/phone/card/path values in
+  the body, and secret stripping removed only literal prefixes such as `sk-`.
+- **Closed by** the value-removing transforms in `src/feedback/redaction.ts`
+  (`9ceaad8`, then `d4b16e1`): PEM blocks, `Bearer`, vendor key shapes, JWTs and
+  keyed `name=value` assignments collapse to `[secret]`; home/`.ssh`/Windows/UNC
+  paths to `[path]`; email/IPv4/phone/Luhn-valid card to their placeholders.
+  `test/unit/feedback/redaction.test.ts` pins the same gate cores against `src/`
+  so a regression fails `pnpm test` before it reaches the probe.
+- **2026-08-25 — re-verified GREEN** by the run recorded above.
 
 ## Waivers
 
@@ -32,6 +90,19 @@ Rules:
 3. `packaged-secrets` findings are **never waivable** — credential material
    in the artifact is an unconditional block.
 
+Rule 3 is policy, not code: `scripts/security-probe.mjs` filters every failure
+through the `SECURITY_WAIVER` set, so `SECURITY_WAIVER="packaged-secrets"` would
+in fact suppress a packaged-credential finding today. Do not use it. Making the
+probe refuse that id is an open request against the probe owner
+(`scripts/security-probe.mjs`); until it lands, rule 3 is enforced by review.
+
 ### Waiver register
 
 (empty)
+
+## Not yet a bar
+
+`scripts/preview-release-probe.mjs` checks cheap developer-preview invariants
+(`private: true`, a non-empty `engines.node`, the `bin` path, a Status heading
+in this file, `pnpm-workspace.yaml`). It is **not** wired into `prerelease` and
+is not part of the gate; wiring it is a parent decision.
