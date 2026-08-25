@@ -86,7 +86,7 @@ GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required 
 
 **Landed** (Opus-dataset-privacy): redact-then-excerpt; `source.originalWorkspace` redacted once and copied onto rows; `delete --run` cascades default eval-datasets dir; `--dir` realpath-refuses the runtime plane; JSON key `episodes` kept with `rowKind: "routed-task-from-one-run"`.
 
-**D18 residual (GPT-d10 FIX, now landed):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. See D18. Do not treat `adapt dataset` as merge-ready until the D18 GPT recheck returns KEEP.
+**D18 residual (GPT-d10 FIX, landed; GPT-d18 FIX → D19):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. D18 closed that shape. Post-publish pathname equality is still not directory identity. See D19. Do not treat `adapt dataset` as merge-ready until D19 KEEP.
 
 ## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
 
@@ -131,3 +131,9 @@ Drop `JSON.stringify(..., null, 2)` in `src/cli/init-examples.ts`; keep keys `ty
 GPT-r4 F1 reproduced a D10 residual: with no `--dir`, but `adaptation/eval-datasets/<runId>` pre-created as a **symlink to an external directory**, the exporter canonicalized for its isolation checks and then published `manifest.json` *through* the alias, and `delete --run` `stat`ed the path (follows the link, so the dataset "existed"), `rm`ed the lexical path (does not, so only the alias went), and reported the default directory as removed while the derivative survived externally. No warning fired — the external-export warning is a `--dir` disclosure the operator never triggered.
 
 **Landed** (Opus-d18-dataset-symlink): both halves ask `lstat` what the leaf *is*, through the shared `src/privacy/eval-dataset-path.ts`. A default export binds — the `eval-datasets` container is resolved, the leaf is created with a non-recursive `mkdir` (never follows or adopts a final symlink), the binding is re-asserted after the publish, and a swap detected there takes the published bytes back — and refuses a symlinked leaf outright. `delete --run` refuses the shape with a typed `EvalDatasetAliasError` (`code: "EVAL_DATASET_ALIAS"`) before either cooperative lock and again at the removal point: it may not follow the alias into an operator's external directory, and it may not unlink it and call that a cascade. No global manifest search was invented; `--dir` keeps the existing external-export warning and stays outside every cascade. D10 behaviours unchanged.
+
+**GPT-d18-recheck: FIX.** Pre-created symlink cases KEEP. Post-publish check compares canonical pathnames only, so replacing the bound leaf with a fresh real directory at the same `<runId>` path returns success while `manifestPath` does not contain the manifest. See D19. `adapt dataset` is still not merge-ready.
+
+## D19 — Default export bind and publish must share directory identity
+
+The post-publish assertion must confirm the leaf is a directory and is the **same directory** the bind accepted (`dev`/`ino` or an equivalent that a replacement directory cannot satisfy), not only `realpath` string equality. Thread that identity from `bindDefaultEvalDatasetDir` into `assertDefaultEvalDatasetPublished`. If the leaf was replaced during publish, fail loudly and do not return a path whose `manifest.json` is missing. Keep the existing symlink-swap pin; add a real-directory replacement pin via the `AtomicWriteOptions.rename` seam. Do not change `--dir`, deletion of a pre-created symlink leaf, `main.ts`, or invent a global search.

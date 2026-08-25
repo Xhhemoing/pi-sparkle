@@ -95,9 +95,9 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - Not-found retarget (D15): episode/pause/inject lookup `next:` points at `list`. Implementer: Opus-g6-list-retarget (`bc-1aa549ae-eada-5346-bcdd-928bcb75f742`).
 - `INIT_EXAMPLES --json` is one compact line (D17). Implementer: Opus-init-json (`bc-3d5df502-d602-5e2d-94f0-beee62ee6291`).
 - Auth remainder D16: secret mute, doctor `auth` preflight, custom `--available`. Implementer: Opus-auth-echo-doctor-F8 (`bc-740e3587-69a2-5ce1-836d-398139fdba28`). GPT-d16-recheck **KEEP**.
-- D18 default eval-dataset leaf-symlink bind/refuse. Implementer: Opus-dataset-symlink-cascade (`bc-83d49ea6-9b87-5659-9b3e-14d88c42e729`). GPT recheck in flight.
+- D18 default eval-dataset leaf-symlink bind/refuse. Implementer: Opus-dataset-symlink-cascade (`bc-83d49ea6-9b87-5659-9b3e-14d88c42e729`). GPT-d18-recheck **FIX** (pathname equality ≠ directory identity).
 
 ### Round 3 still running / next implementers
 
-- D18 independent GPT recheck retried after the first prompt was refused by the model safety filter; same contract, operator-honesty wording.
-- Round 5 next-bets ranking dispatched (D15–D17 landed; D16 KEEP; D18 pending recheck). Windows smoke and status-matrix still HOLD behind PR #12.
+- D19 default-export directory-identity bind dispatched (GPT-d18 FIX).
+- Round 5 next-bets ranking still in flight. Windows smoke and status-matrix still HOLD behind PR #12.
