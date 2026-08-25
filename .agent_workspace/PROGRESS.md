@@ -388,6 +388,7 @@ Two real candidates from `.agent_workspace/ROUND20-BRIEF.md` (audit: `.agent_wor
 | fable-audit | bc-901b7d5f-77ee-53cb-bddb-a667255af689 | I/O · races · protocol · DR on post-R18 tree |
 | R20-1 | bc-d0fdaa6d-61f7-5746-af73-c9153b143d0a | restore declared maxCostUsd across pause/resume |
 | R20-2 | bc-8347696c-41b7-5800-912a-fb6246f60829 | targeted steerText so backoff cannot cross runs |
+| fable-review | bc-6183295a-f067-5d48-8004-b96209a106ee | Round 20 SOTA review + ROUND21-BRIEF |
 
 Landed: R20-2 `57ade59` optional `steerText` target (startRun passes root instance; targeted miss refuses before `STEER_INJECTED`); R20-1 `1d9ef99` `taskCostCeilings` restore across pause/resume, sibling arm never copies a ceiling. Direction (b). Census docs aligned. No freeze extras.
 
