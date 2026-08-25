@@ -72,6 +72,13 @@ async function seedCompletedRun(stateRoot: string, runId: RunId, episodeId?: Epi
   await store.append(makeEvent("RUN_COMPLETED", {}, { runId, occurredAt: "2026-08-20T10:03:00.000Z" }));
 }
 
+/** A live run whose whole log carries one caller-chosen timestamp. */
+async function seedRunEndingAt(stateRoot: string, runId: RunId, occurredAt: string): Promise<void> {
+  const store = new EventStore(stateRoot, runId);
+  await store.append(makeEvent("RUN_CREATED", { run: makeRun() }, { runId, occurredAt }));
+  await store.append(makeEvent("RUN_STARTED", {}, { runId, occurredAt }));
+}
+
 async function seedRunningRun(stateRoot: string, runId: RunId): Promise<void> {
   const store = new EventStore(stateRoot, runId);
   await store.append(
@@ -389,6 +396,24 @@ test("list --sort last-event orders runs most-recent-first, ties broken by id", 
   });
 });
 
+/** The same offset trap, end to end through the verb. */
+test("list --sort last-event orders offset timestamps by the instant they name", async () => {
+  await withStateRoot(async (stateRoot) => {
+    // 2026-08-25T23:00:00+14:00 is 09:00Z: an hour older than the Z row, and
+    // one place later in string order.
+    await seedRunEndingAt(stateRoot, RUN_A, "2026-08-25T23:00:00+14:00");
+    await seedRunEndingAt(stateRoot, RUN_B, "2026-08-25T10:00:00Z");
+
+    const { io, out, err } = capture();
+    const code = await listCommand(["--state-root", stateRoot, "--sort", "last-event"], io);
+    assert.equal(code, 0, err.join(""));
+    assert.deepEqual(out, [
+      `${RUN_B}\tRUNNING\t2026-08-25T10:00:00Z\t-\n`,
+      `${RUN_A}\tRUNNING\t2026-08-25T23:00:00+14:00\t-\n`
+    ]);
+  });
+});
+
 test("list --sort last-event composes with --status and --json", async () => {
   await withStateRoot(async (stateRoot) => {
     await seedCompletedRun(stateRoot, RUN_A);
@@ -432,6 +457,26 @@ test("list --sort last-event --episodes puts the most recently closed episode fi
  * an undefined timestamp through `listEpisodes`. The row type allows one, and
  * the rule for it is pinned here rather than left to the first log that has it.
  */
+/**
+ * `IsoTimestamp` accepts a UTC offset, and the two below invert between text
+ * order and instant order: `+14:00` is 09:00Z, an hour before the `Z` row a
+ * string compare would rank as older.
+ */
+test("last-event ordering compares instants, not timestamp text", () => {
+  const rows = [
+    { id: "row_offset", lastEventAt: "2026-08-25T23:00:00+14:00" },
+    { id: "row_utc", lastEventAt: "2026-08-25T10:00:00Z" }
+  ];
+  assert.deepEqual(
+    sortByLastEvent(rows, (row) => row.id).map((row) => row.id),
+    ["row_utc", "row_offset"]
+  );
+  assert.deepEqual(
+    sortByLastEvent([...rows].reverse(), (row) => row.id).map((row) => row.id),
+    ["row_utc", "row_offset"]
+  );
+});
+
 test("rows with no last-event timestamp sort last, id-ordered among themselves", () => {
   const rows = [
     { episodeId: "ep_b", lastEventAt: undefined },

@@ -87,6 +87,30 @@ function isListSort(value: string): value is ListSort {
 }
 
 /**
+ * Newest first, by instant.
+ *
+ * An `IsoTimestamp` may carry a UTC offset rather than `Z`
+ * (`domain/timestamp.ts`), and offset timestamps do not sort as text:
+ * `2026-08-25T23:00:00+14:00` is 09:00Z, an hour *before*
+ * `2026-08-25T10:00:00Z`, while string order puts it after. So the times are
+ * parsed to instants before they are compared.
+ *
+ * A row with no timestamp sorts last, and an unparseable one ranks equal
+ * rather than returning NaN from the comparator, which would corrupt the order
+ * silently.
+ */
+function compareByInstantDesc(left: string | undefined, right: string | undefined): number {
+  if (left === undefined || right === undefined) {
+    if (left === right) return 0;
+    return left === undefined ? 1 : -1;
+  }
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (Number.isNaN(leftMs) || Number.isNaN(rightMs)) return 0;
+  return rightMs - leftMs;
+}
+
+/**
  * The rows, most-recent-first by `lastEventAt`, ties broken by id ascending so
  * the order is total and stable across runs.
  *
@@ -101,14 +125,8 @@ export function sortByLastEvent<Row extends { readonly lastEventAt?: string | un
   idOf: (row: Row) => string
 ): Row[] {
   return [...rows].sort((left, right) => {
-    const leftAt = left.lastEventAt;
-    const rightAt = right.lastEventAt;
-    if (leftAt !== rightAt) {
-      if (leftAt === undefined) return 1;
-      if (rightAt === undefined) return -1;
-      return rightAt.localeCompare(leftAt);
-    }
-    return idOf(left).localeCompare(idOf(right));
+    const byInstant = compareByInstantDesc(left.lastEventAt, right.lastEventAt);
+    return byInstant !== 0 ? byInstant : idOf(left).localeCompare(idOf(right));
   });
 }
 
