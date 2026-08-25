@@ -45,10 +45,14 @@ function episodesDir(stateRoot: string): string {
   return join(stateRoot, "runtime", "episodes");
 }
 
-/** The raw bytes on disk, so `--json` can be pinned as verbatim JSONL. */
-async function rawEventLogLines(stateRoot: string, episodeId: EpisodeId): Promise<string[]> {
-  const text = await readFile(join(episodesDir(stateRoot), `${episodeId}.events.jsonl`), "utf8");
-  return text.trimEnd().split("\n");
+/**
+ * The raw bytes on disk. Compared to `--json` stdout with `assert.equal` and no
+ * trimming or splitting: a pin that normalises both sides would survive a lost,
+ * added or altered trailing newline, which is exactly the kind of drift a
+ * verbatim-JSONL claim has to exclude.
+ */
+async function rawEventLogText(stateRoot: string, episodeId: EpisodeId): Promise<string> {
+  return await readFile(join(episodesDir(stateRoot), `${episodeId}.events.jsonl`), "utf8");
 }
 
 async function humanEventLines(stateRoot: string, episodeId: EpisodeId): Promise<string[]> {
@@ -377,7 +381,7 @@ test("episode events names what the episode waits for, and --json keeps its raw 
     0,
     asJson.err.join("")
   );
-  assert.deepEqual(asJson.out.join("").trimEnd().split("\n"), await rawEventLogLines(stateRoot, episode.id));
+  assert.equal(asJson.out.join(""), await rawEventLogText(stateRoot, episode.id));
   const events = asJson.out.map((line) => JSON.parse(line) as { type: string; reason?: string });
   assert.deepEqual(events.map((event) => event.type), ["EPISODE_OPENED", "EPISODE_WAITING"]);
   assert.equal(events[1]?.reason, "acceptance-incomplete");
@@ -531,13 +535,26 @@ test("episode events escapes control characters so one event is always one line"
   const episodeId = createEpisodeId(() => "escape0001");
   const projectId = createProjectId(() => "escape0001");
   const runId = createRunId(() => "escape0001");
-  // Every unconstrained detail field carries a literal backslash plus a tab, a
-  // carriage return and a newline — the three characters that would otherwise
-  // forge a column or a whole row in a tab-separated, line-per-event surface.
+  // Every unconstrained detail field — including each evidence entry, which is
+  // rendered individually — carries all four characters the renderer replaces:
+  // a literal backslash, a tab, a carriage return and a newline. The last three
+  // would otherwise forge a column or a whole row in a tab-separated,
+  // line-per-event surface; the backslash catches an escape that is not
+  // round-trippable.
   const objective = "ship\\now\tfast\r\nplease";
   const reason = "blocked\\hard\ton\r\nreview";
-  const requiredEvidence = ["tests\tunit", "docs\nadr", "plain"];
+  const requiredEvidence = ["tests\\one\tunit\r\nlinux", "docs\\two\tadr\r\nreview"];
   const outcomeId = "oc\\1\tb\r\nc";
+  // Enforced, not just claimed above: a later edit that weakens any one field
+  // would silently stop exercising a replacement the line format depends on.
+  for (const field of [objective, reason, ...requiredEvidence, outcomeId]) {
+    for (const char of ["\\", "\t", "\r", "\n"]) {
+      assert.ok(
+        field.includes(char),
+        `fixture field ${JSON.stringify(field)} does not exercise ${JSON.stringify(char)}`
+      );
+    }
+  }
   const openedAt = nowIso();
   const attachedAt = nowIso();
   const waitedAt = nowIso();
@@ -592,7 +609,8 @@ test("episode events escapes control characters so one event is always one line"
   assert.deepEqual(lines, [
     `${openedAt}\tEPISODE_OPENED\tship\\\\now\\tfast\\r\\nplease`,
     `${attachedAt}\tRUN_ATTACHED\t${runId}`,
-    `${waitedAt}\tEPISODE_WAITING\tblocked\\\\hard\\ton\\r\\nreview: tests\\tunit, docs\\nadr, plain`,
+    `${waitedAt}\tEPISODE_WAITING\tblocked\\\\hard\\ton\\r\\nreview: ` +
+      `tests\\\\one\\tunit\\r\\nlinux, docs\\\\two\\tadr\\r\\nreview`,
     `${closedAt}\tEPISODE_CLOSED\tFAILED outcome=oc\\\\1\\tb\\r\\nc`
   ]);
 
@@ -604,7 +622,7 @@ test("episode events escapes control characters so one event is always one line"
     0,
     asJson.err.join("")
   );
-  assert.deepEqual(asJson.out.join("").trimEnd().split("\n"), await rawEventLogLines(stateRoot, episodeId));
+  assert.equal(asJson.out.join(""), await rawEventLogText(stateRoot, episodeId));
   assert.deepEqual(
     asJson.out.map((line) => JSON.parse(line) as unknown),
     [
