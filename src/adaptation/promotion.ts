@@ -590,11 +590,20 @@ export function parsePromotionReview(value: unknown): PromotionReview {
   if (record.acceptProvisional !== undefined && typeof record.acceptProvisional !== "boolean") {
     throw new DomainValidationError("promotion review acceptProvisional must be a boolean");
   }
+  // Fail closed on the verdict field: anything that is not one of the two
+  // legal strings is refused rather than read as an approval. Coercing the
+  // unknown case to "approved" turned a typo ("aprove") or a wrong-cased
+  // "Approved" in a hand-authored review file into a passing verdict.
+  if (record.verdict !== "approved" && record.verdict !== "rejected") {
+    throw new DomainValidationError(
+      `promotion review verdict must be "approved" or "rejected": ${String(record.verdict)}`
+    );
+  }
   const review: PromotionReview = {
     reviewId: typeof record.reviewId === "string" ? record.reviewId : "",
     candidateId: record.candidateId,
     contentHash: typeof record.contentHash === "string" ? record.contentHash : "",
-    verdict: record.verdict === "rejected" ? "rejected" : "approved",
+    verdict: record.verdict,
     reviewerKind: record.reviewerKind,
     reviewerId: typeof record.reviewerId === "string" ? record.reviewerId : "",
     actorId: typeof record.actorId === "string" ? record.actorId : "",
