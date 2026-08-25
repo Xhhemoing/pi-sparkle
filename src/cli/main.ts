@@ -1103,14 +1103,52 @@ function projectRootFromEvents(events: readonly Event[]): string | undefined {
   return discovered.payload.project.rootPath;
 }
 
-function trackContinuationCommand(input: {
+/**
+ * One recorded value on a labelled fact line, escaped only when it would
+ * otherwise break out of that line.
+ *
+ * A newline inside a persisted objective or project path would forge another
+ * `continuation ...` line, so control characters select JSON escaping; plain
+ * values stay readable as themselves.
+ */
+function trackFactValue(value: string): string {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return JSON.stringify(value);
+  }
+  return value;
+}
+
+/**
+ * The arguments a replacement tracked run needs, as labelled facts.
+ *
+ * Deliberately not a copy-pasteable command line. `projectRoot`, `stateRoot`
+ * and the persisted objective are operator/project data: concatenated into one
+ * `pnpm cli run --track ...` string, a path containing `;` or a space and an
+ * objective containing `$(...)` become shell syntax the moment the line is
+ * pasted, and `JSON.stringify` quoting does not suppress either. Every caller
+ * prints these as data the operator retypes into their own shell.
+ */
+function trackContinuationFacts(input: {
   readonly stateRoot: string;
   readonly projectRoot: string | undefined;
   readonly objective: string | undefined;
-}): string {
-  const project = input.projectRoot ?? "<project path>";
-  const objective = input.objective ?? "<the objective this run was started with>";
-  return `pnpm cli run --track --project ${project} --objective ${JSON.stringify(objective)} --answers <file.json> --state-root ${input.stateRoot}`;
+}): readonly string[] {
+  const project =
+    input.projectRoot === undefined
+      ? "(not recorded — supply the project this run was started on)"
+      : trackFactValue(input.projectRoot);
+  const objective =
+    input.objective === undefined
+      ? "(not recorded — supply the objective this run was started with)"
+      : trackFactValue(input.objective);
+  return [
+    "continuation verb: run --track",
+    `continuation project: ${project}`,
+    `continuation objective: ${objective}`,
+    "continuation answers: --answers <file.json>",
+    `continuation state-root: ${trackFactValue(input.stateRoot)}`
+  ];
 }
 
 /**
@@ -1151,13 +1189,14 @@ export function formatTrackClarificationReport(input: {
     }
   }
   const objective = clarification.kind === "read" ? clarification.objective : undefined;
-  lines.push(
-    `  next: ${trackContinuationCommand({
-      stateRoot: input.stateRoot,
-      projectRoot: input.projectRoot,
-      objective
-    })}\n`
-  );
+  lines.push("  next: this run stays WAITING_FOR_USER; start a new tracked run from the facts below (they are arguments, not a shell line)\n");
+  for (const fact of trackContinuationFacts({
+    stateRoot: input.stateRoot,
+    projectRoot: input.projectRoot,
+    objective
+  })) {
+    lines.push(`  ${fact}\n`);
+  }
   lines.push("  note: --assume-defaults answers them with the recorded defaults instead of an answers file\n");
   lines.push(`  note: answer --run ${input.runId} cannot continue this run — nothing consumes an answer on this plane, so it stays WAITING_FOR_USER and the continuation above is a new run\n`);
   return lines.join("");
@@ -1799,18 +1838,24 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   // `USER_ANSWER` this used to write had no consumer, and worse, `replayRun`
   // clears `sawWaiting` on it — the run then replays as RUNNING while nothing
   // is running. Existence of the file is enough to refuse; the questions
-  // themselves are only needed to print them, which `inspect` does.
+  // themselves are only needed to print them, which `inspect` does. A wait
+  // that lost the file is caught further down, by correlation instead.
   const clarification = await readTrackClarification(stateRoot, runId);
   if (isTrackClarificationWait(clarification)) {
+    const facts = trackContinuationFacts({
+      stateRoot,
+      projectRoot: projectRootFromEvents(read.events),
+      objective: clarification.kind === "read" ? clarification.objective : undefined
+    });
     return cliFail(io, {
       command: "answer",
       stage: "validation",
       message: `Run ${runId} is waiting on run --track clarification questions, and no answer recorded here is ever read`,
-      next: `${trackContinuationCommand({
-        stateRoot,
-        projectRoot: projectRootFromEvents(read.events),
-        objective: clarification.kind === "read" ? clarification.objective : undefined
-      })} (or --assume-defaults); pnpm cli inspect --run ${runId} --state-root ${stateRoot} prints the questions`,
+      // Facts over one `next:` command line, and inside `next` rather than
+      // printed beside it so the JSON report carries them too.
+      next: `pnpm cli inspect --run ${runId} prints the questions (with the state root below); a new tracked run continues the work, from these arguments (or --assume-defaults):\n${facts
+        .map((fact) => `  ${fact}`)
+        .join("\n")}`,
       runId
     });
   }
@@ -1881,6 +1926,27 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   }
   if (selectedActionIds !== undefined || values.results !== undefined) {
     throw new DomainValidationError("answer --selected/--results require a flowchart checkpoint");
+  }
+  // Fail closed on a wait this answer cannot reach. The questions file above is
+  // only the tidy marker of a `run --track` wait: `waitForClarification`
+  // appends `RUN_WAITING_FOR_USER` before it writes that file, so a crash or a
+  // manual delete leaves a genuine wait with no sidecar and nothing here to
+  // recognise. What every answerable non-flowchart wait does have is the child
+  // `QUESTION` this message id belongs to, so that correlation — not the file —
+  // decides. Without it `replayRun` would clear `sawWaiting` on the appended
+  // `USER_ANSWER` and the stranded run would replay as RUNNING with no
+  // consumer. Runs that are not waiting keep recording answers as before.
+  if (replayRun(read.events).status === "WAITING_FOR_USER") {
+    const pending = (await inspectRun(stateRoot, runId)).pendingQuestions;
+    if (!pending.some((question) => question.id === values.message)) {
+      return cliFail(io, {
+        command: "answer",
+        stage: "validation",
+        message: `Run ${runId} is WAITING_FOR_USER but records no pending question ${trackFactValue(values.message)} to answer`,
+        next: `pnpm cli inspect --run ${runId} lists the questions this run actually recorded — answer one of those ids, and pass the same --state-root you passed here. Recording this answer would replay the run as RUNNING with nothing consuming it, so nothing was appended. A run --track wait whose track-questions.json was lost also lands here, and its questions are then recorded nowhere.`,
+        runId
+      });
+    }
   }
   const messageId = parseMessageId(values.message);
   await store.append({
