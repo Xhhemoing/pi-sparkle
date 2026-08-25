@@ -139,9 +139,15 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 | D32 | merged `53dccde` from `cursor/commits-refusal-retarget-0da8` `c91af7b` | GPT-d32-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d32.md`. |
 | D33 | merged `82e6ad4` from `cursor/episode-id-events-lines-0da8` `08219b2` | GPT-d33b-recheck **KEEP**. Report: `.agent_workspace/loop5-r8-gpt-d33b.md`. |
 
-### Round 9
+### Round 9 (implementing)
 
-Fable-r9-next dispatched to rank the next three file-disjoint operator batches after D31–D33 KEEP (`bc-2c5ef557-a068-53b5-b999-a20499e36e4d`).
+Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r9-fable-next.md`) at `6bdeb4e`. Through-line: D31–D33 taught the run-state verbs to refuse bad flag values before the plane; config-plane verbs and the spec checker still throw value and environment faults into generic catches. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r9 KEEP.
+
+| Slot | Owns | Branch | Status |
+|---|---|---|---|
+| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | implementing |
+| D35 | `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts` | `cursor/auth-login-envelopes-0da8` | implementing |
+| D36 | `src/cli/validate.ts`, `test/unit/cli/validate.test.ts` | `cursor/validate-path-retarget-0da8` | implementing |
 
 ### Round 3 still running / next implementers
 

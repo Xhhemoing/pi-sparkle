@@ -268,6 +268,24 @@ Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-arg
 
 **GPT-d33b-recheck: KEEP.** Report: `.agent_workspace/loop5-r8-gpt-d33b.md`. Merged to the integration branch as `82e6ad4`.
 
+## D34 — Round 9 rank 1: `models` id preflight, honest disable, `--provider` refusal
+
+Fable-r9-next. Refuse malformed `<provider/model>` / `--primary` / `--fast` via `tryParseModelRef` as `parse-args` before config. Unknown ids keep `unknown model "${id}"` at `stage: "validation"` with `models list --available` next. `disable` prints an honest not-enabled message (exit 0) when the id was never in `before.enabled`, still calling `disableModel`. `list --provider` without `--available` refuses as parse-args. `MODELS_LIST` byte-identical. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`. Spec: `.agent_workspace/loop5-r9-fable-next.md` Rank 1.
+
+**Status:** implementing. Do not merge until GPT-r9 KEEP.
+
+## D35 — Round 9 rank 2: `auth login` refusal envelopes
+
+Fable-r9-next. Convert six thrown D12/D21 refusals to `cliFail` with `command: "auth login"` (blank positional folds into the existing missing-arg report). Multi-mode and blank `--key` are parse-args before config; unknown provider and keyless-custom are validation with inventory next; `--from-env` unset is preflight. Message bytes unchanged. Convert `commands.test.ts` `assert.rejects` with the throws. No catch added or widened. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts`. Spec: Rank 2.
+
+**Status:** implementing. Do not merge until GPT-r9 KEEP.
+
+## D36 — Round 9 rank 3: `validate` unreadable/blank path retargeting
+
+Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable paths become `stage: "lookup"` naming the flag with an `init` retarget (classify via `errorCodeOf` in the existing catch). Spec faults keep `stage: "validation"` + "fix the spec". Do not edit `children-spec.ts` / `flowchart-io.ts`. `VALIDATE_OK` byte-identical. Files: `src/cli/validate.ts`, `test/unit/cli/validate.test.ts`. Spec: Rank 3.
+
+**Status:** implementing. Do not merge until GPT-r9 KEEP.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
