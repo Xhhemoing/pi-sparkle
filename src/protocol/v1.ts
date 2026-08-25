@@ -68,25 +68,22 @@ export interface MessageBase {
 }
 
 /**
- * Per-child budget carried on a TASK_REQUEST. Shape validation here is not
- * enforcement: `maxAttempts`, `timeoutMs`, and `maxWallTimeMs` are read and
- * honored by `run/child-coordinator.ts`; `maxCostUsd` is not (see below).
+ * Per-child budget carried on a TASK_REQUEST. `run/child-coordinator.ts`
+ * honors the time/attempt fields directly and forwards the effective
+ * `maxCostUsd` ceiling to the selected executor.
  */
 export interface ChildRunLimits {
   maxAttempts: number;
   timeoutMs: number;
   maxWallTimeMs: number;
   /**
-   * Declared cost ceiling in USD. Validated for shape but **not enforced** at
-   * the child level: no component stops or fails a child run for exceeding it.
-   * Spend is not derivable where the child runs — the executor stream reports
-   * token usage only (`TURN_FINISHED.usage`), and no price catalog is
-   * populated behind it (`ModelInvocation.pricing` in
-   * `telemetry/model-invocation.ts` is optional and never filled in), so a
-   * ceiling here could only be enforced by first building model pricing. The
-   * one cost gate that does run is the experiments plane's own
-   * `thresholds.maxCostUsd` (`experiments/shadow.ts`), fed by externally
-   * supplied per-outcome costs; it never reads this field.
+   * Declared cost ceiling in USD. The child coordinator forwards the tighter
+   * of this value and the run-level ceiling on `AgentExecutionRequest`.
+   * `PiAgentExecutor` prices observed turn usage from the resolved model
+   * catalog and stops before another provider turn after the ceiling is
+   * reached. An executor that cannot price its own spend leaves the ceiling
+   * unenforced rather than inventing a dollar figure, so this remains a
+   * best-effort per-execution cap, not a cross-child run ledger.
    */
   maxCostUsd?: number;
 }

@@ -87,9 +87,9 @@ export interface ChildTaskInput {
   /**
    * Per-child budget. The coordinator enforces `maxAttempts` (the retry
    * ladder), `timeoutMs` (per attempt), and `maxWallTimeMs` (one deadline for
-   * the whole child run). It does **not** enforce `maxCostUsd`: no spend is
-   * observable here, so that field is a declaration only — see the disclosure
-   * on {@link ChildRunLimits}.
+   * the whole child run). It cannot price spend itself, so it forwards the
+   * effective `maxCostUsd` to the executor; see {@link ChildRunLimits} for the
+   * executor-dependent enforcement contract.
    */
   limits: ChildRunLimits;
   /** Optional predecessor task ids; used when compiling `--children` into a flowchart. */

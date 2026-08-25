@@ -372,19 +372,20 @@ test("assertAtMostOneTerminal rejects duplicate terminals at the first and last 
   );
 });
 
-test("maxCostUsd is declared with its non-enforcement disclosed, and nothing reads it", async () => {
+test("maxCostUsd discloses executor-dependent enforcement and is forwarded to execution", async () => {
   const limits = { maxAttempts: 1, timeoutMs: 1_000, maxWallTimeMs: 1_000, maxCostUsd: 0.000_001 };
   assert.doesNotThrow(() => validateAgentMessage({ ...validRequest(), limits }));
 
   const protocolSource = await readFile(new URL("../../../src/protocol/v1.ts", import.meta.url), "utf8");
-  assert.match(protocolSource, /maxCostUsd[\s\S]{0,400}?not enforced/);
+  assert.match(protocolSource, /maxCostUsd[\s\S]{0,800}?PiAgentExecutor[\s\S]{0,500}?cannot price/);
   const coordinatorSource = await readFile(
     new URL("../../../src/run/child-coordinator.ts", import.meta.url),
     "utf8"
   );
-  assert.ok(
-    !/limits\.maxCostUsd/.test(coordinatorSource),
-    "the coordinator reads maxCostUsd: enforcement now exists and the disclosure must be rewritten"
+  assert.match(
+    coordinatorSource,
+    /const costCap = this\.costCapFor\(input\.limits\);[\s\S]{0,500}?maxCostUsd: costCap/,
+    "the effective child/run ceiling must reach AgentExecutionRequest"
   );
 });
 

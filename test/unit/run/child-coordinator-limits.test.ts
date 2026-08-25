@@ -582,16 +582,17 @@ test("transcript validation cost is linear in the number of child messages", asy
   });
 });
 
-test("maxCostUsd is inert: a child runs to completion past its declared ceiling", async () => {
+test("an executor without cost support may ignore the forwarded maxCostUsd ceiling", async () => {
   await withTempState(async (stateRoot) => {
-    // Pins the disclosure in protocol/v1: the field is shape-validated and read
-    // by nothing here. If child-level cost enforcement is ever built, this test
-    // and that disclosure must change together.
-    const executor = new ScriptedExecutor((request) => [
-      { type: "TURN_FINISHED", usage: { inputTokens: 5_000_000, outputTokens: 5_000_000 } },
-      { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
-      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
-    ]);
+    let forwardedCap: number | undefined;
+    const executor = new ScriptedExecutor((request) => {
+      forwardedCap = request.maxCostUsd;
+      return [
+        { type: "TURN_FINISHED", usage: { inputTokens: 5_000_000, outputTokens: 5_000_000 } },
+        { type: "MESSAGE", message: resultMessage(request, "SUCCESS") },
+        { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
+      ];
+    });
     const coordinator = makeCoordinator(stateRoot, executor);
     const taskId = await seedParentRun(stateRoot, coordinator.parentRunId);
 
@@ -603,6 +604,7 @@ test("maxCostUsd is inert: a child runs to completion past its declared ceiling"
 
     assert.equal(outcome.outcome, "SUCCESS");
     assert.equal(executor.calls, 1);
+    assert.equal(forwardedCap, 0.000_001, "the coordinator must not discard the declared ceiling");
     assert.ok(!/cost/i.test(outcome.summary), "no cost ceiling is claimed in the summary");
   });
 });
