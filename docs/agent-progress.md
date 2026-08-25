@@ -167,4 +167,4 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
-| Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | (dispatching) |
+| Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-0366a1ee-f5a3-5eb3-aa04-3c9db9a002d2` |
