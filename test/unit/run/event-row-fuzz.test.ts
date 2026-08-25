@@ -258,6 +258,10 @@ const EVENT_SEEDS = {
     key: "seed",
     value: DEFAULT_SEED
   }),
+  STEER_INJECTED: makeEvent("STEER_INJECTED", {
+    text: "focus the remaining work on the failing fuzz invariant",
+    agentInstanceId: AGENT_INSTANCE_ID
+  }),
   EPISODE_OPENED: makeEvent("EPISODE_OPENED", { episode: EPISODE }),
   RUN_ATTACHED: makeEvent("RUN_ATTACHED", {
     episodeId: EPISODE_ID,
