@@ -91,18 +91,24 @@ function parseModelsArgs<T>(io: ModelsIo, command: string, parse: () => { values
 
 /**
  * Frozen `models list --json` contract. Additive changes only: consumers pin
- * `type` and `preview` and read `mode` / `models`. Not a domain Event (no `id`;
+ * `type` and `preview` and discriminate on `mode`. Not a domain Event (no `id`;
  * `type` is outside the Event union), and `preview: true` says so.
  *
- * `enabled` rows carry the routing facts the human line encodes as tags and a
- * `(not in catalog)` suffix — the least stable line format in this CLI, which
- * is the reason scripts need this object. `available` rows carry the catalog id
- * alone. Top-level `primary` / `fast` are present only when configured.
+ * What this object reports is the *stored* model configuration under the state
+ * root — which ids providers.json records as enabled, and which two it records
+ * as the primary and fast defaults. It is not a prediction of what any run will
+ * use: `--primary-model` / `--fast-model` and `PI_PROVIDER` / `PI_MODEL` /
+ * `PI_FAST_MODEL` both outrank the stored defaults when a run picks its models,
+ * so a caller that wants the effective choice has to read the run, not this.
+ *
+ * The two defaults are named once, as top-level `primary` / `fast`, and are
+ * `null` rather than absent when unset: a consumer reads one place for the
+ * answer instead of reconciling it against a per-row copy that could disagree.
+ * A row therefore carries only what is per-model — its id, and whether the
+ * catalog still resolves it.
  */
 export interface ModelsListEnabledRow {
   readonly id: string;
-  readonly primary: boolean;
-  readonly fast: boolean;
   readonly inCatalog: boolean;
 }
 
@@ -110,14 +116,24 @@ export interface ModelsListAvailableRow {
   readonly id: string;
 }
 
-export interface ModelsListJson {
+export interface ModelsListEnabledJson {
   readonly type: "MODELS_LIST";
   readonly preview: true;
-  readonly mode: "enabled" | "available";
-  readonly primary?: string;
-  readonly fast?: string;
-  readonly models: readonly (ModelsListEnabledRow | ModelsListAvailableRow)[];
+  readonly mode: "enabled";
+  readonly primary: string | null;
+  readonly fast: string | null;
+  readonly models: readonly ModelsListEnabledRow[];
 }
+
+/** The catalog a model can be enabled from: ids only, and no stored defaults. */
+export interface ModelsListAvailableJson {
+  readonly type: "MODELS_LIST";
+  readonly preview: true;
+  readonly mode: "available";
+  readonly models: readonly ModelsListAvailableRow[];
+}
+
+export type ModelsListJson = ModelsListEnabledJson | ModelsListAvailableJson;
 
 function writeModelsListJson(io: ModelsIo, payload: ModelsListJson): void {
   io.stdout(`${JSON.stringify(payload)}\n`);
@@ -187,14 +203,12 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
       type: "MODELS_LIST",
       preview: true,
       mode: "enabled",
-      ...(config.primary !== undefined ? { primary: config.primary } : {}),
-      ...(config.fast !== undefined ? { fast: config.fast } : {}),
+      primary: config.primary ?? null,
+      fast: config.fast ?? null,
       models: config.enabled.map((id) => {
         const ref = parseModelRef(id);
         return {
           id,
-          primary: config.primary === id,
-          fast: config.fast === id,
           inCatalog:
             resolveListedModel(ref.providerId, ref.modelId, config.customProviders) !== undefined
         };

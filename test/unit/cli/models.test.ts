@@ -208,10 +208,14 @@ test("list annotates an enabled model the catalog no longer resolves", async () 
 });
 
 /**
- * The frozen `MODELS_LIST` shape, pinned exactly the day it ships (D3): the
- * routing-config read surface is what scripts have to consult before a run, and
- * the human line it replaces gained two annotations in the round before this
- * one.
+ * The frozen `MODELS_LIST` shape, pinned exactly the day it ships (D3) and as
+ * whole objects: what a consumer must not have to guess is which keys are
+ * always there. `primary` / `fast` are named once at the top level and are
+ * `null` when unset — never omitted, and never restated per row where the two
+ * copies could disagree.
+ *
+ * The object reports the stored configuration, not what a run will use: run
+ * flags and PI_PROVIDER / PI_MODEL outrank these defaults.
  */
 test("list --json emits the exact enabled shape, defaults and staleness included", async () => {
   await withStateRoot(async (stateRoot) => {
@@ -240,10 +244,11 @@ test("list --json emits the exact enabled shape, defaults and staleness included
       preview: true,
       mode: "enabled",
       primary: "local/m1",
+      fast: null,
       models: [
-        { id: "local/m1", primary: true, fast: false, inCatalog: true },
-        { id: "local/m2", primary: false, fast: false, inCatalog: true },
-        { id: "local/retired", primary: false, fast: false, inCatalog: false }
+        { id: "local/m1", inCatalog: true },
+        { id: "local/m2", inCatalog: true },
+        { id: "local/retired", inCatalog: false }
       ]
     });
   });
@@ -261,15 +266,19 @@ test("list --json prints exactly one parseable line and no prose", async () => {
     assert.equal(stdout.endsWith("\n"), true);
     const lines = stdout.split("\n").slice(0, -1);
     assert.equal(lines.length, 1, stdout);
-    const payload = JSON.parse(lines[0] as string) as {
-      fast: string;
-      models: { id: string; fast: boolean }[];
-    };
-    assert.equal(payload.fast, "gateway/fast");
-    assert.deepEqual(
-      payload.models.filter((model) => model.fast).map((model) => model.id),
-      ["gateway/fast"]
-    );
+    // The two defaults are read off the top level, which is the only place the
+    // object states them.
+    assert.deepEqual(JSON.parse(lines[0] as string), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "enabled",
+      primary: "local/m1",
+      fast: "gateway/fast",
+      models: [
+        { id: "local/m1", inCatalog: true },
+        { id: "gateway/fast", inCatalog: true }
+      ]
+    });
   });
 });
 
@@ -282,6 +291,8 @@ test("list --json on an empty store is the object with no models, not the notice
       type: "MODELS_LIST",
       preview: true,
       mode: "enabled",
+      primary: null,
+      fast: null,
       models: []
     });
     assert.doesNotMatch(out.join(""), /No models enabled/);
@@ -300,19 +311,14 @@ test("list --available --json carries the same builtin+custom merge as the human
       err.join("")
     );
     assert.deepEqual(err, []);
-    const payload = JSON.parse(out.join("")) as {
-      type: string;
-      preview: boolean;
-      mode: string;
-      models: { id: string }[];
-    };
-    assert.equal(payload.type, "MODELS_LIST");
-    assert.equal(payload.preview, true);
-    assert.equal(payload.mode, "available");
-    assert.deepEqual(
-      payload.models.map((model) => model.id),
-      human
-    );
+    // Available mode states no defaults at all: browsing the catalog is not a
+    // question about what this state root has configured.
+    assert.deepEqual(JSON.parse(out.join("")), {
+      type: "MODELS_LIST",
+      preview: true,
+      mode: "available",
+      models: human.map((id) => ({ id }))
+    });
 
     const scoped = capture();
     assert.equal(
