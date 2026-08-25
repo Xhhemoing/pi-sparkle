@@ -86,11 +86,7 @@ GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required 
 
 **Landed** (Opus-dataset-privacy): redact-then-excerpt; `source.originalWorkspace` redacted once and copied onto rows; `delete --run` cascades default eval-datasets dir; `--dir` realpath-refuses the runtime plane; JSON key `episodes` kept with `rowKind: "routed-task-from-one-run"`.
 
-**Not merge-ready until D18:** GPT-d10-recheck **FIX** — a symlink at the default `<runId>` leaf writes the manifest outside the state root and `delete --run` only unlinks the alias.
-
-## D18 — Default eval-dataset export must not follow a leaf symlink
-
-Refuse a default export when `adaptation/eval-datasets/<runId>` is a symlink (or bind publish to the canonical adaptation dataset root without a check/write swap). Deletion of that shape must fail loudly rather than report the derivative removed after only unlinking the alias. Negative test: pre-create the default `<runId>` as a symlink to an external dir; a successful `delete --run` must not leave an external manifest. Do not search the filesystem for arbitrary `--dir` exports.
+**D18 residual (GPT-d10 FIX, now landed):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. See D18. Do not treat `adapt dataset` as merge-ready until the D18 GPT recheck returns KEEP.
 
 ## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
 
@@ -122,7 +118,9 @@ Copy the `missingRun` house wording (do not import from `main.ts`). `episode` ev
 
 Hidden-input for secret prompts on real stdin; additive doctor `auth` check (secrets never in `detail`); `models list --available` appends `listedModelsFromCustom`. Update doctor check-name pin additively. Hermetic doctor tests (Windows CI). Do not churn `auth.ts` D12 landing. Spec: Rank 2 of the same report.
 
-**Landed** (Opus-auth-echo-doctor-F8): secret prompts muted on real-stdin readline (injected `io.question` unchanged); doctor check `auth` after `providers`; `--available` appends custom listed models. Independent GPT recheck dispatched.
+**Landed** (Opus-auth-echo-doctor-F8): secret prompts muted on real-stdin readline (injected `io.question` unchanged); doctor check `auth` after `providers`; `--available` appends custom listed models.
+
+**GPT-d16-recheck: KEEP.** PTY secret mute (xterm/dumb), stdin-EOF reject, doctor `auth` additive with no secret in `detail`, custom `--available`. Report: `.agent_workspace/loop5-r4-gpt-d16.md`.
 
 ## D17 — `INIT_EXAMPLES` is one compact JSON line
 
