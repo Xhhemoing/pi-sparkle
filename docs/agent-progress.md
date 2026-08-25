@@ -98,4 +98,4 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 still running / next implementers
 
 - D16 auth echo/doctor/available in flight.
-- D10 independent recheck in flight.
+- D18 default eval-dataset leaf-symlink cascade dispatched (GPT-d10 FIX).
