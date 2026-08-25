@@ -997,4 +997,31 @@ describe("routing-policy eval promotion gate", () => {
     });
     assert.equal(review.acceptProvisional, false);
   });
+
+  it("parsePromotionReview refuses any verdict that is not approved or rejected", () => {
+    const review = (verdict: unknown): unknown => ({
+      reviewId: "review-cnd_seq0002",
+      candidateId: "cnd_seq0002",
+      contentHash: "abc",
+      verdict,
+      reviewerKind: "independent",
+      reviewerId: "critic-1",
+      actorId: "alice",
+      evidenceRefs: ["review:independent"]
+    });
+    for (const verdict of ["aprove", "Approved", "", "pending", 42, null, undefined, {}]) {
+      assert.throws(
+        () => parsePromotionReview(review(verdict)),
+        /verdict must be "approved" or "rejected"/,
+        `verdict ${JSON.stringify(verdict) ?? "undefined"} must be refused`
+      );
+    }
+    assert.equal(parsePromotionReview(review("approved")).verdict, "approved");
+    // "rejected" parses as itself and is then refused by the approval check,
+    // instead of being laundered into an approval by the parser.
+    assert.throws(
+      () => parsePromotionReview(review("rejected")),
+      /approved promotion review provenance is required/
+    );
+  });
 });

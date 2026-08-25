@@ -57,7 +57,7 @@ async function writeReview(
   actorId: string,
   candidateId: string,
   content: string,
-  extras: { readonly acceptProvisional?: boolean } = {}
+  extras: { readonly acceptProvisional?: boolean; readonly verdict?: unknown } = {}
 ): Promise<string> {
   const path = join(dir, `review-${candidateId}.json`);
   await writeFile(
@@ -66,7 +66,7 @@ async function writeReview(
       reviewId: `review-${candidateId}`,
       candidateId,
       contentHash: hashCandidateContent(content),
-      verdict: "approved",
+      verdict: extras.verdict !== undefined ? extras.verdict : "approved",
       reviewerKind: "independent",
       reviewerId: "human:reviewer",
       actorId,
@@ -168,6 +168,38 @@ test("adapt promote --approve fails closed when no registry snapshot exists", as
   );
   assert.equal(code, 1);
   assert.match(err.join(""), /no registry snapshot/);
+});
+
+test("adapt promote --approve refuses a misspelled verdict instead of reading it as approval", async () => {
+  for (const verdict of ["aprove", "Approved", "APPROVED", true]) {
+    const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-verdict-"));
+    const contentPath = join(dir, "content.txt");
+    await writeFile(contentPath, "v2", "utf8");
+    const reviewPath = await writeReview(dir, "alice", "cnd_seq0002", "v2", { verdict });
+    const { io, err } = capture();
+    const code = await adaptCommand(
+      [
+        "promote",
+        "--candidate",
+        "cnd_seq0002",
+        "--expected",
+        "rsv_seq0001",
+        "--content-file",
+        contentPath,
+        "--review-file",
+        reviewPath,
+        "--approve",
+        "--state-root",
+        dir
+      ],
+      io
+    );
+    assert.equal(code, 1);
+    assert.match(err.join(""), /verdict must be "approved" or "rejected"/);
+    // Refused at parse time, before the registry is even read.
+    assert.doesNotMatch(err.join(""), /no registry snapshot/);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("adapt promote --approve CAS-promotes from a registry snapshot", async () => {
