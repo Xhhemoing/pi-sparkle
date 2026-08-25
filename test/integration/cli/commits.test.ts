@@ -93,7 +93,13 @@ async function tinyCompletedRun(stateRoot: string, projectRoot: string) {
   );
 }
 
-async function twoNodeCompletedRun(stateRoot: string, projectRoot: string) {
+/**
+ * Two completed nodes so `apply` has a prefix to lose. `secondId` is a
+ * parameter because a flowchart node id is only required to be non-empty
+ * (`validateFlowchart`), and an id carrying a comma is the case `--nodes`
+ * cannot name.
+ */
+async function twoNodeCompletedRun(stateRoot: string, projectRoot: string, secondId = "second") {
   return startFlowchartRun(
     {
       stateRoot,
@@ -120,7 +126,7 @@ async function twoNodeCompletedRun(stateRoot: string, projectRoot: string) {
             approvalRequired: false
           },
           {
-            id: "second",
+            id: secondId,
             taskId: createTaskId(() => "second"),
             role: "actor",
             objective: "Do the second thing",
@@ -129,7 +135,7 @@ async function twoNodeCompletedRun(stateRoot: string, projectRoot: string) {
             approvalRequired: false
           }
         ],
-        edges: [{ from: "first", to: "second", condition: { type: "success", expected: true } }]
+        edges: [{ from: "first", to: secondId, condition: { type: "success", expected: true } }]
       },
       childResults: {
         first: {
@@ -137,7 +143,7 @@ async function twoNodeCompletedRun(stateRoot: string, projectRoot: string) {
           confidence: validateConfidenceScore(0.9),
           evidenceIds: ["evd_first"]
         },
-        second: {
+        [secondId]: {
           outcome: "SUCCESS",
           confidence: validateConfidenceScore(0.9),
           evidenceIds: ["evd_second"]
@@ -146,6 +152,27 @@ async function twoNodeCompletedRun(stateRoot: string, projectRoot: string) {
     }
   );
 }
+
+// A `commit-msg` hook is the cheapest way to make git refuse commit *k* of *n*
+// with the first k-1 already written.
+async function repoRefusingTheSecondSubject(prefix: string): Promise<string> {
+  const repo = await mkdtemp(join(tmpdir(), prefix));
+  git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
+  const hook = join(repo, ".git", "hooks", "commit-msg");
+  await writeFile(
+    hook,
+    "#!/bin/sh\nif grep -q 'Do the second thing' \"$1\"; then\n  echo 'commit-msg hook: refusing the second subject' >&2\n  exit 1\nfi\nexit 0\n",
+    "utf8"
+  );
+  await chmod(hook, 0o755);
+  return repo;
+}
+
+function noteLine(stderr: string): string | undefined {
+  return stderr.split("\n").find((line) => line.startsWith("note: "));
+}
+
+const PARTIAL_APPLY_SKIP = platform() === "win32" ? "POSIX commit-msg hook" : false;
 
 async function withGitIdentity<T>(run: () => Promise<T>): Promise<T> {
   const saved: Record<string, string | undefined> = {};
@@ -371,26 +398,16 @@ test("bare commits and an unknown subcommand print usage and a parse-args report
   assert.equal(unknownReport?.message, "Unknown commits command: squash");
 });
 
-// A `commit-msg` hook is the cheapest way to make git refuse commit *k* of *n*
-// with the first k-1 already written. Windows has no POSIX shell for the hook,
+// Windows has no POSIX shell for the `commit-msg` hook these three cases need,
 // and this file is not in the Windows `cli-smoke` matrix.
 test(
   "a mid-loop apply failure discloses the commits it already made and names --nodes for the rest",
-  { skip: platform() === "win32" ? "POSIX commit-msg hook" : false },
+  { skip: PARTIAL_APPLY_SKIP },
   async () => {
     await withRoots(async (stateRoot, projectRoot) => {
       const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
-      const repo = await mkdtemp(join(tmpdir(), "pi-sparkle-commits-partial-"));
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-");
       try {
-        git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
-        const hook = join(repo, ".git", "hooks", "commit-msg");
-        await writeFile(
-          hook,
-          "#!/bin/sh\nif grep -q 'Do the second thing' \"$1\"; then\n  echo 'commit-msg hook: refusing the second subject' >&2\n  exit 1\nfi\nexit 0\n",
-          "utf8"
-        );
-        await chmod(hook, 0o755);
-
         const apply = capture();
         const code = await withGitIdentity(() =>
           main(
@@ -401,16 +418,16 @@ test(
 
         assert.equal(code, 1);
         assert.match(apply.out.join(""), /Committed feat\(first\): Do the first thing/);
-        const stderr = apply.err.join("");
-        assert.match(stderr, /1 of 2 [\s\S]*--nodes/);
         assert.equal(
-          stderr.split("\n").find((line) => line.startsWith("note: ")),
+          noteLine(apply.err.join("")),
           `note: 1 of 2 proposed commits were already created in ${repo} before this failure; ` +
-            "re-running apply would create them again — pass --nodes second to apply only the rest"
+            "re-running apply would create them again — the commits not yet created are for node ids second; " +
+            "pass --nodes second to apply only those"
         );
 
-        const log = git(["log", "--format=%s"], repo).trim().split("\n");
-        assert.deepEqual(log, ["feat(first): Do the first thing"]);
+        assert.deepEqual(git(["log", "--format=%s"], repo).trim().split("\n"), [
+          "feat(first): Do the first thing"
+        ]);
 
         // The disclosed remedy is the one that works: `--nodes second` skips
         // the commit already in the history instead of duplicating it.
@@ -434,8 +451,103 @@ test(
         );
         assert.equal(retryCode, 1, "the hook still refuses the second subject");
         assert.deepEqual(retry.out, []);
-        assert.doesNotMatch(retry.err.join(""), /note: /);
+        assert.equal(noteLine(retry.err.join("")), undefined);
         assert.equal(git(["log", "--format=%s"], repo).trim().split("\n").length, 1);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+  }
+);
+
+// `--nodes` re-derives its selection from the checkpoint, so it is not a valid
+// recovery for an edited file: `parseDecisionCommitFile` accepts a repeated
+// `nodeId` (the filter would reselect the commit already created) and one the
+// checkpoint never knew (the filter would refuse the whole rerun).
+test(
+  "a mid-loop apply --file failure sends the operator to a suffix file, never to --nodes",
+  { skip: PARTIAL_APPLY_SKIP },
+  async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
+      const preview = capture();
+      assert.equal(
+        await main(
+          ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json"],
+          preview.io
+        ),
+        0
+      );
+      const { commits } = JSON.parse(preview.out.join("")) as { commits: unknown[] };
+      assert.equal(commits.length, 2);
+
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-file-");
+      const file = join(repo, "edited.json");
+      try {
+        await writeFile(file, JSON.stringify({ commits }), "utf8");
+        const apply = capture();
+        const code = await withGitIdentity(() =>
+          main(
+            [
+              "commits",
+              "apply",
+              "--run",
+              outcome.runId,
+              "--state-root",
+              stateRoot,
+              "--repo",
+              repo,
+              "--file",
+              file
+            ],
+            apply.io
+          )
+        );
+
+        assert.equal(code, 1);
+        const note = noteLine(apply.err.join("")) ?? "";
+        assert.equal(
+          note,
+          `note: 1 of 2 proposed commits were already created in ${repo} before this failure; ` +
+            "re-running apply would create them again — the commits not yet created are for node ids second; " +
+            'write just those proposals to a new file as { "commits": [...] } and rerun apply with --file on ' +
+            "that file — do not rerun an input that still contains the first 1"
+        );
+        assert.doesNotMatch(note, /--nodes/);
+        assert.deepEqual(git(["log", "--format=%s"], repo).trim().split("\n"), [
+          "feat(first): Do the first thing"
+        ]);
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    });
+  }
+);
+
+// A flowchart node id is only required to be non-empty, and `--nodes` splits on
+// commas, so an id containing one cannot round-trip. Disclose the ids and send
+// the operator to a suffix file rather than narrowing the id grammar.
+test(
+  "a remaining node id that --nodes cannot round-trip is disclosed without a --nodes command",
+  { skip: PARTIAL_APPLY_SKIP },
+  async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await twoNodeCompletedRun(stateRoot, projectRoot, "second,tail");
+      const repo = await repoRefusingTheSecondSubject("pi-sparkle-commits-partial-csv-");
+      try {
+        const apply = capture();
+        const code = await withGitIdentity(() =>
+          main(
+            ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo],
+            apply.io
+          )
+        );
+
+        assert.equal(code, 1);
+        const note = noteLine(apply.err.join("")) ?? "";
+        assert.match(note, /node ids second,tail;/);
+        assert.doesNotMatch(note, /--nodes/);
+        assert.match(note, /rerun apply with --file on that file/);
       } finally {
         await rm(repo, { recursive: true, force: true });
       }
