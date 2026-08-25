@@ -777,6 +777,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause: createFilePauseController(stateRoot),
+        // Same disclosure the tracked path makes, for the same reason: the
+        // summary below only arrives once the run is terminal, so until this
+        // line a live `--flowchart` run could be paused in principle and was
+        // unnameable in practice.
+        onRunStarted: (runId) => {
+          io.stdout(`Run ${runId}: started\n`);
+        },
         ...(executor !== undefined ? { executor } : {})
       },
       {
@@ -958,7 +965,13 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         executor,
         registry: createAgentProfileRegistry(defaultAgentProfiles()),
         cluster: true,
-        pause: createFilePauseController(stateRoot)
+        pause: createFilePauseController(stateRoot),
+        // The third and last public run path to disclose its id early. A
+        // cluster run is the longest of the three, so it is the one an
+        // operator is most likely to want to pause before it settles.
+        onRunStarted: (runId) => {
+          io.stdout(`Run ${runId}: started\n`);
+        }
       },
       {
         projectRoot,

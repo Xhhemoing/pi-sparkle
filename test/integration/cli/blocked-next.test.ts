@@ -215,6 +215,94 @@ test("a COMPLETED run prints no BLOCKED block", async () => {
   });
 });
 
+/** The smallest `--children` spec the CLI accepts: one task, no dependencies. */
+const SINGLE_CHILD_SPEC = {
+  tasks: [
+    {
+      id: "tsk_only",
+      role: "implementer",
+      objective: "Do the work",
+      acceptanceCriteria: [{ id: "ac-1", description: "The work is done" }],
+      limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+    }
+  ]
+};
+
+/**
+ * Every `Run <id>: <word>` line the run printed, in order.
+ *
+ * The status line and the early disclosure share a shape on purpose — the
+ * disclosure is the same line the tracked path has printed since Round 12 —
+ * so the way to read this output is as a sequence, not as two independent
+ * matches.
+ */
+function runLines(out: string): { readonly runId: string; readonly word: string }[] {
+  return [...out.matchAll(/^Run (run_[A-Za-z0-9_-]+): (\S+)$/gm)].map((match) => ({
+    runId: match[1]!,
+    word: match[2]!
+  }));
+}
+
+/**
+ * The operator gap `onRunStarted` closed for `--track`, closed on the other two
+ * public run paths.
+ *
+ * `pause --run` keys its token by run id, and both these paths printed their id
+ * only once the run was terminal, so a live `--flowchart` or `--children` run
+ * could be paused in principle and was unnameable in practice. The line comes
+ * from the dependency the spine already exposes, fired after the run directory
+ * and `RUN_CREATED` exist and before round 1 reads the pause token.
+ *
+ * Nothing here races and nothing is killed: the disclosure is read off the
+ * run's own settled output. What that buys is checked additively — the terminal
+ * line is unchanged and still second, and the disclosure names the same run —
+ * because the `/Run (run_[A-Za-z0-9_-]+):/` extraction this file and four other
+ * suites use takes the *first* match, which is now the started line.
+ */
+test("run --flowchart discloses its run id before the run settles", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const started = await runFlowchart(stateRoot, projectRoot);
+    assert.equal(started.code, 1, started.err);
+
+    const lines = runLines(started.out);
+    assert.deepEqual(
+      lines.map((line) => line.word),
+      ["started", "BLOCKED"],
+      `the disclosure is additive and the terminal line keeps its place: ${started.out}`
+    );
+    assert.equal(lines[0]?.runId, lines[1]?.runId, "one run, disclosed once and settled once");
+    assert.equal(started.runId, lines[1]?.runId, "first-match extraction still names the blocked run");
+  });
+});
+
+test("run --children discloses its run id before the run settles", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(specPath, JSON.stringify(SINGLE_CHILD_SPEC), "utf8");
+    const captured = capture();
+    const code = await main(
+      [
+        "run",
+        "--project",
+        projectRoot,
+        "--objective",
+        "Ship the work",
+        "--children",
+        specPath,
+        "--state-root",
+        stateRoot
+      ],
+      captured.io
+    );
+    const out = captured.out.join("");
+    assert.equal(code, 0, captured.err.join(""));
+
+    const lines = runLines(out);
+    assert.deepEqual(lines.map((line) => line.word), ["started", "COMPLETED"], out);
+    assert.equal(lines[0]?.runId, lines[1]?.runId, "one run, disclosed once and settled once");
+  });
+});
+
 test("resume without an unblock leaves the run BLOCKED, and says so again", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const started = await runFlowchart(stateRoot, projectRoot);
