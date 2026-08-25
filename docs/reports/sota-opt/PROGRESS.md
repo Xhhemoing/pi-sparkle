@@ -34,7 +34,7 @@
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
-| 20 | 第 2–3 波进行中 | 7 / 10（A/B/C/D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-20/PLAN.md](./round-20/PLAN.md) |
+| 20 | 第 3–4 波进行中 | 7 / 10（A–G 已合入；H/I/J 本波派出） | claude-fable-5-thinking-xhigh | [round-20/PLAN.md](./round-20/PLAN.md) |
 
 ### Round 1 波次
 
@@ -212,8 +212,9 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R20-A 跟踪门控、R20-B live 路由、R20-C 离线路由 | A/B/C 完成已合入 |
-| 2 | R20-D 自优化、R20-E 学习、R20-F 实验 | D 完成已合入；E/F 运行中 |
-| 3 | R20-G 运行时/图 | G 本波派出 |
+| 2 | R20-D 自优化、R20-E 学习、R20-F 实验 | D/E/F 完成已合入 |
+| 3 | R20-G 运行时/图 | G 完成已合入 |
+| 4 | R20-H 评价/需求、R20-I CLI/适配器、R20-J cluster/privacy | H/I/J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -414,9 +415,12 @@
 | R20-B | `cursor/r20-b-live-routing-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-B.md`）。无新排除 ID；天花板复核 M=2 9.03–10.73 / M=10 17.97–24.28 ms/eval；objective 长度 L 轴 + 能力约束 K×W 双线性轴归档 |
 | R20-C | `cursor/r20-c-offline-routing-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-C.md`）。无新排除 ID；生产中位复核 661.4–671.5 ms；SCALEX 不铸 ID；APC floor 再锚定 |
 | R20-D | `cursor/r20-d-adaptation-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-D.md`）。无新排除 ID；eval 地板复核 3.75–3.97 ms；多进程并发面归档 |
-| R20-E | `cursor/r20-e-learning-twentieth-pass-83a1` | 已派出 |
-| R20-F | `cursor/r20-f-experiments-twentieth-pass-83a1` | 已派出 |
-| R20-G | `cursor/r20-g-runtime-twentieth-pass-83a1` | 已派出 |
+| R20-E | `cursor/r20-e-learning-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-E.md`）。无新排除 ID；SLICE-CPU 复核 17.7–19.3 / 种子 18.7–18.9 µs/run；bandit 多进程并发面归档 |
+| R20-F | `cursor/r20-f-experiments-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-F.md`）。无新排除 ID；全实验锚点复核 117.5–129.1 ms；outcome 流组成轴归档 |
+| R20-G | `cursor/r20-g-runtime-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-G.md`）。无新排除 ID；计算顶复核 0.287–0.294 vs I/O 91.3–99.9 ms；XPROC 不铸 ID；digest 第十一次逐位相同 |
+| R20-H | `cursor/r20-h-eval-twentieth-pass-83a1` | 已派出 |
+| R20-I | `cursor/r20-i-cli-twentieth-pass-83a1` | 已派出 |
+| R20-J | `cursor/r20-j-persist-twentieth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
