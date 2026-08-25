@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig, type CustomProviderConfig } from "../config/providers-config.js";
 import {
   checkProviderAuth,
@@ -339,7 +338,9 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     io.stdout(AUTH_USAGE);
     return 0;
   }
-  if (providerId === undefined || providerId.startsWith("-")) {
+  // A blank positional is the same mistake as an absent one — `auth login ""`
+  // used to reach the provider lookup and be reported as an unknown provider.
+  if (providerId === undefined || providerId.startsWith("-") || providerId.trim() === "") {
     io.stderr(AUTH_USAGE);
     return cliFail(io, {
       command: "auth login",
@@ -359,16 +360,32 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     ...(values.oauth === true ? ["--oauth"] : [])
   ];
   if (modes.length > 1) {
-    throw new DomainValidationError(
-      `auth login takes one of --key, --from-env, --oauth; got ${modes.join(" and ")} — nothing was stored`
-    );
+    return cliFail(io, {
+      command: "auth login",
+      stage: "parse-args",
+      message: `auth login takes one of --key, --from-env, --oauth; got ${modes.join(" and ")} — nothing was stored`,
+      next: "pass exactly one of --key, --from-env, --oauth"
+    });
+  }
+  // Beside the mode check rather than after the provider lookup: an empty
+  // `--key` is wrong whatever the config says, so it is refused before the
+  // config read — and the key is never echoed, blank or not.
+  if (values.key !== undefined && values.key.trim() === "") {
+    return cliFail(io, {
+      command: "auth login",
+      stage: "parse-args",
+      message: "auth login --key must be non-empty",
+      next: "pass --key <key> with a non-empty value"
+    });
   }
   const config = await loadProvidersConfig(stateRootOf(values));
   if (!(await isKnownProvider(providerId, config.customProviders))) {
-    throw new DomainValidationError(`unknown provider "${providerId}"`);
-  }
-  if (values.key !== undefined && values.key.trim() === "") {
-    throw new DomainValidationError("auth login --key must be non-empty");
+    return cliFail(io, {
+      command: "auth login",
+      stage: "validation",
+      message: `unknown provider "${providerId}"`,
+      next: "pass a provider this install resolves: pnpm cli models list --available prints ids as <provider>/<model>, and providers.json customProviders adds more"
+    });
   }
   const stateRoot = stateRootOf(values);
   if (values["from-env"] === true) {
@@ -384,12 +401,16 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   // the provider rather than telling the operator to drop a flag, which would
   // only enter the interactive path this same guard refuses.
   if (isKeylessCustomProvider(providerId, config.customProviders)) {
-    throw new DomainValidationError(
-      `provider ${providerId} is a custom provider with no envVar in providers.json, so its ` +
+    return cliFail(io, {
+      command: "auth login",
+      stage: "validation",
+      message:
+        `provider ${providerId} is a custom provider with no envVar in providers.json, so its ` +
         "request resolver ignores auth.json; auth login cannot configure it — add envVar to " +
         "providers.json and use that variable or stored login, or use the per-run PI_API_KEY " +
-        "compatibility override for the selected default provider"
-    );
+        "compatibility override for the selected default provider",
+      next: `add envVar for ${providerId} to providers.json, or use the per-run PI_API_KEY override for the selected default provider`
+    });
   }
   if (values.key !== undefined) {
     const path = await storeApiKeyCredential(stateRoot, providerId, values.key);
@@ -445,18 +466,28 @@ async function loginFromEnvCommand(
 ): Promise<number> {
   const customEnvVar = customProviders.find((item) => item.id === providerId)?.envVar?.trim();
   if (isKeylessCustomProvider(providerId, customProviders)) {
-    throw new DomainValidationError(
-      `provider ${providerId} is a custom provider with no envVar in providers.json, ` +
-        "so no environment variable configures it and --from-env has nothing to check"
-    );
+    return cliFail(io, {
+      command: "auth login",
+      stage: "preflight",
+      message:
+        `provider ${providerId} is a custom provider with no envVar in providers.json, ` +
+        "so no environment variable configures it and --from-env has nothing to check",
+      next: `add envVar for ${providerId} to providers.json`
+    });
   }
   const check = await checkProviderEnvAuth(stateRoot, providerId, customProviders);
   if (check === undefined) {
-    throw new DomainValidationError(
-      customEnvVar !== undefined
-        ? `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`
-        : `provider ${providerId} is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login ${providerId} --key <key> to store a credential instead`
-    );
+    // An unconfigured environment is an environment fault, not a bad argument
+    // and not an execution failure: nothing about the command line is wrong.
+    return cliFail(io, {
+      command: "auth login",
+      stage: "preflight",
+      message:
+        customEnvVar !== undefined
+          ? `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`
+          : `provider ${providerId} is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login ${providerId} --key <key> to store a credential instead`,
+      next: `set the environment the message names, or store a credential with pnpm cli auth login ${providerId} --key <key>`
+    });
   }
   // Read the store before reporting success, not after: an unexpected read
   // failure has to fail the command whole rather than land under a success
@@ -524,7 +555,9 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
     io.stdout(AUTH_USAGE);
     return 0;
   }
-  if (providerId === undefined || providerId.startsWith("-")) {
+  // A blank positional is a missing one; the store's own non-empty check is
+  // then unreachable from argv, and never reports itself as a plane failure.
+  if (providerId === undefined || providerId.startsWith("-") || providerId.trim() === "") {
     return cliFail(io, {
       command: "auth logout",
       stage: "parse-args",

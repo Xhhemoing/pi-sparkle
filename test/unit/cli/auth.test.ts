@@ -193,12 +193,12 @@ test("the login modes are mutually exclusive and no combination writes a credent
   await withStateRoot(async (stateRoot) => {
     await withEnv(withoutOpenAiEnv(), async () => {
       const combinations = [
-        ["--key", ROTATED_KEY, "--from-env"],
-        ["--key", ROTATED_KEY, "--oauth"],
-        ["--from-env", "--oauth"],
-        ["--key", ROTATED_KEY, "--from-env", "--oauth"]
-      ];
-      for (const flags of combinations) {
+        [["--key", ROTATED_KEY, "--from-env"], "--key and --from-env"],
+        [["--key", ROTATED_KEY, "--oauth"], "--key and --oauth"],
+        [["--from-env", "--oauth"], "--from-env and --oauth"],
+        [["--key", ROTATED_KEY, "--from-env", "--oauth"], "--key and --from-env and --oauth"]
+      ] as const;
+      for (const [flags, got] of combinations) {
         const { io, err } = capture();
         const code = await main(
           ["auth", "login", "openai", ...flags, "--state-root", stateRoot],
@@ -208,6 +208,18 @@ test("the login modes are mutually exclusive and no combination writes a credent
         const text = err.join("");
         assert.match(text, /takes one of --key, --from-env, --oauth/);
         assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
+        // Mutually exclusive flags are an argv mistake, and the remedy is the
+        // one the operator can act on — not the doctor preflight the thrown
+        // DomainValidationError used to reach through main's catch.
+        const report = parseCliErrorJson(text);
+        assert.ok(report !== undefined, `${flags.join(" ")} must emit a parseable report`);
+        assert.equal(report.command, "auth login");
+        assert.equal(report.stage, "parse-args");
+        assert.equal(
+          report.message,
+          `auth login takes one of --key, --from-env, --oauth; got ${got} — nothing was stored`
+        );
+        assert.equal(report.next, "pass exactly one of --key, --from-env, --oauth");
       }
       assert.equal(await exists(authStorePath(stateRoot)), false);
     });
@@ -256,6 +268,19 @@ test("--from-env fails closed when only a stored credential configures the provi
       assert.match(text, /ignores auth\.json/);
       assert.doesNotMatch(text, /environment variables only/);
       assert.equal(text.includes(STORED_KEY), false);
+
+      const report = parseCliErrorJson(text);
+      assert.ok(report !== undefined, "a fail-closed --from-env must emit a parseable report");
+      assert.equal(report.command, "auth login");
+      assert.equal(report.stage, "preflight");
+      assert.equal(
+        report.message,
+        "provider openai is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login openai --key <key> to store a credential instead"
+      );
+      assert.equal(
+        report.next,
+        "set the environment the message names, or store a credential with pnpm cli auth login openai --key <key>"
+      );
 
       assert.equal(await readFile(authStorePath(stateRoot), "utf8"), before);
     });
@@ -387,6 +412,18 @@ test("--from-env on custom providers checks their configured variable, or refuse
         "a provider with no envVar has nothing to check"
       );
       assert.match(keyless.err.join(""), /no envVar in providers\.json/);
+      // An unconfigured environment is an environment fault, not a bad
+      // argument and not an execution failure.
+      const keylessReport = parseCliErrorJson(keyless.err.join(""));
+      assert.ok(keylessReport !== undefined, "keyless --from-env must emit a parseable report");
+      assert.equal(keylessReport.command, "auth login");
+      assert.equal(keylessReport.stage, "preflight");
+      assert.equal(
+        keylessReport.message,
+        "provider keyless is a custom provider with no envVar in providers.json, " +
+          "so no environment variable configures it and --from-env has nothing to check"
+      );
+      assert.equal(keylessReport.next, "add envVar for keyless to providers.json");
 
       const unset = capture();
       assert.equal(
@@ -394,6 +431,18 @@ test("--from-env on custom providers checks their configured variable, or refuse
         1
       );
       assert.match(unset.err.join(""), /SPARKLE_TEST_GATEWAY_KEY is unset or empty/);
+      const unsetReport = parseCliErrorJson(unset.err.join(""));
+      assert.ok(unsetReport !== undefined, "an unset envVar must emit a parseable report");
+      assert.equal(unsetReport.command, "auth login");
+      assert.equal(unsetReport.stage, "preflight");
+      assert.equal(
+        unsetReport.message,
+        "provider gateway is not configured in the environment: SPARKLE_TEST_GATEWAY_KEY is unset or empty (providers.json names it for this provider)"
+      );
+      assert.equal(
+        unsetReport.next,
+        "set the environment the message names, or store a credential with pnpm cli auth login gateway --key <key>"
+      );
     });
 
     await withEnv({ SPARKLE_TEST_GATEWAY_KEY: ENV_KEY }, async () => {
@@ -447,6 +496,25 @@ test("a keyless custom provider refuses every login mode that would store a key"
       assert.doesNotMatch(text, /requests are sent with no key/);
       assert.doesNotMatch(text, /remove the flag/);
       assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
+
+      // Provider membership and its envVar are stored config, so the stage is
+      // `validation` — and the `next` names the two things that do configure
+      // this provider rather than sending the operator to doctor.
+      const report = parseCliErrorJson(text);
+      assert.ok(report !== undefined, `${argv.join(" ")} must emit a parseable report`);
+      assert.equal(report.command, "auth login");
+      assert.equal(report.stage, "validation");
+      assert.equal(
+        report.message,
+        "provider keyless is a custom provider with no envVar in providers.json, so its " +
+          "request resolver ignores auth.json; auth login cannot configure it — add envVar to " +
+          "providers.json and use that variable or stored login, or use the per-run PI_API_KEY " +
+          "compatibility override for the selected default provider"
+      );
+      assert.equal(
+        report.next,
+        "add envVar for keyless to providers.json, or use the per-run PI_API_KEY override for the selected default provider"
+      );
     }
 
     // Not "no new entry": the file the operator already had is untouched.
@@ -790,6 +858,97 @@ test("login and logout report a missing <provider> in the structured error diale
     assert.equal(report.message, `${verb} requires <provider>`);
     assert.equal(report.next, "run pi-sparkle auth --help");
   }
+});
+
+test("a blank <provider> folds into the missing-argument refusal on both verbs", async () => {
+  // `auth login ""` used to reach the provider lookup and come back as an
+  // unknown provider; `auth logout ""` reached the credential store and threw
+  // its non-empty guard out as a plane failure. Both are the same argv
+  // mistake as omitting the positional, and neither may touch auth.json.
+  for (const [verb, argv] of [
+    ["auth login", ["auth", "login", ""]],
+    ["auth logout", ["auth", "logout", ""]]
+  ] as const) {
+    await withStateRoot(async (stateRoot) => {
+      const { io, out, err } = capture();
+      assert.equal(await main([...argv, "--state-root", stateRoot], io), 1, verb);
+      assert.equal(out.join(""), "", verb);
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${verb} must emit a parseable report`);
+      assert.equal(report.command, verb);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, `${verb} requires <provider>`);
+      assert.equal(report.next, "run pi-sparkle auth --help");
+      assert.doesNotMatch(err.join(""), /unknown provider/);
+      assert.doesNotMatch(err.join(""), /provider id must be non-empty/);
+      assert.equal(await exists(authStorePath(stateRoot)), false, verb);
+    });
+  }
+});
+
+test("an unknown provider is a validation refusal naming the inventory that lists the ids", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(
+      ["auth", "login", "banana", "--key", ROTATED_KEY, "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1);
+    assert.equal(out.join(""), "");
+    const text = err.join("");
+    const report = parseCliErrorJson(text);
+    assert.ok(report !== undefined, "an unknown provider must emit a parseable report");
+    assert.equal(report.command, "auth login");
+    // Provider membership is the builtin catalog plus providers.json state,
+    // not something the parser could have known.
+    assert.equal(report.stage, "validation");
+    assert.equal(report.message, 'unknown provider "banana"');
+    assert.equal(
+      report.next,
+      "pass a provider this install resolves: pnpm cli models list --available prints ids as <provider>/<model>, and providers.json customProviders adds more"
+    );
+    assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
+    assert.equal(await exists(authStorePath(stateRoot)), false);
+  });
+});
+
+test("a blank --key is an argv refusal, and it is reached before the provider lookup", async () => {
+  const blankKeyReport = {
+    command: "auth login",
+    stage: "parse-args",
+    message: "auth login --key must be non-empty",
+    next: "pass --key <key> with a non-empty value"
+  };
+  await withStateRoot(async (stateRoot) => {
+    const known = capture();
+    assert.equal(
+      await main(["auth", "login", "openai", "--key", "  ", "--state-root", stateRoot], known.io),
+      1
+    );
+    assert.equal(known.out.join(""), "");
+    const report = parseCliErrorJson(known.err.join(""));
+    assert.ok(report !== undefined, "a blank --key must emit a parseable report");
+    assert.equal(report.command, blankKeyReport.command);
+    assert.equal(report.stage, blankKeyReport.stage);
+    assert.equal(report.message, blankKeyReport.message);
+    assert.equal(report.next, blankKeyReport.next);
+    assert.equal(await exists(authStorePath(stateRoot)), false);
+
+    // The precedence, pinned deliberately: argv refuses before anything that
+    // depends on the config, so a blank key with a typo'd provider reports the
+    // blank key rather than the provider it never had to look up.
+    const unknownProvider = capture();
+    assert.equal(
+      await main(["auth", "login", "banana", "--key", "  ", "--state-root", stateRoot], unknownProvider.io),
+      1
+    );
+    const precedence = parseCliErrorJson(unknownProvider.err.join(""));
+    assert.ok(precedence !== undefined, "a blank --key must emit a parseable report");
+    assert.equal(precedence.stage, blankKeyReport.stage);
+    assert.equal(precedence.message, blankKeyReport.message);
+    assert.doesNotMatch(unknownProvider.err.join(""), /unknown provider/);
+    assert.equal(await exists(authStorePath(stateRoot)), false);
+  });
 });
 
 test("login keeps echoing usage before its report; logout does not invent one", async () => {
