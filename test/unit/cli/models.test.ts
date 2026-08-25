@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { modelsCommand, type ModelsIo } from "../../../src/cli/models.js";
 
 /**
@@ -139,5 +140,102 @@ test("models list without --available reports the enabled models, not the catalo
     const listed = capture();
     assert.equal(await modelsCommand(["list", "--state-root", stateRoot], listed.io), 0);
     assert.equal(listed.out.join(""), "local/m1\n");
+  });
+});
+
+async function run(stateRoot: string, args: string[]): Promise<string> {
+  const { io, out, err } = capture();
+  const code = await modelsCommand([...args, "--state-root", stateRoot], io);
+  assert.equal(code, 0, err.join(""));
+  return out.join("");
+}
+
+test("disable discloses the routing default it took with it", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["set-default", "--primary", "local/m1", "--fast", "local/m2"]);
+
+    // The config drops the default along with the model, and the operator used
+    // to find that out from a run that could not pick one.
+    const disabled = await run(stateRoot, ["disable", "local/m1"]);
+    assert.match(disabled, /^Disabled local\/m1$/m);
+    assert.match(disabled, /note: local\/m1 was the primary default; the default is now unset/);
+    assert.match(disabled, /pi-sparkle models set-default/);
+    assert.doesNotMatch(disabled, /fast default/);
+
+    assert.equal(await run(stateRoot, ["list"]), "local/m2  fast\n");
+  });
+});
+
+test("disable of a model that is both defaults discloses both, and one that is neither says nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["set-default", "--primary", "local/m1", "--fast", "local/m1"]);
+    await run(stateRoot, ["enable", "local/m2"]);
+
+    const quiet = await run(stateRoot, ["disable", "local/m2"]);
+    assert.equal(quiet, "Disabled local/m2\n", "a non-default disable has nothing to disclose");
+
+    const both = await run(stateRoot, ["disable", "local/m1"]);
+    assert.match(both, /note: local\/m1 was the primary default/);
+    assert.match(both, /note: local\/m1 was the fast default/);
+  });
+});
+
+test("list annotates an enabled model the catalog no longer resolves", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    // The shape a pin bump leaves behind: the id survives in providers.json
+    // after the model stops existing, and `list` used to present it as enabled
+    // and healthy.
+    await writeFile(
+      join(stateRoot, "runtime", "providers.json"),
+      `${JSON.stringify({
+        version: 1,
+        enabled: ["local/m1", "local/retired"],
+        primary: "local/m1",
+        customProviders: [
+          { id: "local", baseUrl: "http://127.0.0.1:9/v1", models: [{ id: "m1" }] }
+        ]
+      })}\n`,
+      "utf8"
+    );
+    assert.equal(
+      await run(stateRoot, ["list"]),
+      "local/m1  primary\nlocal/retired  (not in catalog)\n"
+    );
+  });
+});
+
+test("the argument errors of enable, disable and set-default speak the house dialect", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const cases = [
+      {
+        argv: ["enable"],
+        command: "models enable",
+        message: "models enable requires <provider/model>"
+      },
+      {
+        argv: ["disable"],
+        command: "models disable",
+        message: "models disable requires <provider/model>"
+      },
+      {
+        argv: ["set-default", "--state-root", stateRoot],
+        command: "models set-default",
+        message: "models set-default requires --primary <provider/model>"
+      }
+    ];
+    for (const { argv, command, message } of cases) {
+      const { io, out, err } = capture();
+      assert.equal(await modelsCommand([...argv], io), 1, `${command} must fail`);
+      assert.equal(out.join(""), "");
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${command} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, message);
+      assert.equal(report.next, "run pi-sparkle models --help");
+    }
   });
 });
