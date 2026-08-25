@@ -183,6 +183,11 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > whole call, and `FAILED` requires evidence. The first valid verdict wins, and
 > a verdict from an attempt that later fails cannot leak into its retry.
 > `UNOBSERVED` is synthesized only for a surviving silent/refused attempt.
+> Round 10 freezes the remaining producer edges: adversarial model-supplied
+> identity cannot displace the lease, an explicitly empty `FAILED.evidenceIds`
+> emits nothing, an identical repeat is still a forbidden second verdict, and
+> the verdict tool is an unconditional direct element of every attempt's
+> `tools` array.
 > Measured production-input sweeps have `PASSED` open all 360 cells (minimum
 > 0.750 over the 0.55 soft threshold) and `FAILED` hard-block all 180 cells with
 > `deterministic-fail` leading. This does not implement a per-criterion result
@@ -191,7 +196,9 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > `PrescoreInput.independentEvidence` does not mean third-party corroboration:
 > its sole production writer derives it from that child verdict, including the
 > child's own report, and `computePrescore` deliberately discards it. It is
-> inert today; a future scoring reader needs a separate justification.
+> inert today. Round 10's whole-`src` AST census permits only that `void`
+> discard, and its 144-cell sweep confirms that flipping the flag changes no
+> score. A future scoring reader or rename needs a separate justification.
 
 - [ ] **Step 1: Add these cases (keep existing hard-fail / narrative / self-score tests, but change assertions that require `P <= 0.30` to use `displayPrescore`)**
 

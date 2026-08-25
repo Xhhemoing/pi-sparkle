@@ -11,15 +11,21 @@ Definitions (ADR-004):
 - **Outcome-supported** — held-out or comparable later benefit, no guardrail
   regression. Nothing in this repo is Outcome-supported.
 
-> Round 10 docs-slot final working-tree sync (2026-08-24 23:31 UTC): R9-1's
-> durable contract and R9-2's verdict producer are now HEAD commits
-> `aeb14dc` and `dff71f1`; the ten-case probe landed in `25a57d9`.
-> Round 10's writer-census, verdict, never-synthesize, and tracking-posture
-> proofs also landed (`2e22453`, `05d146c`, `366df19`, `9b9888a`). The
-> `RUN_UNBLOCKED_WITH_DISCARD` implementation and its R10-8/R10-9 companion
-> pins were complete in the sibling-owned working tree but were not yet a HEAD
-> commit at this timestamp; implementation descriptions below follow that
-> observed tree. This supersedes the 22:36 UTC in-flight note.
+> Round 11 docs-slot working-tree census (2026-08-24 23:59 UTC): HEAD was
+> `3bbb8dc` (R11-7, following R11-9 at `330466a`). Round 10's discard is no
+> longer sibling-only:
+> `RUN_UNBLOCKED_WITH_DISCARD` shipped in `54cf5e5` at 23:32:18 UTC, followed
+> at 23:32:24 UTC by the discard-aware `applyRetry` absence pin (`2399346`) and
+> gate-ledger pin (`d4b52b1`). This supersedes the 23:31 UTC note that those
+> three changes were not yet HEAD commits. The writer-carriage property,
+> verdict-producer additions, `independentEvidence` posture, and episode
+> boundary census are committed in `2e22453`, `05d146c`, `9b9888a`, and
+> `366df19`, respectively. No R11-1…R11-4 commit was at HEAD. R11-2's
+> uncommitted report recorded PASS at 23:59:20 UTC for the eleven-case discard
+> SIGKILL probe; R11-4's uncommitted working diff had wired restore-side
+> charged-estimate validation but had no completed report. R11-1 and R11-3 had
+> no owned-source diff. Those are working-tree observations at this timestamp,
+> not invented commit ids or shipped claims.
 
 ## Runtime line (M0–M2.5)
 
@@ -43,35 +49,54 @@ Definitions (ADR-004):
 | `doctor` | yes | yes | unit tests (`test/unit/cli/doctor.test.ts`) | no | Developer-preview preflight. Recursive read-only `locks` entries include metadata status, age/source, recorded PID, advisory liveness, and additive per-lock `remediation`; a recorded dead PID says inspect and remove manually, never automatically, while ambiguous/live cases stay conservative. Additive `runStates` inventories PLANNING/RUNNING logs with age and inspect/resume/delete guidance; they are advisory crash candidates because a live process may still own the run. Frozen-additive `learnedState` inventories every discovered project-key `bandit.json` plus `preferences.json` and `catalog-observed.json`; entries carry `kind`, learned/derived `stateClass`, `projectKey`, `path`, present/absent/readable/damaged `status`, and plane-correct `remediation`, with inventory-level `advisory` and `scanErrors`. Typed damage remains advisory; only scan/read errors fail `learned-state-inventory`. Doctor never repairs or rebuilds those files. The frozen route map names three `learnedState[]` remediations: damaged bandit → repair or move aside and relearn this project from zero; damaged preferences → repair or move aside and start from an empty store; corrupt derived catalog → delete and rebuild from `runtime/invocations.jsonl`. The catalog route currently has no CLI producer because doctor absorbs that error into inventory. `lock-inventory` fails on unreadable locks or scan errors; `run-state-inventory` fails only on scan errors. Doctor never changes run state and never acquires, steals, or deletes a lock. `LOCK_TIMEOUT` and `RUN_RECORDS_SURVIVED` command failures code-route their `next:` line to `doctor --json` at the same state root and name the relevant `locks[]`/`runStates[]` field; generic failures keep the generic line. Informational `legacy-layout` still never fails the preflight. |
 | Retention bounds | no | no | sizing probe only (`scripts/retention-probe.mjs`, 2026-08-24 R3) | no | Retention of `runtime/invocations.jsonl` and `runtime/episodes/` is unbounded (accepted Q3 position). The probe measures on-disk growth and reports `unbounded: true` without failing — it is a diagnostic, not a gate. Bounding (age- or size-based, delete-cascade-consistent) is an open policy decision. |
 
-Round 9 truth-up and current runtime postures:
+Rounds 9–10 truth-up and current runtime postures:
 
 - Optional `FlowchartCheckpointState.contract?` remains on checkpoint
   `schemaVersion: 1`; absence is valid. Every flowchart-checkpoint writer must
   carry it, and no path may synthesize a contract from the episode, per-task
-  acceptance criteria, or an empty constraints value. A recursive source pin
-  checks that property without freezing the writer count. Offline
-  `run --track --assume-defaults --executor fake` extracts and persists a
-  contract, but a pure CLI track → pause → resume arc is currently unreachable:
-  tracked start supplies no pause dependency and reports its run id only after
-  the awaited outcome is terminal.
+  acceptance criteria, or an empty constraints value. Round 10's recursive AST
+  census checks writer carriage as a property without freezing the writer
+  count, and its source-wide episode census rejects any episode reader that
+  constructs `contract`, `constraints`, `acceptanceCriteria`, or references
+  `RequirementContract`. Offline `run --track --assume-defaults --executor
+  fake` extracts and persists a contract, but R10-4 stopped rather than claiming
+  the requested pure CLI track → pause → resume proof: tracked start supplies no
+  pause dependency and reports its run id only after the awaited outcome is
+  terminal.
 - `sparkle_report_task_result` stamps lease identity, permits only a non-empty
   `PASSED`/`FAILED` child claim, requires evidence for `FAILED`, rejects the
   whole call on malformed references, and accepts only the first verdict per
   attempt. A failed attempt cannot leak its verdict into a retry; only silence
   or refused reports produce `UNOBSERVED`. Measured sweeps had `PASSED` open
   360/360 cells (floor 0.750 > 0.55) and `FAILED` hard-block 180/180 with
-  `deterministic-fail` leading. The unfortunately named
-  `PrescoreInput.independentEvidence` is derived from that child verdict and
-  discarded by scoring; it is not third-party corroboration.
+  `deterministic-fail` leading. Round 10 additionally freezes adversarial
+  model-supplied identity out of the lease, refuses an explicitly empty
+  `FAILED.evidenceIds` without emission, refuses even an identical second
+  verdict, and pins the tool as an unconditional direct `tools`-array element.
+- The unfortunately named `PrescoreInput.independentEvidence` is derived from
+  that child's own verdict and discarded by scoring; it is self-report posture,
+  not third-party corroboration. A whole-`src` AST census permits exactly the
+  discard dereference, and a 144-cell sweep pins the flag inert today. A future
+  reader or rename is a separate decision.
 - `GateApplyResult.runStatus` is a ledger projection with zero runtime readers,
   not transition authority. Both runtime planes consume directives/events;
   `applied` and `transitionId` are result metadata in the same posture.
 - Ordinary `RUN_UNBLOCKED` stays exact-keyed to its three fields. The stronger
   executed-descendant authorization is the distinct
   `RUN_UNBLOCKED_WITH_DISCARD` event behind `--discard-executed`, not a fourth
-  ordinary-unblock key and not a two-event sequence.
-- The standing crash probe has ten ordered cases run three times each. Case 10
-  is `unblock-append-before-checkpoint-sigkill`; the name-list pin is
+  ordinary-unblock key and not a two-event sequence. Its required retry target
+  and non-empty, canonical descendant set are computed under the lifecycle
+  lock; charged estimates are re-derived from cited `MODEL_ROUTED` rows before
+  the single append. Restore recomputes the consequence set and fails closed on
+  mismatch. Evidence and event history survive, superseded control outcomes
+  clear, and no budget is refunded. Replay and the gate apply the same
+  block-matching rules to both clearing events; the stronger authorization is
+  per block, not a run mode.
+- The standing crash probe has eleven ordered cases run three times each. The
+  original ten names and order are unchanged; case 11 is
+  `unblock-discard-append-before-checkpoint-sigkill`, which externally kills
+  after the complete stronger authorization append and proves exact-once
+  discard recovery. The name-list pin is
   `test/integration/persist/crash-recovery.test.ts`.
 
 ## Pi compatibility line (pin + auxiliary tooling)

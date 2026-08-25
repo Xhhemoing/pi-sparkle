@@ -11,15 +11,21 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 10 docs-slot final working-tree sync (2026-08-24 23:31 UTC): R9-1's
-> durable contract and R9-2's verdict producer are now HEAD commits
-> `aeb14dc` and `dff71f1`; the ten-case probe landed in `25a57d9`.
-> Round 10's writer-census, verdict, never-synthesize, and tracking-posture
-> proofs also landed (`2e22453`, `05d146c`, `366df19`, `9b9888a`). The
-> `RUN_UNBLOCKED_WITH_DISCARD` implementation and its R10-8/R10-9 companion
-> pins were complete in the sibling-owned working tree but were not yet a HEAD
-> commit at this timestamp; implementation descriptions below follow that
-> observed tree. This supersedes the 22:36 UTC in-flight note.
+> Round 11 docs-slot working-tree census (2026-08-24 23:59 UTC): HEAD was
+> `3bbb8dc` (R11-7, following R11-9 at `330466a`). Round 10's discard is no
+> longer sibling-only:
+> `RUN_UNBLOCKED_WITH_DISCARD` shipped in `54cf5e5` at 23:32:18 UTC, followed
+> at 23:32:24 UTC by the discard-aware `applyRetry` absence pin (`2399346`) and
+> gate-ledger pin (`d4b52b1`). This supersedes the 23:31 UTC note that those
+> three changes were not yet HEAD commits. The writer-carriage property,
+> verdict-producer additions, `independentEvidence` posture, and episode
+> boundary census are committed in `2e22453`, `05d146c`, `9b9888a`, and
+> `366df19`, respectively. No R11-1…R11-4 commit was at HEAD. R11-2's
+> uncommitted report recorded PASS at 23:59:20 UTC for the eleven-case discard
+> SIGKILL probe; R11-4's uncommitted working diff had wired restore-side
+> charged-estimate validation but had no completed report. R11-1 and R11-3 had
+> no owned-source diff. Those are working-tree observations at this timestamp,
+> not invented commit ids or shipped claims.
 
 ## Milestone names
 
@@ -370,15 +376,18 @@ restoration, and both CLI continuation paths preserve it. Resume uses an
 explicit continuation contract first and otherwise recovers the checkpointed
 value. The runtime never synthesizes a contract from the episode, from
 per-task acceptance criteria, or as an empty `{ constraints: [] }` value.
-A recursive source pin requires every `materializeCheckpoint` call with a
-flowchart payload to carry `contract`; it deliberately does not freeze the
-writer count.
+Round 10's recursive AST source pin requires every `materializeCheckpoint`
+call with a flowchart payload to carry `contract`; it deliberately enforces a
+property rather than freezing the writer count. Its complementary source-wide
+episode-reader census rejects construction of `contract`, `constraints`, or
+`acceptanceCriteria` and references to `RequirementContract`; episode
+acceptance remains closure metadata, never run-contract authority.
 
 The offline `run --track --assume-defaults --executor fake` path does extract
-and persist a contract without a live provider. A pure CLI
-`run --track` → `pause` → `resume` proof is not currently reachable, however:
-the tracked start supplies no pause dependency, and `run` prints the run id
-only after the awaited tracked outcome is already terminal.
+and persist a contract without a live provider. R10-4 deliberately stopped
+before claiming the requested pure CLI `run --track` → `pause` → `resume`
+proof: the tracked start supplies no pause dependency, and `run` prints the run
+id only after the awaited tracked outcome is already terminal.
 
 ### Cluster role-cast dead letters
 
@@ -629,7 +638,11 @@ verdict (`CANCELLED` is a parent fact), rejects the whole call on malformed
 Each attempt may emit one verdict: the first valid report wins, and a report
 from an attempt that later fails cannot leak into its retry. The adapter
 synthesizes `UNOBSERVED` only when the surviving attempt is silent or every
-report is refused.
+report is refused. Round 10 freezes the producer's remaining standing rules:
+model-supplied `from`/`runId`/`taskId` cannot displace the leased identity, an
+explicitly empty `FAILED.evidenceIds` emits nothing, an identical second report
+is still a forbidden repeat, and the tool remains an unconditional direct
+element of every attempt's `tools` array.
 
 Measured production-input reachability confirms the control result:
 `PASSED` opened all 360 swept cells (minimum prescore 0.750, above the 0.55
@@ -639,6 +652,13 @@ become BLOCKED on the child's verdict. The tool still carries no
 per-criterion results; that later protocol/gate work remains unimplemented.
 `cappedByHardFail` and `displayPrescore` are display facts only; `combineScore`
 and `evaluateGates` consume the uncapped `P`.
+
+The unfortunately named `PrescoreInput.independentEvidence` is not independent
+corroboration. Its sole production writer derives it from the same child-authored
+verdict, and `computePrescore` discards it. Round 10 records that self-report
+posture in source and pins it with a whole-`src` dereference census whose sole
+allowed read is the `void` discard; a 144-cell sweep confirms it changes no
+score today. A reader or rename is a separate design decision.
 
 When `run --flowchart` or `run --children` returns BLOCKED, stderr reports the
 newest `RUN_BLOCKED` reason and required evidence, then gives exactly four
@@ -657,10 +677,18 @@ rewinding already executed descendants. The signed-off stronger operation is
 `RUN_UNBLOCKED_WITH_DISCARD` authorization. This is not a fourth
 `RUN_UNBLOCKED` key and not a two-event sequence with a half-authorization
 crash window. The implementation computes the complete descendant set under
-the lifecycle lock rather than accepting an operator-supplied list, validates
-charged estimates against cited `MODEL_ROUTED` rows, and writes nothing on a
-mismatch. Evidence and history survive, discarded control-state outcomes
-clear, and the operation refunds no budget.
+the lifecycle lock rather than accepting an operator-supplied list. Its
+required retry target and non-empty canonical list exclude the target and
+include executed work; each charged estimate is re-derived from exactly the
+cited durable `MODEL_ROUTED` rows before the single append, never from
+best-effort invocation telemetry. Restore recomputes the consequence set and
+fails closed on a hand-edited mismatch. Evidence and history survive,
+superseded control-state outcomes clear (including a rewound waiter's pending
+approval), and no budget is refunded. Replay and gate matching are uniform for
+both clearing events, so the stronger authorization applies only to the named
+block rather than becoming a run mode. These shipped semantics are anchored to
+`54cf5e5`; `2399346` and `d4b52b1` pin the discard-aware scheduler and gate
+postures.
 
 ### Crash teardown
 
@@ -773,12 +801,16 @@ pnpm build
   carries `model: "loopback-2"`. The decorator supplies only verification
   verdicts, not tier choice or transport. Invocation rows are decoded with the
   production calibration reader. It requires no external provider or network.
-- `scripts/crash-probe.mjs` exercises ten crash/recovery cases for three
+- `scripts/crash-probe.mjs` exercises eleven crash/recovery cases for three
   iterations each. The cross-process `sigkill-run-lock-operator-recovery`
   chain is described under Persistence and Audit. The added tenth case,
   `unblock-append-before-checkpoint-sigkill`, externally kills the producer
   after its complete `RUN_UNBLOCKED` append and proves resume applies the
-  reopen exactly once. The ordered ten-name pin lives at
+  reopen exactly once. The added eleventh case,
+  `unblock-discard-append-before-checkpoint-sigkill`, does the same for the
+  single `RUN_UNBLOCKED_WITH_DISCARD` event and proves resume re-executes the
+  retry target and discarded descendant exactly once. The ordered name pin
+  lives at
   `test/integration/persist/crash-recovery.test.ts`.
 - M1 tests cancellation propagation, terminal-message uniqueness, malformed-message rejection, concurrency caps, timeout handling, and parent/child correlation.
 - M2 tests cycles, dependency joins, lease mutual exclusion, orphan recovery
