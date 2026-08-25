@@ -83,3 +83,11 @@ Before the generic non-flowchart append: a non-flowchart `WAITING_FOR_USER` run 
 ## D10 — `adapt dataset` is HOLD until privacy/isolation/deletion land
 
 GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required before treating the verb as merge-ready: redact-then-truncate (D1), do not claim `objective` is the only user text — classify/protect workspace path and store it at most once per manifest (D2), cascade default `adaptation/eval-datasets/<runId>/` from `delete --run` (D3), reject `--dir` under the runtime plane with realpath-aware checks (D4). Do not invent independent “episodes” from tasks.
+
+## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
+
+GPT-gate-cause-recheck: event pairing, four-key `--summary-json`, stall-path prefix, and persisted-events-only reads all PASS. Do not revert. Follow-up (wording-only + tests, no new Event/`RunStatus`/summary keys):
+
+- Blocked `note:` should say the tracking gate's verdict is not a running job and that no analysis consumer is wired; `unblock` remains the action. Do not imply a live queue. Keep failed dimensions / per-criterion evidence on `inspect`.
+- Pin `deterministic-fail` (inspect `gate cause:` and the blocked note), not only `unmet-acceptance-criterion`.
+- Optional hardening: require the paired `GATE_TRANSITION` to be `queue_analysis` / `to === "BLOCKED"` and join the assessment by hash+seq.

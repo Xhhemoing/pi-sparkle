@@ -85,13 +85,13 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 landings so far
 
 - Promotion verdicts fail-closed + `q-scope` consumed (`8b4c077`).
-- Gate-cause visibility (`3140a96`): `gateBlockCause` in `src/run/inspection.ts`; inspect prose + blocked-report `note:`; `--summary-json` still four keys; blocked-next prefix preserved. Implementer: Opus-gate (`bc-592622fe-056e-51b0-914c-452730915dda`).
+- Gate-cause visibility (`3140a96`): `gateBlockCause` in `src/run/inspection.ts`; inspect prose + blocked-report `note:`; `--summary-json` still four keys; blocked-next prefix preserved. Implementer: Opus-gate (`bc-592622fe-056e-51b0-914c-452730915dda`). GPT recheck: **KEEP-with-riders** (D11) — pairing/freezes hold; blocked note still implies a live queue; `deterministic-fail` is unpinned.
 - Fable R2 comprehensive review recorded in `.agent_workspace/loop5-r2-review.md` (no `src/` regressions at its HEAD; ranked leftovers match GPT-r2 on T1/T2/dataset HOLD).
 - Auth login honesty (`merge` of `4a99475`): exclusive `--key`/`--from-env`/`--oauth`; `--from-env` uses `EmptyCredentialStore` + Pi `checkAuth` (not `checkAuth().source`); corrupt-store `next:` on status/login/logout; `AUTH_USAGE` `runtime/auth.json`. Implementer: Opus-auth (`bc-2cb21e4b-64c0-584a-a85e-6056b248c6d4`). Rider: confirm corrupt-store + env key still succeeds (GPT-auth table); `loginFromEnvCommand` currently lists the real store after env success.
 
 ### Round 3 still running / next implementers
 
 - Track T1+T2 (D8/D9) in flight on a cloud VM.
-- GPT gate-cause recheck of the landing vs Fable exact-prose spec.
+- GPT auth-landing recheck vs the empty-store table.
 - Fable catalog-honesty implementer spec.
-- Dataset privacy (D10) and episode/inject/commits wait for a free cloud VM.
+- Next free cloud VM: D11 gate-cause wording + `deterministic-fail` pin; then D10 dataset privacy; then episode/inject/commits.
