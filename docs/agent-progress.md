@@ -106,6 +106,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D26 one-dialect argv/`--help` on six free verbs. Implementer: Opus-d26-argv-help (`bc-2a2a0515-81de-5318-9557-6bef72169e03`). GPT-d26-recheck **KEEP**.
 - D27 `models list --json` stored-config contract. Implementer: Opus-d27-models-json (`bc-273c089d-f7b4-564b-bd04-10e34d162330`). GPT-d27-recheck **KEEP**.
 - D29 `doctor --help` and parse-args dialect. Implementer: Opus-d29-doctor-help (`bc-2b9bd5c6-42e8-5a7c-9a18-124a87293e4f`). GPT-d29-recheck **KEEP**.
+- D30 inject `--type`/`--confidence` preflight. Implementer: Opus-d30-inject-preflight (`bc-7a73aace-288e-5058-8373-06bd7f016050`). GPT-d30-recheck **KEEP**.
 
 ### Round 6 (closed)
 
@@ -127,7 +128,7 @@ GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D2
 |---|---|
 | D28 | Rider `4d3fcc4` exact parser-error pins on `ad14592`. GPT-d28-recheck follow-up in flight. |
 | D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549`. GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
-| D30 | Rider `c2be255` shares `INJECTION_KINDS` and refuses blank `--confidence`. GPT-d30-recheck in flight. |
+| D30 | merged from `cursor/inject-preflight-0da8` `c2be255`. GPT-d30-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d30.md`. |
 
 ### Round 3 still running / next implementers
 

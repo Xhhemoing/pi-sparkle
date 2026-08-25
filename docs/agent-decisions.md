@@ -228,7 +228,9 @@ Fable-r7-next. GPT-r7-challenge: **KEEP**. `DOCTOR_USAGE`; `help` boolean honore
 
 Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). GPT-r7-challenge: **FIX** blank confidence, keep the slot. Refuse `type` outside exported `INJECTION_KINDS` and non-finite/`[0,1]` `--confidence` as `parse-args` before EventStore lookup. Reject `values.confidence.trim() === ""` before `Number()` (empty/whitespace coerce to 0). Do not widen a catch around run lookup or injection. Files: `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: Rank 3 as corrected by `.agent_workspace/loop5-r7-gpt-challenge.md`.
 
-**Landed** (Opus-d30-inject-preflight): `6a7c2dd` plus rider `c2be255` (shared kinds + blank confidence). GPT-d30-recheck in flight.
+**Landed** (Opus-d30-inject-preflight): `6a7c2dd` plus rider `c2be255` (shared kinds + blank confidence).
+
+**GPT-d30-recheck: KEEP.** Report: `.agent_workspace/loop5-r7-gpt-d30.md`. Merged to the integration branch.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
