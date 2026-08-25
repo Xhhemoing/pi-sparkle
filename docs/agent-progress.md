@@ -89,10 +89,10 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - Fable R2 comprehensive review recorded in `.agent_workspace/loop5-r2-review.md` (no `src/` regressions at its HEAD; ranked leftovers match GPT-r2 on T1/T2/dataset HOLD).
 - Auth login honesty (`merge` of `4a99475`, D12 repair merged): exclusive flags; empty-store `--from-env`; corrupt `auth.json` no longer fails a valid env check; stored-OAuth `--from-env` pins; ambient-auth wording. Implementers: Opus-auth (`bc-2cb21e4b-64c0-584a-a85e-6056b248c6d4`), Opus-auth-from-env-fix (`bc-6082d484-2067-5a97-9f85-d83db4347b61`).
 - Track T1+T2 merged (D8/D9): fail-closed `answer` without a correlatable pending QUESTION; continuation facts not a copy-paste shell line. Implementer: Opus-track-t1-t2 (`bc-95aaadd3-a9db-5013-9e71-e9c72feb3be3`).
+- Catalog honesty merged (D13): one-primary catalogs emit `cheap` and `premium`; validate `next:` names `models disable`; init examples go through real parsers. Implementer: Opus-catalog-honesty (`bc-12eb428f-7801-5301-b187-fcadc1e1b61a`).
 
 ### Round 3 still running / next implementers
 
-- D13 catalog honesty (C1–C4) in flight.
 - D10 dataset privacy in flight.
-- D11 gate-cause wording dispatched (main.ts free after T1/T2).
-- After that: episode/inject/commits.
+- D11 gate-cause wording in flight.
+- Episode close disclosure / inject help / commits dialect dispatched.
