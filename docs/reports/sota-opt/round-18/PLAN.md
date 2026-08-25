@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-J / R18-A / R18-B）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
+Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-J / R18-A / R18-B / R18-D）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R18-A … R18-J），报告写入 `docs/reports/sota-opt/round-18/`。
 
-状态：第 2 波 E 本波派出；C/D 运行中。A/B 已合入（空枚举）。Round 17 已收口 10/10。
+状态：第 2 波 F 本波派出；C/E 运行中。A/B/D 已合入（空枚举）。Round 17 已收口 10/10。
 
 A 切片已合入：空枚举，未铸 S18-A-*。切片 `git diff 7acb666..HEAD` 为空（十八遍零 diff）。预算复核 64–74 µs/run（12.7–14.8 µs/gate，与 R17-A 65–74 同带）。本轮新增 skip-path 组成定价（五类 apply:false 272–1712 ns，全 apply 锚点即上界）与 fail-closed 拒绝终点普查（28 抛点；代表拒绝 8.9–13.3 µs once-per-fault）。R17-A 事件表组成 / 冷进程预算与 R16-A / R15-A / R14-A 轴不补铸。基线 `7acb666` 空 diff 再确认。
 
@@ -16,11 +16,11 @@ B 切片已合入：空枚举，未铸 S18-B-*。切片 `git diff 94ed3d9..HEAD`
 
 C 切片 = 离线路由 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S1-C / S2-C / S3-C / S4-C / S5-C / S6-C / S7-C。不要另起平行 S7-C。R11-C…R17-C 空枚举、未铸 ID。生产中位 R17-C：657.6–689.3 ms/报告（本机 659.9–662.8）；落地线 ±35 ms。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ 与 R13–R16 无名微观。若落地代码：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ 新 r18c 仿真。基线 `183df9b` 预期空 diff。
 
-D 切片 = `src/adaptation/`（14 文件）。不要重开 S9-D-4（廉价 `toLowerCase` 在 U+212A fail-open）/ S12-D-1（同族）。R10-D…R17-D 空枚举或已关 ID。eval 地板 R17-D：3.57–4.00 ms。R17-D fail-closed 拒绝路径普查（28 终点）不补铸。R16-D payload 形态轴（L/H/O/σ/P）与 R14-D / R15-D 轴不补铸。基线 `82bef36` 预期空 diff。
+D 切片已合入：空枚举，未铸 S18-D-*。切片 `git diff 82bef36..HEAD` 为空。eval 地板复核配置态 3.75–4.14 ms（与 R17-D 3.57–4.00 交叠）。本轮新增锁定事务组成账目（promote 整事务 2.67–2.94 / rollback 2.38–2.60 / lock glue 199.6–239.1 µs；无隐藏段；清零胶水 ≤ ~0.44 ms 亚线）。S9-D-4 / S12-D-1 未以任何形态重开。R17-D 拒绝路径普查与 R16-D / R15-D / R14-D 轴不补铸。基线 `82bef36` 空 diff 再确认。
 
-E 切片 = `src/learning/`（10 文件）。不要重开 S8-E-1（勿去重 `loadLearnedRouting`）/ S9-E-2（负优化）/ S13-B-1。R10-E…R17-E 空枚举、未铸 ID。SLICE-CPU R17-E：18.5–20.2 µs/run。R17-E 拒绝路径定价与逐事件类价表不补铸。R16-E 累积状态轴与 payload 形态轴不补铸。S13-B-1 重开条件已量化为 |avoid|≈965–1,063，生产写入方不可达。R13–R16 轴不补铸。基线 `adb20d7` 预期空 diff。本波派出。
+E 切片 = `src/learning/`（10 文件）。不要重开 S8-E-1（勿去重 `loadLearnedRouting`）/ S9-E-2（负优化）/ S13-B-1。R10-E…R17-E 空枚举、未铸 ID。SLICE-CPU R17-E：18.5–20.2 µs/run。R17-E 拒绝路径定价与逐事件类价表不补铸。R16-E 累积状态轴与 payload 形态轴不补铸。S13-B-1 重开条件已量化为 |avoid|≈965–1,063，生产写入方不可达。R13–R16 轴不补铸。基线 `adb20d7` 预期空 diff。
 
-F 切片 = `src/experiments/`（15 文件）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F…R17-F 空枚举、未铸 ID。全实验锚点 R17-F：120.5–129.6 ms。R17-F 拒绝路径 / 冷进程 / 操作粒度尾部轴不补铸。R16-F 剖析归属 / A 越线点 / 编码格与 R14-F / R15-F 轴不补铸。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r18f 仿真。基线 `519101f` 预期空 diff。
+F 切片 = `src/experiments/`（15 文件）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F…R17-F 空枚举、未铸 ID。全实验锚点 R17-F：120.5–129.6 ms。R17-F 拒绝路径 / 冷进程 / 操作粒度尾部轴不补铸。R16-F 剖析归属 / A 越线点 / 编码格与 R14-F / R15-F 轴不补铸。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r18f 仿真。基线 `519101f` 预期空 diff。本波派出。
 
 G 切片 = 42 文件：`src/run/` 除 child-tracking.ts / gate-apply.ts（属 A）、`src/supervisor/` 除 model-router.ts（属 B）、`src/graph/`、`src/domain/`。不要重开 S1-G-* … S9-G-3 / S10-G-1 / S11-G-1..3。R12-G…R17-G 空枚举、未铸 ID。禁止去 fsync / 完整性再哈希。计算顶 R17-G：0.287–0.295 ms vs I/O 95.8–98.4 ms。存储后端分解（物理上限 6.0–7.4 ms，需易失存储）/ 拒绝路径定价 / SYSCENSUS / digest `06cbcf92c098c8f0` / R14-G / R15-G 轴不补铸。基线 `4efee23` 预期空 diff。
 
