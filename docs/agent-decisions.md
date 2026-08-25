@@ -194,13 +194,15 @@ Fable-r6-next. GPT-r6-challenge: **FIX** the remedies, keep the slot. Inventory 
 
 ## D26 — Round 6 rank 2: one-dialect argv errors and working `--help` on free verbs
 
-GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. First landing `daf7fc7` included the inject rider anyway; revert of `src/cli/inject.ts` / pause-inject tests is in flight before merge. Spec: Rank 2.
+GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. Spec: Rank 2.
+
+**Landed** (Opus-d26-argv-help): `d962aa8`/`daf7fc7` six-verb argv/`--help`; revert `25742b4` dropped the inject rider so `inject.ts` and `pause-inject.test.ts` match parent. GPT-d26-recheck in flight.
 
 ## D27 — Round 6 rank 3: `models list --json` (`MODELS_LIST`) + leftover dialect
 
 GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape: enabled always has `type`, `preview`, `mode`, `primary`, `fast`, `models` (`primary`/`fast` are `string | null`; each row is exactly `id` + `inCatalog`). Available has exactly `type`, `preview`, `mode`, `models` and rows exactly `{id}`. Do not duplicate defaults as per-row booleans. Describe as stored configuration, not effective per-run routing. Catch only `parseArgs`. Whole-object `deepEqual` pins. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`.
 
-**Landed** (Opus-d27-models-json): first `0fded4e`; rider `c83fc99` discriminated shape on `cursor/models-list-json-0da8`. GPT recheck after implementer idle.
+**Landed** (Opus-d27-models-json): first `0fded4e`; rider `c83fc99` discriminated shape on `cursor/models-list-json-0da8`. GPT-d27-recheck in flight.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 

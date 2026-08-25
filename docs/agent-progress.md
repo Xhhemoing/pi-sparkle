@@ -109,14 +109,13 @@ Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fab
 
 GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D26 **KEEP**, D27 **FIX**. First landings are on the implementer branches; do not merge D25/D27 until the riders below are on those branches.
 
-| Slot | First landing | Rider still required |
+| Slot | Landing | Recheck |
 |---|---|---|
-| D25 | `origin/cursor/list-truncation-sort-0da8` `02ef2f4` — Date.parse instant compare + offset-bearing pins on top of `72a3b2e` warnings/`last-event` | GPT recheck in flight; do not merge until KEEP. |
-| D26 | `origin/cursor/argv-help-dialect-0da8` `daf7fc7` — six-verb argv/`--help` is KEEP-shaped, but the optional inject `--type`/`--confidence` rider landed against the KEEP omit | Revert `src/cli/inject.ts` and `test/integration/cli/pause-inject.test.ts` to parent; then GPT recheck and merge. |
-| D27 | `origin/cursor/models-list-json-0da8` `c83fc99` — discriminated `MODELS_LIST` on top of `0fded4e` | Implementer still finishing; GPT recheck after idle. |
+| D25 | `origin/cursor/list-truncation-sort-0da8` `02ef2f4` — Date.parse + offset pins on `72a3b2e` | GPT-d25-recheck in flight; do not merge until KEEP. |
+| D26 | `origin/cursor/argv-help-dialect-0da8` `25742b4` — inject rider reverted; six-verb argv/`--help` only | GPT-d26-recheck in flight; do not merge until KEEP. |
+| D27 | `origin/cursor/models-list-json-0da8` `c83fc99` — discriminated `MODELS_LIST` | GPT-d27-recheck in flight; do not merge until KEEP. |
 
 ### Round 3 still running / next implementers
 
-- D25 rider landed; GPT-d25-recheck dispatched. D26 inject revert still running. D27 discriminated-shape commit is on origin; wait for the implementer to go idle before recheck.
-- Windows smoke and status-matrix still HOLD behind PR #12.
+- All three Round 6 riders are on their implementer branches. Independent GPT rechecks are in flight. Do not merge until KEEP.
 - Windows smoke and status-matrix still HOLD behind PR #12.
