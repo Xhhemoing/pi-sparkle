@@ -33,5 +33,6 @@
 - [round-23/PLAN.md](./round-23/PLAN.md) — 第 23 轮分区
 - [round-24/PLAN.md](./round-24/PLAN.md) — 第 24 轮分区
 - [round-25/PLAN.md](./round-25/PLAN.md) — 第 25 轮分区
+- [round-26/PLAN.md](./round-26/PLAN.md) — 第 26 轮分区
 
 不声称 Outcome-supported。Checkpoint F-PROD 仍开放（ADR-005）。

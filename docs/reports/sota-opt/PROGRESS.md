@@ -39,7 +39,8 @@
 | 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
-| 25 | 第 1–4 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
+| 25 | 第 1–4 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
+| 26 | 第 1 波开卷 | 0 / 10（A 本波派出；B–J 未派） | claude-fable-5-thinking-xhigh | [round-26/PLAN.md](./round-26/PLAN.md) |
 
 ### Round 1 波次
 
@@ -263,8 +264,14 @@
 | --- | --- | --- |
 | 1 | R25-A 跟踪门控、R25-B live 路由、R25-C 离线路由 | A/B/C 已合入 |
 | 2 | R25-D 自优化、R25-E 学习 | D/E 已合入 |
-| 3 | R25-F 实验、R25-G 运行时/图、R25-H 评价/需求 | F/G 已合入；H 运行中 |
-| 4 | R25-I CLI/适配器、R25-J cluster/privacy | I 运行中；J 本波派出 |
+| 3 | R25-F 实验、R25-G 运行时/图、R25-H 评价/需求 | F/G/H 已合入 |
+| 4 | R25-I CLI/适配器、R25-J cluster/privacy | I/J 运行中 |
+
+### Round 26 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R26-A 跟踪门控 | A 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -518,9 +525,10 @@
 | R25-E | `cursor/r25-e-learning-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-E.md`）。无新排除 ID；SLICE-CPU 复核 14.9–15.7 µs/run；CG 不铸 ID |
 | R25-F | `cursor/r25-f-experiments-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-F.md`）。无新排除 ID；锚点复核 r5f 121.25/130.67 / r6f 122.93 / r7f 127.56/130.12；plan-header identity-geometry face 归档 |
 | R25-G | `cursor/r25-g-runtime-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-G.md`）。无新排除 ID；计算顶复核 0.290–0.304 vs I/O 94.3–103.2 ms；injection command-kind face 归档；digest 第十六次逐位相同 |
-| R25-H | `cursor/r25-h-eval-twenty-fifth-pass-83a1` | 已派出 |
+| R25-H | `cursor/r25-h-eval-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-H.md`）。无新排除 ID；热层默认复核 9.31–10.25 µs/run；consumer-stage string-representation census 归档 |
 | R25-I | `cursor/r25-i-cli-twenty-fifth-pass-83a1` | 已派出 |
 | R25-J | `cursor/r25-j-persist-twenty-fifth-pass-83a1` | 已派出 |
+| R26-A | `cursor/r26-a-tracking-twenty-sixth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
