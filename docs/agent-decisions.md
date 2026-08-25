@@ -270,21 +270,27 @@ Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-arg
 
 ## D34 — Round 9 rank 1: `models` id preflight, honest disable, `--provider` refusal
 
-Fable-r9-next. Refuse malformed `<provider/model>` / `--primary` / `--fast` via `tryParseModelRef` as `parse-args` before config. Unknown ids keep `unknown model "${id}"` at `stage: "validation"` with `models list --available` next. `disable` prints an honest not-enabled message (exit 0) when the id was never in `before.enabled`, still calling `disableModel`. `list --provider` without `--available` refuses as parse-args. `MODELS_LIST` byte-identical. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`. Spec: `.agent_workspace/loop5-r9-fable-next.md` Rank 1.
+Fable-r9-next. Refuse malformed `<provider/model>` / `--primary` / `--fast` via `tryParseModelRef` as `parse-args` before config. Unknown ids keep `unknown model "${id}"` at `stage: "validation"` with `models list --available` next. `disable` prints an honest not-enabled message (exit 0) when the id was never in `before.enabled`, still calling `disableModel`. `list --provider` without `--available` refuses as parse-args. `MODELS_LIST` byte-identical. Files: `src/cli/models.ts`, `test/unit/cli/models.test.ts`. Spec: Rank 1 as corrected by `.agent_workspace/loop5-r9-gpt-challenge.md`.
 
-**Status:** implementing. Do not merge until GPT-r9 KEEP.
+**GPT-r9-challenge: FIX** (keep the slot). (1) Blank `--provider` parse-args before either list branch. (2) Three-way disable: in-enabled keep `Disabled`; dangling default call `disableModel` and say clearing dangling routing default references (never “nothing to disable”); pure no-op skip `disableModel` and pin bytes unchanged. (3) Do not interpolate an unquoted raw state-root into `next`.
+
+**Status:** implementing Fable spec; apply GPT FIX rider before merge.
 
 ## D35 — Round 9 rank 2: `auth login` refusal envelopes
 
-Fable-r9-next. Convert six thrown D12/D21 refusals to `cliFail` with `command: "auth login"` (blank positional folds into the existing missing-arg report). Multi-mode and blank `--key` are parse-args before config; unknown provider and keyless-custom are validation with inventory next; `--from-env` unset is preflight. Message bytes unchanged. Convert `commands.test.ts` `assert.rejects` with the throws. No catch added or widened. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts`. Spec: Rank 2.
+Fable-r9-next. Convert six thrown D12/D21 refusals to `cliFail` with `command: "auth login"` (blank positional folds into the existing missing-arg report). Multi-mode and blank `--key` are parse-args before config; unknown provider and keyless-custom are validation with inventory next; `--from-env` unset is preflight. Message bytes unchanged. Convert `commands.test.ts` `assert.rejects` with the throws. No catch added or widened. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts`. Spec: Rank 2 as corrected by `.agent_workspace/loop5-r9-gpt-challenge.md`.
 
-**Status:** implementing. Do not merge until GPT-r9 KEEP.
+**GPT-r9-challenge: FIX** (keep the slot). Unknown-provider `next` must name `models list --available` using the same `--state-root` without embedding the raw path. Split unset-`--from-env` next by named custom `envVar` vs builtin ambient sources. Preserve D24: do not trim a custom envVar only when reporting its failure; pin padded `envVar: " PADDED_ENV "`.
+
+**Status:** implementing Fable spec; apply GPT FIX rider before merge.
 
 ## D36 — Round 9 rank 3: `validate` unreadable/blank path retargeting
 
 Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable paths become `stage: "lookup"` naming the flag with an `init` retarget (classify via `errorCodeOf` in the existing catch). Spec faults keep `stage: "validation"` + "fix the spec". Do not edit `children-spec.ts` / `flowchart-io.ts`. `VALIDATE_OK` byte-identical. Files: `src/cli/validate.ts`, `test/unit/cli/validate.test.ts`. Spec: Rank 3.
 
-**Status:** landed on `cursor/validate-path-retarget-0da8` (`2e9d35e`). PR #18. Do not merge until GPT-r9 KEEP.
+**Status:** landed on `cursor/validate-path-retarget-0da8` (`2e9d35e`). PR #18.
+
+**GPT-r9-challenge: KEEP.** Report: `.agent_workspace/loop5-r9-gpt-challenge.md`. Merge gated on GPT-d36-recheck of the landing.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 

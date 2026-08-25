@@ -153,9 +153,9 @@ Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
-| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | implementing |
-| D35 | `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts` | `cursor/auth-login-envelopes-0da8` | implementing |
-| D36 | `src/cli/validate.ts`, `test/unit/cli/validate.test.ts` | `cursor/validate-path-retarget-0da8` | landed `2e9d35e`; PR #18; merge gated on GPT-r9 KEEP |
+| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | implementing; GPT-r9 **FIX** rider pending |
+| D35 | `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts` | `cursor/auth-login-envelopes-0da8` | implementing; GPT-r9 **FIX** rider pending |
+| D36 | `src/cli/validate.ts`, `test/unit/cli/validate.test.ts` | `cursor/validate-path-retarget-0da8` | PR #18; GPT-r9 **KEEP**; GPT-d36-recheck in flight |
 
 ### Round 3 still running / next implementers
 
