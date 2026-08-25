@@ -61,6 +61,17 @@ async function humanEventLines(stateRoot: string, episodeId: EpisodeId): Promise
   return captured.out.join("").trimEnd().split("\n");
 }
 
+/** The whole refusal `episode` owes a malformed `--episode`, on either subcommand. */
+function malformedIdReport(stateRoot: string): Record<string, unknown> {
+  return {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: 'invalid --episode "banana": expected an episode id of the form ep_<suffix>',
+    next: `pass --episode <epId> as printed by pnpm cli list --state-root ${stateRoot} --episodes`
+  };
+}
+
 function assertTimestampedLine(line: string, type: string, detail: string): void {
   const fields = line.split("\t");
   assert.equal(fields.length, 3, `expected three tab-separated fields, got ${JSON.stringify(line)}`);
@@ -461,15 +472,7 @@ test("a malformed --episode is an argv refusal on events, not a validation failu
 
   assert.equal(code, 1);
   assert.deepEqual(captured.out, []);
-  const report = parseCliErrorJson(captured.err.join(""));
-  assert.equal(report?.command, "episode");
-  assert.equal(report?.stage, "parse-args");
-  assert.equal(
-    report?.message,
-    'invalid --episode "banana": expected an episode id of the form ep_<suffix>'
-  );
-  assert.match(report?.next ?? "", /--episodes/);
-  assert.ok((report?.next ?? "").includes(stateRoot));
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), malformedIdReport(stateRoot));
 });
 
 test("a malformed --episode is an argv refusal on close and writes nothing", async () => {
@@ -498,16 +501,131 @@ test("a malformed --episode is an argv refusal on close and writes nothing", asy
 
   assert.equal(code, 1);
   assert.deepEqual(captured.out, []);
-  const report = parseCliErrorJson(captured.err.join(""));
-  assert.equal(report?.command, "episode");
-  assert.equal(report?.stage, "parse-args");
-  assert.equal(
-    report?.message,
-    'invalid --episode "banana": expected an episode id of the form ep_<suffix>'
-  );
-  assert.match(report?.next ?? "", /--episodes/);
-  assert.ok((report?.next ?? "").includes(stateRoot));
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), malformedIdReport(stateRoot));
   // The refusal precedes the lock and both stores: no new file, no new row.
   assert.deepEqual((await readdir(episodesDir(stateRoot))).sort(), before);
   assert.equal(await readFile(snapshotPath, "utf8"), snapshotBefore);
+});
+
+test("an unknown episode subcommand is refused before the --episode value is judged", async () => {
+  const captured = capture();
+  // The id is malformed too: the operator has to hear about the verb they got
+  // wrong first, because no `--episode` value could have made this argv work.
+  const code = await main(["episode", "nonsense", "--episode", "banana"], captured.io);
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const stderr = captured.err.join("");
+  assert.ok(stderr.startsWith(EPISODE_USAGE), "usage still precedes the report on stderr");
+  assert.deepEqual(parseCliErrorJson(stderr), {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: "Unknown episode command: nonsense",
+    next: "use episode events or episode close"
+  });
+});
+
+test("episode events escapes control characters so one event is always one line", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-escape-"));
+  const episodeId = createEpisodeId(() => "escape0001");
+  const projectId = createProjectId(() => "escape0001");
+  const runId = createRunId(() => "escape0001");
+  // Every unconstrained detail field carries a literal backslash plus a tab, a
+  // carriage return and a newline — the three characters that would otherwise
+  // forge a column or a whole row in a tab-separated, line-per-event surface.
+  const objective = "ship\\now\tfast\r\nplease";
+  const reason = "blocked\\hard\ton\r\nreview";
+  const requiredEvidence = ["tests\tunit", "docs\nadr", "plain"];
+  const outcomeId = "oc\\1\tb\r\nc";
+  const openedAt = nowIso();
+  const attachedAt = nowIso();
+  const waitedAt = nowIso();
+  const closedAt = nowIso();
+  const episode: ProjectEpisode = {
+    id: episodeId,
+    projectId,
+    objective,
+    contractVersion: 1,
+    runIds: [],
+    startedAt: openedAt,
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
+  };
+  // Appended through the store, so each row had to satisfy
+  // `validateEpisodeEvent`: none of these events is rejected today, and the
+  // renderer must not start rejecting them either.
+  const store = new EpisodeEventStore(stateRoot, episodeId);
+  await store.append({ type: "EPISODE_OPENED", episode, occurredAt: openedAt });
+  await store.append({ type: "RUN_ATTACHED", episodeId, runId, attachedAt });
+  await store.append({
+    type: "EPISODE_WAITING",
+    episodeId,
+    reason,
+    requiredEvidence,
+    occurredAt: waitedAt
+  });
+  await store.append({ type: "EPISODE_CLOSED", episodeId, status: "FAILED", closedAt, outcomeId });
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", episodeId, "--state-root", stateRoot],
+    captured.io
+  );
+  assert.equal(code, 0, captured.err.join(""));
+
+  const raw = captured.out.join("");
+  assert.ok(raw.endsWith("\n"));
+  const lines = raw.slice(0, -1).split("\n");
+  assert.equal(lines.length, 4, "exactly one physical line per event");
+  for (const line of lines) {
+    assert.doesNotMatch(line, /[\r\n]/, `line carries a raw newline: ${JSON.stringify(line)}`);
+    assert.equal(
+      line.split("\t").length - 1,
+      2,
+      `expected exactly two structural tabs: ${JSON.stringify(line)}`
+    );
+  }
+  // The expected escapes are written out longhand rather than through the
+  // renderer's own helper, so this pins the format and not the implementation.
+  assert.deepEqual(lines, [
+    `${openedAt}\tEPISODE_OPENED\tship\\\\now\\tfast\\r\\nplease`,
+    `${attachedAt}\tRUN_ATTACHED\t${runId}`,
+    `${waitedAt}\tEPISODE_WAITING\tblocked\\\\hard\\ton\\r\\nreview: tests\\tunit, docs\\nadr, plain`,
+    `${closedAt}\tEPISODE_CLOSED\tFAILED outcome=oc\\\\1\\tb\\r\\nc`
+  ]);
+
+  // Escaping is a property of the human view alone: `--json` still emits the
+  // raw bytes on disk, and the decoded events carry the operator's originals.
+  const asJson = capture();
+  assert.equal(
+    await main(["episode", "events", "--episode", episodeId, "--state-root", stateRoot, "--json"], asJson.io),
+    0,
+    asJson.err.join("")
+  );
+  assert.deepEqual(asJson.out.join("").trimEnd().split("\n"), await rawEventLogLines(stateRoot, episodeId));
+  assert.deepEqual(
+    asJson.out.map((line) => JSON.parse(line) as unknown),
+    [
+      {
+        type: "EPISODE_OPENED",
+        episode: {
+          id: episodeId,
+          projectId,
+          objective,
+          contractVersion: 1,
+          runIds: [],
+          startedAt: openedAt,
+          status: "OPEN",
+          acceptance: [],
+          evidenceRefs: []
+        },
+        occurredAt: openedAt
+      },
+      { type: "RUN_ATTACHED", episodeId, runId, attachedAt },
+      { type: "EPISODE_WAITING", episodeId, reason, requiredEvidence, occurredAt: waitedAt },
+      { type: "EPISODE_CLOSED", episodeId, status: "FAILED", closedAt, outcomeId }
+    ]
+  );
 });

@@ -27,6 +27,25 @@ function isTerminalStatus(value: string): value is TerminalStatus {
 }
 
 /**
+ * An operator-authored detail rendered safe for a one-line-per-event surface.
+ *
+ * The event schema constrains timestamps, ids and statuses, but leaves the
+ * objective, the waiting reason, each evidence entry and the outcome id free
+ * text. A tab or a newline in any of them would forge a column or a whole row
+ * in this output, so they are escaped rather than refused: the event is already
+ * valid and persisted, and a reader that cannot print it is worse than one that
+ * prints it unambiguously. Backslash goes first, or the escapes it introduces
+ * would be indistinguishable from a backslash the operator typed.
+ */
+function humanField(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\t", "\\t")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\n", "\\n");
+}
+
+/**
  * One tab-separated line per event, timestamp first: an operator polls this
  * command to learn what the episode is doing and since when, and a bare type
  * name answers neither. Every field printed here is already in the `--json`
@@ -40,16 +59,18 @@ function isTerminalStatus(value: string): value is TerminalStatus {
 function episodeEventLine(event: EpisodeEvent): string {
   switch (event.type) {
     case "EPISODE_OPENED":
-      return `${event.occurredAt}\tEPISODE_OPENED\t${event.episode.objective}`;
+      return `${event.occurredAt}\tEPISODE_OPENED\t${humanField(event.episode.objective)}`;
     case "RUN_ATTACHED":
-      return `${event.attachedAt}\tRUN_ATTACHED\t${event.runId}`;
+      return `${event.attachedAt}\tRUN_ATTACHED\t${humanField(event.runId)}`;
     case "EPISODE_WAITING":
-      return `${event.occurredAt}\tEPISODE_WAITING\t${event.reason}${
-        event.requiredEvidence.length > 0 ? `: ${event.requiredEvidence.join(", ")}` : ""
+      return `${event.occurredAt}\tEPISODE_WAITING\t${humanField(event.reason)}${
+        event.requiredEvidence.length > 0
+          ? `: ${event.requiredEvidence.map(humanField).join(", ")}`
+          : ""
       }`;
     case "EPISODE_CLOSED":
       return `${event.closedAt}\tEPISODE_CLOSED\t${event.status}${
-        event.outcomeId !== undefined ? ` outcome=${event.outcomeId}` : ""
+        event.outcomeId !== undefined ? ` outcome=${humanField(event.outcomeId)}` : ""
       }`;
   }
 }
@@ -85,6 +106,19 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
   if (values.help === true) {
     io.stdout(EPISODE_USAGE);
     return CLI_EXIT.ok;
+  }
+  // Which verb was asked for is settled before anything that verb's flags are
+  // judged: an operator who typed a subcommand this CLI does not have has not
+  // yet made an `--episode` mistake, and reporting the id first would name the
+  // wrong defect and hide the one they can act on.
+  if (subcommand !== "events" && subcommand !== "close") {
+    io.stderr(EPISODE_USAGE);
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `Unknown episode command: ${subcommand}`,
+      next: "use episode events or episode close"
+    });
   }
   if (values.episode === undefined) {
     return cliFail(io, {
@@ -130,15 +164,6 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
     return CLI_EXIT.ok;
   }
 
-  if (subcommand !== "close") {
-    io.stderr(EPISODE_USAGE);
-    return cliFail(io, {
-      command: "episode",
-      stage: "parse-args",
-      message: `Unknown episode command: ${subcommand}`,
-      next: "use episode events or episode close"
-    });
-  }
   // `--json` is parsed for every subcommand but only `events` honours it.
   // Refusing beats silently printing the plain-text close line to a caller
   // that is about to `JSON.parse` it.
