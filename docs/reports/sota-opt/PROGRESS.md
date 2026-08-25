@@ -438,9 +438,9 @@
 | R21-E | `cursor/r21-e-learning-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-E.md`）。无新排除 ID；SLICE-CPU 复核 15.8–16.9 / cmp20 17.8–18.5 µs/run；标识符几何轴归档 |
 | R21-F | `cursor/r21-f-experiments-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-F.md`）。无新排除 ID；全实验锚点复核 120.7–129.8 ms；时钟输入面归档 |
 | R21-G | `cursor/r21-g-runtime-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-G.md`）。无新排除 ID；计算顶复核 0.282–0.290 vs I/O 89.6–96.2 ms；SCHEDWIN 不铸 ID；digest 第十二次逐位相同 |
-| R21-J | `cursor/r21-j-persist-twenty-first-pass-83a1` | 已派出 |
 | R21-H | `cursor/r21-h-eval-twenty-first-pass-83a1` | 已派出 |
 | R21-I | `cursor/r21-i-cli-twenty-first-pass-83a1` | 已派出 |
+| R21-J | `cursor/r21-j-persist-twenty-first-pass-83a1` | 已派出 |
 
 ## 合并策略
 
