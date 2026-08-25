@@ -386,8 +386,8 @@ Two real candidates from `.agent_workspace/ROUND20-BRIEF.md` (audit: `.agent_wor
 | Slot | Agent | Focus |
 |---|---|---|
 | fable-audit | bc-901b7d5f-77ee-53cb-bddb-a667255af689 | I/O · races · protocol · DR on post-R18 tree |
-| R20-1 | pending | restore declared maxCostUsd across pause/resume |
-| R20-2 | pending | targeted steerText so backoff cannot cross runs |
+| R20-1 | bc-d0fdaa6d-61f7-5746-af73-c9153b143d0a | restore declared maxCostUsd across pause/resume |
+| R20-2 | bc-8347696c-41b7-5800-912a-fb6246f60829 | targeted steerText so backoff cannot cross runs |
 
 ---
 
