@@ -50,7 +50,7 @@ function kernelExportsSteerText(source) {
 function executorWiresSteerText(source) {
   return (
     /\bexport\s+class\s+PiAgentExecutor\b/.test(source) &&
-    /\bsteerText\s*\(\s*text\s*:\s*string\s*\)/.test(source) &&
+    /\bsteerText\s*\(\s*text\s*:\s*string\s*[,)]/.test(source) &&
     /\.\s*steerText\s*\(\s*text\s*\)/.test(source)
   );
 }

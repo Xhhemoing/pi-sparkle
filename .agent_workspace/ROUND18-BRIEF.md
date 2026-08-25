@@ -1,67 +1,202 @@
 [Model: claude-fable-5-thinking-xhigh]
 
-# ROUND 18 BRIEF — injection context for Loop 4 · Round 18 dispatch
+# ROUND 18 BRIEF — injection context for Loop 4 · Round 18 dispatch (post-merge)
 
-Provenance: written by the Round 17 SOTA reviewer at HEAD `6b8124d`; full verification evidence and mutation transcripts in `.agent_workspace/loop4-r17-review.md`. Round 17 landed both dispatched slots (2 ACCEPT, 0 nits, 0 ROLLBACK) and closed the last two holes Round 16 proved on the retarget plane (I/O, races, protocol, disaster recovery). **Round 18 carries zero candidates** — §4 records why that is the honest state and the only valid reasons to dispatch later. **Do not manufacture slots. Stay on `agent/opt-continuous`.**
+Provenance: written by the Round 18 post-merge auditor at HEAD `7d8b7a3` on
+`cursor/opt-r18-postmerge-42b1` (code tree = merge `985250b`); full sweep evidence and proof
+transcripts in `.agent_workspace/loop4-r18-audit.md`. The previous zero-candidate ROUND18-BRIEF was
+written for the pre-merge Loop 4 tree and remains correct **for that tree**; PR #8's merge of
+Loop 4 + Loop 3 + kernel-reuse into `main` is the new seam its §4 reason 1 anticipated, and this
+brief replaces it with the merged tree's audited state: **2 proven candidates — do not pad to 10.**
 
-## 1. What landed in Round 17 (context, all committed — do not re-implement)
+## 1. What landed last (context, all committed — do not re-implement)
 
-| Slot | SHA | Landed |
+| What | SHA | Landed |
 |---|---|---|
-| R17-2 | `16a471d` | Test-only: one test in `test/unit/cli/migrate-legacy.test.ts` combining `link` → EPERM with a `uniqueSuffix` racer writing divergent destination bytes, pinning the **fallback arm's** never-overwrite (`copyFile(temp, dest, COPYFILE_EXCL)` must conflict, exit 1, destination untouched, temps cleaned). The Round 16 clobbering-fallback mutant — which survived all 23 tests then — now dies with this test as the sole red (19/20, re-proven by the reviewer out-of-tree). Zero `src`. |
-| R17-1 | `223e3dd` | Sign-off (b) executed exactly: `recordInferredPreference` call and import deleted from `src/learning/from-episode.ts`, the whole `episodeId` plumb with it (`LearnFromOutcomesInput.episodeId`, `episodeIdFromEvents` call + import, `EpisodeId` type import). In-source record on `proposeRoutingFromOutcomes`'s docstring: the CLI inferred-preference plane is not live, re-adding the call would not make it live, the embedder API stays, and any host that binds the store owes the R16-1 lock contract. Three pins (two in `from-episode.test.ts` binding the store, one CLI end-to-end in `adapt.test.ts`); two stale `from-episode → episode-bind` allowlist entries dropped from `test/unit/privacy/plane-boundary.test.ts` (outside ownership, disclosed, proven mandatory by M2 — the guard fails closed on stale entries). No bind, no lock, nothing persisted; `src/cli/adapt.ts` and `src/preferences/*` diff-empty. |
-
-Orchestrator-only: `9c7cb3e`, `c3ef49e`, `6b8124d` (all `.agent_workspace/**`; `6b8124d` PROGRESS-only). Reviewer wrote `.agent_workspace/loop4-r17-review.md` and this brief; nothing else.
+| R17-1 / R17-2 | `223e3dd` / `16a471d` | Inferred-preference call removed + plane pinned not-live; migrate-legacy fallback never-overwrite pinned. Both re-verified diff-empty across the merge; all pins green at HEAD. |
+| Merge-in | `b52988d` | origin/main (Loop 3 + kernel-reuse) merged into `agent/opt-continuous`: SparkleKernel facade, CostGate, live streaming, steering (`RunningRun.steer`, `STEER_INJECTED`), `THINKING_DELTA` (bytes only), `maxCostUsd` forwarding, inspect-summary projection, feedback-log lock. |
+| Merge fixes | `4e13877`, `3684e59` | Test-only: steer event in the exhaustive fuzz seeds; canonical agent id in the steer fixture. |
+| CI fixes on #8 | `77e5d42`, `dc0c611`, `159630e` | Kernel events stream live through tool start (verdict still buffered per attempt); adaptation closure allowance shrunk to 4 modules; `maxCostUsd` disclosure rewritten to forwarding + executor-dependent enforcement (`costCapFor` = min of per-task and run caps). **All three verified holding at HEAD** (audit §3). |
+| Merge to main | `985250b` | PR #8 merged; `7d8b7a3` on this branch is PROGRESS/OWNERSHIP only, so the gate below stands for HEAD's code. |
 
 ## 2. Current baseline (independent, this VM, Node v22.14.0, engine warning only)
 
-- Reviewer's own `pnpm gate` at HEAD `6b8124d`: **GREEN, exit 0 — 1981 tests / 1980 pass / 0 fail / 0 cancelled / 1 skipped** (112 suites; the skip is `PI_SMOKE`, exactly one `# SKIP` line). Matches the parent's record. Delta vs Round 16: +4 tests / +0 suites, fully decomposed (R17-1 +3, R17-2 +1).
-- Reviewer's own `node scripts/crash-probe.mjs`: **`ok: true`, 11 cases × 3 iterations**, names and order verified one-by-one against the Round 16 record, `unblock-discard-append-before-checkpoint-sigkill` last. No 12th case; `scripts/crash-probe.mjs` diff-empty across the round.
-- No perf claims this round. Any future perf claim still owes same-VM before/after with an unchanged-arm control, ≥5% end-to-end.
+- Auditor's own `pnpm gate` at HEAD: **GREEN, exit 0 — 2038 tests / 2037 pass / 0 fail /
+  0 cancelled / 1 skipped (PI_SMOKE, exactly one `# SKIP` line) / 120 suites**. This independently
+  verifies the merger's claimed 2038/2037/1. Delta vs Round 17 (1981/112) is the merged kernel-reuse
+  + Loop 3 test surface plus the CI-fix test rewrites.
+- Auditor's own `node scripts/crash-probe.mjs`: **`ok: true`, 11 cases × 3 iterations**, names and
+  order verified against the Round 16 record, `unblock-discard-append-before-checkpoint-sigkill`
+  last. No 12th case; the script is diff-empty across the merge.
+- Both privacy guards green standalone (11/11) — allowlists equal the real import graph in both
+  directions (both tests carry stale-entry asserts, so green is bidirectional proof).
+- No perf claims this round. Any future perf claim still owes same-VM before/after with an
+  unchanged-arm control, ≥5% end-to-end.
 
-## 3. Forbidden / frozen for Round 18 (Rounds 1–17)
+## 3. Forbidden / frozen for Round 18 (Rounds 1–17 + merge-settled)
 
-Global forbidden list, unchanged from ROUND17-BRIEF §3: live R1/bandit/topology on the execution path (doctor's `loadProjectBanditByKey` inventory read stays the only exception — re-verified this review); Outcome-supported claims; **ADR-006 stays Proposed**; auto-promote; P0 privacy sign-off stays human; `package.json`/dependency edits; git history rewrites; subagents do not commit; no `git checkout` of other branches; `independentEvidence` never read as corroboration; exact eight-member `RunStatus`; no fourth `RUN_UNBLOCKED` key.
+Global forbidden list, unchanged from the Round 17 brief §3: live R1/bandit/topology on the
+execution path (doctor's `loadProjectBanditByKey` inventory read stays the only exception);
+Outcome-supported claims; **ADR-006 stays Proposed**; auto-promote; P0 privacy sign-off stays human;
+`package.json`/dependency edits; git history rewrites; subagents do not commit; no `git checkout` of
+other branches; `independentEvidence` never read as corroboration; exact eight-member `RunStatus`;
+no fourth `RUN_UNBLOCKED` key.
 
-Frozen contracts: the whole Rounds 1–16 set carried verbatim from ROUND17-BRIEF §3 — jsonl/atomic-write/lock/delete/crash-terminal/`applyRetry`/resume-disclosure/doctor/routes (five `DOCTOR_ROUTED_NEXT` + `GENERIC_FAILURE_NEXT`, character-exact)/`INSPECT_SUMMARY`/BLOCKED-prefix/episode-boundary/option (a)/discard-audit/probe (11 cases, order pinned)/verdict-producer freezes; the `taskCriteria` writer as shipped; `onRunStarted` as shipped on all three public run paths; the three-path early-id disclosure; the scoped laundering coda (`replay.ts:95-101`); the comparator soundness rule; the census terminator (a note is owed only when a landing changes what the runtime surfaces describe — Round 17 correctly owed none; **the treadmill stays closed**); `EventStore.append`/`CheckpointStore.write` unlocked (frozen measured decision); the preferences writer contract (bind inside `preferenceSnapshotLockPath`, readers lock-free, no lock in `saveToDisk`); write-side episode-event validation; atomic eval publish; the migrate-legacy publish protocol as the one allowed publish shape outside `persist/atomic-file.ts` (no third helper, no probe case); mailbox/cluster, lock stealing, resume-time adoption, `maxCostUsd`, non-terminal `RUN_CRASHED`, jsonl/lock perf, skipContract honesty, rewriting append-only logs: all off the table.
+Frozen contracts: the whole Rounds 1–17 set carried verbatim — jsonl/atomic-write/lock/delete/
+crash-terminal/`applyRetry`/resume-disclosure/doctor/routes (five `DOCTOR_ROUTED_NEXT` +
+`GENERIC_FAILURE_NEXT`, character-exact)/`INSPECT_SUMMARY` (four frozen-additive keys, now built by
+the pure `buildInspectSummaryJson` — same contract)/BLOCKED-prefix/episode-boundary/option (a)/
+discard-audit/probe (11 cases, order pinned)/verdict-producer freezes; `taskCriteria` writer as
+shipped; `onRunStarted` on all three public run paths; three-path early-id disclosure; the scoped
+laundering coda; the comparator soundness rule; the census terminator (**the treadmill stays
+closed** — R18-2 below carries the one landing-triggered spec alignment inside its own diff, which
+is what the terminator prescribes); `EventStore.append`/`CheckpointStore.write` unlocked (frozen
+measured decision); the preferences writer contract (bind inside `preferenceSnapshotLockPath`,
+readers lock-free); write-side episode-event validation; atomic eval publish; the migrate-legacy
+publish protocol; mailbox/cluster, lock stealing, resume-time adoption, non-terminal `RUN_CRASHED`,
+jsonl/lock perf, skipContract honesty, rewriting append-only logs: off the table. The CLI
+inferred-preference plane stays not-live; both migrate-legacy publish arms stay pinned; the
+`from-episode` ingress stays `run/event-store.ts` alone.
 
-**New, settled by Round 17 (now frozen):**
-- **The CLI inferred-preference plane is not live, and that is now pinned, not just observed.** `adapt learn` writes exactly what it advertises: a routing-policy candidate (`adaptation/registry.json`). It never binds the preference store, takes no snapshot lock, and records no observation, in memory or on disk — pinned by three tests (direct-outcomes, routed-events with a `RUN_ATTACHED`-bearing log, and CLI end-to-end) plus the plane-boundary allowlist. `recordInferredPreference` stays an embedder API; a host that binds the store is a preference-snapshot writer owing `preferenceSnapshotLockPath` across bind+mutate+persist (restated in-source at `from-episode.ts:88-101`). Re-adding the call, or "making the plane live" without a parent product decision, is forbidden.
-- **The migrate-legacy fallback never-overwrite is pinned.** Both publish arms (primary `link`, fallback `copyFile` + `COPYFILE_EXCL`) now have regression nets that kill their respective clobbering mutants. The fix shape is closed; do not add more publish-arm tests without a new proven mutant.
-- **The `from-episode` runtime ingress is narrower and exact:** the sanctioned derived-signal pipe enters the runtime plane through `run/event-store.ts` alone; the plane-boundary allowlist equals the real import set in both directions (fails closed on stale entries — M2-proven). Do not re-add the `episode-bind` edges.
-- The pre-removal record stands corrected in full: `recordInferredPreference` now has **zero** production callers (definition + embedder test + a comment-form mention only). Do not cite the Round 16 "exactly one caller" record against the post-`223e3dd` tree.
+**New, settled by the merge (now frozen):**
+- **Do not revert kernel-reuse.** `SparkleKernel`/`AsyncEventQueue`, the CostGate arithmetic
+  (arms only with cap + catalog prices; zero-pair = unpriced = disarmed; non-`ok` usage counted by
+  the ceiling but excluded from telemetry), and the `maxCostUsd` forward
+  (`startRun`/`startParentRun`/`supervisor` → `costCapFor` = min(per-task, run) → request + child
+  `RUN_CREATED.limits`) are the shipped contract. An absent cap stays absent — never invent one.
+- **Live-through-tool-start streaming as shipped** (`77e5d42`): every translated event streams until
+  the task-verdict emit closes the prefix; the verdict and its tail stay buffered per attempt so a
+  retried attempt's verdict cannot leak. Do not re-buffer structured events.
+- **Thinking stays bytes-only** everywhere outside `src/pi-adapter/**`; nothing thinking-derived may
+  ever be routed into `STEER_INJECTED.text` (payload docstring pins this).
+- **The adaptation closure allowance is exactly 4 modules** (`dc0c611`); both privacy guards fail
+  closed on stale entries — a dispatch that changes an adaptation-plane `src` import edge must
+  census **both** `test/unit/privacy/plane-boundary.test.ts` **and**
+  `test/unit/privacy/adaptation-plane-closure.test.ts` into its ownership grant up front.
+- **`remainingCostUsd` (flowchart routing budget) is a separate, enforced plane** — do not conflate
+  it with the executor spend ceiling or "unify" the two.
 
-Process requirements per slot (carried forward): census first against the working tree; verify handed paths exist; scoped `eslint` + whole-tree `tsc --noEmit` before reporting; consumer census in your own diff; timing-sensitive owned tests 3×; full gate is the parent's job; no scratch files at report time (including `/tmp` state roots from proofs); mutations out-of-tree (full copy, `node_modules` symlinked), then deleted; landing commits are slot files + report only, no PROGRESS ticks. **New from Round 17:** a dispatch that changes a `src` import edge on the adaptation plane must census `test/unit/privacy/plane-boundary.test.ts` into the ownership grant up front — its allowlist fails closed in both directions, so the consequential edit is mandatory, and it should be granted rather than forced outside ownership.
+Process requirements per slot (carried forward): census first against the working tree; verify
+handed paths exist; scoped `eslint` + whole-tree `tsc --noEmit` before reporting; consumer census in
+your own diff; timing-sensitive owned tests 3×; full gate is the parent's job; no scratch files at
+report time (including `/tmp` state roots from proofs); mutations/proofs out-of-tree (full copy,
+`node_modules` symlinked), then deleted; landing commits are slot files + report only, no PROGRESS
+ticks.
 
-## 4. Round 18 candidates — ZERO (the honest round)
+## 4. Round 18 candidates (2 real, proven at HEAD — do not pad to 10)
 
-Round 16 proved exactly two remaining holes on the retarget plane with deterministic runs of real repo code; Round 17 closed both and this review independently re-verified the closures (mutation kills re-proven out-of-tree). The Round 17 reviewer then re-swept for anything new and found nothing dispatchable:
+Both were proven with deterministic out-of-tree runs of real repo code, 3× each, transcripts in
+`loop4-r18-audit.md` §4; the proof copies are deleted. Every landing owes destructive/defensive
+tests in its own diff.
 
-- The range added no `src` behavior (one file, net deletion + docstring), so **no new seam** can have landed.
-- Raw-write sweep at HEAD unchanged: only doctor's transient write-probe and the lock owner record outside `persist/atomic-file.ts`.
-- The last unlocked read-modify-write writer (preferences) was locked in Round 16; the last unpinned publish arm (migrate-legacy fallback) was pinned in Round 17.
-- Probe coverage settled: 11 cases green ×3, a 12th declined twice on the record.
-- Every doc surface this round could have staled was read and is accurate (dictionary, README, USAGE); the census treadmill stays closed.
+### R18-1 (P2) — a steered instruction must not silently die in a retry
 
-**Do not dispatch Round 18 slots unless one of these becomes true** (the exhaustive valid-reasons list, carried and now the operative gate):
+- **Proven defect:** `runWithRetry` builds a fresh Agent per attempt, so a steer accepted by
+  `PiAgentExecutor.steerText` during an attempt that is then retried (429/5xx) never reaches any
+  surviving model call. Proof transcript: attempt 1's second provider call carried the steer as its
+  second user turn (context then discarded); attempt 2's fresh agent saw only the original prompt;
+  the run finished `EXECUTION_FINISHED:SUCCESS`. The coordinator's `STEER_INJECTED` (written
+  delivery-before-logging) then permanently records an instruction no surviving call saw — violating
+  `execution/contract.ts`'s own rule that "a steer that silently goes nowhere is worse than a
+  rejected one".
+- **Fix shape (a), recommended:** the executor keeps the accepted steer texts for the current
+  `execute()` and re-delivers them into each fresh retry kernel before/at the new prompt (polled
+  after the new attempt's first turn — preserves "picked up after its current turn"; the discarded
+  context cannot double-apply). Fix shape (b): leave delivery semantics alone and surface the drop —
+  an executor-level notification the coordinator turns into a correcting event (log-contract
+  change). 
+- **Tests owed:** the audit's proof shape as a regression test (steer during blocked tool → 429 →
+  retry → assert the steer reaches attempt 2's context under (a), or the drop record exists under
+  (b)); existing 10 steer pins stay green untouched; run 3×.
+- **Ownership (exclusive):** `src/pi-adapter/pi-executor.ts`, new
+  `test/integration/pi-adapter/steer-retry.test.ts` (dir exists),
+  `test/unit/pi-adapter/steer-inflight.test.ts` (only if (a) adds executor-level steer state worth a
+  unit pin). Under (b) only: add `src/run/coordinator.ts` + `src/run/events.ts` +
+  `test/integration/m0/steer.test.ts` to the grant. No adaptation-plane import edges — privacy tests
+  stay outside ownership.
+- **Parent sign-off needed: YES** — (a) vs (b) is a delivery-semantics/product decision (R17-1
+  precedent). An explicit decline of both (recording the drop as an accepted retry cost, with the
+  contract docstring amended to say so) is a valid outcome — then that docstring edit is the slot.
+- **Parent sign-off (2026-08-25): R18-1 YES — direction (a) re-deliver.** `STEER_INJECTED` already
+  claims delivery. A retry that drops the steer makes that record false. Re-deliver accepted steer
+  texts into each fresh retry kernel. Do not add a correcting event type (no new `RunStatus`, no
+  new route). Existing 10 steer pins stay green.
 
-1. **A genuinely new seam lands** — new `src` behavior on the I/O/race/protocol/DR planes (a new writer, a new lock, a new publish path, a new crash window). The landing's reviewer owes the proof it is a hole, not the dispatch.
-2. **A behavioural gap surfaces from real usage** — a reproducible defect or surprising behaviour observed running the real CLI, reduced to a deterministic out-of-tree run of real repo code before dispatch.
-3. **A gate or probe failure** — any red in `pnpm gate` or `crash-probe.mjs` at a future HEAD, including flakes (a flake is a race candidate with the reproduction owed first).
-4. **A landing stale-ifies recorded surfaces** — a commit that changes what the runtime surfaces describe, owing the census-terminator note and any consequential pin updates.
+### R18-2 (P2) — `run --children` must carry a declared `maxCostUsd` to the coordinator
 
-A future round that dispatches must re-prove its candidate's hole at that round's HEAD with a deterministic out-of-tree run — Round 16's transcripts are exhausted (both were spent on Round 17's landings). Cosmetic USAGE nits are not slots. Manufacturing busywork is forbidden; a zero-slot round with a green gate is a valid, recordable round, and the user's 20+-round goal is served by honest zero rounds, not padded ones.
+- **Proven defect (merge-induced in the strict sense — neither side had it alone):**
+  `parseChildSpec` (`src/cli/main.ts:420-424`) copies only `maxAttempts`/`timeoutMs`/`maxWallTimeMs`,
+  silently discarding `maxCostUsd`. Harmless while the field was disclosed-unenforced (pre-merge
+  Loop 4 tree); dishonest now that `costCapFor` forwards it to the executor and stamps it into the
+  child's `RUN_CREATED.limits`. Proof transcript: spec declared `maxCostUsd: 0.25`;
+  `validateAgentMessage` accepted that exact limits object (control); CLI exit 0, no warning; the
+  on-disk `TASK_REQUEST.limits` and child `RUN_CREATED.limits` carry no ceiling. Forwarding-when-
+  present is already pinned green (`child-coordinator-limits.test.ts`), so the drop is localized to
+  the parse.
+- **Fix:** copy a positive finite `maxCostUsd` in `parseChildSpec`; **refuse** any other
+  non-undefined value with `DomainValidationError` naming the task (silently copying an invalid
+  value would fail far away at message validation). Executor-dependence stays as disclosed — the
+  fake-children executor ignoring the forwarded cap is the pinned contract, not a bug.
+- **Fold in (landing-triggered census, terminator-compliant):**
+  `docs/specs/m0-m2-architecture.md:359-360` still claims the child coordinator "does not currently
+  read usage or enforce this ceiling" — false since `159630e`; rewrite to match the
+  `ChildRunLimits` disclosure. The CI fix updated protocol/v1, child-coordinator and the data
+  dictionary but missed this spec surface.
+- **Tests owed:** CLI end-to-end pin (spec with ceiling → child `RUN_CREATED.limits.maxCostUsd` and
+  `TASK_REQUEST.limits.maxCostUsd` on disk); invalid-value refusal (exit non-zero, nothing written);
+  existing `cli-children` tests untouched.
+- **Ownership (exclusive):** `src/cli/main.ts` (`parseChildSpec` region only),
+  `test/integration/m1/cli-children.test.ts`, `docs/specs/m0-m2-architecture.md` (the two stale
+  lines only).
+- **Parent sign-off:** none needed — completes plumbing the merged tree's own contract already
+  describes and validates; no schema, no new status, no `RunStatus` contact.
 
-**Ownership / tests owed / parent sign-off: none — no slots are dispatched by this brief.** If a valid reason above fires, the dispatching round writes its own ownership grant (remember the new plane-boundary census rule in §3) and its own tests-owed list, and product-behaviour decisions still need explicit parent sign-off before dispatch, per the R17-1 precedent.
+### Dispatch cross-check
+
+No file appears in two slots (`pi-executor.ts` only in R18-1; `main.ts` only in R18-2; test files
+disjoint; the spec doc only in R18-2). Every named path exists at HEAD except R18-1's new test file,
+which it creates in an existing directory. Zero candidates elsewhere: the audit's §5 table records
+nine merge-seam surfaces swept clean with reasons — re-dispatching any of them is padding.
 
 ## 5. Explicitly NOT for Round 18
 
-Everything in ROUND17-BRIEF §5, verbatim — live R1/bandit/topology; reading `independentEvidence` as corroboration; any new `RunStatus`; a fourth `RUN_UNBLOCKED` key; the `taskCriteria` surface; overloading `onRunStarted`; per-path liveness/pause proofs; a third `Run <id>: <word>` line; synthesizing `contract`/`taskCriteria`; re-litigating option (a), the discard audit, the unblock fail-closed default, the gate-ledger posture, or set-before-sums; protocol-layer criterion correlation; per-criterion `UNOBSERVED`; manufactured pauses; jsonl/lock perf; mailbox/cluster; lock stealing; resume-time adoption; `maxCostUsd`; non-terminal `RUN_CRASHED`; rewriting append-only logs; ADR-006 status changes; P0 sign-off; dependency bumps; in-tree mutation testing; editing the `replay.ts` docstring; bare-`createScanner` comment-only proofs; freeze-extra re-censuses; census notes absent a landing that changes the surfaces; re-locking `EventStore.append`/`CheckpointStore.write`; a catalog-observed producer or its locking; deleting the three pinned zero-importer barrels; the `pause`/`inject` USAGE `[--state-root]` cosmetic nit as a slot; a crash-probe case for the eval-report writer; re-litigating any Round 16 sign-off; a lock inside the preference store's synchronous API; a `*.tmp` sweeper for crashed applies; `MAX_LOCK_WAIT_MS` docstring wording; re-proving locked writers already at standard — **plus, new this round:**
+Everything in the Round 17 brief §5, verbatim — live R1/bandit/topology; reading
+`independentEvidence` as corroboration; any new `RunStatus`; a fourth `RUN_UNBLOCKED` key; the
+`taskCriteria` surface; overloading `onRunStarted`; per-path liveness/pause proofs; a third
+`Run <id>: <word>` line; synthesizing `contract`/`taskCriteria`; re-litigating option (a), the
+discard audit, the unblock fail-closed default, the gate-ledger posture, or set-before-sums;
+protocol-layer criterion correlation; per-criterion `UNOBSERVED`; manufactured pauses; jsonl/lock
+perf; mailbox/cluster; lock stealing; resume-time adoption; non-terminal `RUN_CRASHED`; rewriting
+append-only logs; ADR-006 status changes; P0 sign-off; dependency bumps; in-tree mutation testing;
+editing the `replay.ts` docstring; bare-`createScanner` comment-only proofs; freeze-extra
+re-censuses; census notes absent a landing that changes the surfaces; re-locking
+`EventStore.append`/`CheckpointStore.write`; a catalog-observed producer or its locking; deleting
+the three pinned zero-importer barrels; the `pause`/`inject` USAGE `[--state-root]` cosmetic nit; a
+crash-probe case for the eval-report writer; a 12th crash-probe case; more migrate-legacy
+publish-arm tests without a new proven mutant; re-litigating the R17-1 (b) sign-off; making the
+inferred-preference plane live; the `doctor.ts:507` path nit and `LearnFromOutcomesInput.projectId`
+(both still folded into whichever future slot owns those files); the
+`withAdaptationRegistryLock` cosmetic — **plus, new this round:**
 
-- **Re-litigating the R17-1 (b) sign-off.** The removal landed exactly as signed off (verified: no bind, no lock, nothing persisted). Making the CLI inferred-preference plane live is a product decision that starts with the parent, not a slot.
-- **The `doctor.ts:507` hand-built preferences path** (one-line `preferenceSnapshotPath` import swap) — still folded into whichever future slot next owns `doctor.ts`; not a standalone slot (carried from Round 16, unchanged).
-- **`LearnFromOutcomesInput.projectId`** (required member, now unread inside `proposeRoutingFromOutcomes`, still driving the `run has no project snapshot` guard one level up). Kept deliberately — removing it is an unauthorized public-API break and it is not a persistence hook. Fold the slot's own prescription (drop field, simplify guard to `projectRoot === undefined`, update two test call sites) into whichever future slot next owns `from-episode.ts`. Not a slot.
-- **The `const result = await withAdaptationRegistryLock(...); return result;` cosmetic** in `from-episode.ts` — collapse it only inside a future slot that owns the file for a real reason. Not a slot.
-- **More publish-arm mutation tests for migrate-legacy** — both arms are pinned; a new test needs a new proven surviving mutant first.
+- **Reverting or re-buffering the kernel-reuse contracts** (see §3): the `maxCostUsd` forward, the
+  live-through-tool-start stream, bytes-only thinking, the 4-module closure allowance.
+- **Wiring `onCostGate` at the CLI as a standalone slot.** Today the disarmed-cap event has no CLI
+  producer path until R18-2 lands, the `ChildRunLimits` disclosure already names enforcement
+  best-effort/executor-dependent, and a ceiling-stop is already visible in the transcript summary.
+  Fold CLI cost surfacing into whichever future slot owns it with a proven operator need.
+- **The `SteerChannel.settled()` allSettled swallow** (a disk-level append failure loses the steer
+  record while the run continues; the un-awaited caller promise still rejects). Disk-failure-only,
+  no reproduction; recorded for whoever next owns `coordinator.ts`. Not a slot.
+- **The `AsyncEventQueue` close/streamedCount theoretical race** — unreachable while Pi awaits
+  listeners before `waitForIdle` settles (kernel docstring pins the semantics). Not a slot.
+- **Flowchart-node spend ceilings / a cross-child run-spend ledger.** `FlowchartRunLimits` carries
+  no `maxCostUsd`, nothing claims flowchart nodes are capped, and the N·$X multi-child bound is
+  disclosed on `ChildCoordinatorDeps.maxCostUsd`. Capability work, not an honesty hole; needs a
+  parent product decision first.
+- **A `steer` CLI verb.** `RunningRun.steer` is an embedder API; no surface claims CLI steering.
+  Product work, not a hole.
 
-**Valid reasons to dispatch anything later**: exactly the four in §4. Nothing else qualifies.
+**Valid reasons to dispatch anything beyond §4:** exactly the four from the pre-merge brief
+(new seam / reproduced behavioural gap / gate-or-probe red / landing that stale-ifies recorded
+surfaces), each owing a fresh deterministic out-of-tree proof at that HEAD. A zero-slot follow-up
+round after §4 lands is a valid, recordable round.

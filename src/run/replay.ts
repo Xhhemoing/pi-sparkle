@@ -121,12 +121,57 @@ export interface FlowchartCheckpointState {
    * shape is fixed and a malformed value fails closed.
    */
   taskCriteria?: TaskAcceptanceCriteria[];
+  /**
+   * The USD ceiling each task was dispatched under, for the tasks whose caller
+   * declared one.
+   *
+   * A declared per-child `maxCostUsd` is a dispatch fact of the same kind as
+   * {@link taskCriteria}, and it reaches the log by the same route: only a
+   * child that actually starts writes a `TASK_REQUEST`, so a run paused,
+   * blocked or crashed before some child dispatches has nothing on its log
+   * about what that child was allowed to spend. `childTasksFromLog` then
+   * substitutes a budget for it — and a substituted budget is not a place a
+   * spend authorization can come from, because both ways of getting one wrong
+   * are durable: a sibling's ceiling copied onto this task stamps a cap the
+   * caller never set into the child's `RUN_CREATED.limits`, and the caller's
+   * own ceiling dropped leaves a child the operator believes is capped running
+   * with none.
+   *
+   * The ceiling only, never the whole limits object. The other three fields
+   * are the coordinator's own enforcement knobs, for which a substituted
+   * budget is a reasonable answer; this one is money a caller authorized for
+   * one named task.
+   *
+   * Optional at `schemaVersion: 1`, and absence stays valid forever: every
+   * checkpoint written before this field existed is still a good checkpoint,
+   * and absence means "unknown", never "uncapped". Like `taskCriteria` it is
+   * never *synthesized* — not from a sibling, not from the run's own limits,
+   * not from a default. The array must be non-empty when present and ordered
+   * by ascending `taskId`, which settles uniqueness in the same comparison,
+   * and each `maxCostUsd` must satisfy the same positive-finite rule
+   * `protocol/v1.ts` applies to a declared ceiling, so a record can never
+   * authorize a spend the protocol boundary would have refused.
+   *
+   * `run/flowchart-run.ts` fills this: the caller's child specs when a run
+   * accepts them, and any logged `TASK_REQUEST` that carries a ceiling,
+   * first-write-wins and ordered by ascending `taskId`. A logged request with
+   * no ceiling is deliberately ignored — on the log, a caller who declared
+   * none and a node the rebuild substituted for are indistinguishable — so
+   * absence still means unknown.
+   */
+  taskCostCeilings?: TaskCostCeiling[];
 }
 
 /** One task's dispatched acceptance criteria, as {@link FlowchartCheckpointState} records them. */
 export interface TaskAcceptanceCriteria {
   taskId: TaskId;
   acceptanceCriteria: AcceptanceCriterion[];
+}
+
+/** One task's dispatched spend ceiling, as {@link FlowchartCheckpointState} records it. */
+export interface TaskCostCeiling {
+  taskId: TaskId;
+  maxCostUsd: number;
 }
 
 export interface RunCheckpoint {
@@ -434,10 +479,16 @@ export function validateFlowchartCheckpointState(value: unknown): FlowchartCheck
     );
   }
   const taskCriteria = validateTaskCriteria(value.taskCriteria);
+  const taskCostCeilings = validateTaskCostCeilings(value.taskCostCeilings);
+  // Spread rather than enumerate: each optional record is present or absent on
+  // its own, and an absent one must stay an absent *key* — `"taskCriteria" in
+  // state` is how a reader tells unknown from recorded.
+  const recorded = {
+    ...(taskCriteria !== undefined ? { taskCriteria } : {}),
+    ...(taskCostCeilings !== undefined ? { taskCostCeilings } : {})
+  };
   if (value.contract === undefined) {
-    return taskCriteria === undefined
-      ? { definition, snapshot, limits }
-      : { definition, snapshot, limits, taskCriteria };
+    return { definition, snapshot, limits, ...recorded };
   }
   let contract: RequirementContract;
   try {
@@ -445,9 +496,7 @@ export function validateFlowchartCheckpointState(value: unknown): FlowchartCheck
   } catch (error) {
     throw new DomainValidationError(`Invalid RunCheckpoint: flowchart.contract: ${messageOf(error)}`);
   }
-  return taskCriteria === undefined
-    ? { definition, snapshot, limits, contract }
-    : { definition, snapshot, limits, contract, taskCriteria };
+  return { definition, snapshot, limits, contract, ...recorded };
 }
 
 /**
@@ -501,6 +550,44 @@ function validateTaskCriteria(value: unknown): TaskAcceptanceCriteria[] | undefi
       criteria.push({ id: criterion.id, description: criterion.description });
     }
     entries.push({ taskId: entry.taskId, acceptanceCriteria: criteria });
+  }
+  return entries;
+}
+
+/**
+ * Validates the optional per-task ceiling record, fail-closed.
+ *
+ * Same three rules as {@link validateTaskCriteria}, for the same reasons:
+ * absence is the one spelling of "unknown", so an empty array is refused;
+ * entries ascend by `taskId`, which settles duplicates in the same
+ * comparison. The fourth is this field's own — a recorded ceiling must be a
+ * positive finite number, exactly what `protocol/v1.ts` demands of a declared
+ * `maxCostUsd`, because this record is restored onto a spec that goes on to
+ * authorize real spend. A checkpoint that could carry `0` or `-1` past the
+ * parse-time refusal would be a way in for the value the boundary rejects.
+ */
+function validateTaskCostCeilings(value: unknown): TaskCostCeiling[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DomainValidationError(
+      "Invalid RunCheckpoint: flowchart.taskCostCeilings must be a non-empty array when present"
+    );
+  }
+  const entries: TaskCostCeiling[] = [];
+  let previousTaskId: string | undefined;
+  for (const [index, entry] of value.entries()) {
+    const label = `Invalid RunCheckpoint: flowchart.taskCostCeilings[${index}]`;
+    if (!isRecord(entry)) throw new DomainValidationError(`${label} must be an object`);
+    if (!isTaskId(entry.taskId)) throw new DomainValidationError(`${label}.taskId must be a valid TaskId`);
+    if (previousTaskId !== undefined && entry.taskId <= previousTaskId) {
+      throw new DomainValidationError(`${label}.taskId must sort strictly after ${previousTaskId}`);
+    }
+    previousTaskId = entry.taskId;
+    const maxCostUsd = entry.maxCostUsd;
+    if (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0) {
+      throw new DomainValidationError(`${label}.maxCostUsd must be a positive finite number`);
+    }
+    entries.push({ taskId: entry.taskId, maxCostUsd });
   }
   return entries;
 }

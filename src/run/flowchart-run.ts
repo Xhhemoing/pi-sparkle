@@ -92,7 +92,8 @@ import {
   type FlowchartCheckpointState,
   type ReconstructedRun,
   type RunCheckpoint,
-  type TaskAcceptanceCriteria
+  type TaskAcceptanceCriteria,
+  type TaskCostCeiling
 } from "./replay.js";
 
 export interface FlowchartRunDeps {
@@ -387,6 +388,90 @@ function advanceTaskCriteria(
   return [...merged.values()].sort(byTaskId);
 }
 
+/** Ascending `taskId`, the order the ceiling record's validator insists on. */
+function byCeilingTaskId(left: TaskCostCeiling, right: TaskCostCeiling): number {
+  if (left.taskId === right.taskId) return 0;
+  return left.taskId < right.taskId ? -1 : 1;
+}
+
+/**
+ * A declared spend ceiling, by the protocol's own rule for one.
+ *
+ * `ChildRunLimits` is an in-process interface, so an embedder can hand the
+ * runtime a `maxCostUsd` the CLI's parse-time refusal would never have let
+ * through. Recording such a value would either fail the run's own checkpoint
+ * write or, worse, put a number the protocol rejects on a durable record, so
+ * anything that is not a positive finite number is not a declared ceiling
+ * here either.
+ */
+function declaredCeiling(limits: ChildRunLimits): number | undefined {
+  const declared = limits.maxCostUsd;
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0 ? declared : undefined;
+}
+
+/**
+ * The per-task ceiling record a fresh run opens with: the ceilings its
+ * caller's child specs declared, recorded when the run accepts them rather
+ * than when it dispatches them.
+ *
+ * The same gap {@link plannedTaskCriteria} exists for, and the same fix. A
+ * `TASK_REQUEST` reaches the log only when a child starts, so a run paused
+ * before some child dispatches has nothing on its log about what that child
+ * was allowed to spend, and {@link childTasksFromLog} substitutes a budget
+ * that cannot honestly carry one. Recorded here, the ceiling survives the gap
+ * and {@link withRecordedCostCeilings} puts it back.
+ *
+ * A task whose caller declared no ceiling is *absent*, not zero and not the
+ * run's default: absence is "nobody authorized a cap for this task", which is
+ * exactly the state the resume must not turn into a sibling's number.
+ */
+function plannedTaskCostCeilings(tasks: readonly ChildTaskInput[]): TaskCostCeiling[] | undefined {
+  // Last spelling of a repeated task wins, exactly as `childTaskMap` resolves
+  // the same duplicate — including when the last spelling declares nothing,
+  // which drops the earlier entry rather than keeping a ceiling that would no
+  // longer be dispatched.
+  const planned = new Map<TaskId, TaskCostCeiling | undefined>();
+  for (const task of tasks) {
+    const declared = declaredCeiling(task.limits);
+    planned.set(task.taskId, declared === undefined ? undefined : { taskId: task.taskId, maxCostUsd: declared });
+  }
+  const entries = [...planned.values()].filter((entry): entry is TaskCostCeiling => entry !== undefined);
+  if (entries.length === 0) return undefined;
+  return entries.sort(byCeilingTaskId);
+}
+
+/**
+ * The ceiling record carried forward by one checkpoint write: what the run
+ * already recorded, plus any task the log has a ceiling-carrying
+ * `TASK_REQUEST` for that the record does not yet name.
+ *
+ * First write wins and nothing is dropped, for {@link advanceTaskCriteria}'s
+ * reasons exactly. A logged request carrying *no* ceiling adds nothing, for
+ * that function's other reason: on the log, a caller who declared none and a
+ * node the rebuild substituted for are indistinguishable, and only the
+ * caller's own spec can say known-none — which absence already says.
+ *
+ * The arm that reads the log is what recovers a run whose checkpoint predates
+ * this field: a task the log has seen dispatched under a ceiling gets that
+ * ceiling back on the record, because its own `TASK_REQUEST` is proof of what
+ * it was authorized to spend.
+ */
+function advanceTaskCostCeilings(
+  recorded: readonly TaskCostCeiling[] | undefined,
+  requests: ReadonlyMap<TaskId, TaskRequest>
+): TaskCostCeiling[] | undefined {
+  const merged = new Map<TaskId, TaskCostCeiling>();
+  for (const entry of recorded ?? []) merged.set(entry.taskId, entry);
+  for (const [taskId, request] of requests) {
+    if (merged.has(taskId)) continue;
+    const declared = declaredCeiling(request.limits);
+    if (declared === undefined) continue;
+    merged.set(taskId, { taskId, maxCostUsd: declared });
+  }
+  if (merged.size === 0) return undefined;
+  return [...merged.values()].sort(byCeilingTaskId);
+}
+
 /**
  * The routing decision that carries a task's true {@link AgentRole}.
  *
@@ -424,13 +509,24 @@ const FALLBACK_CHILD_TIMEOUT_MS = 60_000;
  * handed every resumed child `{2, 60_000, 3_600_000}` whatever the caller had
  * asked for, which is how a resumed node came to be able to spend twelve times
  * the caller's wall budget.
+ *
+ * The three coordinator-enforced fields only, in every arm. A sibling's
+ * `maxCostUsd` is that sibling's spend authorization and says nothing about
+ * this task, so copying it would invent a ceiling the caller never set here
+ * and stamp the invention into the child's `TASK_REQUEST.limits`, its
+ * `RUN_CREATED.limits` and the execution request — an absent cap stays absent.
+ * A ceiling this task's own caller *did* declare comes back from the durable
+ * record instead; see {@link withRecordedCostCeilings}.
  */
 function fallbackChildLimits(
   events: readonly Event[],
   requests: ReadonlyMap<TaskId, TaskRequest>
 ): ChildRunLimits {
   const sibling = requests.values().next();
-  if (sibling.done !== true) return sibling.value.limits;
+  if (sibling.done !== true) {
+    const { maxAttempts, timeoutMs, maxWallTimeMs } = sibling.value.limits;
+    return { maxAttempts, timeoutMs, maxWallTimeMs };
+  }
   for (const event of events) {
     if (event.type !== "RUN_CREATED") continue;
     const limits = event.payload.run.limits;
@@ -550,6 +646,35 @@ function withRecordedCriteria(
     if (requests.has(task.taskId)) return task;
     const criteria = criteriaByTask.get(task.taskId);
     return criteria === undefined ? task : { ...task, acceptanceCriteria: [...criteria] };
+  });
+}
+
+/**
+ * Restores the spend ceiling a resumed child was originally dispatched under,
+ * for the specs {@link childTasksFromLog} had to substitute for.
+ *
+ * Same seam and same rules as {@link withRecordedCriteria}: a task whose
+ * `TASK_REQUEST` the log carries keeps that request's budget verbatim,
+ * whatever the checkpoint records, and a task neither source names keeps the
+ * substituted budget — which carries no ceiling, because unknown must not be
+ * turned into a claim about what the caller authorized.
+ *
+ * Only the ceiling is put back. The substituted attempt, timeout and wall
+ * fields stay exactly what {@link fallbackChildLimits} chose: those are the
+ * coordinator's enforcement knobs and the record says nothing about them.
+ */
+function withRecordedCostCeilings(
+  tasks: readonly ChildTaskInput[],
+  events: readonly Event[],
+  recorded: readonly TaskCostCeiling[] | undefined
+): ChildTaskInput[] {
+  if (recorded === undefined || recorded.length === 0) return [...tasks];
+  const requests = loggedTaskRequests(events);
+  const ceilingByTask = new Map(recorded.map((entry) => [entry.taskId, entry.maxCostUsd]));
+  return tasks.map((task) => {
+    if (requests.has(task.taskId)) return task;
+    const maxCostUsd = ceilingByTask.get(task.taskId);
+    return maxCostUsd === undefined ? task : { ...task, limits: { ...task.limits, maxCostUsd } };
   });
 }
 
@@ -805,6 +930,13 @@ interface FlowchartLoopContext {
    * run has recorded nothing about any task yet.
    */
   taskCriteria?: TaskAcceptanceCriteria[];
+  /**
+   * What each task was authorized to spend, so far. Same three sources and
+   * same monotonic rule as {@link taskCriteria}; absence means this run has
+   * recorded no ceiling for any task, which is not the same as recording that
+   * a task has none.
+   */
+  taskCostCeilings?: TaskCostCeiling[];
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -816,6 +948,11 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
   // both sources are empty, which is the state the context is already in.
   const advanced = advanceTaskCriteria(ctx.taskCriteria, loggedTaskRequests(read.events));
   if (advanced !== undefined) ctx.taskCriteria = advanced;
+  // The ceiling record advances beside the criteria record rather than inside
+  // its merge: two records, two shapes, one rule each, and the criteria writer
+  // stays exactly the code its own pins describe.
+  const advancedCeilings = advanceTaskCostCeilings(ctx.taskCostCeilings, loggedTaskRequests(read.events));
+  if (advancedCeilings !== undefined) ctx.taskCostCeilings = advancedCeilings;
   const flowchart: FlowchartCheckpointState = {
     definition: ctx.definition,
     snapshot,
@@ -828,7 +965,11 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
     // one more: this is the only record that can still tell a task dispatched
     // with no criteria from a task nobody recorded, once the log's own answer
     // has been overwritten by a substituted re-dispatch.
-    ...(ctx.taskCriteria !== undefined ? { taskCriteria: ctx.taskCriteria } : {})
+    ...(ctx.taskCriteria !== undefined ? { taskCriteria: ctx.taskCriteria } : {}),
+    // And for what each task was authorized to spend: the substitution that
+    // replaces a missing budget deliberately carries no ceiling, so this
+    // record is the only thing that can give a declared one back.
+    ...(ctx.taskCostCeilings !== undefined ? { taskCostCeilings: ctx.taskCostCeilings } : {})
   };
   const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, ctx.now(), flowchart));
   await ctx.checkpointStore.write(checkpoint);
@@ -1308,6 +1449,7 @@ async function startLockedFlowchartRun(
   const plannedChildren = input.childTasks ?? [];
   const childByTaskId = childTaskMap(plannedChildren);
   const plannedCriteria = plannedTaskCriteria(plannedChildren);
+  const plannedCeilings = plannedTaskCostCeilings(plannedChildren);
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
   let childCoordinator: ChildCoordinator | undefined;
@@ -1356,7 +1498,8 @@ async function startLockedFlowchartRun(
     ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
     ...(input.contract !== undefined ? { contract: input.contract } : {}),
-    ...(plannedCriteria !== undefined ? { taskCriteria: plannedCriteria } : {})
+    ...(plannedCriteria !== undefined ? { taskCriteria: plannedCriteria } : {}),
+    ...(plannedCeilings !== undefined ? { taskCostCeilings: plannedCeilings } : {})
   };
   await persistCheckpoint(ctx);
   return withRunTeardown(ctx, () => runFlowchartLoop(ctx));
@@ -1483,6 +1626,9 @@ async function resumeLockedFlowchartRun(
   // No continuation counterpart on purpose: `taskCriteria` is a record of what
   // this run already dispatched, not a knob a caller may re-answer.
   const taskCriteria = checkpoint.flowchart.taskCriteria;
+  // Same rule, and it binds harder here: a continuation field for the ceiling
+  // would be a way to raise a child's cap by resuming it.
+  const taskCostCeilings = checkpoint.flowchart.taskCostCeilings;
   const supervisor = await restoreCheckpointedSupervisor({
     deps,
     runId,
@@ -1504,9 +1650,14 @@ async function resumeLockedFlowchartRun(
     deps.executor !== undefined
       ? childTasksFromLog(read.events, definition, registry, deps.router.config.models)
       : [];
-  // The one thing the log cannot supply: what a node it never saw run was
-  // originally asked to satisfy. Substitutions only; see `withRecordedCriteria`.
-  const rebuilt = withRecordedCriteria(fromLog, read.events, taskCriteria);
+  // The two things the log cannot supply for a node it never saw run: what it
+  // was originally asked to satisfy, and what it was authorized to spend.
+  // Substitutions only, in both cases; see `withRecordedCriteria`.
+  const rebuilt = withRecordedCostCeilings(
+    withRecordedCriteria(fromLog, read.events, taskCriteria),
+    read.events,
+    taskCostCeilings
+  );
   const childByTaskId = childTaskMap(rebuilt);
   const finishedChildren = new Map<TaskId, ChildRunOutcome>();
   let spawnHandles: ChildRunHandle[] = [];
@@ -1555,7 +1706,8 @@ async function resumeLockedFlowchartRun(
     ...(clusterHost !== undefined ? { clusterHost } : {}),
     ...(index !== undefined ? { index } : {}),
     ...(contract !== undefined ? { contract } : {}),
-    ...(taskCriteria !== undefined ? { taskCriteria } : {})
+    ...(taskCriteria !== undefined ? { taskCriteria } : {}),
+    ...(taskCostCeilings !== undefined ? { taskCostCeilings } : {})
   };
 
   return withRunTeardown(ctx, () => resumeRestoredRun(ctx, continuation));
@@ -1685,6 +1837,11 @@ async function restoreFlowchartSession(
     // anything about what a child was asked to check, so neither may forget it.
     ...(checkpoint.flowchart.taskCriteria !== undefined
       ? { taskCriteria: checkpoint.flowchart.taskCriteria }
+      : {}),
+    // Nor anything about what a child was authorized to spend — an operator
+    // action that forgot the record would uncap the next resumed node.
+    ...(checkpoint.flowchart.taskCostCeilings !== undefined
+      ? { taskCostCeilings: checkpoint.flowchart.taskCostCeilings }
       : {})
   };
   return { ctx, replayed };
@@ -2114,7 +2271,7 @@ async function unblockLockedFlowchartRun(
   if (checkpoint.flowchart === undefined) {
     throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
   }
-  const { definition, snapshot, limits, contract, taskCriteria } = checkpoint.flowchart;
+  const { definition, snapshot, limits, contract, taskCriteria, taskCostCeilings } = checkpoint.flowchart;
   const gateFailedNode = gateBlockedFailedNode(read.events, blockedEventId, definition, snapshot);
   const retryNodeId = resolveRetryTarget(gateFailedNode, request.retryNodeId);
   const discardExecuted = request.discardExecuted === true;
@@ -2177,7 +2334,10 @@ async function unblockLockedFlowchartRun(
       ...(contract !== undefined ? { contract } : {}),
       // Nor what each task was asked to satisfy — a rewound node is re-run
       // against the criteria it was dispatched with, not against none.
-      ...(taskCriteria !== undefined ? { taskCriteria } : {})
+      ...(taskCriteria !== undefined ? { taskCriteria } : {}),
+      // Nor what it was authorized to spend: a rewound node is re-run under
+      // the ceiling its caller set, not uncapped.
+      ...(taskCostCeilings !== undefined ? { taskCostCeilings } : {})
     })
   );
   await checkpointStore.write(nextCheckpoint);

@@ -356,18 +356,32 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   `TIMEOUT` outcome even when the per-attempt deadline has not elapsed. A
   terminal result or protocol violation that still arrives keeps its own
   outcome.
-- `maxCostUsd` is validated as a positive protocol field when present, but the
-  child coordinator does not currently read usage or enforce this ceiling.
+- `maxCostUsd` is validated as a positive protocol field when present. The child
+  coordinator forwards the tighter of it and the run-level ceiling to the
+  selected executor on the execution request and stamps that effective cap into
+  the child's `RUN_CREATED.limits`. `PiAgentExecutor` prices observed turn usage
+  from the resolved model catalog and stops before another provider turn once
+  the ceiling is reached; an executor that cannot price its own spend leaves the
+  ceiling unenforced rather than inventing a dollar figure, so this stays a
+  best-effort per-execution cap, not a cross-child run ledger.
 
 On flowchart resume, a node whose parent log contains a `TASK_REQUEST` runs
 under that recorded spec. Objective, input artifacts, acceptance criteria, and
 child limits come from the request; the role-bearing assignment
 `MODEL_ROUTED` restores the agent role, assigned model, and cascade; dependencies
 come from the checkpointed edges. A node without a logged request retains empty
-artifacts and receives the earliest logged sibling's budget, or the run's
-declared per-task limits when there is no sibling. Its acceptance criteria come
-from the durable task record when that record names the node; otherwise they
-remain empty/unknown. Request reconstruction is stable across repeated resumes
+artifacts and receives a substituted budget: the earliest logged sibling's
+`maxAttempts`, `timeoutMs`, and `maxWallTimeMs`, or the run's declared per-task
+limits when there is no sibling. The substitution carries no `maxCostUsd` from
+either source — a sibling's ceiling authorizes that sibling's spend and says
+nothing about this node, so an absent cap stays absent rather than becoming an
+invented one on the node's `TASK_REQUEST.limits`, its child `RUN_CREATED.limits`,
+and its execution request. A ceiling the node's own caller declared is restored
+from the durable `FlowchartCheckpointState.taskCostCeilings` record when that
+record names the node; when neither the log nor the record names it, the node
+resumes with no per-task ceiling. Its acceptance criteria come from the durable
+task record when that record names the node; otherwise they remain
+empty/unknown. Request reconstruction is stable across repeated resumes
 because the latest request per task wins.
 Round 11 added the validated optional
 `FlowchartCheckpointState.taskCriteria?` seam; Round 12 filled it in `81f5b81`.
