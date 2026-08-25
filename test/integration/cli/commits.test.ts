@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFile, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -604,6 +604,270 @@ for (const sub of ["preview", "apply"]) {
     assert.deepEqual(err, []);
   });
 }
+
+// A pasted-wrong run id is an argv typo: the remedy is the id list, never
+// doctor preflight, and the refusal echoes what the operator typed.
+for (const sub of ["preview", "apply"]) {
+  test(`commits ${sub} refuses a malformed --run before reading state`, async () => {
+    const stateRoot = join(tmpdir(), "pi-sparkle-commits-nowhere");
+    const { io, out, err } = capture();
+    const code = await main(["commits", sub, "--run", "banana", "--state-root", stateRoot], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --run "banana": expected a run id of the form run_<suffix>');
+    assert.equal(report?.next, `pass --run <runId> as printed by pnpm cli list --state-root ${stateRoot}`);
+    assert.equal(report?.runId, "banana");
+  });
+
+  // The state root does not exist, so a refusal that names `--nodes` rather
+  // than the missing run proves the CSV is judged before any state read.
+  test(`commits ${sub} refuses a --nodes CSV that selects nothing, before state`, async () => {
+    const stateRoot = join(tmpdir(), "pi-sparkle-commits-nowhere");
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", sub, "--run", "run_missing0001", "--state-root", stateRoot, "--nodes", ","],
+      io
+    );
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --nodes ",": selects no node ids');
+    assert.equal(report?.next, "pass --nodes <id,id> or drop the flag to use every completed node");
+    assert.equal(report?.runId, undefined);
+  });
+
+  // Which node ids exist is run state, so the stage stays `validation` — but
+  // the remedy names the flag and the command that prints the ids.
+  test(`commits ${sub} sends an unknown --nodes id to inspect, not to doctor`, async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+      const { io, out, err } = capture();
+      const code = await main(
+        ["commits", sub, "--run", outcome.runId, "--state-root", stateRoot, "--nodes", "bogus"],
+        io
+      );
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "commits");
+      assert.equal(report?.stage, "validation");
+      assert.equal(report?.message, "unknown flowchart node id(s): bogus");
+      assert.equal(
+        report?.next,
+        "pass --nodes ids from this run's flowchart; " +
+          `pi-sparkle inspect --run ${outcome.runId} --state-root ${stateRoot} lists its nodes`
+      );
+      assert.match(report?.next ?? "", /inspect --run/);
+      assert.equal(report?.runId, outcome.runId);
+    });
+  });
+}
+
+// A trailing comma that still names ids is a typo the CSV parser already
+// absorbs; only a selection of nothing refuses.
+test("commits preview accepts a --nodes CSV with a trailing comma", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--nodes", "work,"],
+      io
+    );
+
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /^feat\(work\): Do the work/m);
+    assert.deepEqual(err, []);
+  });
+});
+
+test("apply names --file when the path cannot be read", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const file = join(projectRoot, "nope.json");
+    const { io, out, err } = capture();
+    const code = await main(
+      [
+        "commits",
+        "apply",
+        "--run",
+        outcome.runId,
+        "--state-root",
+        stateRoot,
+        "--repo",
+        projectRoot,
+        "--file",
+        file
+      ],
+      io
+    );
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "lookup");
+    assert.match(report?.message ?? "", new RegExp(`^cannot read --file ${file}: `));
+    assert.match(report?.message ?? "", /ENOENT/);
+    assert.equal(
+      report?.next,
+      "check the --file path; commits preview --json writes an input this flag accepts"
+    );
+    assert.equal(report?.runId, outcome.runId);
+  });
+});
+
+test("apply reports an unparsable --file against the file, not the run", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const file = join(projectRoot, "edited.json");
+    await writeFile(file, "not json at all", "utf8");
+    const { io, out, err } = capture();
+    const code = await main(
+      [
+        "commits",
+        "apply",
+        "--run",
+        outcome.runId,
+        "--state-root",
+        stateRoot,
+        "--repo",
+        projectRoot,
+        "--file",
+        file
+      ],
+      io
+    );
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "validation");
+    assert.match(report?.message ?? "", new RegExp(`^${file}: decision commit file is not valid JSON: `));
+    assert.equal(report?.next, `fix ${file} or regenerate it with commits preview --json`);
+    assert.equal(report?.runId, outcome.runId);
+  });
+});
+
+// A supplied blank `--repo` is an argv fault. The checkpoint fallback answers
+// only for the flag the operator *omitted*, so blaming a missing environment
+// here would hide the empty string they actually passed.
+for (const repo of ["", "  "]) {
+  test(`apply refuses --repo ${JSON.stringify(repo)} as argv, naming the flag`, async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+      const { io, out, err } = capture();
+      const code = await main(
+        ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo],
+        io
+      );
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "parse-args",
+        message: `invalid --repo "${repo}": repository path must be a non-empty string`,
+        next: "pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath",
+        runId: outcome.runId
+      });
+    });
+  });
+}
+
+// The state root does not exist, so the same argv report proves the blank flag
+// is judged before the run is read.
+test("apply refuses a whitespace --repo before reading state", async () => {
+  const stateRoot = join(tmpdir(), "pi-sparkle-commits-nowhere");
+  const { io, out, err } = capture();
+  const code = await main(
+    ["commits", "apply", "--run", "run_missing0001", "--state-root", stateRoot, "--repo", "  "],
+    io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(out, []);
+  assert.deepEqual(parseCliErrorJson(err.join("")), {
+    ok: false,
+    command: "commits",
+    stage: "parse-args",
+    message: 'invalid --repo "  ": repository path must be a non-empty string',
+    next: "pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath",
+    runId: "run_missing0001"
+  });
+});
+
+test("apply with no --repo still commits into the checkpoint project.rootPath", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const { io, out, err } = capture();
+    const code = await withGitIdentity(() =>
+      main(["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot], io)
+    );
+
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /Committed feat\(work\): Do the work/);
+    assert.deepEqual(git(["log", "--format=%s"], projectRoot).trim().split("\n"), [
+      "feat(work): Do the work"
+    ]);
+  });
+});
+
+// Omitted flag *and* no project on the checkpoint: nothing in argv is wrong, so
+// this stays the environment report.
+test("apply with no --repo and no checkpoint project reports preflight", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const checkpointPath = join(stateRoot, "runtime", "runs", outcome.runId, "checkpoint.json");
+    const checkpoint = JSON.parse(await readFile(checkpointPath, "utf8")) as Record<string, unknown>;
+    delete checkpoint.project;
+    await writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), "utf8");
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    assert.deepEqual(parseCliErrorJson(err.join("")), {
+      ok: false,
+      command: "commits",
+      stage: "preflight",
+      message: "apply requires --repo or a checkpoint project.rootPath",
+      next: "pass --repo <path to a git work tree>",
+      runId: outcome.runId
+    });
+  });
+});
+
+test("apply against a directory that is not a work tree reports preflight", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", projectRoot],
+      io
+    );
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "preflight");
+    assert.match(report?.message ?? "", new RegExp(`^apply requires a git work tree at ${projectRoot}: `));
+    assert.equal(report?.next, `run git init in ${projectRoot} or pass --repo <git work tree>`);
+    assert.equal(report?.runId, outcome.runId);
+  });
+});
 
 test("preview does not create commits", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
