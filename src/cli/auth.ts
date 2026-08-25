@@ -2,9 +2,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
-import { loadProvidersConfig } from "../config/providers-config.js";
+import { loadProvidersConfig, type CustomProviderConfig } from "../config/providers-config.js";
 import {
   checkProviderAuth,
+  checkProviderEnvAuth,
   deleteStoredCredential,
   isKnownProvider,
   listBuiltinProviderIds,
@@ -12,6 +13,8 @@ import {
   loginProviderInteractive,
   storeApiKeyCredential
 } from "../pi-adapter/auth-session.js";
+import { asAuthStoreUnreadable, authStorePath } from "../pi-adapter/file-credential-store.js";
+import { cliFail } from "./errors.js";
 
 export interface AuthIo {
   stdout(text: string): void;
@@ -25,31 +28,49 @@ Usage:
   pi-sparkle auth login <provider> [--key <key> | --from-env | --oauth] [--state-root <dir>]
   pi-sparkle auth logout <provider> [--state-root <dir>]
 
-Stored credentials live in <state-root>/auth.json and win over environment
-variables. Status never prints secrets. OPENAI_API_KEY / ANTHROPIC_API_KEY / …
-still work without login. PI_API_KEY is only a compatibility override for the
-default provider.
+Stored credentials live in <state-root>/runtime/auth.json and win over
+environment variables. Status never prints secrets. OPENAI_API_KEY /
+ANTHROPIC_API_KEY / … still work without login. PI_API_KEY is only a
+compatibility override for the default provider.
+
+login takes exactly one mode. --key and --oauth store a credential; --from-env
+stores nothing and only reports whether the environment configures the
+provider — a credential already in auth.json does not make it pass.
 `;
 
 export async function authCommand(args: string[], io: AuthIo): Promise<number> {
   const [sub, ...rest] = args;
-  switch (sub) {
-    case "status":
-      return await statusCommand(rest, io);
-    case "login":
-      return await loginCommand(rest, io);
-    case "logout":
-      return await logoutCommand(rest, io);
-    case "help":
-    case "--help":
-    case "-h":
-    case undefined:
-      io.stdout(AUTH_USAGE);
-      return 0;
-    default:
-      io.stderr(`Unknown auth command: ${sub}\n`);
-      io.stderr(AUTH_USAGE);
-      return 1;
+  try {
+    switch (sub) {
+      case "status":
+        return await statusCommand(rest, io);
+      case "login":
+        return await loginCommand(rest, io);
+      case "logout":
+        return await logoutCommand(rest, io);
+      case "help":
+      case "--help":
+      case "-h":
+      case undefined:
+        io.stdout(AUTH_USAGE);
+        return 0;
+      default:
+        io.stderr(`Unknown auth command: ${sub}\n`);
+        io.stderr(AUTH_USAGE);
+        return 1;
+    }
+  } catch (error) {
+    // A damaged auth.json fails every verb, `logout` included, so the remedy
+    // the operator needs is the one thing the generic "fix the reported error"
+    // cannot give them: which file, and that moving it aside is safe.
+    const unreadable = asAuthStoreUnreadable(error);
+    if (unreadable === undefined) throw error;
+    return cliFail(io, {
+      command: `auth ${sub ?? ""}`.trim(),
+      stage: "load-credentials",
+      message: unreadable.message,
+      next: `move ${unreadable.path} aside — it holds only credentials you can enter again, and pi-sparkle will not delete it for you — then re-run pi-sparkle auth login <provider>`
+    });
   }
 }
 
@@ -106,6 +127,21 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     io.stderr(AUTH_USAGE);
     return 1;
   }
+  // The modes do different things to auth.json, so a combination has no
+  // coherent meaning and used to resolve by silent precedence: --from-env beat
+  // --key, which meant `--key sk-new --from-env` exited 0 reporting the *old*
+  // stored credential and never wrote the new one. Refusing is the only
+  // reading of `[--key | --from-env | --oauth]` that cannot lose a rotation.
+  const modes = [
+    ...(values.key !== undefined ? ["--key"] : []),
+    ...(values["from-env"] === true ? ["--from-env"] : []),
+    ...(values.oauth === true ? ["--oauth"] : [])
+  ];
+  if (modes.length > 1) {
+    throw new DomainValidationError(
+      `auth login takes one of --key, --from-env, --oauth; got ${modes.join(" and ")} — nothing was stored`
+    );
+  }
   const config = await loadProvidersConfig(stateRootOf(values));
   if (!(await isKnownProvider(providerId, config.customProviders))) {
     throw new DomainValidationError(`unknown provider "${providerId}"`);
@@ -115,12 +151,7 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   }
   const stateRoot = stateRootOf(values);
   if (values["from-env"] === true) {
-    const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
-    if (check === undefined) {
-      throw new DomainValidationError(`provider ${providerId} is not configured in the environment`);
-    }
-    io.stdout(`${providerId} configured via ${check.source ?? check.type} (not written to auth.json)\n`);
-    return 0;
+    return await loginFromEnvCommand(stateRoot, providerId, config.customProviders, io);
   }
   if (values.key !== undefined) {
     const path = await storeApiKeyCredential(stateRoot, providerId, values.key);
@@ -130,6 +161,53 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   const type = values.oauth === true ? "oauth" : "api_key";
   const path = await loginProviderInteractive(stateRoot, providerId, type, io, config.customProviders);
   io.stdout(`Stored ${type} credential for ${providerId} in ${path}\n`);
+  return 0;
+}
+
+/**
+ * `--from-env` verifies the environment and writes nothing.
+ *
+ * It used to ask `checkAuth`, which resolves a stored credential first — so
+ * the flag reported success off `auth.json` for a provider with no environment
+ * variable set anywhere, and then said "(not written to auth.json)" about the
+ * very file it had just read. The check is now env-only and fails closed, and
+ * a stored credential that outranks the environment is disclosed rather than
+ * mistaken for one: the operator asked whether the environment works, and it
+ * will not be what a run uses while that credential is on disk.
+ */
+async function loginFromEnvCommand(
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[],
+  io: AuthIo
+): Promise<number> {
+  const custom = customProviders.find((item) => item.id === providerId);
+  const customEnvVar = custom?.envVar?.trim();
+  if (custom !== undefined && (customEnvVar === undefined || customEnvVar === "")) {
+    throw new DomainValidationError(
+      `provider ${providerId} is a custom provider with no envVar in providers.json, ` +
+        "so no environment variable configures it and --from-env has nothing to check"
+    );
+  }
+  const check = await checkProviderEnvAuth(stateRoot, providerId, customProviders);
+  if (check === undefined) {
+    throw new DomainValidationError(
+      customEnvVar !== undefined
+        ? `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`
+        : `provider ${providerId} is not configured in the environment; --from-env checks environment variables only, so set this provider's API-key variable, or run pi-sparkle auth login ${providerId} --key <key> to store one instead`
+    );
+  }
+  // Read the store before reporting success, not after: a damaged auth.json
+  // has to fail the command whole rather than land under a success line.
+  const stored = await listStoredCredentials(stateRoot);
+  io.stdout(
+    `${providerId} is configured by the environment via ${check.source ?? check.type} (nothing written to auth.json)\n`
+  );
+  if (stored.some((item) => item.providerId === providerId)) {
+    io.stdout(
+      `note: a stored credential for ${providerId} in ${authStorePath(stateRoot)} still wins over the environment; run pi-sparkle auth logout ${providerId} to use the environment\n`
+    );
+  }
   return 0;
 }
 
@@ -143,8 +221,17 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
     io.stderr("auth logout requires <provider>\n");
     return 1;
   }
-  await deleteStoredCredential(stateRootOf(values), providerId);
-  io.stdout(`Removed stored credential for ${providerId}\n`);
+  const stateRoot = stateRootOf(values);
+  // Deleting nothing still succeeds — re-running logout has to stay safe — but
+  // saying "removed" about a provider that was never stored (a typo, or a
+  // provider configured purely from the environment) reports work that did not
+  // happen, and reads as if it had cleared an environment variable.
+  const removed = await deleteStoredCredential(stateRoot, providerId);
+  io.stdout(
+    removed
+      ? `Removed stored credential for ${providerId} from ${authStorePath(stateRoot)}\n`
+      : `No stored credential for ${providerId} in ${authStorePath(stateRoot)}; nothing to remove (environment variables are untouched).\n`
+  );
   return 0;
 }
 

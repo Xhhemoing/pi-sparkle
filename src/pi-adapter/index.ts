@@ -40,7 +40,14 @@ export {
   type RetryPolicy,
   type RetryReason
 } from "./provider-retry.js";
-export { FileCredentialStore, authStorePath } from "./file-credential-store.js";
+export {
+  asAuthStoreUnreadable,
+  authStorePath,
+  AUTH_STORE_UNREADABLE_CODE,
+  AuthStoreUnreadableError,
+  EmptyCredentialStore,
+  FileCredentialStore
+} from "./file-credential-store.js";
 export { createPiRuntime, createConfiguredPiExecutor } from "./runtime.js";
 export {
   describeSparkleModel,

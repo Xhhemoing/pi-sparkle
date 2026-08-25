@@ -6,6 +6,7 @@ import { test } from "node:test";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import {
   checkProviderAuth,
+  checkProviderEnvAuth,
   cliAuthInteraction,
   deleteStoredCredential,
   isKnownProvider,
@@ -252,6 +253,58 @@ test("checkProviderAuth invents nothing for an unknown or unconfigured provider"
       assert.equal(await checkProviderAuth(stateRoot, "anthropic"), undefined);
       assert.equal(await exists(authStorePath(stateRoot)), false);
     });
+  });
+});
+
+test("the env-only check ignores the credential store the ordinary check prefers", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await storeApiKeyCredential(stateRoot, "anthropic", FAKE_KEY);
+
+    await withEnv(clearedAnthropicEnv(), async () => {
+      // Stored-wins is Pi's precedence and the default login path depends on
+      // it, so the ordinary check must keep reporting the stored credential.
+      assert.deepEqual(await checkProviderAuth(stateRoot, "anthropic"), {
+        type: "api_key",
+        source: "stored credential"
+      });
+      // `--from-env` asks the narrower question, and a file is not an
+      // environment: with no variable set there is nothing to report.
+      assert.equal(await checkProviderEnvAuth(stateRoot, "anthropic"), undefined);
+    });
+
+    await withEnv({ ...clearedAnthropicEnv(), ANTHROPIC_API_KEY: `${FAKE_KEY}-env` }, async () => {
+      const env = await checkProviderEnvAuth(stateRoot, "anthropic");
+      assert.deepEqual(env, { type: "api_key", source: "ANTHROPIC_API_KEY" });
+      assert.equal(JSON.stringify(env).includes(FAKE_KEY), false);
+      // The stored credential still owns the provider for everything else.
+      assert.deepEqual(await checkProviderAuth(stateRoot, "anthropic"), {
+        type: "api_key",
+        source: "stored credential"
+      });
+    });
+
+    // A check writes nothing: the store is exactly what login left behind.
+    assert.deepEqual(await listStoredCredentials(stateRoot), [
+      { providerId: "anthropic", type: "api_key" }
+    ]);
+  });
+});
+
+test("the env-only check invents nothing for an unknown provider", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withEnv(clearedAnthropicEnv(), async () => {
+      assert.equal(await checkProviderEnvAuth(stateRoot, UNKNOWN_PROVIDER), undefined);
+      assert.equal(await exists(authStorePath(stateRoot)), false);
+    });
+  });
+});
+
+test("logging out reports whether a credential was actually removed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), false);
+    await storeApiKeyCredential(stateRoot, "openai", FAKE_KEY);
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), true);
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), false);
   });
 });
 
