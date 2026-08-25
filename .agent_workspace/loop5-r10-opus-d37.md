@@ -3,9 +3,11 @@
 Slot: Opus-d37-blank-root (rank 1 implementer). Branch
 `cursor/blank-state-root-preflight-0da8`, based on
 `origin/cursor/pi-sparkle-sota-opt-0da8` at `be4c7a9`
-(`docs(agent): record GPT-r10 FIX riders for D37–D39`), which was the latest origin SHA
-when the branch was cut and still is at delivery. Not merged to the integration branch and no
-PR opened — parent merges.
+(`docs(agent): record GPT-r10 FIX riders for D37–D39`), the latest origin SHA when the branch
+was cut. Origin advanced to `c533f5c` (`docs(agent): record GPT-d38-recheck dispatch id`) during
+implementation; `git diff --name-status be4c7a9..c533f5c -- src test` is empty, so every source
+and test blob this batch was built against is unchanged and no rebase was needed. Not merged to
+the integration branch and no PR opened — parent merges.
 
 **Spec applied: `.agent_workspace/loop5-r10-gpt-challenge.md` D37 FIX**, i.e. Fable's Rank 1
 (`.agent_workspace/loop5-r10-fable-next.md`) *as corrected by GPT*. The corrections that
