@@ -389,6 +389,10 @@ Two real candidates from `.agent_workspace/ROUND20-BRIEF.md` (audit: `.agent_wor
 | R20-1 | bc-d0fdaa6d-61f7-5746-af73-c9153b143d0a | restore declared maxCostUsd across pause/resume |
 | R20-2 | bc-8347696c-41b7-5800-912a-fb6246f60829 | targeted steerText so backoff cannot cross runs |
 
+Landed: R20-2 `57ade59` optional `steerText` target (startRun passes root instance; targeted miss refuses before `STEER_INJECTED`); R20-1 `1d9ef99` `taskCostCeilings` restore across pause/resume, sibling arm never copies a ceiling. Direction (b). Census docs aligned. No freeze extras.
+
+**Parent gate GREEN** against code HEAD `1d9ef99`: **2050 tests / 2049 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 120 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 18: **+8** (R20-2 +3, R20-1 +5). Fable SOTA review dispatched.
+
 ---
 
 # Loop 3 — SOTA follow-on (2026-08-24)
