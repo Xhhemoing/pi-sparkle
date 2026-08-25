@@ -99,5 +99,5 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 
 ### Round 3 still running / next implementers
 
-- D18 independent GPT recheck dispatched.
+- D18 independent GPT recheck retried after the first prompt was refused by the model safety filter; same contract, operator-honesty wording.
 - Round 5 next-bets ranking dispatched (D15–D17 landed; D16 KEEP; D18 pending recheck). Windows smoke and status-matrix still HOLD behind PR #12.
