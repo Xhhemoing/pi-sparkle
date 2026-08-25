@@ -86,7 +86,7 @@ GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required 
 
 **Landed** (Opus-dataset-privacy): redact-then-excerpt; `source.originalWorkspace` redacted once and copied onto rows; `delete --run` cascades default eval-datasets dir; `--dir` realpath-refuses the runtime plane; JSON key `episodes` kept with `rowKind: "routed-task-from-one-run"`.
 
-**D18 residual (GPT-d10 FIX, landed; GPT-d18 FIX → D19; GPT-d19 FIX → D23):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. D18 closed that shape. D19 closed one-way pathname identity. Do not treat `adapt dataset` as merge-ready until D23 KEEP.
+**D18 residual (GPT-d10 FIX → D18/D19/D23 KEEP):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. D18 closed that shape, D19 closed one-way pathname identity, D23 closed restored-empty-directory success. `adapt dataset` is merge-ready on those conditions.
 
 ## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
 
@@ -146,7 +146,9 @@ The post-publish assertion must confirm the leaf is a directory and is the **sam
 
 Post-publish must not only re-read directory identity; it must `lstat` `manifest.json` inside that same directory and require a regular file. If the originally bound directory is restored empty after the write went to a replacement, fail at stage `"publish"` and do not return a path whose manifest is missing. Keep D18 symlink refusals and the D19 one-way replacement pin. Add a rename-seam pin: move bound leaf aside → publish into a replacement → move replacement aside → restore original leaf → export rejects. Do not search the filesystem for the displaced directory. Do not change `--dir` or `main.ts`.
 
-**Landed** (Opus-d23-manifest-exists): `assertDefaultEvalDatasetPublished` `lstat`s `EVAL_DATASET_MANIFEST_FILE` on the bound path and requires `isFile()`. Independent GPT recheck dispatched.
+**Landed** (Opus-d23-manifest-exists): `assertDefaultEvalDatasetPublished` `lstat`s `EVAL_DATASET_MANIFEST_FILE` on the bound path and requires `isFile()`.
+
+**GPT-d23-recheck: KEEP.** Success implies a regular-file manifest in the bound directory; D18/D19 pins intact. Report: `.agent_workspace/loop5-r4-gpt-d23.md`.
 
 ## D20 — Round 5 rank 1: CLI claims only the work it did
 
@@ -168,6 +170,6 @@ Fable-r5-next. GPT-r5-challenge: **FIX** the login message and G4 count; keep th
 
 Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 as corrected by the GPT challenge.
 
-## D22 — Round 5 rank 3: doctor storage inventory (queued)
+## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
