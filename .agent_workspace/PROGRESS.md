@@ -282,7 +282,24 @@ Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th cr
 
 Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded joint in `flowchart-run-abort.test.ts`); R12-2 `95a2b25`; R12-3 `b8f784f`; R12-4 `d1b451c`; R12-5/6/7/8 report-only; R12-9 `b65a8b1`; R12-10 `d592f8c` + successor `0e61063`. Stale Round 11 "no writer" source docstrings in `replay.ts`/`prescore.ts` prescribed, not parent-edited.
 
-**Parent gate GREEN** at this write-up: **1947 tests / 1946 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review in flight.
+**Parent gate GREEN** at `aa7282f`: **1947 tests / 1946 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r12-review.md`. Two joints counted (abort-test fold inside `81f5b81`; successor `0e61063` 7s after the writer). Zero red-tree commit points. Brief: `.agent_workspace/ROUND12-BRIEF.md`.
+
+## Round 13 — in flight
+
+10 slots from `.agent_workspace/ROUND12-BRIEF.md` (four real candidates; freeze extras fill the rest). Stay on `agent/opt-continuous`. Parent sign-off: R13-1 **YES** comment-only truth-up of the two false "no writer" docstrings; R13-3 **YES** early `onRunStarted` on `--flowchart` and `--children`.
+
+| Slot | Agent | Focus |
+|---|---|---|
+| R13-1 | pending | comment-only `replay.ts` / `prescore.ts` "no writer" truth-up |
+| R13-2 | pending | behavioural pins: unblock `taskCriteria` carry-forward + `advanceTaskCriteria` log-derived arm |
+| R13-3 | pending | early run-id on `--flowchart` / `--children` |
+| R13-4 | pending | Round 12 docs truth-up |
+| R13-5 | pending | keep live-isolation pins |
+| R13-6 | pending | keep `applyRetry` absence |
+| R13-7 | pending | keep never-synthesize-from-episode |
+| R13-8 | pending | keep `independentEvidence` posture |
+| R13-9 | pending | keep exact eight `RunStatus` members |
+| R13-10 | pending | keep writer-carriage property |
 
 ---
 
