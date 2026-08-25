@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import {
   createAgentInstanceId,
@@ -436,6 +437,13 @@ test("the answer refusal prints an injectable continuation as facts, not a comma
     assert.ok(stderr.includes(`  continuation state-root: ${stateRoot}\n`));
     assertNoPasteableContinuation(stderr);
     assertNoPasteableContinuation(answered.out.join(""));
+
+    // The structured report carries the same facts, and no command either.
+    const report = parseCliErrorJson(stderr);
+    assert.ok(report, `the refusal still emits a machine-readable report: ${stderr}`);
+    assert.ok(report.next.includes(`continuation project: ${projectRoot}`));
+    assert.ok(report.next.includes(`continuation objective: ${INJECTED_OBJECTIVE}`));
+    assert.doesNotMatch(report.next, /pnpm cli run --track --project/);
   });
 });
 

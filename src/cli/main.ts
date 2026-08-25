@@ -1133,9 +1133,7 @@ function trackContinuationFacts(input: {
   readonly stateRoot: string;
   readonly projectRoot: string | undefined;
   readonly objective: string | undefined;
-  readonly indent: string;
-}): string {
-  const { indent } = input;
+}): readonly string[] {
   const project =
     input.projectRoot === undefined
       ? "(not recorded — supply the project this run was started on)"
@@ -1145,12 +1143,12 @@ function trackContinuationFacts(input: {
       ? "(not recorded — supply the objective this run was started with)"
       : trackFactValue(input.objective);
   return [
-    `${indent}continuation verb: run --track\n`,
-    `${indent}continuation project: ${project}\n`,
-    `${indent}continuation objective: ${objective}\n`,
-    `${indent}continuation answers: --answers <file.json>\n`,
-    `${indent}continuation state-root: ${trackFactValue(input.stateRoot)}\n`
-  ].join("");
+    "continuation verb: run --track",
+    `continuation project: ${project}`,
+    `continuation objective: ${objective}`,
+    "continuation answers: --answers <file.json>",
+    `continuation state-root: ${trackFactValue(input.stateRoot)}`
+  ];
 }
 
 /**
@@ -1192,14 +1190,13 @@ export function formatTrackClarificationReport(input: {
   }
   const objective = clarification.kind === "read" ? clarification.objective : undefined;
   lines.push("  next: this run stays WAITING_FOR_USER; start a new tracked run from the facts below (they are arguments, not a shell line)\n");
-  lines.push(
-    trackContinuationFacts({
-      stateRoot: input.stateRoot,
-      projectRoot: input.projectRoot,
-      objective,
-      indent: "  "
-    })
-  );
+  for (const fact of trackContinuationFacts({
+    stateRoot: input.stateRoot,
+    projectRoot: input.projectRoot,
+    objective
+  })) {
+    lines.push(`  ${fact}\n`);
+  }
   lines.push("  note: --assume-defaults answers them with the recorded defaults instead of an answers file\n");
   lines.push(`  note: answer --run ${input.runId} cannot continue this run — nothing consumes an answer on this plane, so it stays WAITING_FOR_USER and the continuation above is a new run\n`);
   return lines.join("");
@@ -1844,22 +1841,22 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   // themselves are only needed to print them, which `inspect` does.
   const clarification = await readTrackClarification(stateRoot, runId);
   if (isTrackClarificationWait(clarification)) {
-    const code = cliFail(io, {
+    const facts = trackContinuationFacts({
+      stateRoot,
+      projectRoot: projectRootFromEvents(read.events),
+      objective: clarification.kind === "read" ? clarification.objective : undefined
+    });
+    return cliFail(io, {
       command: "answer",
       stage: "validation",
       message: `Run ${runId} is waiting on run --track clarification questions, and no answer recorded here is ever read`,
-      next: `pnpm cli inspect --run ${runId} prints the questions (pass the --state-root below); a new tracked run continues the work, from these facts (or --assume-defaults)`,
+      // Facts over one `next:` command line, and inside `next` rather than
+      // printed beside it so the JSON report carries them too.
+      next: `pnpm cli inspect --run ${runId} prints the questions (with the state root below); a new tracked run continues the work, from these arguments (or --assume-defaults):\n${facts
+        .map((fact) => `  ${fact}`)
+        .join("\n")}`,
       runId
     });
-    io.stderr(
-      trackContinuationFacts({
-        stateRoot,
-        projectRoot: projectRootFromEvents(read.events),
-        objective: clarification.kind === "read" ? clarification.objective : undefined,
-        indent: "  "
-      })
-    );
-    return code;
   }
   const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
   requireDurableFlowchartCheckpoint(runId, read.events, checkpoint);
