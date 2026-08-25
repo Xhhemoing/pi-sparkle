@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, readFile, readdir } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -73,6 +73,60 @@ function malformedIdReport(stateRoot: string): Record<string, unknown> {
     stage: "parse-args",
     message: 'invalid --episode "banana": expected an episode id of the form ep_<suffix>',
     next: `pass --episode <epId> as printed by pnpm cli list --state-root ${stateRoot} --episodes`
+  };
+}
+
+/** The whole refusal `episode` owes an explicitly blank `--state-root`. */
+function blankStateRootReport(raw: string): Record<string, unknown> {
+  return {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: `invalid --state-root "${raw}": state root must be a non-empty directory path`,
+    next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+  };
+}
+
+const CORRUPT_EVENT_LOG_NEXT =
+  "the episode event log is append-only and pi-sparkle never rewrites it: repair or move aside " +
+  "the file named above, then retry; pi-sparkle doctor does not inventory episode logs";
+
+const CORRUPT_SNAPSHOT_LOG_NEXT =
+  "the episode log is append-only and pi-sparkle never rewrites it: repair or move aside the " +
+  "file named above; pnpm cli list --episodes --json lists the readable episodes and names " +
+  "damaged records under errors[]";
+
+/**
+ * A log damaged in a position `readJsonlObjects` cannot treat as a crash-
+ * truncated tail: the bad row is followed by the rows the seed wrote, so the
+ * reader fails closed instead of recovering. The seeded episode stays on disk
+ * either side of the damage, which is what lets the close pins byte-compare
+ * both files.
+ */
+async function prependCorruptLine(path: string, line: string): Promise<void> {
+  await writeFile(path, `${line}\n${await readFile(path, "utf8")}`, "utf8");
+}
+
+function eventLogPath(stateRoot: string, episodeId: EpisodeId): string {
+  return join(episodesDir(stateRoot), `${episodeId}.events.jsonl`);
+}
+
+function snapshotLogPath(stateRoot: string, episodeId: EpisodeId): string {
+  return join(episodesDir(stateRoot), `${episodeId}.jsonl`);
+}
+
+/** A minimal OPEN episode to seed; the corrupt-log pins never decode it. */
+function openEpisodeFixture(suffix: string): ProjectEpisode {
+  return {
+    id: createEpisodeId(() => suffix),
+    projectId: createProjectId(() => suffix),
+    objective: "ship",
+    contractVersion: 1,
+    runIds: [],
+    startedAt: nowIso(),
+    status: "OPEN",
+    acceptance: [],
+    evidenceRefs: []
   };
 }
 
@@ -646,4 +700,184 @@ test("episode events escapes control characters so one event is always one line"
       { type: "EPISODE_CLOSED", episodeId, status: "FAILED", closedAt, outcomeId }
     ]
   );
+});
+
+/**
+ * The remedy these faults used to reach is provably empty.
+ *
+ * A corrupt episode log threw past this verb into `main.ts`, whose generic
+ * catch answers `use pi-sparkle doctor for preflight` — but doctor inventories
+ * run logs (`runtime/runs`) and locks, not episode JSONL, so it names neither
+ * file and reports every inventory clean while the command keeps refusing. The
+ * store's own message already names the file and the line; the pins below hold
+ * those bytes and add the two things the operator did not have: the log is
+ * append-only and this CLI will never rewrite it, and — for `close` — the one
+ * surface that does list the damaged record.
+ */
+test("a corrupt episode event log is refused by the verb, not routed to a doctor that cannot see it", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-corrupt-events-"));
+  const episode = openEpisodeFixture("corrupt01");
+  await seedEpisode(stateRoot, episode);
+  await prependCorruptLine(eventLogPath(stateRoot, episode.id), "not-json");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", episode.id, "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "validation",
+    message: `Invalid JSON at line 1 in ${eventLogPath(stateRoot, episode.id)}`,
+    next: CORRUPT_EVENT_LOG_NEXT
+  });
+});
+
+test("an undecodable episode event is refused with the store's own line, not a decoder detail this verb reworded", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-bad-event-"));
+  const episode = openEpisodeFixture("badevent1");
+  await seedEpisode(stateRoot, episode);
+  // Valid JSON, invalid event: the failure is the schema decoder's, one layer
+  // past the JSON parse, and its refusal carries a different message shape.
+  await prependCorruptLine(eventLogPath(stateRoot, episode.id), '{"type":"BANANA"}');
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "events", "--episode", episode.id, "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "validation",
+    message:
+      `Invalid episode event at line 1 in ${eventLogPath(stateRoot, episode.id)}: ` +
+      "Unknown EpisodeEvent.type: BANANA",
+    next: CORRUPT_EVENT_LOG_NEXT
+  });
+});
+
+test("a corrupt episode snapshot log refuses close, names the inventory that answers, and writes nothing", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-bad-snapshot-"));
+  const episode = openEpisodeFixture("badsnap01");
+  await seedEpisode(stateRoot, episode);
+  await prependCorruptLine(snapshotLogPath(stateRoot, episode.id), "not-json");
+  const snapshotBefore = await readFile(snapshotLogPath(stateRoot, episode.id), "utf8");
+  const eventsBefore = await readFile(eventLogPath(stateRoot, episode.id), "utf8");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "FAILED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "validation",
+    message: `Invalid JSON at line 1 in ${snapshotLogPath(stateRoot, episode.id)}`,
+    next: CORRUPT_SNAPSHOT_LOG_NEXT
+  });
+  // The refusal fires on the read, before `decideClosure` and both appends:
+  // neither log gained a byte, so no WAITING_FOR_USER snapshot and no closing
+  // event were recorded against a log nothing could decode.
+  assert.equal(await readFile(snapshotLogPath(stateRoot, episode.id), "utf8"), snapshotBefore);
+  assert.equal(await readFile(eventLogPath(stateRoot, episode.id), "utf8"), eventsBefore);
+});
+
+/**
+ * A coded failure is not this verb's to convert.
+ *
+ * The corrupt-log catches classify on `DomainValidationError` *without* a
+ * `code`, because `FileLockTimeoutError` extends the same class and carries
+ * `LOCK_TIMEOUT` — a code `main.ts` routes to a `locks[]` remedy that genuinely
+ * answers. Swallowing it here would trade a working remedy for an append-only
+ * sentence about a file that is not damaged.
+ */
+test("a held episode lock still reaches main and keeps its routed locks[] remedy", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-held-lock-"));
+  const episode = openEpisodeFixture("heldlock1");
+  await seedEpisode(stateRoot, episode);
+  // The cooperative lock `episode close` takes, already held by someone else.
+  // pi-sparkle never steals a lock, so the close waits out its bounded timeout.
+  await writeFile(
+    join(episodesDir(stateRoot), `${episode.id}.lock`),
+    JSON.stringify({ ownerToken: "someone-else", pid: 1, acquiredAt: nowIso() }),
+    "utf8"
+  );
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "FAILED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "validation");
+  assert.match(report?.message ?? "", /^timed out waiting for lock at /);
+  assert.equal(
+    report?.next,
+    "the lock is held and pi-sparkle never steals one: run pi-sparkle doctor --json " +
+      `--state-root ${stateRoot} and read locks[] for the holder's pid, age and remediation, then retry`
+  );
+});
+
+/**
+ * `--state-root ""` is what `--state-root "$SR"` leaves behind when the shell
+ * variable is unset. Resolved, it names a cwd-relative tree the operator never
+ * asked about; the `episode` verbs would then report "no events under " and
+ * "not found under " for episodes that exist where they meant, with a remedy
+ * line whose `list --state-root ` swallows the following word when pasted.
+ */
+test("an explicitly blank --state-root is refused as an argv fault on both episode verbs", async () => {
+  for (const raw of ["", "  "]) {
+    for (const argv of [
+      ["episode", "events", "--episode", "ep_probe", "--state-root", raw],
+      ["episode", "close", "--episode", "ep_probe", "--status", "FAILED", "--state-root", raw]
+    ]) {
+      const captured = capture();
+      const code = await main(argv, captured.io);
+
+      assert.equal(code, 1, argv.join(" "));
+      assert.deepEqual(captured.out, [], argv.join(" "));
+      assert.deepEqual(parseCliErrorJson(captured.err.join("")), blankStateRootReport(raw), argv.join(" "));
+    }
+  }
+});
+
+test("a blank --state-root does not displace the help return or the unknown-subcommand refusal", async () => {
+  // D33's rule: which verb was asked for is settled before that verb's flags
+  // are judged, and `--help` answers before any of them. Neither of these two
+  // paths needs a state root, so neither may start reporting one.
+  const helped = capture();
+  assert.equal(await main(["episode", "events", "--help", "--state-root", ""], helped.io), 0);
+  assert.equal(helped.out.join(""), EPISODE_USAGE);
+  assert.deepEqual(helped.err, []);
+
+  const unknown = capture();
+  assert.equal(
+    await main(["episode", "nonsense", "--episode", "ep_probe", "--state-root", ""], unknown.io),
+    1
+  );
+  assert.deepEqual(unknown.out, []);
+  const stderr = unknown.err.join("");
+  assert.ok(stderr.startsWith(EPISODE_USAGE), "usage still precedes the report on stderr");
+  assert.deepEqual(parseCliErrorJson(stderr), {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: "Unknown episode command: nonsense",
+    next: "use episode events or episode close"
+  });
 });
