@@ -360,9 +360,9 @@ Landed: R17-2 `16a471d` fallback never-overwrite pin; R17-1 `223e3dd` remove per
 
 **Parent gate GREEN** against code HEAD `223e3dd` (orchestrator record `6b8124d`): **1981 tests / 1980 pass / 0 fail / 1 skipped** (`PI_SMOKE` only; 112 suites; exactly one `# SKIP`). Crash-probe **11 cases × 3**, `ok: true` (names and order unchanged, `unblock-discard-append-before-checkpoint-sigkill` last). Delta vs Round 16: **+4**. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r17-review.md`. One required joint (plane-boundary allowlist shrink inside `223e3dd`). Brief: `.agent_workspace/ROUND18-BRIEF.md`. Retarget plane closed; Round 18 has zero candidates.
 
-## Round 18 — idle (zero candidates)
+## Round 18 — in flight (plane retarget)
 
-`.agent_workspace/ROUND18-BRIEF.md` §4: both Round 16-proven holes are closed; re-sweep of I/O, races, protocol, and disaster recovery found nothing dispatchable. Stay on `agent/opt-continuous`. **Do not pad. Do not dispatch freeze extras.** Valid reasons to dispatch later: new seam / usage-surfaced gap / gate-or-probe failure / landing that stale-ifies surfaces. ADR-006 stays Proposed.
+`.agent_workspace/ROUND18-BRIEF.md` found zero remaining holes on the I/O / races / protocol / DR plane. Parent protocol after two saturated planes is to open a **new evidence plane**, not freeze extras: operator-disclosure, fail-closed honesty, embedder-contract, silent persistence no-ops, security-probe coverage. Stay on `agent/opt-continuous`. Do not pad. Do not reopen inferred-preference liveness, census treadmill, or Round 16–17 sign-offs.
 
 ---
 
