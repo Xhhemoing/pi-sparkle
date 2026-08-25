@@ -111,11 +111,12 @@ GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D2
 
 | Slot | First landing | Rider still required |
 |---|---|---|
-| D25 | `origin/cursor/list-truncation-sort-0da8` `72a3b2e` — `warnings` + copied CLI `last-event` + factored `sortByLastEvent` undefined-last pin | Replace `localeCompare` of timestamp strings with `Date.parse` descending then id; add an offset-bearing pin (`2026-08-25T23:00:00+14:00` is earlier than `2026-08-25T10:00:00Z`). |
+| D25 | `origin/cursor/list-truncation-sort-0da8` `02ef2f4` — Date.parse instant compare + offset-bearing pins on top of `72a3b2e` warnings/`last-event` | GPT recheck in flight; do not merge until KEEP. |
 | D26 | `origin/cursor/argv-help-dialect-0da8` `daf7fc7` — six-verb argv/`--help` is KEEP-shaped, but the optional inject `--type`/`--confidence` rider landed against the KEEP omit | Revert `src/cli/inject.ts` and `test/integration/cli/pause-inject.test.ts` to parent; then GPT recheck and merge. |
-| D27 | `origin/cursor/models-list-json-0da8` `0fded4e` — `MODELS_LIST` plus models argv dialect | Discriminated JSON: enabled always `type/preview/mode/primary/fast/models` with `primary`/`fast` `string \| null` and rows `{id,inCatalog}` only; available `{type,preview,mode,models}` with `{id}` rows; no per-row default booleans; whole-object `deepEqual`. |
+| D27 | `origin/cursor/models-list-json-0da8` `c83fc99` — discriminated `MODELS_LIST` on top of `0fded4e` | Implementer still finishing; GPT recheck after idle. |
 
 ### Round 3 still running / next implementers
 
-- D25 / D27 GPT-r6 rider resumes are still running (first-landing reports arrived first). D26 KEEP revert of the inject rider is in flight. Do not merge any of the three until riders match.
+- D25 rider landed; GPT-d25-recheck dispatched. D26 inject revert still running. D27 discriminated-shape commit is on origin; wait for the implementer to go idle before recheck.
+- Windows smoke and status-matrix still HOLD behind PR #12.
 - Windows smoke and status-matrix still HOLD behind PR #12.

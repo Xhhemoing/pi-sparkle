@@ -190,6 +190,8 @@ Compare `check.source` to the preserved configured `envVar` (or trim at parse, r
 
 Fable-r6-next. GPT-r6-challenge: **FIX** the remedies, keep the slot. Inventory must not silently discard JSONL recovery: add `warnings` (update empty-inventory exact `{ runs/episodes, errors }` pins to include `warnings: []`). CLI: stderr `warning: ${path}: ${message}`; additive JSON `warnings`. Keep inventory by-id sort unchanged; absent `--sort` equals `id`. Apply `last-event` only to a copied CLI row array. Compare `Date.parse(lastEventAt)` descending, then id ascending — not `localeCompare` (offset-bearing pin). Do not invent an undefined `startedAt` episode fixture; test `undefined`-last at a factored sort seam if needed. No `main.ts`. Spec: `.agent_workspace/loop5-r6-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r6-gpt-challenge.md`.
 
+**Landed** (Opus-d25-list-sort): `72a3b2e` warnings + CLI `last-event`; rider `02ef2f4` Date.parse comparator + offset pins on `cursor/list-truncation-sort-0da8`. GPT-d25-recheck in flight.
+
 ## D26 — Round 6 rank 2: one-dialect argv errors and working `--help` on free verbs
 
 GPT-r6-challenge: **KEEP**. Wrap only the synchronous `parseArgs(...)` call. Honor new help booleans before any state read. Omit the optional inject rider. First landing `daf7fc7` included the inject rider anyway; revert of `src/cli/inject.ts` / pause-inject tests is in flight before merge. Spec: Rank 2.
