@@ -2,15 +2,16 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { isEpisodeId, parseEpisodeId } from "../domain/ids.js";
 import { decideClosure } from "../episode/closure.js";
 import { closeEpisode, waitForUser } from "../episode/manager.js";
 import type { EpisodeEvent } from "../episode/events.js";
-import { EpisodeEventStore } from "../episode/store.js";
-import { EpisodeStore } from "../run/episode-store.js";
+import { EpisodeEventStore, type EpisodeLogRead as EpisodeEventLogRead } from "../episode/store.js";
+import { EpisodeStore, type EpisodeLogRead as EpisodeSnapshotLogRead } from "../run/episode-store.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import type { CliIo } from "./main.js";
-import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
+import { CLI_EXIT, cliFail, errorCodeOf, warnTruncatedJsonl } from "./errors.js";
 
 export const EPISODE_USAGE = `Usage:
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -75,6 +76,36 @@ function episodeEventLine(event: EpisodeEvent): string {
   }
 }
 
+/**
+ * A stored-log decode fault this verb has to answer for itself, told apart
+ * from a failure that already has a working routed remedy.
+ *
+ * Both episode stores raise an uncoded `DomainValidationError` for the first
+ * row they cannot decode, naming the file and the line. A *coded* one — the
+ * `LOCK_TIMEOUT` family — is a different failure entirely, and `main.ts` turns
+ * its code into a `locks[]` remedy that genuinely answers, so it must keep
+ * crossing this boundary untouched.
+ */
+function isCorruptLogError(error: unknown): error is DomainValidationError {
+  return error instanceof DomainValidationError && errorCodeOf(error) === undefined;
+}
+
+/**
+ * What an operator whose episode log will not decode can actually do.
+ *
+ * `pi-sparkle doctor` — the generic remedy these faults reach today through
+ * `main.ts` — inventories run logs and locks, not episode JSONL, so it names
+ * neither file and the operator is sent to a surface that cannot see the
+ * defect. The store already named the file and the line; what is missing is
+ * that the log is append-only, so nothing in this CLI will repair it in place,
+ * and (for `close`) which surface does still answer.
+ */
+const CORRUPT_EVENT_LOG_NEXT =
+  "the episode event log is append-only and pi-sparkle never rewrites it: repair or move aside the file named above, then retry; pi-sparkle doctor does not inventory episode logs";
+
+const CORRUPT_SNAPSHOT_LOG_NEXT =
+  "the episode log is append-only and pi-sparkle never rewrites it: repair or move aside the file named above; pnpm cli list --episodes --json lists the readable episodes and names damaged records under errors[]";
+
 export async function episodeCommand(args: string[], io: CliIo): Promise<number> {
   const [subcommand, ...rest] = args;
   let values;
@@ -98,7 +129,6 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
       next: "run pi-sparkle episode --help"
     });
   }
-  const stateRoot = values["state-root"] ?? join(homedir(), ".pi-sparkle");
   if (subcommand === "help" || subcommand === "--help" || subcommand === "-h" || subcommand === undefined) {
     io.stdout(EPISODE_USAGE);
     return subcommand === undefined ? CLI_EXIT.error : CLI_EXIT.ok;
@@ -128,6 +158,23 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
       next: "pass --episode <epId>"
     });
   }
+  // An explicitly blank `--state-root` — what `--state-root "$SR"` leaves
+  // behind when the variable is unset — would otherwise resolve to a
+  // cwd-relative tree and be answered about authoritatively. It is judged
+  // after the help returns and the unknown-subcommand refusal, because neither
+  // of those needs a state root and an operator who typed a verb this CLI does
+  // not have has not yet made a target mistake. It is judged before the root is
+  // resolved, so no later refusal can interpolate the blank into its `next`.
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
+  const stateRoot = rawStateRoot ?? join(homedir(), ".pi-sparkle");
   // A pasted-wrong id is an argv mistake, not a validation failure of stored
   // state: refusing here keeps the operator off the doctor-preflight remedy and
   // hands them the same episodes inventory the not-found path points at.
@@ -142,7 +189,21 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
   const episodeId = parseEpisodeId(values.episode);
 
   if (subcommand === "events") {
-    const read = await new EpisodeEventStore(stateRoot, episodeId).readAll();
+    let read: EpisodeEventLogRead;
+    try {
+      read = await new EpisodeEventStore(stateRoot, episodeId).readAll();
+    } catch (error: unknown) {
+      if (!isCorruptLogError(error)) throw error;
+      return cliFail(io, {
+        command: "episode",
+        stage: "validation",
+        // The store's bytes, unchanged: it already names the file and the line,
+        // and rewording them here would put a second spelling of the same fault
+        // in front of the operator.
+        message: error.message,
+        next: CORRUPT_EVENT_LOG_NEXT
+      });
+    }
     warnTruncatedJsonl(io, read.recovery, "episode event log");
     if (read.events.length === 0) {
       return cliFail(io, {
@@ -189,7 +250,18 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
     join(runtimeRoot(stateRoot), "episodes", `${episodeId}.lock`),
     async () => {
       const snapshots = new EpisodeStore(stateRoot, episodeId);
-      const snapshotRead = await snapshots.readAll();
+      let snapshotRead: EpisodeSnapshotLogRead;
+      try {
+        snapshotRead = await snapshots.readAll();
+      } catch (error: unknown) {
+        if (!isCorruptLogError(error)) throw error;
+        return cliFail(io, {
+          command: "episode",
+          stage: "validation",
+          message: error.message,
+          next: CORRUPT_SNAPSHOT_LOG_NEXT
+        });
+      }
       warnTruncatedJsonl(io, snapshotRead.recovery, "episode log");
       const latest = snapshotRead.episodes.at(-1);
       if (latest === undefined) {
