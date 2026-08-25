@@ -105,6 +105,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D25 `list` truncation disclosure + `--sort last-event`. Implementer: Opus-d25-list-sort (`bc-dd11ca58-f52f-510e-bf63-b89d5a9dda31`). GPT-d25-recheck **KEEP**.
 - D26 one-dialect argv/`--help` on six free verbs. Implementer: Opus-d26-argv-help (`bc-2a2a0515-81de-5318-9557-6bef72169e03`). GPT-d26-recheck **KEEP**.
 - D27 `models list --json` stored-config contract. Implementer: Opus-d27-models-json (`bc-273c089d-f7b4-564b-bd04-10e34d162330`). GPT-d27-recheck **KEEP**.
+- D29 `doctor --help` and parse-args dialect. Implementer: Opus-d29-doctor-help (`bc-2b9bd5c6-42e8-5a7c-9a18-124a87293e4f`). GPT-d29-recheck **KEEP**.
 
 ### Round 6 (closed)
 
@@ -120,13 +121,13 @@ Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fab
 
 Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fable-next.md`) at `786f23e`: D28 `auth` dialect + `AUTH_STATUS`, D29 `doctor --help`, D30 inject `--type`/`--confidence` preflight.
 
-GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D29 **KEEP**, D30 **FIX**. Implementers still running first landings; apply riders after idle. Do not merge D28/D30 until the riders land.
+GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D29 **KEEP**, D30 **FIX**. D29 merged after KEEP.
 
 | Slot | Rider |
 |---|---|
-| D28 | First landing `ad14592` runtime is correct. GPT-d28-recheck **FIX**: exact parser-error pins for `auth status`/`auth login`/`auth logout` `--bogus` (message/next not regex). Rider in flight. |
-| D29 | KEEP as specified. First landing `0244549` on `cursor/doctor-help-dialect-0da8`. GPT-d29-recheck in flight. |
-| D30 | First landing `6a7c2dd` still duplicates kinds and misses blank confidence. Rider: import `INJECTION_KINDS`; reject `trim() === ""` before `Number()`. |
+| D28 | First landing `ad14592` runtime is correct. GPT-d28-recheck **FIX**: exact parser-error pins. Rider in flight. |
+| D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549`. GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
+| D30 | Rider `c2be255` shares `INJECTION_KINDS` and refuses blank `--confidence`. GPT-d30-recheck in flight. |
 
 ### Round 3 still running / next implementers
 

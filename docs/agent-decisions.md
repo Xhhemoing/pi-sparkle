@@ -220,9 +220,15 @@ Fable-r7-next. GPT-r7-challenge: **FIX** the parser `command` field, keep the sl
 
 Fable-r7-next. GPT-r7-challenge: **KEEP**. `DOCTOR_USAGE`; `help` boolean honored before engines/inventory/mkdir. Wrap only synchronous `parseArgs`. Frozen `--json` contract byte-untouched. Files: `src/cli/doctor.ts`, `test/unit/cli/doctor.test.ts`. Spec: Rank 2.
 
+**Landed** (Opus-d29-doctor-help): `0244549` on `cursor/doctor-help-dialect-0da8`.
+
+**GPT-d29-recheck: KEEP.** Report: `.agent_workspace/loop5-r7-gpt-d29.md`. Merged to the integration branch.
+
 ## D30 — Round 7 rank 3: `inject` `--type`/`--confidence` preflight
 
 Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). GPT-r7-challenge: **FIX** blank confidence, keep the slot. Refuse `type` outside exported `INJECTION_KINDS` and non-finite/`[0,1]` `--confidence` as `parse-args` before EventStore lookup. Reject `values.confidence.trim() === ""` before `Number()` (empty/whitespace coerce to 0). Do not widen a catch around run lookup or injection. Files: `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: Rank 3 as corrected by `.agent_workspace/loop5-r7-gpt-challenge.md`.
+
+**Landed** (Opus-d30-inject-preflight): `6a7c2dd` plus rider `c2be255` (shared kinds + blank confidence). GPT-d30-recheck in flight.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
