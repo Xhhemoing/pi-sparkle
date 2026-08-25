@@ -39,7 +39,7 @@
 | 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
 | 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
 | 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
-| 25 | 第 1–3 波进行中 | 5 / 10（A–E 已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
+| 25 | 第 1–4 波进行中 | 6 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-25/PLAN.md](./round-25/PLAN.md) |
 
 ### Round 1 波次
 
@@ -263,7 +263,8 @@
 | --- | --- | --- |
 | 1 | R25-A 跟踪门控、R25-B live 路由、R25-C 离线路由 | A/B/C 已合入 |
 | 2 | R25-D 自优化、R25-E 学习 | D/E 已合入 |
-| 3 | R25-F 实验、R25-G 运行时/图、R25-H 评价/需求 | F/G 运行中；H 本波派出 |
+| 3 | R25-F 实验、R25-G 运行时/图、R25-H 评价/需求 | F 已合入；G/H 运行中 |
+| 4 | R25-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -515,9 +516,10 @@
 | R25-C | `cursor/r25-c-offline-routing-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-C.md`）。无新排除 ID；生产中位复核 663.2–681.5 ms；AGEX 不铸 ID；APC floor 再锚定 |
 | R25-D | `cursor/r25-d-adaptation-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-D.md`）。无新排除 ID；eval 地板复核 3.55–4.28 ms；identity-coordinate face 归档 |
 | R25-E | `cursor/r25-e-learning-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-E.md`）。无新排除 ID；SLICE-CPU 复核 14.9–15.7 µs/run；CG 不铸 ID |
-| R25-F | `cursor/r25-f-experiments-twenty-fifth-pass-83a1` | 已派出 |
+| R25-F | `cursor/r25-f-experiments-twenty-fifth-pass-83a1` | 已合入专属分支（仅 `R25-F.md`）。无新排除 ID；锚点复核 r5f 121.25/130.67 / r6f 122.93 / r7f 127.56/130.12；plan-header identity-geometry face 归档 |
 | R25-G | `cursor/r25-g-runtime-twenty-fifth-pass-83a1` | 已派出 |
 | R25-H | `cursor/r25-h-eval-twenty-fifth-pass-83a1` | 已派出 |
+| R25-I | `cursor/r25-i-cli-twenty-fifth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
