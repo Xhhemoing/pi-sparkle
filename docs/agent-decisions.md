@@ -250,7 +250,7 @@ Fable-r8-next. Five surfaces: malformed `--run`; empty `--nodes` CSV (blames the
 
 **GPT-r8-challenge: FIX** (keep the slot). Add explicit-blank `--repo` as `parse-args` before any state read: `values.repo !== undefined && values.repo.trim() === ""` → `invalid --repo "<raw>": repository path must be a non-empty string`, next names omit-to-checkpoint-fallback. Keep omitted-fallback and non-git path as distinct `stage: "preflight"` reports. Pin `--repo ""` / `"  "` and argv-before-state on a nonexistent `--state-root`.
 
-**Status:** implementing Fable spec; apply GPT blank-`--repo` rider before merge.
+**Status:** GPT blank-`--repo` rider landed (`c91af7b` on `cursor/commits-refusal-retarget-0da8`). Merge gated on GPT-d32-recheck of the landing.
 
 ## D33 — Round 8 rank 3: `episode` malformed-id guard + designed `events` lines
 

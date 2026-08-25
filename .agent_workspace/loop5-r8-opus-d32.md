@@ -160,3 +160,55 @@ No Event type, no new JSON contract, no `main.ts`, no `package.json`, no edit to
 - `pnpm test` (whole suite) — 2296 pass, 0 fail, 1 skipped.
 
 Host Node is v22.14.0 against engines `>=22.19.0`; that is a warning only and no test depends on it.
+
+## Rider — GPT-r8-challenge FIX: a blank `--repo` is argv, not a missing environment
+
+GPT-r8 returned **FIX** (slot kept) on the one contract the Fable spec omitted: `commits apply
+--repo "  "` fell through the `??` fallback into the preflight branch, so the report blamed a
+missing environment for an empty string the operator had supplied and never named `--repo`.
+
+`applyCommand` now refuses a supplied blank path immediately after the `isRunId` guard and
+`parseRunId`, before the `--nodes` CSV check and before `loadCommitInput` or any other state read:
+
+| field | value |
+| --- | --- |
+| `command` | `commits` |
+| `stage` | `parse-args` |
+| `message` | `invalid --repo "${values.repo}": repository path must be a non-empty string` (raw operator string) |
+| `next` | `pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath` |
+| `runId` | the validated run id |
+
+The two preflight reports are unchanged and stay distinct from it:
+
+- flag omitted **and** the checkpoint names no project → `stage: "preflight"`,
+  `apply requires --repo or a checkpoint project.rootPath`, next
+  `pass --repo <path to a git work tree>`;
+- a supplied non-blank path that is not a work tree → `stage: "preflight"`,
+  `apply requires a git work tree at ${repo}: ${workTree.detail}`, next
+  `run git init in ${repo} or pass --repo <git work tree>`.
+
+The residual `repo.trim() === ""` arm of the fallback branch is now only reachable through a
+checkpoint whose `project.rootPath` is blank, and keeps the preflight wording.
+
+### Rider tests
+
+- `apply refuses --repo "" as argv, naming the flag` and `apply refuses --repo "  " as argv, naming
+  the flag` — whole-report `deepEqual` on the parsed JSON (including `ok: false` and `runId`), with
+  empty stdout.
+- `apply refuses a whitespace --repo before reading state` — same whole-report `deepEqual` against a
+  **nonexistent** `--state-root`, so the argv refusal provably precedes the run read.
+- `apply with no --repo still commits into the checkpoint project.rootPath` — `git init` in the
+  project root, apply without the flag, exit 0 and the commit lands there.
+- `apply with no --repo and no checkpoint project reports preflight` — `project` is deleted from
+  `checkpoint.json` on disk; whole-report `deepEqual` on the unchanged preflight report.
+- `apply against a directory that is not a work tree reports preflight` (from the first landing) is
+  unchanged and keeps the second preflight report distinct.
+
+### Rider verification
+
+- `npx tsx --test test/integration/cli/commits.test.ts` — 32 pass, 0 fail.
+- `pnpm typecheck` and `npx eslint src/cli/commits.ts test/integration/cli/commits.test.ts` — clean.
+- `pnpm test` (whole suite) — 2300 pass, 0 fail, 1 skipped.
+
+Every earlier D32 pin, the D20 partial-apply notes, and the `COMMITS_PREVIEW` `deepEqual` are
+unchanged; the rider touches only `applyCommand`'s repo handling.
