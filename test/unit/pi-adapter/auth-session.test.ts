@@ -16,7 +16,10 @@ import {
   storeApiKeyCredential,
   type SparkleAuthIo
 } from "../../../src/pi-adapter/auth-session.js";
-import { authStorePath } from "../../../src/pi-adapter/file-credential-store.js";
+import {
+  authStorePath,
+  FileCredentialStore
+} from "../../../src/pi-adapter/file-credential-store.js";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 
 /**
@@ -286,6 +289,36 @@ test("the env-only check ignores the credential store the ordinary check prefers
     // A check writes nothing: the store is exactly what login left behind.
     assert.deepEqual(await listStoredCredentials(stateRoot), [
       { providerId: "anthropic", type: "api_key" }
+    ]);
+  });
+});
+
+test("the env-only check is blind to a stored oauth session too", async () => {
+  // An oauth credential resolves through a different Pi path than an api key,
+  // so "the store is invisible" has to hold for both. A check that filtered a
+  // reported source instead of emptying the store would pass the api-key case
+  // above and fail here.
+  await withStateRoot(async (stateRoot) => {
+    await new FileCredentialStore(authStorePath(stateRoot)).modify("anthropic", async () => ({
+      type: "oauth",
+      access: `${FAKE_KEY}-access`,
+      refresh: `${FAKE_KEY}-refresh`,
+      expires: Date.now() + 3_600_000
+    }));
+
+    await withEnv(clearedAnthropicEnv(), async () => {
+      assert.equal(await checkProviderEnvAuth(stateRoot, "anthropic"), undefined);
+    });
+
+    await withEnv({ ...clearedAnthropicEnv(), ANTHROPIC_API_KEY: `${FAKE_KEY}-env` }, async () => {
+      const env = await checkProviderEnvAuth(stateRoot, "anthropic");
+      assert.deepEqual(env, { type: "api_key", source: "ANTHROPIC_API_KEY" });
+      assert.equal(JSON.stringify(env).includes(FAKE_KEY), false);
+    });
+
+    // The session is still on disk and still the type it was stored as.
+    assert.deepEqual(await listStoredCredentials(stateRoot), [
+      { providerId: "anthropic", type: "oauth" }
     ]);
   });
 });

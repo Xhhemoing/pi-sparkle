@@ -35,7 +35,9 @@ compatibility override for the default provider.
 
 login takes exactly one mode. --key and --oauth store a credential; --from-env
 stores nothing and only reports whether the environment configures the
-provider — a credential already in auth.json does not make it pass.
+provider — a credential already in auth.json does not make it pass. "The
+environment" is whatever the provider resolves ambiently: environment
+variables, and ADC files or AWS profiles for the providers that use them.
 `;
 
 export async function authCommand(args: string[], io: AuthIo): Promise<number> {
@@ -174,6 +176,10 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
  * a stored credential that outranks the environment is disclosed rather than
  * mistaken for one: the operator asked whether the environment works, and it
  * will not be what a run uses while that credential is on disk.
+ *
+ * That disclosure is the only part that reads the file, so it is also the only
+ * part a damaged `auth.json` can take away — the verdict on the environment
+ * stands either way.
  */
 async function loginFromEnvCommand(
   stateRoot: string,
@@ -194,21 +200,56 @@ async function loginFromEnvCommand(
     throw new DomainValidationError(
       customEnvVar !== undefined
         ? `provider ${providerId} is not configured in the environment: ${customEnvVar} is unset or empty (providers.json names it for this provider)`
-        : `provider ${providerId} is not configured in the environment; --from-env checks environment variables only, so set this provider's API-key variable, or run pi-sparkle auth login ${providerId} --key <key> to store one instead`
+        : `provider ${providerId} is not configured in the environment; --from-env checks what this provider resolves ambiently (environment variables, and ADC files or AWS profiles for the providers that use them) and ignores auth.json, so configure one of those, or run pi-sparkle auth login ${providerId} --key <key> to store a credential instead`
     );
   }
-  // Read the store before reporting success, not after: a damaged auth.json
-  // has to fail the command whole rather than land under a success line.
-  const stored = await listStoredCredentials(stateRoot);
+  // Read the store before reporting success, not after: an unexpected read
+  // failure has to fail the command whole rather than land under a success
+  // line. A damaged file is the one exception — see below.
+  const listing = await listStoredCredentialsIfReadable(stateRoot);
   io.stdout(
     `${providerId} is configured by the environment via ${check.source ?? check.type} (nothing written to auth.json)\n`
   );
-  if (stored.some((item) => item.providerId === providerId)) {
+  if (listing.kind === "unreadable") {
+    io.stderr(
+      `warning: ${listing.path} could not be read, so whether a stored credential for ${providerId} outranks the environment is unknown; run pi-sparkle auth status for the reason\n`
+    );
+    return 0;
+  }
+  if (listing.items.some((item) => item.providerId === providerId)) {
     io.stdout(
       `note: a stored credential for ${providerId} in ${authStorePath(stateRoot)} still wins over the environment; run pi-sparkle auth logout ${providerId} to use the environment\n`
     );
   }
   return 0;
+}
+
+type StoreListing =
+  | { readonly kind: "listed"; readonly items: readonly { providerId: string; type: string }[] }
+  | { readonly kind: "unreadable"; readonly path: string };
+
+/**
+ * The stored credentials, or the fact that the file cannot be read.
+ *
+ * `--from-env` asks about the environment, and the probe answers it without
+ * opening `auth.json`. Only the precedence note needs the file, so a document
+ * that fails to parse must not turn an answered question into exit 1 — the
+ * environment either configures the provider or it does not, and that is true
+ * whatever state the credential file is in. What is lost is the note, and
+ * losing it is the honest outcome: a file pi-sparkle cannot parse holds no
+ * stored credential it can name. Nothing here rewrites or removes the file.
+ *
+ * Only the damaged-store failure is absorbed. A permission error or a failing
+ * disk still propagates, because those say nothing about what the file holds.
+ */
+async function listStoredCredentialsIfReadable(stateRoot: string): Promise<StoreListing> {
+  try {
+    return { kind: "listed", items: await listStoredCredentials(stateRoot) };
+  } catch (error) {
+    const unreadable = asAuthStoreUnreadable(error);
+    if (unreadable === undefined) throw error;
+    return { kind: "unreadable", path: unreadable.path };
+  }
 }
 
 async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
