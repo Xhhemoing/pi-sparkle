@@ -305,6 +305,10 @@ async function datasetCommand(
         `warning: ${result.skippedWithoutObjective} routed PASS/FAIL ${tasks} had no recorded objective and were left out\n`
       );
     }
+    const rows = result.manifest.episodes.length;
+    io.stderr(
+      `note: the ${rows} exported row(s) are routed tasks from run ${runId}, not independent episodes; adapt eval replays them as a routing/cost fixture, not as held-out validation evidence\n`
+    );
     if (values.dir !== undefined) {
       io.stderr(
         `warning: ${result.datasetDir} is an external export and is NOT cascaded by delete --run ${runId}; only the default adaptation/eval-datasets/${runId}/ export is. It holds redacted task text and a redacted project root — delete it yourself when you are done with it.\n`

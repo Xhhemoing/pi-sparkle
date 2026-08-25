@@ -988,6 +988,48 @@ test("adapt dataset requires --run and refuses a run with no events", async () =
 });
 
 /**
+ * D3/D4 (GPT-r2) at the command surface. `--dir` names a copy of redacted user
+ * text that nothing records, so the operator is told it is theirs to delete
+ * rather than being left to assume `delete --run` finds it — and the one
+ * destination the plane layout forbids outright is refused.
+ */
+test("adapt dataset --dir discloses an external export and refuses the runtime plane", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-dataset-dir-"));
+  const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-dataset-dir-ws-"));
+  const runId = createRunId();
+  const store = new EventStore(dir, runId);
+  for (const event of routedEditRun(runId, workspace)) {
+    await store.append(event);
+  }
+
+  const custom = join(dir, "adaptation", "exports", "hand-picked");
+  const external = capture();
+  assert.equal(
+    await adaptCommand(["dataset", "--run", runId, "--dir", custom, "--state-root", dir], external.io),
+    0,
+    external.err.join("")
+  );
+  const warning = external.err.join("");
+  assert.ok(warning.includes("external export"), warning);
+  assert.ok(warning.includes(`NOT cascaded by delete --run ${runId}`), warning);
+  assert.ok(warning.includes(custom), warning);
+  assert.equal(existsSync(join(custom, "manifest.json")), true);
+
+  const smuggled = join(dir, "runtime", "runs", runId, "dataset");
+  const refused = capture();
+  assert.equal(
+    await adaptCommand(
+      ["dataset", "--run", runId, "--dir", smuggled, "--state-root", dir],
+      refused.io
+    ),
+    1
+  );
+  assert.match(refused.err.join(""), /must not be written into the runtime plane/);
+  assert.equal(existsSync(smuggled), false);
+  assert.deepEqual(refused.out, [], "a refused export prints no dataset path");
+});
+
+/**
  * The loop Round 1 found unrunnable: a proposed candidate reaches promotion
  * through supported commands only, with every input the promote gate demands
  * produced by one of them.
@@ -1008,8 +1050,14 @@ test("adapt dataset feeds adapt eval, and show supplies the content and review a
     datasetRun.io
   );
   assert.equal(datasetCode, 0, datasetRun.err.join(""));
-  assert.deepEqual(datasetRun.err, []);
+  // The export says what it is on stderr — one run's routed tasks — and says
+  // nothing about a warning it has no reason to raise. stdout stays the single
+  // dataset path the next command consumes.
+  assert.deepEqual(datasetRun.err, [
+    `note: the 2 exported row(s) are routed tasks from run ${runId}, not independent episodes; adapt eval replays them as a routing/cost fixture, not as held-out validation evidence\n`
+  ]);
   const datasetDir = datasetRun.out.join("").trim();
+  assert.equal(datasetRun.out.length, 1);
 
   const evalRun = capture();
   const evalCode = await adaptCommand(
