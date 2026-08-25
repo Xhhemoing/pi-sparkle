@@ -37,6 +37,7 @@ import type { ConstraintRecord } from "../../../src/tracking/types.js";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const FROM_CHILD = "src/tracking/from-child.ts";
 const PRESCORE = "src/tracking/prescore.ts";
+const FLOWCHART_RUN = "src/run/flowchart-run.ts";
 const FIELD = "independentEvidence";
 
 function parse(fileName: string, source: string): ts.SourceFile {
@@ -279,6 +280,30 @@ test("the posture is recorded at the write, at the discard, and on the declarati
 test("across all of src the field is dereferenced exactly once, and that read is the discard", () => {
   assertOnlyReadIsTheDiscard(
     listSourceModules("src").map((file) => ({ file, source: readSource(file) }))
+  );
+});
+
+test("the flowchart spine is inside the census and cannot touch the field", () => {
+  const modules = listSourceModules("src").map((file) => ({ file, source: readSource(file) }));
+  const flowchartRun = modules.find((module) => module.file === FLOWCHART_RUN);
+  assert.ok(flowchartRun, `${FLOWCHART_RUN} must remain inside the whole-src census`);
+  assert.equal(
+    flowchartRun.source.includes(FIELD),
+    false,
+    `${FLOWCHART_RUN} must not mention ${FIELD}`
+  );
+
+  assert.throws(
+    () =>
+      assertOnlyReadIsTheDiscard(
+        modules.map((module) =>
+          module.file === FLOWCHART_RUN
+            ? { ...module, source: `${module.source}\nconst trusted = input.${FIELD};\n` }
+            : module
+        )
+      ),
+    assert.AssertionError,
+    `a drive-by ${FIELD} reader in ${FLOWCHART_RUN} must cross the pin`
   );
 });
 
