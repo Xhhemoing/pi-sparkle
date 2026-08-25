@@ -30,7 +30,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
+import { parseRunId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
@@ -81,6 +81,8 @@ import {
   parseChildNodeResultsFile,
   parseFlowchartFile
 } from "./flowchart-io.js";
+import { parseChildSpec } from "./children-spec.js";
+import { validateCommand } from "./validate.js";
 import { commitsCommand } from "./commits.js";
 import { pauseCommand } from "./pause.js";
 import { injectCommand } from "./inject.js";
@@ -256,6 +258,7 @@ Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
+  pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -355,98 +358,6 @@ feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
-
-/**
- * A declared per-child USD ceiling is load-bearing: the child coordinator
- * forwards the tighter of it and the run-level cap to the executor and stamps
- * it into the child's RUN_CREATED. Dropping it would give the operator a
- * silent exit 0 with no ceiling anywhere on disk; copying an invalid one would
- * surface as a protocol-validation failure far from the file they wrote. So
- * anything present that is not a positive finite number is refused here, by
- * task.
- */
-function parseChildCostCeiling(taskId: TaskId, value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new DomainValidationError(
-      `Child task ${taskId}: limits.maxCostUsd must be a positive finite number`
-    );
-  }
-  return value;
-}
-
-/** Parses a --children spec file into validated ChildTaskInput values. */
-async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
-  const raw = await readFile(path, "utf8");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new DomainValidationError(
-      `Invalid child spec ${path}: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  if (typeof parsed !== "object" || parsed === null || !Array.isArray((parsed as { tasks?: unknown }).tasks)) {
-    throw new DomainValidationError("Child spec must be { \"tasks\": [...] }");
-  }
-  const registry = createAgentProfileRegistry(defaultAgentProfiles());
-  const tasks = (parsed as { tasks: unknown[] }).tasks;
-  const seen = new Set<TaskId>();
-  return tasks.map((entry, index) => {
-    if (typeof entry !== "object" || entry === null) {
-      throw new DomainValidationError(`Child task ${index} must be an object`);
-    }
-    const task = entry as Record<string, unknown>;
-    const taskId = parseTaskId(task.id);
-    if (seen.has(taskId)) throw new DomainValidationError(`Duplicate child task id: ${taskId}`);
-    seen.add(taskId);
-    if (typeof task.role !== "string" || !isAgentRole(task.role)) {
-      throw new DomainValidationError(`Child task ${taskId}: role must be a known AgentRole`);
-    }
-    if (typeof task.objective !== "string" || task.objective.trim() === "") {
-      throw new DomainValidationError(`Child task ${taskId}: objective must be a non-empty string`);
-    }
-    const acceptanceCriteria = Array.isArray(task.acceptanceCriteria)
-      ? task.acceptanceCriteria.map((criterion) => {
-          if (typeof criterion !== "object" || criterion === null) {
-            throw new DomainValidationError(`Child task ${taskId}: acceptanceCriteria must be objects`);
-          }
-          const c = criterion as Record<string, unknown>;
-          if (typeof c.id !== "string" || c.id === "" || typeof c.description !== "string" || c.description === "") {
-            throw new DomainValidationError(`Child task ${taskId}: acceptanceCriteria need {id, description}`);
-          }
-          return { id: c.id, description: c.description };
-        })
-      : [];
-    const inputArtifactIds = Array.isArray(task.inputArtifactIds)
-      ? task.inputArtifactIds.map((id) => {
-          if (!isArtifactId(id)) throw new DomainValidationError(`Child task ${taskId}: invalid inputArtifactId`);
-          return id;
-        })
-      : [];
-    const limits = task.limits as Record<string, unknown> | undefined;
-    const maxCostUsd = parseChildCostCeiling(taskId, limits?.maxCostUsd);
-    const profile = registry.resolve(task.role);
-    const dependsOn = Array.isArray(task.dependsOn)
-      ? task.dependsOn.map((id) => parseTaskId(id))
-      : undefined;
-    return {
-      taskId,
-      role: task.role,
-      objective: task.objective,
-      profile,
-      inputArtifactIds,
-      acceptanceCriteria,
-      limits: {
-        maxAttempts: typeof limits?.maxAttempts === "number" ? limits.maxAttempts : 1,
-        timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : 60_000,
-        maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000,
-        ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
-      },
-      ...(dependsOn !== undefined ? { dependsOn } : {})
-    };
-  });
-}
 
 async function smartChildPlan(
   children: ChildTaskInput[],
@@ -2140,6 +2051,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
     switch (command) {
       case "run":
         return await runCommand(rest, io);
+      case "validate":
+        return await validateCommand(rest, io);
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":
