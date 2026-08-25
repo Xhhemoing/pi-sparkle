@@ -284,7 +284,7 @@ Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded jo
 
 **Parent gate GREEN** at `aa7282f`: **1947 tests / 1946 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r12-review.md`. Two joints counted (abort-test fold inside `81f5b81`; successor `0e61063` 7s after the writer). Zero red-tree commit points. Brief: `.agent_workspace/ROUND12-BRIEF.md`.
 
-## Round 13 — in flight
+## Round 13 — CLOSED (parent gate GREEN; fable in flight)
 
 10 slots from `.agent_workspace/ROUND12-BRIEF.md` (four real candidates; freeze extras fill the rest). Stay on `agent/opt-continuous`. Parent sign-off: R13-1 **YES** comment-only truth-up of the two false "no writer" docstrings; R13-3 **YES** early `onRunStarted` on `--flowchart` and `--children`.
 
@@ -300,6 +300,10 @@ Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded jo
 | R13-8 | bc-f4713dbe-1c9a-5951-bf28-48713a6884b6 | keep `independentEvidence` posture — report-only |
 | R13-9 | bc-70ecf5aa-503e-59cc-9503-07346eda5bec | keep exact eight `RunStatus` members — report-only |
 | R13-10 | bc-d9c4877b-4caa-53d4-bd55-50d469c7469e | keep writer-carriage property — report-only |
+
+Landed: R13-1 `f6e4c04` comment-only "no writer" truth-up; R13-2 `e7d018c` unblock carry-forward + log-derived merge pins; R13-3 `1e78220` early run-id on `--flowchart` / `--children`; R13-4 `8faf8f4` Round 12 docs (re-staled by R13-3); R13-5…R13-10 report-only.
+
+**Parent gate GREEN** at this write-up: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review in flight.
 
 ---
 
