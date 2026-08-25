@@ -1461,3 +1461,69 @@ test("doctor counts a directory link without descending into its target", async 
     await rm(stateRoot, { recursive: true, force: true });
   }
 });
+
+// --- argv dialect -----------------------------------------------------------
+// doctor is the remedy every other command points at, so its own --help must
+// answer rather than fail, and an argv typo must be reported as parse-args
+// instead of sending the operator back to the command that just refused. These
+// cases are argv plus the capture harness only, so they run on the Windows
+// cli-smoke leg unchanged.
+
+for (const flag of ["--help", "-h"]) {
+  test(`doctor ${flag} prints usage, exits 0, and writes nothing`, async () => {
+    const parent = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-help-"));
+    const stateRoot = join(parent, "state");
+    try {
+      const { io, out, err } = capture();
+      const code = await doctorCommand([flag, "--state-root", stateRoot], io, {
+        nodeVersion: COMPLIANT_NODE_VERSION
+      });
+
+      assert.equal(code, 0, err.join(""));
+      assert.deepEqual(err, []);
+      const text = out.join("");
+      assert.match(text, /pi-sparkle doctor/);
+      assert.match(text, /--state-root <dir>/);
+      assert.match(text, /--project <dir>/);
+      assert.match(text, /--agents-dir <dir>/);
+      assert.match(text, /--json/);
+      assert.match(text, /not a production capability/);
+      assert.match(text, /live R1\/bandit\/topology/);
+      assert.match(text, /Checkpoint F-PROD/);
+      assert.doesNotMatch(text, /ok {2}node:/, "help runs no checks");
+
+      assert.deepEqual(
+        await readdir(parent),
+        [],
+        "a help request must not create the state root it was given"
+      );
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+}
+
+test("doctor refuses an unknown flag as parse-args and points at its own --help", async () => {
+  const { io, out, err } = capture();
+  const code = await doctorCommand(["--bogus"], io, { nodeVersion: COMPLIANT_NODE_VERSION });
+
+  assert.equal(code, 1);
+  assert.deepEqual(out, [], "no half-report precedes the refusal");
+  const parsed = parseCliErrorJson(err.join(""));
+  assert.equal(parsed?.command, "doctor");
+  assert.equal(parsed?.stage, "parse-args");
+  assert.match(parsed?.message ?? "", /--bogus/);
+  assert.match(parsed?.next ?? "", /doctor --help/);
+});
+
+test("doctor refuses a stray positional as parse-args", async () => {
+  const { io, out, err } = capture();
+  const code = await doctorCommand(["help"], io, { nodeVersion: COMPLIANT_NODE_VERSION });
+
+  assert.equal(code, 1);
+  assert.deepEqual(out, []);
+  const parsed = parseCliErrorJson(err.join(""));
+  assert.equal(parsed?.command, "doctor");
+  assert.equal(parsed?.stage, "parse-args");
+  assert.match(parsed?.next ?? "", /doctor --help/);
+});
