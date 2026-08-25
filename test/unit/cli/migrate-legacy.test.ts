@@ -152,6 +152,113 @@ describe("migrate-legacy argv", () => {
   });
 });
 
+/**
+ * The target contract: migrate-legacy copies files, so it must never decide
+ * which tree to read from the working directory. A blank --state-root used to
+ * scan the cwd, print `state root: ` (blank), and under --apply actually copy
+ * into `<cwd>/adaptation/...` — a migration of a tree the operator never
+ * named, reported as a clean success.
+ */
+describe("migrate-legacy refuses a blank --state-root", () => {
+  const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+  async function inCwd(directory: string, run: () => Promise<void>): Promise<void> {
+    const previous = process.cwd();
+    process.chdir(directory);
+    try {
+      await run();
+    } finally {
+      process.chdir(previous);
+    }
+  }
+
+  for (const extra of [[], ["--apply"]]) {
+    it(`refuses ${extra.length > 0 ? "--apply" : "a dry run"} and migrates nothing from the cwd`, async () => {
+      await withStateRoot(async (stateRoot) => {
+        await seedLegacy(stateRoot);
+        await inCwd(stateRoot, async () => {
+          const captured = capture();
+          assert.equal(await migrateLegacyCommand(["--state-root", "", ...extra], captured.io), 1);
+          assert.deepEqual(parseCliErrorJson(captured.err()), {
+            ok: false,
+            command: "migrate-legacy",
+            stage: "parse-args",
+            message: 'invalid --state-root "": state root must be a non-empty directory path',
+            next: BLANK_ROOT_NEXT
+          });
+          assert.equal(captured.out(), "", "a refusal scans nothing and prints nothing on stdout");
+        });
+        assert.equal(existsSync(adaptationRoot(stateRoot)), false, "nothing was copied");
+        assert.equal(existsSync(runtimeRoot(stateRoot)), false);
+      });
+    });
+  }
+
+  it("refuses a whitespace-only root the same way", async () => {
+    const captured = capture();
+    assert.equal(await migrateLegacyCommand(["--state-root", " "], captured.io), 1);
+    const report = parseCliErrorJson(captured.err());
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, 'invalid --state-root " ": state root must be a non-empty directory path');
+    assert.equal(report?.next, BLANK_ROOT_NEXT);
+  });
+});
+
+/**
+ * Classifying the scan catch. A coded filesystem fault is the root itself
+ * answering; the uncoded corrupt-JSONL throw is the fault this catch was
+ * written for and keeps every byte of its report.
+ */
+describe("migrate-legacy classifies scan faults", () => {
+  it("reports a --state-root that is not a directory as a lookup fault", async () => {
+    await withStateRoot(async (parent) => {
+      const notADirectory = join(parent, "state-root-file");
+      await writeFile(notADirectory, "not a state root\n", "utf8");
+
+      const captured = capture();
+      assert.equal(await migrateLegacyCommand(["--state-root", notADirectory, "--apply"], captured.io), 1);
+      const report = parseCliErrorJson(captured.err());
+      assert.equal(report?.command, "migrate-legacy");
+      assert.equal(report?.stage, "lookup");
+      // The errno text is left free: it varies by platform.
+      assert.match(report?.message ?? "", /^cannot scan --state-root /);
+      assert.ok(report?.message.includes(notADirectory));
+      assert.equal(
+        report?.next,
+        "check the --state-root path; it must be the flat pre-2026-08-22 state directory"
+      );
+    });
+  });
+
+  it("keeps the corrupt-JSONL report byte-for-byte", async () => {
+    await withStateRoot(async (stateRoot) => {
+      await writeFileAt(
+        join(stateRoot, "feedback", "records.jsonl"),
+        `${FEEDBACK_LINE}\n{ not json\n${FEEDBACK_LINE}\n`
+      );
+      const captured = capture();
+      assert.equal(await migrateLegacyCommand(["--state-root", stateRoot, "--apply"], captured.io), 1);
+      assert.deepEqual(parseCliErrorJson(captured.err()), {
+        ok: false,
+        command: "migrate-legacy",
+        stage: "scan",
+        message: "corrupt legacy JSONL at feedback/records.jsonl line 2",
+        next: "repair or remove the unreadable legacy file, then re-run migrate-legacy"
+      });
+    });
+  });
+
+  it("keeps a nonexistent --state-root an honest empty scan", async () => {
+    await withStateRoot(async (parent) => {
+      const missing = join(parent, "not-created");
+      const captured = capture();
+      assert.equal(await migrateLegacyCommand(["--state-root", missing], captured.io), 0);
+      assert.match(captured.out(), /no legacy files found/);
+      assert.equal(captured.err(), "");
+    });
+  });
+});
+
 describe("migrate-legacy apply", () => {
   it("copies each file into its plane and leaves the source in place", async () => {
     await withStateRoot(async (stateRoot) => {

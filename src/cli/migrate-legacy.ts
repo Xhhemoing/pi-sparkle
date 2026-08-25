@@ -6,7 +6,7 @@ import { dirname, join, posix, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readJsonlObjects } from "../persist/jsonl.js";
 import { adaptationRoot, runtimeRoot, type Plane } from "../privacy/state-layout.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, errorCodeOf } from "./errors.js";
 
 /**
  * One-shot migration of the flat pre-2026-08-22 state root into the two plane
@@ -124,17 +124,43 @@ export async function migrateLegacyCommand(
     io.stdout(MIGRATE_LEGACY_USAGE);
     return CLI_EXIT.ok;
   }
-  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const rawStateRoot = values["state-root"];
+  // A verb that copies files must never resolve its source tree from the cwd:
+  // a blank root scanned and migrated whatever happened to be under the
+  // working directory and reported it as a clean success.
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "migrate-legacy",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
+  const stateRoot = rawStateRoot ?? defaultStateRoot();
   const apply = values.apply === true;
 
   let plan: MigrationPlan;
   try {
     plan = await planLegacyMigration(stateRoot);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // A coded fault is the filesystem answering about the root itself (the
+    // root is a file, is unreadable, ...); the corrupt-JSONL refusal this
+    // catch was written for is thrown uncoded from validateJsonl, and keeps
+    // its own remedy. Telling an operator whose --state-root is a regular file
+    // to repair the unreadable legacy file names a file that does not exist.
+    if (errorCodeOf(error) !== undefined) {
+      return cliFail(io, {
+        command: "migrate-legacy",
+        stage: "lookup",
+        message: `cannot scan --state-root ${stateRoot}: ${message}`,
+        next: "check the --state-root path; it must be the flat pre-2026-08-22 state directory"
+      });
+    }
     return cliFail(io, {
       command: "migrate-legacy",
       stage: "scan",
-      message: error instanceof Error ? error.message : String(error),
+      message,
       next: "repair or remove the unreadable legacy file, then re-run migrate-legacy"
     });
   }
