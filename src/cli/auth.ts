@@ -137,6 +137,15 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
  * string looking variable-shaped, or happening to match something in the
  * environment — is what makes the row an environment row.
  *
+ * Equality against the configured bytes, not against a trimmed copy of them.
+ * Parsing stores `envVar` as written and the runtime passes that same string
+ * to the resolver, which looks it up under exactly that key — so a configured
+ * `" PADDED_KEY "` resolves through a variable of that name and comes back as
+ * that source. Trimming here alone would print `ambient` for a row a
+ * configured variable did resolve; normalizing instead is a wider change, in
+ * parsing and in the runtime together, and this column is not the place to
+ * start it.
+ *
  * A builtin has no configured name to compare against: Pi's `ApiKeyAuth` keeps
  * its variable list inside the resolver closure and exposes only the source it
  * chose, and re-deriving those names here would drift from the pinned
@@ -155,8 +164,10 @@ function sourceLabel(
   if (source === undefined) return "ambient";
   const custom = customProviders.find((item) => item.id === providerId);
   if (custom !== undefined) {
-    const envVar = custom.envVar?.trim();
-    return envVar !== undefined && envVar !== "" && source === envVar ? "env" : "ambient";
+    // `trim()` only mirrors the runtime's own guard for whether a resolver is
+    // built from the variable at all; the comparison itself is the raw value.
+    const envVar = custom.envVar;
+    return envVar !== undefined && envVar.trim() !== "" && source === envVar ? "env" : "ambient";
   }
   const value = process.env[source];
   return typeof value === "string" && value.trim() !== "" ? "env" : "ambient";
