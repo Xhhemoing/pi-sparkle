@@ -692,15 +692,36 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /**
-   * Queue user-authored text into the sole live attempt. Refuses blank text,
-   * no active attempt, and ambiguous concurrent attempts.
+   * Queue user-authored text into an attempt this executor is running.
+   *
+   * With `agentInstanceId` the text goes to that instance's attempt and
+   * nowhere else. One executor serves concurrent runs, so between two attempts
+   * of a retried execution its kernel is gone from {@link liveKernels} while a
+   * sibling run's kernel is not: without a target the sole-live rule would
+   * hand the sibling an instruction nobody aimed at it, and record the steer
+   * against both the wrong execution's {@link acceptedSteers} and the aiming
+   * run's log. A target that is not live is therefore refused loudly, the same
+   * answer the untargeted call gives when nothing at all is live.
+   *
+   * Without one it targets the sole live attempt, refusing blank text, no
+   * active attempt, and ambiguous concurrent attempts.
    *
    * Accepted text is also kept for the rest of the execution so a retry
    * re-delivers it; see {@link acceptedSteers}.
    */
-  steerText(text: string): void {
+  steerText(text: string, agentInstanceId?: AgentInstanceId): void {
     if (text.trim() === "") {
       throw new DomainValidationError("steer text must be a non-empty string");
+    }
+    if (agentInstanceId !== undefined) {
+      const targeted = this.liveKernels.get(agentInstanceId);
+      if (targeted === undefined) {
+        throw new DomainValidationError(
+          `cannot steer: no agent run is in flight for ${agentInstanceId}`
+        );
+      }
+      this.deliver(agentInstanceId, targeted, text);
+      return;
     }
     const live = [...this.liveKernels.entries()];
     if (live.length === 0) {
@@ -711,7 +732,11 @@ export class PiAgentExecutor implements AgentExecutor {
         `cannot steer: ${live.length} agent runs are in flight and steering has no target`
       );
     }
-    const [agentInstanceId, kernel] = live[0] as [AgentInstanceId, SparkleKernel];
+    const [soleInstanceId, kernel] = live[0] as [AgentInstanceId, SparkleKernel];
+    this.deliver(soleInstanceId, kernel, text);
+  }
+
+  private deliver(agentInstanceId: AgentInstanceId, kernel: SparkleKernel, text: string): void {
     kernel.steerText(text);
     // Recorded only once the kernel has taken the text: a steer the live
     // attempt refused was never delivered, and re-delivering it to the next

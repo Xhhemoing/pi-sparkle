@@ -3,6 +3,7 @@ import {
   createEventId,
   createRunId,
   createTaskId,
+  type AgentInstanceId,
   type IdGenerator,
   type RunId,
   type TaskId
@@ -208,8 +209,10 @@ export interface RunningRun {
    * event types on purpose, so an audit can tell which one changed a run.
    *
    * Throws `DomainValidationError` synchronously when the text is blank, when
-   * no run is in flight, or when the executor does not implement steering —
-   * the text is never accepted and then quietly dropped. The returned promise
+   * this run's agent is not in flight — including between the attempts of a
+   * retry, even if the same executor is driving another run that is — or when
+   * the executor does not implement steering. The text is never accepted and
+   * then quietly dropped, nor delivered to somebody else. The returned promise
    * resolves once the steer is recorded in the event log; the run itself also
    * waits for that write before it settles, so ignoring the promise loses the
    * error, not the record.
@@ -230,16 +233,27 @@ const DEFAULT_STEER_ACTOR = "user";
  */
 class SteerChannel {
   private record: ((text: string, actor: string) => Promise<void>) | undefined;
+  /**
+   * The agent this run's steers are for, when the run has one of its own. A
+   * parent run does not, so it opens the window untargeted and keeps the
+   * disclosed whichever-child semantics.
+   */
+  private target: AgentInstanceId | undefined;
   private writes: Promise<void> = Promise.resolve();
 
   constructor(private readonly executor: AgentExecutor) {}
 
-  open(record: (text: string, actor: string) => Promise<void>): void {
+  open(
+    record: (text: string, actor: string) => Promise<void>,
+    agentInstanceId?: AgentInstanceId
+  ): void {
     this.record = record;
+    this.target = agentInstanceId;
   }
 
   close(): void {
     this.record = undefined;
+    this.target = undefined;
   }
 
   steer(text: string, options: SteerOptions = {}): Promise<void> {
@@ -258,8 +272,10 @@ class SteerChannel {
       throw new DomainValidationError("cannot steer: this executor does not support steering");
     }
     // Delivery before logging: an event describing a steer the agent never
-    // received would be a false record of what the run was told.
-    this.executor.steerText(text);
+    // received would be a false record of what the run was told. The target
+    // makes that hold when one executor serves several runs — a miss throws
+    // here, before anything is written.
+    this.executor.steerText(text, this.target);
     const write = record(text, actor);
     this.writes = Promise.allSettled([this.writes, write]).then(() => undefined);
     return write;
@@ -346,18 +362,23 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
     let failureReason = "agent execution ended without a terminal event";
 
     // Open before the first `next()` on the executor's iterator so a steer
-    // arriving with the very first event has somewhere to go.
-    steerChannel.open((text, actor) =>
-      append({
-        id: createEventId(generateId),
-        schemaVersion: 1,
-        occurredAt: now(),
-        runId,
-        taskId: rootTaskId,
-        type: "STEER_INJECTED",
-        actor,
-        payload: { agentInstanceId, text }
-      })
+    // arriving with the very first event has somewhere to go. Targeted at this
+    // run's own agent: the `STEER_INJECTED` below names that instance, so the
+    // executor must refuse rather than deliver into a concurrent run it also
+    // happens to be driving.
+    steerChannel.open(
+      (text, actor) =>
+        append({
+          id: createEventId(generateId),
+          schemaVersion: 1,
+          occurredAt: now(),
+          runId,
+          taskId: rootTaskId,
+          type: "STEER_INJECTED",
+          actor,
+          payload: { agentInstanceId, text }
+        }),
+      agentInstanceId
     );
 
     try {
@@ -775,8 +796,11 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     let trackingBlocked = false;
 
     // A parent run has no agent of its own, so a steer targets whichever child
-    // the shared executor currently has in flight. The executor refuses when
-    // that is ambiguous rather than broadcasting to every concurrent child.
+    // the shared executor currently has in flight — the window opens with no
+    // agent instance for exactly that reason. The executor refuses when that is
+    // ambiguous rather than broadcasting to every concurrent child, and the
+    // event below names no instance, so no record claims a particular agent
+    // heard it.
     steerChannel.open((text, actor) =>
       append({
         id: createEventId(generateId),

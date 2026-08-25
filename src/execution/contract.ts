@@ -46,9 +46,17 @@ export interface AgentExecutor {
    * Optional because not every executor drives a steerable loop. Callers must
    * treat its absence as "steering unsupported" and fail rather than drop the
    * text — a steer that silently goes nowhere is worse than a rejected one.
+   * A steer that goes somewhere else is worse still: `agentInstanceId` names
+   * the agent the caller meant, so one executor serving several concurrent
+   * runs cannot deliver a run's text into a sibling that happens to be the
+   * only one live. A targeted call refuses when that instance has no attempt
+   * in flight — during a retry backoff, say — rather than falling back to
+   * whichever attempt is. Callers that genuinely mean "whichever run this
+   * executor has in flight" omit it and keep the sole-live-or-refuse
+   * behaviour.
    *
    * Implementations reject empty or whitespace-only text, and reject the call
    * when no run is in flight, with `DomainValidationError`.
    */
-  steerText?(text: string): void;
+  steerText?(text: string, agentInstanceId?: AgentInstanceId): void;
 }
