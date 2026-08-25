@@ -107,5 +107,5 @@ Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fab
 - D23 post-publish manifest-exists check dispatched (GPT-d19 FIX).
 - D20 and D21 Opus implementers still in flight.
 - D22 queued.
-- Round 5 GPT ranking challenge: D20/D21/D22 all **FIX** (remedies, not slots). D20/D21 implementers resumed with those riders.
+- Round 5 GPT ranking challenge: D20/D21/D22 all **FIX** (remedies, not slots). D20/D21 were still running so the riders land via resume after they idle, or a follow-up commit on merge.
 - Windows smoke and status-matrix still HOLD behind PR #12.
