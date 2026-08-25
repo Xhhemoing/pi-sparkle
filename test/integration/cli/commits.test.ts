@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { createCliModelRouter } from "../../../src/cli/model-catalog.js";
 import { createTaskId } from "../../../src/domain/ids.js";
 import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
@@ -115,7 +116,9 @@ test("preview --json round-trips through apply --file into a temporary git repo"
       preview.io
     );
     assert.equal(previewCode, 0, preview.err.join(""));
-    const parsed = JSON.parse(preview.out.join("")) as { commits: Array<{ subject: string; type: string; scope: string }> };
+    const parsed = JSON.parse(preview.out.join("")) as {
+      commits: Array<{ subject: string; type: string; scope: string }>;
+    };
     assert.ok(Array.isArray(parsed.commits) && parsed.commits.length === 1);
     const expectedSubjects = parsed.commits.map((commit) => `${commit.type}(${commit.scope}): ${commit.subject}`);
 
@@ -172,6 +175,130 @@ test("apply without a git repo fails closed", async () => {
     assert.match(err.join(""), /git|work tree|not a git/i);
     assert.deepEqual(out, []);
   });
+});
+
+// `preview: true` marks the developer-preview contract every machine surface
+// carries; it does not restate the `preview` subcommand. COMMITS_PREVIEW is a
+// CLI view object, not an Event.
+test("preview --json prints exactly one COMMITS_PREVIEW object with the pinned keys", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json"],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    assert.deepEqual(err, []);
+    const text = out.join("");
+    assert.equal(text.trimEnd().split("\n").length, 1);
+    assert.deepEqual(JSON.parse(text), {
+      type: "COMMITS_PREVIEW",
+      preview: true,
+      commits: [
+        {
+          type: "feat",
+          scope: "work",
+          subject: "Do the work",
+          nodeId: "work",
+          evidenceIds: ["evd_work"],
+          runId: outcome.runId,
+          confidence: 0.9,
+          model: "cheap"
+        }
+      ]
+    });
+  });
+});
+
+test("apply --file still accepts a legacy untyped { commits: [...] } file", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const preview = capture();
+    assert.equal(
+      await main(
+        ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json"],
+        preview.io
+      ),
+      0
+    );
+    const { commits } = JSON.parse(preview.out.join("")) as { commits: unknown[] };
+
+    const repo = await mkdtemp(join(tmpdir(), "pi-sparkle-commits-legacy-"));
+    const file = join(repo, "legacy.json");
+    try {
+      git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
+      await writeFile(file, JSON.stringify({ commits }, null, 2), "utf8");
+      const saved: Record<string, string | undefined> = {};
+      for (const [key, value] of Object.entries(GIT_IDENTITY_ENV)) {
+        saved[key] = process.env[key];
+        process.env[key] = value;
+      }
+      try {
+        const apply = capture();
+        const applyCode = await main(
+          ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo, "--file", file],
+          apply.io
+        );
+        assert.equal(applyCode, 0, apply.err.join(""));
+      } finally {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+      assert.equal(git(["log", "--format=%s"], repo).trim().split("\n").length, 1);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+test("commits preview and apply without --run report parse-args", async () => {
+  for (const sub of ["preview", "apply"]) {
+    const { io, out, err } = capture();
+    assert.equal(await main(["commits", sub], io), 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, `commits ${sub} requires --run <runId>`);
+    assert.equal(report?.next, "pass --run <runId>");
+  }
+});
+
+test("commits on a run that does not exist reports lookup and names the list remedy", async () => {
+  await withRoots(async (stateRoot) => {
+    const { io, out, err } = capture();
+    const code = await main(
+      ["commits", "preview", "--run", "run_missing0001", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "lookup");
+    assert.equal(report?.runId, "run_missing0001");
+    assert.match(report?.next ?? "", /pnpm cli list/);
+  });
+});
+
+test("bare commits and an unknown subcommand print usage and a parse-args report", async () => {
+  const bare = capture();
+  assert.equal(await main(["commits"], bare.io), 1);
+  assert.match(bare.err.join(""), /pi-sparkle commits preview --run/);
+  const bareReport = parseCliErrorJson(bare.err.join(""));
+  assert.equal(bareReport?.stage, "parse-args");
+  assert.equal(bareReport?.message, "commits requires a subcommand: preview or apply");
+  assert.equal(bareReport?.next, "use commits preview or commits apply");
+
+  const unknown = capture();
+  assert.equal(await main(["commits", "squash"], unknown.io), 1);
+  const unknownReport = parseCliErrorJson(unknown.err.join(""));
+  assert.equal(unknownReport?.command, "commits");
+  assert.equal(unknownReport?.stage, "parse-args");
+  assert.equal(unknownReport?.message, "Unknown commits command: squash");
 });
 
 test("preview does not create commits", async () => {

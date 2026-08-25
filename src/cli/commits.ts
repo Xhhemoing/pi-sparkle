@@ -19,6 +19,7 @@ import {
   type DecisionCommitInput,
   type DecisionCommitProposal
 } from "../tools/decision-commit.js";
+import { CLI_EXIT, cliFail } from "./errors.js";
 
 export interface CommitsIo {
   stdout(text: string): void;
@@ -30,6 +31,8 @@ const COMMITS_USAGE = `pi-sparkle commits — decision ledger to conventional co
 Usage:
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
+
+preview --json prints one COMMITS_PREVIEW object; apply --file accepts that output, with or without the type/preview keys.
 `;
 
 function defaultStateRoot(): string {
@@ -43,7 +46,15 @@ async function loadCommitInput(
 ): Promise<{ checkpoint: RunCheckpoint; input: DecisionCommitInput } | undefined> {
   const read = await new EventStore(stateRoot, runId).readAll();
   if (read.events.length === 0) {
-    io.stderr(`Run ${runId} not found under ${stateRoot}\n`);
+    // The house run-not-found remedy, copied rather than imported: `main.ts`
+    // imports this module, so reaching back for `missingRun` would be a cycle.
+    cliFail(io, {
+      command: "commits",
+      stage: "lookup",
+      message: `Run ${runId} not found under ${stateRoot}`,
+      next: `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`,
+      runId
+    });
     return undefined;
   }
   const raw = await new CheckpointStore(stateRoot, runId).read();
@@ -125,14 +136,21 @@ async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
     }
   });
   if (values.run === undefined) {
-    io.stderr("commits preview requires --run <runId>\n");
-    return 1;
+    return cliFail(io, {
+      command: "commits",
+      stage: "parse-args",
+      message: "commits preview requires --run <runId>",
+      next: "pass --run <runId>"
+    });
   }
   const loaded = await loadCommitInput(values["state-root"] ?? defaultStateRoot(), parseRunId(values.run), io);
-  if (loaded === undefined) return 1;
+  if (loaded === undefined) return CLI_EXIT.error;
   const proposals = proposalsFromInput(loaded, parseCommitNodeIdsCsv(values.nodes), undefined);
   if (values.json === true) {
-    io.stdout(`${JSON.stringify({ commits: proposals }, null, 2)}\n`);
+    // `preview: true` is the developer-preview marker every machine surface
+    // carries, not a restatement of the `preview` subcommand; COMMITS_PREVIEW
+    // is a CLI view object, never an Event.
+    io.stdout(`${JSON.stringify({ type: "COMMITS_PREVIEW", preview: true, commits: proposals })}\n`);
     return 0;
   }
   io.stdout(`${proposals.map(formatCommitMessage).join("\n\n")}\n`);
@@ -152,11 +170,15 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
     }
   });
   if (values.run === undefined) {
-    io.stderr("commits apply requires --run <runId>\n");
-    return 1;
+    return cliFail(io, {
+      command: "commits",
+      stage: "parse-args",
+      message: "commits apply requires --run <runId>",
+      next: "pass --run <runId>"
+    });
   }
   const loaded = await loadCommitInput(values["state-root"] ?? defaultStateRoot(), parseRunId(values.run), io);
-  if (loaded === undefined) return 1;
+  if (loaded === undefined) return CLI_EXIT.error;
   const fileProposals =
     values.file !== undefined ? parseDecisionCommitFile(await readFile(values.file, "utf8")) : undefined;
   const proposals = proposalsFromInput(loaded, parseCommitNodeIdsCsv(values.nodes), fileProposals);
@@ -188,12 +210,20 @@ export async function commitsCommand(args: string[], io: CommitsIo): Promise<num
       io.stdout(COMMITS_USAGE);
       return 0;
     case undefined:
-      io.stderr("commits requires a subcommand: preview or apply\n");
       io.stderr(COMMITS_USAGE);
-      return 1;
+      return cliFail(io, {
+        command: "commits",
+        stage: "parse-args",
+        message: "commits requires a subcommand: preview or apply",
+        next: "use commits preview or commits apply"
+      });
     default:
-      io.stderr(`Unknown commits command: ${sub}\n`);
       io.stderr(COMMITS_USAGE);
-      return 1;
+      return cliFail(io, {
+        command: "commits",
+        stage: "parse-args",
+        message: `Unknown commits command: ${sub}`,
+        next: "use commits preview or commits apply"
+      });
   }
 }
