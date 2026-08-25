@@ -185,6 +185,27 @@ export interface DoctorCheck {
   readonly detail: string;
 }
 
+/**
+ * Doctor is the remedy target of every generic and routed `next` in the CLI, so
+ * its own discovery gesture has to answer instead of failing. The posture line
+ * repeats the banner the human report prints: help must not read more honest
+ * than the report it describes.
+ */
+const DOCTOR_USAGE = `pi-sparkle doctor — preflight the install and inventory the state root
+
+Usage:
+  pi-sparkle doctor [--state-root <dir>] [--project <dir>] [--agents-dir <dir>] [--json]
+
+  --state-root <dir>  state root to inventory (default ~/.pi-sparkle)
+  --project <dir>     project root to check for package.json and Pi agent profiles
+  --agents-dir <dir>  Pi agents directory to load profiles from instead of the defaults
+  --json              print the frozen report object on stdout instead of the prose report
+
+Developer preview — not a production capability; live R1/bandit/topology stay
+off until Checkpoint F-PROD closes. doctor reads and reports only: it never
+steals locks, changes run state, or repairs learned state.
+`;
+
 const NEXT_STEPS: readonly string[] = [
   "pnpm cli run --project <path> --objective <text> uses the fake executor",
   "--executor pi requires models set-default or PI_PROVIDER/PI_MODEL"
@@ -1078,15 +1099,32 @@ export async function doctorCommand(
   io: DoctorIo,
   options: DoctorOptions = {}
 ): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      "state-root": { type: "string" },
-      project: { type: "string" },
-      "agents-dir": { type: "string" },
-      json: { type: "boolean" }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        "state-root": { type: "string" },
+        project: { type: "string" },
+        "agents-dir": { type: "string" },
+        json: { type: "boolean" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "doctor",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle doctor --help"
+    });
+  }
+  // Help answers before any work: the report path mkdirs the state root through
+  // stateRootWritable, and asking how to run doctor must write nothing.
+  if (values.help === true) {
+    io.stdout(DOCTOR_USAGE);
+    return CLI_EXIT.ok;
+  }
   const engines = readPackageEngines();
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const locks = await lockInventory(stateRoot, options);
