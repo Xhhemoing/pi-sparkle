@@ -282,12 +282,18 @@ is `GATE_TRANSITION.payload.reasonCode`; the failed dimensions are on the
 `TRACKING_ASSESSMENT` that transition cites; an acceptance criterion the child
 reported unmet is on that child's terminal `CHILD_MESSAGE`.
 `src/run/inspection.ts::gateBlockCause` reads those three back off the persisted
-log — pairing the newest `RUN_BLOCKED` with the transition that precedes it, and
+log — pairing the newest `RUN_BLOCKED` with the transition that precedes it,
+requiring that transition to be the `queue_analysis` / `to: BLOCKED` shape that
+writes the block at all, joining the cited assessment by hash *and* `seq`, and
 never consulting `GateApplyResult` — and two verbs render it. `inspect --run`
 prose adds `gate cause:`, plus `gate codes:`, `gate failed dimensions:` and one
 `gate unmet criterion:` line per reported FAILED criterion when there are any;
 `--summary-json` is unchanged, still exactly the four frozen `INSPECT_SUMMARY`
-keys. The blocked report adds one trailing `note:` naming the same cause. The
+keys. The blocked report adds one trailing `note:` naming the same code and
+turn. That note also states what `ANALYSIS_QUEUED` is not: no analysis consumer
+is wired, nothing dequeues the block, and `unblock` remains what clears it. The
+diagnostics stay on `inspect`, and the note routes there. Both production causes,
+`deterministic-fail` and `unmet-acceptance-criterion`, are pinned end to end. The
 `RUN_BLOCKED` payload, the gate, and the four routed lines above are untouched:
 the unknown-is-not-unmet rule of `tracking/from-child.ts::unmetCriteriaOf`
 applies to what is named, so an `UNOBSERVED` or absent criterion stays open.

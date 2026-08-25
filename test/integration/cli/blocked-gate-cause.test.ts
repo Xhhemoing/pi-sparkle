@@ -51,6 +51,7 @@ import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 const TS: IsoTimestamp = parseIsoTimestamp("2026-08-25T09:00:00.000Z");
 const NODE = "tsk_migrate";
+const DETERMINISTIC_NODE = "tsk_verify";
 const CRITERION = "ac_no_regression";
 const CRITERION_EVIDENCE = "evd_criterion_suite" as EvidenceId;
 const TASK_EVIDENCE = "evd_task_run" as EvidenceId;
@@ -140,6 +141,40 @@ function reportingExecutor(criteria: readonly CriterionVerification[]): AgentExe
   };
 }
 
+/**
+ * The other production-ordinary block: a child that reports SUCCESS against a
+ * verification that FAILED. The gate reads that as `deterministic-fail`, which
+ * is the code most operators will actually meet — the criterion shape above
+ * needs a child that reports per-criterion outcomes at all.
+ */
+const verificationFailedExecutor: AgentExecutor = {
+  async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
+    if (signal.aborted) {
+      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+      return;
+    }
+    yield {
+      type: "MESSAGE",
+      message: {
+        protocolVersion: 1,
+        id: `msg_det-${request.agentInstanceId}` as MessageId,
+        occurredAt: TS,
+        runId: request.runId,
+        taskId: request.taskId,
+        from: request.agentInstanceId,
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "the child reported success; verification did not agree",
+        artifactIds: [`art_det-${request.taskId}` as ArtifactId],
+        evidenceIds: [TASK_EVIDENCE],
+        verification: { kind: "FAILED", evidenceIds: [TASK_EVIDENCE] }
+      }
+    };
+    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+  }
+};
+
 function childSpec(taskId: string): ChildTaskInput {
   return {
     taskId: parseTaskId(taskId),
@@ -177,6 +212,32 @@ async function blockedByCriterion(
     }
   );
   assert.equal(outcome.status, "BLOCKED", "the gate decides the terminal for this shape");
+  return outcome;
+}
+
+/** The same operator, meeting the block a failed verification files. */
+async function blockedByDeterministicFail(
+  stateRoot: string,
+  projectRoot: string
+): Promise<FlowchartRunOutcome> {
+  const spec = childSpec(DETERMINISTIC_NODE);
+  const outcome = await startFlowchartRun(
+    {
+      stateRoot,
+      router: router(),
+      now: () => TS,
+      executor: verificationFailedExecutor,
+      cluster: true
+    },
+    {
+      projectRoot,
+      flowchart: compileChildrenToFlowchart([
+        { taskId: spec.taskId, role: "implementer", objective: spec.objective }
+      ]),
+      childTasks: [spec]
+    }
+  );
+  assert.equal(outcome.status, "BLOCKED", "a failed verification blocks the run too");
   return outcome;
 }
 
@@ -278,12 +339,18 @@ test("the blocked report adds the cause as a note and leaves the four routed lin
     // Unchanged: the payload's own word, still printed verbatim.
     assert.match(report, /^ {2}reason: ANALYSIS_QUEUED$/m, report);
 
-    // Added: the cause, on a note, naming the same code the log carries.
+    // Added: the cause, on a note, naming the same code the log carries — and
+    // saying that the word above it is a verdict rather than work in progress.
     assert.match(
       report,
-      /^ {2}note: ANALYSIS_QUEUED names the queue this block was filed under, not the cause — the gate recorded unmet-acceptance-criterion on turn tsk_migrate, unmet criterion: ac_no_regression \(evidence: evd_criterion_suite\)$/m,
+      /^ {2}note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded unmet-acceptance-criterion on turn tsk_migrate; no analysis consumer is wired and nothing dequeues this block, so unblock is still what clears it, and inspect prints the failed dimensions and any unmet criteria the gate recorded$/m,
       report
     );
+
+    // The criterion itself is inspect's to print. Repeating it here would put
+    // the diagnostics in the routing block and make the note grow with the
+    // assessment.
+    assert.ok(!report.includes("ac_no_regression"), report);
 
     // The freeze `blocked-next.test.ts` holds: the four an operator works
     // through, byte-for-byte, in order, as the prefix of the routed block, with
@@ -303,5 +370,46 @@ test("the blocked report adds the cause as a note and leaves the four routed lin
     );
     assert.equal(routed.filter((line) => line.startsWith("  next: ")).length, 3, report);
     assert.equal(routed.length, 6, "the discard disclosure and the cause, and nothing else, follow");
+  });
+});
+
+/**
+ * The other half of the production surface. `unmet-acceptance-criterion` needs
+ * a child that reports per-criterion outcomes; `deterministic-fail` is what an
+ * ordinary child that claims success against a failed verification produces, so
+ * it is the code most blocks carry and the one nothing asserted end to end.
+ */
+test("inspect and the blocked note name deterministic-fail on the verification-failed block", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const blocked = await blockedByDeterministicFail(stateRoot, projectRoot);
+
+    const inspected = capture();
+    const code = await main(
+      ["inspect", "--run", blocked.runId, "--state-root", stateRoot],
+      inspected.io
+    );
+    assert.equal(code, 0, inspected.err.join(""));
+    const out = inspected.out.join("");
+
+    assert.match(
+      out,
+      /^ {2}gate cause: deterministic-fail \(hard gate, turn tsk_verify\)$/m,
+      out
+    );
+    // No criterion was reported, so the criterion line is absent rather than
+    // rendered empty — the child spoke about the task only.
+    assert.ok(!out.includes("gate unmet criterion:"), out);
+
+    // The dimensions the gate scored FAIL are the diagnostics the blocked note
+    // routes to, so they have to be here: a child claiming success against a
+    // failed verification is exactly an evidence-consistency failure.
+    assert.match(out, /^ {2}gate failed dimensions: evidence-consistency$/m, out);
+
+    const report = formatBlockedRunReport(blocked.runId, stateRoot, blocked.events);
+    assert.match(
+      report,
+      /^ {2}note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded deterministic-fail on turn tsk_verify; no analysis consumer is wired and nothing dequeues this block, so unblock is still what clears it, and inspect prints the failed dimensions and any unmet criteria the gate recorded$/m,
+      report
+    );
   });
 });

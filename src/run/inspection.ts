@@ -118,6 +118,14 @@ const GATE_BLOCK_REASON = "ANALYSIS_QUEUED";
  * log: the gate writes the pair together, so the newest transition *preceding*
  * the newest block is the one that filed it, and a run that blocks twice does
  * not read the second block's cause onto the first.
+ *
+ * That transition must also look like the one that could have filed this block:
+ * `gate-apply.ts` writes `RUN_BLOCKED` only from the `queue_analysis` directive,
+ * whose transition always carries `to: "BLOCKED"`. A preceding transition that
+ * says anything else did not produce the block sitting after it, so this reads
+ * no cause rather than attributing someone else's. The check costs nothing on
+ * the shipped producer and refuses a log whose events are each valid but whose
+ * pairing is not.
  */
 export function gateBlockCause(events: readonly Event[]): GateBlockCause | undefined {
   const blockedIndex = events.findLastIndex((event) => event.type === "RUN_BLOCKED");
@@ -134,11 +142,20 @@ export function gateBlockCause(events: readonly Event[]): GateBlockCause | undef
     }
   }
   if (transition === undefined) return undefined;
+  if (transition.directive !== "queue_analysis" || transition.to !== "BLOCKED") {
+    return undefined;
+  }
 
+  // Both keys are written in the same `applyTrackingGate` call, so the pair is
+  // exact. The hash alone would match a re-assessment that hashed identically
+  // under a later sequence number, which is a different turn of the gate.
   const cited = transition.assessmentHash;
+  const citedSeq = transition.seq;
   const assessment = events.findLast(
     (event): event is Extract<Event, { type: "TRACKING_ASSESSMENT" }> =>
-      event.type === "TRACKING_ASSESSMENT" && event.payload.assessmentHash === cited
+      event.type === "TRACKING_ASSESSMENT" &&
+      event.payload.assessmentHash === cited &&
+      event.payload.seq === citedSeq
   )?.payload.assessment;
 
   // Last writer wins, as everywhere else in this file: a retried task can
