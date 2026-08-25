@@ -35,7 +35,7 @@
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
 | 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
-| 21 | 第 2–3 波进行中 | 6 / 10（A–F 已合入；G/H/I 本波派出） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
+| 21 | 第 3–4 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
 
 ### Round 1 波次
 
@@ -223,7 +223,8 @@
 | --- | --- | --- |
 | 1 | R21-A 跟踪门控、R21-B live 路由、R21-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R21-D 自优化、R21-E 学习、R21-F 实验 | D/E/F 完成已合入 |
-| 3 | R21-G 运行时/图、R21-H 评价/需求、R21-I CLI/适配器 | G/H/I 本波派出 |
+| 3 | R21-G 运行时/图、R21-H 评价/需求、R21-I CLI/适配器 | G 完成已合入；H/I 运行中 |
+| 4 | R21-J cluster/privacy/episode | J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -436,7 +437,8 @@
 | R21-D | `cursor/r21-d-adaptation-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-D.md`）。无新排除 ID；eval 地板复核 3.84–4.19 ms；状态增长方向面归档 |
 | R21-E | `cursor/r21-e-learning-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-E.md`）。无新排除 ID；SLICE-CPU 复核 15.8–16.9 / cmp20 17.8–18.5 µs/run；标识符几何轴归档 |
 | R21-F | `cursor/r21-f-experiments-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-F.md`）。无新排除 ID；全实验锚点复核 120.7–129.8 ms；时钟输入面归档 |
-| R21-G | `cursor/r21-g-runtime-twenty-first-pass-83a1` | 已派出 |
+| R21-G | `cursor/r21-g-runtime-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-G.md`）。无新排除 ID；计算顶复核 0.282–0.290 vs I/O 89.6–96.2 ms；SCHEDWIN 不铸 ID；digest 第十二次逐位相同 |
+| R21-J | `cursor/r21-j-persist-twenty-first-pass-83a1` | 已派出 |
 | R21-H | `cursor/r21-h-eval-twenty-first-pass-83a1` | 已派出 |
 | R21-I | `cursor/r21-i-cli-twenty-first-pass-83a1` | 已派出 |
 
