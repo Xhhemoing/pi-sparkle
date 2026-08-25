@@ -254,7 +254,9 @@ two malformed-id reports upgraded to whole-report `deepEqual`.
   whole report, plus pins that stderr still opens with `EPISODE_USAGE` and stdout is empty.
 - **"episode events escapes control characters so one event is always one line"** — a fixture whose
   objective, reason, every evidence entry and outcome id each carry a literal backslash plus tab,
-  CR and LF, appended through `EpisodeEventStore.append` so all four rows had to pass
+  CR and LF (**this claim was false when written** — the evidence entries carried neither a
+  backslash nor a CR; corrected in the recheck rider below, item 1),
+  appended through `EpisodeEventStore.append` so all four rows had to pass
   `validateEpisodeEvent`. It pins: exactly four physical lines (`raw.slice(0, -1).split("\n")`),
   no raw `\r` or `\n` anywhere in a line, exactly two structural tab delimiters per line, and the
   four exact escaped lines written out longhand rather than through the renderer's own helper, so
@@ -268,3 +270,82 @@ two malformed-id reports upgraded to whole-report `deepEqual`.
 - `node scripts/run-tests.mjs` (full suite) → **2292 pass, 0 fail, 1 skipped** (pre-existing skip).
 - `npx tsc --noEmit` → clean; `npx eslint` on both files → clean.
 - Host Node v22.14.0 against `engines: ">=22.19.0"` — pnpm warning only.
+
+---
+
+# Rider 2 — GPT-d33-recheck **FIX** (test pins only)
+
+Landed as commit `08219b2`. GPT-d33-recheck confirmed the source behavior at `8ca3026` is correct
+and required no change to it; the two defects were in my pins, which did not hold the contract they
+claimed. This rider touches `test/integration/m3/episode-cli.test.ts` and this report only —
+`src/cli/episode.ts`, `src/episode/events.ts` and `src/cli/main.ts` are untouched by it, and
+`git diff` against the previous commit lists the one test file.
+
+## 1. Every evidence entry now exercises all four replacements
+
+The fixture's evidence array was `["tests\tunit", "docs\nadr", "plain"]`: no entry carried a
+backslash, none carried a CR, and no single entry exercised all four replacements. It is now
+
+```ts
+const requiredEvidence = ["tests\\one\tunit\r\nlinux", "docs\\two\tadr\r\nreview"];
+```
+
+and the WAITING-line expectation was updated to the matching longhand escapes. The decoded-JSON
+deep-equality pin still compares against the same unescaped array, so the round trip is unchanged.
+
+This was a real hole, not a cosmetic one, because evidence is escaped through its **own** per-entry
+`map(humanField)` call rather than the single interpolation the other fields use. I demonstrated the
+gap by mutation: replacing that call with an evidence-only escape that handles tab and LF but
+neither backslash nor CR —
+
+```ts
+event.requiredEvidence.map((e) => e.replaceAll("\t", "\\t").replaceAll("\n", "\\n")).join(", ")
+```
+
+— left the **old** fixture passing 17/17, and fails the corrected fixture. GPT's reading was exact.
+
+I also made the fixture's own claim enforceable rather than a comment: a loop over
+`[objective, reason, ...requiredEvidence, outcomeId]` asserts each field contains all four
+characters, so a later edit cannot silently weaken the coverage without failing the test. The
+overstated sentence in the Rider 1 test list above has been marked false-when-written.
+
+## 2. Raw-JSONL pins are byte-exact
+
+Both pins that claimed verbatim JSONL applied `trimEnd().split("\n")` to each side, which normalises
+away exactly the drift the claim is supposed to exclude — a lost, added or altered trailing newline
+would still have passed. The helper `rawEventLogLines` is replaced by `rawEventLogText`, which
+returns the file contents unmodified, and both tests now compare directly:
+
+```ts
+assert.equal(asJson.out.join(""), await rawEventLogText(stateRoot, episodeId));
+```
+
+Mutation-checked as well: making the `--json` branch omit the final newline leaves **both** tests
+failing (11 and 17), where the old normalising form would have passed. The explicit parsed-event
+deep-equality pin proving the operator's originals survive unescaped is retained in both tests.
+
+## Live probe of the corrected fixture
+
+```
+$ pnpm cli episode events --episode ep_rcprobe01 --state-root /tmp/d33rc/state | cat -A
+2026-08-25T21:53:52.019Z^IEPISODE_WAITING^Iblocked\\hard\ton\r\nreview: tests\\one\tunit\r\nlinux, docs\\two\tadr\r\nreview$
+
+$ pnpm cli episode events --episode ep_rcprobe01 --state-root /tmp/d33rc/state | wc -l
+1
+
+$ pnpm cli episode events ... --json | cmp - .../ep_rcprobe01.events.jsonl
+byte-identical
+```
+
+Two structural tabs (`^I`) and one newline (`$`) for the event, both evidence entries rendered with
+all four escapes, and `cmp` confirming the `--json` stream matches the log file byte for byte.
+
+## Verification
+
+- `npx tsx --test test/integration/m3/episode-cli.test.ts` → **17/17 pass, 0 fail**.
+- `node scripts/run-tests.mjs` → **2292 pass, 0 fail, 1 skipped** (pre-existing skip).
+- `npx tsc --noEmit` and `npx eslint` on the test file → clean.
+- Mutation checks above ran against temporary edits to `src/cli/episode.ts` that were restored from
+  a pre-mutation copy; `git status` confirms the file is unmodified in the committed tree.
+
+Test pins only — no auth, network, or access-control change.
