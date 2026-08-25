@@ -137,15 +137,16 @@ Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 |---|---|---|---|---|
 | Fable-r8-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-ac8bb75a-bb52-5f1a-8984-42ec18093283` |
 | GPT-r8-challenge | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-1545c8db-ccbf-551b-9c3f-e75e32e4c7cc` |
+| GPT-d31-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-1e414d4e-4510-5473-a1e0-e0e315d5a8ac` |
 | D31 | Opus-d31-pause-inject | claude-opus-5-thinking-high-fast | cloud | `bc-d800526f-dbb5-5265-8287-02db44982c80` |
 | D32 | Opus-d32-commits-retarget | claude-opus-5-thinking-high-fast | cloud | `bc-3e1caa53-4855-50b3-aa59-82b2149f498b` |
 | D33 | Opus-d33-episode-events | claude-opus-5-thinking-high-fast | cloud | `bc-88290d9e-4a3e-5096-b559-741b00844c46` |
 
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
-| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | implementing |
-| D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | implementing |
-| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | implementing |
+| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | landed; GPT-r8 **KEEP**; PR #14; GPT-d31-recheck in flight |
+| D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | PR #15; GPT-r8 **FIX** blank `--repo` rider in flight |
+| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | PR #16; GPT-r8 **FIX** subcommand-order + escape rider in flight |
 
 ### Round 3 still running / next implementers
 

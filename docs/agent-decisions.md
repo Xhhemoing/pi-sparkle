@@ -238,19 +238,25 @@ Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). GPT-r7-chal
 
 Fable-r8-next. Refuse malformed `--run` (`isRunId`) and blank `--reason`/`--key`/`--node`/`--actor` (plane trim rule) as `parse-args` **before any state read**. Preserve D30 precedence: type/confidence refusals still fire before the `--run` shape guard. No catch added or widened; plane files read for wording only. Files: `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: `.agent_workspace/loop5-r8-fable-next.md` Rank 1.
 
-**Status:** implementing. Do not merge until GPT-r8 KEEP.
+**GPT-r8-challenge: KEEP.** Report: `.agent_workspace/loop5-r8-gpt-challenge.md`.
+
+**Landed** (Opus-d31-pause-inject): `b1d9621` on `cursor/pause-inject-value-preflight-0da8`. Report: `.agent_workspace/loop5-r8-opus-d31.md`. Merge gated on GPT-d31-recheck of the landing.
 
 ## D32 — Round 8 rank 2: `commits` refusal retargeting
 
-Fable-r8-next. Five surfaces: malformed `--run`; empty `--nodes` CSV (blames the run); unknown node ids (doctor remedy); `--file` ENOENT as `stage: "execute"`; repo-preflight throws pick up generic doctor next. `isRunId` guard; empty-CSV parse-args before state; hoist `filterDecisionCommitNodeIds` into each command body under a single-call catch; two narrow trys around `readFile`/`parseDecisionCommitFile`; repo throws → `stage: "preflight"` `cliFail` keeping pinned "work tree" wording. `COMMITS_PREVIEW` and D20 partial-apply pins byte-identical. Do not edit `src/tools/decision-commit.ts`. Files: `src/cli/commits.ts`, `test/integration/cli/commits.test.ts`. Spec: Rank 2.
+Fable-r8-next. Five surfaces: malformed `--run`; empty `--nodes` CSV (blames the run); unknown node ids (doctor remedy); `--file` ENOENT as `stage: "execute"`; repo-preflight throws pick up generic doctor next. `isRunId` guard; empty-CSV parse-args before state; hoist `filterDecisionCommitNodeIds` into each command body under a single-call catch; two narrow trys around `readFile`/`parseDecisionCommitFile`; repo throws → `stage: "preflight"` `cliFail` keeping pinned "work tree" wording. `COMMITS_PREVIEW` and D20 partial-apply pins byte-identical. Do not edit `src/tools/decision-commit.ts`. Files: `src/cli/commits.ts`, `test/integration/cli/commits.test.ts`. Spec: Rank 2 as corrected by `.agent_workspace/loop5-r8-gpt-challenge.md`.
 
-**Status:** implementing. Do not merge until GPT-r8 KEEP.
+**GPT-r8-challenge: FIX** (keep the slot). Add explicit-blank `--repo` as `parse-args` before any state read: `values.repo !== undefined && values.repo.trim() === ""` → `invalid --repo "<raw>": repository path must be a non-empty string`, next names omit-to-checkpoint-fallback. Keep omitted-fallback and non-git path as distinct `stage: "preflight"` reports. Pin `--repo ""` / `"  "` and argv-before-state on a nonexistent `--state-root`.
+
+**Status:** implementing Fable spec; apply GPT blank-`--repo` rider before merge.
 
 ## D33 — Round 8 rank 3: `episode` malformed-id guard + designed `events` lines
 
-Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-args guard before both subcommands, retargeting to `list --episodes`. Human `events` lines become `<timestamp>\t<TYPE>\t<detail>` per event type (each type's own timestamp field; WAITING discloses `reason: requiredEvidence`). `--json` byte-identical; `EPISODE_USAGE` untouched. Files: `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3.
+Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-args guard on both real subcommands, retargeting to `list --episodes`. Human `events` lines become `<timestamp>\t<TYPE>\t<detail>` per event type (each type's own timestamp field; WAITING discloses `reason: requiredEvidence`). `--json` byte-identical; `EPISODE_USAGE` untouched. Files: `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3 as corrected by `.agent_workspace/loop5-r8-gpt-challenge.md`.
 
-**Status:** implementing. Do not merge until GPT-r8 KEEP.
+**GPT-r8-challenge: FIX** (keep the slot). (A) Unknown-subcommand refusal must precede required-`--episode` / `isEpisodeId` — pin `episode nonsense --episode banana` to the existing unknown-command report. (B) Escape `\`, tab, CR, LF in human detail fields so one physical line per event and exactly two structural tabs; `--json` unchanged.
+
+**Status:** implementing Fable spec; apply GPT dispatch-order + escape rider before merge.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
