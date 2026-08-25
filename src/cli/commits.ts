@@ -187,6 +187,25 @@ function refuseMalformedRun(io: CommitsIo, run: string, stateRoot: string): numb
 }
 
 /**
+ * An explicitly blank `--state-root` is what an unset shell variable leaves
+ * behind (`--state-root "$SR"`), and resolving it aimed the ledger read at a
+ * cwd-relative tree: the operator got `Run … not found under ` about the root
+ * they meant, with a remedy whose `list --state-root ` swallowed the next word.
+ * Both subcommands check it before their own root assignment.
+ *
+ * The remedy names the flag rather than echoing the value back into a line
+ * that looks copy-paste safe.
+ */
+function refuseBlankStateRoot(io: CommitsIo, raw: string): number {
+  return cliFail(io, {
+    command: "commits",
+    stage: "parse-args",
+    message: `invalid --state-root "${raw}": state root must be a non-empty directory path`,
+    next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+  });
+}
+
+/**
  * `parseCommitNodeIdsCsv` trims and drops blanks, so a CSV of nothing but
  * commas selects no ids at all. Left to the filter it would sail through as
  * "select everything named here" and the run would be blamed for having no
@@ -251,6 +270,10 @@ async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
       next: "pass --run <runId>"
     });
   }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, rawStateRoot);
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (!isRunId(values.run)) return refuseMalformedRun(io, values.run, stateRoot);
   const nodeIds = parseCommitNodeIdsCsv(values.nodes);
@@ -311,6 +334,10 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
       message: "commits apply requires --run <runId>",
       next: "pass --run <runId>"
     });
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, rawStateRoot);
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (!isRunId(values.run)) return refuseMalformedRun(io, values.run, stateRoot);

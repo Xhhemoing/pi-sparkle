@@ -148,6 +148,23 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
         : "pass --flowchart <flowchart.json>"
     });
   }
+  // Only `--flowchart` resolves the state root, and only to build the catalog
+  // its node models are checked against. A blank value — what an unset shell
+  // variable leaves behind — built that catalog out of a cwd-relative
+  // `providers.json`, so a flowchart naming a model the intended root does not
+  // expose was reported `valid` against whatever the current directory had
+  // enabled. `--children` never consults a catalog and its usage says
+  // `--state-root` is ignored there, so a documented ignored option does not
+  // become a blank-only incompatibility.
+  const rawStateRoot = values["state-root"];
+  if (flowchartPath !== undefined && rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "validate",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
 
   let report: ValidateOkJson;
   let prose: string;

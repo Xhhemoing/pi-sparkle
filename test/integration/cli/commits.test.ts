@@ -869,6 +869,71 @@ test("apply against a directory that is not a work tree reports preflight", asyn
   });
 });
 
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+// `--state-root ""` resolved to the process working directory, so the ledger
+// read answered `Run … not found under ` about the root the operator meant and
+// offered a remedy that pasted as `pnpm cli list --state-root for the run ids`.
+// Both subcommands refuse it before their own root assignment.
+test("commits preview and apply refuse a blank --state-root, all four fields", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    for (const sub of ["preview", "apply"]) {
+      for (const raw of ["", "  "]) {
+        const { io, out, err } = capture();
+        const code = await main(["commits", sub, "--run", outcome.runId, `--state-root=${raw}`], io);
+        assert.equal(code, 1, `${sub} ${raw}`);
+        assert.deepEqual(out, [], `${sub} prints nothing on a refusal`);
+        assert.deepEqual(parseCliErrorJson(err.join("")), {
+          ok: false,
+          command: "commits",
+          stage: "parse-args",
+          message: blankRootMessage(raw),
+          next: BLANK_ROOT_NEXT
+        });
+        assert.doesNotMatch(err.join(""), /not found under/);
+      }
+    }
+  });
+});
+
+test("commits preview --json refuses a blank --state-root before any COMMITS_PREVIEW", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["commits", "preview", "--run", "run_missing0001", "--json", "--state-root", ""], io), 1);
+  assert.deepEqual(out, []);
+  assert.doesNotMatch(err.join(""), /COMMITS_PREVIEW/);
+  assert.equal(parseCliErrorJson(err.join(""))?.message, blankRootMessage(""));
+});
+
+// Placement: the guard sits before each subcommand's root assignment, so it
+// precedes the run-shape and `--repo` refusals whose reports would otherwise
+// carry the root the operator did not supply. `--run` is still required first,
+// because that refusal needs no root at all.
+test("the blank --state-root guard sits after --run is required and before the root-bearing refusals", async () => {
+  const missingRun = capture();
+  assert.equal(await main(["commits", "apply", "--state-root", ""], missingRun.io), 1);
+  assert.equal(
+    parseCliErrorJson(missingRun.err.join(""))?.message,
+    "commits apply requires --run <runId>"
+  );
+
+  for (const argv of [
+    ["commits", "preview", "--run", "banana", "--state-root", ""],
+    ["commits", "apply", "--run", "banana", "--state-root", "", "--repo", "  "]
+  ]) {
+    const { io, err } = capture();
+    assert.equal(await main(argv, io), 1, argv.join(" "));
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.message, blankRootMessage(""), argv.join(" "));
+    assert.equal(report?.next, BLANK_ROOT_NEXT);
+    assert.doesNotMatch(err.join(""), /expected a run id|repository path must be/);
+  }
+});
+
 test("preview does not create commits", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);

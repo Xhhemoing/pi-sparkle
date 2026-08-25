@@ -63,6 +63,28 @@ function stateRootOf(values: { readonly ["state-root"]?: string }): string {
   return values["state-root"] ?? defaultStateRoot();
 }
 
+/**
+ * An explicitly blank `--state-root` is what an unset shell variable leaves
+ * behind (`--state-root "$SR"`), and resolving it put the routing
+ * configuration in a cwd-relative tree: `models enable openai/gpt-5.2
+ * --state-root ""` wrote `<cwd>/runtime/providers.json` and printed `Enabled`,
+ * so every later `models list` against the intended root showed nothing.
+ * `models list` was the read-side twin, answering authoritatively about a tree
+ * it never opened. Every subcommand checks it after its own positional and
+ * value checks and before any config read or write.
+ *
+ * The remedy names the flag rather than this run's value, the same rule
+ * `refuseMalformedId` follows.
+ */
+function refuseBlankStateRoot(io: ModelsIo, command: string, raw: string): number {
+  return cliFail(io, {
+    command,
+    stage: "parse-args",
+    message: `invalid --state-root "${raw}": state root must be a non-empty directory path`,
+    next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+  });
+}
+
 type ParsedArgs<T> =
   | { readonly ok: true; readonly values: T }
   | { readonly ok: false; readonly code: number };
@@ -184,6 +206,10 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
       next: "add --available, or drop --provider"
     });
   }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "models list", rawStateRoot);
+  }
   const json = values.json === true;
   if (values.available === true) {
     const catalog = await import("../pi-adapter/listed-model.js");
@@ -287,6 +313,10 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
   if (tryParseModelRef(catalogId) === undefined) {
     return refuseMalformedId(io, "models enable", "<provider/model>", catalogId);
   }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "models enable", rawStateRoot);
+  }
   const stateRoot = stateRootOf(values);
   const listed = await assertKnownCatalogId(stateRoot, catalogId);
   if (listed === undefined) {
@@ -318,6 +348,10 @@ async function disableCommand(args: string[], io: ModelsIo): Promise<number> {
   const ref = tryParseModelRef(catalogId);
   if (ref === undefined) {
     return refuseMalformedId(io, "models disable", "<provider/model>", catalogId);
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "models disable", rawStateRoot);
   }
   const stateRoot = stateRootOf(values);
   // Disabling a model that is a routing default drops the default with it, and
@@ -379,6 +413,10 @@ async function setDefaultCommand(args: string[], io: ModelsIo): Promise<number> 
   }
   if (values.fast !== undefined && tryParseModelRef(values.fast) === undefined) {
     return refuseMalformedId(io, "models set-default", "--fast", values.fast);
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "models set-default", rawStateRoot);
   }
   const stateRoot = stateRootOf(values);
   // Both memberships are checked before the write: a refused --fast must leave

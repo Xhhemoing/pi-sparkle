@@ -464,6 +464,139 @@ test("a mistyped validate flag is an argv error that names --help", async () => 
   assert.match(parsed?.next ?? "", /--help/);
 });
 
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+async function withCwd(dir: string, body: () => Promise<void>): Promise<void> {
+  const saved = process.cwd();
+  process.chdir(dir);
+  try {
+    await body();
+  } finally {
+    process.chdir(saved);
+  }
+}
+
+/** A working directory whose relative `runtime/providers.json` exposes local/m1. */
+async function seedCwdCatalog(): Promise<string> {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-cwd-"));
+  await mkdir(join(cwd, "runtime"), { recursive: true });
+  await writeFile(
+    join(cwd, "runtime", "providers.json"),
+    `${JSON.stringify({
+      version: 1,
+      enabled: ["local/m1"],
+      customProviders: [
+        { id: "local", baseUrl: "http://127.0.0.1:9/v1", models: [{ id: "m1" }] }
+      ]
+    })}\n`,
+    "utf8"
+  );
+  return cwd;
+}
+
+/**
+ * The real target defect on this command, and the reason it is pinned on
+ * `--flowchart` rather than `--children`: only the flowchart branch resolves
+ * the state root, and only to build the catalog its node models are checked
+ * against. `--state-root ""` built that catalog out of the working directory's
+ * own `providers.json`, so a spec naming a model the intended root does not
+ * expose was reported `valid` against whatever the operator happened to be
+ * standing in — the opposite of the answer the same spec gets from the root
+ * they meant.
+ */
+test("validate --flowchart refuses a blank --state-root before any catalog is built", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const path = await writeSpec(specDir, "cwd-model.json", {
+      ...FLOWCHART_SPEC,
+      nodes: [
+        { ...FLOWCHART_SPEC.nodes[0], modelPolicy: { allowedModels: ["local/m1"] } },
+        FLOWCHART_SPEC.nodes[1]
+      ]
+    });
+    const cwd = await seedCwdCatalog();
+    try {
+      await withCwd(cwd, async () => {
+        for (const raw of ["", "  "]) {
+          const { io, out, err } = capture();
+          assert.equal(await main(["validate", "--flowchart", path, `--state-root=${raw}`], io), 1, raw);
+          assert.deepEqual(out, [], "a refusal never prints a valid: line or a VALIDATE_OK");
+          const parsed = parseCliErrorJson(err.join(""));
+          assert.equal(parsed?.command, "validate");
+          assert.equal(parsed?.stage, "parse-args");
+          assert.equal(parsed?.message, blankRootMessage(raw));
+          assert.equal(parsed?.next, BLANK_ROOT_NEXT);
+          // Nothing named the working directory's config, because nothing read
+          // it: the guard precedes the catalog build entirely.
+          assert.doesNotMatch(err.join(""), /providers\.json|local\/m1|could not build the model catalog/);
+        }
+
+        // What the blank root was hiding. The same spec against the root the
+        // operator meant is refused on the catalog's own terms.
+        const intended = capture();
+        assert.equal(
+          await main(["validate", "--flowchart", path, "--state-root", stateRoot], intended.io),
+          1
+        );
+        assert.match(
+          parseCliErrorJson(intended.err.join(""))?.message ?? "",
+          /unavailable model "local\/m1"/
+        );
+
+        // A nonblank relative root is still a root the operator named, and it
+        // resolves against the same tree the blank one silently borrowed.
+        const relative = capture();
+        assert.equal(
+          await main(["validate", "--flowchart", path, "--state-root", "."], relative.io),
+          0,
+          relative.err.join("")
+        );
+        assert.match(relative.out.join(""), /valid: flowchart tiny/);
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * `--children` compiles with the default cheap/premium policy and consults no
+ * catalog, and the usage says `--state-root` is ignored there. A documented
+ * ignored option does not become a blank-only incompatibility.
+ */
+test("validate --children keeps ignoring --state-root, blank values included", async () => {
+  await withSpecDir(async (specDir) => {
+    const path = await writeSpec(specDir, "children.json", CHILDREN_SPEC);
+    for (const raw of ["", "  "]) {
+      const { io, out, err } = capture();
+      assert.equal(await main(["validate", "--children", path, `--state-root=${raw}`], io), 0, err.join(""));
+      assert.match(out.join(""), /valid: children 2 tasks → flowchart children \(2 nodes\)/);
+      assert.deepEqual(err, []);
+    }
+  });
+});
+
+test("the spec-selection checks still outrank the blank --state-root guard", async () => {
+  await withSpecDir(async () => {
+    const neither = capture();
+    assert.equal(await main(["validate", "--state-root", ""], neither.io), 1);
+    assert.equal(
+      parseCliErrorJson(neither.err.join(""))?.message,
+      "validate requires exactly one of --children <spec.json> or --flowchart <flowchart.json>"
+    );
+
+    const blankSpec = capture();
+    assert.equal(await main(["validate", "--flowchart", "", "--state-root", ""], blankSpec.io), 1);
+    assert.equal(
+      parseCliErrorJson(blankSpec.err.join(""))?.message,
+      'invalid --flowchart "": spec path must be a non-empty string'
+    );
+  });
+});
+
 test("validate --help prints its usage and exits 0", async () => {
   await withSpecDir(async () => {
     const { io, out, err } = capture();

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -791,6 +791,100 @@ test("a blank --provider is refused in both list modes, before either branch rea
     // narrower "--provider needs --available" incompatibility.
     const { report } = await refusal(stateRoot, ["list", "--provider", ""]);
     assert.doesNotMatch(report.message, /does not apply to enabled models/);
+  });
+});
+
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+async function withCwd(dir: string, body: () => Promise<void>): Promise<void> {
+  const saved = process.cwd();
+  process.chdir(dir);
+  try {
+    await body();
+  } finally {
+    process.chdir(saved);
+  }
+}
+
+/**
+ * The costliest half of the defect: `models enable <id> --state-root ""`
+ * resolved the root to the process working directory, wrote
+ * `<cwd>/runtime/providers.json`, and printed `Enabled` — routing configuration
+ * the intended state root never saw, so every later `models list` against it
+ * showed nothing enabled. `models list --state-root ""` was the read-side twin,
+ * answering authoritatively about a tree it never opened.
+ */
+test("every models subcommand refuses a blank --state-root, all four fields", async () => {
+  const cases = [
+    { argv: ["list"], command: "models list" },
+    { argv: ["list", "--json"], command: "models list" },
+    { argv: ["list", "--available"], command: "models list" },
+    { argv: ["enable", "openai/gpt-5.2"], command: "models enable" },
+    { argv: ["disable", "openai/gpt-5.2"], command: "models disable" },
+    { argv: ["set-default", "--primary", "openai/gpt-5.2"], command: "models set-default" }
+  ];
+  for (const { argv, command } of cases) {
+    for (const raw of ["", "  "]) {
+      const { io, out, err } = capture();
+      assert.equal(await modelsCommand([...argv, `--state-root=${raw}`], io), 1, argv.join(" "));
+      assert.equal(out.join(""), "", `${argv.join(" ")} must claim nothing`);
+      const report = parseCliErrorJson(err.join(""));
+      assert.ok(report !== undefined, `${argv.join(" ")} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, blankRootMessage(raw));
+      assert.equal(report.next, BLANK_ROOT_NEXT);
+      assert.equal(report.runId, undefined, "no run is in play on any models verb");
+    }
+  }
+});
+
+test("a refused models enable writes no routing config into the working directory", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-sparkle-models-cwd-"));
+  try {
+    await withCwd(cwd, async () => {
+      const { io, out, err } = capture();
+      assert.equal(await modelsCommand(["enable", "openai/gpt-5.2", "--state-root", ""], io), 1);
+      assert.equal(out.join(""), "", "no Enabled line for a write that did not happen");
+      assert.doesNotMatch(err.join(""), /Enabled/);
+    });
+    assert.deepEqual(await readdir(cwd), [], "the refusal leaves no runtime/ tree behind");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the D34 argv refusals still outrank the blank --state-root guard", async () => {
+  await withStateRoot(async () => {
+    const cases = [
+      {
+        argv: ["set-default"],
+        message: "models set-default requires --primary <provider/model>"
+      },
+      {
+        argv: ["enable", "banana"],
+        message: 'invalid <provider/model> "banana": expected a model id of the form provider/model'
+      },
+      {
+        argv: ["set-default", "--primary", "banana"],
+        message: 'invalid --primary "banana": expected a model id of the form provider/model'
+      },
+      { argv: ["list", "--provider", ""], message: 'invalid --provider "": provider id must be a non-empty string' },
+      {
+        argv: ["list", "--provider", "local"],
+        message:
+          "models list --provider filters the --available catalog and does not apply to enabled models"
+      }
+    ];
+    for (const { argv, message } of cases) {
+      const { io, err } = capture();
+      assert.equal(await modelsCommand([...argv, "--state-root", ""], io), 1, argv.join(" "));
+      assert.equal(parseCliErrorJson(err.join(""))?.message, message, argv.join(" "));
+    }
   });
 });
 

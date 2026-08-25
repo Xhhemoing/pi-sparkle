@@ -158,6 +158,20 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       });
     }
   }
+  // A blank `--state-root` is what an unset shell variable leaves behind
+  // (`--state-root "$SR"`), and resolving it aimed the plane at a cwd-relative
+  // tree: the operator got `Run … not found under ` about the root they meant.
+  // Ahead of `isRunId`, whose remedy interpolates the root, and behind the
+  // type/confidence/key/node/actor checks, which need no root at all.
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   // Last of the value-domain checks, so a mistyped `--type` still reports first:
   // a pasted-wrong run id used to throw out of `parseRunId` into main's catch and

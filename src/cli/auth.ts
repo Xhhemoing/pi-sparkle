@@ -88,6 +88,26 @@ function stateRootOf(values: { readonly ["state-root"]?: string }): string {
   return values["state-root"] ?? defaultStateRoot();
 }
 
+/**
+ * An explicitly blank `--state-root` is what an unset shell variable leaves
+ * behind (`--state-root "$SR"`), and resolving it stored the credential in a
+ * cwd-relative tree: `auth login openai --key … --state-root ""` wrote
+ * `<cwd>/runtime/auth.json` — a repository checkout, in the common case — and
+ * reported it as a success against a relative path that named no root. Every
+ * subcommand checks it after its own positional and value checks and before
+ * any store or config read.
+ *
+ * The remedy names the flag rather than this run's value.
+ */
+function refuseBlankStateRoot(io: AuthIo, command: string, raw: string): number {
+  return cliFail(io, {
+    command,
+    stage: "parse-args",
+    message: `invalid --state-root "${raw}": state root must be a non-empty directory path`,
+    next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+  });
+}
+
 type ParsedArgs<T> =
   | { readonly ok: true; readonly values: T }
   | { readonly ok: false; readonly code: number };
@@ -202,6 +222,10 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
   if (values.help === true) {
     io.stdout(AUTH_USAGE);
     return 0;
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "auth status", rawStateRoot);
   }
   const json = values.json === true;
   const stateRoot = stateRootOf(values);
@@ -377,6 +401,10 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
       message: "auth login --key must be non-empty",
       next: "pass --key <key> with a non-empty value"
     });
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "auth login", rawStateRoot);
   }
   const config = await loadProvidersConfig(stateRootOf(values));
   if (!(await isKnownProvider(providerId, config.customProviders))) {
@@ -610,6 +638,10 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
       message: "auth logout requires <provider>",
       next: "run pi-sparkle auth --help"
     });
+  }
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return refuseBlankStateRoot(io, "auth logout", rawStateRoot);
   }
   const stateRoot = stateRootOf(values);
   // Deleting nothing still succeeds — re-running logout has to stay safe — but

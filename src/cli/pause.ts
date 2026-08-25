@@ -85,6 +85,22 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
       runId: values.run
     });
   }
+  // A blank `--state-root` is what an unset shell variable leaves behind
+  // (`--state-root "$SR"`), and resolving it aimed the lookup at a cwd-relative
+  // tree: the operator got `Run … not found under ` about the root they meant,
+  // with a remedy whose `list --state-root ` swallowed the following word.
+  // Ahead of `isRunId` because that refusal's remedy interpolates the root, so
+  // a blank one would be reported through a line it had already broken; the
+  // argv checks above need no root and keep their D31 precedence.
+  const rawStateRoot = values["state-root"];
+  if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+    return cliFail(io, {
+      command: "pause",
+      stage: "parse-args",
+      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
+      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+    });
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   // A pasted-wrong run id used to throw out of `parseRunId` into main's catch,
   // which calls it a validation failure and sends the operator to doctor

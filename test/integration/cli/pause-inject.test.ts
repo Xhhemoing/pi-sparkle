@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -706,6 +706,159 @@ test("a blank --node is refused even when the type does not require one", async 
     assert.equal(report?.message, 'invalid --node "  ": injection nodeId must be a non-empty string');
     assert.equal(await readEventLines(stateRoot, runId), before);
   });
+});
+
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+async function withCwd(dir: string, body: () => Promise<void>): Promise<void> {
+  const saved = process.cwd();
+  process.chdir(dir);
+  try {
+    await body();
+  } finally {
+    process.chdir(saved);
+  }
+}
+
+// `--state-root ""` used to resolve to the process working directory, so the
+// lookup answered `Run … not found under ` about the root the operator meant,
+// and its remedy pasted as `pnpm cli list --state-root for the run ids …`.
+test("pause refuses a blank --state-root on both its modes, all four fields", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    for (const mode of [[], ["--clear"]]) {
+      for (const raw of ["", "  "]) {
+        const { io, out, err } = capture();
+        const code = await main(["pause", ...mode, "--run", runId, `--state-root=${raw}`], io);
+        assert.equal(code, 1, [...mode, raw].join(" "));
+        assert.deepEqual(out, []);
+        const report = parseCliErrorJson(err.join(""));
+        assert.equal(report?.command, "pause");
+        assert.equal(report?.stage, "parse-args");
+        assert.equal(report?.message, blankRootMessage(raw));
+        assert.equal(report?.next, BLANK_ROOT_NEXT);
+        assert.doesNotMatch(err.join(""), /not found under/);
+      }
+    }
+  });
+});
+
+// The mixed case, pinned because it is the one that used to answer with the
+// broken remedy: a blank root and a malformed run id together report the root,
+// because the run-shape remedy interpolates the root it does not have.
+test("pause --run banana --state-root '' reports the blank root, not the run shape", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["pause", "--run", "banana", "--state-root", ""], io), 1);
+  assert.deepEqual(out, []);
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "pause");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(report?.message, blankRootMessage(""));
+  assert.equal(report?.next, BLANK_ROOT_NEXT);
+  assert.doesNotMatch(err.join(""), /expected a run id/);
+});
+
+// The argv checks that need no root keep their D31 precedence.
+test("pause's root-free argv refusals still outrank the blank --state-root guard", async () => {
+  const cases = [
+    { argv: ["pause", "--state-root", ""], message: "pause requires --run <runId>" },
+    {
+      argv: ["pause", "--clear", "--run", "banana", "--reason=", "--state-root", ""],
+      message: "pause --clear does not accept --reason"
+    },
+    {
+      argv: ["pause", "--run", "banana", "--reason=  ", "--state-root", ""],
+      message: 'invalid --reason "  ": pause reason must be a non-empty string'
+    }
+  ];
+  for (const { argv, message } of cases) {
+    const { io, err } = capture();
+    assert.equal(await main(argv, io), 1, argv.join(" "));
+    assert.equal(parseCliErrorJson(err.join(""))?.message, message, argv.join(" "));
+  }
+});
+
+test("a refused blank --state-root leaves no state tree in the working directory", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-sparkle-pause-cli-cwd-"));
+  try {
+    await withCwd(cwd, async () => {
+      for (const argv of [
+        ["pause", "--run", "run_missing0001", "--state-root", ""],
+        ["inject", "--run", "run_missing0001", "--type", "fact", "--key", "k", "--value", "v", "--state-root", ""]
+      ]) {
+        const { io, out } = capture();
+        assert.equal(await main(argv, io), 1, argv.join(" "));
+        assert.deepEqual(out, []);
+      }
+    });
+    assert.deepEqual(await readdir(cwd), [], "a refusal reads and writes nothing beside the process");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("inject refuses a blank --state-root on every kind, all four fields", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventLines(stateRoot, runId);
+    const kinds = [
+      ["--type", "fact", "--key", "k", "--value", "v"],
+      ["--type", "skip", "--node", "work"]
+    ];
+    for (const kind of kinds) {
+      for (const raw of ["", "  "]) {
+        const { io, out, err } = capture();
+        const code = await main(["inject", "--run", runId, ...kind, `--state-root=${raw}`], io);
+        assert.equal(code, 1, [...kind, raw].join(" "));
+        assert.deepEqual(out, []);
+        const report = parseCliErrorJson(err.join(""));
+        assert.equal(report?.command, "inject");
+        assert.equal(report?.stage, "parse-args");
+        assert.equal(report?.message, blankRootMessage(raw));
+        assert.equal(report?.next, BLANK_ROOT_NEXT);
+      }
+    }
+    assert.equal(await readEventLines(stateRoot, runId), before);
+  });
+});
+
+test("inject's D30/D31 value-domain refusals still outrank the blank --state-root guard", async () => {
+  const cases = [
+    {
+      argv: ["inject", "--run", "banana", "--type", "banana", "--state-root", ""],
+      message: 'unknown --type "banana": injection kind must be fact, override, or skip'
+    },
+    {
+      argv: ["inject", "--run", "banana", "--type", "override", "--node", "work", "--confidence=2", "--state-root", ""],
+      message: 'invalid --confidence "2": confidence must be a finite number between 0 and 1'
+    },
+    {
+      argv: ["inject", "--run", "banana", "--type", "fact", "--key=", "--value", "v", "--state-root", ""],
+      message: 'invalid --key "": injection key must be a non-empty string'
+    }
+  ];
+  for (const { argv, message } of cases) {
+    const { io, err } = capture();
+    assert.equal(await main(argv, io), 1, argv.join(" "));
+    assert.equal(parseCliErrorJson(err.join(""))?.message, message, argv.join(" "));
+  }
+});
+
+test("inject --run banana --state-root '' reports the blank root, not the run shape", async () => {
+  const { io, out, err } = capture();
+  const code = await main(
+    ["inject", "--run", "banana", "--type", "fact", "--key", "k", "--value", "v", "--state-root", ""],
+    io
+  );
+  assert.equal(code, 1);
+  assert.deepEqual(out, []);
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.message, blankRootMessage(""));
+  assert.doesNotMatch(err.join(""), /expected a run id/);
 });
 
 test("pause fails closed on a BLOCKED flowchart", async () => {

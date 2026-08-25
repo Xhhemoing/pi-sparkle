@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -1089,6 +1089,116 @@ test("a damaged auth.json is named by every verb that needs it, called safe to m
       assert.equal(await readFile(path, "utf8"), "{not-json");
     });
   });
+});
+
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+async function withCwd(dir: string, body: () => Promise<void>): Promise<void> {
+  const saved = process.cwd();
+  process.chdir(dir);
+  try {
+    await body();
+  } finally {
+    process.chdir(saved);
+  }
+}
+
+/**
+ * The sharpest edge of the defect: `--state-root ""` resolved to the process
+ * working directory, so `auth login openai --key … --state-root ""` stored the
+ * credential in `<cwd>/runtime/auth.json` — a repository checkout, in the
+ * common case — and reported it as a success against a relative path that
+ * named no root at all. `status` and `logout` were the read-side twins,
+ * answering about a store they never opened.
+ */
+test("every auth subcommand refuses a blank --state-root, all four fields", async () => {
+  const cases = [
+    { argv: ["auth", "status"], command: "auth status" },
+    { argv: ["auth", "status", "--json"], command: "auth status" },
+    { argv: ["auth", "status", "--all"], command: "auth status" },
+    { argv: ["auth", "login", "openai", "--key", ROTATED_KEY], command: "auth login" },
+    { argv: ["auth", "login", "openai", "--from-env"], command: "auth login" },
+    { argv: ["auth", "logout", "openai"], command: "auth logout" }
+  ];
+  for (const { argv, command } of cases) {
+    for (const raw of ["", "  "]) {
+      const { io, out, err } = capture();
+      assert.equal(await main([...argv, `--state-root=${raw}`], io), 1, argv.join(" "));
+      assert.equal(out.join(""), "", `${argv.join(" ")} must claim nothing`);
+      const text = err.join("");
+      const report = parseCliErrorJson(text);
+      assert.ok(report !== undefined, `${argv.join(" ")} must emit a parseable report`);
+      assert.equal(report.command, command);
+      assert.equal(report.stage, "parse-args");
+      assert.equal(report.message, blankRootMessage(raw));
+      assert.equal(report.next, BLANK_ROOT_NEXT);
+      assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
+    }
+  }
+});
+
+test("a refused auth login stores no credential in the working directory", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-sparkle-auth-cli-cwd-"));
+  try {
+    await withCwd(cwd, async () => {
+      const { io, out, err } = capture();
+      assert.equal(await main(["auth", "login", "openai", "--key", ROTATED_KEY, "--state-root", ""], io), 1);
+      assert.equal(out.join(""), "", "no Stored line for a write that did not happen");
+      assert.doesNotMatch(err.join(""), /Stored api_key credential/);
+      assert.equal(err.join("").includes(ROTATED_KEY), false);
+    });
+    assert.deepEqual(await readdir(cwd), [], "the refusal leaves no runtime/auth.json behind");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the D35 argv refusals still outrank the blank --state-root guard", async () => {
+  const cases = [
+    { argv: ["auth", "login", ""], message: "auth login requires <provider>" },
+    { argv: ["auth", "logout", ""], message: "auth logout requires <provider>" },
+    {
+      argv: ["auth", "login", "openai", "--key", ROTATED_KEY, "--oauth"],
+      message: "auth login takes one of --key, --from-env, --oauth; got --key and --oauth — nothing was stored"
+    },
+    { argv: ["auth", "login", "openai", "--key", "  "], message: "auth login --key must be non-empty" }
+  ];
+  for (const { argv, message } of cases) {
+    const { io, err } = capture();
+    assert.equal(await main([...argv, "--state-root", ""], io), 1, argv.join(" "));
+    assert.equal(parseCliErrorJson(err.join(""))?.message, message, argv.join(" "));
+  }
+});
+
+// The provider lookup reads the root's providers.json, so a blank root has to
+// be judged before it: an unknown provider reported against a tree the
+// operator never named would send them to the wrong catalog.
+test("a blank --state-root is reported before the provider lookup it would have misdirected", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["auth", "login", "banana", "--key", ROTATED_KEY, "--state-root", ""], io), 1);
+  assert.equal(out.join(""), "");
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "auth login");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(report?.message, blankRootMessage(""));
+  assert.doesNotMatch(err.join(""), /unknown provider/);
+});
+
+test("--help and the usage echo still precede the blank --state-root guard", async () => {
+  for (const argv of [
+    ["auth", "status", "--help"],
+    ["auth", "login", "openai", "--help"],
+    ["auth", "logout", "--help"]
+  ]) {
+    const { io, out, err } = capture();
+    assert.equal(await main([...argv, "--state-root", ""], io), 0, `${argv.join(" ")}: ${err.join("")}`);
+    assert.deepEqual(err, [], argv.join(" "));
+    assert.match(out.join(""), /Usage:\n {2}pi-sparkle auth status/);
+  }
 });
 
 test("auth --help names the file auth actually writes", async () => {
