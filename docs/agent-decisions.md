@@ -86,7 +86,7 @@ GPT-r2: **SELECTIVE ROLLBACK / HOLD** the exporter, keep `adapt show`. Required 
 
 **Landed** (Opus-dataset-privacy): redact-then-excerpt; `source.originalWorkspace` redacted once and copied onto rows; `delete --run` cascades default eval-datasets dir; `--dir` realpath-refuses the runtime plane; JSON key `episodes` kept with `rowKind: "routed-task-from-one-run"`.
 
-**D18 residual (GPT-d10 FIX, landed; GPT-d18 FIX → D19):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. D18 closed that shape. Post-publish pathname equality is still not directory identity. See D19. Do not treat `adapt dataset` as merge-ready until D19 KEEP.
+**D18 residual (GPT-d10 FIX, landed; GPT-d18 FIX → D19; GPT-d19 FIX → D23):** a symlink at the default `<runId>` leaf wrote the manifest outside the state root and `delete --run` only unlinked the alias. D18 closed that shape. D19 closed one-way pathname identity. Do not treat `adapt dataset` as merge-ready until D23 KEEP.
 
 ## D11 — Gate-cause landing KEEP; wording and deterministic-fail coverage are riders
 
