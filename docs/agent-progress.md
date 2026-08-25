@@ -95,6 +95,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 still running / next implementers
 
 - D10 dataset privacy in flight.
-- D14 gate-cause adjacent pairing in flight.
-- D15 not-found → `list` dispatched (Round 4 rank 1).
-- D16 auth echo/doctor/available and D17 `INIT_EXAMPLES` compact JSON wait for a free cloud VM.
+- D14 adjacent gate pairing merged. Implementer: Opus-gate-pairing (`bc-29dcbc73-fe23-5316-b5b7-e2378d33c96c`).
+- D15 not-found → `list` in flight.
+- D16 auth echo/doctor/available dispatched.
+- D17 `INIT_EXAMPLES` compact JSON waits for a free cloud VM.
