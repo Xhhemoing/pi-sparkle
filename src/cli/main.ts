@@ -77,6 +77,12 @@ import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learn
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { startTrackedRun } from "../track/loop.js";
 import {
+  isTrackClarificationWait,
+  readTrackClarification,
+  trackQuestionsPath,
+  type TrackClarificationRead
+} from "../track/questions-file.js";
+import {
   collectSelectedActionIds,
   parseChildNodeResultsFile,
   parseFlowchartFile
@@ -508,7 +514,9 @@ function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string)
     command,
     stage: "lookup",
     message: `Run ${runId} not found under ${stateRoot}`,
-    next: `check --state-root and pnpm cli inspect --run ${runId}`,
+    // Re-inspecting the id that was just reported missing answers nothing; the
+    // inventory of ids that do exist under this state root does.
+    next: `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`,
     runId
   });
 }
@@ -1033,6 +1041,73 @@ async function inspectEpisode(stateRoot: string, rawId: string, json: boolean, i
   return 0;
 }
 
+/** The project root a run recorded at discovery, when its log carries one. */
+function projectRootFromEvents(events: readonly Event[]): string | undefined {
+  const discovered = events.findLast((event) => event.type === "PROJECT_DISCOVERED");
+  if (discovered === undefined || discovered.type !== "PROJECT_DISCOVERED") return undefined;
+  return discovered.payload.project.rootPath;
+}
+
+function trackContinuationCommand(input: {
+  readonly stateRoot: string;
+  readonly projectRoot: string | undefined;
+  readonly objective: string | undefined;
+}): string {
+  const project = input.projectRoot ?? "<project path>";
+  const objective = input.objective ?? "<the objective this run was started with>";
+  return `pnpm cli run --track --project ${project} --objective ${JSON.stringify(objective)} --answers <file.json> --state-root ${input.stateRoot}`;
+}
+
+/**
+ * What a `run --track` clarification wait is actually waiting for.
+ *
+ * The questions live only in `runtime/runs/<runId>/track-questions.json`: the
+ * `RUN_WAITING_FOR_USER` event carries a message id and nothing else, and
+ * `inspectRun` collects pending questions from child `QUESTION` messages,
+ * which this plane never produces. So without this block `inspect` shows a run
+ * waiting on a question it cannot name.
+ *
+ * The continuation is a *new* tracked run because nothing consumes an answer
+ * for the waiting one — `answer` refuses it for that reason. Saying so here is
+ * the honest version: the stranded run stays `WAITING_FOR_USER`.
+ *
+ * `undefined` when the run has no questions file, i.e. is not this plane.
+ */
+export function formatTrackClarificationReport(input: {
+  readonly runId: RunId;
+  readonly stateRoot: string;
+  readonly clarification: TrackClarificationRead;
+  readonly projectRoot: string | undefined;
+}): string | undefined {
+  const { clarification } = input;
+  if (clarification.kind === "absent") return undefined;
+  const path = trackQuestionsPath(input.stateRoot, input.runId);
+  const lines: string[] = [];
+  if (clarification.kind === "unreadable") {
+    lines.push(`  clarification: this run waits on run --track questions, but ${path} could not be read: ${clarification.reason}\n`);
+    lines.push("  next: read that file yourself — the questions are recorded nowhere else, so none are shown here\n");
+  } else {
+    lines.push(`  clarification: this run waits on ${clarification.questions.length} run --track question(s) recorded in ${path}\n`);
+    for (const question of clarification.questions) {
+      lines.push(`    ${question.id}: ${question.question}\n`);
+    }
+    if (clarification.questions.length === 0) {
+      lines.push("    (the file records no questions)\n");
+    }
+  }
+  const objective = clarification.kind === "read" ? clarification.objective : undefined;
+  lines.push(
+    `  next: ${trackContinuationCommand({
+      stateRoot: input.stateRoot,
+      projectRoot: input.projectRoot,
+      objective
+    })}\n`
+  );
+  lines.push("  note: --assume-defaults answers them with the recorded defaults instead of an answers file\n");
+  lines.push(`  note: answer --run ${input.runId} cannot continue this run — nothing consumes an answer on this plane, so it stays WAITING_FOR_USER and the continuation above is a new run\n`);
+  return lines.join("");
+}
+
 async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -1162,6 +1237,15 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   }
   for (const answer of inspection.answers) {
     io.stdout(`  answer ${answer.messageId}: ${answer.answer}\n`);
+  }
+  const clarificationReport = formatTrackClarificationReport({
+    runId,
+    stateRoot,
+    clarification: await readTrackClarification(stateRoot, runId),
+    projectRoot: projectRootFromEvents(read.events)
+  });
+  if (clarificationReport !== undefined) {
+    io.stdout(clarificationReport);
   }
   if (state.anomalies.length > 0) {
     for (const anomaly of state.anomalies) {
@@ -1647,6 +1731,27 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   const read = await store.readAll();
   if (read.events.length === 0) {
     return missingRun(io, "answer", runId, stateRoot);
+  }
+  // Refused before anything is appended, and before the flowchart plane is
+  // consulted at all: a `run --track` clarification wait never reaches the
+  // flowchart supervisor, so its questions file is the plane marker. The
+  // `USER_ANSWER` this used to write had no consumer, and worse, `replayRun`
+  // clears `sawWaiting` on it — the run then replays as RUNNING while nothing
+  // is running. Existence of the file is enough to refuse; the questions
+  // themselves are only needed to print them, which `inspect` does.
+  const clarification = await readTrackClarification(stateRoot, runId);
+  if (isTrackClarificationWait(clarification)) {
+    return cliFail(io, {
+      command: "answer",
+      stage: "validation",
+      message: `Run ${runId} is waiting on run --track clarification questions, and no answer recorded here is ever read`,
+      next: `${trackContinuationCommand({
+        stateRoot,
+        projectRoot: projectRootFromEvents(read.events),
+        objective: clarification.kind === "read" ? clarification.objective : undefined
+      })} (or --assume-defaults); pnpm cli inspect --run ${runId} --state-root ${stateRoot} prints the questions`,
+      runId
+    });
   }
   const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
   requireDurableFlowchartCheckpoint(runId, read.events, checkpoint);
