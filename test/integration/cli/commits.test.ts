@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFile, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -757,23 +757,95 @@ test("apply reports an unparsable --file against the file, not the run", async (
   });
 });
 
-test("apply with a blank --repo reports preflight and names the flag", async () => {
+// A supplied blank `--repo` is an argv fault. The checkpoint fallback answers
+// only for the flag the operator *omitted*, so blaming a missing environment
+// here would hide the empty string they actually passed.
+for (const repo of ["", "  "]) {
+  test(`apply refuses --repo ${JSON.stringify(repo)} as argv, naming the flag`, async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+      const { io, out, err } = capture();
+      const code = await main(
+        ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", repo],
+        io
+      );
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "parse-args",
+        message: `invalid --repo "${repo}": repository path must be a non-empty string`,
+        next: "pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath",
+        runId: outcome.runId
+      });
+    });
+  });
+}
+
+// The state root does not exist, so the same argv report proves the blank flag
+// is judged before the run is read.
+test("apply refuses a whitespace --repo before reading state", async () => {
+  const stateRoot = join(tmpdir(), "pi-sparkle-commits-nowhere");
+  const { io, out, err } = capture();
+  const code = await main(
+    ["commits", "apply", "--run", "run_missing0001", "--state-root", stateRoot, "--repo", "  "],
+    io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(out, []);
+  assert.deepEqual(parseCliErrorJson(err.join("")), {
+    ok: false,
+    command: "commits",
+    stage: "parse-args",
+    message: 'invalid --repo "  ": repository path must be a non-empty string',
+    next: "pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath",
+    runId: "run_missing0001"
+  });
+});
+
+test("apply with no --repo still commits into the checkpoint project.rootPath", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
+    git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);
     const outcome = await tinyCompletedRun(stateRoot, projectRoot);
     const { io, out, err } = capture();
-    const code = await main(
-      ["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot, "--repo", "   "],
-      io
+    const code = await withGitIdentity(() =>
+      main(["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot], io)
     );
+
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /Committed feat\(work\): Do the work/);
+    assert.deepEqual(git(["log", "--format=%s"], projectRoot).trim().split("\n"), [
+      "feat(work): Do the work"
+    ]);
+  });
+});
+
+// Omitted flag *and* no project on the checkpoint: nothing in argv is wrong, so
+// this stays the environment report.
+test("apply with no --repo and no checkpoint project reports preflight", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    const checkpointPath = join(stateRoot, "runtime", "runs", outcome.runId, "checkpoint.json");
+    const checkpoint = JSON.parse(await readFile(checkpointPath, "utf8")) as Record<string, unknown>;
+    delete checkpoint.project;
+    await writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), "utf8");
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "apply", "--run", outcome.runId, "--state-root", stateRoot], io);
 
     assert.equal(code, 1);
     assert.deepEqual(out, []);
-    const report = parseCliErrorJson(err.join(""));
-    assert.equal(report?.command, "commits");
-    assert.equal(report?.stage, "preflight");
-    assert.equal(report?.message, "apply requires --repo or a checkpoint project.rootPath");
-    assert.equal(report?.next, "pass --repo <path to a git work tree>");
-    assert.equal(report?.runId, outcome.runId);
+    assert.deepEqual(parseCliErrorJson(err.join("")), {
+      ok: false,
+      command: "commits",
+      stage: "preflight",
+      message: "apply requires --repo or a checkpoint project.rootPath",
+      next: "pass --repo <path to a git work tree>",
+      runId: outcome.runId
+    });
   });
 });
 

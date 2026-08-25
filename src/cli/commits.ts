@@ -314,9 +314,20 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (!isRunId(values.run)) return refuseMalformedRun(io, values.run, stateRoot);
+  const runId = parseRunId(values.run);
+  // A supplied blank `--repo` is an argv fault, not a missing environment: the
+  // checkpoint fallback below answers only for the flag the operator omitted.
+  if (values.repo !== undefined && values.repo.trim() === "") {
+    return cliFail(io, {
+      command: "commits",
+      stage: "parse-args",
+      message: `invalid --repo "${values.repo}": repository path must be a non-empty string`,
+      next: "pass --repo <path to a git work tree> or omit it to use checkpoint project.rootPath",
+      runId
+    });
+  }
   const nodeIds = parseCommitNodeIdsCsv(values.nodes);
   if (values.nodes !== undefined && nodeIds?.length === 0) return refuseEmptyNodes(io, values.nodes);
-  const runId = parseRunId(values.run);
   const loaded = await loadCommitInput(stateRoot, runId, io);
   if (loaded === undefined) return CLI_EXIT.error;
   let fileProposals: DecisionCommitProposal[] | undefined;
@@ -355,7 +366,9 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   const proposals = proposalsFromInput(loaded, filteredIds, fileProposals);
   const repo = values.repo ?? loaded.checkpoint.project?.rootPath;
   if (repo === undefined || repo.trim() === "") {
-    // An absent work tree is an environment fault, not a claim about the run.
+    // The flag was omitted (a blank one already refused as argv) and the
+    // checkpoint names no project: an absent work tree is an environment fault,
+    // not a claim about the run.
     return cliFail(io, {
       command: "commits",
       stage: "preflight",
