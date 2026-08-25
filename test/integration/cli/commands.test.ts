@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { authCommand } from "../../../src/cli/auth.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { modelsCommand } from "../../../src/cli/models.js";
 import { doctorCommand } from "../../../src/cli/doctor.js";
 import { adaptCommand } from "../../../src/cli/adapt.js";
@@ -61,16 +62,27 @@ test("auth login/status/logout round-trips without ever printing the secret", as
 
 test("auth rejects an unknown provider and an empty key fail-closed", async () => {
   await withStateRoot(async (stateRoot) => {
+    // Both refusals are reports the operator (and a log reader) can act on,
+    // not throws that cross into main's generic catch.
     const badProvider = capture();
-    await assert.rejects(
-      () => authCommand(["login", "not-a-provider", "--key", "x", "--state-root", stateRoot], badProvider.io),
-      /unknown provider/
+    assert.equal(
+      await authCommand(["login", "not-a-provider", "--key", "x", "--state-root", stateRoot], badProvider.io),
+      1
     );
+    assert.equal(badProvider.out.join(""), "");
+    const providerReport = parseCliErrorJson(badProvider.err.join(""));
+    assert.ok(providerReport !== undefined, "unknown provider must emit a parseable report");
+    assert.match(providerReport.message, /unknown provider/);
+
     const emptyKey = capture();
-    await assert.rejects(
-      () => authCommand(["login", "openai", "--key", "  ", "--state-root", stateRoot], emptyKey.io),
-      /non-empty/
+    assert.equal(
+      await authCommand(["login", "openai", "--key", "  ", "--state-root", stateRoot], emptyKey.io),
+      1
     );
+    assert.equal(emptyKey.out.join(""), "");
+    const keyReport = parseCliErrorJson(emptyKey.err.join(""));
+    assert.ok(keyReport !== undefined, "an empty key must emit a parseable report");
+    assert.match(keyReport.message, /non-empty/);
   });
 });
 
