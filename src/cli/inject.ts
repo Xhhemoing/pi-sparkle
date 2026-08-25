@@ -30,6 +30,8 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
+const INJECTION_KINDS = new Set(["fact", "override", "skip"]);
+
 export async function injectCommand(args: string[], io: InjectIo): Promise<number> {
   const first = args[0];
   if (first === "help" || first === "--help" || first === "-h") {
@@ -74,6 +76,20 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       next: "pass --run <runId> and --type fact|override|skip"
     });
   }
+  // A kind the CLI does not know is a value-domain argv error, and it has to be
+  // named as one here: on a flowchart run the plane calls it a validation
+  // failure with the doctor remedy, and on a run with no flowchart snapshot the
+  // plane refuses on run shape first, so the operator is sent to debug a healthy
+  // checkpoint and never told which flag they mistyped.
+  if (!INJECTION_KINDS.has(values.type)) {
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: `unknown --type "${values.type}": injection kind must be fact, override, or skip`,
+      next: "pass --type fact, override, or skip",
+      runId: values.run
+    });
+  }
   if (values.type === "fact" && (values.key === undefined || values.value === undefined)) {
     return cliFail(io, {
       command: "inject",
@@ -101,6 +117,23 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       runId: values.run
     });
   }
+  // Same reason as the kind above, one flag later: `--confidence banana` and
+  // `--confidence 2` are both argv, and both reached the plane before anyone
+  // looked at them. Converted once here so the request carries the number the
+  // refusal already vetted.
+  let confidence: number | undefined;
+  if (values.confidence !== undefined) {
+    confidence = Number(values.confidence);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      return cliFail(io, {
+        command: "inject",
+        stage: "parse-args",
+        message: `invalid --confidence "${values.confidence}": confidence must be a finite number between 0 and 1`,
+        next: "pass --confidence <0-1>",
+        runId: values.run
+      });
+    }
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const runId = parseRunId(values.run);
   // A missing run reached the flowchart plane and surfaced as an untyped throw
@@ -124,8 +157,8 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
     ...(values.key !== undefined ? { key: values.key } : {}),
     ...(values.value !== undefined ? { value: parseFactValue(values.value) } : {}),
     ...(values.node !== undefined ? { nodeId: values.node } : {}),
-    ...(values.confidence !== undefined
-      ? { confidence: Number(values.confidence) }
+    ...(confidence !== undefined
+      ? { confidence }
       : values.type === "override"
         ? {}
         : { confidence: 1 })
