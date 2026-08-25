@@ -36,7 +36,7 @@
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
 | 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
 | 21 | 第 4 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
-| 22 | 第 1 波进行中 | 1 / 10（A 已合入；B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-22/PLAN.md](./round-22/PLAN.md) |
+| 22 | 第 1–2 波进行中 | 2 / 10（A/B 已合入；C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-22/PLAN.md](./round-22/PLAN.md) |
 
 ### Round 1 波次
 
@@ -231,7 +231,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R22-A 跟踪门控、R22-B live 路由、R22-C 离线路由 | A 完成已合入；B 运行中；C 本波派出 |
+| 1 | R22-A 跟踪门控、R22-B live 路由、R22-C 离线路由 | A/B 完成已合入；C 运行中 |
+| 2 | R22-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -449,8 +450,9 @@
 | R21-I | `cursor/r21-i-cli-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-I.md`）。无新排除 ID；custom−builtin 复核 +43.4/+25.4 / +52.2/+23.9 ms；十三连空；flowchart 平面输入规模轴归档 |
 | R21-J | `cursor/r21-j-persist-twenty-first-pass-83a1` | 已派出 |
 | R22-A | `cursor/r22-a-tracking-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-A.md`）。无新排除 ID；预算复核 65–80 µs/run；公开导出普查 + 分析-隔离面归档 |
-| R22-B | `cursor/r22-b-live-routing-twenty-second-pass-83a1` | 已派出 |
+| R22-B | `cursor/r22-b-live-routing-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-B.md`）。无新排除 ID；天花板复核 M=2 8.79–9.13 / M=10 17.63–18.12 ms/eval；标识符几何轴（G×T，平坦）归档 |
 | R22-C | `cursor/r22-c-offline-routing-twenty-second-pass-83a1` | 已派出 |
+| R22-D | `cursor/r22-d-adaptation-twenty-second-pass-83a1` | 已派出 |
 
 ## 合并策略
 
