@@ -367,6 +367,10 @@ PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge
 | Slot | Agent | Focus |
 |---|---|---|
 | fable-audit | bc-f8e930d3-5a33-5efa-a612-d648ed088f69 | post-merge seam · kernel-reuse · isolation allowlists |
+| R18-1 | pending | re-deliver accepted steers into retry kernels |
+| R18-2 | pending | parseChildSpec forwards declared maxCostUsd |
+
+Parent sign-off: R18-1 **YES (a)** re-deliver. R18-2 no extra sign-off. Do not pad.
 
 ---
 
