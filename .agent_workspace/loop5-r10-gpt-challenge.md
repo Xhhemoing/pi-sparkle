@@ -6,12 +6,17 @@ replacement. The order D37 → D38 → D39 stands.
 
 ## Method
 
-- Challenged branch HEAD `58ed045a8614440446a252df51d9a624ef94bd9a`
-  (`docs(agent): record Round 10 Fable ranking (D37–D39)`). Fable ranked at
-  `acd2eb746c1dfbfedd58a8da0ac7162f21bbfc1f`. Both
-  `git diff --name-status acd2eb7..58ed045 -- src test` and the mandatory
-  `git diff --name-status 58ed045..HEAD -- src test` were empty, so all ranked
-  source and test blobs are identical to the ones Fable probed.
+- Challenged latest origin SHA `1f56eb2dddf1dc466699d88ac32f8360a94cc2f7`
+  (`docs(agent): record GPT-r10-challenge dispatch id`). It contains
+  `58ed045a8614440446a252df51d9a624ef94bd9a`
+  (`docs(agent): record Round 10 Fable ranking (D37–D39)`). Origin advanced
+  from `58ed045` to `1f56eb2` after the first report push, so the newer parent
+  was fetched and merged into this challenge branch before final delivery.
+  Fable ranked at `acd2eb746c1dfbfedd58a8da0ac7162f21bbfc1f`.
+  `git diff --name-status acd2eb7..1f56eb2 -- src test`,
+  `git diff --name-status 58ed045..1f56eb2 -- src test`, and the mandatory
+  `git diff --name-status 58ed045..HEAD -- src test` were all empty, so all
+  ranked source and test blobs are identical to the ones Fable probed.
 - Read `.agent_workspace/loop5-r10-fable-next.md`, D37–D39 in
   `docs/agent-decisions.md`, and the relevant D15/D17/D20/D25/D26/D31–D36
   decisions. Read live `src/cli/{list,pause,inject,commits,models,auth,validate,
