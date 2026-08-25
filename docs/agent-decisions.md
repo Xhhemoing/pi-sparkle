@@ -174,7 +174,13 @@ Fable-r5-next. GPT-r5-challenge: **FIX** the login message and G4 count; keep th
 
 Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 as corrected by the GPT challenge.
 
-**Landed** (Opus-d21-auth-models + GPT-r5 riders): keyless-custom login refuses store writes and names `PI_API_KEY`; custom source column equals configured `envVar` else `ambient`; five missing-arg `cliFail` sites; F9/F13/F14. Independent GPT recheck dispatched.
+**Landed** (Opus-d21-auth-models + GPT-r5 riders): keyless-custom login refuses store writes and names `PI_API_KEY`; custom source column equals configured `envVar` else `ambient`; five missing-arg `cliFail` sites; F9/F13/F14.
+
+**GPT-d21-recheck: FIX.** Keyless-custom refusal, five-site `cliFail`, F9/F13/F14 KEEP. Source column compares `check.source` to `custom.envVar?.trim()` while config keeps the untrimmed value, so a padded `envVar` that still resolves labels `ambient`. Builtin comment calls `"AWS access keys"` a non-env path; it is the two-env-var AWS path. See D24.
+
+## D24 — Auth status source column must match the configured `envVar` bytes
+
+Compare `check.source` to the preserved configured `envVar` (or trim at parse, resolution, and display together). Do not trim only on the display side. Pin a padded `envVar` custom row as `env` when resolution used that variable. Correct the builtin comment: do not describe the `"AWS access keys"` source as a file/profile/role branch. Optionally pin `amazon-bedrock` classification for that source. Do not edit `runtime.ts` or `main.ts`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
