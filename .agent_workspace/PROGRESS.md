@@ -369,6 +369,7 @@ PR #8 merged to `main` at `985250b` (Loop 4 + Loop 3 + kernel-reuse). That merge
 | fable-audit | bc-f8e930d3-5a33-5efa-a612-d648ed088f69 | post-merge seam · kernel-reuse · isolation allowlists |
 | R18-1 | bc-9375c7fd-7f33-5db1-8397-57dfd290b6b4 | re-deliver accepted steers into retry kernels |
 | R18-2 | bc-1a36546b-f73f-5f8c-b7f9-259950beb25d | parseChildSpec forwards declared maxCostUsd |
+| fable-review | bc-bcb38c47-39c5-5e38-8b39-211d8a2201b6 | Round 18 SOTA review + ROUND19-BRIEF |
 
 Landed: R18-2 `daea498` carry declared `maxCostUsd` through `parseChildSpec` (invalid refused by task); R18-1 `4412fac` re-deliver accepted steers into each retry kernel after the new attempt's first turn. Direction (a). No freeze extras. No 12th crash-probe case.
 
