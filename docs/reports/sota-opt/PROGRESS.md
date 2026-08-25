@@ -35,7 +35,7 @@
 | 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
 | 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
-| 21 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
+| 21 | 第 1–2 波进行中 | 3 / 10（A/B/C 已合入；D/E/F 本波派出） | claude-fable-5-thinking-xhigh | [round-21/PLAN.md](./round-21/PLAN.md) |
 
 ### Round 1 波次
 
@@ -221,7 +221,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R21-A 跟踪门控、R21-B live 路由、R21-C 离线路由 | A/B/C 本波派出 |
+| 1 | R21-A 跟踪门控、R21-B live 路由、R21-C 离线路由 | A/B/C 完成已合入 |
+| 2 | R21-D 自优化、R21-E 学习、R21-F 实验 | D/E/F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -428,9 +429,12 @@
 | R20-H | `cursor/r20-h-eval-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-H.md`）。无新排除 ID；热层默认复核 9.24–9.36 µs/run；环境进程态压力普查归档 |
 | R20-I | `cursor/r20-i-cli-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-I.md`）。无新排除 ID；custom−builtin 复核 +46.5/+24.0 / +48.8/+24.1 ms；十二连空；累积遥测态 N 轴归档 |
 | R20-J | `cursor/r20-j-persist-twentieth-pass-83a1` | 已合入专属分支（仅 `R20-J.md`）。无新排除 ID；I/O 地板复核；输入类组成剂量面归档；切片关闭 |
-| R21-A | `cursor/r21-a-tracking-twenty-first-pass-83a1` | 已派出 |
-| R21-B | `cursor/r21-b-live-routing-twenty-first-pass-83a1` | 已派出 |
-| R21-C | `cursor/r21-c-offline-routing-twenty-first-pass-83a1` | 已派出 |
+| R21-A | `cursor/r21-a-tracking-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-A.md`）。无新排除 ID；预算复核 66–95 µs/run；H 输入面归档 |
+| R21-B | `cursor/r21-b-live-routing-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-B.md`）。无新排除 ID；天花板复核 M=2 9.08–9.39 / M=10 17.79–18.36 ms/eval；public-prior 快照形状轴归档 |
+| R21-C | `cursor/r21-c-offline-routing-twenty-first-pass-83a1` | 已合入专属分支（仅 `R21-C.md`）。无新排除 ID；生产中位复核 661.9–674.2 ms；YMIX 不铸 ID；APC floor 再锚定 |
+| R21-D | `cursor/r21-d-adaptation-twenty-first-pass-83a1` | 已派出 |
+| R21-E | `cursor/r21-e-learning-twenty-first-pass-83a1` | 已派出 |
+| R21-F | `cursor/r21-f-experiments-twenty-first-pass-83a1` | 已派出 |
 
 ## 合并策略
 
