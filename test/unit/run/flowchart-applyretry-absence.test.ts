@@ -101,3 +101,41 @@ test("discard and reopen identifiers remain under the whole-file scheduler absen
     assertNoSchedulerRetry(relativePath, source);
   }
 });
+
+test("restore-side discard validation remains under the whole-file scheduler absence pin", () => {
+  const relativePath = FLOWCHART_SOURCES[0];
+  const path = fileURLToPath(new URL(relativePath, import.meta.url));
+  const source = readFileSync(path, "utf8");
+  const parsed = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const restoreConsumers = new Set(["applyClearingEvent", "restoreCheckpointedSupervisor"]);
+  const validatingConsumers: string[] = [];
+
+  for (const statement of parsed.statements) {
+    if (
+      !ts.isFunctionDeclaration(statement) ||
+      statement.name === undefined ||
+      !restoreConsumers.has(statement.name.text)
+    ) {
+      continue;
+    }
+    let validatesDiscardAudit = false;
+    function visit(node: ts.Node): void {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "assertDiscardAuditMatchesLog"
+      ) {
+        validatesDiscardAudit = true;
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(statement);
+    if (validatesDiscardAudit) validatingConsumers.push(statement.name.text);
+  }
+
+  assert.ok(
+    validatingConsumers.length > 0,
+    "applyClearingEvent or its restore caller must validate the recorded discard audit against the log"
+  );
+  assertNoSchedulerRetry(relativePath, source);
+});
