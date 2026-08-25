@@ -98,7 +98,13 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D18 default eval-dataset leaf-symlink bind/refuse. Implementer: Opus-dataset-symlink-cascade (`bc-83d49ea6-9b87-5659-9b3e-14d88c42e729`). GPT-d18-recheck **FIX** (pathname equality ≠ directory identity).
 - D19 default-export directory-identity bind. Implementer: Opus-d19-publish-identity (`bc-2ad751d1-e327-5807-8907-90a681f9aeac`). GPT recheck in flight.
 
+### Round 5 (in flight)
+
+Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fable-next.md`): D20 claim-only-what-happened CLI, D21 auth/models remainder, D22 doctor storage inventory. Ranked at `c4e3e63`; D19 landed later on disjoint files.
+
 ### Round 3 still running / next implementers
 
-- D19 independent GPT recheck dispatched.
-- Round 5 next-bets ranking still in flight. Windows smoke and status-matrix still HOLD behind PR #12.
+- D19 independent GPT recheck still in flight.
+- D20 and D21 Opus implementers dispatched.
+- D22 queued one cloud slot.
+- Windows smoke and status-matrix still HOLD behind PR #12.

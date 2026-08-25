@@ -139,3 +139,15 @@ GPT-r4 F1 reproduced a D10 residual: with no `--dir`, but `adaptation/eval-datas
 The post-publish assertion must confirm the leaf is a directory and is the **same directory** the bind accepted (`dev`/`ino` or an equivalent that a replacement directory cannot satisfy), not only `realpath` string equality. Thread that identity from `bindDefaultEvalDatasetDir` into `assertDefaultEvalDatasetPublished`. If the leaf was replaced during publish, fail loudly and do not return a path whose `manifest.json` is missing. Keep the existing symlink-swap pin; add a real-directory replacement pin via the `AtomicWriteOptions.rename` seam. Do not change `--dir`, deletion of a pre-created symlink leaf, `main.ts`, or invent a global search.
 
 **Landed** (Opus-d19-publish-identity): `bindDefaultEvalDatasetDir` returns `BoundEvalDatasetDir` (lexical path + accepted leaf identity); `assertDefaultEvalDatasetPublished` re-reads that identity. Identity is `lstat` `dev`/`ino` as bigint; when `ino === 0n`, a uniquely named witness file with `"wx"` is the equivalent. Independent GPT recheck dispatched.
+
+## D20 — Round 5 rank 1: CLI claims only the work it did
+
+Fable-r5-next: **HIGH VALUE**. `commits apply` must disclose already-created commits on a mid-loop failure and name `--nodes` for the rest. `episode`/`commits` must emit the same truncated-JSONL stderr warning `inspect` already prints (`warnTruncatedJsonl` in `errors.ts`; `main.ts` keeps its private copy until #12). `episode close --json` refuses (`parse-args`). `pause --clear` must not print "Cleared pause" when no token existed. No `main.ts`. Spec: `.agent_workspace/loop5-r5-fable-next.md` Rank 1.
+
+## D21 — Round 5 rank 2: auth/models operator remainder
+
+Fable-r5-next. F4, F12, and keyless-custom `--from-env` already landed — do not re-implement. Remaining: refuse keyless-custom `--key`/interactive/oauth login (nothing to store); `models disable` discloses dropped primary/fast defaults; `auth status --all` never exits 0 with empty output; source column `env` vs `ambient`; convert the six raw-stderr arg errors in `auth.ts`/`models.ts` to `cliFail` `parse-args`. Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 of the same report.
+
+## D22 — Round 5 rank 3: doctor storage inventory (queued)
+
+Additive doctor `storage` field + check, `lstat`-only walk (never follow directory links), Windows-hermetic tests, legal additive pin updates. No sixth `DOCTOR_ROUTED_NEXT` route. Hold dispatch one slot behind D20/D21 cloud cap / D19 recheck; files are disjoint from D19. Spec: Rank 3 of the same report.
