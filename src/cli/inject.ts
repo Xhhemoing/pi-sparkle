@@ -84,7 +84,7 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
     return cliFail(io, {
       command: "inject",
       stage: "parse-args",
-      message: `inject --type must be fact, override, or skip, not ${values.type}`,
+      message: `inject --type ${values.type} is not an injection kind: use fact, override, or skip`,
       next: "pass --type fact|override|skip",
       runId: values.run
     });

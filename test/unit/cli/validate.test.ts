@@ -345,6 +345,17 @@ test("validate --json prints the frozen VALIDATE_OK contract and nothing on fail
   });
 });
 
+test("a mistyped validate flag is an argv error that names --help", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["validate", "--childrenn", "spec.json"], io), 1);
+  assert.deepEqual(out, []);
+  const parsed = parseCliErrorJson(err.join(""));
+  assert.equal(parsed?.command, "validate");
+  assert.equal(parsed?.stage, "parse-args");
+  assert.match(parsed?.message ?? "", /--childrenn/);
+  assert.match(parsed?.next ?? "", /--help/);
+});
+
 test("validate --help prints its usage and exits 0", async () => {
   await withSpecDir(async () => {
     const { io, out, err } = capture();

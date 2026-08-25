@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { COMMITS_USAGE } from "../../../src/cli/commits.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { createCliModelRouter } from "../../../src/cli/model-catalog.js";
 import { createTaskId } from "../../../src/domain/ids.js";
@@ -579,6 +580,30 @@ test("a crash-truncated event log is disclosed on stderr and leaves --json one c
     assert.equal(parsed.commits.length, 1);
   });
 });
+
+for (const sub of ["preview", "apply"]) {
+  test(`a mistyped commits ${sub} flag is an argv error that names --help`, async () => {
+    const { io, out, err } = capture();
+    const code = await main(["commits", sub, "--nodess", "a,b"], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.equal(parsed?.command, "commits");
+    assert.equal(parsed?.stage, "parse-args");
+    assert.match(parsed?.message ?? "", /--nodess/);
+    assert.match(parsed?.next ?? "", /--help/);
+  });
+
+  test(`commits ${sub} --help prints the usage and reads no run`, async () => {
+    const { io, out, err } = capture();
+    const code = await main(["commits", sub, "--help"], io);
+
+    assert.equal(code, 0, err.join(""));
+    assert.equal(out.join(""), COMMITS_USAGE);
+    assert.deepEqual(err, []);
+  });
+}
 
 test("preview does not create commits", async () => {
   await withRoots(async (stateRoot, projectRoot) => {

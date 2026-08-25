@@ -297,6 +297,39 @@ test("a malformed inject flag reports parse-args and points at inject --help", a
   assert.match(report?.next ?? "", /inject --help/);
 });
 
+// Both values used to travel into the plane: an unknown --type came back as a
+// validation failure, and `Number("banana")` arrived as NaN. They are argv, so
+// they are refused as argv, with the flag that carries them named.
+test("inject refuses a --type outside fact|override|skip as an argv error", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await main(["inject", "--run", "run_x", "--type", "eval", "--key", "k", "--value", "v"], io), 1);
+  assert.deepEqual(out, []);
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "inject");
+  assert.equal(report?.stage, "parse-args");
+  assert.match(report?.message ?? "", /--type eval is not an injection kind/);
+  assert.equal(report?.next, "pass --type fact|override|skip");
+});
+
+test("inject refuses a --confidence that is not a number in [0,1] as an argv error", async () => {
+  // `-0.5` is passed with `=` because parseArgs refuses a dash-leading value
+  // as an ambiguous argument before this preflight ever sees it.
+  for (const confidence of ["banana", "=-0.5", "1.5"]) {
+    const { io, out, err } = capture();
+    const flag = confidence.startsWith("=") ? [`--confidence${confidence}`] : ["--confidence", confidence];
+    assert.equal(
+      await main(["inject", "--run", "run_x", "--type", "override", "--node", "work", ...flag], io),
+      1
+    );
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "inject");
+    assert.equal(report?.stage, "parse-args", `--confidence ${confidence} must be an argv error`);
+    assert.match(report?.message ?? "", /finite number between 0 and 1/);
+    assert.equal(report?.next, "pass --confidence <0-1>");
+  }
+});
+
 test("pause --help and pause help print the usage and exit 0", async () => {
   for (const form of ["--help", "help", "-h"]) {
     const { io, out, err } = capture();

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
+import { EPISODE_USAGE } from "../../../src/cli/episode.js";
 import {
   createEpisodeId,
   createEvidenceId,
@@ -251,6 +252,28 @@ test("episode events on an unknown episode points at list --episodes, not at a r
   assert.match(report?.next ?? "", /pnpm cli list/);
   assert.match(report?.next ?? "", /--episodes/);
   assert.ok((report?.next ?? "").includes(stateRoot));
+});
+
+test("a mistyped episode flag is an argv error that names --help, not an execute failure", async () => {
+  const captured = capture();
+  const code = await main(["episode", "events", "--epsiode", "ep_typo"], captured.io);
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const report = parseCliErrorJson(captured.err.join(""));
+  assert.equal(report?.command, "episode");
+  assert.equal(report?.stage, "parse-args");
+  assert.match(report?.message ?? "", /--epsiode/);
+  assert.match(report?.next ?? "", /--help/);
+});
+
+test("episode events --help prints the usage the subcommand used to refuse", async () => {
+  const captured = capture();
+  const code = await main(["episode", "events", "--help"], captured.io);
+
+  assert.equal(code, 0, captured.err.join(""));
+  assert.equal(captured.out.join(""), EPISODE_USAGE);
+  assert.deepEqual(captured.err, []);
 });
 
 test("episode close on an unknown episode points at list --episodes, not at a run id", async () => {

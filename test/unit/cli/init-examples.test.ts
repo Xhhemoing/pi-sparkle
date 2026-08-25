@@ -243,4 +243,15 @@ describe("init contracts", () => {
     assert.match(captured.out(), /pi-sparkle init \[--dir <path>\] \[--force\] \[--json\]/);
     assert.equal(captured.err(), "");
   });
+
+  it("reports a mistyped flag as an argv error that names --help", async () => {
+    const captured = capture();
+    assert.equal(await initExamplesCommand(["--dirr", "."], captured.io), 1);
+    assert.equal(captured.out(), "", "a refusal writes no files and prints nothing on stdout");
+    const parsed = parseCliErrorJson(captured.err());
+    assert.equal(parsed?.command, "init");
+    assert.equal(parsed?.stage, "parse-args");
+    assert.match(parsed?.message ?? "", /--dirr/);
+    assert.match(parsed?.next ?? "", /--help/);
+  });
 });
