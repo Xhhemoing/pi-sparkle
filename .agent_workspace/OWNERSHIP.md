@@ -6,7 +6,7 @@ Lists are binding. **Hard contention:** R13-1 (comment-only `replay.ts` + `presc
 
 **Dispatch cross-check:** every "replace X in the same diff" obligation below lives in that slot's owned files. Fold unowned-file joints into the landing commit, not a follow-up.
 
-Injection brief: `.agent_workspace/ROUND12-BRIEF.md`. Review: `.agent_workspace/loop4-r12-review.md`.
+Injection brief: `.agent_workspace/ROUND12-BRIEF.md`. Review: `.agent_workspace/loop4-r12-review.md`. Dispatch: R13-1 `bc-8f305442-b89e-5027-8a3f-0fe1bd1d3c95`; R13-2 `bc-8638f5c8-c39c-5c1d-94a3-b357cf0fd70e`; R13-3 `bc-7a65b4d9-3e73-5963-96ef-1dfdca2e6c75`; R13-4 `bc-a1cff01d-f85e-5307-9cd3-5fefc24656cf`; R13-5 `bc-de6bdc78-aeff-5f90-9dd0-1bef638bdfc7`; R13-6 `bc-9df1a46b-08b6-50c8-b5a6-22c75b0ceb0d`; R13-7 `bc-977f733c-6ed5-58a9-bd4e-13e3d4a28069`; R13-8 `bc-f4713dbe-1c9a-5951-bf28-48713a6884b6`; R13-9 `bc-70ecf5aa-503e-59cc-9503-07346eda5bec`; R13-10 `bc-d9c4877b-4caa-53d4-bd55-50d469c7469e`.
 
 | Slot | Model | Owns |
 |---|---|---|

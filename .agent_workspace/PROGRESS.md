@@ -290,16 +290,16 @@ Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded jo
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R13-1 | pending | comment-only `replay.ts` / `prescore.ts` "no writer" truth-up |
-| R13-2 | pending | behavioural pins: unblock `taskCriteria` carry-forward + `advanceTaskCriteria` log-derived arm |
-| R13-3 | pending | early run-id on `--flowchart` / `--children` |
-| R13-4 | pending | Round 12 docs truth-up |
-| R13-5 | pending | keep live-isolation pins |
-| R13-6 | pending | keep `applyRetry` absence |
-| R13-7 | pending | keep never-synthesize-from-episode |
-| R13-8 | pending | keep `independentEvidence` posture |
-| R13-9 | pending | keep exact eight `RunStatus` members |
-| R13-10 | pending | keep writer-carriage property |
+| R13-1 | bc-8f305442-b89e-5027-8a3f-0fe1bd1d3c95 | comment-only `replay.ts` / `prescore.ts` "no writer" truth-up |
+| R13-2 | bc-8638f5c8-c39c-5c1d-94a3-b357cf0fd70e | behavioural pins: unblock `taskCriteria` carry-forward + `advanceTaskCriteria` log-derived arm |
+| R13-3 | bc-7a65b4d9-3e73-5963-96ef-1dfdca2e6c75 | early run-id on `--flowchart` / `--children` |
+| R13-4 | bc-a1cff01d-f85e-5307-9cd3-5fefc24656cf | Round 12 docs truth-up |
+| R13-5 | bc-de6bdc78-aeff-5f90-9dd0-1bef638bdfc7 | keep live-isolation pins |
+| R13-6 | bc-9df1a46b-08b6-50c8-b5a6-22c75b0ceb0d | keep `applyRetry` absence |
+| R13-7 | bc-977f733c-6ed5-58a9-bd4e-13e3d4a28069 | keep never-synthesize-from-episode |
+| R13-8 | bc-f4713dbe-1c9a-5951-bf28-48713a6884b6 | keep `independentEvidence` posture |
+| R13-9 | bc-70ecf5aa-503e-59cc-9503-07346eda5bec | keep exact eight `RunStatus` members |
+| R13-10 | bc-d9c4877b-4caa-53d4-bd55-50d469c7469e | keep writer-carriage property |
 
 ---
 
