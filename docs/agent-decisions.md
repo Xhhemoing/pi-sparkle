@@ -56,6 +56,12 @@ To avoid overwrite:
 
 If two USAGE edits conflict, keep all three lines; do not drop siblings.
 
+Fable-cli (Round 1): `validate` must not import `src/cli/main.ts` (dispatch cycle). Extract `parseChildSpec` into `src/cli/children-spec.ts` or `flowchart-io.ts`; `run` and `validate` both import that module. Do not leave two children decoders.
+
 ## D5 — Honesty of claims
 
 `private: true`, developer preview, not npm-publishable, not Outcome-supported. New commands are preview operator tools. Do not describe them as production, adaptive-live, or held-out proven.
+
+## D6 — `init` verb (open)
+
+GPT-challenge: **REPLACE** the verb with static `examples/` only. Fable-map and Fable-cli: **KEEP** (packed install ships `dist` only; `package.json` `files[]` freeze forbids adding `examples/`). Resolve at Round 1 synthesis; do not wire `init` into `main.ts` until then.
