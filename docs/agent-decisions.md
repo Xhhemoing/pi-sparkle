@@ -284,7 +284,7 @@ Fable-r9-next. Convert six thrown D12/D21 refusals to `cliFail` with `command: "
 
 Fable-r9-next. Blank `--children`/`--flowchart` refuse as parse-args. Unreadable paths become `stage: "lookup"` naming the flag with an `init` retarget (classify via `errorCodeOf` in the existing catch). Spec faults keep `stage: "validation"` + "fix the spec". Do not edit `children-spec.ts` / `flowchart-io.ts`. `VALIDATE_OK` byte-identical. Files: `src/cli/validate.ts`, `test/unit/cli/validate.test.ts`. Spec: Rank 3.
 
-**Status:** implementing. Do not merge until GPT-r9 KEEP.
+**Status:** landed on `cursor/validate-path-retarget-0da8` (`2e9d35e`). PR #18. Do not merge until GPT-r9 KEEP.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
