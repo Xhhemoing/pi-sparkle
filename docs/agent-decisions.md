@@ -182,6 +182,8 @@ Do not edit `pi-adapter/runtime.ts` (PR #12). Spec: Rank 2 as corrected by the G
 
 Compare `check.source` to the preserved configured `envVar` (or trim at parse, resolution, and display together). Do not trim only on the display side. Pin a padded `envVar` custom row as `env` when resolution used that variable. Correct the builtin comment: do not describe the `"AWS access keys"` source as a file/profile/role branch. Optionally pin `amazon-bedrock` classification for that source. Do not edit `runtime.ts` or `main.ts`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`.
 
+**Landed** (Opus-d24-source-column): equality is `source === custom.envVar` (untrimmed). AWS access-keys comment corrected. Independent GPT recheck dispatched.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.

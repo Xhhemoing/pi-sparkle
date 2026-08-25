@@ -100,6 +100,7 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D23 bound-dir `manifest.json` exists check. Implementer: Opus-d23-manifest-exists (`bc-5c880308-f7bb-5147-8c7c-a61c4917d8e2`). GPT-d23-recheck **KEEP**. `adapt dataset` merge-ready.
 - D20 claim-only-what-happened CLI. Implementer: Opus-d20-cli-honesty (`bc-ef8d6111-15dc-5bf1-a83c-c80ed59b5b93`). GPT-d20-recheck **KEEP**.
 - D21 auth/models remainder. Implementer: Opus-d21-auth-models (`bc-c4dd2d65-355c-5243-940b-875d1e342896`). GPT-d21-recheck **FIX** (source-column trim drift).
+- D24 auth source-column bytes. Implementer: Opus-d24-source-column (`bc-8560fd72-b9e6-5224-9b23-adfbbd730a4e`). GPT recheck in flight.
 - D22 doctor storage inventory. Implementer: Opus-d22-doctor-storage (`bc-c72bed86-cb4e-5126-888e-eca802cc5b0c`). GPT-d22-recheck **KEEP**.
 
 ### Round 5 (in flight)
@@ -109,5 +110,5 @@ Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fab
 ### Round 3 still running / next implementers
 
 - Round 6 next-bets ranking in flight.
-- D24 auth source-column trim/comment still in flight.
+- D24 independent GPT recheck dispatched.
 - Windows smoke and status-matrix still HOLD behind PR #12.
