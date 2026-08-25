@@ -103,20 +103,23 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - D24 auth source-column bytes. Implementer: Opus-d24-source-column (`bc-8560fd72-b9e6-5224-9b23-adfbbd730a4e`). GPT-d24-recheck **KEEP**.
 - D22 doctor storage inventory. Implementer: Opus-d22-doctor-storage (`bc-c72bed86-cb4e-5126-888e-eca802cc5b0c`). GPT-d22-recheck **KEEP**.
 - D25 `list` truncation disclosure + `--sort last-event`. Implementer: Opus-d25-list-sort (`bc-dd11ca58-f52f-510e-bf63-b89d5a9dda31`). GPT-d25-recheck **KEEP**.
+- D26 one-dialect argv/`--help` on six free verbs. Implementer: Opus-d26-argv-help (`bc-2a2a0515-81de-5318-9557-6bef72169e03`). GPT-d26-recheck **KEEP**.
+- D27 `models list --json` stored-config contract. Implementer: Opus-d27-models-json (`bc-273c089d-f7b4-564b-bd04-10e34d162330`). GPT-d27-recheck **KEEP**.
 
-### Round 6 (in flight)
+### Round 6 (closed)
 
-Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fable-next.md`): D25 `list` truncation/`--sort`, D26 argv dialect/`--help`, D27 `models list --json`. Ranked at `83beb1e`; D24 KEEP later on disjoint `auth.ts`.
-
-GPT-r6-challenge (`.agent_workspace/loop5-r6-gpt-challenge.md`): D25 **FIX**, D26 **KEEP**, D27 **FIX**. D25 merged after GPT-d25-recheck KEEP.
+Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fable-next.md`): D25 `list` truncation/`--sort`, D26 argv dialect/`--help`, D27 `models list --json`. GPT-r6-challenge: D25 **FIX**, D26 **KEEP**, D27 **FIX**. All three merged after independent KEEP rechecks.
 
 | Slot | Landing | Recheck |
 |---|---|---|
-| D25 | merged from `cursor/list-truncation-sort-0da8` `02ef2f4` | GPT-d25-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d25.md`. |
-| D26 | `origin/cursor/argv-help-dialect-0da8` `25742b4` — inject rider reverted; six-verb argv/`--help` only | GPT-d26-recheck in flight; do not merge until KEEP. |
-| D27 | `origin/cursor/models-list-json-0da8` `c83fc99` — discriminated `MODELS_LIST` | GPT-d27-recheck in flight; do not merge until KEEP. |
+| D25 | merged `85c1feb` from `cursor/list-truncation-sort-0da8` `02ef2f4` | GPT-d25-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d25.md`. |
+| D26 | merged `e9c4d77` from `cursor/argv-help-dialect-0da8` `25742b4` | GPT-d26-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d26.md`. |
+| D27 | merged `b927921` from `cursor/models-list-json-0da8` `c83fc99` | GPT-d27-recheck **KEEP**. Report: `.agent_workspace/loop5-r6-gpt-d27.md`. |
+
+### Round 7
+
+Fable-r7-next dispatched to rank the next three file-disjoint operator batches after D25–D27 KEEP.
 
 ### Round 3 still running / next implementers
 
-- D26 and D27 wait on independent GPT rechecks. D25 is merged.
 - Windows smoke and status-matrix still HOLD behind PR #12.
