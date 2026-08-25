@@ -10,7 +10,7 @@ Lists are binding. **Hard contention:** R14-2 (comment-only `replay.ts`) and R14
 
 **Mutations run out-of-tree:** full copy under `/tmp` with `node_modules` symlinked, then deleted. No in-tree mutation window.
 
-Injection brief: `.agent_workspace/ROUND13-BRIEF.md`. Review: `.agent_workspace/loop4-r13-review.md`.
+Injection brief: `.agent_workspace/ROUND13-BRIEF.md`. Review: `.agent_workspace/loop4-r13-review.md`. Dispatch: R14-2 `bc-6fe42e12-b7d6-58d8-a1a5-569ec66c7470`; R14-1 `bc-1c805383-8352-5b87-81df-eb042c90dad3`.
 
 | Slot | Model | Owns |
 |---|---|---|

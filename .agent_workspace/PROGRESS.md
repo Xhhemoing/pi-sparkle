@@ -311,8 +311,8 @@ Two real candidates from `.agent_workspace/ROUND13-BRIEF.md` (freeze extras not 
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R14-2 | pending | comment-only scope of `replay.ts:85-93` laundering narrative |
-| R14-1 | pending | Round 13 docs truth-up |
+| R14-2 | bc-6fe42e12-b7d6-58d8-a1a5-569ec66c7470 | comment-only scope of `replay.ts:85-93` laundering narrative |
+| R14-1 | bc-1c805383-8352-5b87-81df-eb042c90dad3 | Round 13 docs truth-up |
 
 ---
 
