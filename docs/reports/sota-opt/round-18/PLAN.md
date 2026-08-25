@@ -2,19 +2,19 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-I；R17-J 仍在飞，勿抢其报告）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
+Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-I / R18-A；R17-J 仍在飞，勿抢其报告）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R18-A … R18-J），报告写入 `docs/reports/sota-opt/round-18/`。
 
-状态：第 1 波 B 本波派出；A 运行中。Round 17 J 仍在飞，本轮不触及其分支与文件。
+状态：第 1 波 C 本波派出；B 运行中。A 已合入（空枚举）。Round 17 J 仍在飞，本轮不触及其分支与文件。
 
-A 切片 = 14 文件：`src/tracking/` 12 + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`。不要重开 S1-A-* … S11-A-2。R12-A…R17-A 空枚举、未铸 ID。预算复核 R17-A：65–74 µs/run（13.0–14.8 µs/gate）。R17-A 事件表组成轴（GT 饱和 10 ms 越线收紧至 E≈4.7–5.2×10⁴）与生产态冷进程预算（ICU collator 惰性初始化 ~5.0 ms，once-per-run）不补铸。R16-A payload 形态轴（L/V/S）与 R15-A C/R/GC/JIT、R14-A E/max-codes 不补铸。分析不改 in-flight run；tracking 无命令权；H/score 不写路由 PASS/FAIL。基线 `7acb666` 预期空 diff。
+A 切片已合入：空枚举，未铸 S18-A-*。切片 `git diff 7acb666..HEAD` 为空（十八遍零 diff）。预算复核 64–74 µs/run（12.7–14.8 µs/gate，与 R17-A 65–74 同带）。本轮新增 skip-path 组成定价（五类 apply:false 272–1712 ns，全 apply 锚点即上界）与 fail-closed 拒绝终点普查（28 抛点；代表拒绝 8.9–13.3 µs once-per-fault）。R17-A 事件表组成 / 冷进程预算与 R16-A / R15-A / R14-A 轴不补铸。基线 `7acb666` 空 diff 再确认。
 
-B 切片 = live 路由：`src/routing/{r0,assign,assign-plan,policy,live-cascade,live-selection,analyze-task,primary-catalog,catalog-model}.ts` + `src/supervisor/model-router.ts`（10 文件）。不要重开 S12-B-2（条件式落地：N≥10³ 且调用方传 `prior`）/ S13-B-1（本体成本 ≥2 个量级；|avoid|≈965–1,063 生产写入方不可达）。R13-B…R17-B 空枚举或仅淘汰 ID。天花板复核 R17-B：M=2 9.1–11.4 / M=10 19.0–23.8 ms/eval。R17-B 拒绝/异常路径定价与逐任务尾部分布不补铸。R16-B 剖析站点预算与语料基底、R15-B A/A 与引擎代轴不补铸。Live = R0。基线 `94ed3d9` 预期空 diff。本波派出。
+B 切片 = live 路由：`src/routing/{r0,assign,assign-plan,policy,live-cascade,live-selection,analyze-task,primary-catalog,catalog-model}.ts` + `src/supervisor/model-router.ts`（10 文件）。不要重开 S12-B-2（条件式落地：N≥10³ 且调用方传 `prior`）/ S13-B-1（本体成本 ≥2 个量级；|avoid|≈965–1,063 生产写入方不可达）。R13-B…R17-B 空枚举或仅淘汰 ID。天花板复核 R17-B：M=2 9.1–11.4 / M=10 19.0–23.8 ms/eval。R17-B 拒绝/异常路径定价与逐任务尾部分布不补铸。R16-B 剖析站点预算与语料基底、R15-B A/A 与引擎代轴不补铸。Live = R0。基线 `94ed3d9` 预期空 diff。
 
-C 切片 = 离线路由 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S1-C / S2-C / S3-C / S4-C / S5-C / S6-C / S7-C。不要另起平行 S7-C。R11-C…R17-C 空枚举、未铸 ID。生产中位 R17-C：657.6–689.3 ms/报告（本机 659.9–662.8）；落地线 ±35 ms。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ 与 R13–R16 无名微观。若落地代码：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ 新 r18c 仿真。基线 `183df9b` 预期空 diff。
+C 切片 = 离线路由 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S1-C / S2-C / S3-C / S4-C / S5-C / S6-C / S7-C。不要另起平行 S7-C。R11-C…R17-C 空枚举、未铸 ID。生产中位 R17-C：657.6–689.3 ms/报告（本机 659.9–662.8）；落地线 ±35 ms。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ 与 R13–R16 无名微观。若落地代码：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ 新 r18c 仿真。基线 `183df9b` 预期空 diff。本波派出。
 
 D 切片 = `src/adaptation/`（14 文件）。不要重开 S9-D-4（廉价 `toLowerCase` 在 U+212A fail-open）/ S12-D-1（同族）。R10-D…R17-D 空枚举或已关 ID。eval 地板 R17-D：3.57–4.00 ms。R17-D fail-closed 拒绝路径普查（28 终点）不补铸。R16-D payload 形态轴（L/H/O/σ/P）与 R14-D / R15-D 轴不补铸。基线 `82bef36` 预期空 diff。
 
