@@ -36,8 +36,8 @@
 | 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
 | 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
 | 21 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-21/PLAN.md](./round-21/PLAN.md) |
-| 22 | 第 4 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-22/PLAN.md](./round-22/PLAN.md) |
-| 23 | 第 1 波进行中 | 0 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-23/PLAN.md](./round-23/PLAN.md) |
+| 22 | 第 4 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-22/PLAN.md](./round-22/PLAN.md) |
+| 23 | 第 1 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-23/PLAN.md](./round-23/PLAN.md) |
 
 ### Round 1 波次
 
@@ -235,13 +235,13 @@
 | 1 | R22-A 跟踪门控、R22-B live 路由、R22-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R22-D 自优化、R22-E 学习 | D/E 完成已合入 |
 | 3 | R22-F 实验、R22-G 运行时/图、R22-H 评价/需求 | F/G/H 完成已合入 |
-| 4 | R22-I CLI/适配器、R22-J cluster/privacy/episode | I/J 运行中 |
+| 4 | R22-I CLI/适配器、R22-J cluster/privacy/episode | I 完成已合入；J 运行中 |
 
 ### Round 23 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R23-A 跟踪门控 | A 本波派出 |
+| 1 | R23-A 跟踪门控、R23-B live 路由 | A 运行中；B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -466,9 +466,10 @@
 | R22-F | `cursor/r22-f-experiments-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-F.md`）。无新排除 ID；全实验锚点复核 120.5–131.8 ms；membership-topology 组成轴归档 |
 | R22-G | `cursor/r22-g-runtime-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-G.md`）。无新排除 ID；计算顶复核 0.286–0.289 vs I/O 94.0–97.2 ms；TERMCLASS 不铸 ID；digest 第十三次逐位相同 |
 | R22-H | `cursor/r22-h-eval-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-H.md`）。无新排除 ID；热层默认复核 9.18–9.27 µs/run；调用上下文几何普查归档 |
-| R22-I | `cursor/r22-i-cli-twenty-second-pass-83a1` | 已派出 |
+| R22-I | `cursor/r22-i-cli-twenty-second-pass-83a1` | 已合入专属分支（仅 `R22-I.md`）。无新排除 ID；custom−builtin 复核 +47.6/+23.0 / +44.8/+25.7 / +45.4/+22.9 ms；十五连空；run-record 回读平面归档 |
 | R22-J | `cursor/r22-j-persist-twenty-second-pass-83a1` | 已派出 |
 | R23-A | `cursor/r23-a-tracking-twenty-third-pass-83a1` | 已派出 |
+| R23-B | `cursor/r23-b-live-routing-twenty-third-pass-83a1` | 已派出 |
 
 ## 合并策略
 
