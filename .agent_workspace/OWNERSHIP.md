@@ -8,7 +8,7 @@ Lists are binding. Nobody edits `src/**`, tests, `flowchart-run.ts`, `main.ts`, 
 
 Landing commits are slot files + report only — no PROGRESS ticks.
 
-Injection brief: `.agent_workspace/ROUND14-BRIEF.md`. Review: `.agent_workspace/loop4-r14-review.md`.
+Injection brief: `.agent_workspace/ROUND14-BRIEF.md`. Review: `.agent_workspace/loop4-r14-review.md`. Dispatch: R15-1 `bc-572d2b10-e026-54f4-983d-2beeb4a8a862`.
 
 | Slot | Model | Owns |
 |---|---|---|

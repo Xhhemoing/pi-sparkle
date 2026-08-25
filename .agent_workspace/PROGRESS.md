@@ -324,7 +324,7 @@ Sole landing from `.agent_workspace/ROUND14-BRIEF.md` (zero code candidates; doc
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R15-1 | pending | terminate census-note treadmill (docs only) |
+| R15-1 | bc-572d2b10-e026-54f4-983d-2beeb4a8a862 | terminate census-note treadmill (docs only) |
 
 ---
 
