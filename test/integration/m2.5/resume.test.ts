@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { createTaskId, parseRunId, parseTaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../../../src/domain/ids.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
@@ -429,6 +430,29 @@ test("the flowchart checkpoint, its validator, its writer and both restorers car
   // No `continuation.taskCriteria` counterpart: unlike the contract, this is a
   // record of what the run already dispatched, not an answer a caller may give.
   assert.doesNotMatch(resumeRestorer, /continuation\.taskCriteria/);
+
+  // Loop 4 R20-1 put a second dispatch fact on the same seam: the per-child
+  // spend ceiling, which a substituted spec may no longer take from a sibling
+  // and can therefore only get back from here. Same writer, same two
+  // restorers, same reopen — an operator action that rewrote the checkpoint
+  // without it would uncap the next resumed node.
+  assert.match(checkpointState, /taskCostCeilings\?: TaskCostCeiling\[\]/);
+  assert.match(checkpointState, /never \*synthesized\*/);
+  assert.match(
+    checkpointValidator,
+    /validateTaskCostCeilings/,
+    "the ceiling record fails closed the way the criteria record does"
+  );
+  assert.match(
+    checkpointWriter,
+    /ctx\.taskCostCeilings !== undefined \? \{ taskCostCeilings: ctx\.taskCostCeilings \}/
+  );
+  assert.match(sessionRestorer, /checkpoint\.flowchart\.taskCostCeilings/);
+  assert.match(resumeRestorer, /const taskCostCeilings = checkpoint\.flowchart\.taskCostCeilings;/);
+  assert.match(unblockWriter, /\.\.\.\(taskCostCeilings !== undefined \? \{ taskCostCeilings \} : \{\}\)/);
+  // And no continuation counterpart here either — a resume that could re-answer
+  // this one would be a way to raise a child's cap by resuming it.
+  assert.doesNotMatch(resumeRestorer, /continuation\.taskCostCeilings/);
 });
 
 test("every flowchart-payload writer carries contract", async () => {
@@ -558,9 +582,16 @@ function testerChild(taskId: string): ChildTaskInput {
 /** Reports SUCCESS + verification PASSED for every task it is given. */
 class PassingExecutor implements AgentExecutor {
   readonly taskIds: string[] = [];
+  /**
+   * The ceiling the coordinator forwarded per task, `undefined` when it
+   * forwarded none. Keyed presence is the point: an entry holding `undefined`
+   * is "this task ran uncapped", which is a different fact from never running.
+   */
+  readonly costCaps = new Map<string, number | undefined>();
   constructor(private readonly onExecute?: () => void) {}
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     this.taskIds.push(request.taskId);
+    this.costCaps.set(request.taskId, request.maxCostUsd);
     this.onExecute?.();
     if (signal.aborted) {
       yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
@@ -933,6 +964,352 @@ test("a resume of a checkpoint written before the writer recovers the record fro
     assert.deepEqual(await storedTaskCriteria(stateRoot, runId), {
       tsk_first: [CONTRACT_CRITERION]
     });
+  });
+});
+
+/**
+ * The other dispatch fact a substituted spec used to lose, and the two ways it
+ * used to be got wrong.
+ *
+ * Since R18-2 a caller may declare a per-child `maxCostUsd`, and the child
+ * coordinator forwards it to the executor and stamps it into the child's own
+ * `RUN_CREATED.limits` — so it is an enforced spend authorization on three
+ * durable-or-load-bearing records, not a disclosure. `childTasksFromLog`
+ * rebuilds a resumed child from the parent log, and a child the log never saw
+ * dispatched has no `TASK_REQUEST` to rebuild from, so it gets a substituted
+ * budget. Until R20-1 that substitution took the earliest logged *sibling's*
+ * entire limits object, ceiling included, or — with no sibling — three fields
+ * that never carried one. One pause before a child dispatched therefore either
+ * invented a cap its caller never set on that task or silently removed the one
+ * the caller did set, and both outcomes were written down as if the operator
+ * had asked for them.
+ *
+ * The three tests below are the audit's three proof shapes: the control that
+ * makes the pause the sole difference-maker, the invention, and the
+ * disappearance. Absence stays absence; a declared ceiling comes back.
+ */
+function cappedTesterChild(taskId: string, maxCostUsd?: number): ChildTaskInput {
+  const child = testerChild(taskId);
+  return maxCostUsd === undefined ? child : { ...child, limits: { ...child.limits, maxCostUsd } };
+}
+
+/**
+ * The same two-child arc `pausedBeforeSecondChild` builds, with each child's
+ * declared ceiling under the test's control and the pause optional — so the
+ * straight-through control and the two pause/resume shapes differ in exactly
+ * one input.
+ */
+async function cappedChildrenRun(
+  stateRoot: string,
+  projectRoot: string,
+  caps: { readonly first?: number; readonly second?: number },
+  options: { readonly pauseAfterFirst: boolean }
+): Promise<{ runId: RunId; executor: PassingExecutor }> {
+  const children = [
+    cappedTesterChild("tsk_first", caps.first),
+    cappedTesterChild("tsk_second", caps.second)
+  ];
+  const flowchart = compileChildrenToFlowchart(
+    children.map((child, index) => ({
+      taskId: child.taskId,
+      role: "tester" as const,
+      objective: child.objective,
+      ...(index > 0 ? { dependsOn: [children[index - 1]!.taskId] } : {})
+    }))
+  );
+
+  const pause = new TogglePause();
+  const executor = new PassingExecutor(
+    options.pauseAfterFirst
+      ? () => {
+          pause.paused = true;
+        }
+      : undefined
+  );
+  const outcome = await startFlowchartRun(
+    { ...deps(stateRoot), executor, pause },
+    { projectRoot, flowchart, childTasks: children }
+  );
+  assert.equal(outcome.status, options.pauseAfterFirst ? "PAUSED" : "COMPLETED");
+  return { runId: outcome.runId, executor };
+}
+
+interface DispatchedBudget {
+  /** `TASK_REQUEST.limits` on the parent log: what the child was asked for. */
+  readonly request: Readonly<Record<string, number>>;
+  /** The child run's own `RUN_CREATED.limits.maxCostUsd`: what it was allowed to spend. */
+  readonly childRunCreated: number | undefined;
+  /** `AgentExecutionRequest.maxCostUsd`: what the executor was told to enforce. */
+  readonly executionRequest: number | undefined;
+}
+
+/** The one `TASK_REQUEST` the parent log carries for a task. */
+function requestLimits(events: readonly Event[], taskId: string): Readonly<Record<string, number>> {
+  const requests = loggedTaskRequests(events).filter((request) => request.taskId === taskId);
+  assert.equal(requests.length, 1, `exactly one TASK_REQUEST for ${taskId}`);
+  return requests[0]!.limits;
+}
+
+/** The ceiling on the child run's own `RUN_CREATED`, read from that run's log. */
+async function childRunCeiling(
+  stateRoot: string,
+  events: readonly Event[],
+  taskId: string
+): Promise<number | undefined> {
+  const childRunIds = events.flatMap((event) =>
+    event.type === "CHILD_RUN_CREATED" && event.payload.childRun.rootTaskId === taskId
+      ? [event.payload.childRun.id]
+      : []
+  );
+  assert.equal(childRunIds.length, 1, `exactly one child run for ${taskId}`);
+  const created = (await eventsOf(stateRoot, childRunIds[0]!)).flatMap((event) =>
+    event.type === "RUN_CREATED" ? [event.payload.run.limits] : []
+  );
+  assert.equal(created.length, 1, `exactly one child RUN_CREATED for ${taskId}`);
+  return created[0]!.maxCostUsd;
+}
+
+/** All three records the effective ceiling reaches, read back from disk and the executor. */
+async function dispatchedBudget(
+  stateRoot: string,
+  runId: RunId,
+  executor: PassingExecutor,
+  taskId: string
+): Promise<DispatchedBudget> {
+  const events = await eventsOf(stateRoot, runId);
+  assert.equal(executor.costCaps.has(taskId), true, `the executor really ran ${taskId}`);
+  return {
+    request: requestLimits(events, taskId),
+    childRunCreated: await childRunCeiling(stateRoot, events, taskId),
+    executionRequest: executor.costCaps.get(taskId)
+  };
+}
+
+async function storedTaskCostCeilings(
+  stateRoot: string,
+  runId: RunId
+): Promise<Record<string, number> | undefined> {
+  const raw = await new CheckpointStore(stateRoot, runId).read();
+  const recorded = validateCheckpoint(raw).flowchart?.taskCostCeilings;
+  if (recorded === undefined) return undefined;
+  return Object.fromEntries(recorded.map((entry) => [entry.taskId, entry.maxCostUsd]));
+}
+
+/** The three enforced fields `testerChild` declares, which no ceiling change may disturb. */
+const TESTER_CHILD_BUDGET = { maxAttempts: 3, timeoutMs: 45_000, maxWallTimeMs: 900_000 } as const;
+
+/**
+ * The control. Nothing is paused, so both children are dispatched by the run
+ * that accepted their specs and every ceiling on every record is the caller's
+ * own. The CLI-boundary version of this carriage is R18-2's pin in
+ * `test/integration/m1/cli-children.test.ts`; this one is the same arc the two
+ * pause tests below use, so the pause is their only difference from it.
+ */
+test("a straight-through run carries each child's own declared cost ceiling", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, executor } = await cappedChildrenRun(
+      stateRoot,
+      projectRoot,
+      { first: 0.25, second: 0.05 },
+      { pauseAfterFirst: false }
+    );
+    assert.deepEqual(executor.taskIds, ["tsk_first", "tsk_second"]);
+
+    assert.deepEqual(await dispatchedBudget(stateRoot, runId, executor, "tsk_first"), {
+      request: { ...TESTER_CHILD_BUDGET, maxCostUsd: 0.25 },
+      childRunCreated: 0.25,
+      executionRequest: 0.25
+    });
+    assert.deepEqual(await dispatchedBudget(stateRoot, runId, executor, "tsk_second"), {
+      request: { ...TESTER_CHILD_BUDGET, maxCostUsd: 0.05 },
+      childRunCreated: 0.05,
+      executionRequest: 0.05
+    });
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), {
+      tsk_first: 0.25,
+      tsk_second: 0.05
+    });
+  });
+});
+
+test("a resume never hands a child that declared no ceiling its sibling's", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, executor: firstLeg } = await cappedChildrenRun(
+      stateRoot,
+      projectRoot,
+      { first: 0.25 },
+      { pauseAfterFirst: true }
+    );
+    assert.deepEqual(firstLeg.taskIds, ["tsk_first"]);
+    // The record names the sibling only. A child whose caller declared nothing
+    // is absent from it, not present with a zero: absence is "nobody
+    // authorized a cap here", which is the state the rebuild must preserve.
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), { tsk_first: 0.25 });
+
+    const secondLeg = new PassingExecutor();
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: secondLeg, pause: new TogglePause() },
+      runId,
+      { unpause: true }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(secondLeg.taskIds, ["tsk_second"]);
+
+    // The substituted budget still comes from the sibling for the three fields
+    // the coordinator enforces — and stops there. Before R20-1 the sibling's
+    // `0.25` was on all three of these records for a task nobody capped.
+    assert.deepEqual(await dispatchedBudget(stateRoot, runId, secondLeg, "tsk_second"), {
+      request: { ...TESTER_CHILD_BUDGET },
+      childRunCreated: undefined,
+      executionRequest: undefined
+    });
+    // And the resume's own checkpoint writes learned nothing new: the child it
+    // just dispatched uncapped is still absent, so a second resume still knows
+    // no ceiling was ever authorized for it.
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), { tsk_first: 0.25 });
+  });
+});
+
+test("a resume re-dispatches a never-started child under the ceiling its caller declared", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId, executor: firstLeg } = await cappedChildrenRun(
+      stateRoot,
+      projectRoot,
+      { first: 0.25, second: 0.05 },
+      { pauseAfterFirst: true }
+    );
+    assert.deepEqual(firstLeg.taskIds, ["tsk_first"]);
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), {
+      tsk_first: 0.25,
+      tsk_second: 0.05
+    });
+
+    const secondLeg = new PassingExecutor();
+    const resumed = await resumeFlowchartRun(
+      { ...deps(stateRoot), executor: secondLeg, pause: new TogglePause() },
+      runId,
+      { unpause: true }
+    );
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(secondLeg.taskIds, ["tsk_second"]);
+
+    // Not absent, and not the sibling's `0.25`: the number this run's caller
+    // set on this task, on all three records, after a pause the caller took
+    // before the task ever dispatched.
+    assert.deepEqual(await dispatchedBudget(stateRoot, runId, secondLeg, "tsk_second"), {
+      request: { ...TESTER_CHILD_BUDGET, maxCostUsd: 0.05 },
+      childRunCreated: 0.05,
+      executionRequest: 0.05
+    });
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), {
+      tsk_first: 0.25,
+      tsk_second: 0.05
+    });
+  });
+});
+
+/**
+ * The seam a green resume test cannot see: `pause` and `inject` share
+ * `restoreFlowchartSession` and both end in a checkpoint write, so a restorer
+ * that dropped the ceiling record would erase it from the run on the next
+ * operator action — and the resume after it would uncap the child rather than
+ * fail. Proved through the shipped commands, and with the CLI's own executor,
+ * which is the arm an operator actually drives.
+ */
+test("an operator pause between the legs does not strip the durable cost ceiling", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId } = await cappedChildrenRun(
+      stateRoot,
+      projectRoot,
+      { first: 0.25, second: 0.05 },
+      { pauseAfterFirst: true }
+    );
+    const recorded = { tsk_first: 0.25, tsk_second: 0.05 };
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), recorded);
+
+    const paused = await cli(["pause", "--run", runId, "--reason", "operator stepped away", "--state-root", stateRoot]);
+    assert.equal(paused.code, 0, paused.err);
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), recorded);
+
+    const resumed = await cli([
+      "resume",
+      "--run",
+      runId,
+      "--state-root",
+      stateRoot,
+      "--executor",
+      "fake",
+      "--unpause"
+    ]);
+    assert.equal(resumed.code, 0, resumed.err);
+
+    const events = await eventsOf(stateRoot, runId);
+    assert.equal(requestLimits(events, "tsk_second")["maxCostUsd"], 0.05);
+    assert.equal(await childRunCeiling(stateRoot, events, "tsk_second"), 0.05);
+    assert.deepEqual(await storedTaskCostCeilings(stateRoot, runId), recorded);
+  });
+});
+
+/**
+ * The durable half, on the run's own bytes rather than a fabricated payload:
+ * present-and-valid round-trips, absence stays valid *and absent*, and every
+ * malformed spelling is refused by location. The positive-finite rule is the
+ * one `protocol/v1.ts` applies to a declared ceiling — a checkpoint must not be
+ * a way to smuggle past the parse-time refusal a value the boundary rejects.
+ */
+test("the durable cost-ceiling record is validated fail-closed and absence stays valid", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const { runId } = await cappedChildrenRun(
+      stateRoot,
+      projectRoot,
+      { second: 0.05 },
+      { pauseAfterFirst: true }
+    );
+    const raw = (await new CheckpointStore(stateRoot, runId).read()) as {
+      flowchart: Record<string, unknown>;
+    };
+    assert.deepEqual(raw.flowchart["taskCostCeilings"], [{ taskId: "tsk_second", maxCostUsd: 0.05 }]);
+    assert.deepEqual(validateCheckpoint(raw).flowchart?.taskCostCeilings, [
+      { taskId: parseTaskId("tsk_second"), maxCostUsd: 0.05 }
+    ]);
+
+    for (const [label, taskCostCeilings] of [
+      ["an empty array is a second spelling of unknown", []],
+      ["a non-array", {}],
+      ["a bad task id", [{ taskId: "not-a-task", maxCostUsd: 0.05 }]],
+      ["a missing ceiling", [{ taskId: "tsk_second" }]],
+      ["a zero ceiling", [{ taskId: "tsk_second", maxCostUsd: 0 }]],
+      ["a negative ceiling", [{ taskId: "tsk_second", maxCostUsd: -1 }]],
+      ["a stringified ceiling", [{ taskId: "tsk_second", maxCostUsd: "0.05" }]],
+      [
+        "an out-of-order pair",
+        [
+          { taskId: "tsk_second", maxCostUsd: 0.05 },
+          { taskId: "tsk_first", maxCostUsd: 0.25 }
+        ]
+      ],
+      [
+        "a repeated task",
+        [
+          { taskId: "tsk_second", maxCostUsd: 0.05 },
+          { taskId: "tsk_second", maxCostUsd: 0.25 }
+        ]
+      ]
+    ] as const) {
+      assert.throws(
+        () => validateCheckpoint({ ...raw, flowchart: { ...raw.flowchart, taskCostCeilings } }),
+        (error: unknown) =>
+          error instanceof DomainValidationError &&
+          /Invalid RunCheckpoint: flowchart\.taskCostCeilings/.test(error.message),
+        label
+      );
+    }
+
+    const stripped = { ...raw, flowchart: { ...raw.flowchart } };
+    delete stripped.flowchart["taskCostCeilings"];
+    const validated = validateCheckpoint(stripped).flowchart;
+    assert.ok(validated);
+    assert.equal("taskCostCeilings" in validated, false, "absence is unknown, and stays absent");
   });
 });
 

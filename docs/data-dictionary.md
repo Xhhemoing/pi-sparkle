@@ -158,8 +158,10 @@ the durable parent log rather than from the checkpoint definition's thin node
 shape: the request restores objective, artifacts, criteria, and budget; the
 role-bearing assignment `MODEL_ROUTED` restores role, model, and cascade;
 checkpointed edges restore dependencies. A node without a logged request keeps
-empty artifacts and uses the earliest logged sibling budget or the run's
-declared per-task limits. Its criteria come from the durable `taskCriteria`
+empty artifacts and receives the earliest logged sibling's `maxAttempts`,
+`timeoutMs` and `maxWallTimeMs` (never its `maxCostUsd`) or the run's declared
+per-task limits; a declared ceiling comes back only from the durable
+`taskCostCeilings` record. Its criteria come from the durable `taskCriteria`
 record when that record names the node; otherwise they remain empty/unknown.
 The optional run requirement contract is durable as
 `FlowchartCheckpointState.contract?` at unchanged checkpoint
