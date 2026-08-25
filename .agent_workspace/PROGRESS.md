@@ -269,16 +269,16 @@ Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th cr
 
 | Slot | Agent | Focus |
 |---|---|---|
-| R12-1 | (pending) | `taskCriteria` writer+reader + early run-id |
-| R12-2 | (pending) | keep `independentEvidence` one-void pin |
-| R12-3 | (pending) | criteria-gate production-reachability |
-| R12-4 | (pending) | Round 11 docs truth-up |
-| R12-5 | (pending) | keep `applyRetry` absence + restore audit |
-| R12-6 | (pending) | keep never-synthesize-from-episode |
-| R12-7 | (pending) | keep routes / INSPECT_SUMMARY / BLOCKED prefix |
-| R12-8 | (pending) | keep live-isolation pins |
-| R12-9 | (pending) | keep `TERMINAL_REPLAY_STATUSES` freeze |
-| R12-10 | (pending) | keep writer-carriage `contract` property |
+| R12-1 | bc-212fd2df-0600-53f2-bd66-5121bdc1bf2d | `taskCriteria` writer+reader + early run-id |
+| R12-2 | bc-75d55f82-927e-5aea-8272-e6c69eee2bc4 | keep `independentEvidence` one-void pin |
+| R12-3 | bc-bc71ea8f-6c61-554a-9d34-1540610648f3 | criteria-gate production-reachability |
+| R12-4 | bc-5a2f7f6b-48ee-5c7f-898b-b68a823994e0 | Round 11 docs truth-up |
+| R12-5 | bc-f245e65f-6620-5996-a508-b328dd155738 | keep `applyRetry` absence + restore audit |
+| R12-6 | bc-14b01583-7004-55a5-b392-cece0307e44c | keep never-synthesize-from-episode |
+| R12-7 | bc-47ac0ed7-a754-5634-9e52-1e93958bcd56 | keep routes / INSPECT_SUMMARY / BLOCKED prefix |
+| R12-8 | bc-d5d9b6aa-16af-5c77-9448-99f89b0f40a8 | keep live-isolation pins |
+| R12-9 | bc-b03d3f9a-d0aa-5194-85c0-15cfef2a6d07 | keep `TERMINAL_REPLAY_STATUSES` freeze |
+| R12-10 | bc-0551ba4d-479f-5f00-9bb5-6d9e2e29a23b | keep writer-carriage `contract` property |
 
 ---
 

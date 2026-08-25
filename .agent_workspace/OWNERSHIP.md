@@ -8,6 +8,8 @@ Lists are binding. **Hard contention:** brief candidates 1 and 2 both need `src/
 
 Injection brief: `.agent_workspace/ROUND11-BRIEF.md`. Review: `.agent_workspace/loop4-r11-review.md`.
 
+Dispatch ids: R12-1 `bc-212fd2df-0600-53f2-bd66-5121bdc1bf2d`; R12-2 `bc-75d55f82-927e-5aea-8272-e6c69eee2bc4`; R12-3 `bc-bc71ea8f-6c61-554a-9d34-1540610648f3`; R12-4 `bc-5a2f7f6b-48ee-5c7f-898b-b68a823994e0`; R12-5 `bc-f245e65f-6620-5996-a508-b328dd155738`; R12-6 `bc-14b01583-7004-55a5-b392-cece0307e44c`; R12-7 `bc-47ac0ed7-a754-5634-9e52-1e93958bcd56`; R12-8 `bc-d5d9b6aa-16af-5c77-9448-99f89b0f40a8`; R12-9 `bc-b03d3f9a-d0aa-5194-85c0-15cfef2a6d07`; R12-10 `bc-0551ba4d-479f-5f00-9bb5-6d9e2e29a23b`.
+
 | Slot | Model | Owns |
 |---|---|---|
 | R12-1 | opus | **Spine: brief R12-1 + R12-2 in one diff.** `src/run/flowchart-run.ts`, `src/track/loop.ts`, `src/cli/main.ts` (all sole); `test/integration/m2.5/resume.test.ts`, `test/integration/m2.5/cli-contract-honesty.test.ts`; `test/unit/tracking/option-a-preconditions.test.ts` (7th-pin truth-up only if its no-writer language needs it). **Do not** edit `unblock-flow.test.ts`, `replay.ts`, `replay.test.ts`, `blocked-next.test.ts`, `docs/**`. **Do not** race the pause token or kill a process. **Do not** overload the pause controller as a notification channel. **Do not** synthesize `taskCriteria` from the episode, the flowchart definition, or the run contract. |
