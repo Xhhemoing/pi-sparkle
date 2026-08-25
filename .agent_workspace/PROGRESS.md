@@ -330,13 +330,17 @@ Landed: R15-1 `5d7c0d6` (sole landing; no sibling).
 
 **Parent gate GREEN** at `6d625d1`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **1 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r15-review.md`. Zero joints. Brief: `.agent_workspace/ROUND15-BRIEF.md`. Census-note treadmill terminated; surfaces current at HEAD.
 
-## Round 16 — retarget audit in flight
+## Round 16 — in flight (plane retarget)
 
-ROUND15-BRIEF §4 said dispatch nothing on the saturated `taskCriteria`/docs surface. Parent protocol: after two low-gain rounds, **move to I/O, races, protocol, or disaster recovery**. Round 16 is that plane-retarget audit (not freeze extras, not a seventh docs pass). Stay on `agent/opt-continuous`. ADR-006 stays Proposed.
+Four real candidates from `.agent_workspace/ROUND16-BRIEF.md` (audit: `.agent_workspace/loop4-r16-audit.md`). Stay on `agent/opt-continuous`. Parent sign-off: R16-1 **YES** lock at CLI layer; R16-4 **YES** atomic never-overwrite publish, **NO** 12th crash-probe case. Landing commits are slot files + report only (no PROGRESS ticks). Do not pad to ten.
 
 | Slot | Agent | Focus |
 |---|---|---|
-| fable-audit | bc-c35e018c-0f65-50db-89b0-89f8f434415c | I/O · races · protocol · disaster-recovery candidates |
+| fable-audit | bc-c35e018c-0f65-50db-89b0-89f8f434415c | I/O · races · protocol · disaster-recovery audit |
+| R16-1 | bc-de9f6564-72a2-550b-9c66-97b990097e6c | lock preference-store cross-process RMW |
+| R16-2 | bc-09e5e246-1ee3-5def-96c9-c09ba1a4b6dd | `EpisodeEventStore.append` validates before write |
+| R16-3 | bc-b02498fc-02dc-569f-8cb3-c6e3a27d136f | eval-routing report via `writeFileAtomic` |
+| R16-4 | bc-21baf251-e902-5849-92e2-16ccab8ac0b2 | crashed `migrate-legacy --apply` self-heal (atomic never-overwrite) |
 
 ---
 
