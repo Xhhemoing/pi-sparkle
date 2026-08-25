@@ -83,6 +83,8 @@ import {
 } from "./flowchart-io.js";
 import { parseChildSpec } from "./children-spec.js";
 import { validateCommand } from "./validate.js";
+import { listCommand } from "./list.js";
+import { initExamplesCommand } from "./init-examples.js";
 import { commitsCommand } from "./commits.js";
 import { pauseCommand } from "./pause.js";
 import { injectCommand } from "./inject.js";
@@ -259,6 +261,8 @@ Usage:
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--json]
+  pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
+  pi-sparkle init [--dir <path>] [--force] [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -280,7 +284,9 @@ Usage:
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
+  pi-sparkle adapt eval --candidate <cnd_...> --dataset <dir> [--state-root <dir>]
   pi-sparkle adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]
+  pi-sparkle adapt rollback --expected <rsv_...> --target <rsv_...> --reason <guardrail|degradation|user> [--state-root <dir>]
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
   pi-sparkle help
@@ -2053,6 +2059,10 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await runCommand(rest, io);
       case "validate":
         return await validateCommand(rest, io);
+      case "list":
+        return await listCommand(rest, io);
+      case "init":
+        return await initExamplesCommand(rest, io);
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":
