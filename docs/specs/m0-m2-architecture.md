@@ -543,9 +543,14 @@ leaves an empty `runtime/runs/` directory, but no run subtree, lock, or record.
 Run deletion takes the same lock across subtree removal and a first
 verification, then verifies again after release. `delete --run` and
 `delete --episode` accept `--lock-wait-ms <ms>`: omission preserves the 5 s
-default, `0` refuses immediately, and strict decimal input is capped at 24 h.
-A delete aimed at a live run waits for teardown up to that bound and otherwise
-fails with `LOCK_TIMEOUT` having removed nothing. A cross-process pause takes
+default, `0` refuses immediately, strict decimal input is capped at 24 h, and
+the bound covers every cooperative lock the delete takes (on the `--run` path,
+`invocations.jsonl.lock` as well as the run lock). A delete aimed at a live run
+waits for teardown up to that bound and otherwise fails with `LOCK_TIMEOUT`
+having removed none of the run's own records — but its pre-lock half (the
+invocation-log rewrite, or the episode path's feedback strip and tombstones)
+has already completed and is not rolled back; the `--run` path discloses that
+on stderr, and a re-delete is idempotent. A cross-process pause takes
 the same lock and likewise fails closed while the locked run is live, rather
 than settling its episode/checkpoint from underneath the driver. `pause`
 deliberately has no wait flag because a longer wait can succeed only after the
@@ -557,7 +562,8 @@ delete, pause, and track-question writes stay blocked until an operator uses
 doctor's PID/liveness, age, remediation, and run-state evidence, stops any live
 owner, and manually removes a confirmed abandoned lock. The crash-probe case
 `sigkill-run-lock-operator-recovery` proves this complete cross-process
-posture: the lock records a dead child PID, a bounded delete changes no bytes,
+posture: the lock records a dead child PID, a bounded delete leaves the run's
+own directory byte-identical (the scope the probe snapshots),
 doctor reports `pidLiveness: "not-running"` with manual-removal guidance, and
 deletion succeeds only after that confirmed abandoned lock is removed.
 
