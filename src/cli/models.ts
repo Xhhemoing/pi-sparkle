@@ -68,10 +68,11 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
     }
   });
   if (values.available === true) {
-    const { listSparkleModels, listedModelsFromCustom } = await import(
-      "../pi-adapter/listed-model.js"
-    );
-    const builtin = values.provider !== undefined ? listSparkleModels(values.provider) : listSparkleModels();
+    const catalog = await import("../pi-adapter/listed-model.js");
+    const builtin =
+      values.provider !== undefined
+        ? catalog.listSparkleModels(values.provider)
+        : catalog.listSparkleModels();
     // The catalog an operator can enable from is the builtin one *plus* the
     // providers they configured themselves: `models enable local/m1` already
     // succeeds for those, so browsing had no business hiding them — and with
@@ -80,7 +81,7 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
     const config = await loadProvidersConfig(stateRootOf(values));
     const custom = config.customProviders
       .filter((provider) => values.provider === undefined || provider.id === values.provider)
-      .flatMap((provider) => listedModelsFromCustom(provider));
+      .flatMap((provider) => catalog.listedModelsFromCustom(provider));
     const listed = [...builtin, ...custom];
     if (listed.length === 0) {
       io.stdout("(no models)\n");
