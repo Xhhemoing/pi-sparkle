@@ -190,8 +190,13 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > `tools` array.
 > Measured production-input sweeps have `PASSED` open all 360 cells (minimum
 > 0.750 over the 0.55 soft threshold) and `FAILED` hard-block all 180 cells with
-> `deterministic-fail` leading. This does not implement a per-criterion result
-> channel.
+> `deterministic-fail` leading. Round 11 subsequently added the optional
+> per-criterion result channel to that same tool and protocol-v1 verification
+> object. An evidence-backed reported `FAILED` criterion reaches the hard
+> `unmet-acceptance-criterion` gate for every role, even beside a whole-task
+> `PASSED`; omission, `UNOBSERVED`, and never-ran remain unknown-not-unmet.
+> The optional durable `taskCriteria` seam was declared and validated in the
+> same landing but had no `src` writer at the Round 11 close.
 >
 > `PrescoreInput.independentEvidence` does not mean third-party corroboration:
 > its sole production writer derives it from that child verdict, including the

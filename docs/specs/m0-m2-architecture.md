@@ -11,21 +11,17 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 11 docs-slot working-tree census (2026-08-24 23:59 UTC): HEAD was
-> `3bbb8dc` (R11-7, following R11-9 at `330466a`). Round 10's discard is no
-> longer sibling-only:
-> `RUN_UNBLOCKED_WITH_DISCARD` shipped in `54cf5e5` at 23:32:18 UTC, followed
-> at 23:32:24 UTC by the discard-aware `applyRetry` absence pin (`2399346`) and
-> gate-ledger pin (`d4b52b1`). This supersedes the 23:31 UTC note that those
-> three changes were not yet HEAD commits. The writer-carriage property,
-> verdict-producer additions, `independentEvidence` posture, and episode
-> boundary census are committed in `2e22453`, `05d146c`, `9b9888a`, and
-> `366df19`, respectively. No R11-1…R11-4 commit was at HEAD. R11-2's
-> uncommitted report recorded PASS at 23:59:20 UTC for the eleven-case discard
-> SIGKILL probe; R11-4's uncommitted working diff had wired restore-side
-> charged-estimate validation but had no completed report. R11-1 and R11-3 had
-> no owned-source diff. Those are working-tree observations at this timestamp,
-> not invented commit ids or shipped claims.
+> Round 12 docs-slot working-tree census (2026-08-25 00:48:38 UTC): HEAD was
+> `b65a8b1`. Round 11 is committed: option (a) `6096da6`; the eleven-case
+> probe `db38b21`; tracked pause-controller wiring `ac3faa3`; restore-side
+> discard audit `9663294`; the preceding docs truth-up `9efc715`; direct output
+> freezes `3bbb8dc`; the restore AST guard `39c97c3`; terminal-status census
+> `330466a`; episode/`taskCriteria` boundary census `f99a0c8`; and parent
+> joints `6926592` / `df2c395`. At this timestamp R12-1 had neither a committed
+> landing nor an owned-source working-tree diff, so this document records the
+> Round 11 `taskCriteria` no-writer residual and run-id-at-end gap rather than
+> assigning an uncommitted sibling a commit id. This note supersedes the dated
+> 23:56–23:59 UTC working-tree notes.
 
 ## Milestone names
 
@@ -365,6 +361,13 @@ come from the checkpointed edges. A node that was never requested retains empty
 criteria/artifacts and receives the earliest logged sibling's budget, or the
 run's declared per-task limits when there is no sibling. This reconstruction is
 stable across repeated resumes because the latest request per task wins.
+Round 11 added the validated optional
+`FlowchartCheckpointState.taskCriteria?` seam: absence remains unknown, a
+present task entry with an empty criteria list is known-none, and entries are
+ordered by `taskId`. At the Round 11 close the field has no `src` writer, so
+this is still a declared durability seam rather than a working guarantee.
+The runtime never synthesizes it from the episode, flowchart definition, or run
+contract.
 
 `FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
 that supplies it gets the same child grounding and assessment as start. The
@@ -384,10 +387,14 @@ episode-reader census rejects construction of `contract`, `constraints`, or
 acceptance remains closure metadata, never run-contract authority.
 
 The offline `run --track --assume-defaults --executor fake` path does extract
-and persist a contract without a live provider. R10-4 deliberately stopped
-before claiming the requested pure CLI `run --track` → `pause` → `resume`
-proof: the tracked start supplies no pause dependency, and `run` prints the run
-id only after the awaited tracked outcome is already terminal.
+and persist a contract without a live provider. Round 11 wired the tracked
+pause seam: `TrackRunInput.pause` is forwarded to `startFlowchartRun`, and
+`runCommand` supplies the file-backed controller. A behavioural control proves
+that the same tracked run completes without a controller and pauses after one
+child with one. The pure-CLI `run --track` → `pause` → `resume` proof remains
+partial for a different reason: `run` prints the run id only after the awaited
+tracked outcome is terminal, so an operator cannot address the live run from
+that output.
 
 ### Cluster role-cast dead letters
 
@@ -542,7 +549,9 @@ node statuses and its ledger), limits required for flowchart resume, and the
 optional run requirement contract. Production flowchart resume projects that
 validated contract into `FlowchartContinuation`; pause and injection preserve
 the same field when they rewrite the checkpoint. The checkpoint still does
-**not** contain the M2 DAG supervisor's active leases. Supervised DAG
+**not** contain the M2 DAG supervisor's active leases. It also has a validated
+optional `taskCriteria` seam, but no Round 11 `src` writer populates it; absence
+therefore remains unknown rather than being rewritten as known-none. Supervised DAG
 resume reconstructs its graph, task statuses, attempts, ledger, and leases from
 the event log, including `TASK_LEASED`; a reconstructed lease for a still-running
 task is recovered as orphaned because no worker survives process restart.
@@ -621,15 +630,15 @@ A round has progress only when it adds a completed task, validated artifact, new
 
 The M2 judge is a pluggable verifier that produces `APPROVED`, `REJECTED`, or `NEEDS_USER_DECISION` with evidence references. Its output routes a task only through declared graph transitions; it cannot issue arbitrary host commands.
 
-Acceptance criteria have two non-terminal roles today: prompt guidance for the
-child and a plan-time coverage obligation. At child assessment the deterministic
-verifier is the sole gate. Criteria-shaped tracking dimensions may change the
-recorded verdicts and numeric prescore, but cannot change the directive:
+Acceptance criteria remain prompt guidance and a plan-time coverage obligation.
+The criteria-shaped tracking dimensions may change recorded verdicts and the
+numeric prescore, but cannot themselves change the directive:
 `check-coverage` has no `FAIL` outcome in production, while
 `constraint-retention` is fed the original constraints rather than an
-independent observation. A fourth precondition dominates any per-criterion
-change: the real executor needs a whole-task verdict producer before a
-per-criterion channel can be meaningful. That producer now exists.
+independent observation. Round 11 added a distinct control path from the
+child's reported per-criterion outcomes; it does not infer a failure from those
+dimensions or from a score.
+
 `PiAgentExecutor` exposes `sparkle_report_task_result` on every leased attempt.
 The request supplies run/task/agent identity; the model cannot override it.
 The tool accepts only a non-empty-summary `PASSED` or `FAILED` whole-task
@@ -644,12 +653,21 @@ explicitly empty `FAILED.evidenceIds` emits nothing, an identical second report
 is still a forbidden repeat, and the tool remains an unconditional direct
 element of every attempt's `tools` array.
 
-Measured production-input reachability confirms the control result:
+The same call now optionally carries a non-empty, unique-id list of
+per-criterion results on `VerificationResult.criteria`, added compatibly
+without a protocol version bump. A reported `FAILED` criterion must cite
+evidence and reaches the hard `unmet-acceptance-criterion` gate for all seven
+roles, even when the whole-task verdict is `PASSED`. The gate is supplied from
+the child's reported failures only: omission, protocol-level `UNOBSERVED`, and
+a task that never ran stay unknown-not-unmet and leave it open.
+
+Measured production-input reachability confirms the whole-task control result:
 `PASSED` opened all 360 swept cells (minimum prescore 0.750, above the 0.55
 soft threshold), while `FAILED` hard-blocked all 180 swept cells with
 `deterministic-fail` leading. An `--executor pi` run can therefore really
-become BLOCKED on the child's verdict. The tool still carries no
-per-criterion results; that later protocol/gate work remains unimplemented.
+become BLOCKED on the child's whole-task verdict. The per-criterion channel is
+separately held at the protocol, tool, assessment, gate, and persistence
+boundaries.
 `cappedByHardFail` and `displayPrescore` are display facts only; `combineScore`
 and `evaluateGates` consume the uncapped `P`.
 
@@ -682,13 +700,19 @@ required retry target and non-empty canonical list exclude the target and
 include executed work; each charged estimate is re-derived from exactly the
 cited durable `MODEL_ROUTED` rows before the single append, never from
 best-effort invocation telemetry. Restore recomputes the consequence set and
-fails closed on a hand-edited mismatch. Evidence and history survive,
-superseded control-state outcomes clear (including a rewound waiter's pending
-approval), and no budget is refunded. Replay and gate matching are uniform for
-both clearing events, so the stronger authorization applies only to the named
-block rather than becoming a run mode. These shipped semantics are anchored to
-`54cf5e5`; `2399346` and `d4b52b1` pin the discard-aware scheduler and gate
-postures.
+fails closed on a hand-edited mismatch, then validates every recorded
+route/child reference and charged total against the cited log rows. The
+consequence-set check deliberately runs before the charge audit, and later log
+growth cannot alter the result because only cited rows are read. The recorded
+completeness limit is producer-side: a correctly-totalled subset-citing
+authorization passes, while the sole producer `chargedAttempts` takes every
+row. Evidence and history survive, superseded control-state outcomes clear
+(including a rewound waiter's pending approval), and no budget is refunded.
+Replay and gate matching are uniform for both clearing events, so the stronger
+authorization applies only to the named block rather than becoming a run mode.
+The original discard semantics are anchored to `54cf5e5`;
+`2399346`/`d4b52b1` pin the scheduler/gate postures, and `9663294` plus
+`39c97c3` land and hold the restore-side audit.
 
 ### Crash teardown
 

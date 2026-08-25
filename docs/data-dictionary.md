@@ -168,6 +168,13 @@ continuation paths preserve it. Resume honours an explicit
 `FlowchartContinuation.contract` first and otherwise recovers the checkpointed
 value. It never synthesizes a contract from the episode, from per-task
 acceptance criteria, or as an empty `{ constraints: [] }` value.
+Round 11 also added the validated optional
+`FlowchartCheckpointState.taskCriteria?` seam. Absence means unknown, an
+entry's empty list means known-none, entries are ordered by `taskId`, and the
+field is never synthesized from the episode, flowchart definition, or run
+contract. At the Round 11 close it remains declared-but-unwritten: there is no
+`src` checkpoint writer for the field, so it is not yet a durability
+guarantee.
 Round 10 pins both rules structurally: a recursive AST census requires
 `contract` on every flowchart-payload `materializeCheckpoint` call without
 freezing the call count, while a source-wide episode-reader census rejects
@@ -185,7 +192,14 @@ not leak into the retry. The adapter synthesizes `UNOBSERVED` only when the
 surviving attempt is silent or every report is refused. Measured reachability
 has `PASSED` open all 360 swept production-input cells (minimum 0.750 over the
 0.55 soft threshold) and `FAILED` hard-block all 180 swept cells with
-`deterministic-fail` leading. The tool does not carry per-criterion results.
+`deterministic-fail` leading. Round 11 added optional per-criterion results to
+the same tool call and protocol-v1 verification object without a protocol
+version bump. When present, the criterion list is non-empty with unique ids,
+and each reported `FAILED` criterion cites evidence. A reported criterion
+failure reaches the hard `unmet-acceptance-criterion` gate for every role,
+even when the whole-task verdict is `PASSED`. Omission, a protocol-level
+`UNOBSERVED` criterion, and a task that never ran remain unknown, not unmet,
+and do not trigger that gate.
 Round 10's producer freeze additionally proves that model-supplied
 `from`/`runId`/`taskId` cannot displace the lease, an explicitly empty
 `FAILED.evidenceIds` emits nothing, an identical repeat is still a forbidden
@@ -223,27 +237,29 @@ set under the lifecycle lock. Each executed entry cites its durable route and
 child-run records; charged estimates are sums over exactly the cited
 `MODEL_ROUTED` rows, never best-effort invocation telemetry or invented zero
 usage. The producer re-derives those sums before one append, restore recomputes
-the consequence set and fails closed on mismatch, and both clearing events use
-the same replay/gate block matching. History and evidence survive, superseded
-control-state outcomes clear, pending approval is released when its waiter is
-rewound, and no budget is refunded. The authorization applies to one block,
-not to the rest of the run.
+the consequence set and fails closed on mismatch, then audits the recorded
+route ids, child-run ids, and charged sums against the cited log rows before
+resuming. The consequence-set check deliberately precedes the charge audit.
+The audit reads only cited rows, so later log growth cannot change its verdict.
+Its recorded completeness limit remains: an internally consistent payload
+citing only a subset of a task's routes passes; completeness is enforced by
+the sole producer, `chargedAttempts`, which takes every row. Both clearing
+events use the same replay/gate block matching. History and evidence survive,
+superseded control-state outcomes clear, pending approval is released when its
+waiter is rewound, and no budget is refunded. The authorization applies to one
+block, not to the rest of the run.
 
-> Round 11 docs-slot working-tree census (2026-08-24 23:59 UTC): HEAD was
-> `3bbb8dc` (R11-7, following R11-9 at `330466a`). The implementation above is
-> anchored to `54cf5e5`, committed at 23:32:18 UTC; its discard-aware
-> scheduler-absence and gate-ledger companion pins landed at 23:32:24 UTC in
-> `2399346` and `d4b52b1`.
-> This supersedes the 23:31 UTC note that all three existed only in the
-> sibling-owned working tree. Round 10's writer-carriage property,
-> verdict-producer additions, `independentEvidence` posture, and episode
-> boundary census are committed in `2e22453`, `05d146c`, `9b9888a`, and
-> `366df19`, respectively. No R11-1…R11-4 commit was at HEAD. R11-2's
-> uncommitted report recorded PASS at 23:59:20 UTC for the eleven-case discard
-> SIGKILL probe; R11-4's uncommitted working diff had wired restore-side
-> charged-estimate validation but had no completed report. R11-1 and R11-3 had
-> no owned-source diff. Those are working-tree observations at this timestamp,
-> not invented commit ids or shipped claims.
+> Round 12 docs-slot working-tree census (2026-08-25 00:48:38 UTC): HEAD was
+> `b65a8b1`. Round 11 is committed: option (a) `6096da6`; the eleven-case
+> probe `db38b21`; tracked pause-controller wiring `ac3faa3`; restore-side
+> discard audit `9663294`; the preceding docs truth-up `9efc715`; direct output
+> freezes `3bbb8dc`; the restore AST guard `39c97c3`; terminal-status census
+> `330466a`; episode/`taskCriteria` boundary census `f99a0c8`; and parent
+> joints `6926592` / `df2c395`. At this timestamp R12-1 had neither a committed
+> landing nor an owned-source working-tree diff, so this document records the
+> Round 11 `taskCriteria` no-writer residual and run-id-at-end gap rather than
+> assigning an uncommitted sibling a commit id. This note supersedes the dated
+> 23:56–23:59 UTC working-tree notes.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation
