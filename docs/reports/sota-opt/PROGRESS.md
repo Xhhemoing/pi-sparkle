@@ -32,8 +32,8 @@
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
 | 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
-| 18 | 第 4 波收口中 | 10 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-18/PLAN.md](./round-18/PLAN.md) |
-| 19 | 第 1 波进行中 | 3 / 10（A 已合入；B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-19/PLAN.md](./round-19/PLAN.md) |
+| 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
+| 19 | 第 1–2 波进行中 | 4 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-19/PLAN.md](./round-19/PLAN.md) |
 
 ### Round 1 波次
 
@@ -195,13 +195,14 @@
 | 1 | R18-A 跟踪门控、R18-B live 路由、R18-C 离线路由 | A/B/C 完成已合入 |
 | 2 | R18-D 自优化、R18-E 学习、R18-F 实验 | D/E/F 完成已合入 |
 | 3 | R18-G 运行时/图、R18-H 评价/需求 | G/H 完成已合入 |
-| 4 | R18-I CLI/适配器、R18-J cluster/privacy | I 完成已合入；J 运行中 |
+| 4 | R18-I CLI/适配器、R18-J cluster/privacy | I/J 完成已合入 |
 
 ### Round 19 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R19-A 跟踪门控、R19-B live 路由、R19-C 离线路由 | A 完成已合入；B 运行中；C 本波派出 |
+| 1 | R19-A 跟踪门控、R19-B live 路由、R19-C 离线路由 | A 完成已合入；B/C 运行中 |
+| 2 | R19-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -387,10 +388,11 @@
 | R18-G | `cursor/r18-g-runtime-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-G.md`）。无新排除 ID；计算顶复核 0.290–0.299 vs I/O 94.4–110.7 ms；BYTESHAPE 轴归档 |
 | R18-H | `cursor/r18-h-eval-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-H.md`）。无新排除 ID；热层默认复核 9.40–9.55 µs/run；休眠分支普查归档 |
 | R18-I | `cursor/r18-i-cli-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-I.md`）。无新排除 ID；custom−builtin 复核 +25.0~+55.2 ms；十连空；children-spec 基数轴归档 |
-| R18-J | `cursor/r18-j-persist-eighteenth-pass-83a1` | 已派出 |
+| R18-J | `cursor/r18-j-persist-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-J.md`）。无新排除 ID；I/O 地板复核；skip-path 普查 + 整命令组成账目归档；切片关闭 |
 | R19-A | `cursor/r19-a-tracking-nineteenth-pass-83a1` | 已合入专属分支（仅 `R19-A.md`）。无新排除 ID；预算复核 66–75 µs/run；重投递面 + wait_user 指令类归档 |
 | R19-B | `cursor/r19-b-live-routing-nineteenth-pass-83a1` | 已派出 |
 | R19-C | `cursor/r19-c-offline-routing-nineteenth-pass-83a1` | 已派出 |
+| R19-D | `cursor/r19-d-adaptation-nineteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
