@@ -490,6 +490,104 @@ test("rows with no last-event timestamp sort last, id-ordered among themselves",
   );
 });
 
+/**
+ * The blank `--state-root` contract, owned as whole fields here because the
+ * same four bytes are copied into every verb that carries the flag: an
+ * explicitly blank value is argv, and the remedy names the flag rather than
+ * echoing a value that would paste as `--state-root ` and swallow the next word.
+ */
+const BLANK_ROOT_NEXT = "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle";
+
+function blankRootMessage(raw: string): string {
+  return `invalid --state-root "${raw}": state root must be a non-empty directory path`;
+}
+
+async function withCwd(dir: string, body: () => Promise<void>): Promise<void> {
+  const saved = process.cwd();
+  process.chdir(dir);
+  try {
+    await body();
+  } finally {
+    process.chdir(saved);
+  }
+}
+
+test("list refuses a blank --state-root on both planes, all four fields", async () => {
+  for (const mode of [[], ["--episodes"]]) {
+    for (const raw of ["", "  "]) {
+      const { io, out, err } = capture();
+      const code = await listCommand([...mode, "--state-root", raw], io);
+      assert.equal(code, 1, [...mode, raw].join(" "));
+      assert.deepEqual(out, [], "a refusal prints no inventory");
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "list");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(report?.message, blankRootMessage(raw));
+      assert.equal(report?.next, BLANK_ROOT_NEXT);
+    }
+  }
+});
+
+test("list --json refuses a blank --state-root before any RUN_LIST is assembled", async () => {
+  const { io, out, err } = capture();
+  assert.equal(await listCommand(["--json", "--state-root", ""], io), 1);
+  assert.deepEqual(out, [], "no object reaches stdout");
+  assert.doesNotMatch(err.join(""), /RUN_LIST/, "the failure report is not a list payload");
+  const report = parseCliErrorJson(err.join(""));
+  assert.equal(report?.command, "list");
+  assert.equal(report?.stage, "parse-args");
+  assert.equal(report?.message, blankRootMessage(""));
+  assert.equal(report?.next, BLANK_ROOT_NEXT);
+});
+
+/**
+ * The defect itself: `""` resolved to the process working directory, so the
+ * inventory answered authoritatively about a tree the operator never named —
+ * `(no runs)` from an empty directory, or somebody else's runs from a checkout
+ * that happened to have one. A nonblank relative root is still a root the
+ * operator did name, and it keeps working.
+ */
+test("a blank --state-root is refused before the current directory's own runtime tree is read", async () => {
+  await withStateRoot(async (cwd) => {
+    await seedCompletedRun(cwd, RUN_A);
+    await withCwd(cwd, async () => {
+      const blank = capture();
+      assert.equal(await listCommand(["--state-root", ""], blank.io), 1);
+      assert.deepEqual(blank.out, []);
+      assert.doesNotMatch(blank.err.join(""), new RegExp(RUN_A), "the cwd's run is never listed");
+      assert.equal(parseCliErrorJson(blank.err.join(""))?.message, blankRootMessage(""));
+
+      const relative = capture();
+      assert.equal(await listCommand(["--state-root", "."], relative.io), 0, relative.err.join(""));
+      assert.deepEqual(relative.out, [`${RUN_A}\tCOMPLETED\t2026-08-20T10:03:00.000Z\t-\n`]);
+    });
+  });
+});
+
+/**
+ * Placement, pinned: the guard sits immediately before the root is resolved
+ * and after every argv check that needs no root, so a mistyped flag value is
+ * still the thing reported.
+ */
+test("the root-free argv checks still outrank the blank --state-root guard", async () => {
+  const cases = [
+    { argv: ["--runs", "--episodes"], message: "list accepts --runs or --episodes, not both" },
+    { argv: ["--status", "SLEEPING"], message: "Unknown run status: SLEEPING" },
+    {
+      argv: ["--episodes", "--status", "COMPLETED"],
+      message: "list --status filters runs and does not apply to --episodes"
+    },
+    { argv: ["--sort", "recent"], message: "Unknown list sort: recent" }
+  ];
+  for (const { argv, message } of cases) {
+    const { io, err } = capture();
+    assert.equal(await listCommand([...argv, "--state-root", ""], io), 1, argv.join(" "));
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(report?.message, message, argv.join(" "));
+  }
+});
+
 test("list --sort refuses a value that is neither id nor last-event", async () => {
   await withStateRoot(async (stateRoot) => {
     const { io, out, err } = capture();
