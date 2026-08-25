@@ -186,4 +186,6 @@ Compare `check.source` to the preserved configured `envVar` (or trim at parse, r
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
 
-**Landed** (Opus-d22-doctor-storage): additive `storage` field and check; plane-root walk; `storageFs` seam + ENOTDIR fixture for scanErrors. Independent GPT recheck dispatched.
+**Landed** (Opus-d22-doctor-storage): additive `storage` field and check; plane-root walk; `storageFs` seam + ENOTDIR fixture for scanErrors.
+
+**GPT-d22-recheck: KEEP.** Report: `.agent_workspace/loop5-r5-gpt-d22.md`.
