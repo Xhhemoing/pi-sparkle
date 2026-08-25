@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–21 已对各区做过二十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S21-* 条目（含已合入的 S13-B-1 与 R12–R21 全部空枚举收口，含刚合入的 R21-A … R21-J / R22-A … R22-G；R22-H / R22-I 仍在飞，勿触其分支）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX** / **XPROC** / **YMIX** / **SCHEDWIN** / **KFAN** / **NVG** / **SEEDX** / **TERMCLASS**。
+Round 1–21 已对各区做过二十一遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S21-* 条目（含已合入的 S13-B-1 与 R12–R21 全部空枚举收口，含刚合入的 R21-A … R21-J / R22-A … R22-H；R22-I / R22-J 仍在飞，勿触其分支）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX** / **XPROC** / **YMIX** / **SCHEDWIN** / **KFAN** / **NVG** / **SEEDX** / **TERMCLASS**。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R22-A … R22-J），报告写入 `docs/reports/sota-opt/round-22/`。
 
-状态：第 1–3 波 A–G 已合入；H/I 运行中；第 4 波 J 本波派出。Round 21 已关闭。
+状态：第 1–3 波 A–H 已合入；第 4 波 I/J 运行中。第 23 轮已开，见 [round-23/PLAN.md](../round-23/PLAN.md)。
 
 A 切片已合入：空枚举，未铸 S22-A-*。切片 `git diff 7acb666..HEAD` 为空（二十二遍零 diff）。预算复核 65–80 µs/run（稳态约 65–73，与 R21-A 66–95 / R20-A 64–80 同带）。本轮新增公开导出普查 + 分析-隔离面（7 个无价导出全为零生产流量契约载体；sanitize 36–65 ns；proposeFromAnomaly 生产形 4.0–4.5 µs，切片内 682–700 ns；10 ms 越线 T≈1.5×10⁵）。R21-A H 输入面与 R20-A openMinors M / 驻留链不补铸。基线 `7acb666` 空 diff 再确认。
 
@@ -24,7 +24,7 @@ F 切片已合入：空枚举，未铸 S22-F-*。切片 `git diff 519101f..HEAD`
 
 G 切片已合入：空枚举，未铸 S22-G-*（连续第十一次）。切片 `git diff 4efee23..HEAD` 为空。计算顶复核 0.286–0.289 ms vs I/O 94.0–97.2 ms。digest `06cbcf92c098c8f0` 第十三次逐位相同。本轮新增 **TERMCLASS**（FAILED/BLOCKED 终端态；两新态均严低于 COMPLETED 对照；增量全落已裁决契约动词）。禁止去 fsync / 完整性再哈希。**SCHEDWIN** / **XPROC** / **NAMESHAPE** / BYTESHAPE / SYSCENSUS 不补铸。基线 `4efee23` 空 diff 再确认。
 
-H 切片 = 21 文件（evaluation **8**）。S5-H-1 必须保留。R21-H 异步调度面普查（Y/QM/QT）不补铸。R20-H 环境进程态压力不补铸。**SEEDX** / **NVG** / **KFAN** 不要移植。热层默认 R21-H：9.14–9.53 µs/run。PATH_RE 回溯重开仅当 objective 出现程序化/对抗来源，或现实载荷出现 ≥~3.2K 字符无斜杠 `[\w.-]` 段。基线 `fd437a9` 预期空 diff。本波派出。
+H 切片已合入：空枚举，未铸 S22-H-*。切片 `git diff fd437a9..HEAD` 为空（二十二遍零 diff）。热层默认复核 9.18–9.27 µs/run（落入 R21-H 9.14–9.53）。S5-H-1 保留。本轮新增调用上下文几何普查（同步栈深 / try-finally / 异步调用链 hop；生产带平坦；512 帧不可达剂量才见 +0.76–0.97 µs）。R21-H 异步调度面与 R20-H 环境进程态不补铸。PATH_RE 回溯重开条件不变。基线 `fd437a9` 空 diff 再确认。
 
 I 切片 = 25 文件。S8-I-1 两臂文件级 blocked。R21-I flowchart 平面输入规模与 R20-I 累积遥测 N 不补铸。R22-F membership-topology / **SEEDX** / **NVG** / **KFAN** 不要移植。custom−builtin R21-I：children +43.4/+25.4、track +52.2/+23.9 ms。若落地：重跑 r4i/r5i/r7i（68 / 119 / 80）+ r22i。基线 `8dee7fb` 预期空 diff。本波派出。
 
