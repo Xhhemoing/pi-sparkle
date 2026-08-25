@@ -53,17 +53,31 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 | Blocked | P0 human sign-off; Checkpoint F-PROD; PR #12 not duplicated (`inspect --follow`, `--max-cost-usd`) |
 | 下一轮重点 | Round 2 in flight: track-clarification dead end; adapt show+dataset; delete-disclosure honesty |
 
-## ROUND 2 (in flight)
+## ROUND 2 (closeout)
+
+| Field | Value |
+|---|---|
+| 检查模块 | Track wait, adaptation promote tooling, delete honesty, context/tracking, auth/models, review fabric, aux CLI/Windows |
+| 发现问题 | Track wait dead end; promote unusable; delete “removes nothing” lie; `ANALYSIS_QUEUED` withholds cause; `--from-env` not an env check; `q-scope` unused; review fabric library-only; Windows smoke skips new verbs |
+| 解决问题 | inspect shows track questions + refuse-answer; `adapt show`/`dataset`; delete two-half contract + lock-wait; README `runtime/auth.json` |
+| 测试结果 | Track clarification 5 pass; adapt full suite 2110 on implementer VM; delete pins added |
+| Commit | merges on `cursor/pi-sparkle-sota-opt-0da8` |
+| PR | https://github.com/Xhhemoing/pi-sparkle/pull/13 |
+| Merge 状态 | open (draft) |
+| Blocked | P0; F-PROD; PR #12 merge-order |
+| 下一轮重点 | Auth login honesty; blocked-run gate-cause visibility; promotion-review verdict fail-closed; same-episode track continuation (design only until Round 3 implements) |
+
+## ROUND 3 (in flight)
 
 | Agent | Model | Role |
 |---|---|---|
-| Fable-track-design | claude-fable-5-thinking-xhigh | Same-run vs refuse continuation design |
-| Fable-context | claude-fable-5-thinking-xhigh | `src/context/` + `src/tracking/` UX |
-| Fable-auth-models | claude-fable-5-thinking-xhigh | auth/models operator flow |
-| Fable-review-req | claude-fable-5-thinking-xhigh | review/rubric/requirement uncovered |
-| Fable-aux-cli | claude-fable-5-thinking-xhigh | episode/inject/commits + new-verb Windows |
-| GPT-track-challenge | gpt-5.6-sol-xhigh-fast | Challenge the refuse-answer min-fix |
-| GPT-validate-recheck | gpt-5.6-sol-xhigh-fast | Independent recheck of live-catalog validate |
-| Opus-track | claude-opus-5-thinking-high-fast | inspect + refuse answer on track wait |
-| Opus-adapt | claude-opus-5-thinking-high-fast | `adapt show` + `adapt dataset` |
-| Opus-delete | claude-opus-5-thinking-high-fast | delete disclosure + lock-wait propagation |
+| Fable-r2-review | claude-fable-5-thinking-xhigh | Round 2 comprehensive review |
+| Fable-gate-cause | claude-fable-5-thinking-xhigh | How to surface ANALYSIS_QUEUED cause without freeze breaks |
+| Fable-commits-ep | claude-fable-5-thinking-xhigh | episode close disclosure + inject help |
+| Fable-windows-ci | claude-fable-5-thinking-xhigh | Safe Windows smoke for new verbs (after PR #12) |
+| Fable-status-matrix | claude-fable-5-thinking-xhigh | Status-matrix rows for list/validate/init/commits |
+| GPT-r2-challenge | gpt-5.6-sol-xhigh-fast | Independent challenge of Round 2 landings |
+| GPT-auth-challenge | gpt-5.6-sol-xhigh-fast | Challenge auth-fix plan (don’t over-fit Pi checkAuth) |
+| Opus-auth | claude-opus-5-thinking-high-fast | Login flag exclusivity + --from-env honesty |
+| Opus-gate | claude-opus-5-thinking-high-fast | inspect/blocked report: real gate reason |
+| Opus-review-verdict | claude-opus-5-thinking-high-fast | parsePromotionReview fail-closed + q-scope |
