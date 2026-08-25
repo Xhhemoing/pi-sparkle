@@ -318,7 +318,7 @@ Fable-r10-next. `init`: blank/whitespace `--dir` is parse-args; obstruction pref
 
 Fable-r10-next. Convert corrupt events-log and close snapshot-log throws to in-module `cliFail` (`command: "episode"`, `stage: "validation"`, store message bytes kept). Next must not send the operator to doctor (doctor does not inventory episode logs); close retargets `list --episodes --json` `errors[]`. Catch only `DomainValidationError` without an `errorCodeOf` so lock timeouts still reach main. Also refuse blank `--state-root` as parse-args (file-disjoint instance of D37). Do not edit episode stores. Files: `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3 in `.agent_workspace/loop5-r10-fable-next.md`. Reopens D33 only for this new defect.
 
-**Status:** GPT-r10 FIX rider is the implementation contract. Implementer dispatched.
+**Status:** landed on `cursor/episode-corrupt-log-0da8` (`0f773df`). Report: `.agent_workspace/loop5-r10-opus-d39.md`. Merge gated on GPT-d39-recheck KEEP.
 
 **GPT-r10-challenge: FIX** (keep the slot). Keep `command: "episode"` (D33 spelling) and store message bytes. Blank-root guard **after** help and unknown-subcommand (and after missing-episode), **before** `isEpisodeId`. Pin `episode events --help --state-root ""` usage/exit 0 and `episode nonsense … --state-root ""` as `Unknown episode command: nonsense`. Catch only uncoded `DomainValidationError` around each `readAll()`; rethrow everything else (lock-timeout still reaches main). Report: `.agent_workspace/loop5-r10-gpt-challenge.md`.
 

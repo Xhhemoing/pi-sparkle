@@ -157,7 +157,7 @@ Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 |---|---|---|
 | D37 | `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + six test files | Rank 1 as corrected by `.agent_workspace/loop5-r10-gpt-challenge.md` |
 | D38 | `src/cli/{init-examples,migrate-legacy}.ts` + three test files | Rank 2 as corrected |
-| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 3 as corrected |
+| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 3 as corrected; landed `cursor/episode-corrupt-log-0da8`; KEEP recheck in flight |
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
 
@@ -168,3 +168,4 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | D37 | Opus-d37-blank-root | claude-opus-5-thinking-high-fast | cloud | `bc-fb7045fe-765d-5c12-b910-f0781db04580` |
 | D38 | Opus-d38-init-migrate | claude-opus-5-thinking-high-fast | cloud | `bc-cdef25b0-6684-5232-a444-1c8ff7ffe823` |
 | D39 | Opus-d39-episode-logs | claude-opus-5-thinking-high-fast | cloud | `bc-36e1f0fe-b786-5a7d-8b54-438bfc9d26b4` |
+| GPT-d39-recheck | GPT | gpt-5.6-sol-xhigh-fast | cloud | (dispatching) |
