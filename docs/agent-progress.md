@@ -92,10 +92,10 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 - Catalog honesty merged (D13): one-primary catalogs emit `cheap` and `premium`; validate `next:` names `models disable`; init examples go through real parsers. Implementer: Opus-catalog-honesty (`bc-12eb428f-7801-5301-b187-fcadc1e1b61a`).
 - Episode close disclosure, inject/pause `--help`, commits `cliFail` + `COMMITS_PREVIEW`. Implementer: Opus-aux-cli (`bc-d26ab175-1565-5484-a810-e3fbea3e18aa`).
 - Dataset privacy (D10): redact-then-excerpt, redacted workspace once per manifest, `delete --run` cascade, runtime-plane `--dir` refusal. Implementer: Opus-dataset-privacy (`bc-e457a143-0d09-5e0f-9549-34470ad99c12`).
+- Not-found retarget (D15): episode/pause/inject lookup `next:` points at `list`. Implementer: Opus-g6-list-retarget (`bc-1aa549ae-eada-5346-bcdd-928bcb75f742`).
 
 ### Round 3 still running / next implementers
 
 - D14 adjacent gate pairing merged. Implementer: Opus-gate-pairing (`bc-29dcbc73-fe23-5316-b5b7-e2378d33c96c`).
-- D15 not-found → `list` in flight.
 - D16 auth echo/doctor/available in flight.
-- D17 `INIT_EXAMPLES` compact JSON dispatched.
+- D17 `INIT_EXAMPLES` compact JSON in flight.
