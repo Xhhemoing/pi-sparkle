@@ -530,13 +530,24 @@ function formatUnmetCriteria(cause: GateBlockCause): string[] {
 }
 
 /**
- * The one line that says what `reason: ANALYSIS_QUEUED` does not. Everything in
- * it is read off `GATE_TRANSITION` and the child's own verdict.
+ * The one line that says what `reason: ANALYSIS_QUEUED` does not.
+ *
+ * It has to correct two readings of that word, not one. The first is that the
+ * word is the cause: it is not, the cause is the code the gate recorded, so the
+ * note names it and the turn it was recorded on. The second is that something
+ * is working on the block: nothing is. `queue_analysis` is the gate's own
+ * verdict word, and the packet `applyChildThreeLine` builds for it is dropped —
+ * `proposeFromAnomaly` has no production caller, so there is no durable item,
+ * no consumer, and no dequeue that could ever end this block. `unblock` is the
+ * only thing that clears it, which the resume note above already says and this
+ * one must not contradict.
+ *
+ * The diagnostics stay on `inspect`: the failed dimensions and the criteria the
+ * child reported unmet are one command away and are printed in full there, and
+ * a routing block is read for what to do next, not for the whole assessment.
  */
 function formatGateCauseNote(cause: GateBlockCause): string {
-  const criteria = formatUnmetCriteria(cause);
-  const unmet = criteria.length === 0 ? "" : `, unmet criterion: ${criteria.join("; ")}`;
-  return `  note: ANALYSIS_QUEUED names the queue this block was filed under, not the cause — the gate recorded ${cause.reasonCode} on turn ${cause.turnId}${unmet}\n`;
+  return `  note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded ${cause.reasonCode} on turn ${cause.turnId}; no analysis consumer is wired and nothing dequeues this block, so unblock is still what clears it, and inspect prints the failed dimensions and any unmet criteria the gate recorded\n`;
 }
 
 /**
