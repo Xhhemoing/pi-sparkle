@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { parseRunId } from "../domain/ids.js";
+import { isRunId, parseRunId } from "../domain/ids.js";
 import { createCalibratedCliModelRouter } from "./model-catalog.js";
 import { injectFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController } from "../run/pause-controller.js";
@@ -138,7 +138,40 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
     confidence = Number(raw);
     if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) return refuseConfidence();
   }
+  // The plane's own trim rule (`injection.ts`), applied to argv before the log
+  // is read: a blank value is an operator typo, not a validation failure of the
+  // run. `--node` keys on the flag rather than the type, because a `fact` may
+  // legally carry one. Wording mirrors the plane so the rule cannot drift.
+  const blankFlags = [
+    { flag: "--key", raw: values.key, subject: "injection key", next: "pass --key <name>" },
+    { flag: "--node", raw: values.node, subject: "injection nodeId", next: "pass --node <id>" },
+    { flag: "--actor", raw: values.actor, subject: "injection actor", next: "pass --actor <who> or omit it" }
+  ] as const;
+  for (const { flag, raw, subject, next } of blankFlags) {
+    if (raw !== undefined && raw.trim() === "") {
+      return cliFail(io, {
+        command: "inject",
+        stage: "parse-args",
+        message: `invalid ${flag} "${raw}": ${subject} must be a non-empty string`,
+        next,
+        runId: values.run
+      });
+    }
+  }
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  // Last of the value-domain checks, so a mistyped `--type` still reports first:
+  // a pasted-wrong run id used to throw out of `parseRunId` into main's catch and
+  // arrive as a validation failure pointing at doctor preflight, never naming the
+  // flag. `isRunId` is the domain's own predicate, not a restatement of it.
+  if (!isRunId(values.run)) {
+    return cliFail(io, {
+      command: "inject",
+      stage: "parse-args",
+      message: `invalid --run "${values.run}": expected a run id of the form run_<suffix>`,
+      next: `pass --run <runId> as printed by pnpm cli list --state-root ${stateRoot}`,
+      runId: values.run
+    });
+  }
   const runId = parseRunId(values.run);
   // A missing run reached the flowchart plane and surfaced as an untyped throw
   // indistinguishable from a real plane failure. Refused here, before anything
