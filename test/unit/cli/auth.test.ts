@@ -160,7 +160,10 @@ async function writeCorruptStore(stateRoot: string): Promise<string> {
   return path;
 }
 
-async function writeCustomProviders(stateRoot: string): Promise<void> {
+async function writeCustomProviders(
+  stateRoot: string,
+  extra: readonly Record<string, unknown>[] = []
+): Promise<void> {
   await mkdir(join(stateRoot, "runtime"), { recursive: true });
   await writeFile(
     join(stateRoot, "runtime", "providers.json"),
@@ -175,7 +178,8 @@ async function writeCustomProviders(stateRoot: string): Promise<void> {
             baseUrl: "http://127.0.0.1:9/v1",
             envVar: "SPARKLE_TEST_GATEWAY_KEY",
             models: [{ id: "m1" }]
-          }
+          },
+          ...extra
         ]
       },
       null,
@@ -517,6 +521,71 @@ test("a custom row is labelled env by its configured envVar, not by a matching v
       const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
       assert.equal(code, 0, err.join(""));
       assert.match(out.join(""), /^keyless {22}ambient {3}keyless \(no key\)$/m);
+    });
+  });
+});
+
+/** Configured with the spaces intact, and looked up under that exact key. */
+const PADDED_ENV_VAR = " SPARKLE_TEST_PADDED_KEY ";
+
+test("a custom row is env when the configured envVar that resolved it carries spaces", async () => {
+  // `providers.json` keeps `envVar` exactly as written and the runtime hands
+  // those same bytes to the resolver as the lookup key, so this variable — the
+  // padded one, not its trimmed spelling — is what configures the provider,
+  // and Pi reports it back unchanged. Comparing a trimmed copy of the
+  // configured name against that source labelled the row `ambient` while it
+  // was resolving through the variable the operator had configured.
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot, [
+      {
+        id: "padded",
+        baseUrl: "http://127.0.0.1:9/v1",
+        envVar: PADDED_ENV_VAR,
+        models: [{ id: "m1" }]
+      }
+    ]);
+    await withEnv(
+      {
+        [PADDED_ENV_VAR]: ENV_KEY,
+        SPARKLE_TEST_PADDED_KEY: undefined,
+        SPARKLE_TEST_GATEWAY_KEY: undefined
+      },
+      async () => {
+        const { io, out, err } = capture();
+        const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+        assert.equal(code, 0, err.join(""));
+        const text = out.join("");
+        // Seven spaces pad `env` to the source column; the eighth belongs to
+        // the source itself, which is the configured name spaces and all.
+        assert.match(text, /^padded {23}env {7} SPARKLE_TEST_PADDED_KEY $/m);
+        assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+      }
+    );
+  });
+});
+
+test("a builtin whose source names no single variable stays ambient, understating the environment", async () => {
+  // Pinned as the cost of the heuristic, not as the desired reading. Pi
+  // returns `AWS access keys` only after both AWS_ACCESS_KEY_ID and
+  // AWS_SECRET_ACCESS_KEY resolve, so this row *is* configured by the
+  // environment and still prints `ambient` — the source is a phrase, not a
+  // variable name, and hardcoding the pair here would re-derive the variable
+  // lists Pi keeps inside its resolvers. Pinned so that trade-off cannot move
+  // without a test saying so, and so the column is never documented as
+  // separating environment from non-environment sources.
+  await withStateRoot(async (stateRoot) => {
+    await withEmptyEnvironment(async () => {
+      await withEnv(
+        { AWS_ACCESS_KEY_ID: "AKIA-do-not-log-2f60", AWS_SECRET_ACCESS_KEY: ENV_KEY },
+        async () => {
+          const { io, out, err } = capture();
+          const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+          assert.equal(code, 0, err.join(""));
+          const text = out.join("");
+          assert.match(text, /^amazon-bedrock {15}ambient {3}AWS access keys$/m);
+          assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+        }
+      );
     });
   });
 });
