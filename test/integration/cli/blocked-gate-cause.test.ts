@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,12 +7,15 @@ import { test } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { formatBlockedRunReport, main, type CliIo } from "../../../src/cli/main.js";
 import {
+  createEventId,
   parseTaskId,
   type ArtifactId,
   type EvidenceId,
-  type MessageId
+  type MessageId,
+  type RunId
 } from "../../../src/domain/ids.js";
 import { parseIsoTimestamp, type IsoTimestamp } from "../../../src/domain/timestamp.js";
+import { validateEvent, type Event } from "../../../src/run/events.js";
 import type {
   AgentExecutionRequest,
   AgentExecutor,
@@ -411,5 +414,136 @@ test("inspect and the blocked note name deterministic-fail on the verification-f
       /^ {2}note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded deterministic-fail on turn tsk_verify; no analysis consumer is wired and nothing dequeues this block, so unblock is still what clears it, and inspect prints the failed dimensions and any unmet criteria the gate recorded$/m,
       report
     );
+  });
+});
+
+/**
+ * The pairing, from the other side.
+ *
+ * The cases above all read a log the gate wrote in one call, where the
+ * transition and the block are neighbours. What no shipped verb could tell
+ * apart was a log where they are not: every row below is one `validateEvent`
+ * accepts, and only their order says the transition did not file the block
+ * sitting after it. Both fixtures start from the real gate-written log and edit
+ * it on disk, so the negative is measured through `inspect` and the blocked
+ * report rather than against a hand-built event array.
+ */
+
+function eventLogPath(stateRoot: string, runId: RunId): string {
+  return join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+}
+
+async function readLog(stateRoot: string, runId: RunId): Promise<Event[]> {
+  const text = await readFile(eventLogPath(stateRoot, runId), "utf8");
+  return text
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => validateEvent(JSON.parse(line)));
+}
+
+async function writeLog(stateRoot: string, runId: RunId, events: readonly Event[]): Promise<void> {
+  await writeFile(
+    eventLogPath(stateRoot, runId),
+    events.map((event) => `${JSON.stringify(event)}\n`).join(""),
+    "utf8"
+  );
+}
+
+function row(runId: RunId, id: string, type: Event["type"], payload: unknown): Event {
+  return validateEvent({
+    id: createEventId(() => id),
+    schemaVersion: 1,
+    occurredAt: TS,
+    runId,
+    type,
+    actor: "supervisor",
+    payload
+  });
+}
+
+/** The gate's own pair, as it sits on the log the run just wrote. */
+function gatePairIndices(events: readonly Event[]): { transition: number; blocked: number } {
+  const blocked = events.findLastIndex((event) => event.type === "RUN_BLOCKED");
+  const transition = events.findLastIndex((event) => event.type === "GATE_TRANSITION");
+  assert.equal(
+    transition,
+    blocked - 1,
+    "the fixture depends on the producer writing the two rows adjacently"
+  );
+  return { transition, blocked };
+}
+
+async function inspectText(stateRoot: string, runId: RunId): Promise<string> {
+  const inspected = capture();
+  const code = await main(["inspect", "--run", runId, "--state-root", stateRoot], inspected.io);
+  assert.equal(code, 0, inspected.err.join(""));
+  return inspected.out.join("");
+}
+
+test("a PAUSE_REQUESTED between the transition and the block leaves inspect and the note with no cause", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const blocked = await blockedByCriterion(stateRoot, projectRoot);
+    const events = await readLog(stateRoot, blocked.runId);
+    const { blocked: blockedIndex } = gatePairIndices(events);
+
+    // One valid row, inserted between the two the gate wrote together.
+    const separated = [
+      ...events.slice(0, blockedIndex),
+      row(blocked.runId, "pause-between", "PAUSE_REQUESTED", {
+        reason: "operator paused before the block landed"
+      }),
+      ...events.slice(blockedIndex)
+    ];
+    await writeLog(stateRoot, blocked.runId, separated);
+
+    const out = await inspectText(stateRoot, blocked.runId);
+    assert.match(out, /BLOCKED/, out);
+    assert.ok(!out.includes("gate cause:"), out);
+    assert.ok(!out.includes("gate unmet criterion:"), out);
+    assert.ok(!out.includes("gate failed dimensions:"), out);
+
+    // The routing block keeps its own lines and gains no cause note: the reader
+    // says nothing rather than naming a transition that did not file this block.
+    const report = formatBlockedRunReport(blocked.runId, stateRoot, separated);
+    assert.match(report, /^ {2}reason: ANALYSIS_QUEUED$/m, report);
+    assert.ok(!report.includes("the gate recorded"), report);
+    const routed = report
+      .split("\n")
+      .filter((line) => line.startsWith("  next: ") || line.startsWith("  note: "));
+    assert.equal(routed.filter((line) => line.startsWith("  next: ")).length, 3, report);
+    assert.equal(routed.length, 5, "the four routed lines and the discard disclosure, no cause");
+  });
+});
+
+test("a cleared block's cause does not leak onto a later unmatched ANALYSIS_QUEUED block", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const blocked = await blockedByCriterion(stateRoot, projectRoot);
+    const events = await readLog(stateRoot, blocked.runId);
+    const { blocked: blockedIndex } = gatePairIndices(events);
+
+    // The first block is cleared the way `unblock` clears it, and then the run
+    // blocks again with no transition of its own. The earlier cycle's
+    // transition is still on the log and is still shaped queue_analysis.
+    const cycled = [
+      ...events,
+      row(blocked.runId, "unblock-first", "RUN_UNBLOCKED", {
+        blockedEventId: events[blockedIndex]!.id,
+        reason: "the operator cleared the first block"
+      }),
+      row(blocked.runId, "block-again", "RUN_BLOCKED", {
+        reason: "ANALYSIS_QUEUED",
+        requiredEvidence: ["evd_second_round"]
+      })
+    ];
+    await writeLog(stateRoot, blocked.runId, cycled);
+
+    const out = await inspectText(stateRoot, blocked.runId);
+    assert.match(out, /BLOCKED/, out);
+    assert.ok(!out.includes("gate cause:"), out);
+    assert.ok(!out.includes("unmet-acceptance-criterion"), out);
+
+    const report = formatBlockedRunReport(blocked.runId, stateRoot, cycled);
+    assert.ok(!report.includes("the gate recorded"), report);
+    assert.ok(!report.includes("unmet-acceptance-criterion"), report);
   });
 });
