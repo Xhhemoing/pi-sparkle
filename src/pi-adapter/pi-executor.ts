@@ -131,6 +131,14 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
       if (event.assistantMessageEvent.type === "text_delta") {
         return { type: "TEXT_DELTA", text: event.assistantMessageEvent.delta };
       }
+      if (event.assistantMessageEvent.type === "thinking_delta") {
+        // Only the size crosses the adapter boundary: reasoning text stops
+        // here so no downstream consumer can persist it.
+        return {
+          type: "THINKING_DELTA",
+          bytes: Buffer.byteLength(event.assistantMessageEvent.delta, "utf8")
+        };
+      }
       return undefined;
     }
     case "tool_execution_start":
@@ -418,7 +426,7 @@ export function createTaskResultTool(
 /** One agent run: the events it produced and how it ended. */
 interface AttemptRun {
   readonly events: readonly ExecutionEvent[];
-  /** Leading text/thinking events already yielded while the attempt was live. */
+  /** Leading agent events already yielded before a task verdict was buffered. */
   readonly streamedCount: number;
   readonly failed: boolean;
   readonly error: unknown;
@@ -488,10 +496,10 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /**
-   * Run one fresh Pi agent attempt. Leading text/thinking deltas are yielded
-   * live; once a structured event begins, the rest of the attempt is buffered
-   * so a failed attempt's verdict cannot leak into a retry and tool/message
-   * ordering remains exact.
+   * Run one fresh Pi agent attempt. Agent events are yielded live until the
+   * child reports a task verdict. That verdict and the events after it stay
+   * buffered so a failed attempt's verdict cannot leak into a retry, while
+   * tool-start events remain observable in time for steering.
    */
   private async *runAttempt(
     model: Model<Api>,
@@ -547,14 +555,9 @@ export class PiAgentExecutor implements AgentExecutor {
       if (translated === undefined) return;
       if (translated.type === "TURN_FINISHED") gate.recordTurn(translated.usage);
       events.push(translated);
-      if (
-        streamPrefixOpen &&
-        (translated.type === "TEXT_DELTA" || translated.type === "THINKING_DELTA")
-      ) {
+      if (streamPrefixOpen) {
         streamedCount += 1;
         queue.push(translated);
-      } else {
-        streamPrefixOpen = false;
       }
     });
     const running = (async () => {
