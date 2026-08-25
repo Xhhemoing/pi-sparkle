@@ -939,6 +939,181 @@ test("a discard authorization whose node list the checkpoint cannot justify fail
 });
 
 /**
+ * The other half of the same authorization, and the half nothing downstream
+ * ever recomputes. Restore re-deriving the node list catches a row that names
+ * the wrong work; it says nothing about what that work cost, so a row citing
+ * this run's real `MODEL_ROUTED` rows while overstating their totals is
+ * schema-valid, names exactly the consequence set the checkpoint justifies, and
+ * would resume cleanly — leaving a durable audit record that lies about money.
+ *
+ * Restore therefore re-derives the charged estimates from the cited rows too.
+ * That also gives the producer-side tripwire's refusal arms their first
+ * reachable consumers: at the producer they cannot fire, because the sums are
+ * derived from the very rows they cite.
+ *
+ * Each case gets its own run because the refused row stays on the log, and each
+ * is a hand-edited row rather than a produced one — the producer cannot write
+ * an unsupported claim, which is why these arms had no reachable caller before.
+ * The control below appends by the same route with honest numbers and resumes
+ * to COMPLETED, so what the four refusals discriminate on is the claim, not the
+ * fact that a human wrote the row.
+ */
+async function appendHandEditedDiscard(
+  stateRoot: string,
+  blocked: FlowchartRunOutcome,
+  generateId: () => string,
+  entry: Record<string, unknown>
+): Promise<void> {
+  await new EventStore(stateRoot, blocked.runId).append({
+    id: `evt_${generateId()}`,
+    schemaVersion: 1,
+    occurredAt: TS,
+    runId: blocked.runId,
+    type: "RUN_UNBLOCKED_WITH_DISCARD",
+    actor: "hand-edited",
+    payload: {
+      blockedEventId: blocked.events.find((event) => event.type === "RUN_BLOCKED")!.id,
+      reason: "authorize discarding the summary",
+      retryNodeId: ROOT_CAUSE,
+      rewoundDescendants: [entry]
+    }
+  } as unknown as Event);
+}
+
+async function resumeRefusesHandEditedDiscard(
+  entryForRun: (events: readonly Event[]) => Record<string, unknown>,
+  expected: RegExp
+): Promise<void> {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    const store = new EventStore(stateRoot, blocked.runId);
+    await appendHandEditedDiscard(stateRoot, blocked, generateId, entryForRun(blocked.events));
+    const afterAppend = (await store.readAll()).events.length;
+
+    const executor = executorFailing([]);
+    await assert.rejects(
+      resumeFlowchartRun(
+        { stateRoot, router: router(), now: () => TS, generateId, executor, cluster: true },
+        blocked.runId
+      ),
+      expected
+    );
+    assert.deepEqual(executor.taskIds, [], "a refused restore spends nothing");
+    assert.equal(
+      (await store.readAll()).events.length,
+      afterAppend,
+      "and writes nothing of its own"
+    );
+    assert.equal(
+      ((await new CheckpointStore(stateRoot, blocked.runId).read()) as RunCheckpoint).flowchart
+        ?.snapshot.nodes[SUMMARY]?.state,
+      "COMPLETED",
+      "the checkpoint still describes the block the unreconcilable row claimed to end"
+    );
+  });
+}
+
+function summaryRouteId(events: readonly Event[]): string {
+  return events.find((event) => event.type === "MODEL_ROUTED" && event.payload.taskId === SUMMARY)!.id;
+}
+
+/** The honest shape these four mutate: exactly what the producer would have written. */
+function truthfulSummaryEntry(events: readonly Event[]): Record<string, unknown> {
+  return {
+    nodeId: SUMMARY,
+    taskId: parseTaskId(SUMMARY),
+    previousState: "COMPLETED",
+    modelRouteEventIds: [summaryRouteId(events)],
+    childRunIds: [],
+    chargedEstimatedCostUsd: 0.1,
+    chargedEstimatedDurationMs: 1_000
+  };
+}
+
+test("a hand-appended discard authorization the log fully supports resumes as an ordinary one", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const generateId = sequenceGenerator();
+    const blocked = await blockedWithExecutedDescendant(stateRoot, projectRoot, generateId);
+    await appendHandEditedDiscard(
+      stateRoot,
+      blocked,
+      generateId,
+      truthfulSummaryEntry(blocked.events)
+    );
+
+    const executor = executorFailing([]);
+    const resumed = await resumeFlowchartRun(
+      { stateRoot, router: router(), now: () => TS, generateId, executor, cluster: true },
+      blocked.runId
+    );
+    assert.equal(resumed.status, "COMPLETED");
+    assert.deepEqual(executor.taskIds, [ROOT_CAUSE, SUMMARY], "the rewind it authorized happened");
+    assert.deepEqual(replayRun(resumed.events).anomalies, []);
+  });
+});
+
+test("a discard authorization that inflates its charged estimates fails closed at restore", async () => {
+  await resumeRefusesHandEditedDiscard(
+    (events) => ({ ...truthfulSummaryEntry(events), chargedEstimatedCostUsd: 9.99 }),
+    new RegExp(
+      `discard audit for ${SUMMARY} claims 9\\.99 USD / 1000 ms, but the MODEL_ROUTED rows it cites total 0\\.1 USD / 1000 ms`
+    )
+  );
+});
+
+test("a discard authorization citing an attempt this log never recorded fails closed at restore", async () => {
+  await resumeRefusesHandEditedDiscard(
+    () => ({
+      nodeId: SUMMARY,
+      taskId: parseTaskId(SUMMARY),
+      previousState: "COMPLETED",
+      modelRouteEventIds: ["evt_ghost"],
+      childRunIds: [],
+      chargedEstimatedCostUsd: 0.1,
+      chargedEstimatedDurationMs: 1_000
+    }),
+    new RegExp(
+      `discard audit for ${SUMMARY} cites MODEL_ROUTED evt_ghost, which is not on this run's log`
+    )
+  );
+});
+
+test("a discard authorization charging another task's attempts fails closed at restore", async () => {
+  await resumeRefusesHandEditedDiscard(
+    (events) => {
+      // The scout really was routed and really cost something — it is simply
+      // not what this discard superseded, so borrowing its row to justify the
+      // summary's charge is exactly the claim the check has to refuse.
+      const scoutRoute = events.find(
+        (event) => event.type === "MODEL_ROUTED" && event.payload.taskId === SCOUT
+      )!;
+      return { ...truthfulSummaryEntry(events), modelRouteEventIds: [scoutRoute.id] };
+    },
+    new RegExp(
+      `discard audit for ${SUMMARY} cites MODEL_ROUTED evt_[A-Za-z0-9_-]+, which routed ${SCOUT}, not ${SUMMARY}`
+    )
+  );
+});
+
+test("a discard authorization citing another task's child run fails closed at restore", async () => {
+  await resumeRefusesHandEditedDiscard(
+    (events) => {
+      const scoutChild = events.find(
+        (event) => event.type === "CHILD_RUN_CREATED" && event.payload.childRun.rootTaskId === SCOUT
+      )!;
+      return {
+        ...truthfulSummaryEntry(events),
+        childRunIds: [scoutChild.type === "CHILD_RUN_CREATED" ? scoutChild.payload.childRun.id : ""]
+      };
+    },
+    new RegExp(
+      `discard audit for ${SUMMARY} cites child run run_[A-Za-z0-9_-]+, which this log does not record for ${SUMMARY}`
+    )
+  );
+});
+
+/**
  * The gate writes each transition's `from` by reconstructing the run's status
  * from the log, separately from replay. If `currentGateStatus` did not read the
  * specialized event as clearing, this second block would record

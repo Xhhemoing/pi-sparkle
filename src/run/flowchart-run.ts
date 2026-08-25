@@ -1265,7 +1265,8 @@ async function restoreCheckpointedSupervisor(input: {
     now: input.now
   };
   const pending = unappliedUnblock(input.events, input.replayed, input.checkpoint);
-  const restored = pending === undefined ? snapshot : applyClearingEvent(config, snapshot, pending);
+  const restored =
+    pending === undefined ? snapshot : applyClearingEvent(config, snapshot, input.events, pending);
   return restoreFlowchartSupervisor(config, restored);
 }
 
@@ -1723,13 +1724,26 @@ function discardAuditRecords(
 /**
  * Fail-closed check that the audit record says only what the log supports.
  *
- * The producer derives these numbers from the same rows it cites, so this
- * cannot fail on the happy path — which is the point. Duplicating derivable
- * sums into the authorization buys a self-contained audit record and creates
- * exactly one new failure class in exchange: a payload whose totals no longer
- * match the rows it names. This is where that class is caught, before the
- * append, so the mismatch refuses and the log stays as it was rather than
- * gaining a record nobody can reconcile.
+ * Duplicating derivable sums into the authorization buys a self-contained audit
+ * record and creates exactly one new failure class in exchange: a payload whose
+ * totals no longer match the rows it names. This is where that class is caught.
+ *
+ * Two callers, and the second is the one that can actually fail. The producer
+ * derives these numbers from the same rows it cites, so its call refuses only
+ * on a future derivation bug; it runs before the append, so a mismatch leaves
+ * the log as it was rather than gaining a record nobody can reconcile. Restore
+ * re-runs it over the *recorded* payload, where the numbers are whatever the
+ * durable row says: a hand-edited authorization that cites real routes but
+ * inflates their totals is schema-valid and names the right consequence set, so
+ * nothing else on the restore path would question it, and the run would resume
+ * carrying a durable record that lies about what the discard superseded.
+ *
+ * It reads only the cited rows, so a log that has grown since the authorization
+ * was written cannot change the verdict — later `MODEL_ROUTED` rows are extra
+ * map entries nobody looks up. What it does not check is completeness: an
+ * authorization that cites a subset of a task's routes and totals that subset
+ * correctly is internally honest and passes. Under-claiming is a producer
+ * concern; {@link chargedAttempts} is the only producer and it takes every row.
  */
 function assertDiscardAuditMatchesLog(
   events: readonly Event[],
@@ -1811,14 +1825,24 @@ function discardAuthorization(
  *
  * Both events reach every restore path through here, so the crash window is one
  * window rather than one per event type. The stronger one is additionally
- * checked against what it claimed: restore recomputes the consequence set from
- * the durable definition and the blocked checkpoint and refuses if it differs
- * from `rewoundDescendants`, because a hand-edited list must not be able to
- * authorize rewinding state the transform never selected.
+ * checked against what it claimed, in the two ways its payload can be wrong.
+ * Which nodes: restore recomputes the consequence set from the durable
+ * definition and the blocked checkpoint and refuses if it differs from
+ * `rewoundDescendants`, because a hand-edited list must not be able to
+ * authorize rewinding state the transform never selected. What they cost:
+ * restore re-derives the charged estimates from the cited `MODEL_ROUTED` rows,
+ * because a list that names the right nodes can still overstate what the
+ * discard superseded, and that half of the record is never recomputed
+ * afterwards — it *is* the durable answer to how much the rewind cost.
+ *
+ * Set before sums, deliberately. A payload that fails both is reported as the
+ * wrong set: until the nodes are the ones this block's failure implies, a claim
+ * about their cost is not a claim about this run.
  */
 function applyClearingEvent(
   config: Omit<FlowchartSupervisorConfig, "snapshot">,
   snapshot: FlowchartSupervisorSnapshot,
+  events: readonly Event[],
   clearing: ClearingEvent
 ): FlowchartSupervisorSnapshot {
   if (clearing.type === "RUN_UNBLOCKED") {
@@ -1842,6 +1866,7 @@ function applyClearingEvent(
       `${clearing.type} ${clearing.id} authorized rewinding ${authorized.join(", ")}, but this checkpoint's consequence set is ${recomputed.join(", ")}`
     );
   }
+  assertDiscardAuditMatchesLog(events, clearing.payload.rewoundDescendants);
   return plan.snapshot;
 }
 

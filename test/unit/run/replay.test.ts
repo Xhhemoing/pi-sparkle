@@ -492,6 +492,43 @@ test("a stale, doubled or post-terminal discard authorization clears nothing and
   ]);
 });
 
+/**
+ * Where the audit record's money claim is checked, and where it deliberately is
+ * not.
+ *
+ * Replay reconstructs control state from event identity: which block is active,
+ * which authorization matched it. `discardUnblocking` above already cites a
+ * `MODEL_ROUTED` id no log here carries and charges nobody can reconcile, and
+ * replay is right to say nothing about it — an anomaly is an observation a
+ * resume steps over, and a payload that overstates what a rewind cost must stop
+ * the resume, not annotate it.
+ *
+ * So the check belongs to the restore path, which is the reader that acts on
+ * the payload, and it has to stay there: without it a hand-edited row naming
+ * the right consequence set with inflated totals resumes cleanly and the run
+ * carries a durable record that lies about money.
+ */
+test("replay does not audit a discard's charged estimates; the restore transform does", () => {
+  const unsupported = [...blockedLog("block-1"), discardUnblocking("block-1")];
+  assert.deepEqual(
+    replayRun(unsupported).anomalies,
+    [],
+    "no MODEL_ROUTED row on this log supports the payload's charges, and replay does not look"
+  );
+  assert.equal(replayRun(unsupported).status, "RUNNING", "the latch still opens on identity alone");
+  assert.equal(replayRun(unsupported).clearingUnblockEventId, unsupported[3]?.id);
+
+  const start = FLOWCHART_RUN_SOURCE.indexOf("function applyClearingEvent(");
+  const end = FLOWCHART_RUN_SOURCE.indexOf("export async function unblockFlowchartRun(", start + 1);
+  assert.notEqual(start, -1, "the single restore-side transform must stay a named function");
+  assert.notEqual(end, -1, "its source boundary must remain inspectable");
+  assert.match(
+    FLOWCHART_RUN_SOURCE.slice(start, end),
+    /assertDiscardAuditMatchesLog\(/,
+    "the restore transform must re-derive the charged estimates from the cited rows"
+  );
+});
+
 test("the two clearing events interleave over a re-block cycle without either inheriting the other's block", () => {
   const cycled = [
     ...blockedLog("block-1"),
