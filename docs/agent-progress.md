@@ -129,9 +129,15 @@ Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fab
 | D29 | merged `012eabd` from `cursor/doctor-help-dialect-0da8` `0244549` | GPT-d29-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d29.md`. |
 | D30 | merged from `cursor/inject-preflight-0da8` `c2be255` | GPT-d30-recheck **KEEP**. Report: `.agent_workspace/loop5-r7-gpt-d30.md`. |
 
-### Round 8
+### Round 8 (implementing)
 
-Fable-r8-next dispatched to rank the next three file-disjoint operator batches after D28–D30 KEEP.
+Fable-r8-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r8-fable-next.md`) at `33e8cf3`. Through-line: after D21/D26–D30 fixed *which flags* you pass, four free files still forward *flag values* unchecked, so malformed ids, blank strings, and empty CSVs surface through `main.ts` as `stage: "validation"` with the doctor remedy and no flag named. PR #12 re-read live: ranked files are disjoint. Implementers dispatched; do not merge until GPT-r8 KEEP.
+
+| Slot | Owns | Branch | Status |
+|---|---|---|---|
+| D31 | `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts` | `cursor/pause-inject-value-preflight-0da8` | implementing |
+| D32 | `src/cli/commits.ts`, `test/integration/cli/commits.test.ts` | `cursor/commits-refusal-retarget-0da8` | implementing |
+| D33 | `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts` | `cursor/episode-id-events-lines-0da8` | implementing |
 
 ### Round 3 still running / next implementers
 

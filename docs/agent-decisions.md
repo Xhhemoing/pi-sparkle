@@ -234,6 +234,24 @@ Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). GPT-r7-chal
 
 **GPT-d30-recheck: KEEP.** Report: `.agent_workspace/loop5-r7-gpt-d30.md`. Merged to the integration branch.
 
+## D31 — Round 8 rank 1: `pause`/`inject` argv value preflight
+
+Fable-r8-next. Refuse malformed `--run` (`isRunId`) and blank `--reason`/`--key`/`--node`/`--actor` (plane trim rule) as `parse-args` **before any state read**. Preserve D30 precedence: type/confidence refusals still fire before the `--run` shape guard. No catch added or widened; plane files read for wording only. Files: `src/cli/pause.ts`, `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: `.agent_workspace/loop5-r8-fable-next.md` Rank 1.
+
+**Status:** implementing. Do not merge until GPT-r8 KEEP.
+
+## D32 — Round 8 rank 2: `commits` refusal retargeting
+
+Fable-r8-next. Five surfaces: malformed `--run`; empty `--nodes` CSV (blames the run); unknown node ids (doctor remedy); `--file` ENOENT as `stage: "execute"`; repo-preflight throws pick up generic doctor next. `isRunId` guard; empty-CSV parse-args before state; hoist `filterDecisionCommitNodeIds` into each command body under a single-call catch; two narrow trys around `readFile`/`parseDecisionCommitFile`; repo throws → `stage: "preflight"` `cliFail` keeping pinned "work tree" wording. `COMMITS_PREVIEW` and D20 partial-apply pins byte-identical. Do not edit `src/tools/decision-commit.ts`. Files: `src/cli/commits.ts`, `test/integration/cli/commits.test.ts`. Spec: Rank 2.
+
+**Status:** implementing. Do not merge until GPT-r8 KEEP.
+
+## D33 — Round 8 rank 3: `episode` malformed-id guard + designed `events` lines
+
+Fable-r8-next (Fable-r7 rider rides on this real touch). `isEpisodeId` parse-args guard before both subcommands, retargeting to `list --episodes`. Human `events` lines become `<timestamp>\t<TYPE>\t<detail>` per event type (each type's own timestamp field; WAITING discloses `reason: requiredEvidence`). `--json` byte-identical; `EPISODE_USAGE` untouched. Files: `src/cli/episode.ts`, `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3.
+
+**Status:** implementing. Do not merge until GPT-r8 KEEP.
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
