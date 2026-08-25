@@ -11,17 +11,15 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 13 docs-slot working-tree census (2026-08-25 01:28:37 UTC): HEAD was
-> `e744b4a`. Round 12 is committed: the `taskCriteria` writer and tracked early
-> run id `81f5b81` (including the folded abort-test joint); flowchart-spine
-> `independentEvidence` freeze `95a2b25`; criteria-gate reachability `b8f784f`;
-> the preceding docs truth-up `d1b451c`; exact `RunStatus` vocabulary
-> `b65a8b1`; writer-carriage census `d592f8c`; and writer-existence successor
-> `0e61063`. At this timestamp R13-1 and R13-3 had neither a committed landing
-> nor an owned working-tree diff. The two source comments still said there was
-> no writer, while `--flowchart` / `--children` still lacked early id output;
-> this document reports the committed runtime without assigning either sibling
-> a commit id.
+> Round 14 docs-slot working-tree census (2026-08-25 01:56:46 UTC): HEAD was
+> `33f70bf`. Round 13 is committed: source-comment truth-up `f6e4c04`;
+> `taskCriteria` behavioural pins `e7d018c`; uniform three-path early-id
+> disclosure and sequence pins `1e78220`; and the preceding docs truth-up
+> `8faf8f4`. R14-2 had neither a committed landing nor an owned working-tree
+> diff. The `replay.ts` laundering paragraph (then lines 85–93) still presented
+> the hazard without scoping it to nodes neither source records or noting that
+> an unvouched logged-empty is detectable. This document reports committed
+> runtime without assigning that sibling a commit id.
 
 ## Milestone names
 
@@ -380,7 +378,14 @@ specs, and a logged request retains its own answer. There is deliberately no
 durable dispatch fact. The runtime never synthesizes the record from the
 episode, flowchart definition, or run contract. The carriage property
 `d592f8c` and writer-existence guard `0e61063` prevent checkpoint writers from
-dropping the field or silently removing its last writer.
+dropping the field or silently removing its last writer. Commit `f6e4c04`
+corrected the two stale source comments to describe this shipped writer.
+Commit `e7d018c` closes the two remaining behavioural persistence gaps. A
+caller-recorded known-none entry survives the unblock reopen and the resume's
+own checkpoint write when read back from disk. For a valid legacy checkpoint
+with the field stripped, resume recovers non-empty logged criteria only: the
+substituted node re-dispatches with no criteria, logs `[]`, and stays absent
+from the record. That visible legacy cost is recorded rather than hidden.
 
 `FlowchartContinuation.contract` is an optional, honoured resume seam: a caller
 that supplies it gets the same child grounding and assessment as start. The
@@ -406,11 +411,11 @@ pause seam: `TrackRunInput.pause` is forwarded to `startFlowchartRun`, and
 added `onRunStarted`, fired under the run lifecycle lock immediately after
 `RUN_CREATED` and before round 1's pause poll; callback failures are swallowed
 so notification failure cannot orphan a run before its first checkpoint. The
-track path now prints `Run <id>: started` while the run is still pausable, and
-the pure-CLI track pause proof is complete. At the dated census above,
-`--flowchart` and `--children` had no corresponding callback and still printed
-the id only after settlement, so that operator gap remains open on those two
-paths.
+track path prints `Run <id>: started` while the run is still pausable, and the
+pure-CLI track pause proof is complete. Commit `1e78220` added the same
+callback output to `--flowchart` and `--children`. All three public run paths
+now print the disclosure before the terminal `Run <id>: <status>` line, with
+the same id; the disclosure-then-terminal sequence is behaviourally pinned.
 
 ### Cluster role-cast dead letters
 

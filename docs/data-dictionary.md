@@ -186,7 +186,14 @@ Round 12's `d592f8c` / `0e61063` pins require field carriage and at least one
 writer without freezing the writer count, while the source-wide episode-reader
 census rejects contract- or task-criteria-shaped output. The episode remains a
 deliberately lossy projection carrying acceptance criteria, never run-contract
-or task-dispatch authority.
+or task-dispatch authority. Commit `f6e4c04` corrected the two stale source
+comments to describe this shipped writer. Commit `e7d018c` behaviourally pins
+the persistence edges: a caller-recorded known-none entry survives unblock
+reopen and the following resume write when read back from disk; a valid legacy
+checkpoint with the field stripped recovers only non-empty logged requests.
+The substituted legacy node still re-dispatches with no criteria, logs `[]`,
+and remains absent from the record. That visible cost is recorded rather than
+hidden.
 
 Each real Pi-executor attempt exposes `sparkle_report_task_result`. A valid
 call writes one request-identity protocol-v1 `TASK_RESULT` with a non-empty
@@ -260,17 +267,15 @@ superseded control-state outcomes clear, pending approval is released when its
 waiter is rewound, and no budget is refunded. The authorization applies to one
 block, not to the rest of the run.
 
-> Round 13 docs-slot working-tree census (2026-08-25 01:28:37 UTC): HEAD was
-> `e744b4a`. Round 12 is committed: the `taskCriteria` writer and tracked early
-> run id `81f5b81` (including the folded abort-test joint); flowchart-spine
-> `independentEvidence` freeze `95a2b25`; criteria-gate reachability `b8f784f`;
-> the preceding docs truth-up `d1b451c`; exact `RunStatus` vocabulary
-> `b65a8b1`; writer-carriage census `d592f8c`; and writer-existence successor
-> `0e61063`. At this timestamp R13-1 and R13-3 had neither a committed landing
-> nor an owned working-tree diff. The two source comments still said there was
-> no writer, while `--flowchart` / `--children` still lacked early id output;
-> this document reports the committed runtime without assigning either sibling
-> a commit id.
+> Round 14 docs-slot working-tree census (2026-08-25 01:56:46 UTC): HEAD was
+> `33f70bf`. Round 13 is committed: source-comment truth-up `f6e4c04`;
+> `taskCriteria` behavioural pins `e7d018c`; uniform three-path early-id
+> disclosure and sequence pins `1e78220`; and the preceding docs truth-up
+> `8faf8f4`. R14-2 had neither a committed landing nor an owned working-tree
+> diff. The `replay.ts` laundering paragraph (then lines 85–93) still presented
+> the hazard without scoping it to nodes neither source records or noting that
+> an unvouched logged-empty is detectable. This document reports committed
+> runtime without assigning that sibling a commit id.
 
 `pi-sparkle delete --episode <id>` removes both episode file shapes while
 holding the operational `<id>.lock`, **and cascades into the adaptation

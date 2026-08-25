@@ -11,17 +11,15 @@ Definitions (ADR-004):
 - **Outcome-supported** — held-out or comparable later benefit, no guardrail
   regression. Nothing in this repo is Outcome-supported.
 
-> Round 13 docs-slot working-tree census (2026-08-25 01:28:37 UTC): HEAD was
-> `e744b4a`. Round 12 is committed: the `taskCriteria` writer and tracked early
-> run id `81f5b81` (including the folded abort-test joint); flowchart-spine
-> `independentEvidence` freeze `95a2b25`; criteria-gate reachability `b8f784f`;
-> the preceding docs truth-up `d1b451c`; exact `RunStatus` vocabulary
-> `b65a8b1`; writer-carriage census `d592f8c`; and writer-existence successor
-> `0e61063`. At this timestamp R13-1 and R13-3 had neither a committed landing
-> nor an owned working-tree diff. The two source comments still said there was
-> no writer, while `--flowchart` / `--children` still lacked early id output;
-> this document reports the committed runtime without assigning either sibling
-> a commit id.
+> Round 14 docs-slot working-tree census (2026-08-25 01:56:46 UTC): HEAD was
+> `33f70bf`. Round 13 is committed: source-comment truth-up `f6e4c04`;
+> `taskCriteria` behavioural pins `e7d018c`; uniform three-path early-id
+> disclosure and sequence pins `1e78220`; and the preceding docs truth-up
+> `8faf8f4`. R14-2 had neither a committed landing nor an owned working-tree
+> diff. The `replay.ts` laundering paragraph (then lines 85–93) still presented
+> the hazard without scoping it to nodes neither source records or noting that
+> an unvouched logged-empty is detectable. This document reports committed
+> runtime without assigning that sibling a commit id.
 
 ## Runtime line (M0–M2.5)
 
@@ -45,7 +43,7 @@ Definitions (ADR-004):
 | `doctor` | yes | yes | unit tests (`test/unit/cli/doctor.test.ts`) | no | Developer-preview preflight. Recursive read-only `locks` entries include metadata status, age/source, recorded PID, advisory liveness, and additive per-lock `remediation`; a recorded dead PID says inspect and remove manually, never automatically, while ambiguous/live cases stay conservative. Additive `runStates` inventories PLANNING/RUNNING logs with age and inspect/resume/delete guidance; they are advisory crash candidates because a live process may still own the run. Frozen-additive `learnedState` inventories every discovered project-key `bandit.json` plus `preferences.json` and `catalog-observed.json`; entries carry `kind`, learned/derived `stateClass`, `projectKey`, `path`, present/absent/readable/damaged `status`, and plane-correct `remediation`, with inventory-level `advisory` and `scanErrors`. Typed damage remains advisory; only scan/read errors fail `learned-state-inventory`. Doctor never repairs or rebuilds those files. The frozen route map names three `learnedState[]` remediations: damaged bandit → repair or move aside and relearn this project from zero; damaged preferences → repair or move aside and start from an empty store; corrupt derived catalog → delete and rebuild from `runtime/invocations.jsonl`. The catalog route currently has no CLI producer because doctor absorbs that error into inventory. `lock-inventory` fails on unreadable locks or scan errors; `run-state-inventory` fails only on scan errors. Doctor never changes run state and never acquires, steals, or deletes a lock. `LOCK_TIMEOUT` and `RUN_RECORDS_SURVIVED` command failures code-route their `next:` line to `doctor --json` at the same state root and name the relevant `locks[]`/`runStates[]` field; generic failures keep the generic line. Informational `legacy-layout` still never fails the preflight. |
 | Retention bounds | no | no | sizing probe only (`scripts/retention-probe.mjs`, 2026-08-24 R3) | no | Retention of `runtime/invocations.jsonl` and `runtime/episodes/` is unbounded (accepted Q3 position). The probe measures on-disk growth and reports `unbounded: true` without failing — it is a diagnostic, not a gate. Bounding (age- or size-based, delete-cascade-consistent) is an open policy decision. |
 
-Rounds 9–12 truth-up and current runtime postures:
+Rounds 9–13 truth-up and current runtime postures:
 
 - Optional `FlowchartCheckpointState.contract?` remains on checkpoint
   `schemaVersion: 1`; absence is valid. Every flowchart-checkpoint writer must
@@ -62,12 +60,21 @@ Rounds 9–12 truth-up and current runtime postures:
   ignored, and the reader restores criteria only into substituted specs.
   Absence stays unknown, an empty list on a present entry is known-none, and
   there is no `continuation.taskCriteria`. The writer-carriage property and
-  writer-existence guard landed in `d592f8c` / `0e61063`.
+  writer-existence guard landed in `d592f8c` / `0e61063`. Commit `f6e4c04`
+  corrected the two stale source comments to describe that shipped writer.
+  Commit `e7d018c` behaviourally pins both remaining persistence arms: a
+  caller-recorded known-none entry survives the unblock reopen and subsequent
+  resume write when read back from disk, while a checkpoint with the field
+  stripped recovers only non-empty logged requests. In that legacy case a
+  substituted node re-dispatches with no criteria, logs `[]`, and stays absent
+  from the record; that visible cost is recorded rather than hidden.
   Tracked start forwards a `PauseController`, and `runCommand` supplies the
   file controller. Since `81f5b81`, `onRunStarted` also prints
-  `Run <id>: started` while the tracked run is still pausable. At the dated
-  census above, `--flowchart` and `--children` still printed their run ids only
-  after settlement, so their corresponding operator gap remains open.
+  `Run <id>: started` while the run is still pausable. Commit `1e78220`
+  extended the same disclosure to `--flowchart` and `--children`. All three
+  public run paths now print the disclosure before the terminal
+  `Run <id>: <status>` line, with the same id; the ordered
+  disclosure-then-terminal sequence is behaviourally pinned.
 - `sparkle_report_task_result` stamps lease identity, permits only a non-empty
   `PASSED`/`FAILED` child claim, requires evidence for `FAILED`, rejects the
   whole call on malformed references, and accepts only the first verdict per

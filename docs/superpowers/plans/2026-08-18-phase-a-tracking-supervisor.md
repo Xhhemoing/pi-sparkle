@@ -209,7 +209,13 @@ Hard-related FAIL still sets `cappedByHardFail` and `displayPrescore = min(P, 0.
 > logged requests are ignored, absence remains unknown, a caller's empty spec
 > records known-none, the reader fills only substituted specs, and there is no
 > `continuation.taskCriteria`. `d592f8c` and successor `0e61063` pin carriage
-> and writer existence.
+> and writer existence. Round 13 commit `f6e4c04` corrected the two stale
+> source comments to describe that writer. Commit `e7d018c` behaviourally pins
+> both persistence edges: known-none survives the unblock reopen and following
+> resume write when read from disk; a valid checkpoint with the field stripped
+> recovers non-empty logged requests only. The substituted legacy node
+> re-dispatches with no criteria, logs `[]`, and stays absent from the record —
+> a visible legacy cost, not a hidden recovery claim.
 >
 > `PrescoreInput.independentEvidence` does not mean third-party corroboration:
 > its sole production writer derives it from that child verdict, including the
