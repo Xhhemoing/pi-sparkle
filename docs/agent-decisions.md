@@ -212,15 +212,15 @@ GPT-r6-challenge: **FIX** the JSON contract, keep the slot. Discriminated shape:
 
 ## D28 — Round 7 rank 1: `auth` dialect completion + `auth status --json` (`AUTH_STATUS`)
 
-Fable-r7-next. Convert unknown-subcommand and three `parseArgs` to `cliFail` `stage: "parse-args"`. Honor `--help` on status/login/logout before provider/store I/O (login/logout positional `help` too). Discriminated `AUTH_STATUS`: stored mode exactly `type/preview/mode/stored` with rows `{providerId,credentialType}`; `--all` adds `environment` rows `{providerId,label,source}` using existing `sourceLabel` (D24 untrimmed equality), never a secret value. Catch only `parseArgs`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`. Spec: `.agent_workspace/loop5-r7-fable-next.md` Rank 1.
+Fable-r7-next. GPT-r7-challenge: **FIX** the parser `command` field, keep the slot. Convert unknown-subcommand and three `parseArgs` to `cliFail` `stage: "parse-args"`. Parser errors pin `command: "auth status"|"auth login"|"auth logout"`; unknown subcommand stays `command: "auth"`. Honor `--help` on status/login/logout before provider/store I/O (login/logout positional `help` too). Discriminated `AUTH_STATUS`: stored mode exactly `type/preview/mode/stored` with rows `{providerId,credentialType}`; `--all` adds `environment` rows `{providerId,label,source}` using existing `sourceLabel` (D24 untrimmed equality), never a secret value. Catch only `parseArgs`. Files: `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`. Spec: `.agent_workspace/loop5-r7-fable-next.md` Rank 1 as corrected by `.agent_workspace/loop5-r7-gpt-challenge.md`.
 
 ## D29 — Round 7 rank 2: `doctor --help` and argv dialect
 
-Fable-r7-next. `DOCTOR_USAGE`; `help` boolean honored before engines/inventory/mkdir. Wrap only synchronous `parseArgs`. Frozen `--json` contract byte-untouched. Files: `src/cli/doctor.ts`, `test/unit/cli/doctor.test.ts`. Spec: Rank 2.
+Fable-r7-next. GPT-r7-challenge: **KEEP**. `DOCTOR_USAGE`; `help` boolean honored before engines/inventory/mkdir. Wrap only synchronous `parseArgs`. Frozen `--json` contract byte-untouched. Files: `src/cli/doctor.ts`, `test/unit/cli/doctor.test.ts`. Spec: Rank 2.
 
 ## D30 — Round 7 rank 3: `inject` `--type`/`--confidence` preflight
 
-Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). Refuse `type` outside `fact|override|skip` and non-finite/`[0,1]` `--confidence` as `parse-args` before EventStore lookup. Do not widen a catch around run lookup or injection. Files: `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: Rank 3.
+Fable-r7-next (the rider GPT-r6 omitted from D26, now its own slot). GPT-r7-challenge: **FIX** blank confidence, keep the slot. Refuse `type` outside exported `INJECTION_KINDS` and non-finite/`[0,1]` `--confidence` as `parse-args` before EventStore lookup. Reject `values.confidence.trim() === ""` before `Number()` (empty/whitespace coerce to 0). Do not widen a catch around run lookup or injection. Files: `src/cli/inject.ts`, `test/integration/cli/pause-inject.test.ts`. Spec: Rank 3 as corrected by `.agent_workspace/loop5-r7-gpt-challenge.md`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 

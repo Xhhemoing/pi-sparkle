@@ -120,7 +120,13 @@ Fable-r6-next ranked three file-disjoint batches (`.agent_workspace/loop5-r6-fab
 
 Fable-r7-next ranked three file-disjoint batches (`.agent_workspace/loop5-r7-fable-next.md`) at `786f23e`: D28 `auth` dialect + `AUTH_STATUS`, D29 `doctor --help`, D30 inject `--type`/`--confidence` preflight.
 
-GPT-r7-challenge and three Opus implementers dispatched. Do not merge until independent KEEP.
+GPT-r7-challenge (`.agent_workspace/loop5-r7-gpt-challenge.md`): D28 **FIX**, D29 **KEEP**, D30 **FIX**. Implementers still running first landings; apply riders after idle. Do not merge D28/D30 until the riders land.
+
+| Slot | Rider |
+|---|---|
+| D28 | Pin parser-error `command` as `auth status` / `auth login` / `auth logout`; unknown subcommand stays `command: "auth"`. Catch only `parseArgs`. |
+| D29 | KEEP as specified: help before all work; frozen doctor JSON untouched. |
+| D30 | Reject blank/whitespace `--confidence` before `Number()`; use exported `INJECTION_KINDS` from `src/run/injection.ts`. |
 
 ### Round 3 still running / next implementers
 
