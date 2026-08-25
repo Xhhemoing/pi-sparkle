@@ -32,7 +32,7 @@
 | 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
 | 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
 | 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
-| 18 | 第 1–2 波进行中 | 6 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-18/PLAN.md](./round-18/PLAN.md) |
+| 18 | 第 1–3 波进行中 | 7 / 10（A/B/D/F 已合入；C/E 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-18/PLAN.md](./round-18/PLAN.md) |
 
 ### Round 1 波次
 
@@ -192,7 +192,8 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R18-A 跟踪门控、R18-B live 路由、R18-C 离线路由 | A/B 完成已合入；C 运行中 |
-| 2 | R18-D 自优化、R18-E 学习、R18-F 实验 | D 完成已合入；E 运行中；F 本波派出 |
+| 2 | R18-D 自优化、R18-E 学习、R18-F 实验 | D/F 完成已合入；E 运行中 |
+| 3 | R18-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -374,7 +375,8 @@
 | R18-C | `cursor/r18-c-offline-routing-eighteenth-pass-83a1` | 已派出 |
 | R18-D | `cursor/r18-d-adaptation-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-D.md`）。无新排除 ID；eval 地板复核 3.75–4.14 ms；锁定事务组成账目归档 |
 | R18-E | `cursor/r18-e-learning-eighteenth-pass-83a1` | 已派出 |
-| R18-F | `cursor/r18-f-experiments-eighteenth-pass-83a1` | 已派出 |
+| R18-F | `cursor/r18-f-experiments-eighteenth-pass-83a1` | 已合入专属分支（仅 `R18-F.md`）。无新排除 ID；全实验锚点复核 120.8–129.1 ms；对齐分数剂量 + 热进程税 + halt 后定价归档 |
+| R18-G | `cursor/r18-g-runtime-eighteenth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
