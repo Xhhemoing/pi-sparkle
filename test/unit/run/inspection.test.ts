@@ -28,8 +28,11 @@ import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../..
 import { SUPERVISOR, validateAgentMessage, type TaskResult } from "../../../src/protocol/v1.js";
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import { EVENT_TYPES, validateEvent } from "../../../src/run/events.js";
-import { inspectRun } from "../../../src/run/inspection.js";
+import { EVENT_TYPES, validateEvent, type Event } from "../../../src/run/events.js";
+import { applyTrackingGate } from "../../../src/run/gate-apply.js";
+import { gateBlockCause, inspectRun } from "../../../src/run/inspection.js";
+import { hashAssessment, parseTrackingAssessment } from "../../../src/tracking/types.js";
+import { makeEvent } from "../../helpers/event-factory.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -615,4 +618,181 @@ test("rich child inspection state cannot add a fifth INSPECT_SUMMARY key", async
       requiredEvidence: []
     });
   });
+});
+
+// `gateBlockCause` pairs a block with the transition that filed it, and the
+// only join available on the log is position: `gate-apply.ts` appends
+// GATE_TRANSITION and then RUN_BLOCKED with nothing in between. The cases below
+// build that pair with the real producer and then break the adjacency with rows
+// that are each individually valid, because a scan that looks past one event
+// cannot tell the pair the gate wrote from a pair that merely happened.
+
+const GATE_RUN_ID = "run_01234567-89ab-cdef-0123-456789abcdef" as RunId;
+const GATE_TURN = "tsk_migrate";
+
+function gateEventIds(): () => ReturnType<typeof createEventId> {
+  let n = 0;
+  return () => createEventId(() => `gate${++n}`);
+}
+
+function blockingAssessment(turnId: string = GATE_TURN) {
+  return parseTrackingAssessment({
+    schemaVersion: 1,
+    episodeId: "ep_gate",
+    runId: GATE_RUN_ID,
+    turnId,
+    prescore: 0.2,
+    quality: 0.4,
+    coverage: 0.5,
+    human: { kind: "unobserved" },
+    score: 0.2,
+    dimensions: [{ id: "check-coverage", verdict: "FAIL", evidenceRefs: ["evd_suite"] }],
+    gate: {
+      kind: "hard",
+      codes: ["unmet-acceptance-criterion"],
+      wakeAnalysis: true,
+      expandDetail: true,
+      askUser: false,
+      openMinors: []
+    },
+    evidenceRefs: ["evd_suite"]
+  });
+}
+
+/** The three rows one `applyTrackingGate` writes: assessment, transition, block. */
+function producedBlock(
+  generateEventId: () => ReturnType<typeof createEventId> = gateEventIds()
+): readonly Event[] {
+  const assessment = blockingAssessment();
+  const { events } = applyTrackingGate({
+    events: [],
+    assessment,
+    assessmentHash: hashAssessment(assessment),
+    expectedSeq: 0,
+    policyVersion: "track-v1",
+    nowIso: "2026-08-12T09:00:00.000Z",
+    generateEventId
+  });
+  return events;
+}
+
+function childCriterionResult(kind: "FAILED" | "PASSED"): Event {
+  return validateEvent(
+    makeEvent(
+      "CHILD_MESSAGE",
+      {
+        message: {
+          protocolVersion: 1,
+          id: createMessageId(UUID),
+          occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+          runId: GATE_RUN_ID,
+          taskId: GATE_TURN,
+          from: "agt_01234567-89ab-cdef-0123-456789abcdef",
+          to: SUPERVISOR,
+          type: "TASK_RESULT",
+          outcome: "SUCCESS",
+          summary: "the child reported on the criterion it was given",
+          artifactIds: [],
+          evidenceIds: ["evd_suite"],
+          verification: {
+            kind: "PASSED",
+            evidenceIds: ["evd_suite"],
+            criteria: [{ id: "ac_no_regression", kind, evidenceIds: ["evd_suite"] }]
+          }
+        }
+      },
+      { runId: GATE_RUN_ID }
+    )
+  );
+}
+
+test("gateBlockCause reads the cause off the adjacent transition the gate wrote", () => {
+  const events = producedBlock();
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["TRACKING_ASSESSMENT", "GATE_TRANSITION", "RUN_BLOCKED"],
+    "the producer's own pairing: the transition is the row immediately before the block"
+  );
+
+  const cause = gateBlockCause(events);
+  assert.equal(cause?.reasonCode, "unmet-acceptance-criterion");
+  assert.equal(cause?.turnId, GATE_TURN);
+  assert.equal(cause?.gateKind, "hard");
+  assert.deepEqual(cause?.failedDimensions, ["check-coverage"]);
+});
+
+test("gateBlockCause reads no cause when a PAUSE_REQUESTED separates the transition from the block", () => {
+  const produced = producedBlock();
+  const pause = validateEvent(
+    makeEvent(
+      "PAUSE_REQUESTED",
+      { reason: "operator paused between the two rows" },
+      { id: createEventId(() => "pause1"), runId: GATE_RUN_ID }
+    )
+  );
+  const separated = [...produced.slice(0, 2), pause, produced[2]!];
+
+  // Each row is one the validator accepts on its own; only the pairing is wrong,
+  // which is exactly the log a backward scan cannot tell from the real one.
+  for (const event of separated) validateEvent(event);
+
+  assert.equal(
+    gateBlockCause(separated),
+    undefined,
+    "a transition that is not events[blockedIndex - 1] did not file this block"
+  );
+});
+
+test("gateBlockCause does not leak a prior block/unblock cycle onto a later unmatched block", () => {
+  const first = producedBlock();
+  const firstBlock = first[2]!;
+  assert.ok(gateBlockCause(first) !== undefined, "the first cycle does have a cause of its own");
+
+  const unblocked = validateEvent(
+    makeEvent(
+      "RUN_UNBLOCKED",
+      { blockedEventId: firstBlock.id, reason: "the operator cleared the first block" },
+      { id: createEventId(() => "unblock1"), runId: GATE_RUN_ID }
+    )
+  );
+  const laterBlock = validateEvent(
+    makeEvent(
+      "RUN_BLOCKED",
+      { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_later"] },
+      { id: createEventId(() => "block2"), runId: GATE_RUN_ID }
+    )
+  );
+
+  assert.equal(
+    gateBlockCause([...first, unblocked, laterBlock]),
+    undefined,
+    "the newest block has no transition before it, and the cleared cycle's transition is not its cause"
+  );
+});
+
+test("gateBlockCause reads no cause for a block with no preceding event at all", () => {
+  const lone = validateEvent(
+    makeEvent(
+      "RUN_BLOCKED",
+      { reason: "ANALYSIS_QUEUED", requiredEvidence: ["evd_suite"] },
+      { id: createEventId(() => "block0"), runId: GATE_RUN_ID }
+    )
+  );
+  assert.equal(gateBlockCause([lone]), undefined);
+});
+
+test("gateBlockCause names only the criteria reported at or before the block", () => {
+  const produced = producedBlock();
+  const before = [produced[0]!, childCriterionResult("FAILED"), ...produced.slice(1)];
+  assert.deepEqual(
+    gateBlockCause(before)?.unmetCriteria.map((criterion) => criterion.id),
+    ["ac_no_regression"],
+    "a verdict the child gave before the gate ruled is evidence the block can name"
+  );
+
+  assert.deepEqual(
+    gateBlockCause([...produced, childCriterionResult("FAILED")])?.unmetCriteria,
+    [],
+    "a result appended after the block belongs to later work and cannot decorate it"
+  );
 });
