@@ -149,12 +149,19 @@ Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 | D35 | merged `2afc5f8` from `cursor/auth-login-envelopes-0da8` `a8e80d5` | GPT-d35-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d35.md`. |
 | D36 | merged `367bd45` from `cursor/validate-path-retarget-0da8` `2e9d35e` | GPT-d36-recheck **KEEP**. Report: `.agent_workspace/loop5-r9-gpt-d36.md`. |
 
-### Round 10 (ranking in flight)
+### Round 10 (ranking; GPT challenge in flight)
 
-Fable-r10-next ranks the next three file-disjoint operator batches after D34–D36 KEEP. Spec lands only as `.agent_workspace/loop5-r10-fable-next.md` on `cursor/loop5-r10-fable-next-0da8` — no `src/` edits.
+Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r10-fable-next.md`) at `acd2eb7` (spec commit `3bdaa35` on `cursor/loop5-r10-fable-next-0da8`). Through-line: Rounds 8–9 made free verbs honest about *which flags and values* they were given; Round 10 makes them honest about *which tree they acted on*. GPT-r10-challenge is next; do not dispatch implementers until KEEP (or FIX riders applied).
 
-HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
+| Slot | Owns | Status |
+|---|---|---|
+| D37 | `src/cli/{list,pause,inject,commits,models,auth,validate}.ts` + six test files — blank `--state-root` parse-args before any I/O | ranked; pending GPT-r10 |
+| D38 | `src/cli/{init-examples,migrate-legacy}.ts` + three test files — blank `--dir`/`--state-root`, obstruction preflight, honest write faults | ranked; pending GPT-r10 |
+| D39 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` — corrupt-log envelopes + episode blank-root | ranked; pending GPT-r10 |
+
+HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string.
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
 | Fable-r10-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-d3b26848-9908-5f90-b05f-0bd46a293238` |
+| GPT-r10-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | (dispatching) |
