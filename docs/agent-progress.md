@@ -22,17 +22,19 @@ Loop 4 closed Round 20 with 2 ACCEPT landings (`taskCostCeilings`, targeted `ste
 
 ## ROUND 1 (in flight)
 
-| Agent | Model | Role |
-|---|---|---|
-| Fable-map | claude-fable-5-thinking-xhigh | Feature map + unused product surfaces |
-| Fable-cli | claude-fable-5-thinking-xhigh | CLI operator UX gaps |
-| Fable-runtime | claude-fable-5-thinking-xhigh | Run/flowchart/resume user-journey gaps |
-| Fable-adapt | claude-fable-5-thinking-xhigh | Adaptation/learning **product** usability (not live R1) |
-| Fable-persist | claude-fable-5-thinking-xhigh | Persist/privacy/retention operator gaps |
-| GPT-challenge | gpt-5.6-sol-xhigh-fast | Independent challenge of Round 1 feature bets |
-| GPT-frozen | gpt-5.6-sol-xhigh-fast | Frozen-contract hazard review for new CLI |
-| Opus-list | claude-opus-5-thinking-high-fast | Implement `list` |
-| Opus-validate | claude-opus-5-thinking-high-fast | Implement `validate` |
-| Opus-init | claude-opus-5-thinking-high-fast | Implement example scaffold `init` |
+Dispatched 2026-08-25. Cloud new-VM cap is 3, so Round 1 mixed cloud VMs and local Task agents. **No model slug was silently downgraded.**
 
-Deviation from 5/3/2: none. Analysis agents do not implement. Implementation agents own disjoint files (see decisions).
+| Agent | Model | Where | Id |
+|---|---|---|---|
+| Fable-map | claude-fable-5-thinking-xhigh | cloud VM | `bc-dffa02de-b813-5bda-9bde-2b34ab2301d2` |
+| Fable-cli | claude-fable-5-thinking-xhigh | local Task | `bc-9a3dad9c-db2d-52b3-8036-4d8a40c33c2d` |
+| Fable-runtime | claude-fable-5-thinking-xhigh | local Task | `bc-d77433cf-d7e9-517e-988c-44015159ca78` |
+| Fable-adapt | claude-fable-5-thinking-xhigh | local Task | `bc-00a6633b-6f82-5fdd-b065-bfff94f458b6` |
+| Fable-persist | claude-fable-5-thinking-xhigh | local Task | `bc-700b6a78-b566-5102-b8a4-91709694d1d6` |
+| GPT-challenge | gpt-5.6-sol-xhigh-fast | local Task | `bc-f57079ff-be82-5bdb-ade9-cc89b17d2ab5` |
+| GPT-frozen | gpt-5.6-sol-xhigh-fast | cloud VM | `bc-603f570e-6d30-571f-98a2-acd354826ebf` |
+| Opus-list | claude-opus-5-thinking-high-fast | local Task (no `main.ts`) | `bc-76c936c0-0e3d-5bbb-a0b2-34ea7c1e52b8` |
+| Opus-validate | claude-opus-5-thinking-high-fast | cloud VM | `bc-3ca9557e-81c9-5fe7-ae9e-1a1e3959128a` |
+| Opus-init | claude-opus-5-thinking-high-fast | local Task (no `main.ts`) | `bc-c618ad5b-5ff2-5e9f-acf8-97a8add58731` |
+
+Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/cli/main.ts` so they cannot clobber each other; parent wires after they land. Cloud Opus-validate owns the `validate` extract of `parseChildSpec`.
