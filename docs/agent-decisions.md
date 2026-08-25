@@ -282,7 +282,9 @@ Fable-r9-next. Convert six thrown D12/D21 refusals to `cliFail` with `command: "
 
 **GPT-r9-challenge: FIX** (keep the slot). Unknown-provider `next` must name `models list --available` using the same `--state-root` without embedding the raw path. Split unset-`--from-env` next by named custom `envVar` vs builtin ambient sources. Preserve D24: do not trim a custom envVar only when reporting its failure; pin padded `envVar: " PADDED_ENV "`.
 
-**Status:** GPT-r9 FIX rider landed (`a8e80d5` on `cursor/auth-login-envelopes-0da8`). PR #20. Merge gated on GPT-d35-recheck KEEP.
+**Status:** GPT-r9 FIX rider landed (`a8e80d5` on `cursor/auth-login-envelopes-0da8`). PR #20.
+
+**GPT-d35-recheck: KEEP.** Report: `.agent_workspace/loop5-r9-gpt-d35.md`. Merged to the integration branch as `2afc5f8`.
 
 ## D36 — Round 9 rank 3: `validate` unreadable/blank path retargeting
 
