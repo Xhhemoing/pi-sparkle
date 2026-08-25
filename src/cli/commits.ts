@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
-import { parseRunId, type RunId } from "../domain/ids.js";
+import { isRunId, parseRunId, type RunId } from "../domain/ids.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import { EventStore } from "../run/event-store.js";
 import { validateCheckpoint, type RunCheckpoint } from "../run/replay.js";
@@ -66,13 +66,16 @@ async function loadCommitInput(
   return { checkpoint, input: assembleDecisionCommitInput(checkpoint, read.events, runId) };
 }
 
+/**
+ * `filteredIds` is already through `filterDecisionCommitNodeIds`: the unknown-id
+ * refusal belongs to the flag that named them, so each command body runs that
+ * filter under its own catch and hands the survivors here.
+ */
 function proposalsFromInput(
   loaded: { checkpoint: RunCheckpoint; input: DecisionCommitInput },
-  nodeIds: readonly string[] | undefined,
+  filteredIds: readonly string[] | undefined,
   fileProposals: DecisionCommitProposal[] | undefined
 ): DecisionCommitProposal[] {
-  const knownIds = loaded.checkpoint.flowchart?.definition.nodes.map((node) => node.id) ?? [];
-  const filteredIds = filterDecisionCommitNodeIds(knownIds, nodeIds);
   if (fileProposals !== undefined) {
     if (filteredIds === undefined) return fileProposals;
     const selected = new Set(filteredIds);
@@ -173,6 +176,48 @@ function partialApplyNote(
   );
 }
 
+function refuseMalformedRun(io: CommitsIo, run: string, stateRoot: string): number {
+  return cliFail(io, {
+    command: "commits",
+    stage: "parse-args",
+    message: `invalid --run "${run}": expected a run id of the form run_<suffix>`,
+    next: `pass --run <runId> as printed by pnpm cli list --state-root ${stateRoot}`,
+    runId: run
+  });
+}
+
+/**
+ * `parseCommitNodeIdsCsv` trims and drops blanks, so a CSV of nothing but
+ * commas selects no ids at all. Left to the filter it would sail through as
+ * "select everything named here" and the run would be blamed for having no
+ * completed nodes; the mistake is in argv, so it refuses before state is read.
+ */
+function refuseEmptyNodes(io: CommitsIo, nodes: string): number {
+  return cliFail(io, {
+    command: "commits",
+    stage: "parse-args",
+    message: `invalid --nodes "${nodes}": selects no node ids`,
+    next: "pass --nodes <id,id> or drop the flag to use every completed node"
+  });
+}
+
+/**
+ * Which ids exist is run state, not CLI knowledge, so the stage stays
+ * `validation` — but the remedy names the flag and the command that lists the
+ * ids, not doctor preflight.
+ */
+function refuseUnknownNodes(io: CommitsIo, error: unknown, runId: RunId, stateRoot: string): number {
+  return cliFail(io, {
+    command: "commits",
+    stage: "validation",
+    message: error instanceof Error ? error.message : String(error),
+    next:
+      `pass --nodes ids from this run's flowchart; ` +
+      `pi-sparkle inspect --run ${runId} --state-root ${stateRoot} lists its nodes`,
+    runId
+  });
+}
+
 async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
   let values;
   try {
@@ -206,9 +251,21 @@ async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
       next: "pass --run <runId>"
     });
   }
-  const loaded = await loadCommitInput(values["state-root"] ?? defaultStateRoot(), parseRunId(values.run), io);
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  if (!isRunId(values.run)) return refuseMalformedRun(io, values.run, stateRoot);
+  const nodeIds = parseCommitNodeIdsCsv(values.nodes);
+  if (values.nodes !== undefined && nodeIds?.length === 0) return refuseEmptyNodes(io, values.nodes);
+  const runId = parseRunId(values.run);
+  const loaded = await loadCommitInput(stateRoot, runId, io);
   if (loaded === undefined) return CLI_EXIT.error;
-  const proposals = proposalsFromInput(loaded, parseCommitNodeIdsCsv(values.nodes), undefined);
+  const knownIds = loaded.checkpoint.flowchart?.definition.nodes.map((node) => node.id) ?? [];
+  let filteredIds: readonly string[] | undefined;
+  try {
+    filteredIds = filterDecisionCommitNodeIds(knownIds, nodeIds);
+  } catch (error) {
+    return refuseUnknownNodes(io, error, runId, stateRoot);
+  }
+  const proposals = proposalsFromInput(loaded, filteredIds, undefined);
   if (values.json === true) {
     // `preview: true` is the developer-preview marker every machine surface
     // carries, not a restatement of the `preview` subcommand; COMMITS_PREVIEW
@@ -255,18 +312,67 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
       next: "pass --run <runId>"
     });
   }
-  const loaded = await loadCommitInput(values["state-root"] ?? defaultStateRoot(), parseRunId(values.run), io);
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  if (!isRunId(values.run)) return refuseMalformedRun(io, values.run, stateRoot);
+  const nodeIds = parseCommitNodeIdsCsv(values.nodes);
+  if (values.nodes !== undefined && nodeIds?.length === 0) return refuseEmptyNodes(io, values.nodes);
+  const runId = parseRunId(values.run);
+  const loaded = await loadCommitInput(stateRoot, runId, io);
   if (loaded === undefined) return CLI_EXIT.error;
-  const fileProposals =
-    values.file !== undefined ? parseDecisionCommitFile(await readFile(values.file, "utf8")) : undefined;
-  const proposals = proposalsFromInput(loaded, parseCommitNodeIdsCsv(values.nodes), fileProposals);
+  let fileProposals: DecisionCommitProposal[] | undefined;
+  if (values.file !== undefined) {
+    let raw: string;
+    try {
+      raw = await readFile(values.file, "utf8");
+    } catch (error) {
+      return cliFail(io, {
+        command: "commits",
+        stage: "lookup",
+        message: `cannot read --file ${values.file}: ${error instanceof Error ? error.message : String(error)}`,
+        next: "check the --file path; commits preview --json writes an input this flag accepts",
+        runId
+      });
+    }
+    try {
+      fileProposals = parseDecisionCommitFile(raw);
+    } catch (error) {
+      return cliFail(io, {
+        command: "commits",
+        stage: "validation",
+        message: `${values.file}: ${error instanceof Error ? error.message : String(error)}`,
+        next: `fix ${values.file} or regenerate it with commits preview --json`,
+        runId
+      });
+    }
+  }
+  const knownIds = loaded.checkpoint.flowchart?.definition.nodes.map((node) => node.id) ?? [];
+  let filteredIds: readonly string[] | undefined;
+  try {
+    filteredIds = filterDecisionCommitNodeIds(knownIds, nodeIds);
+  } catch (error) {
+    return refuseUnknownNodes(io, error, runId, stateRoot);
+  }
+  const proposals = proposalsFromInput(loaded, filteredIds, fileProposals);
   const repo = values.repo ?? loaded.checkpoint.project?.rootPath;
   if (repo === undefined || repo.trim() === "") {
-    throw new DomainValidationError("apply requires --repo or a checkpoint project.rootPath");
+    // An absent work tree is an environment fault, not a claim about the run.
+    return cliFail(io, {
+      command: "commits",
+      stage: "preflight",
+      message: "apply requires --repo or a checkpoint project.rootPath",
+      next: "pass --repo <path to a git work tree>",
+      runId
+    });
   }
   const workTree = isGitWorkTree(repo);
   if (!workTree.ok) {
-    throw new DomainValidationError(`apply requires a git work tree at ${repo}: ${workTree.detail}`);
+    return cliFail(io, {
+      command: "commits",
+      stage: "preflight",
+      message: `apply requires a git work tree at ${repo}: ${workTree.detail}`,
+      next: `run git init in ${repo} or pass --repo <git work tree>`,
+      runId
+    });
   }
   for (const [index, proposal] of proposals.entries()) {
     if (!applyProposal(repo, proposal, values.sign === true, io)) {
