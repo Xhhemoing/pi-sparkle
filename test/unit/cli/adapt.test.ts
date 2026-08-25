@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -1027,6 +1027,54 @@ test("adapt dataset --dir discloses an external export and refuses the runtime p
   assert.match(refused.err.join(""), /must not be written into the runtime plane/);
   assert.equal(existsSync(smuggled), false);
   assert.deepEqual(refused.out, [], "a refused export prints no dataset path");
+});
+
+/**
+ * D18 at the command surface. `--dir` is the only external export the CLI
+ * offers, and it comes with a warning that nothing cascades into it. A default
+ * export whose `<runId>` leaf is a symlink used to be an external export with
+ * no warning at all — and one `delete --run` would later claim to have
+ * removed. It is refused, and the refusal names the target and the `--dir`
+ * flag the operator would have to pass to mean it.
+ */
+test("adapt dataset refuses a default export through a symlinked <runId> leaf", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-dataset-alias-"));
+  const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-dataset-alias-ws-"));
+  const external = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-dataset-alias-ext-"));
+  const runId = createRunId();
+  const store = new EventStore(dir, runId);
+  for (const event of routedEditRun(runId, workspace)) {
+    await store.append(event);
+  }
+
+  const datasetDir = join(dir, "adaptation", "eval-datasets", runId);
+  await mkdir(join(dir, "adaptation", "eval-datasets"), { recursive: true });
+  await symlink(external, datasetDir, "junction");
+
+  const refused = capture();
+  assert.equal(
+    await adaptCommand(["dataset", "--run", runId, "--state-root", dir], refused.io),
+    1
+  );
+  const message = refused.err.join("");
+  assert.ok(message.includes(datasetDir), message);
+  assert.ok(message.includes(external), message);
+  assert.ok(message.includes("--dir"), message);
+  assert.deepEqual(refused.out, [], "a refused export prints no dataset path");
+  assert.equal(existsSync(join(external, "manifest.json")), false);
+
+  // The same run exports normally once the alias is gone; the refusal was
+  // about the shape of the path, not the run.
+  await rm(datasetDir, { force: true });
+  const exported = capture();
+  assert.equal(
+    await adaptCommand(["dataset", "--run", runId, "--state-root", dir], exported.io),
+    0,
+    exported.err.join("")
+  );
+  assert.equal(exported.out.join("").trim(), datasetDir);
+  assert.equal(existsSync(join(external, "manifest.json")), false);
+  assert.equal(existsSync(join(datasetDir, "manifest.json")), true);
 });
 
 /**
