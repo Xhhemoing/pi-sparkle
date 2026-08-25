@@ -95,4 +95,5 @@ Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/
 ### Round 3 still running / next implementers
 
 - D10 dataset privacy in flight.
-- GPT Round 3 landing challenge dispatched.
+- D14 gate-cause adjacent pairing dispatched (GPT-r3 FIX).
+- GPT Round 3 landing challenge recorded; Fable Round 4 next-bet ranking in flight.

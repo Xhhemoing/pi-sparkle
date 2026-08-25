@@ -99,3 +99,9 @@ GPT-auth-landing-recheck: **FIX**. Keep the empty-store probe and flag exclusivi
 ## D13 — One-model catalog must emit both `cheap` and `premium`
 
 Fable-catalog-honesty: **HIGH VALUE**, freeze-safe. The `primaryId !== fastId` guard in `src/cli/model-catalog.ts` is not load-bearing (`cheap` is already a same-content alias). Drop that conjunct only; do not touch `catalogFromPrimary` / `primary-catalog.ts` (pinned `length === 1`). No `main.ts` / README / example-file edits — existing claims become true. Implement C1–C4 in `.agent_workspace/loop5-r3-fable-catalog.md` as one commit.
+
+## D14 — Gate-cause transition must be the event immediately before the block
+
+GPT-r3-landings: D11 wording KEEP, pairing **FIX**. `gate-apply.ts` writes `GATE_TRANSITION` then `RUN_BLOCKED` with nothing between. `gateBlockCause` currently scans backward past intervening events and can attribute a pause-separated (or otherwise non-adjacent) `queue_analysis` transition to a later `ANALYSIS_QUEUED` block. Require `events[blockedIndex - 1]` to be that qualifying transition; otherwise print no cause. Negative pins: intervening `PAUSE_REQUESTED` (or any non-transition) → no cause; prior block/unblock cycle must not leak onto a later unmatched block. Bound child-result evidence to events at or before the selected block. Prose-only; no Event/`RunStatus`/`INSPECT_SUMMARY` change.
+
+Auth TTY secret-echo is Round 4 (highest-value leftover), not a reason to reopen D12.
