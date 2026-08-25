@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -253,5 +254,184 @@ describe("init contracts", () => {
     assert.equal(parsed?.stage, "parse-args");
     assert.match(parsed?.message ?? "", /--dirr/);
     assert.match(parsed?.next ?? "", /--help/);
+  });
+});
+
+/**
+ * Omitting --dir selects the documented default, the current directory. An
+ * explicitly blank value is a different thing: it used to write both examples
+ * into the cwd (`""`) or create a directory literally named `" "` and then
+ * print a `validate --children` line that splits into two argv words when
+ * pasted. Nonblank relative paths are still ordinary paths.
+ */
+describe("init refuses a blank --dir", () => {
+  const BLANK_DIR_NEXT = "pass --dir <path> or omit it to write into the current directory";
+
+  for (const raw of ["", " "]) {
+    it(`refuses --dir ${JSON.stringify(raw)} before resolving anything`, async () => {
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", raw], captured.io), 1);
+      assert.deepEqual(parseCliErrorJson(captured.err()), {
+        ok: false,
+        command: "init",
+        stage: "parse-args",
+        message: `invalid --dir "${raw}": directory must be a non-empty path`,
+        next: BLANK_DIR_NEXT
+      });
+      assert.equal(captured.out(), "", "a refusal writes no files and prints nothing on stdout");
+      assert.equal(
+        existsSync(join(process.cwd(), CHILDREN_EXAMPLE_FILENAME)),
+        false,
+        "a blank --dir must not fall back to the working directory"
+      );
+      if (raw.trim() !== raw) {
+        assert.equal(existsSync(join(process.cwd(), raw)), false, "no directory is created for it");
+      }
+    });
+  }
+
+  it("still accepts a nonblank relative --dir", async () => {
+    await withDir(async (dir) => {
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", join(dir, "./nested")], captured.io), 0);
+      assert.equal(
+        await readFile(join(dir, "nested", CHILDREN_EXAMPLE_FILENAME), "utf8"),
+        CHILDREN_EXAMPLE_JSON
+      );
+      assert.equal(captured.err(), "");
+    });
+  });
+});
+
+/**
+ * A directory (or anything else that is not a regular file) squatting a target
+ * name used to reach the write loop: without --force it was reported as
+ * `already exists` with a `re-run with --force` remedy, and following that
+ * remedy wrote the first example and then threw EISDIR on the second through
+ * main's catch, leaving a fresh file nobody disclosed. Both targets are judged
+ * before anything is written, and --force does not buy an override.
+ */
+describe("init refuses an obstructed target before writing", () => {
+  const OBSTRUCTION_NEXT =
+    "move it aside; init writes sparkle-children.example.json and sparkle-flowchart.example.json as regular files, and --force only overwrites regular files";
+
+  for (const extra of [[], ["--force"]]) {
+    it(`refuses a directory squatting the flowchart name${extra.length > 0 ? " even with --force" : ""}`, async () => {
+      await withDir(async (dir) => {
+        const squat = join(dir, FLOWCHART_EXAMPLE_FILENAME);
+        await mkdir(squat);
+
+        const captured = capture();
+        assert.equal(await initExamplesCommand(["--dir", dir, ...extra], captured.io), 1);
+        assert.deepEqual(parseCliErrorJson(captured.err()), {
+          ok: false,
+          command: "init",
+          stage: "preflight",
+          message: `cannot write ${squat}: it exists and is not a regular file`,
+          next: OBSTRUCTION_NEXT
+        });
+
+        // The ls-equivalent: the squat is all that is there, and it is empty.
+        assert.deepEqual(await readdir(dir), [FLOWCHART_EXAMPLE_FILENAME], "zero fresh files");
+        assert.deepEqual(await readdir(squat), []);
+        assert.equal(captured.out(), "");
+      });
+    });
+  }
+
+  it("reports the obstruction rather than `already exists` when the other target is a real file", async () => {
+    await withDir(async (dir) => {
+      const childrenPath = join(dir, CHILDREN_EXAMPLE_FILENAME);
+      await writeFile(childrenPath, "{ \"tasks\": [] }\n", "utf8");
+      await mkdir(join(dir, FLOWCHART_EXAMPLE_FILENAME));
+
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", dir], captured.io), 1);
+      const report = parseCliErrorJson(captured.err());
+      assert.equal(report?.stage, "preflight");
+      assert.equal(report?.next, OBSTRUCTION_NEXT);
+      assert.equal(await readFile(childrenPath, "utf8"), "{ \"tasks\": [] }\n", "untouched");
+    });
+  });
+});
+
+describe("init reports target faults as its own", () => {
+  it("names --dir instead of throwing a raw errno at main", async () => {
+    await withDir(async (dir) => {
+      const blocker = join(dir, "blocker");
+      await writeFile(blocker, "a regular file\n", "utf8");
+      const target = join(blocker, "sub");
+
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", target], captured.io), 1);
+      const report = parseCliErrorJson(captured.err());
+      assert.equal(report?.command, "init");
+      assert.equal(report?.stage, "execute");
+      assert.ok(
+        report?.message.startsWith(`cannot write into --dir ${target}: `),
+        `message names the resolved --dir: ${report?.message ?? "(none)"}`
+      );
+      assert.equal(report?.next, "check the --dir path is a writable directory");
+      assert.equal(captured.out(), "");
+      assert.doesNotMatch(captured.err(), /note: wrote/, "nothing was written, so nothing is claimed");
+      assert.equal(await readFile(blocker, "utf8"), "a regular file\n");
+    });
+  });
+
+  /**
+   * The disclosure the squat fixture cannot reach: the obstruction preflight
+   * now refuses that fixture before the loop, so the only way to fail the
+   * second write after the first has landed is the injection seam — the same
+   * arrangement migrate-legacy uses to drive its publish failures.
+   */
+  it("discloses the example it did write when the second write fails", async () => {
+    await withDir(async (dir) => {
+      const childrenPath = join(dir, CHILDREN_EXAMPLE_FILENAME);
+      const flowchartPath = join(dir, FLOWCHART_EXAMPLE_FILENAME);
+      const thrown = `EACCES: permission denied, open '${flowchartPath}'`;
+
+      const captured = capture();
+      const code = await initExamplesCommand(["--dir", dir], captured.io, {
+        writeFile: async (path, body) => {
+          if (path === flowchartPath) throw Object.assign(new Error(thrown), { code: "EACCES" });
+          await writeFile(path, body, "utf8");
+        }
+      });
+
+      assert.equal(code, 1);
+      assert.deepEqual(parseCliErrorJson(captured.err()), {
+        ok: false,
+        command: "init",
+        stage: "execute",
+        message: `cannot write into --dir ${dir}: ${thrown}`,
+        next: "check the --dir path is a writable directory"
+      });
+      assert.ok(
+        captured.err().startsWith(`note: wrote ${childrenPath} before the failure\n`),
+        `the work that happened is disclosed before the refusal: ${captured.err()}`
+      );
+      assert.equal(
+        captured.err().includes(flowchartPath + " before the failure"),
+        false,
+        "the target whose write rejected is never listed as written"
+      );
+
+      assert.equal(await readFile(childrenPath, "utf8"), CHILDREN_EXAMPLE_JSON);
+      assert.equal(existsSync(flowchartPath), false);
+      assert.equal(captured.out(), "");
+    });
+  });
+
+  it("claims nothing when the first write fails", async () => {
+    await withDir(async (dir) => {
+      const captured = capture();
+      const code = await initExamplesCommand(["--dir", dir], captured.io, {
+        writeFile: () => Promise.reject(Object.assign(new Error("EROFS: read-only file system"), { code: "EROFS" }))
+      });
+
+      assert.equal(code, 1);
+      assert.doesNotMatch(captured.err(), /note: wrote/, "an empty list is not printed");
+      assert.deepEqual(await readdir(dir), []);
+    });
   });
 });

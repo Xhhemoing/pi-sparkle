@@ -1,8 +1,7 @@
 // Wiring note for the parent: main.ts still has to import initExamplesCommand
 // from "./init-examples.js", add a `case "init":` to the command switch, and
 // add the `pi-sparkle init [--dir <path>] [--force] [--json]` line to USAGE.
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { cliFail, CLI_EXIT } from "./errors.js";
@@ -10,6 +9,20 @@ import { cliFail, CLI_EXIT } from "./errors.js";
 export interface InitExamplesIo {
   stdout(text: string): void;
   stderr(text: string): void;
+}
+
+/** Seam that lets the tests drive the write loop's failure paths portably. */
+export interface InitExamplesOptions {
+  /**
+   * Injection seam for the two example writes. Defaults to fs.writeFile.
+   *
+   * The obstruction preflight below refuses a non-regular target before the
+   * loop runs, so no on-disk fixture can fail the second write after the first
+   * one has already landed — which is exactly the state the partial-write
+   * disclosure exists for. This seam reaches it, the same way the
+   * migrate-legacy publish seams reach an interrupted publish.
+   */
+  readonly writeFile?: (path: string, body: string) => Promise<void>;
 }
 
 export const INIT_USAGE = `pi-sparkle init — write example specs you can run immediately
@@ -108,7 +121,11 @@ function isHelp(args: readonly string[]): boolean {
   return args.some((arg) => arg === "--help" || arg === "-h" || arg === "help");
 }
 
-export async function initExamplesCommand(args: string[], io: InitExamplesIo): Promise<number> {
+export async function initExamplesCommand(
+  args: string[],
+  io: InitExamplesIo,
+  options: InitExamplesOptions = {}
+): Promise<number> {
   if (isHelp(args)) {
     io.stdout(INIT_USAGE);
     return CLI_EXIT.ok;
@@ -132,13 +149,44 @@ export async function initExamplesCommand(args: string[], io: InitExamplesIo): P
     });
   }
 
+  // Omitting --dir selects the documented default, the current directory; an
+  // explicitly blank value is a malformed path, and resolving it would write
+  // the examples somewhere the operator never named (or, for " ", create a
+  // directory whose name splits in two when the next line is pasted).
+  if (values.dir !== undefined && values.dir.trim() === "") {
+    return cliFail(io, {
+      command: "init",
+      stage: "parse-args",
+      message: `invalid --dir "${values.dir}": directory must be a non-empty path`,
+      next: "pass --dir <path> or omit it to write into the current directory"
+    });
+  }
+
   const dir = resolve(values.dir ?? ".");
   const targets = EXAMPLE_FILES.map((file) => ({ ...file, path: resolve(dir, file.name) }));
 
   // Both targets are checked before anything is written: a partial write would
   // leave the operator with one fresh example next to one of their own files
-  // and no way to tell which is which.
-  const existing = targets.filter((target) => existsSync(target.path));
+  // and no way to tell which is which. lstat rather than existsSync so that a
+  // directory or symlink under a target name is judged here instead of
+  // throwing an errno out of the write loop with the other file already
+  // written. An lstat that fails for any other reason is left to the write
+  // loop, which reports the target directory as a whole.
+  const existing: { readonly path: string }[] = [];
+  for (const target of targets) {
+    const entry = await lstat(target.path).catch(() => undefined);
+    if (entry === undefined) continue;
+    if (!entry.isFile()) {
+      // --force overwrites a stale example, never something that is not one.
+      return cliFail(io, {
+        command: "init",
+        stage: "preflight",
+        message: `cannot write ${target.path}: it exists and is not a regular file`,
+        next: `move it aside; init writes ${CHILDREN_EXAMPLE_FILENAME} and ${FLOWCHART_EXAMPLE_FILENAME} as regular files, and --force only overwrites regular files`
+      });
+    }
+    existing.push(target);
+  }
   if (existing.length > 0 && values.force !== true) {
     const first = existing[0]!;
     return cliFail(io, {
@@ -149,9 +197,26 @@ export async function initExamplesCommand(args: string[], io: InitExamplesIo): P
     });
   }
 
-  await mkdir(dir, { recursive: true });
-  for (const target of targets) {
-    await writeFile(target.path, target.body, "utf8");
+  // A target joins `written` only once its own write has resolved, so the
+  // disclosure below can never claim the file that failed.
+  const writeExample = options.writeFile ?? ((path: string, body: string) => writeFile(path, body, "utf8"));
+  const written: string[] = [];
+  try {
+    await mkdir(dir, { recursive: true });
+    for (const target of targets) {
+      await writeExample(target.path, target.body);
+      written.push(target.path);
+    }
+  } catch (error) {
+    if (written.length > 0) {
+      io.stderr(`note: wrote ${written.join(", ")} before the failure\n`);
+    }
+    return cliFail(io, {
+      command: "init",
+      stage: "execute",
+      message: `cannot write into --dir ${dir}: ${error instanceof Error ? error.message : String(error)}`,
+      next: "check the --dir path is a writable directory"
+    });
   }
 
   const overwritten = existing.length > 0;
