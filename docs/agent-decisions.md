@@ -64,4 +64,4 @@ Fable-cli (Round 1): `validate` must not import `src/cli/main.ts` (dispatch cycl
 
 ## D6 — `init` verb (open)
 
-GPT-challenge: **REPLACE** the verb with static `examples/` only. Fable-map and Fable-cli: **KEEP** (packed install ships `dist` only; `package.json` `files[]` freeze forbids adding `examples/`). Resolve at Round 1 synthesis; do not wire `init` into `main.ts` until then.
+**KEEP the verb** (Round 1 synthesis). GPT-challenge preferred static `examples/` only. Fable-map and Fable-cli kept the verb because `package.json` `files[]` ships `dist` (plus skill/prompt trees) and forbids a drive-by `examples/` pack, so embedded constants only reach an installed binary through `init`. Repo `examples/` stays for checkout readers. Do not treat `init` as a project cookiecutter.

@@ -37,4 +37,18 @@ Dispatched 2026-08-25. Cloud new-VM cap is 3, so Round 1 mixed cloud VMs and loc
 | Opus-validate | claude-opus-5-thinking-high-fast | cloud VM | `bc-3ca9557e-81c9-5fe7-ae9e-1a1e3959128a` |
 | Opus-init | claude-opus-5-thinking-high-fast | local Task (no `main.ts`) | `bc-c618ad5b-5ff2-5e9f-acf8-97a8add58731` |
 
-Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/cli/main.ts` so they cannot clobber each other; parent wires after they land. Cloud Opus-validate owns the `validate` extract of `parseChildSpec`.
+Deviation from 5/3/2: none. Local implementers were forbidden from editing `src/cli/main.ts` so they cannot clobber each other. Cloud Opus-validate landed `validate` + `parseChildSpec` extract (merged). Opus-wire is dispatching `list`/`init`.
+
+## ROUND 1 (closeout)
+
+| Field | Value |
+|---|---|
+| 检查模块 | CLI, runtime journeys, adaptation product UX, persist/privacy, frozen contracts, feature map |
+| 发现问题 | No run catalog; no no-write spec check; no flowchart example; `--track` wait is a dead end; adapt promote unusable without dumped blobs; delete lock-timeout docs overclaim “removes nothing”; `unblock` missing from README; `adapt eval`/`rollback` hidden |
+| 解决问题 | `validate` shipped and dispatched. `list`/`init` modules tested; dispatcher in flight. README documents `unblock`/`list`/`validate`/`init`/`adapt eval`. D6 KEEP `init` |
+| 测试结果 | list 19 pass; validate 9 pass ×3 + broader CLI suites on the cloud VM; init unit tests present |
+| Commit | merge validate; list module; init preserved; reports under `.agent_workspace/loop5-r1-*` |
+| PR | https://github.com/Xhhemoing/pi-sparkle/pull/13 |
+| Merge 状态 | open (draft) |
+| Blocked | P0 human sign-off; Checkpoint F-PROD; PR #12 not duplicated (`inspect --follow`, `--max-cost-usd`) |
+| 下一轮重点 | Dispatch `list`/`init`; track-clarification continuation; `adapt show --candidate` + dataset export; delete-disclosure honesty; USAGE discoverability |
