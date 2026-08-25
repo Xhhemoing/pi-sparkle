@@ -2,13 +2,13 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–18 已对各区做过十八遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S18-* 条目（含已合入的 S13-B-1 与 R12–R18 全部空枚举收口，含刚合入的 R18-A … R18-J / R19-A / R19-B / R19-C / R19-D / R19-E / R19-F / R19-G / R19-H / R19-I）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE**。
+Round 1–18 已对各区做过十八遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S18-* 条目（含已合入的 S13-B-1 与 R12–R18 全部空枚举收口，含刚合入的 R18-A … R18-J / R19-A … R19-J）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE**。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R19-A … R19-J），报告写入 `docs/reports/sota-opt/round-19/`。
 
-状态：第 4 波 J 运行中。A–I 已合入（空枚举）。第 20 轮进行中，见 [round-20/PLAN.md](../round-20/PLAN.md)。
+状态：完成 10/10。A–J 全部合入（空枚举）。无新落地。第 20 轮进行中，见 [round-20/PLAN.md](../round-20/PLAN.md)。
 
 A 切片已合入：空枚举，未铸 S19-A-*。切片 `git diff 7acb666..HEAD` 为空（十九遍零 diff）。预算复核 66–75 µs/run（13.2–15.1 µs/gate，与 R18-A 64–74 同带）。本轮新增 at-least-once 重投递面（GATE_TRANSITION 2926–2959 ns / TRACKING_ASSESSMENT 2834–2882 ns；仓内三调用方均不可达，重投递只降价）与 `wait_user` 指令类补全（7.85–8.57 µs，与 queue_analysis 同带）。R18-A skip-path / 拒绝终点与 R17-A / R16-A / R15-A / R14-A 轴不补铸。基线 `7acb666` 空 diff 再确认。
 
@@ -28,4 +28,4 @@ H 切片已合入：空枚举，未铸 S19-H-*。切片 `git diff fd437a9..HEAD`
 
 I 切片已合入：空枚举，未铸 S19-I-*（十一连空）。切片 `git diff 8dee7fb..HEAD` 为空（连续第十二轮字节不变）。custom−builtin 复核 children +47.6/+26.4、track +48.4/+23.9 ms（十二轮同构）。S8-I-1 重开条件第七次直接测量仍未满足。本轮新增配置输入基数轴（E×P×K；parse 全网格亚 ms；resolve ~0.065–0.075 ms/enabled，10 ms 越线 E≈130–160；生产个位数）。R18-I children-spec 基数与 R17-I / R16-I / R15-I / R14-I / R13-I 轴不补铸。基线 `8dee7fb` 空 diff 再确认。
 
-J 切片 = 29 文件：`src/cluster/` 3 + `src/privacy/` 3 + `src/preferences/` 7 + `src/episode/` 5 + `src/persist/` 2 + `src/track/` 4 + `src/context/` 2 + `src/feedback/` 3。必须站在已落地 J1。S5-J-3 / S6-J-1 / S8-J-2 / J1 钉死。禁止去 fsync。R11-J…R18-J 空枚举、未铸 ID。R18-J skip-path 普查与整命令事务组成账目不补铸。R17-J fail-closed 拒绝路径普查与冷进程预算不补铸。R16-J SYSCENSUS-J 与 payload 字节形态轴不补铸。R15-J A/A 与引擎代、R14-J 规模越线不补铸。R18-G BYTESHAPE / R19-G **NAMESHAPE** 不要移植到 J。若落地代码：重跑 J1 仿真（2468）+ 新 r19j 仿真。基线 `fb41417` 预期空 diff。运行中。
+J 切片已合入：空枚举，未铸 S19-J-*。切片 `git diff fb41417..HEAD` 为空（J1 以来十八遍零后续代码）。I/O 地板复核 save 137.1–555.5 µs；jsonl 66.2–101.2 / 353.4–479.8 µs；级联 664.2–987.4 / 284.6–375.7 µs；index 40.3–40.7 µs；plan 1.03–2.71 µs（I/O 支配第十九次成立）。J1 仿真 2468 项绿。本轮新增至少一次重投递/重复剂量（deleteEpisodeRecords 再执行 778.3–1164.5 µs；appendFeedback 去重反事实 ~3.4×）与输入次序置换（cascade 无位置悬崖；evaluatePreferenceLoop ~2.3× 但零生产调用方）。S5-J-3 / S6-J-1 / S8-J-2 / J1 原样。R18-J skip-path / 命令组合与 R17-J / R16-J / R15-J / R14-J 轴不补铸。基线 `fb41417` 空 diff 再确认。
