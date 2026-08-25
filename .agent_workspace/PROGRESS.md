@@ -263,9 +263,9 @@ Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th cr
 
 **Parent gate GREEN** at `2767321`: **1938 tests / 1937 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **10 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r11-review.md`. Two parent joints (`6926592`, `df2c395`) and one 20-second red-tree window at `6096da6`, counted. Residual closed into Round 12: `taskCriteria` writer + early run-id (same slot — `flowchart-run.ts` contention).
 
-## Round 12 — in flight
+## Round 12 — CLOSED
 
-10 slots from `.agent_workspace/ROUND11-BRIEF.md` (four real candidates; R12-1 absorbs brief R12-1+R12-2 because they share `flowchart-run.ts`). Stay on `agent/opt-continuous`. Parent sign-off: R12-1 **YES** `taskCriteria` writer+reader (semantic approved); R12-1 **YES** early run-id disclosure in the same diff (stop-and-report that half if disproportionate).
+10 slots from `.agent_workspace/ROUND11-BRIEF.md` (four real candidates; R12-1 absorbs brief R12-1+R12-2 because they share `flowchart-run.ts`). Stay on `agent/opt-continuous`. Parent sign-off: R12-1 **YES** `taskCriteria` writer+reader (semantic approved); R12-1 **YES** early run-id disclosure in the same diff.
 
 | Slot | Agent | Focus |
 |---|---|---|
@@ -280,7 +280,7 @@ Landed: R11-1 `6096da6` option (a) per-criterion gating; R11-2 `db38b21` 11th cr
 | R12-9 | bc-b03d3f9a-d0aa-5194-85c0-15cfef2a6d07 | keep `TERMINAL_REPLAY_STATUSES` freeze |
 | R12-10 | bc-0551ba4d-479f-5f00-9bb5-6d9e2e29a23b | keep writer-carriage `contract` property |
 
-Landed: R12-2 `95a2b25` `flowchart-run` cannot read `independentEvidence`; R12-3 `b8f784f` `unmet-acceptance-criterion` whole-run reachability; R12-4 `d1b451c` Round 11 docs truth-up; R12-5 report-only `applyRetry` absence already covers R12-1's in-flight identifiers; R12-6 report-only episode never-synthesize already covers `taskCriteria`; R12-7 report-only routes / inspect / BLOCKED prefix; R12-9 `b65a8b1` exact `RunStatus` vocabulary; R12-10 `d592f8c` writer-carriage property (`contract` required; `taskCriteria` only once a payload mentions it). Held: R12-10 successor vacuity guard until R12-1 lands a writer.
+Landed: R12-1 `81f5b81` `taskCriteria` writer+reader + `onRunStarted` (folded joint in `flowchart-run-abort.test.ts`); R12-2 `95a2b25`; R12-3 `b8f784f`; R12-4 `d1b451c`; R12-5/6/7/8 report-only; R12-9 `b65a8b1`; R12-10 `d592f8c` + successor `0e61063`. Stale Round 11 "no writer" source docstrings in `replay.ts`/`prescore.ts` prescribed, not parent-edited. Parent gate next.
 
 ---
 
