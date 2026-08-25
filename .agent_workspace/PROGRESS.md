@@ -318,13 +318,17 @@ Landed: R14-2 `25a3c2f` then R14-1 `a1ea5f2` (source-truth before docs). No PROG
 
 **Parent gate GREEN** at `3b39353`: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review: **2 ACCEPT, 0 nits, 0 ROLLBACK** at `.agent_workspace/loop4-r14-review.md`. Zero joints, zero red-tree points, both Round 13 process nits fixed. Brief: `.agent_workspace/ROUND14-BRIEF.md`. Loop is prose-saturated; freeze extras not re-dispatched.
 
-## Round 15 — in flight
+## Round 15 — CLOSED (parent gate GREEN; fable in flight)
 
 Sole landing from `.agent_workspace/ROUND14-BRIEF.md` (zero code candidates; docs truth-up valid only alone). Stay on `agent/opt-continuous`. ADR-006 stays Proposed. Landing commits are slot files + report only (no PROGRESS ticks).
 
 | Slot | Agent | Focus |
 |---|---|---|
 | R15-1 | bc-572d2b10-e026-54f4-983d-2beeb4a8a862 | terminate census-note treadmill (docs only) |
+
+Landed: R15-1 `5d7c0d6` (sole landing; no sibling).
+
+**Parent gate GREEN** at this write-up: **1951 tests / 1950 pass / 0 fail / 1 skipped** (`PI_SMOKE` only). Crash-probe **11 cases × 3**, `ok: true`. Fable SOTA review in flight.
 
 ---
 
