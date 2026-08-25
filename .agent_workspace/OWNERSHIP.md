@@ -1,4 +1,10 @@
-# File ownership — Loop 4 Round 21 (`cursor/opt-r18-postmerge-42b1`)
+# File ownership — Loop 4 Round 22 (`cursor/opt-r22-42b1`)
+
+Honesty plane at `80eb0bd` is saturated (R19/R21 zero-slot). User asked to continue per project requirements. Parent unparks closeout §3(i) capability work — **do not invent honesty holes**. Fable audit in flight; landings wait on `.agent_workspace/ROUND22-BRIEF.md` §4.
+
+Parent owns `.agent_workspace/PROGRESS.md`. Subagents never git commit. **Stay on branch `cursor/opt-r22-42b1`. Do not `git checkout` another branch.**
+
+# File ownership — Loop 4 Round 21 (closed, zero-slot)
 
 Round 20 CLOSED (2 ACCEPT). Round 21 is a recorded **zero-slot** round — `.agent_workspace/ROUND21-BRIEF.md` §4 has no candidates. Do not pad. Do not dispatch landings until a brief §4 reason exists (new seam / reproduced gap / gate-or-probe red / stale surface).
 

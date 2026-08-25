@@ -398,6 +398,12 @@ Landed: R20-2 `57ade59` optional `steerText` target (startRun passes root instan
 
 `.agent_workspace/ROUND21-BRIEF.md` §4: **no proven candidates**. Every R20 residual was judged not an honesty hole. Dispatching landings without a new seam, a reproduced behavioural gap, a red gate/probe, or a stale recorded surface would be padding. Recorded as a valid zero-slot round. Do not pad. Do not freeze extras.
 
+## Round 22 — in flight (capability, not honesty-hole padding)
+
+User continuation after PR #10 merge (`80eb0bd`). Honesty plane remains saturated. Parent product sign-off (see fable prompt / ROUND22-BRIEF): lift `docs/kernel-reuse.md` freeze for truth-up; CLI run-level `--max-cost-usd` + `onCostGate` visibility; flowchart `ChildCoordinator` must receive that cap the same way `startParentRun` already does. No live R1 / ADR-006 / spend ledger / 12th probe. Do not pad to 10.
+
+Branch: `cursor/opt-r22-42b1`. Fable audit dispatched.
+
 ---
 
 # Loop 3 — SOTA follow-on (2026-08-24)
