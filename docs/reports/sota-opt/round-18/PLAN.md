@@ -2,23 +2,23 @@
 
 模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
 
-Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-J / R18-A）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
+Round 1–17 已对各区做过十七遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S17-* 条目（含已合入的 S13-B-1 与 R12–R17 全部空枚举收口，含刚合入的 R17-A … R17-J / R18-A / R18-B）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
 
 R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
 
 分区与 Round 1 相同（R18-A … R18-J），报告写入 `docs/reports/sota-opt/round-18/`。
 
-状态：第 2 波 D 本波派出；B/C 运行中。A 已合入（空枚举）。Round 17 已收口 10/10。
+状态：第 2 波 E 本波派出；C/D 运行中。A/B 已合入（空枚举）。Round 17 已收口 10/10。
 
 A 切片已合入：空枚举，未铸 S18-A-*。切片 `git diff 7acb666..HEAD` 为空（十八遍零 diff）。预算复核 64–74 µs/run（12.7–14.8 µs/gate，与 R17-A 65–74 同带）。本轮新增 skip-path 组成定价（五类 apply:false 272–1712 ns，全 apply 锚点即上界）与 fail-closed 拒绝终点普查（28 抛点；代表拒绝 8.9–13.3 µs once-per-fault）。R17-A 事件表组成 / 冷进程预算与 R16-A / R15-A / R14-A 轴不补铸。基线 `7acb666` 空 diff 再确认。
 
-B 切片 = live 路由：`src/routing/{r0,assign,assign-plan,policy,live-cascade,live-selection,analyze-task,primary-catalog,catalog-model}.ts` + `src/supervisor/model-router.ts`（10 文件）。不要重开 S12-B-2（条件式落地：N≥10³ 且调用方传 `prior`）/ S13-B-1（本体成本 ≥2 个量级；|avoid|≈965–1,063 生产写入方不可达）。R13-B…R17-B 空枚举或仅淘汰 ID。天花板复核 R17-B：M=2 9.1–11.4 / M=10 19.0–23.8 ms/eval。R17-B 拒绝/异常路径定价与逐任务尾部分布不补铸。R16-B 剖析站点预算与语料基底、R15-B A/A 与引擎代轴不补铸。Live = R0。基线 `94ed3d9` 预期空 diff。
+B 切片已合入：空枚举，未铸 S18-B-*。切片 `git diff 94ed3d9..HEAD` 为空。天花板复核 M=2 8.9–9.4 / M=10 18.3–18.5 / replay 6.96–7.12 / 10× 94.8–105.0 ms/eval（细粒度 live face 47.5–49.2 µs）。本轮新增语料字宽 + CJK 种群（M=10 全 CJK 15.5–16.7 ms，低于 ASCII 锚点）与有限 `RoutingLimits` 配置态（十七轮预算/截止分支零执行；假设 N=2000 双压 29.05–30.38 ms 但生产流量为零）。S12-B-2 / S13-B-1 重开条件未触发。R17-B 拒绝路径 / 尾部分布与 R16-B / R15-B 轴不补铸。Live = R0。基线 `94ed3d9` 空 diff 再确认。
 
 C 切片 = 离线路由 9 文件：`src/routing/{r1,r1-shadow-report,posterior,offline-logit,offline-prob-add,propensity,lin-alg,bandit,shadow}.ts`。必须站在已落地 S1-C / S2-C / S3-C / S4-C / S5-C / S6-C / S7-C。不要另起平行 S7-C。R11-C…R17-C 空枚举、未铸 ID。生产中位 R17-C：657.6–689.3 ms/报告（本机 659.9–662.8）；落地线 ±35 ms。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / NSQRT / PMV / OSTZ 与 R13–R16 无名微观。若落地代码：重跑 r1c–r7c（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）+ 新 r18c 仿真。基线 `183df9b` 预期空 diff。
 
-D 切片 = `src/adaptation/`（14 文件）。不要重开 S9-D-4（廉价 `toLowerCase` 在 U+212A fail-open）/ S12-D-1（同族）。R10-D…R17-D 空枚举或已关 ID。eval 地板 R17-D：3.57–4.00 ms。R17-D fail-closed 拒绝路径普查（28 终点）不补铸。R16-D payload 形态轴（L/H/O/σ/P）与 R14-D / R15-D 轴不补铸。基线 `82bef36` 预期空 diff。本波派出。
+D 切片 = `src/adaptation/`（14 文件）。不要重开 S9-D-4（廉价 `toLowerCase` 在 U+212A fail-open）/ S12-D-1（同族）。R10-D…R17-D 空枚举或已关 ID。eval 地板 R17-D：3.57–4.00 ms。R17-D fail-closed 拒绝路径普查（28 终点）不补铸。R16-D payload 形态轴（L/H/O/σ/P）与 R14-D / R15-D 轴不补铸。基线 `82bef36` 预期空 diff。
 
-E 切片 = `src/learning/`（10 文件）。不要重开 S8-E-1（勿去重 `loadLearnedRouting`）/ S9-E-2（负优化）/ S13-B-1。R10-E…R17-E 空枚举、未铸 ID。SLICE-CPU R17-E：18.5–20.2 µs/run。R17-E 拒绝路径定价与逐事件类价表不补铸。R16-E 累积状态轴与 payload 形态轴不补铸。S13-B-1 重开条件已量化为 |avoid|≈965–1,063，生产写入方不可达。R13–R16 轴不补铸。基线 `adb20d7` 预期空 diff。
+E 切片 = `src/learning/`（10 文件）。不要重开 S8-E-1（勿去重 `loadLearnedRouting`）/ S9-E-2（负优化）/ S13-B-1。R10-E…R17-E 空枚举、未铸 ID。SLICE-CPU R17-E：18.5–20.2 µs/run。R17-E 拒绝路径定价与逐事件类价表不补铸。R16-E 累积状态轴与 payload 形态轴不补铸。S13-B-1 重开条件已量化为 |avoid|≈965–1,063，生产写入方不可达。R13–R16 轴不补铸。基线 `adb20d7` 预期空 diff。本波派出。
 
 F 切片 = `src/experiments/`（15 文件）。必须站在已落地 S1-F / S5-F / S6-F-1 / S7-F-1 / S7-F-2。**S7-F-1 不是 S6-F-5**。不要重开 S1-F-1..8 / S5-F-* / S6-F-* / S7-F-1..2 / S8-F-* / S9-F-3。R10-F…R17-F 空枚举、未铸 ID。全实验锚点 R17-F：120.5–129.6 ms。R17-F 拒绝路径 / 冷进程 / 操作粒度尾部轴不补铸。R16-F 剖析归属 / A 越线点 / 编码格与 R14-F / R15-F 轴不补铸。若落地代码：重跑 r1f/r5f/r6f/r7f（2668 / 224 / 27 / 169）+ 新 r18f 仿真。基线 `519101f` 预期空 diff。
 
