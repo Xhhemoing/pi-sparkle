@@ -43,12 +43,20 @@ interface WrittenEvalReport {
   readonly candidateId: string;
   readonly contentHash: string;
   readonly evidenceClass: string;
+  readonly qualityEvidence: string;
+  readonly actionDiff: readonly {
+    readonly episodeHash: string;
+    readonly baselineModel: string;
+    readonly candidateModel: string;
+    readonly costDeltaUsd: number;
+  }[];
   readonly cacheKey: string;
   readonly rerunHash: string;
   readonly comparison: {
     readonly claims: readonly string[];
     readonly evidenceClass: string;
     readonly canCloseProductionCheckpointF: boolean;
+    readonly utilityDelta: { readonly mean: number };
   };
 }
 
@@ -102,6 +110,7 @@ test("adapt status describes the proposal-first plane", async () => {
   assert.match(out.join(""), /cannot rewrite policy/);
   assert.match(out.join(""), /shadow-only/);
   assert.match(out.join(""), /propose/);
+  assert.match(out.join(""), /qualityEvidence is none-by-construction/);
   assert.doesNotMatch(out.join(""), /may auto-promote/);
 });
 
@@ -412,12 +421,28 @@ test("adapt eval writes a report path, does not promote, and is deterministic", 
   );
   assert.equal(firstCode, 0, first.err.join(""));
   assert.deepEqual(first.err, []);
-  const reportPath = first.out.join("").trim();
+  // First stdout line is the report path; honest evidence copy follows.
+  const firstText = first.out.join("");
+  const reportPath = (firstText.split("\n")[0] ?? "").trim();
   assert.match(reportPath, /adaptation[\\/]evals/);
+  assert.match(firstText, /quality evidence: none-by-construction/);
+  assert.match(firstText, /utilityDelta is 0 by construction/);
+  assert.match(firstText, /action diff: 2 episode\(s\)/);
+  // avoid-cheap-edit reroutes edit episodes to the pricier primary: warn, allow.
+  assert.match(firstText, /warning: cost delta upper bound .* promotion stays allowed/);
   const written = JSON.parse(await readFile(reportPath, "utf8")) as WrittenEvalReport;
   assert.equal(written.candidateId, candidate.candidateId);
   assert.equal(written.contentHash, candidate.contentHash);
   assert.equal(written.evidenceClass, "replay");
+  assert.equal(written.qualityEvidence, "none-by-construction");
+  // utilityDelta 0 is a construction artifact, not observed quality parity.
+  assert.equal(written.comparison.utilityDelta.mean, 0);
+  assert.equal(written.actionDiff.length, 2);
+  for (const row of written.actionDiff) {
+    assert.equal(row.baselineModel, "cheap");
+    assert.equal(row.candidateModel, "premium");
+    assert.ok(row.costDeltaUsd > 0);
+  }
   assert.equal(written.comparison.evidenceClass, "simulation");
   assert.equal(written.comparison.canCloseProductionCheckpointF, false);
   assert.ok(written.cacheKey.length > 0);
@@ -441,7 +466,7 @@ test("adapt eval writes a report path, does not promote, and is deterministic", 
     second.io
   );
   assert.equal(secondCode, 0, second.err.join(""));
-  const secondPath = second.out.join("").trim();
+  const secondPath = (second.out.join("").split("\n")[0] ?? "").trim();
   const secondReport = JSON.parse(await readFile(secondPath, "utf8")) as WrittenEvalReport;
   assert.equal(secondReport.cacheKey, written.cacheKey);
   assert.equal(secondReport.rerunHash, written.rerunHash);
@@ -639,7 +664,7 @@ test("adapt promote --approve for routing-policy with a qualifying --eval-file s
     evalCapture.io
   );
   assert.equal(evalCode, 0, evalCapture.err.join(""));
-  const evalFile = evalCapture.out.join("").trim();
+  const evalFile = (evalCapture.out.join("").split("\n")[0] ?? "").trim();
   const contentPath = join(dir, "policy.json");
   await writeFile(contentPath, seeded.content, "utf8");
   const reviewPath = await writeReview(dir, "alice", seeded.candidateId, seeded.content, {

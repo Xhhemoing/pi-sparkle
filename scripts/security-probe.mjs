@@ -3,8 +3,8 @@
  * security-probe — RELEASE GATE (run against the built dist/, not src).
  *
  * Fails the prerelease flow while any security finding below is open.
- * A finding may be time-boxed waived via SECURITY_WAIVER="id1,id2"
- * (see docs/specs/release-gate.md for the waiver register).
+ * A finding other than packaged-secrets may be time-boxed waived via
+ * SECURITY_WAIVER="id1,id2" (see docs/specs/release-gate.md).
  *
  * Probes:
  *   pii-redaction   PII must be REMOVED from feedback bodies, not just labeled
@@ -154,8 +154,10 @@ try {
 }
 
 // --- waiver accounting ------------------------------------------------------
-const effective = failures.filter((f) => !waivers.has(f.probe));
-const waived = failures.filter((f) => waivers.has(f.probe));
+// docs/specs/release-gate.md rule 3: packaged artifact credentials are never waivable.
+const isWaived = (finding) => finding.probe !== "packaged-secrets" && waivers.has(finding.probe);
+const effective = failures.filter((finding) => !isWaived(finding));
+const waived = failures.filter(isWaived);
 
 process.stdout.write(
   `${JSON.stringify(

@@ -763,6 +763,9 @@ function evalReportFor(
     stages: ["static", "replay"],
     comparison,
     evidenceClass,
+    qualityEvidence: "none-by-construction",
+    qualityEvidenceNote: "fixture: utilityDelta is 0 by construction",
+    actionDiff: [],
     environmentVersion: "env-test-1",
     evaluatorVersion: "routing-eval-v1",
     rerunHash: "rr-test"

@@ -106,6 +106,7 @@ async function statusCommand(stateRoot: string, io: AdaptIo): Promise<number> {
   io.stdout("  R1/bandit remain shadow-only until Checkpoint F holdout policy is approved.\n");
   io.stdout("  After each --track/--children run, auto-loop collects user + subagent feedback and may propose a routing-policy candidate.\n");
   io.stdout("  adapt auto never CAS-promotes; SPARKLE_AUTO_ADAPT=0 still collects. Use adapt promote --approve.\n");
+  io.stdout("  adapt eval replays frozen episodes for cost and action-diff evidence only; qualityEvidence is none-by-construction (utilityDelta 0).\n");
   io.stdout("  CAS promotion exists and remains proposal-first; rollback is wired (automatic on guardrail).\n");
   try {
     const registry = await loadAdaptationRegistry(stateRoot);
@@ -145,7 +146,30 @@ async function evalCommand(
       candidateId: values.candidate,
       datasetDir: values.dataset
     });
+    const { report } = result;
     io.stdout(`${result.reportPath}\n`);
+    io.stdout(
+      `  quality evidence: ${report.qualityEvidence} — utilityDelta is 0 by construction (both arms replay the recorded outcome)\n`
+    );
+    io.stdout(
+      `  action diff: ${report.actionDiff.length} episode(s) route to a different model under the candidate\n`
+    );
+    for (const row of report.actionDiff.slice(0, 10)) {
+      const sign = row.costDeltaUsd >= 0 ? "+" : "";
+      io.stdout(
+        `    ${row.episodeHash} [${row.taskFamily}/${row.taskSuccess}] ${row.baselineModel} -> ${row.candidateModel} costDelta=${sign}${row.costDeltaUsd.toFixed(4)} USD\n`
+      );
+    }
+    if (report.actionDiff.length > 10) {
+      io.stdout(`    ... ${report.actionDiff.length - 10} more in the report file\n`);
+    }
+    const costUpper =
+      report.comparison.costDelta.confidenceInterval?.upper ?? report.comparison.costDelta.mean;
+    if (costUpper > 0) {
+      io.stdout(
+        `  warning: cost delta upper bound ${costUpper.toFixed(4)} USD is positive; promotion stays allowed but review the cost impact\n`
+      );
+    }
     return 0;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

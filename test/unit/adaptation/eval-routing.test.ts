@@ -160,6 +160,16 @@ test("eval cannot emit an improvement claim without a passing comparison validat
   assert.equal(report.comparison.evidenceClass, "simulation");
   assert.equal(report.comparison.canCloseProductionCheckpointF, false);
   assert.deepEqual([...report.stages], ["static", "replay"]);
+  // Honesty by construction: both arms replay the recorded outcome, so the
+  // report must say it carries no quality evidence and utilityDelta is 0.
+  assert.equal(report.qualityEvidence, "none-by-construction");
+  assert.match(report.qualityEvidenceNote, /0 by construction/);
+  assert.equal(report.comparison.utilityDelta.mean, 0);
+  assert.ok(report.actionDiff.length >= 1, "avoid-cheap-edit must reroute edit episodes");
+  for (const row of report.actionDiff) {
+    assert.notEqual(row.baselineModel, row.candidateModel);
+    assert.equal(typeof row.costDeltaUsd, "number");
+  }
   assert.equal(report.comparison.utilityDelta.provisional, true);
   assert.ok(
     !report.comparison.claims.some((claim) => IMPROVE.test(claim)),

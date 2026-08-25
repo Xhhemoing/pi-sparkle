@@ -43,6 +43,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Security probe
+        run: pnpm security:probe
+
   cli-smoke:
     strategy:
       matrix:

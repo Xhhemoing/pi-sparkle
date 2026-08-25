@@ -47,7 +47,12 @@ import {
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
-import { buildInspectSummaryJson, inspectRun } from "../run/inspection.js";
+import {
+  buildInspectSummaryJson,
+  followRunEvents,
+  inspectRun,
+  FOLLOW_STOP_STATUSES
+} from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -255,7 +260,13 @@ function packageVersion(): string {
   return parsed.version;
 }
 
-const USAGE = `pi-sparkle — project-development multi-agent runtime (developer preview)
+/**
+ * The usage block, exported so the docs-parity test can hold it against the
+ * dispatch switch and the README command table instead of re-deriving it from
+ * source text. Adding a verb without a line here (or a README row) fails
+ * `test/unit/cli/readme-command-parity.test.ts`.
+ */
+export const USAGE = `pi-sparkle — project-development multi-agent runtime (developer preview)
 
 Usage:
   pi-sparkle --version
@@ -266,6 +277,7 @@ Usage:
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
+  pi-sparkle inspect --run <runId> --follow [--json] [--idle-timeout-ms <ms>] [--state-root <dir>]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
@@ -316,10 +328,9 @@ file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 primary-owned split (planner on --primary-model, then scout → implement →
 review → test), compiles that plan into the flowchart supervisor, grounds each
 child with a bounded context packet and predecessor artifacts, assigns catalog
-models, and executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4 per parent).
-predecessor artifacts, assigns other catalog models from --primary-model
-(default premium / PI_MODEL) plus an optional cheaper --fast-model, executes
-with peer mail, scores three-line tracking on child TASK_RESULT facts when
+models from --primary-model (default premium / PI_MODEL) plus an optional
+cheaper --fast-model, executes a bounded cluster (peer mail, spawn depth ≤ 2 /
+4 per parent), scores three-line tracking on child TASK_RESULT facts when
 verification is PASSED or FAILED, then runs the automatic adaptation loop
 (collect feedback, diagnose model/project issues, propose a routing-policy
 candidate; never CAS-promotes. SPARKLE_AUTO_ADAPT=0 still collects). --public-prior loads a hashed frozen
@@ -364,6 +375,21 @@ inspect --episode prints the latest bound episode snapshot (inspect --run also
 prints the episode id when a run is attached). inspect --run --json stays a pure
 event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
 object with the status and the evidence the latest stall/block asked for.
+inspect --run --follow tails events.jsonl read-only — no lock, no writer, no
+daemon — printing each event as it lands and skipping a partially written last
+line until it completes. It stops and exits 0 as soon as the replayed status is
+COMPLETED, FAILED, CANCELLED, BLOCKED, WAITING_FOR_USER or PAUSED: the first
+three are terminal, the last three need an operator and would otherwise hang.
+Exit 0 means the log stopped, not that the run succeeded. By default there is
+no deadline: a RUNNING log left behind by a killed process is followed until
+Ctrl-C, because "no event for N seconds" is also what a slow provider call
+looks like. --idle-timeout-ms <ms> opts into one — follow gives up after that
+many milliseconds in which nothing was appended (idle, not total: every event
+restarts it) and exits 1 with the status it was still in, so a log nobody is
+writing to is never reported as a run that stopped. It requires --follow.
+--json --follow keeps stdout a pure event stream and puts the closing
+status on stderr. --follow is incompatible with --summary-json and unavailable
+for --episode.
 episode close/events provide the acceptance-gated closure and event views.
 adapt collects user and subagent
 feedback automatically after --track/--children; routing-policy candidates stay
@@ -1221,6 +1247,112 @@ async function inspectEpisode(stateRoot: string, rawId: string, json: boolean, i
   return 0;
 }
 
+/**
+ * One prose line per followed event: when it happened, what it was, and which
+ * task it belonged to when it had one. Deliberately not the payload — follow is
+ * a progress surface, and `inspect --run --json` remains the way to read an
+ * event in full.
+ */
+export function formatFollowEventLine(event: Event): string {
+  const task = event.taskId === undefined ? "" : ` ${event.taskId}`;
+  return `  ${event.occurredAt} ${event.type}${task}\n`;
+}
+
+/**
+ * `inspect --run --follow`: tail the log until it stops, then report where.
+ *
+ * The exit code is 0 for every state follow stops in, including FAILED. That
+ * is not a swallowed failure — follow is an observer that attached to a log it
+ * did not start, and the run's own exit code already reported its outcome to
+ * whoever ran it. Making the observer non-zero on FAILED would mean a script
+ * that tails a run it does not own cannot tell "I could not follow" from "the
+ * run I watched failed", so the status is printed and the exit code is
+ * reserved for follow's own failures (a log that disappeared underneath it).
+ */
+async function followInspect(
+  stateRoot: string,
+  runId: RunId,
+  json: boolean,
+  idleTimeoutMs: number | undefined,
+  io: CliIo
+): Promise<number> {
+  if (!json) {
+    io.stdout(`Run ${runId}: following events.jsonl (read-only; Ctrl-C to stop)\n`);
+    io.stdout(`  stops at: ${FOLLOW_STOP_STATUSES.join(", ")}\n`);
+    if (idleTimeoutMs !== undefined) {
+      io.stdout(`  gives up after: ${idleTimeoutMs}ms with no new event\n`);
+    }
+  }
+  const result = await followRunEvents(
+    stateRoot,
+    runId,
+    (events) => {
+      for (const event of events) {
+        io.stdout(json ? `${JSON.stringify(event)}\n` : formatFollowEventLine(event));
+      }
+    },
+    idleTimeoutMs === undefined ? {} : { idleTimeoutMs }
+  );
+  if (result.stopReason === "log-vanished") {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "follow",
+      message: `Run ${runId} event log disappeared while following it (deleted or truncated under ${stateRoot})`,
+      next: `check --state-root and pnpm cli doctor --state-root ${stateRoot}`,
+      runId
+    });
+  }
+  // Only a tail still incomplete when following stopped is worth a word: a
+  // partial last line during an append is the normal shape of a live log, and
+  // warning on every poll would turn that into noise. On an idle timeout it is
+  // more than noise: a last line the writer never finished is the clearest
+  // evidence of the killed process the deadline just caught.
+  warnTruncatedJsonl(io, result.recovery, "event log");
+  if (result.stopReason === "idle-timeout") {
+    // Non-zero, unlike every status stop: the run did not reach a state, the
+    // follower ran out of patience, and a script that cannot tell those apart
+    // would read a killed run's log as a run that ended.
+    return cliFail(io, {
+      command: "inspect",
+      stage: "follow",
+      message: `Run ${runId} appended no event for ${idleTimeoutMs}ms and is still ${result.status} (${result.emitted} events); follow gave up without a stopping status`,
+      next: `pnpm cli doctor --state-root ${stateRoot} lists crash candidates; re-follow without --idle-timeout-ms to keep waiting`,
+      runId
+    });
+  }
+  const line = `Run ${runId}: ${result.status} (${result.emitted} events, follow stopped)\n`;
+  if (json) io.stderr(line);
+  else io.stdout(line);
+  return 0;
+}
+
+/**
+ * Upper bound on `--idle-timeout-ms`, in milliseconds (24 hours), matching the
+ * ceiling `--lock-wait-ms` puts on the other flag an operator can use to wait
+ * out a long run. Same purpose: a typo with an extra digit is refused at parse
+ * time instead of presenting as a CLI that hung.
+ */
+const MAX_FOLLOW_IDLE_TIMEOUT_MS = 86_400_000;
+
+/**
+ * `--idle-timeout-ms` as a number, or undefined for the default: no deadline.
+ *
+ * Only whole decimal milliseconds above zero, for the reason `--lock-wait-ms`
+ * gives — `Number` would also accept `1e4`, `0x10` and ` 5 `. Zero is refused
+ * rather than read as "never wait" or "wait forever": both are plausible
+ * readings of the same digit, and neither is worth guessing at.
+ */
+function followIdleTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_FOLLOW_IDLE_TIMEOUT_MS) {
+    throw new DomainValidationError(
+      `--idle-timeout-ms must be a whole number of milliseconds between 1 and ${MAX_FOLLOW_IDLE_TIMEOUT_MS}, got: ${raw}`
+    );
+  }
+  return value;
+}
+
 async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -1229,7 +1361,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       episode: { type: "string" },
       "state-root": { type: "string" },
       json: { type: "boolean", default: false },
-      "summary-json": { type: "boolean", default: false }
+      "summary-json": { type: "boolean", default: false },
+      follow: { type: "boolean", default: false },
+      "idle-timeout-ms": { type: "string" }
     }
   });
   if (values.run !== undefined && values.episode !== undefined) {
@@ -1249,6 +1383,26 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --json for the event stream or --summary-json for one summary object"
     });
   }
+  const follow = values.follow === true;
+  if (follow && summaryJson) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect accepts either --follow or --summary-json, not both",
+      next: "pass --follow for the live event tail, or --summary-json for one summary object once it stops"
+    });
+  }
+  // Refused rather than ignored: a deadline the operator typed and the command
+  // silently dropped is the failure mode the flag exists to prevent.
+  if (values["idle-timeout-ms"] !== undefined && !follow) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect --idle-timeout-ms is only meaningful with --follow",
+      next: "pass --follow --idle-timeout-ms <ms>, or drop --idle-timeout-ms; a one-shot inspect already returns immediately"
+    });
+  }
+  const idleTimeoutMs = followIdleTimeoutMs(values["idle-timeout-ms"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.episode !== undefined) {
     if (summaryJson) {
@@ -1257,6 +1411,14 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
         stage: "parse-args",
         message: "inspect --summary-json is only available with --run",
         next: "pass --run <runId> --summary-json, or --episode --json for the snapshot"
+      });
+    }
+    if (follow) {
+      return cliFail(io, {
+        command: "inspect",
+        stage: "parse-args",
+        message: "inspect --follow is only available with --run",
+        next: "pass --run <runId> --follow; an episode snapshot is a single view, not a stream"
       });
     }
     return inspectEpisode(stateRoot, values.episode, values.json === true, io);
@@ -1274,6 +1436,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const read = await store.readAll();
   if (read.events.length === 0) {
     return missingRun(io, "inspect", runId, stateRoot);
+  }
+  if (follow) {
+    return await followInspect(stateRoot, runId, values.json === true, idleTimeoutMs, io);
   }
   warnTruncatedJsonl(io, read.recovery, "event log");
   if (values.json) {

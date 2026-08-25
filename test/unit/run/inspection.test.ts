@@ -7,7 +7,7 @@
 // SUMMARY_CONTRACT_KEYS and the exact-shape pins below, so internal inspection
 // state cannot leak into the machine-readable surface by accident.
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -29,7 +29,13 @@ import { SUPERVISOR, validateAgentMessage, type TaskResult } from "../../../src/
 import { ChildCoordinator, type ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import { EVENT_TYPES, validateEvent } from "../../../src/run/events.js";
-import { inspectRun } from "../../../src/run/inspection.js";
+import {
+  followRunEvents,
+  inspectRun,
+  isFollowStopStatus,
+  FOLLOW_STOP_STATUSES,
+  type Event
+} from "../../../src/run/inspection.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 
 const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
@@ -615,4 +621,377 @@ test("rich child inspection state cannot add a fifth INSPECT_SUMMARY key", async
       requiredEvidence: []
     });
   });
+});
+
+// --- inspect --follow: a read-only tail of one run's event log --------------
+//
+// The properties worth holding: it emits every event exactly once and in log
+// order, it stops on the six statuses nothing else moves off without an
+// operator, it never appends or locks, and a log that shrinks under it is
+// reported rather than followed into silence.
+
+/** Zero-delay sleep so the poll loop runs at test speed, not wall-clock speed. */
+const IMMEDIATE = { intervalMs: 0, sleep: async () => undefined };
+
+async function appendEvent(
+  stateRoot: string,
+  runId: RunId,
+  seq: () => string,
+  event: Pick<Event, "type" | "payload">
+): Promise<void> {
+  await new EventStore(stateRoot, runId).append({
+    id: createEventId(seq),
+    schemaVersion: 1,
+    occurredAt: parseIsoTimestamp("2026-08-12T09:00:00.000Z"),
+    runId,
+    actor: "test",
+    ...event
+  } as Event);
+}
+
+test("follow replays an already-terminal log once and stops on its status", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "COMPLETED");
+
+    const seen: Event[] = [];
+    const result = await followRunEvents(stateRoot, runId, (events) => seen.push(...events), IMMEDIATE);
+
+    assert.equal(result.stopReason, "status");
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(result.emitted, 3);
+    assert.deepEqual(
+      seen.map((event) => event.type),
+      ["RUN_CREATED", "RUN_STARTED", "RUN_COMPLETED"],
+      "the existing log is replayed in order before follow returns"
+    );
+  });
+});
+
+test("follow emits events appended after it started, exactly once each", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    // The appends happen between polls, which is what a live run does.
+    let round = 0;
+    const seen: Event[] = [];
+    const result = await followRunEvents(stateRoot, runId, (events) => seen.push(...events), {
+      intervalMs: 0,
+      sleep: async () => {
+        round += 1;
+        if (round === 1) {
+          await appendEvent(stateRoot, runId, seq, {
+            type: "STALL_DETECTED",
+            payload: { round: 1, consecutiveStalls: 1, requiredEvidence: ["proof"] }
+          });
+        } else if (round === 2) {
+          await appendEvent(stateRoot, runId, seq, { type: "RUN_COMPLETED", payload: {} });
+        }
+      }
+    });
+
+    assert.equal(result.stopReason, "status");
+    assert.equal(result.status, "COMPLETED");
+    assert.deepEqual(seen.map((event) => event.type), [
+      "RUN_CREATED",
+      "RUN_STARTED",
+      "STALL_DETECTED",
+      "RUN_COMPLETED"
+    ]);
+    // Re-reading the whole file each poll is only safe because the slice never
+    // re-emits: four appends, four callbacks' worth of events, no repeats.
+    assert.equal(seen.length, 4);
+    assert.equal(result.emitted, seen.length);
+  });
+});
+
+test("follow stops on the stopped-but-not-terminal statuses an operator must clear", async () => {
+  const cases = [
+    {
+      status: "WAITING_FOR_USER",
+      event: {
+        type: "RUN_WAITING_FOR_USER" as const,
+        payload: { messageId: createMessageId(() => "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") }
+      }
+    },
+    { status: "PAUSED", event: { type: "PAUSE_REQUESTED" as const, payload: { reason: "operator" } } },
+    { status: "CANCELLED", event: { type: "RUN_CANCEL_REQUESTED" as const, payload: {} } }
+  ];
+  for (const testCase of cases) {
+    await withTempState(async (stateRoot) => {
+      const seq = sequenceGenerator();
+      const runId = createRunId(seq);
+      await seedParentRun(stateRoot, runId, "RUNNING");
+      await appendEvent(stateRoot, runId, seq, testCase.event);
+
+      const result = await followRunEvents(stateRoot, runId, () => undefined, IMMEDIATE);
+      assert.equal(result.status, testCase.status, `follow must stop on ${testCase.status}`);
+      assert.equal(result.stopReason, "status");
+    });
+  }
+});
+
+test("follow keeps polling a RUNNING log and takes no lock while it does", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    const controller = new AbortController();
+    let polls = 0;
+    const result = await followRunEvents(stateRoot, runId, () => undefined, {
+      intervalMs: 0,
+      signal: controller.signal,
+      sleep: async () => {
+        polls += 1;
+        if (polls >= 3) controller.abort();
+      }
+    });
+
+    assert.equal(result.stopReason, "aborted", "RUNNING is not a stop status");
+    assert.ok(polls >= 3);
+    // Following is a reader: the run lock stays untaken and the log unchanged.
+    await assert.rejects(
+      () => stat(join(stateRoot, "runtime", "runs", `${runId}.lock`)),
+      /ENOENT/,
+      "follow takes no run lock"
+    );
+    const after = await new EventStore(stateRoot, runId).readAll();
+    assert.equal(after.events.length, 2, "follow appended nothing");
+  });
+});
+
+test("follow reports a log that vanished instead of waiting on it forever", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    const result = await followRunEvents(stateRoot, runId, () => undefined, {
+      intervalMs: 0,
+      sleep: async () => {
+        await rm(join(stateRoot, "runtime", "runs", runId), { recursive: true, force: true });
+      }
+    });
+    assert.equal(result.stopReason, "log-vanished");
+    assert.equal(result.status, undefined);
+    assert.equal(result.emitted, 2, "what it did read stays reported");
+  });
+});
+
+test("follow skips a torn final line until the writer completes it", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+    const path = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+    const terminal = JSON.stringify({
+      id: createEventId(seq),
+      schemaVersion: 1,
+      occurredAt: "2026-08-12T09:00:00.000Z",
+      runId,
+      actor: "test",
+      type: "RUN_COMPLETED",
+      payload: {}
+    });
+    const split = Math.floor(terminal.length / 2);
+
+    let round = 0;
+    const seen: Event[] = [];
+    const result = await followRunEvents(stateRoot, runId, (events) => seen.push(...events), {
+      intervalMs: 0,
+      sleep: async () => {
+        round += 1;
+        // Round 1 writes half a line — the normal shape of a file mid-append.
+        if (round === 1) await appendFile(path, terminal.slice(0, split), "utf8");
+        else if (round === 2) {
+          assert.equal(seen.length, 2, "a half-written event is never emitted");
+          await appendFile(path, `${terminal.slice(split)}\n`, "utf8");
+        }
+      }
+    });
+
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(result.emitted, 3);
+    assert.equal(seen.at(-1)?.type, "RUN_COMPLETED");
+    assert.equal(result.recovery.incompleteLine, undefined, "the completed tail is no longer partial");
+  });
+});
+
+// --- --idle-timeout-ms: the opt-in bound on silence -------------------------
+//
+// The deadline is measured with an injected clock, so these run at test speed
+// and still assert the millisecond arithmetic a real follow would do. What is
+// worth holding: silence ends a follow only when a caller asked for it, an
+// append restarts the clock (idle, not total), a status stop always wins over
+// a deadline reached at the same moment, and a stop for silence is never
+// reported as a status.
+
+/** A clock the test moves by hand, plus a sleep that moves it by the poll gap. */
+function fakeClock(): { now: () => number; advanceBy: (ms: number) => Promise<void>; elapsed: () => number } {
+  let ms = 0;
+  return {
+    now: () => ms,
+    advanceBy: async (by: number) => {
+      ms += by;
+    },
+    elapsed: () => ms
+  };
+}
+
+test("follow with no idle timeout keeps polling a silent log forever", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    // An hour of silence per poll, and the default still does not give up:
+    // "no deadline" is the behaviour every caller had before the option.
+    const clock = fakeClock();
+    const controller = new AbortController();
+    let polls = 0;
+    const result = await followRunEvents(stateRoot, runId, () => undefined, {
+      intervalMs: 0,
+      now: clock.now,
+      signal: controller.signal,
+      sleep: async () => {
+        polls += 1;
+        await clock.advanceBy(3_600_000);
+        if (polls >= 5) controller.abort();
+      }
+    });
+
+    assert.equal(result.stopReason, "aborted", "an unbounded follow only ends when its caller ends it");
+    assert.equal(result.idleMs, undefined);
+    assert.equal(clock.elapsed(), 5 * 3_600_000, "five hours of silence is not a stop condition by itself");
+  });
+});
+
+test("follow gives up on a log that stopped appending once an idle timeout is set", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    // The SIGKILL leftover: RUNNING for good, and nothing will ever append.
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    const clock = fakeClock();
+    const seen: Event[] = [];
+    let polls = 0;
+    const result = await followRunEvents(stateRoot, runId, (events) => seen.push(...events), {
+      intervalMs: 100,
+      idleTimeoutMs: 500,
+      now: clock.now,
+      sleep: async (ms) => {
+        polls += 1;
+        await clock.advanceBy(ms);
+      }
+    });
+
+    assert.equal(result.stopReason, "idle-timeout");
+    assert.equal(result.status, "RUNNING", "the status it was still in is reported, not invented");
+    assert.equal(result.emitted, 2, "what was already on disk is still printed before giving up");
+    assert.equal(seen.length, 2);
+    assert.equal(result.idleMs, 500);
+    assert.equal(polls, 5, "the deadline is checked once per poll, so it ends on the first poll at or after it");
+  });
+});
+
+test("an appended event restarts the idle deadline, so the bound is on silence and not on the follow", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+
+    const clock = fakeClock();
+    let round = 0;
+    const seen: Event[] = [];
+    const result = await followRunEvents(stateRoot, runId, (events) => seen.push(...events), {
+      intervalMs: 100,
+      idleTimeoutMs: 250,
+      now: clock.now,
+      sleep: async (ms) => {
+        round += 1;
+        await clock.advanceBy(ms);
+        // A slow but living run: one event every other poll for a while, each
+        // one landing before the 250ms deadline it resets.
+        if (round <= 8 && round % 2 === 0) {
+          await appendEvent(stateRoot, runId, seq, {
+            type: "STALL_DETECTED",
+            payload: { round, consecutiveStalls: 1, requiredEvidence: ["proof"] }
+          });
+        }
+      }
+    });
+
+    assert.equal(result.stopReason, "idle-timeout");
+    assert.equal(seen.length, 6, "the four appends are followed, none of them cut short");
+    // 300, not 250: the deadline is looked at once per 100ms poll, so the
+    // reported silence is the real one at the poll that gave up.
+    assert.equal(result.idleMs, 300, "the deadline measures the last gap, not the whole follow");
+    assert.ok(
+      clock.elapsed() > 250 * 4,
+      `a follow far longer than the deadline is fine while events keep landing (${clock.elapsed()}ms)`
+    );
+  });
+});
+
+test("a status stop wins over a deadline the same poll ran past", async () => {
+  await withTempState(async (stateRoot) => {
+    const seq = sequenceGenerator();
+    const runId = createRunId(seq);
+    await seedParentRun(stateRoot, runId, "RUNNING");
+    await appendEvent(stateRoot, runId, seq, { type: "RUN_COMPLETED", payload: {} });
+
+    // An adversarial clock: every reading is a full deadline later than the
+    // last, so even the gap between emitting an event and checking the
+    // deadline is "idle" long enough to trip it. A completed log still stops
+    // as COMPLETED, because a run that finished must never be reported as a
+    // run nobody was writing to.
+    let ms = 0;
+    const result = await followRunEvents(stateRoot, runId, () => undefined, {
+      intervalMs: 0,
+      idleTimeoutMs: 10,
+      now: () => (ms += 10_000),
+      sleep: async () => undefined
+    });
+
+    assert.equal(result.stopReason, "status");
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(result.idleMs, undefined, "idleMs is set only by the stop that measured it");
+  });
+});
+
+test("follow refuses an idle timeout that is not a positive whole number of milliseconds", async () => {
+  await withTempState(async (stateRoot) => {
+    const runId = createRunId(sequenceGenerator());
+    await seedParentRun(stateRoot, runId, "RUNNING");
+    // Zero has two plausible readings ("never wait" / "wait forever") and
+    // fractions cannot be compared against a poll gap honestly; both are
+    // refused so that "no deadline" stays spelled exactly one way.
+    for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await assert.rejects(
+        () =>
+          followRunEvents(stateRoot, runId, () => undefined, {
+            ...IMMEDIATE,
+            idleTimeoutMs: value
+          }),
+        /idleTimeoutMs must be a whole number of milliseconds greater than 0/,
+        `idleTimeoutMs ${value} must be refused, not guessed at`
+      );
+    }
+  });
+});
+
+test("the follow stop set is the six statuses nothing else advances", () => {
+  assert.deepEqual(
+    [...FOLLOW_STOP_STATUSES],
+    ["COMPLETED", "FAILED", "CANCELLED", "BLOCKED", "WAITING_FOR_USER", "PAUSED"]
+  );
+  for (const status of FOLLOW_STOP_STATUSES) assert.ok(isFollowStopStatus(status));
+  for (const status of ["PLANNING", "RUNNING"] as const) {
+    assert.ok(!isFollowStopStatus(status), `${status} is progress, not a stopping point`);
+  }
 });

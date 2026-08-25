@@ -31,6 +31,19 @@ Parent verification: 58/58 on redaction + release-gate-policy suites; `preview-r
 | R1-gpt-A | `gpt-5.6-sol-xhigh-fast` | Live probes exit 0; probe file untouched. Node engine mismatch noted. |
 | R1-gpt-B | `gpt-5.6-sol-xhigh-fast` | `scripts/preview-release-probe.mjs` (5 checks ok). Recommend `preview:probe` first in `prerelease`. |
 
+## Round 2 — complete (2026-08-25)
+
+Parent verification: typecheck/lint green; 244/244 on scoped suites; preview-probe ok; security-probe ok (14 passed).
+
+| Slot | Agent | Outcome |
+|---|---|---|
+| R2-fable-A | `claude-fable-5-thinking-xhigh` | Round 1 ACCEPT. Two Round 3 landings: screaming-snake redaction; CI Node 22.19.0. |
+| R2-fable-B | `claude-fable-5-thinking-xhigh` | Clean cherry-pick set confirmed; do not raw-pick on top of opus-B. `808bc0b` reimplement without waivers (gpt-A did). |
+| R2-opus-A | `claude-opus-5-thinking-high-fast` | Ported `inspect --follow` + market-eval-probe from cae9 without merging. |
+| R2-opus-B | `claude-opus-5-thinking-high-fast` | SECURITY.md/CHANGELOG/CODEOWNERS/.env.example; adapt-eval honesty; inspect-format module unwired. |
+| R2-gpt-A | `gpt-5.6-sol-xhigh-fast` | `packaged-secrets` never-waivable; CI security-probe after build, no waiver. |
+| R2-gpt-B | `gpt-5.6-sol-xhigh-fast` | `preview:probe` first in `prerelease`. |
+
 ---
 
 # Loop 4 — continuous SOTA optimization (`agent/opt-continuous`)

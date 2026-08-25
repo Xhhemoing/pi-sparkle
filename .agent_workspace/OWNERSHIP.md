@@ -1,3 +1,16 @@
+# File ownership — Preview merge + 内测 Round 3 (`cursor/merge-preview-release-8011`)
+
+Injection: `.agent_workspace/ROUND3-PREVIEW-BRIEF.md`. Subagents never git commit. Stay on this branch.
+
+| Slot | Model | Owns |
+|---|---|---|
+| R3-fable-A | fable | `docs/reports/2026-08-25-r3-sota-acceptance.md`; `.agent_workspace/r3-fable-a.md` |
+| R3-fable-B | fable | `docs/reports/2026-08-25-neice-declaration.md`; `.agent_workspace/r3-fable-b.md` |
+| R3-opus-A | opus-fast | `src/feedback/redaction.ts`; probe sample in `scripts/security-probe.mjs`; redaction unit tests |
+| R3-opus-B | opus-fast | `src/cli/main.ts` (inspect-format wiring); `test/unit/cli/inspect-format.test.ts`; README unblock/help rows |
+| R3-gpt-A | gpt-sol | `.github/workflows/ci.yml` (Node 22.19.0) |
+| R3-gpt-B | gpt-sol | `package.json` `market-eval:probe`; `docs/specs/release-gate.md` truth-up |
+
 # File ownership — Preview merge + 内测 Round 2 (`cursor/merge-preview-release-8011`)
 
 Injection: `.agent_workspace/ROUND2-PREVIEW-BRIEF.md`. Subagents never git commit. Stay on this branch.
