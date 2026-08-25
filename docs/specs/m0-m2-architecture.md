@@ -11,15 +11,19 @@ Outcome-supported. Fake-executor `run` / `inspect` / `resume` / `--flowchart` /
 `--children` are Wired and Exercised. Real providers and adaptive outcomes are
 not.
 
-> Round 14 docs-slot working-tree census (2026-08-25 01:56:46 UTC): HEAD was
-> `33f70bf`. Round 13 is committed: source-comment truth-up `f6e4c04`;
-> `taskCriteria` behavioural pins `e7d018c`; uniform three-path early-id
-> disclosure and sequence pins `1e78220`; and the preceding docs truth-up
-> `8faf8f4`. R14-2 had neither a committed landing nor an owned working-tree
-> diff. The `replay.ts` laundering paragraph (then lines 85–93) still presented
-> the hazard without scoping it to nodes neither source records or noting that
-> an unvouched logged-empty is detectable. This document reports committed
-> runtime without assigning that sibling a commit id.
+> Round 15 sole docs-slot working-tree census (2026-08-25 02:15:43 UTC): HEAD
+> was `3793ea4`, with a clean tree and no sibling landing in flight. Round 14's
+> landings are committed: `25a3c2f` adds the scoped laundering coda at
+> `replay.ts:95-101` (the mechanics at `:85-93` are unchanged) and, as a
+> ride-along, retires the spent pointer in `option-a-preconditions.test.ts`;
+> `a1ea5f2` is the Round 13 docs truth-up. The hazard is bounded to a node
+> neither source records. A recorded node's substituted spec is restored before
+> the resumed node runs, while an unvouched logged-empty is detectable as
+> unknown, not the caller's known-none.
+> The `:89-91` counterfactual remains motivation prose bounded by the coda, not
+> a current-state bug. ADR-006 remains Proposed. This census is current at HEAD
+> because no sibling is in flight. Subsequent rounds need a new census note
+> only when a landing changes what these surfaces describe.
 
 ## Milestone names
 
