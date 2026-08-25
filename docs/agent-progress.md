@@ -155,7 +155,7 @@ Fable-r9-next ranked three file-disjoint operator batches (`.agent_workspace/loo
 
 | Slot | Owns | Branch | Status |
 |---|---|---|---|
-| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | PR #19; GPT-r9 **FIX** rider in flight |
+| D34 | `src/cli/models.ts`, `test/unit/cli/models.test.ts` | `cursor/models-id-preflight-0da8` | PR #19; GPT-r9 **FIX** rider landed `09c2f0d`; KEEP recheck in flight |
 | D35 | `src/cli/auth.ts`, `test/unit/cli/auth.test.ts`, `test/integration/cli/commands.test.ts` | `cursor/auth-login-envelopes-0da8` | **KEEP** merged `2afc5f8`; PR #20; report `.agent_workspace/loop5-r9-gpt-d35.md` |
 | D36 | `src/cli/validate.ts`, `test/unit/cli/validate.test.ts` | `cursor/validate-path-retarget-0da8` | **KEEP** merged `367bd45`; PR #18; report `.agent_workspace/loop5-r9-gpt-d36.md` |
 
