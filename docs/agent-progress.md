@@ -105,7 +105,8 @@ Fable-r5-next ranked three file-disjoint batches (`.agent_workspace/loop5-r5-fab
 ### Round 3 still running / next implementers
 
 - D23 post-publish manifest-exists check dispatched (GPT-d19 FIX).
-- D20 first landing used the pre-challenge `--nodes`/token-probe spec; GPT-r5 riders resume dispatched on the same branch (`cursor/cli-claim-only-work-0da8`). Do not merge until that follow-up lands.
+- D20 first landing used the pre-challenge `--nodes`/token-probe spec; GPT-r5 riders still in flight on `cursor/cli-claim-only-work-0da8`. Do not merge until that follow-up lands.
+- D21 first landing used the pre-challenge keyless-custom wording; GPT-r5 riders resume dispatched on `cursor/auth-models-remainder-0da8`. Do not merge until that follow-up lands.
 - D22 queued.
 - Round 5 GPT ranking challenge: D20/D21/D22 all **FIX** (remedies, not slots). D20/D21 were still running so the riders land via resume after they idle, or a follow-up commit on merge.
 - Windows smoke and status-matrix still HOLD behind PR #12.
