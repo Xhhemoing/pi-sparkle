@@ -42,7 +42,7 @@
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 第 1 波进行中 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
+| 28 | 第 1–2 波进行中 | 1 / 10（B 已合入；A/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
 
 ### Round 1 波次
 
@@ -293,7 +293,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R28-A 跟踪门控、R28-B live 路由、R28-C 离线路由 | A/B 运行中；C 本波派出 |
+| 1 | R28-A 跟踪门控、R28-B live 路由、R28-C 离线路由 | B 已合入；A/C 运行中 |
+| 2 | R28-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -571,8 +572,9 @@
 | R27-I | `cursor/r27-i-cli-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-I.md`）。无新排除 ID；custom−builtin 复核 +43.0~+46.0 / +22.4~+24.1 / +45.8~+52.6 / +23.2~+25.9 / +42.3~+46.8 / +18.2~+20.6 ms；process output-channel disposition face 归档 |
 | R27-J | `cursor/r27-j-persist-twenty-seventh-pass-83a1` | 已合入专属分支（仅 `R27-J.md`）。无新排除 ID；I/O 地板复核 preferences 125.8–310.6 / 422.0–533.8、jsonl 60.7–70.2 / 232.2–324.7 µs；SIDEC 不铸 ID |
 | R28-A | `cursor/r28-a-tracking-twenty-eighth-pass-83a1` | 已派出 |
-| R28-B | `cursor/r28-b-live-routing-twenty-eighth-pass-83a1` | 已派出 |
+| R28-B | `cursor/r28-b-live-routing-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-B.md`）。无新排除 ID；天花板复核 M=2 8.84–9.53 / M=10 17.62–18.13 ms/eval；catalog-face row-arrangement (permutation) face 归档 |
 | R28-C | `cursor/r28-c-offline-routing-twenty-eighth-pass-83a1` | 已派出 |
+| R28-D | `cursor/r28-d-adaptation-twenty-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
