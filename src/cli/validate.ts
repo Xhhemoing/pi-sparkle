@@ -7,7 +7,7 @@ import { isAgentRole } from "../domain/roles.js";
 import { providersConfigPath } from "../config/providers-config.js";
 import { compileChildrenToFlowchart, type CompilableChild } from "../graph/compile-children.js";
 import { parseChildSpec } from "./children-spec.js";
-import { CLI_EXIT, cliFail } from "./errors.js";
+import { CLI_EXIT, cliFail, errorCodeOf } from "./errors.js";
 import { parseFlowchartFile } from "./flowchart-io.js";
 import { buildLiveCatalogConfig } from "./model-catalog.js";
 
@@ -133,6 +133,21 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
       next: "pass --children <spec.json> or --flowchart <flowchart.json>, not both"
     });
   }
+  // A blank value is argv, not a spec: `--children ""` reaches the parser as a
+  // path and comes back as `ENOENT … open ''`, a remedy about a file the
+  // operator never named. Refused here, before any read.
+  const specFlag = childrenPath !== undefined ? "--children" : "--flowchart";
+  const specPath = (childrenPath ?? flowchartPath) as string;
+  if (specPath.trim() === "") {
+    return cliFail(io, {
+      command: "validate",
+      stage: "parse-args",
+      message: `invalid ${specFlag} "${specPath}": spec path must be a non-empty string`,
+      next: childrenPath !== undefined
+        ? "pass --children <spec.json>"
+        : "pass --flowchart <flowchart.json>"
+    });
+  }
 
   let report: ValidateOkJson;
   let prose: string;
@@ -188,9 +203,30 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
     // A refusal is the whole point of this command, so it reports the parser's
     // own message. --json stays unprinted: the stderr error report is the
     // failure contract, and a half-shaped VALIDATE_OK would be worse than none.
+    if (error instanceof DomainValidationError) {
+      return cliFail(io, {
+        command: "validate",
+        stage: "validation",
+        message: error.message,
+        next: "fix the spec and re-run pi-sparkle validate"
+      });
+    }
+    // Both parsers wrap every JSON and schema fault as a
+    // DomainValidationError, so a coded throw on these paths is the `readFile`
+    // that never opened the operator's path: telling them to fix a spec this
+    // command never read is the wrong remedy, and the flag they typed is the
+    // thing to check.
+    if (errorCodeOf(error) !== undefined) {
+      return cliFail(io, {
+        command: "validate",
+        stage: "lookup",
+        message: `cannot read ${specFlag} ${specPath}: ${error instanceof Error ? error.message : String(error)}`,
+        next: `check the ${specFlag} path; pi-sparkle init writes example specs this command accepts`
+      });
+    }
     return cliFail(io, {
       command: "validate",
-      stage: error instanceof DomainValidationError ? "validation" : "execute",
+      stage: "execute",
       message: error instanceof Error ? error.message : String(error),
       next: "fix the spec and re-run pi-sparkle validate"
     });

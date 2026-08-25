@@ -297,9 +297,117 @@ test("validate reports unparseable JSON and a missing file with the path", async
     const missing = capture();
     assert.equal(await main(["validate", "--flowchart", absent, "--state-root", stateRoot], missing.io), 1);
     const parsedMissing = parseCliErrorJson(missing.err.join(""));
-    assert.equal(parsedMissing?.stage, "execute");
+    assert.equal(parsedMissing?.stage, "lookup");
+    assert.match(parsedMissing?.message ?? "", /^cannot read --flowchart /);
     assert.ok(parsedMissing?.message.includes(absent), "the failure names the file it could not read");
     assert.deepEqual(missing.out, []);
+  });
+});
+
+/**
+ * The defect this pins: a path the operator mistyped came back as a raw errno
+ * at `stage: "execute"` with "fix the spec and re-run" — a remedy for a spec
+ * this command never read. An unreadable operator-supplied path is a lookup
+ * fault, and the report names the flag that carried it.
+ */
+test("validate reports an unreadable --children path as a lookup fault naming the flag", async () => {
+  await withSpecDir(async (specDir) => {
+    const absent = join(specDir, "absent.json");
+    const { io, out, err } = capture();
+    assert.equal(await main(["validate", "--children", absent], io), 1);
+    assert.deepEqual(out, [], "a refusal prints nothing on stdout");
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.equal(parsed?.command, "validate");
+    assert.equal(parsed?.stage, "lookup");
+    assert.equal(
+      parsed?.message,
+      `cannot read --children ${absent}: ENOENT: no such file or directory, open '${absent}'`
+    );
+    assert.equal(
+      parsed?.next,
+      "check the --children path; pi-sparkle init writes example specs this command accepts"
+    );
+  });
+});
+
+test("validate reports an unreadable --flowchart path as a lookup fault naming the flag", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const absent = join(specDir, "absent.json");
+    const { io, out, err } = capture();
+    assert.equal(await main(["validate", "--flowchart", absent, "--state-root", stateRoot], io), 1);
+    assert.deepEqual(out, []);
+    const parsed = parseCliErrorJson(err.join(""));
+    assert.equal(parsed?.command, "validate");
+    assert.equal(parsed?.stage, "lookup");
+    assert.equal(
+      parsed?.message,
+      `cannot read --flowchart ${absent}: ENOENT: no such file or directory, open '${absent}'`
+    );
+    assert.equal(
+      parsed?.next,
+      "check the --flowchart path; pi-sparkle init writes example specs this command accepts"
+    );
+  });
+});
+
+/**
+ * A directory passed as the spec path fails with EISDIR, not ENOENT: the guard
+ * classifies by "the error carries a code", so every fs fault on these two
+ * flags lands in the same lookup class rather than one errno being special.
+ */
+test("validate classifies a directory passed as a spec path in the same lookup class", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const asDir = join(specDir, "spec-dir");
+    await mkdir(asDir, { recursive: true });
+
+    const children = capture();
+    assert.equal(await main(["validate", "--children", asDir], children.io), 1);
+    assert.deepEqual(children.out, []);
+    const parsedChildren = parseCliErrorJson(children.err.join(""));
+    assert.equal(parsedChildren?.command, "validate");
+    assert.equal(parsedChildren?.stage, "lookup");
+    assert.match(parsedChildren?.message ?? "", new RegExp(`^cannot read --children ${asDir}: EISDIR`));
+    assert.equal(
+      parsedChildren?.next,
+      "check the --children path; pi-sparkle init writes example specs this command accepts"
+    );
+
+    const flowchart = capture();
+    assert.equal(await main(["validate", "--flowchart", asDir, "--state-root", stateRoot], flowchart.io), 1);
+    assert.deepEqual(flowchart.out, []);
+    const parsedFlowchart = parseCliErrorJson(flowchart.err.join(""));
+    assert.equal(parsedFlowchart?.stage, "lookup");
+    assert.match(parsedFlowchart?.message ?? "", new RegExp(`^cannot read --flowchart ${asDir}: EISDIR`));
+  });
+});
+
+/**
+ * `""` is not undefined, so it survived the exactly-one check and reached the
+ * parser as a path: the operator got `ENOENT … open ''` about a file they
+ * never named. A blank flag value is argv, refused before any read.
+ */
+test("validate refuses a blank spec path as argv, before any read", async () => {
+  await withSpecDir(async (_specDir, stateRoot) => {
+    const children = capture();
+    assert.equal(await main(["validate", "--children", ""], children.io), 1);
+    assert.deepEqual(children.out, []);
+    const parsedChildren = parseCliErrorJson(children.err.join(""));
+    assert.equal(parsedChildren?.command, "validate");
+    assert.equal(parsedChildren?.stage, "parse-args");
+    assert.equal(parsedChildren?.message, 'invalid --children "": spec path must be a non-empty string');
+    assert.equal(parsedChildren?.next, "pass --children <spec.json>");
+
+    const flowchart = capture();
+    assert.equal(await main(["validate", "--flowchart", "   ", "--state-root", stateRoot], flowchart.io), 1);
+    assert.deepEqual(flowchart.out, []);
+    const parsedFlowchart = parseCliErrorJson(flowchart.err.join(""));
+    assert.equal(parsedFlowchart?.command, "validate");
+    assert.equal(parsedFlowchart?.stage, "parse-args");
+    assert.equal(
+      parsedFlowchart?.message,
+      'invalid --flowchart "   ": spec path must be a non-empty string'
+    );
+    assert.equal(parsedFlowchart?.next, "pass --flowchart <flowchart.json>");
   });
 });
 
