@@ -1,14 +1,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { DomainValidationError } from "../domain/errors.js";
 import {
   disableModel,
   enableModel,
   loadProvidersConfig,
   setDefaultModels
 } from "../config/providers-config.js";
-import { parseModelRef } from "../config/model-ref.js";
+import { parseModelRef, tryParseModelRef } from "../config/model-ref.js";
+import type { SparkleListedModel } from "../pi-adapter/listed-model.js";
 import { cliFail } from "./errors.js";
 
 export interface ModelsIo {
@@ -158,6 +158,32 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
     io.stdout(MODELS_USAGE);
     return 0;
   }
+  // A blank `--provider` is malformed in both modes, so it is refused ahead of
+  // the compatibility check below: under `--available` it used to answer
+  // `(no models)` — a successful empty inventory for an id that can name
+  // nothing — so following an "add --available" remedy would have turned the
+  // typo into that same false answer.
+  if (values.provider !== undefined && values.provider.trim() === "") {
+    return cliFail(io, {
+      command: "models list",
+      stage: "parse-args",
+      message: `invalid --provider "${values.provider}": provider id must be a non-empty string`,
+      next: "pass --provider <id>, or omit --provider"
+    });
+  }
+  // The enabled view never read `--provider`, so asking "which anthropic models
+  // are enabled" got the whole enabled list back and an exit 0. Refusing rather
+  // than filtering: filtering the enabled view would be a new feature, and the
+  // silent-ignore is the defect.
+  if (values.provider !== undefined && values.available !== true) {
+    return cliFail(io, {
+      command: "models list",
+      stage: "parse-args",
+      message:
+        "models list --provider filters the --available catalog and does not apply to enabled models",
+      next: "add --available, or drop --provider"
+    });
+  }
   const json = values.json === true;
   if (values.available === true) {
     const catalog = await import("../pi-adapter/listed-model.js");
@@ -258,8 +284,14 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
       next: "run pi-sparkle models --help"
     });
   }
+  if (tryParseModelRef(catalogId) === undefined) {
+    return refuseMalformedId(io, "models enable", "<provider/model>", catalogId);
+  }
   const stateRoot = stateRootOf(values);
-  await assertKnownCatalogId(stateRoot, catalogId);
+  const listed = await assertKnownCatalogId(stateRoot, catalogId);
+  if (listed === undefined) {
+    return refuseUnknownModel(io, "models enable", catalogId);
+  }
   await enableModel(stateRoot, catalogId);
   io.stdout(`Enabled ${catalogId}\n`);
   return 0;
@@ -283,16 +315,35 @@ async function disableCommand(args: string[], io: ModelsIo): Promise<number> {
       next: "run pi-sparkle models --help"
     });
   }
+  const ref = tryParseModelRef(catalogId);
+  if (ref === undefined) {
+    return refuseMalformedId(io, "models disable", "<provider/model>", catalogId);
+  }
   const stateRoot = stateRootOf(values);
   // Disabling a model that is a routing default drops the default with it, and
   // the operator used to learn that from a run that could not pick a model.
   // Reading the config before the mutation is what makes the disclosure
   // possible without teaching `disableModel` to report.
   const before = await loadProvidersConfig(stateRoot);
-  const ref = parseModelRef(catalogId);
   const formatted = `${ref.providerId}/${ref.modelId}`;
+  // Three outcomes, partitioned from `before`, because "not in enabled" and
+  // "nothing changed" are different facts: a hand-edited config can name a
+  // default that is not in `enabled`, and clearing that reference is real work
+  // this command must not describe as a no-op — nor as a `Disabled` it did not
+  // do. Only the third case leaves the configuration alone, and it is the only
+  // one that skips the write.
+  const wasEnabled = before.enabled.includes(formatted);
+  const danglingDefault = before.primary === formatted || before.fast === formatted;
+  if (!wasEnabled && !danglingDefault) {
+    io.stdout(`${formatted} was not enabled; routing configuration was already clear\n`);
+    return 0;
+  }
   await disableModel(stateRoot, catalogId);
-  io.stdout(`Disabled ${catalogId}\n`);
+  io.stdout(
+    wasEnabled
+      ? `Disabled ${catalogId}\n`
+      : `No enabled entry for ${formatted}; clearing dangling routing default references\n`
+  );
   for (const role of ["primary", "fast"] as const) {
     if (before[role] !== formatted) continue;
     io.stdout(
@@ -323,10 +374,23 @@ async function setDefaultCommand(args: string[], io: ModelsIo): Promise<number> 
       next: "run pi-sparkle models --help"
     });
   }
+  if (tryParseModelRef(values.primary) === undefined) {
+    return refuseMalformedId(io, "models set-default", "--primary", values.primary);
+  }
+  if (values.fast !== undefined && tryParseModelRef(values.fast) === undefined) {
+    return refuseMalformedId(io, "models set-default", "--fast", values.fast);
+  }
   const stateRoot = stateRootOf(values);
-  await assertKnownCatalogId(stateRoot, values.primary);
-  if (values.fast !== undefined) {
-    await assertKnownCatalogId(stateRoot, values.fast);
+  // Both memberships are checked before the write: a refused --fast must leave
+  // providers.json untouched, not land the --primary half of the pair.
+  if ((await assertKnownCatalogId(stateRoot, values.primary)) === undefined) {
+    return refuseUnknownModel(io, "models set-default", values.primary);
+  }
+  if (
+    values.fast !== undefined &&
+    (await assertKnownCatalogId(stateRoot, values.fast)) === undefined
+  ) {
+    return refuseUnknownModel(io, "models set-default", values.fast);
   }
   await setDefaultModels(stateRoot, {
     primary: values.primary,
@@ -338,12 +402,55 @@ async function setDefaultCommand(args: string[], io: ModelsIo): Promise<number> 
   return 0;
 }
 
-async function assertKnownCatalogId(stateRoot: string, catalogId: string): Promise<void> {
+/**
+ * A typo'd model id is argv, not configuration. `parseModelRef` used to throw
+ * it out of the verb into the generic catch, where the report named `models`
+ * with no subcommand and offered doctor preflight — a remedy that cannot fix a
+ * mistyped positional. `tryParseModelRef` is the domain's own predicate, so the
+ * shape is asked about rather than restated here.
+ *
+ * `label` is what the operator typed the value as: the positional
+ * `<provider/model>`, or the flag `--primary` / `--fast`.
+ *
+ * The remedy names `--state-root` rather than interpolating this run's value:
+ * a state root holding a space, `;` or `$()` would make the line look
+ * copy-paste safe when it is not.
+ */
+function refuseMalformedId(io: ModelsIo, command: string, label: string, value: string): number {
+  const subject = label.startsWith("--") ? `${label} <provider/model>` : label;
+  return cliFail(io, {
+    command,
+    stage: "parse-args",
+    message: `invalid ${label} "${value}": expected a model id of the form provider/model`,
+    next: `copy ${subject} from pi-sparkle models list --available using the same --state-root`
+  });
+}
+
+/**
+ * Catalog membership is stored config plus catalog state, not CLI knowledge, so
+ * this stays `validation` — but the remedy is the inventory this install can
+ * actually print, not doctor preflight. The message bytes are unchanged.
+ */
+function refuseUnknownModel(io: ModelsIo, command: string, catalogId: string): number {
+  return cliFail(io, {
+    command,
+    stage: "validation",
+    message: `unknown model "${catalogId}"`,
+    next: "copy an id from pi-sparkle models list --available using the same --state-root; providers.json customProviders adds ids the builtin catalog does not have"
+  });
+}
+
+/**
+ * The catalog resolution for an id already known to parse, or `undefined` when
+ * nothing in the builtin catalog or this state root's customProviders resolves
+ * it. Returning it keeps the refusal in the verb that owns the report.
+ */
+async function assertKnownCatalogId(
+  stateRoot: string,
+  catalogId: string
+): Promise<SparkleListedModel | undefined> {
   const ref = parseModelRef(catalogId);
   const config = await loadProvidersConfig(stateRoot);
   const { resolveListedModel } = await import("../pi-adapter/listed-model.js");
-  const listed = resolveListedModel(ref.providerId, ref.modelId, config.customProviders);
-  if (listed === undefined) {
-    throw new DomainValidationError(`unknown model "${catalogId}"`);
-  }
+  return resolveListedModel(ref.providerId, ref.modelId, config.customProviders);
 }
