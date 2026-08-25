@@ -14,7 +14,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import { evalRoutingPolicy } from "../../../src/adaptation/eval-routing.js";
 import { saveAdaptationRegistry } from "../../../src/adaptation/promotion.js";
@@ -689,6 +689,73 @@ test("a leaf replaced by another real directory during the publish is not accept
 });
 
 /**
+ * D23: identity read at the two endpoints is not the claim the return value
+ * makes.
+ *
+ * The bound directory can be moved aside, a replacement can take the manifest
+ * at the same `<runId>` name, the replacement can leave with it, and the
+ * original can be put back before the post-publish check reads it. `dev`/`ino`
+ * then match — it is literally the bound directory — and the export used to
+ * return success for a `manifestPath` that does not exist. The check now also
+ * asks whether the manifest is in the directory whose identity it just proved.
+ */
+test("a bound directory restored empty after the publish landed elsewhere is not accepted", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const events = routedRun(runId, workspace, editTasks(1));
+  const datasetDir = join(stateRoot, "adaptation", "eval-datasets", runId);
+  const parked = join(stateRoot, "adaptation", "parked-bound-leaf");
+  const displaced = join(stateRoot, "adaptation", "displaced-replacement");
+
+  await assert.rejects(
+    () =>
+      exportRoutingEvalDataset(
+        { stateRoot, runId, events },
+        {
+          rename: async (source, destination) => {
+            // 1. The bound leaf is moved aside, taking the atomic temp file
+            //    with it — the temp lives in the directory being published to.
+            await rename(datasetDir, parked);
+            // 2. A replacement directory is created at the same lexical path.
+            await mkdir(datasetDir);
+            // 3. The temp file is moved into the replacement as manifest.json,
+            //    so the publish really does land, just not where it will be
+            //    reported as landing.
+            await rename(join(parked, basename(source)), destination);
+            // 4. The replacement leaves, manifest included.
+            await rename(datasetDir, displaced);
+            // 5. The originally bound directory is restored, so the endpoint
+            //    identity is the one the bind accepted.
+            await rename(parked, datasetDir);
+          }
+        }
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof EvalDatasetAliasError, String(error));
+      assert.equal(error.code, EVAL_DATASET_ALIAS_CODE);
+      assert.equal(error.stage, "publish");
+      assert.equal(error.datasetDir, datasetDir);
+      assert.equal(error.linkTarget, undefined, "nothing here is a symlink");
+      return true;
+    }
+  );
+
+  // The directory the caller would have been handed back is the bound one and
+  // is empty; returning it as a successful export is exactly the false claim.
+  assert.equal((await lstat(datasetDir)).isDirectory(), true);
+  assert.equal(
+    existsSync(join(datasetDir, "manifest.json")),
+    false,
+    "the returned path holds no manifest, which is why the export must reject"
+  );
+
+  // Take-back is lexical, so the manifest stays where it actually went. The
+  // refusal names the absence rather than searching for the displaced copy.
+  assert.equal(existsSync(join(displaced, "manifest.json")), true);
+  assert.equal((await readManifest(join(displaced, "manifest.json"))).source.runId, runId);
+});
+
+/**
  * `dev`/`ino` is the identity wherever the platform has one, but libuv reports
  * `ino === 0` on volumes that expose no file index (Windows network shares,
  * some non-NTFS mounts), and a zero is not an identity. The documented
@@ -711,6 +778,10 @@ test("the witness fallback distinguishes the bound directory where no inode is r
     path: bound.path,
     identity: { kind: "witness", file }
   };
+  // The assertion also requires the published manifest, so the directory has
+  // to look like one a publish actually landed in for the identity branch to
+  // be what is under test here.
+  await writeFile(join(bound.path, "manifest.json"), "{}\n", { mode: 0o600 });
 
   await assertDefaultEvalDatasetPublished(stateRoot, runId, witnessBinding);
   assert.equal(existsSync(file), false, "the witness is consumed once it has been read");
@@ -726,6 +797,43 @@ test("the witness fallback distinguishes the bound directory where no inode is r
       return true;
     }
   );
+});
+
+/**
+ * The post-publish question is "is the manifest here", not "is something
+ * here": a directory or a symlink at `manifest.json` is not a manifest a
+ * reader can parse, and a returned path that names one is the same false
+ * claim as a returned path that names nothing.
+ */
+test("the bound directory must hold manifest.json as a regular file", async () => {
+  const { stateRoot } = await dirs();
+  const rejects = async (bound: BoundEvalDatasetDir, runId: string): Promise<void> => {
+    await assert.rejects(
+      () => assertDefaultEvalDatasetPublished(stateRoot, runId, bound),
+      (error: unknown) => {
+        assert.ok(error instanceof EvalDatasetAliasError, String(error));
+        assert.equal(error.code, EVAL_DATASET_ALIAS_CODE);
+        assert.equal(error.stage, "publish");
+        assert.equal(error.datasetDir, bound.path);
+        return true;
+      }
+    );
+  };
+
+  const empty = createRunId();
+  await rejects(await bindDefaultEvalDatasetDir(stateRoot, empty), empty);
+
+  const asDirectory = createRunId();
+  const directoryBound = await bindDefaultEvalDatasetDir(stateRoot, asDirectory);
+  await mkdir(join(directoryBound.path, "manifest.json"));
+  await rejects(directoryBound, asDirectory);
+
+  const asLink = createRunId();
+  const linkBound = await bindDefaultEvalDatasetDir(stateRoot, asLink);
+  const elsewhere = join(stateRoot, "adaptation", "elsewhere-manifest.json");
+  await writeFile(elsewhere, "{}\n", { mode: 0o600 });
+  await symlink(elsewhere, join(linkBound.path, "manifest.json"));
+  await rejects(linkBound, asLink);
 });
 
 test("the manifest is published owner-only", { skip: process.platform === "win32" }, async () => {

@@ -10,7 +10,8 @@ import { stableStringify } from "../experiments/manifest.js";
 import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
 import {
   assertDefaultEvalDatasetPublished,
-  bindDefaultEvalDatasetDir
+  bindDefaultEvalDatasetDir,
+  EVAL_DATASET_MANIFEST_FILE
 } from "../privacy/eval-dataset-path.js";
 import { defaultEvalDatasetDir, runtimeRoot } from "../privacy/state-layout.js";
 import type { Event } from "../run/events.js";
@@ -220,7 +221,7 @@ export async function exportRoutingEvalDataset(
     },
     episodes
   };
-  const manifestPath = join(datasetDir, "manifest.json");
+  const manifestPath = join(datasetDir, EVAL_DATASET_MANIFEST_FILE);
   // The manifest holds redacted user text, so it is published owner-only
   // rather than at whatever the process umask happens to allow.
   await writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
@@ -233,8 +234,9 @@ export async function exportRoutingEvalDataset(
     } catch (error) {
       // The leaf stopped being the directory this export bound to between the
       // bind and the publish — swapped for an alias, or replaced by another
-      // real directory at the same name — so these bytes are not where this
-      // path says they are. Take back what this call wrote, best-effort:
+      // real directory at the same name — or it is that directory and the
+      // manifest is not in it, so these bytes are not where this path says
+      // they are. Take back what this call wrote, best-effort:
       // `manifestPath` is lexical, so it reaches the bytes only while the
       // original directory is still there to be reached. Then fail, rather
       // than return a path that does not hold the manifest.
