@@ -112,9 +112,8 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
       if (storedIds.has(providerId)) continue;
       const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
       if (check === undefined) continue;
-      io.stdout(
-        `${providerId.padEnd(28)} ${sourceLabel(check).padEnd(10)}${check.source ?? check.type}\n`
-      );
+      const label = sourceLabel(check, providerId, config.customProviders);
+      io.stdout(`${providerId.padEnd(28)} ${label.padEnd(10)}${check.source ?? check.type}\n`);
       printed += 1;
     }
     if (printed === 0) {
@@ -128,15 +127,37 @@ async function statusCommand(args: string[], io: AuthIo): Promise<number> {
  * What kind of source resolved this provider, for the second column.
  *
  * The column was hardcoded `env`, which mislabelled every row Pi resolves
- * without an environment variable — a keyless custom provider prints
+ * without an environment variable — a custom provider with no `envVar` prints
  * `<id> (no key)` as its source, and the ADC/AWS-profile providers name a file
- * or a profile. The honest question is whether the printed source is the name
- * of a variable that is actually set, which is the same condition Pi's own
- * resolution used to pick it.
+ * or a profile.
+ *
+ * A custom provider is classified against the one name `providers.json`
+ * configures. The runtime builds its resolver from `envVar` and that resolver
+ * reports exactly that name back, so equality with it — rather than the source
+ * string looking variable-shaped, or happening to match something in the
+ * environment — is what makes the row an environment row.
+ *
+ * A builtin has no configured name to compare against: Pi's `ApiKeyAuth` keeps
+ * its variable list inside the resolver closure and exposes only the source it
+ * chose, and re-deriving those names here would drift from the pinned
+ * provider set on every bump. What the closure does guarantee is that its
+ * env-var branch returns the variable's own name, and only after reading a
+ * non-empty value from it — so a source that is a live variable is an
+ * environment row, and the phrases the file, profile and role branches return
+ * (`AWS access keys`, `gcloud application default credentials`) are not.
  */
-function sourceLabel(check: SparkleAuthCheck): string {
+function sourceLabel(
+  check: SparkleAuthCheck,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+): string {
   const source = check.source;
   if (source === undefined) return "ambient";
+  const custom = customProviders.find((item) => item.id === providerId);
+  if (custom !== undefined) {
+    const envVar = custom.envVar?.trim();
+    return envVar !== undefined && envVar !== "" && source === envVar ? "env" : "ambient";
+  }
   const value = process.env[source];
   return typeof value === "string" && value.trim() !== "" ? "env" : "ambient";
 }
@@ -188,16 +209,20 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     return await loginFromEnvCommand(stateRoot, providerId, config.customProviders, io);
   }
   // Every remaining mode — `--key`, `--oauth`, the interactive prompt — ends in
-  // a credential written to auth.json, and for a keyless custom provider that
-  // credential is never sent: the request path resolves these providers with no
-  // key at all and ignores the store. Storing one would leave the operator
-  // believing login worked; the interactive path additionally hands them Pi's
-  // own `<id> does not support api_key login` instead of the reason.
+  // a credential written to auth.json, and this provider's resolver never reads
+  // it: Pi loads the stored credential and hands it over, and the resolver the
+  // runtime builds for an envVar-less custom returns without consulting it. So
+  // the write is not a credential that fails at request time, it is one that is
+  // never asked for. The claim stops there — `PI_API_KEY` can still put a key
+  // on these requests — so the remedy names the two things that do configure
+  // the provider rather than telling the operator to drop a flag, which would
+  // only enter the interactive path this same guard refuses.
   if (isKeylessCustomProvider(providerId, config.customProviders)) {
     throw new DomainValidationError(
-      `provider ${providerId} is keyless (no envVar in providers.json): requests are sent ` +
-        "with no key, so there is nothing to store and nothing was written — add envVar to " +
-        "providers.json if the endpoint needs a key"
+      `provider ${providerId} is a custom provider with no envVar in providers.json, so its ` +
+        "request resolver ignores auth.json; auth login cannot configure it — add envVar to " +
+        "providers.json and use that variable or stored login, or use the per-run PI_API_KEY " +
+        "compatibility override for the selected default provider"
     );
   }
   if (values.key !== undefined) {
@@ -212,9 +237,14 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
 }
 
 /**
- * A self-configured provider that has no key at all: `providers.json` names no
- * `envVar`, so the runtime builds it a resolver that sends every request
- * unauthenticated. Nothing about such a provider reads or writes `auth.json`.
+ * A custom provider `providers.json` gives no `envVar`. The runtime builds
+ * these their own resolver, and it returns without consulting the credential
+ * Pi passes it, so `auth.json` has no bearing on such a provider.
+ *
+ * That is a statement about the credential store, not about the wire: a run
+ * whose selected default provider is this one still forwards `PI_API_KEY` as
+ * the request key, ahead of resolved auth. "Nothing is stored here" and
+ * "requests carry no key" are different claims, and only the first is true.
  */
 function isKeylessCustomProvider(
   providerId: string,

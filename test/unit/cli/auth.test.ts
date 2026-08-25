@@ -408,9 +408,10 @@ test("--from-env on custom providers checks their configured variable, or refuse
 
 test("a keyless custom provider refuses every login mode that would store a key", async () => {
   // `--from-env` is refused elsewhere; these are the modes that write. The
-  // request path resolves a provider with no envVar as "no key" and never
-  // reads auth.json for it, so a stored credential is a secret on disk that
-  // nothing will ever send — and an operator who believes login worked.
+  // resolver the runtime builds for a custom provider with no envVar returns
+  // without consulting the credential Pi hands it, so what login would leave
+  // behind is a secret this provider never asks for — and an operator who
+  // believes it is configured.
   await withStateRoot(async (stateRoot) => {
     await writeCustomProviders(stateRoot);
     await storeKey(stateRoot, "openai", STORED_KEY);
@@ -426,8 +427,21 @@ test("a keyless custom provider refuses every login mode that would store a key"
       assert.equal(await main(argv, io), 1, `${argv.join(" ")} must be refused`);
       assert.equal(out.join(""), "", "a refusal must not print a success line");
       const text = err.join("");
-      assert.match(text, /provider keyless is keyless \(no envVar in providers\.json\)/);
-      assert.match(text, /nothing to store and nothing was written/);
+      assert.match(text, /provider keyless is a custom provider with no envVar in providers\.json/);
+      assert.match(text, /its request resolver ignores auth\.json; auth login cannot configure it/);
+      assert.match(text, /add envVar to providers\.json and use that variable or stored login/);
+      assert.match(
+        text,
+        /per-run PI_API_KEY compatibility override for the selected default provider/
+      );
+      // The refusal is about auth.json, and it may not overreach into a claim
+      // about the wire: PI_API_KEY is forwarded as the request key for the
+      // selected default provider, so these requests can carry a key — just
+      // never one that came from a login. Nor may it say "remove the flag",
+      // which only routes the operator into the interactive mode this same
+      // guard refuses.
+      assert.doesNotMatch(text, /requests are sent with no key/);
+      assert.doesNotMatch(text, /remove the flag/);
       assert.equal(text.includes(ROTATED_KEY), false, "a refusal must not echo the key");
     }
 
@@ -472,17 +486,37 @@ test("status --all names the empty state instead of printing nothing", async () 
 test("status --all labels each row by what actually resolved the provider", async () => {
   await withStateRoot(async (stateRoot) => {
     await writeCustomProviders(stateRoot);
-    await withEnv({ SPARKLE_TEST_GATEWAY_KEY: ENV_KEY }, async () => {
+    await withEnv(
+      withoutOpenAiEnv({ OPENAI_API_KEY: ENV_KEY, SPARKLE_TEST_GATEWAY_KEY: ENV_KEY }),
+      async () => {
+        const { io, out, err } = capture();
+        const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
+        assert.equal(code, 0, err.join(""));
+        const text = out.join("");
+        // The source column starts at the same offset on every row: the label
+        // is derived, the layout is not. `keyless (no key)` is not a variable
+        // and used to be printed under a hardcoded `env`.
+        assert.match(text, /^keyless {22}ambient {3}keyless \(no key\)$/m);
+        assert.match(text, /^gateway {22}env {7}SPARKLE_TEST_GATEWAY_KEY$/m);
+        assert.match(text, /^openai {23}env {7}OPENAI_API_KEY$/m);
+        assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+      }
+    );
+  });
+});
+
+test("a custom row is labelled env by its configured envVar, not by a matching variable", async () => {
+  // The hole in "does this source name a variable that is set": a custom
+  // provider's source is under the operator's control through its id, so a
+  // variable that happens to be spelled like one would relabel a row that no
+  // environment variable configures. `providers.json` is what decides.
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await withEnv({ "keyless (no key)": ENV_KEY, SPARKLE_TEST_GATEWAY_KEY: undefined }, async () => {
       const { io, out, err } = capture();
       const code = await main(["auth", "status", "--all", "--state-root", stateRoot], io);
       assert.equal(code, 0, err.join(""));
-      const text = out.join("");
-      // The source column starts at the same offset on both rows: the label is
-      // derived, the layout is not. `keyless (no key)` is not an environment
-      // variable and used to be printed under a hardcoded `env`.
-      assert.match(text, /^keyless {22}ambient {3}keyless \(no key\)$/m);
-      assert.match(text, /^gateway {22}env {7}SPARKLE_TEST_GATEWAY_KEY$/m);
-      assert.equal(text.includes(ENV_KEY), false, "the value never leaves the environment");
+      assert.match(out.join(""), /^keyless {22}ambient {3}keyless \(no key\)$/m);
     });
   });
 });
