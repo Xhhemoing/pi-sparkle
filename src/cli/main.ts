@@ -2,15 +2,23 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { runtimeRoot, adaptationRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../privacy/state-layout.js";
 import {
   deleteRunRecords,
   deleteEpisodeRecords,
   RUN_RECORDS_SURVIVED_CODE
 } from "../privacy/deletion.js";
-import { LOCK_TIMEOUT_CODE, type FileLockOptions } from "../persist/file-lock.js";
+import {
+  LOCK_TIMEOUT_CODE,
+  withExclusiveFileLock,
+  type FileLockOptions
+} from "../persist/file-lock.js";
 import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
-import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
+import {
+  PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
+  preferenceSnapshotLockPath,
+  preferenceSnapshotPath
+} from "../preferences/store.js";
 import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
@@ -1631,13 +1639,54 @@ const PREF_USAGE = `pi-sparkle pref — preference inspection and correction
 
 Usage:
   pi-sparkle pref list [--scope user|project|task-family|role|model] [--state-root <dir>]
-  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--state-root <dir>]
+  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--lock-wait-ms <ms>] [--state-root <dir>]
   pi-sparkle pref export [--scope <scope>] [--state-root <dir>]
-  pi-sparkle pref delete --id <preferenceId> [--state-root <dir>]
+  pi-sparkle pref delete --id <preferenceId> [--lock-wait-ms <ms>] [--state-root <dir>]
+
+correct and delete rewrite the whole preference snapshot, so each holds the
+cooperative lock adaptation/preferences.json.lock while it reads, changes and
+republishes the file. --lock-wait-ms bounds that wait (default 5000); 0 refuses
+immediately rather than waiting at all. Either way the mutation fails closed: a
+wait that runs out writes nothing. list and export do not take the lock — the
+snapshot is published by rename, so a reader sees one whole version or another.
 `;
 
 function bindPreferenceStore(stateRoot: string): void {
-  configurePreferencePersistence(join(adaptationRoot(stateRoot), "preferences.json"));
+  configurePreferencePersistence(preferenceSnapshotPath(stateRoot));
+}
+
+/**
+ * One preference mutation, serialized against every other process mutating the
+ * same snapshot.
+ *
+ * `bindPreferenceStore` loads the whole snapshot and every mutator persists the
+ * whole in-memory state, so the read-modify-write window is the entire command.
+ * Two unsynchronized `pref` mutations that overlap in that window are
+ * last-writer-wins, and the loser vanishes without an error — including a
+ * `pref delete` whose tombstone a concurrent `pref correct` bound a moment
+ * earlier would write back out, resurrecting an observation the CLI already
+ * reported deleted. The lock therefore has to cover the load as well as the
+ * write: binding happens *inside* it, so what gets persisted derives from bytes
+ * read while no other writer could be between its own load and its own write.
+ *
+ * Acquisition is bounded and fails closed. A timeout throws the frozen
+ * `LOCK_TIMEOUT` before anything binds or is written, and the CLI's failure
+ * surface routes that code to `pi-sparkle doctor --json`, whose `locks[]`
+ * inventory names the holder. Locks are never stolen.
+ */
+async function withPreferenceSnapshotLock<T>(
+  stateRoot: string,
+  mutate: () => T,
+  options: FileLockOptions
+): Promise<T> {
+  return await withExclusiveFileLock(
+    preferenceSnapshotLockPath(stateRoot),
+    () => {
+      bindPreferenceStore(stateRoot);
+      return Promise.resolve(mutate());
+    },
+    options
+  );
 }
 
 async function answerCommand(args: string[], io: CliIo): Promise<number> {
@@ -1798,10 +1847,10 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
       key: { type: "string" },
       value: { type: "string" },
       episode: { type: "string" },
+      "lock-wait-ms": { type: "string" },
       "state-root": { type: "string" }
     }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
   const scope = values.scope;
   const scopeKey = values["scope-key"];
   const key = values.key;
@@ -1815,7 +1864,14 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
     return 1;
   }
   const episodeId = values.episode !== undefined ? parseEpisodeId(values.episode) : createEpisodeId();
-  const obs = correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId);
+  // Arguments are checked first, so the lock is only ever asked for by an
+  // invocation that is going to write: a misspelled scope has no business
+  // making a concurrent mutator wait behind it.
+  const obs = await withPreferenceSnapshotLock(
+    values["state-root"] ?? defaultStateRoot(),
+    () => correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId),
+    lockWaitOptions(values["lock-wait-ms"])
+  );
   io.stdout(`recorded explicit preference ${obs.id}\n`);
   return 0;
 }
@@ -1842,15 +1898,23 @@ async function prefExport(args: string[], io: CliIo): Promise<number> {
 async function prefDelete(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { id: { type: "string" }, "state-root": { type: "string" } }
+    options: {
+      id: { type: "string" },
+      "lock-wait-ms": { type: "string" },
+      "state-root": { type: "string" }
+    }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
-  if (values.id === undefined) {
+  const id = values.id;
+  if (id === undefined) {
     io.stderr("pref delete requires --id <preferenceId>\n");
     return 1;
   }
-  const deleted = deletePreference(values.id);
-  io.stdout(deleted ? `tombstoned preference ${values.id}\n` : `preference not found: ${values.id}\n`);
+  const deleted = await withPreferenceSnapshotLock(
+    values["state-root"] ?? defaultStateRoot(),
+    () => deletePreference(id),
+    lockWaitOptions(values["lock-wait-ms"])
+  );
+  io.stdout(deleted ? `tombstoned preference ${id}\n` : `preference not found: ${id}\n`);
   return deleted ? 0 : 1;
 }
 
@@ -1905,15 +1969,16 @@ delete fails closed either way: a wait that runs out removes nothing.
 const MAX_LOCK_WAIT_MS = 86_400_000;
 
 /**
- * `--lock-wait-ms` as `withExclusiveFileLock` options.
+ * `--lock-wait-ms` as `withExclusiveFileLock` options, shared by `delete` and
+ * the two locked `pref` mutators.
  *
  * An absent flag yields an empty object rather than an explicit default, so an
- * unflagged delete makes exactly the call it made before this flag existed:
+ * unflagged command makes exactly the call it made before this flag existed:
  * the 5s bound stays the lock's own, in one place, and cannot drift here.
  *
  * Only whole non-negative decimal milliseconds are accepted. `Number` would
- * also take `1e4`, `0x10` and ` 5 `; a delete that waits a different amount of
- * time than the operator typed is worse than one that refuses the spelling.
+ * also take `1e4`, `0x10` and ` 5 `; a command that waits a different amount
+ * of time than the operator typed is worse than one that refuses the spelling.
  */
 function lockWaitOptions(raw: string | undefined): FileLockOptions {
   if (raw === undefined) return {};

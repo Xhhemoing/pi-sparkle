@@ -405,14 +405,18 @@ state root. Findings and resolutions:
   - `runtime/auth.json.lock`, guarding credential changes;
   - `adaptation/feedback/records.jsonl.lock`, shared by feedback appends and
     the episode-deletion cascade rewrite;
+  - `adaptation/preferences.json.lock`, shared by `pref correct` and
+    `pref delete`;
   - `adaptation/registry.json.lock`, guarding registry changes; and
   - `adaptation/learning/projects/<stableProjectKey>/bandit.json.lock`,
     guarding each project's bandit update.
-  These are transient operational sidecars, not durable record classes.
+  These are transient operational sidecars, not durable record classes and not
+  entries in the completeness list above.
   Normal release removes an owned lock; an abandoned lock is not stolen
   automatically and may require manual cleanup. `pi-sparkle doctor`
   recursively inventories every `*.lock` under the state root without
-  acquiring, stealing, or deleting it. Prose output and the additive
+  acquiring, stealing, or deleting it — which is why adding the preferences
+  lock needed no doctor change. Prose output and the additive
   `DoctorJsonReport.locks` field report each lock's metadata status
   (`valid`, `empty`, `invalid`, or `unreadable`), age and age source, recorded
   PID, advisory PID liveness, and a per-entry `remediation`. A recorded dead
@@ -464,6 +468,20 @@ state root. Findings and resolutions:
   load, so the unreadable file is not silently replaced by empty state. Repair
   it from a backup, or move it aside only as an explicit decision to start
   over.
+  Its two writers — `pref correct` and `pref delete` — each rewrite the whole
+  snapshot from the whole loaded state, so since Round 16 each holds
+  `adaptation/preferences.json.lock` across load, mutation and republish, with
+  the load performed inside the lock. Unsynchronized, the pair was
+  last-writer-wins with no error either way, and the losing side could be the
+  delete: a `pref correct` that bound before the delete's write put the
+  tombstoned observation back on disk under a delete that had already reported
+  success. Acquisition is bounded by `--lock-wait-ms` (default 5000, ceiling 24
+  hours) and fails closed with the frozen `LOCK_TIMEOUT` code having written
+  nothing; locks are never stolen. The synchronous store API in
+  `src/preferences/store.ts` remains in-process-only — any new writer of this
+  snapshot must take the lock over the same span. `pref list`, `pref export`
+  and doctor's `readPreferenceSnapshot` are deliberately lock-free: the file is
+  published by rename, so a reader sees one whole version or another.
 - `adaptation/learning/projects/<stableProjectKey>/bandit.json` is learned
   state too and is crash-atomically published. ENOENT is the only silent
   absence. Empty, invalid JSON, or invalid core counters throw
@@ -481,10 +499,24 @@ state root. Findings and resolutions:
   JSON throws `DomainValidationError` and names the damaged checkpoint path
   instead of leaking a raw `SyntaxError` or treating damage as absence.
 
+> Round 16 R16-1 landing census (2026-08-25 02:57:20 UTC): HEAD was `9c58b90`.
+> Two changes above ship in this landing's own diff because the landing changed
+> what they describe — the operational-lock list gained
+> `adaptation/preferences.json.lock`, and the preference bullet in this section
+> gained the writer-side locking contract. This is the landing-triggered census
+> note the Round 15 terminator prescribes, not a reopened treadmill. Sibling
+> slots were in flight in the working tree at the time (R16-2 on
+> `src/episode/store.ts`, R16-4 on `src/cli/migrate-legacy.ts`); their file sets
+> are disjoint from this one and neither touches this document, so nothing here
+> is contingent on them. Everything else in this document is unchanged and
+> current at `9c58b90`. Subsequent rounds need a new census note only when a
+> landing changes what these surfaces describe.
+
 The completeness guard lives in
 `test/unit/privacy/record-classes.test.ts`: any durable path added to `src/`
 must be added to `knownPaths` and to a record class together, or the suite
-fails.
+fails. Lock sidecars are not durable paths and are not listed there; the list
+of them lives in the completeness audit above.
 
 ## Rules
 

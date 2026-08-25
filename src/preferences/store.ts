@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   PreferenceObservation,
   PreferenceScope,
@@ -10,8 +11,46 @@ import { createId } from "../domain/ids.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomicSync } from "../persist/atomic-file.js";
+import { adaptationRoot } from "../privacy/state-layout.js";
+
+/**
+ * This module is a process-global singleton with a synchronous API, and that
+ * API alone is **in-process-only**: it holds no lock. Every mutator
+ * (`recordObservation`, `recordPreference`, `deleteObservation`,
+ * `clearPreferences`) persists the whole in-memory state, and
+ * `configurePreferencePersistence` loads the whole snapshot, so two processes
+ * whose load→mutate→persist windows overlap are last-writer-wins: the loser's
+ * write is lost silently, and a lost `deleteObservation` puts a tombstoned
+ * observation back on disk under a delete that already reported success.
+ *
+ * The cross-process exclusion therefore lives one layer up, at the writer:
+ * `pref correct` and `pref delete` hold `preferenceSnapshotLockPath` across
+ * bind, mutate and persist (`src/cli/main.ts`). **Any new writer of this
+ * snapshot must take that lock over the same span** — binding inside it, so
+ * the state it persists derives from bytes read while the lock was held.
+ * Readers (`pref list` / `pref export`, doctor's `readPreferenceSnapshot`)
+ * stay lock-free: the snapshot is published by rename, so a reader sees one
+ * whole version or another, never a splice.
+ */
 
 let persistFile: string | undefined;
+
+/** The preference snapshot for `stateRoot`; the store's only durable file. */
+export function preferenceSnapshotPath(stateRoot: string): string {
+  return join(adaptationRoot(stateRoot), "preferences.json");
+}
+
+/**
+ * Cooperative lock guarding the snapshot's cross-process read-modify-write.
+ *
+ * Mirrors `records.jsonl.lock` and `bandit.json.lock`: a `<file>.lock` sidecar
+ * next to the file it guards, acquired through `withExclusiveFileLock`, never
+ * stolen, and inventoried by `pi-sparkle doctor` without acquiring it (its
+ * lock scan discovers any `*.lock` under the state root).
+ */
+export function preferenceSnapshotLockPath(stateRoot: string): string {
+  return `${preferenceSnapshotPath(stateRoot)}.lock`;
+}
 
 const observations: PreferenceObservation[] = [];
 const tombstones = new Set<string>();
@@ -126,6 +165,9 @@ function saveToDisk(): void {
  * Binding happens only after a successful load, so a `PreferenceSnapshotUnreadableError`
  * leaves the store persisting exactly where it did before instead of pointing at a file the
  * next observation would overwrite.
+ *
+ * This call is the "load" half of the read-modify-write window described at the top of the
+ * module: a writer must make it while already holding `preferenceSnapshotLockPath`.
  */
 export function configurePreferencePersistence(filePath: string | undefined): void {
   if (filePath === undefined) {
