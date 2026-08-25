@@ -130,6 +130,135 @@ test("run --children carries a declared maxCostUsd to the child run and its TASK
   });
 });
 
+test("run --children --max-cost-usd caps a cap-free child without inventing a per-task budget", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        tasks: [
+          {
+            id: "tsk_uncapped",
+            role: "implementer",
+            objective: "Implement the parser with no declared budget",
+            acceptanceCriteria: [{ id: "ac-1", description: "Parses empty input" }],
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+          }
+        ]
+      }),
+      "utf8"
+    );
+    const { io, out, err } = capture();
+    const code = await main(
+      [
+        "run",
+        "--project",
+        projectRoot,
+        "--objective",
+        "Ship the parser",
+        "--children",
+        specPath,
+        "--state-root",
+        stateRoot,
+        "--max-cost-usd",
+        "0.5"
+      ],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    const runId = requireCompletedRunId(out, err);
+
+    // The run-level cap is coordinator state, not a per-task declaration: the
+    // TASK_REQUEST records what the caller declared for this task, which here
+    // is nothing. Copying the run cap into it would invent a budget the spec
+    // never named and make the two records disagree about who asked.
+    const parentEvents = await readEventLog(stateRoot, runId);
+    const requests = parentEvents.flatMap((event) => {
+      const message = (event.payload as { message?: { type?: string; limits?: Record<string, unknown> } })
+        ?.message;
+      return event.type === "CHILD_MESSAGE" && message?.type === "TASK_REQUEST" ? [message] : [];
+    });
+    assert.equal(requests.length, 1);
+    assert.equal("maxCostUsd" in (requests[0]?.limits ?? {}), false, JSON.stringify(requests[0]?.limits));
+
+    // The child's own RUN_CREATED is where the effective ceiling lands.
+    const inspection = await inspectRun(stateRoot, runId);
+    assert.equal(inspection.children.length, 1);
+    const childEvents = await readEventLog(stateRoot, inspection.children[0]!.childRunId);
+    const created = childEvents.filter((event) => event.type === "RUN_CREATED");
+    assert.equal(created.length, 1);
+    assert.equal(
+      (created[0]!.payload as { run: { limits: { maxCostUsd?: number } } }).run.limits.maxCostUsd,
+      0.5
+    );
+
+    // And on the flowchart run's own record, which is what a resume reads back.
+    const parentCreated = parentEvents.filter((event) => event.type === "RUN_CREATED");
+    assert.equal(parentCreated.length, 1);
+    assert.equal(
+      (parentCreated[0]!.payload as { run: { limits: { maxCostUsd?: number } } }).run.limits.maxCostUsd,
+      0.5
+    );
+  });
+});
+
+test("run --children --max-cost-usd leaves a tighter declared child ceiling in force", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        tasks: [
+          {
+            id: "tsk_tight",
+            role: "implementer",
+            objective: "Implement the parser on a tight budget",
+            acceptanceCriteria: [{ id: "ac-1", description: "Parses empty input" }],
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000, maxCostUsd: 0.1 }
+          }
+        ]
+      }),
+      "utf8"
+    );
+    const { io, out, err } = capture();
+    const code = await main(
+      [
+        "run",
+        "--project",
+        projectRoot,
+        "--objective",
+        "Ship the parser",
+        "--children",
+        specPath,
+        "--state-root",
+        stateRoot,
+        "--max-cost-usd",
+        "0.5"
+      ],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    const runId = requireCompletedRunId(out, err);
+
+    // A run cap cannot loosen a task that asked for less, so the effective
+    // ceiling is the declared 0.1 and not the run-level 0.5.
+    const inspection = await inspectRun(stateRoot, runId);
+    const childEvents = await readEventLog(stateRoot, inspection.children[0]!.childRunId);
+    const created = childEvents.filter((event) => event.type === "RUN_CREATED");
+    assert.equal(
+      (created[0]!.payload as { run: { limits: { maxCostUsd?: number } } }).run.limits.maxCostUsd,
+      0.1
+    );
+    const parentEvents = await readEventLog(stateRoot, runId);
+    const request = parentEvents.flatMap((event) => {
+      const message = (event.payload as { message?: { type?: string; limits?: { maxCostUsd?: number } } })
+        ?.message;
+      return event.type === "CHILD_MESSAGE" && message?.type === "TASK_REQUEST" ? [message] : [];
+    })[0];
+    assert.equal(request?.limits?.maxCostUsd, 0.1);
+  });
+});
+
 test("run --children refuses a non-positive maxCostUsd naming the task and writes no run", async () => {
   // JSON cannot carry NaN/Infinity, so `null` is the shape a hand-written spec
   // actually reaches the parser with when the value is not a number at all.
