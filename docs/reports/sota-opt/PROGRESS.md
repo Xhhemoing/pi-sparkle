@@ -42,7 +42,7 @@
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 第 1–5 波进行中 | 4 / 10（A/B/C/D 已合入；E 运行中；F 已派出；G 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
+| 28 | 第 1–6 波进行中 | 5 / 10（A/B/C/D/F 已合入；E 运行中；G 已派出；H 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
 
 ### Round 1 波次
 
@@ -296,8 +296,9 @@
 | 1 | R28-A 跟踪门控、R28-B live 路由、R28-C 离线路由 | A/B/C 已合入 |
 | 2 | R28-D 自优化 | D 已合入 |
 | 3 | R28-E 学习 | E 运行中 |
-| 4 | R28-F 实验门控 | F 已派出 |
-| 5 | R28-G 运行时/图 | G 本波派出 |
+| 4 | R28-F 实验门控 | F 已合入 |
+| 5 | R28-G 运行时/图 | G 已派出 |
+| 6 | R28-H 评价/需求 | H 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -579,8 +580,9 @@
 | R28-C | `cursor/r28-c-offline-routing-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-C.md`）。无新排除 ID；中位复核 660.9–667.5 ms；sink=7.309；C-slice numeric-kernel execution-substrate instantiation 归档（face 名归 R27-H） |
 | R28-D | `cursor/r28-d-adaptation-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-D.md`）。无新排除 ID；eval 地板复核 3.27–3.44 ms；contents-store population face 归档 |
 | R28-E | `cursor/r28-e-learning-twenty-eighth-pass-83a1` | 已派出 |
-| R28-F | `cursor/r28-f-experiments-twenty-eighth-pass-83a1` | 已派出 |
+| R28-F | `cursor/r28-f-experiments-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-F.md`）。无新排除 ID；锚点复核 r5f 121.48/120.18 / r6f 122.81 / r7f 127.06/126.63；boundary call-protocol face 归档 |
 | R28-G | `cursor/r28-g-runtime-twenty-eighth-pass-83a1` | 已派出 |
+| R28-H | `cursor/r28-h-eval-twenty-eighth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
