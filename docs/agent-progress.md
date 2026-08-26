@@ -185,3 +185,7 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 ### Round 12 (ranking)
 
 Round 11 closed. Next three file-disjoint operator batches (D43–D45). Fable-r12-next ranks; GPT-r12-challenge independently challenges. HOLD from Round 11 still binding. Do not duplicate PR #12.
+
+| Slot | Agent | Model | Where | Id |
+|---|---|---|---|---|
+| Fable-r12-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-7f6b6977-ea08-5520-b5e3-8298f47fe6f9` |
