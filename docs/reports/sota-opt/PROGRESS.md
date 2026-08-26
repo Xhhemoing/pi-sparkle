@@ -42,7 +42,8 @@
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 第 1–8 波进行中 | 7 / 10（A–G 已合入；H 运行中；I 已派出；J 本波派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
+| 28 | 第 1–8 波进行中 | 8 / 10（A–H 已合入；I 运行中；J 已派出） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
+| 29 | 第 1 波进行中 | 0 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
 
 ### Round 1 波次
 
@@ -298,9 +299,15 @@
 | 3 | R28-E 学习 | E 已合入 |
 | 4 | R28-F 实验门控 | F 已合入 |
 | 5 | R28-G 运行时/图 | G 已合入 |
-| 6 | R28-H 评价/需求 | H 运行中 |
-| 7 | R28-I CLI/适配器 | I 已派出 |
-| 8 | R28-J cluster/privacy | J 本波派出 |
+| 6 | R28-H 评价/需求 | H 已合入 |
+| 7 | R28-I CLI/适配器 | I 运行中 |
+| 8 | R28-J cluster/privacy | J 已派出 |
+
+### Round 29 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R29-A 跟踪门控 | A 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -584,9 +591,10 @@
 | R28-E | `cursor/r28-e-learning-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-E.md`）。无新排除 ID；SLICE-CPU 复核 15.0–15.2 µs/run；proposal write-path termination-leg face / **PWL** 归档 |
 | R28-F | `cursor/r28-f-experiments-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-F.md`）。无新排除 ID；锚点复核 r5f 121.48/120.18 / r6f 122.81 / r7f 127.06/126.63；boundary call-protocol face 归档 |
 | R28-G | `cursor/r28-g-runtime-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-G.md`）。无新排除 ID；计算顶复核 0.286–0.289 vs I/O 89.4–103.1 ms；digest 第十九次逐位；decision-gate resolution face 归档 |
-| R28-H | `cursor/r28-h-eval-twenty-eighth-pass-83a1` | 已派出 |
+| R28-H | `cursor/r28-h-eval-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-H.md`）。无新排除 ID；热层复核 9006–9483 ns；boundary argument-slot materialization face 归档 |
 | R28-I | `cursor/r28-i-cli-twenty-eighth-pass-83a1` | 已派出 |
 | R28-J | `cursor/r28-j-persist-twenty-eighth-pass-83a1` | 已派出 |
+| R29-A | `cursor/r29-a-tracking-twenty-ninth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
