@@ -54,7 +54,7 @@
 | 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
 | 38 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-38/PLAN.md](./round-38/PLAN.md) |
 | 39 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-39/PLAN.md](./round-39/PLAN.md) |
-| 40 | 第 2 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-40/PLAN.md](./round-40/PLAN.md) |
+| 40 | 第 3 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-40/PLAN.md](./round-40/PLAN.md) |
 
 ### Round 1 波次
 
@@ -473,8 +473,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R40-A 跟踪门控、R40-B live 路由、R40-C 离线路由 | A 已合入；B/C 运行中 |
-| 2 | R40-D 自优化 | D 本波派出 |
+| 1 | R40-A 跟踪门控、R40-B live 路由、R40-C 离线路由 | A/B 已合入；C 运行中 |
+| 2 | R40-D 自优化 | D 运行中 |
+| 3 | R40-E 学习 | E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -840,9 +841,10 @@
 | R39-I | `cursor/r39-i-cli-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-I.md`）。无新排除 ID；custom−builtin 复核 children +22.8~+24.1 / +41.9~+45.2、track +24.9~+29.2 / +47.8~+54.9、flowchart +12.6~+24.2 / +40.5~+43.9；零新站点级换名记录 |
 | R39-J | `cursor/r39-j-persist-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-J.md`）。无新排除 ID；I/O 地板复核 preferences 140.7–226.1 / 404.9–536.5、jsonl 60.4–67.1 / fsync=true 242.2–395.3；J1 2468 / 2929.4×；零新站点级换名记录 |
 | R40-A | `cursor/r40-a-tracking-fortieth-pass-83a1` | 已合入专属分支（仅 `R40-A.md`）。无新排除 ID；预算复核 13.8–17.2 µs/gate ⇒ ~69–86 µs/run；三项换名检查拒列未铸 |
-| R40-B | `cursor/r40-b-live-routing-fortieth-pass-83a1` | 已派出 |
+| R40-B | `cursor/r40-b-live-routing-fortieth-pass-83a1` | 已合入专属分支（仅 `R40-B.md`）。无新排除 ID；天花板复核 ceiling M=2 8.91–9.98 / M=10 17.13–18.30；replay M=2 8.96–9.60；零新站点级换名记录 |
 | R40-C | `cursor/r40-c-offline-routing-fortieth-pass-83a1` | 已派出 |
 | R40-D | `cursor/r40-d-adaptation-fortieth-pass-83a1` | 已派出 |
+| R40-E | `cursor/r40-e-learning-fortieth-pass-83a1` | 已派出 |
 | R38-B | `cursor/r38-b-live-routing-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.91–11.98 / M=10 16.91–18.00；replay M=2 9.00–10.14；零新站点级换名记录 |
 | R38-E | `cursor/r38-e-learning-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-E.md`）。无新排除 ID；SLICE-CPU cmp25 15.0–15.2（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R38-H | `cursor/r38-h-eval-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-H.md`）。无新排除 ID；默认链复核 9316/8866/8926 ns（宿主中窗）；零新站点级换名记录；S5-H-1 保持 |
