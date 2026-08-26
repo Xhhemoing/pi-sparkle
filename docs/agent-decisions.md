@@ -378,8 +378,6 @@ Fable-r12-next. Wrap `loginProviderInteractive` in a narrow uncoded-`DomainValid
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
-## D22 — Round 5 rank 3: doctor storage inventory
-
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.
 
 **Landed** (Opus-d22-doctor-storage): additive `storage` field and check; plane-root walk; `storageFs` seam + ENOTDIR fixture for scanErrors.
