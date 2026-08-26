@@ -47,7 +47,7 @@
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
-| 33 | 第 1–6 波进行中 | 3 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
+| 33 | 第 1–7 波进行中 | 4 / 10（A–D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
 
 ### Round 1 波次
 
@@ -373,10 +373,11 @@
 | --- | --- | --- |
 | 1 | R33-A 跟踪门控 | A 已合入 |
 | 2 | R33-B live 路由 | B 已合入 |
-| 3 | R33-C 离线路由 | C 运行中 |
+| 3 | R33-C 离线路由 | C 已合入 |
 | 4 | R33-D 自优化 | D 已合入 |
 | 5 | R33-E 学习 | E 运行中 |
-| 6 | R33-F 实验门控 | F 本波派出 |
+| 6 | R33-F 实验门控 | F 运行中 |
+| 7 | R33-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -699,7 +700,8 @@
 | R33-A | `cursor/r33-a-tracking-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-A.md`）。无新排除 ID；预算复核 11.8–17.6 µs/gate ⇒ ~59–88 µs/run；A 账本 44/44 闭合稳定性卫生未铸 |
 | R33-B | `cursor/r33-b-live-routing-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-B.md`）。无新排除 ID；天花板复核 M=2 10.75–11.73 / M=10 21.48–23.74 ms/eval（主机偏置）；一处从未点名站点拒列未铸 |
 | R33-F | `cursor/r33-f-experiments-thirty-third-pass-83a1` | 已派出 |
-| R33-C | `cursor/r33-c-offline-routing-thirty-third-pass-83a1` | 已派出 |
+| R33-C | `cursor/r33-c-offline-routing-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-C.md`）。无新排除 ID；中位复核 670.2–708.7 ms（主机干扰窗）；组合天花板 25.7–31.7 < 35；sink=7.309 |
+| R33-G | `cursor/r33-g-runtime-thirty-third-pass-83a1` | 已派出 |
 | R33-D | `cursor/r33-d-adaptation-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-D.md`）。无新排除 ID；eval 地板复核 S0c 3.42–3.67 ms；三项换名检查拒列未铸 |
 | R33-E | `cursor/r33-e-learning-thirty-third-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
