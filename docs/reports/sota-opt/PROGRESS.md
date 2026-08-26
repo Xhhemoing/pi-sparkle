@@ -49,7 +49,7 @@
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
-| 35 | 第 1–10 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-35/PLAN.md](./round-35/PLAN.md) |
+| 35 | 第 1–10 波进行中 | 8 / 10（A–H 已合入；I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-35/PLAN.md](./round-35/PLAN.md) |
 
 ### Round 1 波次
 
@@ -410,7 +410,7 @@
 | 5 | R35-E 学习 | E 已合入 |
 | 6 | R35-F 实验门控 | F 已合入 |
 | 7 | R35-G 运行时/图 | G 已合入 |
-| 8 | R35-H 评价/需求 | H 运行中 |
+| 8 | R35-H 评价/需求 | H 已合入 |
 | 9 | R35-I CLI/适配器 | I 运行中 |
 | 10 | R35-J cluster/privacy | J 本波派出 |
 
@@ -748,7 +748,7 @@
 | R34-J | `cursor/r34-j-persist-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-J.md`）。无新排除 ID；I/O 地板复核 preferences 141.9–234.4 / 429.1–533.4、jsonl 61.2–69.4 / 227.1–338.2 µs；J1 2468 / 2760.9×；四项换名检查拒列未铸 |
 | R35-A | `cursor/r35-a-tracking-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-A.md`）。无新排除 ID；预算复核 12.6–19.0 µs/gate ⇒ ~63–95 µs/run（19.0 单格宿主抖动）；三项换名检查拒列未铸 |
 | R35-E | `cursor/r35-e-learning-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.6–15.2（主机偏快）；一项换名检查拒列未铸；S8-E-1 仍恰 3 处 |
-| R35-H | `cursor/r35-h-eval-thirty-fifth-pass-83a1` | 已派出 |
+| R35-H | `cursor/r35-h-eval-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-H.md`）。无新排除 ID；默认链复核 8927/9022/8970 ns；零新站点级换名记录；S5-H-1 保持 |
 | R35-B | `cursor/r35-b-live-routing-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-B.md`）。无新排除 ID；天花板复核 ceiling M=2 9.78–10.25 / M=10 15.54–15.85；replay M=2 8.18–9.24（主机偏快）；零新站点级换名记录 |
 | R35-D | `cursor/r35-d-adaptation-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-D.md`）。无新排除 ID；eval 地板复核 S0c 3.54–3.93 ms；四项换名检查拒列未铸 |
 | R35-G | `cursor/r35-g-runtime-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-G.md`）。无新排除 ID；计算顶复核 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次逐位；两项换名检查拒列未铸 |
