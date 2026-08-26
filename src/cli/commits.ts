@@ -19,7 +19,7 @@ import {
   type DecisionCommitInput,
   type DecisionCommitProposal
 } from "../tools/decision-commit.js";
-import { CLI_EXIT, cliFail, warnTruncatedJsonl } from "./errors.js";
+import { CLI_EXIT, cliFail, errorCodeOf, warnTruncatedJsonl } from "./errors.js";
 
 export interface CommitsIo {
   stdout(text: string): void;
@@ -39,11 +39,93 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
+/**
+ * Whether a failure is a plain domain judgement this command may re-report as
+ * its own refusal.
+ *
+ * A coded failure — ENOTDIR on a file used as `--state-root`, EISDIR on a
+ * checkpoint path that is a directory, EACCES, the lock family — is an
+ * environment fault `main.ts` already routes, so it is rethrown untouched.
+ */
+function isUncodedDomainFault(error: unknown): error is DomainValidationError {
+  return error instanceof DomainValidationError && errorCodeOf(error) === undefined;
+}
+
+/**
+ * The four stored-ledger faults below all used to reach `main.ts`'s generic
+ * catch, whose one remedy is `pi-sparkle doctor`. Doctor inventories run event
+ * logs, not checkpoint files, so it answers none of them: a root holding a
+ * deleted and a corrupt `checkpoint.json` passes every doctor check and never
+ * prints the word `checkpoint`. Each refusal keeps the store's or the commit
+ * plane's message bytes — those name the file and the reason — and replaces
+ * only the remedy.
+ *
+ * `runId` is safe to interpolate into a printed command: `isRunId` has already
+ * constrained it to `run_` plus 1–64 `[A-Za-z0-9_-]` characters. The state root
+ * is arbitrary operator text, so these remedies say "the same --state-root"
+ * rather than pasting it into a line that looks copy-paste safe.
+ */
+function refuseAbsentCheckpoint(io: CommitsIo, runId: RunId): void {
+  cliFail(io, {
+    command: "commits",
+    stage: "lookup",
+    message: `Run ${runId} has no durable checkpoint`,
+    next:
+      "this run recorded events but no durable checkpoint; " +
+      `pi-sparkle inspect --run ${runId} using the same --state-root shows its status — ` +
+      "only checkpointed runs have a decision ledger",
+    runId
+  });
+}
+
+function refuseCorruptCheckpoint(io: CommitsIo, error: DomainValidationError, runId: RunId): void {
+  cliFail(io, {
+    command: "commits",
+    stage: "validation",
+    message: error.message,
+    next:
+      "repair or move aside the checkpoint file named above, then retry; " +
+      "pi-sparkle doctor does not inventory checkpoint files",
+    runId
+  });
+}
+
+function refuseNonFlowchartCheckpoint(io: CommitsIo, error: DomainValidationError, runId: RunId): void {
+  cliFail(io, {
+    command: "commits",
+    stage: "validation",
+    message: error.message,
+    next:
+      "decision commits are generated from a flowchart run's checkpoint; " +
+      "this run was not started with run --flowchart, so it has no decision ledger",
+    runId
+  });
+}
+
+/**
+ * Having no completed node is a fact about the run's progress, not a fault of
+ * the tree. It fires only after `filterDecisionCommitNodeIds`, so an unknown
+ * `--nodes` id keeps its own earlier refusal.
+ */
+function refuseNoProposals(io: CommitsIo, error: DomainValidationError, runId: RunId): number {
+  return cliFail(io, {
+    command: "commits",
+    stage: "validation",
+    message: error.message,
+    next:
+      `pi-sparkle inspect --run ${runId} using the same --state-root lists its nodes; ` +
+      "commit proposals exist only for COMPLETED nodes",
+    runId
+  });
+}
+
 async function loadCommitInput(
   stateRoot: string,
   runId: RunId,
   io: CommitsIo
 ): Promise<{ checkpoint: RunCheckpoint; input: DecisionCommitInput } | undefined> {
+  // Outside every catch below: a corrupt *event log* is the one family in this
+  // command doctor genuinely inventories, so it keeps main's doctor remedy.
   const read = await new EventStore(stateRoot, runId).readAll();
   warnTruncatedJsonl(io, read.recovery, "event log");
   if (read.events.length === 0) {
@@ -58,12 +140,30 @@ async function loadCommitInput(
     });
     return undefined;
   }
-  const raw = await new CheckpointStore(stateRoot, runId).read();
-  if (raw === undefined) {
-    throw new DomainValidationError(`Run ${runId} has no durable checkpoint`);
+  let checkpoint: RunCheckpoint;
+  try {
+    const raw = await new CheckpointStore(stateRoot, runId).read();
+    if (raw === undefined) {
+      // `read()` maps checkpoint ENOENT to `undefined`, so this is an absent
+      // stored record — the same class as a `--file` that is not there.
+      refuseAbsentCheckpoint(io, runId);
+      return undefined;
+    }
+    checkpoint = validateCheckpoint(raw);
+  } catch (error) {
+    if (!isUncodedDomainFault(error)) throw error;
+    refuseCorruptCheckpoint(io, error, runId);
+    return undefined;
   }
-  const checkpoint = validateCheckpoint(raw);
-  return { checkpoint, input: assembleDecisionCommitInput(checkpoint, read.events, runId) };
+  let input: DecisionCommitInput;
+  try {
+    input = assembleDecisionCommitInput(checkpoint, read.events, runId);
+  } catch (error) {
+    if (!isUncodedDomainFault(error)) throw error;
+    refuseNonFlowchartCheckpoint(io, error, runId);
+    return undefined;
+  }
+  return { checkpoint, input };
 }
 
 /**
@@ -288,7 +388,13 @@ async function previewCommand(args: string[], io: CommitsIo): Promise<number> {
   } catch (error) {
     return refuseUnknownNodes(io, error, runId, stateRoot);
   }
-  const proposals = proposalsFromInput(loaded, filteredIds, undefined);
+  let proposals: DecisionCommitProposal[];
+  try {
+    proposals = proposalsFromInput(loaded, filteredIds, undefined);
+  } catch (error) {
+    if (!isUncodedDomainFault(error)) throw error;
+    return refuseNoProposals(io, error, runId);
+  }
   if (values.json === true) {
     // `preview: true` is the developer-preview marker every machine surface
     // carries, not a restatement of the `preview` subcommand; COMMITS_PREVIEW
@@ -390,7 +496,13 @@ async function applyCommand(args: string[], io: CommitsIo): Promise<number> {
   } catch (error) {
     return refuseUnknownNodes(io, error, runId, stateRoot);
   }
-  const proposals = proposalsFromInput(loaded, filteredIds, fileProposals);
+  let proposals: DecisionCommitProposal[];
+  try {
+    proposals = proposalsFromInput(loaded, filteredIds, fileProposals);
+  } catch (error) {
+    if (!isUncodedDomainFault(error)) throw error;
+    return refuseNoProposals(io, error, runId);
+  }
   const repo = values.repo ?? loaded.checkpoint.project?.rootPath;
   if (repo === undefined || repo.trim() === "") {
     // The flag was omitted (a blank one already refused as argv) and the
