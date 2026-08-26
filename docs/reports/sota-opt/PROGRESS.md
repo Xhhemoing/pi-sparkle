@@ -44,7 +44,7 @@
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
 | 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
-| 30 | 第 1–8 波进行中 | 5 / 10（A–E 已合入；F/G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
+| 30 | 第 1–9 波进行中 | 6 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
 
 ### Round 1 波次
 
@@ -328,9 +328,10 @@
 | 3 | R30-C 离线路由 | C 已合入 |
 | 4 | R30-D 自优化 | D 已合入 |
 | 5 | R30-E 学习 | E 已合入 |
-| 6 | R30-F 实验门控 | F 运行中 |
+| 6 | R30-F 实验门控 | F 已合入 |
 | 7 | R30-G 运行时/图 | G 运行中 |
-| 8 | R30-H 评价/需求 | H 本波派出 |
+| 8 | R30-H 评价/需求 | H 运行中 |
+| 9 | R30-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -632,9 +633,10 @@
 | R30-C | `cursor/r30-c-offline-routing-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-C.md`）。无新排除 ID；中位复核 658.7–663.0 ms；sink=7.309；REPRX 不铸 ID |
 | R30-D | `cursor/r30-d-adaptation-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-D.md`）。无新排除 ID；eval 地板复核 S0c 3.29–3.66 / 同进程 3.13–3.27 ms；approval-profile constraint-list geometry face 归档 |
 | R30-E | `cursor/r30-e-learning-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-E.md`）。无新排除 ID；SLICE-CPU 复核 14.7–15.2 µs/run；async suspension-point topology / per-run suspension-manifest face 归档 |
-| R30-F | `cursor/r30-f-experiments-thirtieth-pass-83a1` | 已派出 |
+| R30-F | `cursor/r30-f-experiments-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-F.md`）。无新排除 ID；锚点复核 r5f 119.31/120.55/121.20、r6f 120.71/121.34/121.90、r7f 128.31/130.42/132.69；boundary output-consumption / snapshot-readback topology face 归档 |
 | R30-G | `cursor/r30-g-runtime-thirtieth-pass-83a1` | 已派出 |
 | R30-H | `cursor/r30-h-eval-thirtieth-pass-83a1` | 已派出 |
+| R30-I | `cursor/r30-i-cli-thirtieth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
