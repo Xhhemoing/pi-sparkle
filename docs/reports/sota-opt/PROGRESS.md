@@ -53,7 +53,7 @@
 | 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
 | 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
 | 38 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-38/PLAN.md](./round-38/PLAN.md) |
-| 39 | 第 7 波进行中 | 6 / 10（G/H 在飞；I 本波派出） | claude-fable-5-thinking-xhigh | [round-39/PLAN.md](./round-39/PLAN.md) |
+| 39 | 第 8 波进行中 | 7 / 10（H/I 在飞；J 本波派出） | claude-fable-5-thinking-xhigh | [round-39/PLAN.md](./round-39/PLAN.md) |
 
 ### Round 1 波次
 
@@ -463,9 +463,10 @@
 | 2 | R39-D 自优化 | D 已合入 |
 | 3 | R39-E 学习 | E 已合入 |
 | 4 | R39-F 实验 | F 已合入 |
-| 5 | R39-G 运行时 | G 在飞 |
+| 5 | R39-G 运行时 | G 已合入 |
 | 6 | R39-H 评估 | H 在飞 |
-| 7 | R39-I CLI/适配器 | I 本波派出 |
+| 7 | R39-I CLI/适配器 | I 在飞 |
+| 8 | R39-J persist | J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -826,9 +827,10 @@
 | R39-D | `cursor/r39-d-adaptation-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-D.md`）。无新排除 ID；eval 地板复核 S0c 3.46–3.50 ms；零新站点级换名记录 |
 | R39-E | `cursor/r39-e-learning-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-E.md`）。无新排除 ID；SLICE-CPU 15.0（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R39-F | `cursor/r39-f-experiments-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-F.md`）。无新排除 ID；锚点复核 r5f 128.29/126.03/123.63、r6f 121.06/121.21/131.89、r7f 130.95/126.05/130.38；零新站点级换名记录 |
-| R39-G | `cursor/r39-g-runtime-thirty-ninth-pass-83a1` | 已派出 |
+| R39-G | `cursor/r39-g-runtime-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-G.md`）。无新排除 ID；计算顶复核 0.283–0.302 vs I/O 80.8–99.0；digest 第三十次逐位；零新站点级换名记录 |
 | R39-H | `cursor/r39-h-eval-thirty-ninth-pass-83a1` | 已派出 |
 | R39-I | `cursor/r39-i-cli-thirty-ninth-pass-83a1` | 已派出 |
+| R39-J | `cursor/r39-j-persist-thirty-ninth-pass-83a1` | 已派出 |
 | R38-B | `cursor/r38-b-live-routing-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.91–11.98 / M=10 16.91–18.00；replay M=2 9.00–10.14；零新站点级换名记录 |
 | R38-E | `cursor/r38-e-learning-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-E.md`）。无新排除 ID；SLICE-CPU cmp25 15.0–15.2（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R38-H | `cursor/r38-h-eval-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-H.md`）。无新排除 ID；默认链复核 9316/8866/8926 ns（宿主中窗）；零新站点级换名记录；S5-H-1 保持 |
