@@ -47,7 +47,7 @@
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
-| 33 | 第 1 波进行中 | 0 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
+| 33 | 第 1–4 波进行中 | 1 / 10（A 已合入；B/C/D 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
 
 ### Round 1 波次
 
@@ -371,7 +371,10 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R33-A 跟踪门控 | A 本波派出 |
+| 1 | R33-A 跟踪门控 | A 已合入 |
+| 2 | R33-B live 路由 | B 本波派出 |
+| 3 | R33-C 离线路由 | C 本波派出 |
+| 4 | R33-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -691,7 +694,10 @@
 | R32-C | `cursor/r32-c-offline-routing-thirty-second-pass-83a1` | 已合入专属分支（仅 `R32-C.md`）。无新排除 ID；中位复核 659.0–662.0 ms；组合天花板 20.2–26.6 < 35；sink=7.309 |
 | R32-G | `cursor/r32-g-runtime-thirty-second-pass-83a1` | 已合入专属分支（仅 `R32-G.md`）。无新排除 ID；计算顶复核 0.289–0.293 vs I/O 88.2–93.5 ms；digest 第二十三次逐位；门扉闭合未铸 |
 | R32-J | `cursor/r32-j-persist-thirty-second-pass-83a1` | 已合入专属分支（仅 `R32-J.md`）。无新排除 ID；I/O 地板复核 preferences 124.0–230.7 / 406.9–528.9、jsonl 59.7–66.8 / 199.9–296.8 µs；六残余坐标未过三合取未铸 |
-| R33-A | `cursor/r33-a-tracking-thirty-third-pass-83a1` | 已派出 |
+| R33-A | `cursor/r33-a-tracking-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-A.md`）。无新排除 ID；预算复核 11.8–17.6 µs/gate ⇒ ~59–88 µs/run；A 账本 44/44 闭合稳定性卫生未铸 |
+| R33-B | `cursor/r33-b-live-routing-thirty-third-pass-83a1` | 已派出 |
+| R33-C | `cursor/r33-c-offline-routing-thirty-third-pass-83a1` | 已派出 |
+| R33-D | `cursor/r33-d-adaptation-thirty-third-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
 | R31-C | `cursor/r31-c-offline-routing-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-C.md`）。无新排除 ID；中位复核 658.1–660.1 ms；APC 20.7–25.1 < 35；sink=7.309；BINDX 不铸 ID |
 | R31-G | `cursor/r31-g-runtime-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-G.md`）。无新排除 ID；计算顶复核 0.284–0.293 vs I/O 92.6–105.2 ms；digest 第二十二次逐位；全切片门扉闭合审计未铸 |
