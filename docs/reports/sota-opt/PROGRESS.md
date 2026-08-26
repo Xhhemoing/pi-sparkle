@@ -44,7 +44,7 @@
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
 | 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
-| 30 | 第 1–4 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
+| 30 | 第 1–5 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
 
 ### Round 1 波次
 
@@ -324,9 +324,10 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R30-A 跟踪门控 | A 已合入 |
-| 2 | R30-B live 路由 | B 运行中 |
+| 2 | R30-B live 路由 | B 已合入 |
 | 3 | R30-C 离线路由 | C 运行中 |
-| 4 | R30-D 自优化 | D 本波派出 |
+| 4 | R30-D 自优化 | D 运行中 |
+| 5 | R30-E 学习 | E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -624,9 +625,10 @@
 | R29-I | `cursor/r29-i-cli-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-I.md`）。无新排除 ID；custom−builtin 复核 children +44.0~+50.5 / +22.6~+25.7、track +44.0~+53.2 / +22.5~+25.6、flowchart-flat64 +41.9~+42.8 / +18.5~+21.7 ms；input-file JSON serialization-form face 归档 |
 | R29-J | `cursor/r29-j-persist-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-J.md`）。无新排除 ID；I/O 地板复核 preferences 146.5–234.7 / 431.5–542.6、jsonl 59.3–68.1 / 212.8–319.8 µs；CSPELL 不铸 ID |
 | R30-A | `cursor/r30-a-tracking-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-A.md`）。无新排除 ID；预算复核 12.8–15.3 µs/gate ⇒ ~64–77 µs/run；call-stream ordering / dispatch-history face 归档 |
-| R30-B | `cursor/r30-b-live-routing-thirtieth-pass-83a1` | 已派出 |
+| R30-B | `cursor/r30-b-live-routing-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-B.md`）。无新排除 ID；天花板复核 M=2 8.87–9.13 / M=10 17.34–18.23 ms/eval；scale-cube second-order interaction face 归档 |
 | R30-C | `cursor/r30-c-offline-routing-thirtieth-pass-83a1` | 已派出 |
 | R30-D | `cursor/r30-d-adaptation-thirtieth-pass-83a1` | 已派出 |
+| R30-E | `cursor/r30-e-learning-thirtieth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
