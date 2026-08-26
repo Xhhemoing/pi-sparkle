@@ -358,6 +358,26 @@ Fable-r11-next. Blank/whitespace `--outcome` is parse-args (any-string domain ot
 
 **GPT-r11-challenge: FIX** (keep the batch; moved to rank 2). Preserve D39 order: missing `--episode` before blank-root. Literal `episode events --status FAILED --state-root ""` keeps the missing-episode report; with a valid `--episode`, blank-root still precedes events-flag relevance. Copy the FAILED-path `already-closed` envelope for COMPLETED re-close; `acceptance-incomplete` bytes untouched. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
 
+## D43 — Round 12 rank 1: `doctor` blank-flag preflight
+
+Fable-r12-next. Refuse blank/whitespace `--state-root`, `--project`, and `--agents-dir` as parse-args after `--help` and before `readPackageEngines()` or any inventory (copied per-module guards, D15). `--state-root` uses D37 message/next bytes. `--project` / `--agents-dir` name the flag and say omit to skip/use defaults. Frozen doctor `--json` stays byte-identical for accepted argv; refused argv prints no JSON (D29 mistyped-flag shape). Do not edit inventories, `DOCTOR_USAGE`, or check names. Files: `src/cli/doctor.ts` + `test/unit/cli/doctor.test.ts`. Spec: Rank 1 in `.agent_workspace/loop5-r12-fable-next.md`. Reopens D29/D22 only for this new defect.
+
+**Status:** ranked. GPT-r12-challenge in flight. Do not implement until the challenge returns.
+
+## D44 — Round 12 rank 2: `pause`/`inject` router-build envelopes
+
+Fable-r12-next. Convert the uncoded `DomainValidationError` from `createCalibratedCliModelRouter` (after run lookup, before the plane) to in-module `cliFail` (`command: "pause"` / `"inject"`, `stage: "validation"`). Message copies validate's D36 shape (`could not build the model catalog at ${stateRoot}: ${error.message}`). New `next` is path-free (D34): `models disable` using the same `--state-root`, or repair `providers.json` under that root; `models list` names enabled ids not in the catalog. Catch covers both unknown enabled model and malformed `providers.json` (D36 precedent); coded EISDIR/EACCES rethrow. `--clear` never builds the router. Do not edit `model-catalog.ts` / `injection.ts` / `flowchart-run.ts`. Files: `src/cli/pause.ts` + `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts`. Spec: Rank 2 in `.agent_workspace/loop5-r12-fable-next.md`. Reopens D30/D31/D37/D41 only for this new defect.
+
+**Status:** ranked. GPT-r12-challenge in flight. Do not implement until the challenge returns.
+
+## D45 — Round 12 rank 3: `auth login` interactive prompt-flow envelope
+
+Fable-r12-next. Wrap `loginProviderInteractive` in a narrow uncoded-`DomainValidationError` catch. Envelope: `command: "auth login"`, `stage: "preflight"`, store/session message bytes kept, `next` names `--key` / `--from-env` and claims nothing was stored. Coded `AuthStoreUnreadableError` rethrows to the existing load-credentials catch. Plain Pi errors (including oauth-unsupported) stay HOLD — do not message-match. Do not edit `auth-session.ts`. Files: `src/cli/auth.ts` + `test/unit/cli/auth.test.ts`. Spec: Rank 3 in `.agent_workspace/loop5-r12-fable-next.md`. Reopens D12/D16/D21/D24/D28/D35/D37 only for this new defect.
+
+**Status:** ranked. GPT-r12-challenge in flight. Do not implement until the challenge returns.
+
+## D22 — Round 5 rank 3: doctor storage inventory
+
 ## D22 — Round 5 rank 3: doctor storage inventory
 
 GPT-r5-challenge: **FIX** the inventory, keep the additive check. Walk immediate entries under both plane roots and recursively total each (covers `catalog-observed.json`, `registry.json`, learning projects; the shipped preferences path is `adaptation/preferences.json`, not `preferences/`). Report logical bytes. `lstat` before recursion is best-effort, not race-proof; count a link without descending. Windows: inject an fs seam or wrong-node fixture for `scanErrors`; skip directory-link only on capability error. No sixth `DOCTOR_ROUTED_NEXT` route. Spec: Rank 3 as corrected.

@@ -182,9 +182,17 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | GPT-d41-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-752023bd-7203-53cc-9d9c-3ab6123ae427` |
 | GPT-d40-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-a08cf5ad-3167-5fe9-a8f6-fd4539b9fea3` |
 
-### Round 12 (ranking)
+### Round 12 (ranking; GPT challenge dispatching)
 
-Round 11 closed. Next three file-disjoint operator batches (D43–D45). Fable-r12-next ranks; GPT-r12-challenge independently challenges. HOLD from Round 11 still binding. Do not duplicate PR #12.
+Fable-r12-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r12-fable-next.md`) at `a9ea02f`. Through-line: the generic doctor remedy still breaks at `doctor` itself (blank flags answer about a cwd-relative tree and `" "` mkdir), at `pause`/`inject` router-build (`unknown model` with a green doctor), and at `auth login` interactive stdin-closed (lost `auth login` dialect). GPT-r12-challenge independently challenges before implementers. Do not merge until KEEP rechecks.
+
+| Slot | Owns | Spec |
+|---|---|---|
+| D43 | `src/cli/doctor.ts` + `test/unit/cli/doctor.test.ts` | Rank 1: blank/whitespace `--state-root`/`--project`/`--agents-dir` parse-args before any fs; D37 bytes for `--state-root`; frozen `--json` only for accepted argv |
+| D44 | `src/cli/pause.ts` + `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` | Rank 2: uncoded catalog-build catch after lookup; validate message shape; path-free dual-remedy next; `--clear` and coded fs untouched. `model-catalog.ts` not edited |
+| D45 | `src/cli/auth.ts` + `test/unit/cli/auth.test.ts` | Rank 3: wrap `loginProviderInteractive`; `command: "auth login"`, `stage: "preflight"`; coded store and plain Pi errors rethrow. `--oauth` unsupported stays HOLD |
+
+HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `--oauth` on a non-oauth provider (plain Pi error; needs a typed adapter error); `doctor --agents-dir <nonexistent>` false-green (design, not blank-instance); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works — D44 may move the pause/inject instance onto the D36 envelope; GPT must challenge that); corrupt run logs (doctor names the file); file-as-root (doctor answers); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string (blank instance only in D42).
 
 | Slot | Agent | Model | Where | Id |
 |---|---|---|---|---|
