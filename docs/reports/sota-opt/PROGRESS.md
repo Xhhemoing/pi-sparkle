@@ -46,7 +46,7 @@
 | 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
-| 32 | 第 1–8 波进行中 | 5 / 10（A–D、F 已合入；E 运行中；G 运行中；H 本波派出） | claude-fable-5-thinking-xhigh | [round-32/PLAN.md](./round-32/PLAN.md) |
+| 32 | 第 1–9 波进行中 | 6 / 10（A–F 已合入；G 运行中；H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-32/PLAN.md](./round-32/PLAN.md) |
 
 ### Round 1 波次
 
@@ -359,10 +359,11 @@
 | 2 | R32-B live 路由 | B 已合入 |
 | 3 | R32-C 离线路由 | C 已合入 |
 | 4 | R32-D 自优化 | D 已合入 |
-| 5 | R32-E 学习 | E 运行中 |
+| 5 | R32-E 学习 | E 已合入 |
 | 6 | R32-F 实验门控 | F 已合入 |
 | 7 | R32-G 运行时/图 | G 运行中 |
-| 8 | R32-H 评价/需求 | H 本波派出 |
+| 8 | R32-H 评价/需求 | H 运行中 |
+| 9 | R32-I CLI/适配器 | I 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -672,7 +673,8 @@
 | R31-F | `cursor/r31-f-experiments-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-F.md`）。无新排除 ID；锚点复核 r5f 119.97/121.51/122.37、r6f 119.70/119.52/117.11、r7f 127.81/129.00/130.55；故障通道处置残格按分解归属未铸 |
 | R31-I | `cursor/r31-i-cli-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-I.md`）。无新排除 ID；custom−builtin 复核 children +44.6~+46.0 / +21.4~+24.1、track +48.0~+55.4 / +24.0~+27.9、flowchart-flat64 +42.2~+50.2 / +15.3~+19.1 ms；CLI 进程边界门扉闭合审计未铸 |
 | R32-B | `cursor/r32-b-live-routing-thirty-second-pass-83a1` | 已合入专属分支（仅 `R32-B.md`）。无新排除 ID；天花板复核 M=2 9.04–9.62 / M=10 17.84–18.43 ms/eval；闭合稳定性审计 54/54 未铸 |
-| R32-E | `cursor/r32-e-learning-thirty-second-pass-83a1` | 已派出 |
+| R32-E | `cursor/r32-e-learning-thirty-second-pass-83a1` | 已合入专属分支（仅 `R32-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.8–15.3 µs/run；两项换名检查拒列未铸 |
+| R32-I | `cursor/r32-i-cli-thirty-second-pass-83a1` | 已派出 |
 | R30-I | `cursor/r30-i-cli-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-I.md`）。无新排除 ID；custom−builtin 复核 children +38.2~+49.4 / +22.7~+26.4、track +46.0~+52.9 / +22.4~+26.1、flowchart-flat64 +42.5~+51.0 / +15.2~+20.3 ms；process-lifetime temporal-segment topology face 归档 |
 | R31-B | `cursor/r31-b-live-routing-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-B.md`）。无新排除 ID；天花板复核 M=2 9.25–11.46 / M=10 21.02–23.17 ms/eval；面格闭合审计六扇门停放未铸 |
 | R31-E | `cursor/r31-e-learning-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.9–15.3 µs vs 14.7–15.2；I/O text-codec topology / per-run transcode-byte manifest face 归档（不铸 ID） |
