@@ -934,6 +934,327 @@ test("the blank --state-root guard sits after --run is required and before the r
   }
 });
 
+// ---------------------------------------------------------------------------
+// The four stored-ledger faults. Each one used to reach `main.ts`'s generic
+// catch and tell the operator to run `pi-sparkle doctor`, which inventories run
+// event logs and not checkpoint files: on a root holding a deleted and a
+// corrupt `checkpoint.json`, doctor passes every check and never prints the
+// word `checkpoint`. The store's and the commit plane's message bytes are kept;
+// only the remedy changes.
+// ---------------------------------------------------------------------------
+
+function checkpointPath(stateRoot: string, runId: string): string {
+  return join(stateRoot, "runtime", "runs", runId, "checkpoint.json");
+}
+
+async function editCheckpoint(
+  stateRoot: string,
+  runId: string,
+  edit: (checkpoint: Record<string, unknown>) => void
+): Promise<void> {
+  const path = checkpointPath(stateRoot, runId);
+  const checkpoint = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  edit(checkpoint);
+  await writeFile(path, JSON.stringify(checkpoint, null, 2), "utf8");
+}
+
+// A state root is arbitrary operator text, so no new remedy pastes one into a
+// line that looks copy-paste safe; only the run id, whose grammar `isRunId`
+// has already constrained, is interpolated.
+function absentCheckpointNext(runId: string): string {
+  return (
+    "this run recorded events but no durable checkpoint; " +
+    `pi-sparkle inspect --run ${runId} using the same --state-root shows its status — ` +
+    "only checkpointed runs have a decision ledger"
+  );
+}
+
+const CORRUPT_CHECKPOINT_NEXT =
+  "repair or move aside the checkpoint file named above, then retry; " +
+  "pi-sparkle doctor does not inventory checkpoint files";
+
+const NON_FLOWCHART_NEXT =
+  "decision commits are generated from a flowchart run's checkpoint; " +
+  "this run was not started with run --flowchart, so it has no decision ledger";
+
+function noProposalsNext(runId: string): string {
+  return (
+    `pi-sparkle inspect --run ${runId} using the same --state-root lists its nodes; ` +
+    "commit proposals exist only for COMPLETED nodes"
+  );
+}
+
+const DOCTOR_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
+
+// A run that recorded events and died before its first durable write. The
+// record is absent rather than damaged, so this is `lookup` — the same class as
+// a `--file` that is not there.
+test("commits preview on a run whose checkpoint is gone reports lookup and never doctor", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    await rm(checkpointPath(stateRoot, outcome.runId));
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    assert.deepEqual(parseCliErrorJson(err.join("")), {
+      ok: false,
+      command: "commits",
+      stage: "lookup",
+      message: `Run ${outcome.runId} has no durable checkpoint`,
+      next: absentCheckpointNext(outcome.runId),
+      runId: outcome.runId
+    });
+    assert.doesNotMatch(err.join(""), /doctor/);
+    assert.ok(!absentCheckpointNext(outcome.runId).includes(stateRoot), "the remedy carries no raw state root");
+  });
+});
+
+test("commits preview on a corrupt checkpoint keeps the store's bytes and says doctor cannot help", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    await writeFile(checkpointPath(stateRoot, outcome.runId), "not json{\n", "utf8");
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "validation");
+    assert.match(
+      report?.message ?? "",
+      new RegExp(`^Invalid checkpoint ${checkpointPath(stateRoot, outcome.runId)}: `)
+    );
+    assert.equal(report?.next, CORRUPT_CHECKPOINT_NEXT);
+    assert.equal(report?.runId, outcome.runId);
+    assert.doesNotMatch(report?.next ?? "", /doctor for preflight/);
+  });
+});
+
+// The default run kind (`run` with no `--flowchart`) writes exactly this
+// checkpoint, so it is the first thing a preview operator hits.
+for (const sub of ["preview", "apply"]) {
+  test(`commits ${sub} on a checkpoint with no flowchart names the run kind, not doctor`, async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);
+      const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+      await editCheckpoint(stateRoot, outcome.runId, (checkpoint) => {
+        delete checkpoint.flowchart;
+      });
+
+      const { io, out, err } = capture();
+      const code = await main(["commits", sub, "--run", outcome.runId, "--state-root", stateRoot], io);
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "validation",
+        message: "checkpoint has no flowchart; decision-to-commit requires a flowchart run",
+        next: NON_FLOWCHART_NEXT,
+        runId: outcome.runId
+      });
+      // The refusal precedes the commit loop, so `apply` wrote no history.
+      assert.equal(git(["rev-list", "--all"], projectRoot).trim(), "");
+    });
+  });
+
+  test(`commits ${sub} on a run with no completed node retargets to inspect, not doctor`, async () => {
+    await withRoots(async (stateRoot, projectRoot) => {
+      git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);
+      const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+      await editCheckpoint(stateRoot, outcome.runId, (checkpoint) => {
+        const flowchart = checkpoint.flowchart as { snapshot: { nodes: Record<string, { state: string }> } };
+        const work = flowchart.snapshot.nodes.work;
+        assert.ok(work !== undefined, "the tiny run has a work node");
+        work.state = "FAILED";
+      });
+
+      const { io, out, err } = capture();
+      const code = await main(["commits", sub, "--run", outcome.runId, "--state-root", stateRoot], io);
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "validation",
+        message: "no completed nodes to commit",
+        next: noProposalsNext(outcome.runId),
+        runId: outcome.runId
+      });
+      assert.ok(!noProposalsNext(outcome.runId).includes(stateRoot), "the remedy carries no raw state root");
+      assert.equal(git(["rev-list", "--all"], projectRoot).trim(), "");
+    });
+  });
+}
+
+// `--nodes` names an id the checkpoint knows, so D32's unknown-id filter passes
+// it through; the file simply does not carry a proposal for it. That is the
+// same zero-proposal fact, reached through the other throw site.
+test("apply --file whose --nodes selection is absent from the file reports zero proposals", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
+    const preview = capture();
+    assert.equal(
+      await main(
+        ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json", "--nodes", "first"],
+        preview.io
+      ),
+      0,
+      preview.err.join("")
+    );
+
+    const repo = await mkdtemp(join(tmpdir(), "pi-sparkle-commits-filesel-"));
+    const file = join(repo, "first-only.json");
+    try {
+      git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
+      await writeFile(file, preview.out.join(""), "utf8");
+
+      const { io, out, err } = capture();
+      const code = await main(
+        [
+          "commits",
+          "apply",
+          "--run",
+          outcome.runId,
+          "--state-root",
+          stateRoot,
+          "--repo",
+          repo,
+          "--file",
+          file,
+          "--nodes",
+          "second"
+        ],
+        io
+      );
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "validation",
+        message: "no completed nodes to commit",
+        next: noProposalsNext(outcome.runId),
+        runId: outcome.runId
+      });
+      assert.equal(git(["rev-list", "--all"], repo).trim(), "");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// Ordering: the zero-proposal catch sits after `filterDecisionCommitNodeIds`,
+// so an id the checkpoint never knew still gets D32's closed envelope — whose
+// remedy predates the no-raw-path rule and is not reopened here.
+test("apply --file with an unknown --nodes id keeps the D32 envelope, not the zero-proposal one", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await twoNodeCompletedRun(stateRoot, projectRoot);
+    const preview = capture();
+    assert.equal(
+      await main(
+        ["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot, "--json", "--nodes", "first"],
+        preview.io
+      ),
+      0,
+      preview.err.join("")
+    );
+
+    const repo = await mkdtemp(join(tmpdir(), "pi-sparkle-commits-filebogus-"));
+    const file = join(repo, "first-only.json");
+    try {
+      git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], repo);
+      await writeFile(file, preview.out.join(""), "utf8");
+
+      const { io, out, err } = capture();
+      const code = await main(
+        [
+          "commits",
+          "apply",
+          "--run",
+          outcome.runId,
+          "--state-root",
+          stateRoot,
+          "--repo",
+          repo,
+          "--file",
+          file,
+          "--nodes",
+          "bogus"
+        ],
+        io
+      );
+
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      assert.deepEqual(parseCliErrorJson(err.join("")), {
+        ok: false,
+        command: "commits",
+        stage: "validation",
+        message: "unknown flowchart node id(s): bogus",
+        next:
+          "pass --nodes ids from this run's flowchart; " +
+          `pi-sparkle inspect --run ${outcome.runId} --state-root ${stateRoot} lists its nodes`,
+        runId: outcome.runId
+      });
+      assert.equal(git(["rev-list", "--all"], repo).trim(), "");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+// The two passthroughs that keep the new catches narrow. A corrupt *event log*
+// is the one family in this command doctor genuinely inventories, so it must
+// still reach main's generic envelope with the doctor remedy intact.
+test("a corrupt event log still reaches main's generic envelope with the doctor remedy", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const outcome = await tinyCompletedRun(stateRoot, projectRoot);
+    await appendFile(join(stateRoot, "runtime", "runs", outcome.runId, "events.jsonl"), "not an event\n", "utf8");
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "preview", "--run", outcome.runId, "--state-root", stateRoot], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "validation");
+    assert.match(report?.message ?? "", /^Corrupt event log line \d+$/);
+    assert.equal(report?.next, DOCTOR_NEXT);
+    assert.equal(report?.runId, undefined);
+  });
+});
+
+// A coded filesystem fault is an environment fault main already routes, so the
+// new catches rethrow it untouched.
+test("a regular file as --state-root keeps today's coded ENOTDIR report", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const blocker = join(projectRoot, "not-a-directory");
+    await writeFile(blocker, "", "utf8");
+
+    const { io, out, err } = capture();
+    const code = await main(["commits", "preview", "--run", "run_missing0001", "--state-root", blocker], io);
+
+    assert.equal(code, 1);
+    assert.deepEqual(out, []);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.command, "commits");
+    assert.equal(report?.stage, "execute");
+    assert.match(report?.message ?? "", /ENOTDIR/);
+    assert.equal(report?.next, DOCTOR_NEXT);
+    assert.equal(report?.runId, undefined);
+  });
+});
+
 test("preview does not create commits", async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     git(["-c", "user.name=pi-sparkle-test", "-c", "user.email=pi-sparkle-test@example.com", "init"], projectRoot);
