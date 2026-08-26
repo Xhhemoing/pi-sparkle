@@ -50,7 +50,7 @@
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
-| 36 | 第 1–4 波进行中 | 3 / 10（A–C 已合入；D/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
+| 36 | 第 1–5 波进行中 | 4 / 10（A–D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
 
 ### Round 1 波次
 
@@ -420,9 +420,10 @@
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R36-A 跟踪门控、R36-B live 路由、R36-C 离线路由 | A/B/C 已合入 |
-| 2 | R36-D 自优化 | D 运行中 |
+| 2 | R36-D 自优化 | D 已合入 |
 | 3 | R36-E 学习 | E 运行中 |
-| 4 | R36-F 实验门控 | F 本波派出 |
+| 4 | R36-F 实验门控 | F 运行中 |
+| 5 | R36-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -764,7 +765,8 @@
 | R35-G | `cursor/r35-g-runtime-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-G.md`）。无新排除 ID；计算顶复核 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次逐位；两项换名检查拒列未铸 |
 | R35-J | `cursor/r35-j-persist-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-J.md`）。无新排除 ID；I/O 地板复核 preferences 146.3–253.7 / 438.7–509.9、jsonl 69.7–76.9 / pass-2 290.0–326.3；J1 2468 / 2948.5×；零新站点级换名记录 |
 | R36-A | `cursor/r36-a-tracking-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-A.md`）。无新排除 ID；预算复核 13.8–17.6 µs/gate ⇒ ~69–88 µs/run；三项换名检查拒列未铸 |
-| R36-D | `cursor/r36-d-adaptation-thirty-sixth-pass-83a1` | 已派出 |
+| R36-D | `cursor/r36-d-adaptation-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-D.md`）。无新排除 ID；eval 地板复核 S0c 3.48–3.83 ms；四项换名检查拒列未铸 |
+| R36-G | `cursor/r36-g-runtime-thirty-sixth-pass-83a1` | 已派出 |
 | R36-B | `cursor/r36-b-live-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.18–11.68 / M=10 18.10–19.18；replay M=2 8.38–8.53；零新站点级换名记录 |
 | R36-E | `cursor/r36-e-learning-thirty-sixth-pass-83a1` | 已派出 |
 | R36-C | `cursor/r36-c-offline-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-C.md`）。无新排除 ID；中位复核 667.9–681.0；组合天花板 20.9–34.1 < 35；sink=7.309；一项换名检查拒列未铸 |
