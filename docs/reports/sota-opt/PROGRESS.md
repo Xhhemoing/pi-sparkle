@@ -45,7 +45,7 @@
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
 | 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
-| 31 | 第 1–6 波进行中 | 3 / 10（A/B/D 已合入；C/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-31/PLAN.md](./round-31/PLAN.md) |
+| 31 | 第 1–7 波进行中 | 4 / 10（A–D 已合入；E/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-31/PLAN.md](./round-31/PLAN.md) |
 
 ### Round 1 波次
 
@@ -341,10 +341,11 @@
 | --- | --- | --- |
 | 1 | R31-A 跟踪门控 | A 已合入 |
 | 2 | R31-B live 路由 | B 已合入 |
-| 3 | R31-C 离线路由 | C 运行中 |
+| 3 | R31-C 离线路由 | C 已合入 |
 | 4 | R31-D 自优化 | D 已合入 |
 | 5 | R31-E 学习 | E 运行中 |
-| 6 | R31-F 实验门控 | F 本波派出 |
+| 6 | R31-F 实验门控 | F 运行中 |
+| 7 | R31-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -651,12 +652,13 @@
 | R30-H | `cursor/r30-h-eval-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-H.md`）。无新排除 ID；热层复核 9178–9647 ns；provenance-resolution pathway face 归档 |
 | R31-A | `cursor/r31-a-tracking-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-A.md`）。无新排除 ID；预算复核 13.6–16.9 µs/gate ⇒ ~68–84 µs/run；injected-callable plane 门停放未铸 |
 | R31-D | `cursor/r31-d-adaptation-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-D.md`）。无新排除 ID；eval 地板复核 S0c 3.38–3.64 ms；drift-monitor analysis-window 配置平面归入 R22-D 属地 |
-| R31-F | `cursor/r31-f-experiments-thirty-first-pass-83a1` | 已派出 |
+| R31-F | `cursor/r31-f-experiments-thirty-first-pass-83a1` | 已派出（运行中） |
 | R30-I | `cursor/r30-i-cli-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-I.md`）。无新排除 ID；custom−builtin 复核 children +38.2~+49.4 / +22.7~+26.4、track +46.0~+52.9 / +22.4~+26.1、flowchart-flat64 +42.5~+51.0 / +15.2~+20.3 ms；process-lifetime temporal-segment topology face 归档 |
 | R31-B | `cursor/r31-b-live-routing-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-B.md`）。无新排除 ID；天花板复核 M=2 9.25–11.46 / M=10 21.02–23.17 ms/eval；面格闭合审计六扇门停放未铸 |
 | R31-E | `cursor/r31-e-learning-thirty-first-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
-| R31-C | `cursor/r31-c-offline-routing-thirty-first-pass-83a1` | 已派出 |
+| R31-C | `cursor/r31-c-offline-routing-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-C.md`）。无新排除 ID；中位复核 658.1–660.1 ms；APC 20.7–25.1 < 35；sink=7.309；BINDX 不铸 ID |
+| R31-G | `cursor/r31-g-runtime-thirty-first-pass-83a1` | 已派出 |
 
 ## 合并策略
 
