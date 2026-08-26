@@ -50,7 +50,7 @@
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
-| 36 | 第 1–2 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
+| 36 | 第 1–3 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
 
 ### Round 1 波次
 
@@ -419,8 +419,9 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R36-A 跟踪门控、R36-B live 路由、R36-C 离线路由 | A 已合入；B/C 运行中 |
-| 2 | R36-D 自优化 | D 本波派出 |
+| 1 | R36-A 跟踪门控、R36-B live 路由、R36-C 离线路由 | A/B 已合入；C 运行中 |
+| 2 | R36-D 自优化 | D 运行中 |
+| 3 | R36-E 学习 | E 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -763,7 +764,8 @@
 | R35-J | `cursor/r35-j-persist-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-J.md`）。无新排除 ID；I/O 地板复核 preferences 146.3–253.7 / 438.7–509.9、jsonl 69.7–76.9 / pass-2 290.0–326.3；J1 2468 / 2948.5×；零新站点级换名记录 |
 | R36-A | `cursor/r36-a-tracking-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-A.md`）。无新排除 ID；预算复核 13.8–17.6 µs/gate ⇒ ~69–88 µs/run；三项换名检查拒列未铸 |
 | R36-D | `cursor/r36-d-adaptation-thirty-sixth-pass-83a1` | 已派出 |
-| R36-B | `cursor/r36-b-live-routing-thirty-sixth-pass-83a1` | 已派出 |
+| R36-B | `cursor/r36-b-live-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.18–11.68 / M=10 18.10–19.18；replay M=2 8.38–8.53；零新站点级换名记录 |
+| R36-E | `cursor/r36-e-learning-thirty-sixth-pass-83a1` | 已派出 |
 | R36-C | `cursor/r36-c-offline-routing-thirty-sixth-pass-83a1` | 已派出 |
 | R35-C | `cursor/r35-c-offline-routing-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-C.md`）。无新排除 ID；中位复核 657.9–662.3（主机偏快）；组合天花板 22.3–27.7 < 35；sink=7.309；一项换名检查拒列未铸 |
 | R35-F | `cursor/r35-f-experiments-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-F.md`）。无新排除 ID；锚点复核 r5f 117.53/126.01/117.46、r6f 119.12/117.99/117.61、r7f 124.19/127.43/125.82（主机偏快）；零新站点级换名记录 |
