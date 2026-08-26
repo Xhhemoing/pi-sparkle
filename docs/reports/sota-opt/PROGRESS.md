@@ -50,7 +50,7 @@
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
-| 36 | 第 1–8 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
+| 36 | 第 1–8 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
 
 ### Round 1 波次
 
@@ -424,7 +424,7 @@
 | 3 | R36-E 学习 | E 已合入 |
 | 4 | R36-F 实验门控 | F 已合入 |
 | 5 | R36-G 运行时/图 | G 已合入 |
-| 6 | R36-H 评价/需求 | H 本波派出 |
+| 6 | R36-H 评价/需求 | H 已合入 |
 | 7 | R36-I CLI/适配器 | I 本波派出 |
 | 8 | R36-J cluster/privacy | J 本波派出 |
 
@@ -773,7 +773,7 @@
 | R36-J | `cursor/r36-j-persist-thirty-sixth-pass-83a1` | 已派出 |
 | R36-B | `cursor/r36-b-live-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.18–11.68 / M=10 18.10–19.18；replay M=2 8.38–8.53；零新站点级换名记录 |
 | R36-E | `cursor/r36-e-learning-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.9–15.4（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
-| R36-H | `cursor/r36-h-eval-thirty-sixth-pass-83a1` | 已派出 |
+| R36-H | `cursor/r36-h-eval-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-H.md`）。无新排除 ID；默认链复核 9781/9262/9139 ns（宿主暖窗）；零新站点级换名记录；S5-H-1 保持 |
 | R36-C | `cursor/r36-c-offline-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-C.md`）。无新排除 ID；中位复核 667.9–681.0；组合天花板 20.9–34.1 < 35；sink=7.309；一项换名检查拒列未铸 |
 | R36-F | `cursor/r36-f-experiments-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-F.md`）。无新排除 ID；锚点复核 r5f 123.76/119.45/118.82、r6f 120.24/122.96/118.50、r7f 128.74/125.52/128.33；零新站点级换名记录 |
 | R36-I | `cursor/r36-i-cli-thirty-sixth-pass-83a1` | 已派出 |
