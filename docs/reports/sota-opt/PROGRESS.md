@@ -47,7 +47,7 @@
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
-| 33 | 第 1–10 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
+| 33 | 第 1–10 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
 
 ### Round 1 波次
 
@@ -378,9 +378,9 @@
 | 5 | R33-E 学习 | E 已合入 |
 | 6 | R33-F 实验门控 | F 已合入 |
 | 7 | R33-G 运行时/图 | G 已合入 |
-| 8 | R33-H 评价/需求 | H 运行中 |
+| 8 | R33-H 评价/需求 | H 已合入 |
 | 9 | R33-I CLI/适配器 | I 运行中 |
-| 10 | R33-J cluster/privacy | J 本波派出 |
+| 10 | R33-J cluster/privacy | J 运行中 |
 
 ## 待合并 PR / 分支
 
@@ -707,7 +707,7 @@
 | R33-G | `cursor/r33-g-runtime-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-G.md`）。无新排除 ID；计算顶复核 0.302–0.309 vs I/O 90.4–104.4 ms；digest 第二十四次逐位；三项换名检查拒列未铸 |
 | R33-D | `cursor/r33-d-adaptation-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-D.md`）。无新排除 ID；eval 地板复核 S0c 3.42–3.67 ms；三项换名检查拒列未铸 |
 | R33-E | `cursor/r33-e-learning-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-E.md`）。无新排除 ID；SLICE-CPU cmp25 15.1–15.3 µs/run；零新站点级换名记录；S8-E-1 仍恰 3 处 |
-| R33-H | `cursor/r33-h-eval-thirty-third-pass-83a1` | 已派出 |
+| R33-H | `cursor/r33-h-eval-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-H.md`）。无新排除 ID；默认链复核 8991/8820/8843 ns；零新站点级换名记录 |
 | R33-I | `cursor/r33-i-cli-thirty-third-pass-83a1` | 已派出 |
 | R33-J | `cursor/r33-j-persist-thirty-third-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
