@@ -120,8 +120,12 @@ async function startPlainRun(stateRoot: string, projectRoot: string): Promise<st
   return parseRunIdFromOutput(started.out.join(""));
 }
 
+async function readEventsText(stateRoot: string, runId: string): Promise<string> {
+  return readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
+}
+
 async function readEventLines(stateRoot: string, runId: string): Promise<number> {
-  const text = await readFile(join(stateRoot, "runtime", "runs", runId, "events.jsonl"), "utf8");
+  const text = await readEventsText(stateRoot, runId);
   return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
@@ -859,6 +863,250 @@ test("inject --run banana --state-root '' reports the blank root, not the run sh
   const report = parseCliErrorJson(err.join(""));
   assert.equal(report?.message, blankRootMessage(""));
   assert.doesNotMatch(err.join(""), /expected a run id/);
+});
+
+// The plane's relevance rule reached the operator only after the run lookup,
+// as `injection key is not valid for skip` with the doctor remedy. Passing a
+// flag the kind does not take is argv, and the refusal has to name it.
+test("inject refuses --key and --value on the kinds that do not take them", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventsText(stateRoot, runId);
+    const cases = [
+      { type: "skip", flag: "--key", kindArgv: ["--type", "skip", "--node", "work", "--key", "k1"] },
+      { type: "skip", flag: "--value", kindArgv: ["--type", "skip", "--node", "work", "--value", "v1"] },
+      {
+        type: "override",
+        flag: "--key",
+        kindArgv: ["--type", "override", "--node", "work", "--confidence", "0.5", "--key", "k1"]
+      },
+      {
+        type: "override",
+        flag: "--value",
+        kindArgv: ["--type", "override", "--node", "work", "--confidence", "0.5", "--value", "v1"]
+      }
+    ];
+    for (const { type, flag, kindArgv } of cases) {
+      const { io, out, err } = capture();
+      const code = await main(["inject", "--run", runId, ...kindArgv, "--state-root", stateRoot], io);
+      assert.equal(code, 1, kindArgv.join(" "));
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "inject");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(report?.message, `inject --type ${type} does not accept ${flag}`);
+      assert.equal(report?.next, `drop ${flag}; --key and --value apply to --type fact`);
+      assert.equal(report?.runId, runId);
+      assert.doesNotMatch(err.join(""), /doctor|not valid for/);
+      assert.equal(await readEventsText(stateRoot, runId), before);
+    }
+  });
+});
+
+// `--node` on a fact and `--confidence` on any kind are plane-legal, so the
+// relevance guard must not sweep them up with the two flags it does refuse.
+test("a fact carrying --node and every kind carrying --confidence still reach the plane", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const withNode = capture();
+    const nodeCode = await main(
+      [
+        "inject",
+        "--run",
+        runId,
+        "--type",
+        "fact",
+        "--key",
+        "k",
+        "--value",
+        "v",
+        "--node",
+        "work",
+        "--state-root",
+        stateRoot
+      ],
+      withNode.io
+    );
+    assert.equal(nodeCode, 0);
+    assert.match(withNode.out.join(""), /Injected fact key=k value=v node=work/);
+    assert.deepEqual(withNode.err, []);
+
+    const withConfidence = capture();
+    const confidenceCode = await main(
+      [
+        "inject",
+        "--run",
+        runId,
+        "--type",
+        "fact",
+        "--key",
+        "k2",
+        "--value",
+        "v2",
+        "--confidence",
+        "0.5",
+        "--state-root",
+        stateRoot
+      ],
+      withConfidence.io
+    );
+    assert.equal(confidenceCode, 0);
+    assert.deepEqual(withConfidence.err, []);
+
+    const skipped = capture();
+    const skipCode = await main(
+      ["inject", "--run", runId, "--type", "skip", "--node", "work", "--confidence", "0.5", "--state-root", stateRoot],
+      skipped.io
+    );
+    assert.equal(skipCode, 0);
+    assert.deepEqual(skipped.err, []);
+  });
+});
+
+// `parseFactValue` used to run inside the request assembly, after the log read,
+// so a pasted object arrived as a run validation failure that never said which
+// flag was wrong. `1e999` is here because JSON parses it and the result is not
+// a finite scalar — the domain rule, not a syntax rule.
+test("inject refuses a non-scalar --value as parse-args and names the flag", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const before = await readEventsText(stateRoot, runId);
+    for (const raw of ['{"a":1}', "[1,2]", "null", "1e999"]) {
+      const { io, out, err } = capture();
+      const code = await main(
+        ["inject", "--run", runId, "--type", "fact", "--key", "k", "--value", raw, "--state-root", stateRoot],
+        io
+      );
+      assert.equal(code, 1, raw);
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "inject");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(
+        report?.message,
+        `invalid --value "${raw}": fact value must be a JSON scalar or bare string; objects, arrays, and null are refused`
+      );
+      assert.equal(report?.next, "pass --value <json-scalar|text> as documented in pi-sparkle inject --help");
+      assert.equal(report?.runId, runId);
+      assert.doesNotMatch(err.join(""), /doctor/);
+      assert.equal(await readEventsText(stateRoot, runId), before);
+    }
+  });
+});
+
+// An empty-string fact is legal in the plane, so the new guard must not invent
+// a rule no plane owns.
+test("an empty --value is still a legal fact", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = await startWaiting(stateRoot, projectRoot);
+    const { io, out, err } = capture();
+    const code = await main(
+      ["inject", "--run", runId, "--type", "fact", "--key", "empty", "--value=", "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 0);
+    assert.deepEqual(err, []);
+    assert.match(out.join(""), /facts: empty=/);
+  });
+});
+
+// D30 and D31 keep their precedence: the mistyped kind reports before the
+// value domain is consulted, and a blank --key still outranks a bad --value.
+test("the unknown --type and blank --key refusals still outrank the --value domain", async () => {
+  await withRoots(async (stateRoot) => {
+    const unknown = capture();
+    assert.equal(
+      await main(
+        [
+          "inject",
+          "--run",
+          "run_missing0001",
+          "--type",
+          "banana",
+          "--key",
+          "k",
+          "--value",
+          '{"a":1}',
+          "--state-root",
+          stateRoot
+        ],
+        unknown.io
+      ),
+      1
+    );
+    assert.equal(
+      parseCliErrorJson(unknown.err.join(""))?.message,
+      'unknown --type "banana": injection kind must be fact, override, or skip'
+    );
+
+    const blankKey = capture();
+    assert.equal(
+      await main(
+        [
+          "inject",
+          "--run",
+          "run_missing0001",
+          "--type",
+          "fact",
+          "--key=",
+          "--value",
+          '{"a":1}',
+          "--state-root",
+          stateRoot
+        ],
+        blankKey.io
+      ),
+      1
+    );
+    assert.equal(
+      parseCliErrorJson(blankKey.err.join(""))?.message,
+      'invalid --key "": injection key must be a non-empty string'
+    );
+  });
+});
+
+// The complete argv, with the command's required --run and fact's required
+// --key both present, so the ordering it pins is the value guard against D37's
+// blank-root guard and nothing else. The blank root resolves to the working
+// directory, so an empty cwd afterwards is the proof no state was read or made.
+test("a non-scalar --value reports before the blank --state-root and touches no state", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-sparkle-pause-cli-cwd-"));
+  try {
+    await withCwd(cwd, async () => {
+      const { io, out, err } = capture();
+      const code = await main(
+        [
+          "inject",
+          "--run",
+          "run_missing0001",
+          "--type",
+          "fact",
+          "--key",
+          "k",
+          "--value",
+          '{"a":1}',
+          "--state-root",
+          ""
+        ],
+        io
+      );
+      assert.equal(code, 1);
+      assert.deepEqual(out, []);
+      const report = parseCliErrorJson(err.join(""));
+      assert.equal(report?.command, "inject");
+      assert.equal(report?.stage, "parse-args");
+      assert.equal(
+        report?.message,
+        'invalid --value "{"a":1}": fact value must be a JSON scalar or bare string; objects, arrays, and null are refused'
+      );
+      assert.equal(report?.next, "pass --value <json-scalar|text> as documented in pi-sparkle inject --help");
+      assert.equal(report?.runId, "run_missing0001");
+      assert.doesNotMatch(err.join(""), /state root|not found under/);
+    });
+    assert.deepEqual(await readdir(cwd), [], "a value refusal reads and writes nothing beside the process");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("pause fails closed on a BLOCKED flowchart", async () => {

@@ -7,6 +7,8 @@ import { injectFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController } from "../run/pause-controller.js";
 import { EventStore } from "../run/event-store.js";
 import { INJECTION_KINDS, parseFactValue } from "../run/injection.js";
+import { DomainValidationError } from "../domain/errors.js";
+import type { FactValue } from "../supervisor/flowchart-supervisor.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 
 export interface InjectIo {
@@ -116,6 +118,24 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
       runId: values.run
     });
   }
+  // A flag the kind does not take is the same class of argv mistake as a
+  // mistyped kind, and the plane's relevance rule (`injection.ts`) only sees it
+  // after the run lookup, where it reads as a state fault with the doctor
+  // remedy. `--node` on a `fact` stays legal — the plane allows it — and
+  // `--confidence` stays legal on every kind, so only `--key`/`--value` on
+  // override/skip are named here.
+  if (values.type === "override" || values.type === "skip") {
+    const irrelevant = values.key !== undefined ? "--key" : values.value !== undefined ? "--value" : undefined;
+    if (irrelevant !== undefined) {
+      return cliFail(io, {
+        command: "inject",
+        stage: "parse-args",
+        message: `inject --type ${values.type} does not accept ${irrelevant}`,
+        next: `drop ${irrelevant}; --key and --value apply to --type fact`,
+        runId: values.run
+      });
+    }
+  }
   // Same reason as the kind above, one flag later: `--confidence banana` and
   // `--confidence 2` are both argv, and both reached the plane before anyone
   // looked at them. Converted once here so the request carries the number the
@@ -154,6 +174,29 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
         stage: "parse-args",
         message: `invalid ${flag} "${raw}": ${subject} must be a non-empty string`,
         next,
+        runId: values.run
+      });
+    }
+  }
+  // The plane owns the fact-value domain, so it is asked once, here, rather
+  // than restated: `{"a":1}`, `[1,2]`, `null`, and the non-finite `1e999` all
+  // used to decode inside the request assembly, after the log read, and arrive
+  // as a validation failure that never named `--value`. Root-free argv work, so
+  // it sits with the other value checks ahead of the blank-root guard, and the
+  // parsed result is what the request carries — the string is decoded once.
+  // A blank `--value` stays legal: the plane accepts an empty-string fact.
+  let factValue: FactValue | undefined;
+  if (values.value !== undefined) {
+    const raw = values.value;
+    try {
+      factValue = parseFactValue(raw);
+    } catch (error) {
+      if (!(error instanceof DomainValidationError)) throw error;
+      return cliFail(io, {
+        command: "inject",
+        stage: "parse-args",
+        message: `invalid --value "${raw}": fact value must be a JSON scalar or bare string; objects, arrays, and null are refused`,
+        next: "pass --value <json-scalar|text> as documented in pi-sparkle inject --help",
         runId: values.run
       });
     }
@@ -206,7 +249,7 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
     kind: values.type,
     actor: values.actor ?? "user",
     ...(values.key !== undefined ? { key: values.key } : {}),
-    ...(values.value !== undefined ? { value: parseFactValue(values.value) } : {}),
+    ...(values.value !== undefined ? { value: factValue } : {}),
     ...(values.node !== undefined ? { nodeId: values.node } : {}),
     ...(confidence !== undefined
       ? { confidence }
