@@ -48,7 +48,8 @@
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
-| 34 | 第 1–10 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-34/PLAN.md](./round-34/PLAN.md) |
+| 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
+| 35 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-35/PLAN.md](./round-35/PLAN.md) |
 
 ### Round 1 波次
 
@@ -396,7 +397,13 @@
 | 7 | R34-G 运行时/图 | G 已合入 |
 | 8 | R34-H 评价/需求 | H 已合入 |
 | 9 | R34-I CLI/适配器 | I 已合入 |
-| 10 | R34-J cluster/privacy | J 运行中 |
+| 10 | R34-J cluster/privacy | J 已合入 |
+
+### Round 35 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R35-A 跟踪门控、R35-B live 路由、R35-C 离线路由 | A/B/C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -729,7 +736,10 @@
 | R34-A | `cursor/r34-a-tracking-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-A.md`）。无新排除 ID；预算复核 12.8–15.2 µs/gate ⇒ ~64–76 µs/run；三项换名检查拒列未铸 |
 | R34-D | `cursor/r34-d-adaptation-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-D.md`）。无新排除 ID；eval 地板复核 S0c 3.65–4.70 ms（主机偏高）；三项换名检查拒列未铸 |
 | R34-G | `cursor/r34-g-runtime-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-G.md`）。无新排除 ID；计算顶复核 0.292–0.301 vs I/O 86.8–94.4 ms；digest 第二十五次逐位；一项换名检查拒列未铸 |
-| R34-J | `cursor/r34-j-persist-thirty-fourth-pass-83a1` | 已派出 |
+| R34-J | `cursor/r34-j-persist-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-J.md`）。无新排除 ID；I/O 地板复核 preferences 141.9–234.4 / 429.1–533.4、jsonl 61.2–69.4 / 227.1–338.2 µs；J1 2468 / 2760.9×；四项换名检查拒列未铸 |
+| R35-A | `cursor/r35-a-tracking-thirty-fifth-pass-83a1` | 已派出 |
+| R35-B | `cursor/r35-b-live-routing-thirty-fifth-pass-83a1` | 已派出 |
+| R35-C | `cursor/r35-c-offline-routing-thirty-fifth-pass-83a1` | 已派出 |
 | R34-B | `cursor/r34-b-live-routing-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-B.md`）。无新排除 ID；预算复核 M=2 8.5–9.5 / M=10 17–19（主机偏快）；零新 ID / 零新面 |
 | R34-C | `cursor/r34-c-offline-routing-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-C.md`）。无新排除 ID；中位复核 682.1–682.5；组合天花板 28.7–31.6 < 35；sink=7.309 |
 | R34-E | `cursor/r34-e-learning-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.8–15.1（主机偏快）；一项换名检查拒列未铸；S8-E-1 仍恰 3 处 |
