@@ -332,7 +332,9 @@ Fable-r10-next. Convert corrupt events-log and close snapshot-log throws to in-m
 
 Fable-r11-next. Convert four stored-ledger throws to in-module `cliFail` (`command: "commits"`). Absent checkpoint is `lookup`; corrupt checkpoint, non-flowchart checkpoint, and zero completed nodes are `validation`. Store/plane message bytes kept. Next must not send the operator to doctor (doctor has no checkpoint inventory). Catch only uncoded `DomainValidationError` around the checkpoint read+validate, `assembleDecisionCommitInput`, and `proposalsFromInput`; corrupt event logs and coded fs faults still reach main. Do not edit `decision-commit.ts` / `checkpoint-store.ts`. Files: `src/cli/commits.ts` + `test/integration/cli/commits.test.ts`. Spec: Rank 1 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D32/D20 only for this new defect.
 
-**Status:** landed on `cursor/commits-ledger-envelopes-0da8` (`f0162ff`). Report: `.agent_workspace/loop5-r11-opus-d40.md`. Merge gated on GPT-d40-recheck KEEP.
+**Status:** landed on `cursor/commits-ledger-envelopes-0da8` (`f0162ff`). Report: `.agent_workspace/loop5-r11-opus-d40.md`.
+
+**GPT-d40-recheck: KEEP.** Report: `.agent_workspace/loop5-r11-gpt-d40.md`. Merged to the integration branch as `f3a1c21`.
 
 **GPT-r11-challenge: FIX** (keep rank 1). Catch only uncoded `DomainValidationError`; `EventStore.readAll()` stays outside. D32 unknown-`--nodes` envelope fires *before* the D40 `proposalsFromInput` catch (`filterDecisionCommitNodeIds` first). New inspect `next` texts are path-free: absent checkpoint uses `inspect --run ${runId} using the same --state-root`; zero proposals the same. Interpolating `runId` is OK (`isRunId` already constrained it); raw `stateRoot` stays out of `next`. Apply tests pin unchanged git history. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
 

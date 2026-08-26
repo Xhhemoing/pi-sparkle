@@ -159,13 +159,13 @@ Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 | D38 | merged `39d4f33` from `cursor/init-migrate-target-0da8` `1268ea7` | GPT-d38-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d38.md`. |
 | D39 | merged `f447946` from `cursor/episode-corrupt-log-0da8` `0f773df` | GPT-d39-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d39.md`. |
 
-### Round 11 (D41/D42 merged; D40 pending KEEP)
+### Round 11 (closed)
 
-Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf`. Through-line: remaining post-read faults still hit a doctor with no inventory. GPT-r11-challenge: **D40 FIX**, **D42 FIX**, **D41 FIX**; reorder **D40 → D42 → D41** (append-only write outranks late argv classification). Implementers applied the GPT-corrected contracts.
+Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf`. Through-line: remaining post-read faults still hit a doctor with no inventory. GPT-r11-challenge: **D40 FIX**, **D42 FIX**, **D41 FIX**; reorder **D40 → D42 → D41** (append-only write outranks late argv classification). All three KEEP-merged.
 
 | Slot | Landing | Recheck |
 |---|---|---|
-| D40 | landed `cursor/commits-ledger-envelopes-0da8` `f0162ff` | GPT-d40-recheck dispatching. Report: `.agent_workspace/loop5-r11-opus-d40.md`. |
+| D40 | merged `f3a1c21` from `cursor/commits-ledger-envelopes-0da8` `f0162ff` | GPT-d40-recheck **KEEP**. Report: `.agent_workspace/loop5-r11-gpt-d40.md`. |
 | D42 | merged `5057df8` from `cursor/episode-outcome-flags-0da8` `30ba559` | GPT-d42-recheck **KEEP**. Report: `.agent_workspace/loop5-r11-gpt-d42.md`. |
 | D41 | merged `be653d6` from `cursor/inject-value-relevance-0da8` `95ade00` | GPT-d41-recheck **KEEP**. Report: `.agent_workspace/loop5-r11-gpt-d41.md`. |
 
@@ -181,3 +181,7 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | GPT-d42-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-d6e1738d-4556-5e4c-b613-463f00bff59b` |
 | GPT-d41-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-752023bd-7203-53cc-9d9c-3ab6123ae427` |
 | GPT-d40-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-a08cf5ad-3167-5fe9-a8f6-fd4539b9fea3` |
+
+### Round 12 (ranking)
+
+Round 11 closed. Next three file-disjoint operator batches (D43–D45). Fable-r12-next ranks; GPT-r12-challenge independently challenges. HOLD from Round 11 still binding. Do not duplicate PR #12.
