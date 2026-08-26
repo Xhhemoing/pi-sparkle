@@ -52,7 +52,7 @@
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
 | 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
 | 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
-| 38 | 第 3 波进行中 | 2 / 10（A/B 已合入；C/D 运行中；E 本波派出） | claude-fable-5-thinking-xhigh | [round-38/PLAN.md](./round-38/PLAN.md) |
+| 38 | 第 4 波进行中 | 3 / 10（A/B/C 已合入；D/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-38/PLAN.md](./round-38/PLAN.md) |
 
 ### Round 1 波次
 
@@ -445,9 +445,10 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R38-A 跟踪门控、R38-B live 路由、R38-C 离线路由 | A/B 已合入；C 运行中 |
+| 1 | R38-A 跟踪门控、R38-B live 路由、R38-C 离线路由 | A/B/C 已合入 |
 | 2 | R38-D 自优化 | D 运行中 |
-| 3 | R38-E 学习 | E 本波派出 |
+| 3 | R38-E 学习 | E 运行中 |
+| 4 | R38-F 实验 | F 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -802,7 +803,8 @@
 | R38-D | `cursor/r38-d-adaptation-thirty-eighth-pass-83a1` | 已派出 |
 | R38-B | `cursor/r38-b-live-routing-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.91–11.98 / M=10 16.91–18.00；replay M=2 9.00–10.14；零新站点级换名记录 |
 | R38-E | `cursor/r38-e-learning-thirty-eighth-pass-83a1` | 已派出 |
-| R38-C | `cursor/r38-c-offline-routing-thirty-eighth-pass-83a1` | 已派出 |
+| R38-C | `cursor/r38-c-offline-routing-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-C.md`）。无新排除 ID；中位复核 683.6–688.2（中段宿主）；组合天花板 23.3–29.7 < 35；sink=7.309；零新站点级换名记录 |
+| R38-F | `cursor/r38-f-experiments-thirty-eighth-pass-83a1` | 已派出 |
 | R37-C | `cursor/r37-c-offline-routing-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-C.md`）。无新排除 ID；中位复核 658.6–660.2（主机偏快）；组合天花板 28.1–28.5 < 35；sink=7.309；零新站点级换名记录 |
 | R37-F | `cursor/r37-f-experiments-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-F.md`）。无新排除 ID；锚点复核 r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53；零新站点级换名记录 |
 | R37-H | `cursor/r37-h-eval-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-H.md`）。无新排除 ID；默认链复核 8972/10307/9018 ns（宿主中窗）；零新站点级换名记录；S5-H-1 保持 |
