@@ -50,7 +50,7 @@
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
-| 36 | 第 1–8 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
+| 36 | 第 1–8 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
 
 ### Round 1 波次
 
@@ -425,7 +425,7 @@
 | 4 | R36-F 实验门控 | F 已合入 |
 | 5 | R36-G 运行时/图 | G 已合入 |
 | 6 | R36-H 评价/需求 | H 已合入 |
-| 7 | R36-I CLI/适配器 | I 本波派出 |
+| 7 | R36-I CLI/适配器 | I 已合入 |
 | 8 | R36-J cluster/privacy | J 本波派出 |
 
 ## 待合并 PR / 分支
@@ -776,7 +776,7 @@
 | R36-H | `cursor/r36-h-eval-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-H.md`）。无新排除 ID；默认链复核 9781/9262/9139 ns（宿主暖窗）；零新站点级换名记录；S5-H-1 保持 |
 | R36-C | `cursor/r36-c-offline-routing-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-C.md`）。无新排除 ID；中位复核 667.9–681.0；组合天花板 20.9–34.1 < 35；sink=7.309；一项换名检查拒列未铸 |
 | R36-F | `cursor/r36-f-experiments-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-F.md`）。无新排除 ID；锚点复核 r5f 123.76/119.45/118.82、r6f 120.24/122.96/118.50、r7f 128.74/125.52/128.33；零新站点级换名记录 |
-| R36-I | `cursor/r36-i-cli-thirty-sixth-pass-83a1` | 已派出 |
+| R36-I | `cursor/r36-i-cli-thirty-sixth-pass-83a1` | 已合入专属分支（仅 `R36-I.md`）。无新排除 ID；custom−builtin 复核 children +25.1~+26.6 / +45.9~+47.0、track +23.2~+25.6 / +48.0~+51.4、flowchart +17.8~+22.6 / +42.1~+47.3；零新站点级换名记录 |
 | R35-C | `cursor/r35-c-offline-routing-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-C.md`）。无新排除 ID；中位复核 657.9–662.3（主机偏快）；组合天花板 22.3–27.7 < 35；sink=7.309；一项换名检查拒列未铸 |
 | R35-F | `cursor/r35-f-experiments-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-F.md`）。无新排除 ID；锚点复核 r5f 117.53/126.01/117.46、r6f 119.12/117.99/117.61、r7f 124.19/127.43/125.82（主机偏快）；零新站点级换名记录 |
 | R35-I | `cursor/r35-i-cli-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-I.md`）。无新排除 ID；custom−builtin 复核 children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5；零新站点级换名记录 |
