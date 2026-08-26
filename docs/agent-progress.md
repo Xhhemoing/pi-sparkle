@@ -159,15 +159,15 @@ Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 | D38 | merged `39d4f33` from `cursor/init-migrate-target-0da8` `1268ea7` | GPT-d38-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d38.md`. |
 | D39 | merged `f447946` from `cursor/episode-corrupt-log-0da8` `0f773df` | GPT-d39-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d39.md`. |
 
-### Round 11 (ranking; GPT challenge in flight)
+### Round 11 (implementing)
 
-Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf` (spec commit `d14a178` on `cursor/loop5-r11-fable-next-0da8`). Through-line: Rounds 8–10 made free verbs refuse bad flags, values, and targets before touching state; Round 11 converts the remaining post-read faults that still hit a doctor with no inventory. GPT-r11-challenge is next; do not dispatch implementers until KEEP (or FIX riders applied).
+Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf`. Through-line: remaining post-read faults still hit a doctor with no inventory. GPT-r11-challenge: **D40 FIX**, **D42 FIX**, **D41 FIX**; reorder **D40 → D42 → D41** (append-only write outranks late argv classification). Implementers apply the GPT-corrected contracts; do not merge until independent KEEP rechecks.
 
-| Slot | Owns | Status |
+| Slot | Owns | Spec |
 |---|---|---|
-| D40 | `src/cli/commits.ts` + `test/integration/cli/commits.test.ts` — four stored-ledger envelopes | ranked; pending GPT-r11 |
-| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` — `--value` domain + flag relevance | ranked; pending GPT-r11 |
-| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` — blank `--outcome`, terminal re-close next, events flag relevance | ranked; pending GPT-r11 |
+| D40 | `src/cli/commits.ts` + `test/integration/cli/commits.test.ts` | Rank 1 as corrected by `.agent_workspace/loop5-r11-gpt-challenge.md` (path-free inspect nexts; D32 unknown-node bytes kept) |
+| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 2 as corrected (missing-episode before blank-root; complete argv for events-flag pin) |
+| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` | Rank 3 as corrected (complete required argv for value-before-root pin) |
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); file-as-root (doctor answers); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string (blank instance only in D42).
 
@@ -175,3 +175,6 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 |---|---|---|---|---|
 | Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-0366a1ee-f5a3-5eb3-aa04-3c9db9a002d2` |
 | GPT-r11-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | `bc-02eb7756-e723-5538-a874-746192f5e7df` |
+| D40 | Opus-d40-commits-ledger | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
+| D42 | Opus-d42-episode-outcome | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
+| D41 | Opus-d41-inject-value | claude-opus-5-thinking-high-fast | cloud | (dispatching) |

@@ -332,19 +332,25 @@ Fable-r10-next. Convert corrupt events-log and close snapshot-log throws to in-m
 
 Fable-r11-next. Convert four stored-ledger throws to in-module `cliFail` (`command: "commits"`). Absent checkpoint is `lookup`; corrupt checkpoint, non-flowchart checkpoint, and zero completed nodes are `validation`. Store/plane message bytes kept. Next must not send the operator to doctor (doctor has no checkpoint inventory). Catch only uncoded `DomainValidationError` around the checkpoint read+validate, `assembleDecisionCommitInput`, and `proposalsFromInput`; corrupt event logs and coded fs faults still reach main. Do not edit `decision-commit.ts` / `checkpoint-store.ts`. Files: `src/cli/commits.ts` + `test/integration/cli/commits.test.ts`. Spec: Rank 1 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D32/D20 only for this new defect.
 
-**Status:** ranked; gated on GPT-r11-challenge.
+**Status:** GPT-r11 FIX rider is the implementation contract. Implementer dispatched.
 
-## D41 — Round 11 rank 2: `inject` `--value` domain and flag relevance
+**GPT-r11-challenge: FIX** (keep rank 1). Catch only uncoded `DomainValidationError`; `EventStore.readAll()` stays outside. D32 unknown-`--nodes` envelope fires *before* the D40 `proposalsFromInput` catch (`filterDecisionCommitNodeIds` first). New inspect `next` texts are path-free: absent checkpoint uses `inspect --run ${runId} using the same --state-root`; zero proposals the same. Interpolating `runId` is OK (`isRunId` already constrained it); raw `stateRoot` stays out of `next`. Apply tests pin unchanged git history. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
+
+## D41 — Round 11 rank 3: `inject` `--value` domain and flag relevance
 
 Fable-r11-next. After per-type required flags, `override`/`skip` refuse supplied `--key`/`--value` as parse-args (`inject --type ${type} does not accept ${flag}`). Hoist `parseFactValue` into the path-free argv block (after blank-flags, before D37 blank-root); non-scalar/`null`/non-finite values are parse-args naming `--value`. Empty-string `--value` stays accepted. `--node` on `fact` and `--confidence` on every type stay legal. Do not edit `injection.ts`. Files: `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts`. Spec: Rank 2 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D30/D31/D37 only for this new defect.
 
-**Status:** ranked; gated on GPT-r11-challenge.
+**Status:** GPT-r11 FIX rider is the implementation contract. Implementer dispatched.
 
-## D42 — Round 11 rank 3: `episode` blank `--outcome`, terminal re-close next, events flag relevance
+**GPT-r11-challenge: FIX** (keep the batch; moved to rank 3). Implementation contract stands; pin the *complete* mixed argv `inject --run <valid-runId> --type fact --key k --value '{"a":1}' --state-root ""` as value-first with no state creation. Literal Fable argv omitted required `--run`/`--key` and cannot prove order. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
+
+## D42 — Round 11 rank 2: `episode` blank `--outcome`, terminal re-close next, events flag relevance
 
 Fable-r11-next. Blank/whitespace `--outcome` is parse-args (any-string domain otherwise untouched). Terminal re-close with `already-closed` uses the working `inspect --episode` envelope (no duplicate stderr reason; `acceptance-incomplete` bytes unchanged). `episode events` refuses `--status`/`--outcome` as parse-args after the D39 guard order. Do not edit stores or `closure.ts`. Files: `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D33/D39 only for this new defect.
 
-**Status:** ranked; gated on GPT-r11-challenge.
+**Status:** GPT-r11 FIX rider is the implementation contract. Implementer dispatched.
+
+**GPT-r11-challenge: FIX** (keep the batch; moved to rank 2). Preserve D39 order: missing `--episode` before blank-root. Literal `episode events --status FAILED --state-root ""` keeps the missing-episode report; with a valid `--episode`, blank-root still precedes events-flag relevance. Copy the FAILED-path `already-closed` envelope for COMPLETED re-close; `acceptance-incomplete` bytes untouched. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
 
 ## D22 — Round 5 rank 3: doctor storage inventory
 
