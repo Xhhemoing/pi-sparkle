@@ -16,8 +16,8 @@
 | --- | --- | --- |
 | A | `src/tracking/` + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`（14） | 已合入（空枚举；未铸造新面；13.8–17.6 µs/gate ⇒ ~69–88 µs/run） |
 | B | 在线路由 9 + `src/supervisor/model-router.ts`（10） | 已合入（空枚举；未铸造新面；ceiling M=2 10.18–11.68 / M=10 18.10–19.18；replay M=2 8.38–8.53） |
-| C | 离线路由 9 | 本波派出 |
-| D | `src/adaptation/`（14） | 本波派出 |
+| C | 离线路由 9 | 运行中 |
+| D | `src/adaptation/`（14） | 运行中 |
 | E | `src/learning/`（10） | 本波派出 |
 | F | `src/experiments/`（15） | 待派 |
 | G | `src/run/`（除 A 两文件）+ `src/supervisor/`（除 model-router）+ `src/graph/` + `src/domain/`（42） | 待派 |
