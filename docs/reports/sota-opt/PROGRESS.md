@@ -42,8 +42,8 @@
 | 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 第 1–8 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-28/PLAN.md](./round-28/PLAN.md) |
-| 29 | 第 1–2 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
+| 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
+| 29 | 第 1–3 波进行中 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
 
 ### Round 1 波次
 
@@ -301,14 +301,15 @@
 | 5 | R28-G 运行时/图 | G 已合入 |
 | 6 | R28-H 评价/需求 | H 已合入 |
 | 7 | R28-I CLI/适配器 | I 已合入 |
-| 8 | R28-J cluster/privacy | J 运行中 |
+| 8 | R28-J cluster/privacy | J 已合入 |
 
 ### Round 29 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R29-A 跟踪门控 | A 运行中 |
-| 2 | R29-B live 路由 | B 本波派出 |
+| 2 | R29-B live 路由 | B 运行中 |
+| 3 | R29-C 离线路由 | C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -594,9 +595,10 @@
 | R28-G | `cursor/r28-g-runtime-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-G.md`）。无新排除 ID；计算顶复核 0.286–0.289 vs I/O 89.4–103.1 ms；digest 第十九次逐位；decision-gate resolution face 归档 |
 | R28-H | `cursor/r28-h-eval-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-H.md`）。无新排除 ID；热层复核 9006–9483 ns；boundary argument-slot materialization face 归档 |
 | R28-I | `cursor/r28-i-cli-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-I.md`）。无新排除 ID；custom−builtin 复核 +46.4~+48.0 / +23.1~+26.3 / +45.9~+50.3 / +23.1~+25.7 / +41.0~+45.9 / +16.5~+24.6 ms；invocation-identity / path-referent spelling × cwd face 归档 |
-| R28-J | `cursor/r28-j-persist-twenty-eighth-pass-83a1` | 已派出 |
+| R28-J | `cursor/r28-j-persist-twenty-eighth-pass-83a1` | 已合入专属分支（仅 `R28-J.md`）。无新排除 ID；I/O 地板复核 preferences 124.4–218.3 / 402.4–516.2、jsonl 60.3–68.7 / 250.0–354.7 µs；ZREP 不铸 ID |
 | R29-A | `cursor/r29-a-tracking-twenty-ninth-pass-83a1` | 已派出 |
 | R29-B | `cursor/r29-b-live-routing-twenty-ninth-pass-83a1` | 已派出 |
+| R29-C | `cursor/r29-c-offline-routing-twenty-ninth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
