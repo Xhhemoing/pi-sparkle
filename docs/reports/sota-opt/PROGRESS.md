@@ -47,7 +47,7 @@
 | 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
-| 33 | 第 1–9 波进行中 | 6 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
+| 33 | 第 1–10 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-33/PLAN.md](./round-33/PLAN.md) |
 
 ### Round 1 波次
 
@@ -377,9 +377,10 @@
 | 4 | R33-D 自优化 | D 已合入 |
 | 5 | R33-E 学习 | E 已合入 |
 | 6 | R33-F 实验门控 | F 已合入 |
-| 7 | R33-G 运行时/图 | G 运行中 |
+| 7 | R33-G 运行时/图 | G 已合入 |
 | 8 | R33-H 评价/需求 | H 运行中 |
-| 9 | R33-I CLI/适配器 | I 本波派出 |
+| 9 | R33-I CLI/适配器 | I 运行中 |
+| 10 | R33-J cluster/privacy | J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -703,11 +704,12 @@
 | R33-B | `cursor/r33-b-live-routing-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-B.md`）。无新排除 ID；天花板复核 M=2 10.75–11.73 / M=10 21.48–23.74 ms/eval（主机偏置）；一处从未点名站点拒列未铸 |
 | R33-F | `cursor/r33-f-experiments-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-F.md`）。无新排除 ID；锚点复核 r5f 124.47/118.96/129.73、r6f 122.96/122.14/121.70、r7f 127.78/127.36/127.07；四项换名检查拒列未铸 |
 | R33-C | `cursor/r33-c-offline-routing-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-C.md`）。无新排除 ID；中位复核 670.2–708.7 ms（主机干扰窗）；组合天花板 25.7–31.7 < 35；sink=7.309 |
-| R33-G | `cursor/r33-g-runtime-thirty-third-pass-83a1` | 已派出 |
+| R33-G | `cursor/r33-g-runtime-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-G.md`）。无新排除 ID；计算顶复核 0.302–0.309 vs I/O 90.4–104.4 ms；digest 第二十四次逐位；三项换名检查拒列未铸 |
 | R33-D | `cursor/r33-d-adaptation-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-D.md`）。无新排除 ID；eval 地板复核 S0c 3.42–3.67 ms；三项换名检查拒列未铸 |
 | R33-E | `cursor/r33-e-learning-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-E.md`）。无新排除 ID；SLICE-CPU cmp25 15.1–15.3 µs/run；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R33-H | `cursor/r33-h-eval-thirty-third-pass-83a1` | 已派出 |
 | R33-I | `cursor/r33-i-cli-thirty-third-pass-83a1` | 已派出 |
+| R33-J | `cursor/r33-j-persist-thirty-third-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
 | R31-C | `cursor/r31-c-offline-routing-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-C.md`）。无新排除 ID；中位复核 658.1–660.1 ms；APC 20.7–25.1 < 35；sink=7.309；BINDX 不铸 ID |
 | R31-G | `cursor/r31-g-runtime-thirty-first-pass-83a1` | 已合入专属分支（仅 `R31-G.md`）。无新排除 ID；计算顶复核 0.284–0.293 vs I/O 92.6–105.2 ms；digest 第二十二次逐位；全切片门扉闭合审计未铸 |
