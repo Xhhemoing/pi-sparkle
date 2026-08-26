@@ -1,0 +1,69 @@
+{
+  "id": "checkout-hardening",
+  "nodes": [
+    {
+      "id": "draft",
+      "taskId": "tsk_draft",
+      "role": "actor",
+      "objective": "Add a remember-me option to the login form and persist the choice",
+      "modelPolicy": { "allowedModels": ["cheap", "premium"], "preferredModel": "premium" },
+      "confidenceThreshold": 0.7,
+      "approvalRequired": false
+    },
+    {
+      "id": "security-review",
+      "taskId": "tsk_security_review",
+      "role": "critic",
+      "objective": "Review the draft for session-fixation and cookie-scope mistakes",
+      "modelPolicy": { "allowedModels": ["cheap", "premium"], "preferredModel": "premium" },
+      "confidenceThreshold": 0.7,
+      "approvalRequired": false,
+      "parallelGroup": "review"
+    },
+    {
+      "id": "ux-review",
+      "taskId": "tsk_ux_review",
+      "role": "critic",
+      "objective": "Review the draft for a clear opt-in and an accessible label",
+      "modelPolicy": { "allowedModels": ["cheap", "premium"], "preferredModel": "cheap" },
+      "confidenceThreshold": 0.6,
+      "approvalRequired": false,
+      "parallelGroup": "review"
+    },
+    {
+      "id": "verdict",
+      "taskId": "tsk_verdict",
+      "role": "judge",
+      "objective": "Decide whether both reviews clear the draft for release",
+      "modelPolicy": { "allowedModels": ["premium"], "preferredModel": "premium" },
+      "confidenceThreshold": 0.8,
+      "approvalRequired": true,
+      "joinPolicy": {
+        "mode": "all",
+        "requiredNodeIds": ["security-review", "ux-review"]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "to": "security-review",
+      "condition": { "type": "success", "expected": true }
+    },
+    {
+      "from": "draft",
+      "to": "ux-review",
+      "condition": { "type": "success", "expected": true }
+    },
+    {
+      "from": "security-review",
+      "to": "verdict",
+      "condition": { "type": "confidence", "operator": "gte", "value": 0.6 }
+    },
+    {
+      "from": "ux-review",
+      "to": "verdict",
+      "condition": { "type": "confidence", "operator": "gte", "value": 0.6 }
+    }
+  ]
+}

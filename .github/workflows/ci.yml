@@ -6,12 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [22.19.x]
 
     steps:
       - name: Checkout repository
@@ -43,11 +50,23 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Security probe
+        run: pnpm security:probe
+
+      - name: Pi compatibility probe
+        run: pnpm pi:probe
+
+      - name: Kernel reuse probe
+        run: pnpm kernel-reuse:probe
+
+      - name: Built CLI version
+        run: node dist/cli/main.js --version
+
   cli-smoke:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node-version: [22.x]
+        node-version: [22.19.x]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository

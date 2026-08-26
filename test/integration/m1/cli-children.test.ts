@@ -8,6 +8,7 @@ import { inspectRun } from "../../../src/run/inspection.js";
 import { parseRunId } from "../../../src/domain/ids.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+import { stripSkipContractWarning } from "../../helpers/skip-contract-warning.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -200,7 +201,7 @@ test("run --children compiles dependsOn into a sequential flowchart", async () =
       io
     );
     assert.equal(code, 0);
-    assert.deepEqual(err, []);
+    assert.equal(stripSkipContractWarning(err.join("")), "");
     assert.match(out.join(""), /children: 2/);
     assert.match(out.join(""), /flowchart: COMPLETED/);
   });
@@ -235,7 +236,7 @@ test("README children example ids and roles are accepted", async () => {
       io
     );
     assert.equal(code, 0, err.join(""));
-    assert.deepEqual(err, []);
+    assert.equal(stripSkipContractWarning(err.join("")), "");
     assert.match(out.join(""), /children: 2/);
     assert.match(out.join(""), /tsk_research/);
     assert.match(out.join(""), /tsk_impl/);
@@ -256,7 +257,7 @@ test("run --children completes a parent run with correlated children", async () 
     const text = out.join("");
     assert.match(text, /Run (run_[A-Za-z0-9_-]+): COMPLETED/);
     assert.match(text, /children: 2/);
-    assert.deepEqual(err, []);
+    assert.equal(stripSkipContractWarning(err.join("")), "");
 
     const runId = requireCompletedRunId(out, err);
     const inspection = await inspectRun(stateRoot, runId);
@@ -386,7 +387,7 @@ test("fake children e2e: run, inspect, checkpoint, TASK_REQUEST/RESULT, and repl
       runIo.io
     );
     assert.equal(code, 0, runIo.err.join(""));
-    assert.deepEqual(runIo.err, []);
+    assert.equal(stripSkipContractWarning(runIo.err.join("")), "");
     const runId = requireCompletedRunId(runIo.out, runIo.err);
 
     const inspectIo = capture();

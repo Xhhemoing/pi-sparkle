@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { main, type CliIo } from "../../../src/cli/main.js";
+import { stripSkipContractWarning } from "../../helpers/skip-contract-warning.js";
 
 const FIXTURE_JSON = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -36,8 +37,16 @@ function capture(): { io: CliIo; out: string[]; err: string[] } {
   };
 }
 
+/**
+ * These tests count stderr lines to prove the public-prior path adds exactly
+ * one (or none). Plain `--children` also discloses its contract-less start on
+ * stderr, which is a different subject, so it is dropped here — the disclosure
+ * has its own pins in `test/integration/cli/skip-contract-warning.test.ts`.
+ */
 function stderrLines(err: readonly string[]): string[] {
-  return err.join("").split(/\r?\n/).filter((line) => line.trim() !== "");
+  return stripSkipContractWarning(err.join(""))
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "");
 }
 
 function publicPriorStderr(err: readonly string[]): string[] {

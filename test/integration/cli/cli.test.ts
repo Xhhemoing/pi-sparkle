@@ -12,6 +12,7 @@ import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createCliModelRouter } from "../../../src/cli/model-catalog.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+import { stripSkipContractWarning } from "../../helpers/skip-contract-warning.js";
 
 const REPO_ROOT = process.cwd();
 
@@ -489,7 +490,7 @@ test("run --flowchart --executor fake completes without --results", async () => 
       ],
       io
     );
-    assert.equal(err.join(""), "");
+    assert.equal(stripSkipContractWarning(err.join("")), "");
     assert.equal(code, 0);
     assert.match(out.join(""), /COMPLETED/);
     assert.match(out.join(""), /only=COMPLETED/);

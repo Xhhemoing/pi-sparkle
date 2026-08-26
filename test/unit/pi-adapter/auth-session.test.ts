@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import {
@@ -290,6 +291,76 @@ test("consecutive prompts on one interaction both reach the reader", async () =>
   assert.equal(await interaction.prompt({ type: "secret", message: "Enter API key" }), FAKE_KEY);
   assert.deepEqual(cli.asked, ["Account: ", "Enter API key: "]);
   assert.equal(cli.out.join("").includes(FAKE_KEY), false);
+});
+
+/**
+ * A stdin that claims to be a terminal, which is what puts readline into the
+ * line-editing mode where *it*, not the tty driver, redraws every character
+ * the user types.
+ */
+function ttyStdin(): PassThrough & { isTTY: boolean; setRawMode: (mode: boolean) => void } {
+  const stream = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    setRawMode: (mode: boolean) => void;
+  };
+  stream.isTTY = true;
+  stream.setRawMode = () => undefined;
+  return stream;
+}
+
+/** Runs `body` with process.stdin replaced and every real stdout write captured. */
+async function withStdio(
+  stdin: NodeJS.ReadableStream,
+  body: (terminal: string[]) => Promise<void>
+): Promise<void> {
+  const terminal: string[] = [];
+  const savedStdin = Object.getOwnPropertyDescriptor(process, "stdin");
+  const savedWrite = process.stdout.write.bind(process.stdout);
+  Object.defineProperty(process, "stdin", { value: stdin, configurable: true });
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    terminal.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await body(terminal);
+  } finally {
+    process.stdout.write = savedWrite;
+    if (savedStdin !== undefined) Object.defineProperty(process, "stdin", savedStdin);
+  }
+}
+
+test("a secret prompt read from a terminal prints the prompt and echoes nothing", async () => {
+  const stdin = ttyStdin();
+  const out: string[] = [];
+  // No injected reader: this is the real stdin path, the only one where an
+  // echo can happen at all.
+  const io: SparkleAuthIo = { stdout: (text) => out.push(text) };
+
+  await withStdio(stdin, async (terminal) => {
+    const answered = cliAuthInteraction(io).prompt({ type: "secret", message: "Enter API key" });
+    stdin.write(`${FAKE_KEY}\n`);
+    assert.equal(await answered, FAKE_KEY);
+
+    // Readline drew the typed characters somewhere; it must not have been the
+    // terminal. The prompt itself still reaches the user, through io.stdout.
+    assert.equal(terminal.join(""), "", "readline wrote to the terminal during a secret prompt");
+    assert.equal(out.join("").includes(FAKE_KEY), false, "the secret was echoed");
+    assert.match(out.join(""), /Enter API key: /);
+  });
+});
+
+test("a non-secret prompt still goes through the ordinary readline output", async () => {
+  const stdin = ttyStdin();
+  const io: SparkleAuthIo = { stdout: () => undefined };
+
+  await withStdio(stdin, async (terminal) => {
+    const answered = cliAuthInteraction(io).prompt({ type: "text", message: "Account" });
+    stdin.write("someone\n");
+    assert.equal(await answered, "someone");
+    // The contrast with the secret prompt above: this one is readline's to
+    // render, prompt and echo alike.
+    assert.match(terminal.join(""), /Account: /);
+  });
 });
 
 test("notify renders login events without inventing fields", () => {

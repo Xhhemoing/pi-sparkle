@@ -16,6 +16,9 @@ export function authStorePath(stateRoot: string): string {
   return join(runtimeRoot(stateRoot), "auth.json");
 }
 
+/** Owner-only. Anything wider on a shared machine is a readable credential. */
+const CREDENTIAL_FILE_MODE = 0o600;
+
 /**
  * File-backed Pi CredentialStore. One credential per provider.
  * `list()` returns type metadata only — never secrets.
@@ -83,10 +86,26 @@ export class FileCredentialStore implements CredentialStore {
     return out;
   }
 
+  /**
+   * The mode is requested on the temp file, so the credential is owner-only from
+   * before it holds any bytes — a chmod after the rename leaves a window in which
+   * the published file is readable at whatever the umask allowed.
+   *
+   * The chmod that follows only confirms the published file, and its failure is
+   * raised rather than swallowed: silently keeping a credential file this process
+   * could not restrict is the failure mode the mode argument exists to prevent.
+   */
   private async save(all: Record<string, Credential>): Promise<void> {
     const serialized = `${JSON.stringify(all, null, 2)}\n`;
-    await writeFileAtomic(this.filePath, serialized);
-    await chmod(this.filePath, 0o600).catch(() => undefined);
+    await writeFileAtomic(this.filePath, serialized, { mode: CREDENTIAL_FILE_MODE });
+    try {
+      await chmod(this.filePath, CREDENTIAL_FILE_MODE);
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new DomainValidationError(
+        `cannot restrict ${this.filePath} to owner-only permissions: ${reason}`
+      );
+    }
   }
 }
 

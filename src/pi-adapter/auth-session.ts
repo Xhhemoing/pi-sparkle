@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { Writable } from "node:stream";
 import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import type { CustomProviderConfig } from "../config/providers-config.js";
@@ -101,8 +102,11 @@ export async function listBuiltinProviderIds(): Promise<readonly string[]> {
  * injected reader: the interactive paths are otherwise only reachable through
  * a real stdin.
  *
- * Never echoes what the user typed — the answer to a `secret` prompt goes
- * straight back to Pi, not to `io.stdout`.
+ * A `secret` prompt is never echoed. On a TTY, readline — not the terminal
+ * driver — is what redraws each typed character, so the answer is read through
+ * an interface whose output is a sink: the prompt is printed by us, the
+ * keystrokes are displayed by nobody, and the secret goes straight back to Pi.
+ * It is not written to `io.stdout` either, at any point.
  */
 export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
   // Opened on the first prompt and closed after it, rather than once per
@@ -117,6 +121,28 @@ export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
       rl.close();
     }
   };
+  // The injected reader owns its own echo policy (a test recorder echoes
+  // nothing, an embedder may already be reading from a masked field), so it
+  // keeps the same path as every other prompt.
+  const askSecret = async (message: string): Promise<string> => {
+    if (io.question !== undefined) return io.question(message);
+    io.stdout(message);
+    const rl = createInterface({
+      input: process.stdin,
+      output: silentOutput(),
+      // Line editing, and therefore echo, only happens in terminal mode. It is
+      // forced off the sink's own (absent) TTY-ness and onto stdin's, so a
+      // piped stdin still reads a line and a real one still reads it silently.
+      terminal: process.stdin.isTTY === true
+    });
+    try {
+      return await question(rl, "");
+    } finally {
+      rl.close();
+      // The newline the user typed was swallowed with the rest of the echo.
+      io.stdout("\n");
+    }
+  };
   return {
     async prompt(prompt) {
       if (prompt.type === "select") {
@@ -129,6 +155,7 @@ export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
         if (selected === undefined) throw new DomainValidationError("invalid selection");
         return selected.id;
       }
+      if (prompt.type === "secret") return await askSecret(`${prompt.message}: `);
       return await ask(`${prompt.message}: `);
     },
     notify(event) {
@@ -156,4 +183,13 @@ function requireProviderId(providerId: string): void {
 
 function question(rl: ReturnType<typeof createInterface>, message: string): Promise<string> {
   return new Promise((resolve) => rl.question(message, resolve));
+}
+
+/** Accepts and discards everything readline would have drawn. */
+function silentOutput(): Writable {
+  return new Writable({
+    write(_chunk: unknown, _encoding: unknown, done: () => void) {
+      done();
+    }
+  });
 }

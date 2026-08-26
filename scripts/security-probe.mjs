@@ -4,7 +4,8 @@
  *
  * Fails the prerelease flow while any security finding below is open.
  * A finding may be time-boxed waived via SECURITY_WAIVER="id1,id2"
- * (see docs/specs/release-gate.md for the waiver register).
+ * (see docs/specs/release-gate.md for the waiver register) — except for the
+ * probes in UNWAIVABLE, which no environment variable can silence.
  *
  * Probes:
  *   pii-redaction   PII must be REMOVED from feedback bodies, not just labeled
@@ -22,6 +23,16 @@ const waivers = new Set(
     .filter((entry) => entry !== "")
 );
 
+/**
+ * A waiver time-boxes a known weakness that is still only a weakness. Packaged
+ * credential material is not that: the tarball is the artifact, and shipping it
+ * publishes the secret to everyone who installs the package — there is no
+ * "later" in which to fix it. So this probe is deliberately outside the waiver
+ * mechanism, and a SECURITY_WAIVER that names it is reported as refused rather
+ * than honoured.
+ */
+const UNWAIVABLE = new Set(["packaged-secrets"]);
+
 const failures = [];
 const passed = [];
 
@@ -32,6 +43,20 @@ const redactionSamples = [
   { id: "pii-redaction", name: "phone-intl", body: "call +1-555-123-4567", core: "+1-555-123-4567" },
   { id: "pii-redaction", name: "phone-cn", body: "phone 13812345678", core: "13812345678" },
   { id: "pii-redaction", name: "credit-card", body: "card 4111111111111111", core: "4111111111111111" },
+  {
+    id: "pii-redaction",
+    name: "ipv6",
+    body: "host 2001:0db8:85a3:0000:0000:8a2e:0370:7334 down",
+    core: "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+  },
+  { id: "pii-redaction", name: "ssn-dashed", body: "ssn 123-45-6789 on file", core: "123-45-6789" },
+  { id: "pii-redaction", name: "ssn-bare", body: "ssn 123456789 on file", core: "123456789" },
+  {
+    id: "pii-redaction",
+    name: "cn-id",
+    body: "身份证 11010519491231002X 已登记",
+    core: "11010519491231002X"
+  },
   { id: "pii-redaction", name: "unix-path", body: "see /home/john/.ssh/id_rsa", core: "/home/john/.ssh/id_rsa" },
   {
     id: "pii-redaction",
@@ -61,6 +86,18 @@ const redactionSamples = [
     id: "secret-bodies",
     name: "api-key-value",
     body: "api_key=supersecretvalue123",
+    core: "supersecretvalue123"
+  },
+  {
+    id: "secret-bodies",
+    name: "aws-secret-access-key",
+    body: "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    core: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  },
+  {
+    id: "secret-bodies",
+    name: "namespaced-api-key",
+    body: "SPARKLE_API_KEY: 'supersecretvalue123'",
     core: "supersecretvalue123"
   },
   {
@@ -154,8 +191,10 @@ try {
 }
 
 // --- waiver accounting ------------------------------------------------------
-const effective = failures.filter((f) => !waivers.has(f.probe));
-const waived = failures.filter((f) => waivers.has(f.probe));
+const waivable = (finding) => waivers.has(finding.probe) && !UNWAIVABLE.has(finding.probe);
+const effective = failures.filter((finding) => !waivable(finding));
+const waived = failures.filter((finding) => waivable(finding));
+const refusedWaivers = [...waivers].filter((probe) => UNWAIVABLE.has(probe)).toSorted();
 
 process.stdout.write(
   `${JSON.stringify(
@@ -163,7 +202,10 @@ process.stdout.write(
       status: effective.length === 0 ? "ok" : "BLOCKED",
       passed: passed.length,
       openFindings: effective,
-      waivedFindings: waived.map((f) => ({ ...f, waivedBy: "SECURITY_WAIVER" }))
+      waivedFindings: waived.map((f) => ({ ...f, waivedBy: "SECURITY_WAIVER" })),
+      // Named in SECURITY_WAIVER and ignored on purpose: the operator asked for
+      // a waiver the gate does not grant, and silence would look like consent.
+      refusedWaivers
     },
     null,
     2

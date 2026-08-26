@@ -28,6 +28,7 @@ import type { ChildTaskInput } from "../../../src/run/child-coordinator.js";
 import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+import { stripSkipContractWarning } from "../../helpers/skip-contract-warning.js";
 
 /**
  * `run` tells the operator what to do with a BLOCKED run.
@@ -211,7 +212,11 @@ test("a COMPLETED run prints no BLOCKED block", async () => {
 
     assert.equal(started.code, 0, started.err);
     assert.match(started.out, /Run run_[A-Za-z0-9_-]+: COMPLETED/);
-    assert.equal(started.err, "", "the block is BLOCKED-specific; a healthy run stays quiet");
+    assert.equal(
+      stripSkipContractWarning(started.err),
+      "",
+      "the block is BLOCKED-specific; a healthy run stays quiet apart from the skip-contract disclosure"
+    );
   });
 });
 

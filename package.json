@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "description": "Project-development multi-agent runtime built on Pi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Xhhemoing/pi-sparkle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Xhhemoing/pi-sparkle/issues"
+  },
+  "homepage": "https://github.com/Xhhemoing/pi-sparkle#readme",
   "keywords": [
     "pi-package"
   ],
@@ -10,12 +19,15 @@
   "bin": {
     "pi-sparkle": "dist/cli/main.js"
   },
-  "files": [
+    "files": [
     "dist",
     "README.md",
     "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md",
     ".agents/skills",
-    "prompts"
+    "prompts",
+    "examples"
   ],
   "pi": {
     "skills": [
@@ -43,7 +55,12 @@
     "gate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "invocation:probe": "node scripts/invocation-lock-probe.mjs",
     "security:probe": "node scripts/security-probe.mjs",
-    "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe"
+    "crash:probe": "node scripts/crash-probe.mjs",
+    "kernel-reuse:probe": "node scripts/kernel-reuse-probe.mjs",
+    "retention:probe": "node scripts/retention-probe.mjs",
+    "bench:runtime": "node scripts/bench-runtime.mjs",
+    "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe",
+    "prepublishOnly": "pnpm prerelease"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.3",

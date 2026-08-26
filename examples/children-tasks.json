@@ -1,0 +1,38 @@
+{
+  "tasks": [
+    {
+      "id": "tsk_research",
+      "role": "scout",
+      "objective": "Survey the latest payment gateway options",
+      "acceptanceCriteria": [
+        { "id": "ac1", "description": "List 3+ candidates with pros/cons" }
+      ]
+    },
+    {
+      "id": "tsk_impl",
+      "role": "implementer",
+      "objective": "Integrate the chosen gateway",
+      "dependsOn": ["tsk_research"],
+      "inputArtifactIds": ["art_research-report"]
+    },
+    {
+      "id": "tsk_review",
+      "role": "reviewer",
+      "objective": "Review the integration for error handling and secret hygiene",
+      "dependsOn": ["tsk_impl"],
+      "acceptanceCriteria": [
+        { "id": "ac2", "description": "No credential is read from the checked-in config" }
+      ]
+    },
+    {
+      "id": "tsk_test",
+      "role": "tester",
+      "objective": "Exercise the checkout path against the gateway sandbox",
+      "dependsOn": ["tsk_impl"],
+      "acceptanceCriteria": [
+        { "id": "ac3", "description": "A declined-card case is covered" }
+      ],
+      "limits": { "maxAttempts": 2, "timeoutMs": 60000, "maxWallTimeMs": 300000 }
+    }
+  ]
+}

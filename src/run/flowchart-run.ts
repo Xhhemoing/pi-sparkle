@@ -128,6 +128,20 @@ export interface FlowchartRunDeps {
    * on purpose.
    */
   onRunStarted?: (runId: RunId) => void;
+  /**
+   * Discloses that this start bound `skipContract: true`, i.e. that no
+   * requirement contract was supplied and `assertCoverageAllowsStart` therefore
+   * never ran.
+   *
+   * The semantics are unchanged and deliberately so: a contract-less start is
+   * still a legal start, and the runtime does not invent a contract from
+   * per-task acceptance criteria. What was missing was the operator's side of
+   * it — the fact only reached disk, in the episode binding, where nobody
+   * reading the terminal would see it. Fired once per start, and swallowed
+   * like {@link onRunStarted} for the same reason: a disclosure must not be
+   * able to fail a run.
+   */
+  onCoverageGateSkipped?: (runId: RunId) => void;
 }
 
 export interface FlowchartRunInput {
@@ -1437,6 +1451,16 @@ async function startLockedFlowchartRun(
     ...(generateId !== undefined ? { generateId } : {}),
     ...(input.contract !== undefined ? { contract: input.contract, skipContract: false } : { skipContract: true })
   });
+  // Disclosed after the binding, so the line the operator reads is a report of
+  // what is already on disk. Its own try/catch, not the one above: a throwing
+  // `onRunStarted` handler must not be able to swallow this disclosure.
+  if (input.contract === undefined) {
+    try {
+      deps.onCoverageGateSkipped?.(runId);
+    } catch {
+      // A disclosure cannot be allowed to fail a run.
+    }
+  }
   await append(make("RUN_STARTED", {}));
   if (input.assignments !== undefined) {
     for (const assignment of input.assignments) {

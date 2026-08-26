@@ -26,8 +26,11 @@ export const REDACTION_PLACEHOLDER = {
   path: "[path]",
   email: "[email]",
   ipv4: "[ipv4]",
+  ipv6: "[ipv6]",
   phone: "[phone]",
-  card: "[card]"
+  card: "[card]",
+  ssn: "[ssn]",
+  nationalId: "[id-card]"
 } as const;
 
 export interface TextRedaction {
@@ -45,7 +48,15 @@ const PLACEHOLDER_ALTERNATION = `\\[(?:${Object.values(REDACTION_PLACEHOLDER)
   .join("|")})\\]`;
 
 const KEYED_SECRET_NAMES =
-  "api[_-]?key|apikey|secret(?:[_-]?key)?|token|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password|passwd|pwd";
+  "api[_-]?key|apikey|access[_-]?key(?:[_-]?id)?|secret(?:[_-]?access)?(?:[_-]?key)?|access[_-]?token|auth[_-]?token|refresh[_-]?token|session[_-]?token|client[_-]?secret|private[_-]?key|token|password|passwd|pwd|passphrase";
+// Real config keys are namespaced: `aws_secret_access_key`, `my_api_key`,
+// `SPARKLE_CLIENT_SECRET`. A bare `\b` in front of the name class refuses all
+// of them, because `_` is a word character and there is no boundary inside
+// `aws_secret`. Each prefix segment is alphanumerics followed by a separator
+// that the segment class excludes, so a run has exactly one way to split and
+// the bounded repetition cannot backtrack combinatorially.
+const KEYED_SECRET_PREFIX = "(?:[A-Za-z0-9]{1,32}[_-]){0,6}";
+const KEYED_SECRET_LABEL = `\\b${KEYED_SECRET_PREFIX}(?:${KEYED_SECRET_NAMES})\\b`;
 
 const SECRET_RULES: readonly TextRule[] = [
   // PEM blocks: the base64 body goes with the header, terminated or not.
@@ -72,7 +83,7 @@ const SECRET_RULES: readonly TextRule[] = [
   },
   // `api_key: "value"` / `token='value'` — the quotes survive, the value does not.
   {
-    pattern: new RegExp(`(\\b(?:${KEYED_SECRET_NAMES})\\b"?'?\\s*[:=]\\s*)(["'])[^"'\\n]+\\2`, "gi"),
+    pattern: new RegExp(`(${KEYED_SECRET_LABEL}"?'?\\s*[:=]\\s*)(["'])[^"'\\n]+\\2`, "gi"),
     replacement: `$1$2${REDACTION_PLACEHOLDER.secret}$2`
   },
   // `api_key=value` / `token: value` — unquoted run up to the next delimiter.
@@ -80,7 +91,7 @@ const SECRET_RULES: readonly TextRule[] = [
   // turned into a placeholder must not be re-wrapped.
   {
     pattern: new RegExp(
-      `(\\b(?:${KEYED_SECRET_NAMES})\\b"?'?\\s*[:=]\\s*)(?!${PLACEHOLDER_ALTERNATION})([^\\s"',;)}\\]]{4,})`,
+      `(${KEYED_SECRET_LABEL}"?'?\\s*[:=]\\s*)(?!${PLACEHOLDER_ALTERNATION})([^\\s"',;)}\\]]{4,})`,
       "gi"
     ),
     replacement: `$1${REDACTION_PLACEHOLDER.secret}`
@@ -139,6 +150,28 @@ const EMAIL = /(?<![A-Za-z0-9._%+_-])[A-Za-z0-9._%+_-]+@[A-Za-z0-9-]+(?:\.[A-Za-
 const EMAIL_TLD = /\.[A-Za-z]{2,}$/;
 const IPV4 =
   /(?<![\w.])(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}(?![\w.])/g;
+const IPV4_OCTETS = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+// IPv6 is matched as a flat candidate run and validated in code. Spelling the
+// grammar out — eight groups, one optional `::` elision that may stand
+// anywhere, an optional trailing dotted quad — needs overlapping alternatives,
+// and overlapping alternatives are precisely what backtracks badly on hostile
+// input. A single character class cannot. 45 is the longest legal form
+// (`0000:…:255.255.255.255`); the dot is in the class so an embedded IPv4 is
+// consumed with the address rather than left behind by it.
+const IPV6_CANDIDATE = /(?<![\w:.])[0-9A-Fa-f:.]{2,45}(?![\w:.])/g;
+const IPV6_GROUP = /^[0-9A-Fa-f]{1,4}$/;
+// US SSN in both shapes. The bare nine-digit form is fenced by word bounds so
+// it cannot bite the inside of a longer identifier — a card number, an epoch
+// timestamp — which the card and phone rules classify far more precisely.
+const SSN_DASHED = /(?<![\w-])\d{3}-\d{2}-\d{4}(?![\w-])/g;
+const SSN_BARE = /(?<![\w-])\d{9}(?![\w-])/g;
+// CN 身份证 (resident identity card), 18-character form: six-digit division
+// code, birth date, three-digit sequence, and a check character that is a
+// digit or `X`. The date is validated inside the pattern with fixed-width
+// alternatives, which keeps ordinary 18-digit identifiers out of the class
+// without a second validation pass.
+const CN_NATIONAL_ID =
+  /(?<![\w-])\d{6}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[0-9Xx](?![\w-])/g;
 const PHONE_E164 = /(?<![\w+])\+\d[\d ().-]{6,17}\d(?!\w)/g;
 const PHONE_CN_MOBILE = /(?<!\d)1[3-9]\d{9}(?!\d)/g;
 const CARD_CANDIDATE = /(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])/g;
@@ -189,13 +222,52 @@ function redactPersonalData(text: string): string {
   let out = text.replace(EMAIL, (match) =>
     EMAIL_TLD.test(match) ? REDACTION_PLACEHOLDER.email : match
   );
+  // Before the card and IPv4 rules: the candidate class covers both of their
+  // shapes, and a run that is not a valid address is handed straight back to
+  // them.
+  out = out.replace(IPV6_CANDIDATE, (match) =>
+    looksLikeIpv6(match) ? REDACTION_PLACEHOLDER.ipv6 : match
+  );
+  // Before the card rule: an 18-character ID is long enough for the card
+  // candidate to bite a Luhn-valid prefix out of it and leave the check
+  // character stranded on its own.
+  out = out.replace(CN_NATIONAL_ID, REDACTION_PLACEHOLDER.nationalId);
   out = out.replace(CARD_CANDIDATE, (match) =>
     looksLikeCard(match) ? REDACTION_PLACEHOLDER.card : match
   );
+  out = out.replace(SSN_DASHED, REDACTION_PLACEHOLDER.ssn);
+  out = out.replace(SSN_BARE, REDACTION_PLACEHOLDER.ssn);
   out = out.replace(IPV4, REDACTION_PLACEHOLDER.ipv4);
   out = out.replace(PHONE_E164, REDACTION_PLACEHOLDER.phone);
   out = out.replace(PHONE_CN_MOBILE, REDACTION_PLACEHOLDER.phone);
   return out;
+}
+
+/**
+ * RFC 4291 presentation form: at most one `::`, groups of one to four hex
+ * digits, and a dotted quad allowed only as the final (double-width) group.
+ * A bare `::` is deliberately rejected — the unspecified address carries no
+ * information, and `::` alone shows up in ordinary text.
+ */
+function looksLikeIpv6(candidate: string): boolean {
+  const halves = candidate.split("::");
+  if (halves.length > 2) return false;
+  const compressed = halves.length === 2;
+  const parts = halves.flatMap((half) => (half === "" ? [] : half.split(":")));
+
+  let groups = 0;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index] as string;
+    if (part.includes(".")) {
+      // Only the last group may be a dotted quad, and it stands for two groups.
+      if (index !== parts.length - 1 || !IPV4_OCTETS.test(part)) return false;
+      groups += 2;
+      continue;
+    }
+    if (!IPV6_GROUP.test(part)) return false;
+    groups += 1;
+  }
+  return compressed ? groups >= 1 && groups <= 7 : groups === 8;
 }
 
 function looksLikeCard(candidate: string): boolean {

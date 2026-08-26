@@ -19,6 +19,11 @@ import {
   preferenceSnapshotLockPath,
   preferenceSnapshotPath
 } from "../preferences/store.js";
+import {
+  DEFAULT_RETENTION_POLICY,
+  pruneRetention,
+  validateRetentionPolicy
+} from "../privacy/retention.js";
 import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
@@ -273,6 +278,7 @@ Usage:
   pi-sparkle models list|enable|disable|set-default [--state-root <dir>] ...
   pi-sparkle pref list|correct|export|delete [--state-root <dir>] ...
   pi-sparkle delete --run <runId> | --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
+  pi-sparkle retain [--state-root <dir>] [--max-age-days <n>] [--lock-wait-ms <ms>] [--apply]
   pi-sparkle migrate-legacy [--state-root <dir>] [--apply]
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
@@ -330,6 +336,13 @@ commit --allow-empty (optional --sign / --file for an edited JSON proposal).
 pause writes a PauseController token and PAUSE_REQUESTED; resume --unpause clears it
 and continues. inject records a typed fact/override/skip against DecisionPolicy
 without executing user strings.
+retain applies the ${DEFAULT_RETENTION_POLICY.maxAgeDays}-day age bound to the two record classes that were
+otherwise kept until deleted by hand (runtime/invocations.jsonl and
+runtime/episodes/). Dry run by default (exit 1 when it finds work, so scripts
+can gate on it); --apply removes expired records through the same cascade
+delete uses. Nothing prunes on its own. A contract-less start (--flowchart, and
+plain --children) prints one stderr warning saying the coverage gate did not
+run; use --track for a coverage-gated start.
 unblock is the only thing that ends a BLOCKED run: it records one RUN_UNBLOCKED
 naming the exact block it clears plus the operator's --reason, reopens the state
 the block left (--retry-node re-drives one FAILED flowchart node; a stall block
@@ -508,6 +521,23 @@ async function loadOptionalPublicPrior(
     io.stderr(`warning: public prior not applied: ${message}\n`);
     return undefined;
   }
+}
+
+/**
+ * The one line a contract-less start owes the operator.
+ *
+ * `--flowchart` and plain `--children` both start without a requirement
+ * contract: `startFlowchartRun` binds `skipContract: true` and
+ * `assertCoverageAllowsStart` never runs, so nothing refuses the start while
+ * mandatory acceptance criteria are uncovered. That is a product decision, not
+ * a defect — deriving a contract from per-task `acceptanceCriteria` would
+ * silently change start semantics for every existing spec — but until now it
+ * was recorded only in the episode binding, where an operator watching the
+ * terminal never saw it. So it is disclosed rather than patched, once per
+ * start, on stderr so it cannot interleave with the stdout run report.
+ */
+function coverageGateSkippedWarning(runId: RunId): string {
+  return `warning: run ${runId} started without a requirement contract (skipContract: true); the coverage gate does not run on this path. Use --track for a coverage-gated start.\n`;
 }
 
 function flowchartExitCode(status: RunStatus): number {
@@ -813,6 +843,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         onRunStarted: (runId) => {
           io.stdout(`Run ${runId}: started\n`);
         },
+        onCoverageGateSkipped: (runId) => {
+          io.stderr(coverageGateSkippedWarning(runId));
+        },
         ...(executor !== undefined ? { executor } : {})
       },
       {
@@ -1000,6 +1033,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         // operator is most likely to want to pause before it settles.
         onRunStarted: (runId) => {
           io.stdout(`Run ${runId}: started\n`);
+        },
+        onCoverageGateSkipped: (runId) => {
+          io.stderr(coverageGateSkippedWarning(runId));
         }
       },
       {
@@ -2041,6 +2077,124 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
   return 0;
 }
 
+const RETAIN_USAGE = `pi-sparkle retain — apply the age bound to unbounded runtime records
+
+Usage:
+  pi-sparkle retain [--state-root <dir>] [--max-age-days <n>] [--lock-wait-ms <ms>] [--apply]
+
+Without --apply this is a dry run: nothing is written. The bound covers the two
+record classes that were otherwise retained until an operator deleted them by
+hand — the shared runtime/invocations.jsonl and every episode under
+runtime/episodes/. The default is ${DEFAULT_RETENTION_POLICY.maxAgeDays} days; --max-age-days overrides it.
+
+--apply removes expired records through the same helpers delete uses, so a
+pruned episode gets the whole deletion cascade: both record shapes unlinked
+under the episode's lock, bound feedback stripped of body/summary and
+tombstoned, and any run whose append-only log still holds the episode's text
+reported (delete --run to remove those copies). Expired invocation rows are
+filter-rewritten under the log's lock and the derived observed-rate snapshot is
+invalidated with them.
+
+Nothing prunes on its own: no run, append or timer applies this bound. An
+invocation row with no readable occurredAt is kept and listed as held — its age
+cannot be established, so it cannot be proven expired.
+
+Exit codes: 0 when a dry run finds nothing over the bound or when --apply
+succeeds; 1 when a dry run finds expired records (so scripts can gate on it) or
+when apply fails.
+`;
+
+/**
+ * `pi-sparkle retain` — the operator's half of the retention bound.
+ *
+ * Dry run by default, exactly like `migrate-legacy`, and for the same reason:
+ * this command deletes records, so the spelling that deletes them has to be the
+ * one the operator typed on purpose. The dry run exits 1 when it finds work,
+ * which is what makes `retain` usable as a gate (`retain || retain --apply`)
+ * and mirrors `migrate-legacy`'s pending-work exit.
+ */
+export async function retainCommand(args: string[], io: CliIo): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      "state-root": { type: "string" },
+      "max-age-days": { type: "string" },
+      "lock-wait-ms": { type: "string" },
+      apply: { type: "boolean", default: false },
+      help: { type: "boolean", default: false }
+    }
+  });
+  if (values.help === true) {
+    io.stdout(RETAIN_USAGE);
+    return CLI_EXIT.ok;
+  }
+  const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const apply = values.apply === true;
+  const policy = validateRetentionPolicy({
+    maxAgeDays: parseMaxAgeDays(values["max-age-days"])
+  });
+
+  const result = await pruneRetention(stateRoot, {
+    policy,
+    lock: lockWaitOptions(values["lock-wait-ms"]),
+    apply
+  });
+  const { plan } = result;
+
+  io.stdout(`retain: ${apply ? "apply" : "dry run (no records removed)"}\n`);
+  io.stdout(`  state root: ${stateRoot}\n`);
+  io.stdout(`  max age: ${policy.maxAgeDays} day(s) (records before ${plan.cutoff})\n`);
+  io.stdout(
+    `  considered: ${plan.consideredRecords} dated record(s)${plan.oldestAgeDays === undefined ? "" : `, oldest ${plan.oldestAgeDays} day(s)`}\n`
+  );
+  for (const held of plan.held) {
+    io.stdout(`  held: ${held.kind} ${held.id} in ${held.path} (${held.reason})\n`);
+  }
+  for (const record of plan.expired) {
+    io.stdout(
+      `  ${apply ? "expired" : "would remove"}: ${record.kind} ${record.id} (${record.ageDays} day(s) old, ${record.recordedAt})\n`
+    );
+  }
+
+  if (!apply) {
+    io.stdout(`summary: ${plan.expired.length} record(s) over the bound, ${plan.held.length} held\n`);
+    if (plan.expired.length === 0) {
+      io.stdout("  nothing is over the retention bound\n");
+      return CLI_EXIT.ok;
+    }
+    io.stdout("  re-run with --apply to remove the expired records\n");
+    return CLI_EXIT.error;
+  }
+
+  for (const path of result.removedPaths) io.stdout(`removed: ${path}\n`);
+  for (const id of result.cascadedFeedbackTombstones) io.stdout(`tombstoned feedback: ${id}\n`);
+  for (const runId of result.residualEpisodeTextRunIds) {
+    io.stdout(
+      `residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`
+    );
+  }
+  io.stdout(
+    `summary: ${result.deletedEpisodes.length} episode(s) deleted, ${result.droppedInvocations} invocation row(s) dropped, ${plan.held.length} held\n`
+  );
+  return CLI_EXIT.ok;
+}
+
+/**
+ * `--max-age-days` as a policy value. Only whole positive decimal days are
+ * accepted: `Number` would also take `9e1`, `0x5a` and ` 90 `, and a retention
+ * bound that is not the number the operator typed deletes the wrong records.
+ */
+function parseMaxAgeDays(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_RETENTION_POLICY.maxAgeDays;
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new DomainValidationError(
+      `--max-age-days must be a whole number of days greater than 0, got: ${raw}`
+    );
+  }
+  return value;
+}
+
 /** What a command that failed for no routed reason tells the operator to do. */
 const GENERIC_FAILURE_NEXT = "fix the reported error, then retry; use pi-sparkle doctor for preflight";
 
@@ -2158,6 +2312,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await episodeCommand(rest, io);
       case "delete":
         return await deleteCommand(rest, io);
+      case "retain":
+        return await retainCommand(rest, io);
       case "migrate-legacy":
         return await migrateLegacyCommand(rest, io);
       case "commits":

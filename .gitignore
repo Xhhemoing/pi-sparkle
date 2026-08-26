@@ -11,6 +11,7 @@ coverage/
 .DS_Store
 
 # local/generated working artifacts
+/.agent_workspace/
 graphify-out/
 .learnings/
 dataset/*

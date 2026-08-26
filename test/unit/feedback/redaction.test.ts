@@ -126,10 +126,40 @@ const GATE_CORES: readonly {
     expected: `copied ${REDACTION_PLACEHOLDER.path}`
   },
   {
+    name: "ipv6",
+    body: "host 2001:0db8:85a3:0000:0000:8a2e:0370:7334 down",
+    core: "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+    expected: `host ${REDACTION_PLACEHOLDER.ipv6} down`
+  },
+  {
+    name: "ssn-dashed",
+    body: "ssn 123-45-6789 on file",
+    core: "123-45-6789",
+    expected: `ssn ${REDACTION_PLACEHOLDER.ssn} on file`
+  },
+  {
+    name: "ssn-bare",
+    body: "ssn 123456789 on file",
+    core: "123456789",
+    expected: `ssn ${REDACTION_PLACEHOLDER.ssn} on file`
+  },
+  {
+    name: "cn-id",
+    body: "身份证 11010519491231002X 已登记",
+    core: "11010519491231002X",
+    expected: `身份证 ${REDACTION_PLACEHOLDER.nationalId} 已登记`
+  },
+  {
     name: "openai-key-body",
     body: "key sk-proj-abcdefghijklmnop1234567890",
     core: "abcdefghijklmnop1234567890",
     expected: `key ${REDACTION_PLACEHOLDER.secret}`
+  },
+  {
+    name: "aws-secret-access-key",
+    body: "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    core: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    expected: `aws_secret_access_key=${REDACTION_PLACEHOLDER.secret}`
   },
   {
     name: "api-key-value",
@@ -220,6 +250,81 @@ test("quoted assignments keep their quotes and neighbours", () => {
   assert.equal(result.text.includes("supersecretvalue123"), false);
 });
 
+test("namespaced key names lose their value, not just the bare ones", () => {
+  // `\b` finds no boundary inside `aws_secret`, so a name class anchored on it
+  // alone leaves every real config key — the ones that actually appear in
+  // pasted `.env` files and error dumps — untouched.
+  for (const [body, expected] of [
+    [
+      "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCY",
+      `aws_secret_access_key=${REDACTION_PLACEHOLDER.secret}`
+    ],
+    ["my_api_key = supersecretvalue123", `my_api_key = ${REDACTION_PLACEHOLDER.secret}`],
+    [
+      "AWS_SECRET_ACCESS_KEY: 'wJalrXUtnFEMI'",
+      `AWS_SECRET_ACCESS_KEY: '${REDACTION_PLACEHOLDER.secret}'`
+    ],
+    ["aws_access_key_id=AKIAIOSFODNN7EXAMPLE", `aws_access_key_id=${REDACTION_PLACEHOLDER.secret}`],
+    ["SPARKLE_CLIENT_SECRET=abcdefabcdef", `SPARKLE_CLIENT_SECRET=${REDACTION_PLACEHOLDER.secret}`],
+    [
+      "svc.prod.refresh_token: rt_0123456789abcdef",
+      `svc.prod.refresh_token: ${REDACTION_PLACEHOLDER.secret}`
+    ]
+  ] as const) {
+    const result = redactSensitiveText(body);
+    assert.equal(result.text, expected, `not stripped: ${body}`);
+    assert.ok(result.classes.includes("secret"), `unclassified: ${body}`);
+  }
+});
+
+test("IPv6 addresses are removed in every presentation form", () => {
+  for (const address of [
+    "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+    "2001:db8::1",
+    "fe80::1ff:fe23:4567:890a",
+    "::1",
+    "::ffff:192.168.1.1"
+  ]) {
+    const result = redactSensitiveText(`peer ${address} seen`);
+    assert.equal(result.text, `peer ${REDACTION_PLACEHOLDER.ipv6} seen`, `survived: ${address}`);
+    assert.ok(result.classes.includes("pii"), `unclassified: ${address}`);
+  }
+
+  // Colon-separated text that is not an address keeps its shape: a clock, a
+  // C++ qualified name, and a log prefix all pass through the same candidate
+  // scan before the validator rejects them.
+  const prose = "at 12:34:56 std::vector deadbeef and 1.2.3.4:8080";
+  assert.equal(
+    redactSensitiveText(prose).text,
+    `at 12:34:56 std::vector deadbeef and ${REDACTION_PLACEHOLDER.ipv4}:8080`
+  );
+});
+
+test("US SSNs are removed dashed and bare, without eating longer numbers", () => {
+  assert.equal(
+    redactSensitiveText("ssn 123-45-6789 and 123456789").text,
+    `ssn ${REDACTION_PLACEHOLDER.ssn} and ${REDACTION_PLACEHOLDER.ssn}`
+  );
+
+  // Nine digits inside a longer run belong to whatever rule owns that run —
+  // the card and phone classes are far more precise than a digit count.
+  const longer = redactSensitiveText("ids 1755820800000 and 12345678901 and build 1234567890");
+  assert.equal(longer.text.includes(REDACTION_PLACEHOLDER.ssn), false);
+});
+
+test("CN national ID numbers are removed, including the X check character", () => {
+  for (const id of ["11010519491231002X", "110105194912310021", "44030120001231123x"]) {
+    const result = redactSensitiveText(`身份证 ${id} 已登记`);
+    assert.equal(result.text, `身份证 ${REDACTION_PLACEHOLDER.nationalId} 已登记`, `survived: ${id}`);
+    assert.ok(result.classes.includes("pii"), `unclassified: ${id}`);
+  }
+
+  // An 18-digit run whose birth-date field is impossible is an ordinary
+  // identifier, not an ID card.
+  const identifier = "order 123456789012345678 shipped";
+  assert.equal(redactSensitiveText(identifier).text, identifier);
+});
+
 test("vendor-prefixed keys are removed by shape", () => {
   for (const key of [
     "sk-ant-api03-abcdefghijklmnopqrstuvwx",
@@ -278,7 +383,14 @@ test("hostile shapes stay linear: the scanner is not a backtracking sink", () =>
     "1.".repeat(16000),
     "a.b.".repeat(8000) + "@",
     "1".repeat(32000),
-    "/home/a" + " b".repeat(16000)
+    "/home/a" + " b".repeat(16000),
+    // The keyed-name prefix, the IPv6 candidate and the SSN bounds each add a
+    // scan over runs that look almost like their target and never are.
+    "a_".repeat(16000),
+    "aws_secret_access_key_".repeat(1500),
+    "abcd:".repeat(6400),
+    "1-".repeat(16000),
+    "x_token = ".repeat(3000)
   ];
   const started = Date.now();
   for (const shape of shapes) {

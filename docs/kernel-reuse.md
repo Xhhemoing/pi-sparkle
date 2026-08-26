@@ -1,6 +1,6 @@
 # Kernel Reuse: Building Secondary Features on the Slim Pi Kernel
 
-Status: current as of 2026-08-24 (branch `cursor/pi-kernel-reuse-e1e3`).
+Status: current as of 2026-08-26 (including `4412fac` and `57ade59`).
 Companion audit: `docs/reports/2026-08-24-kernel-reuse-audit.md` (which Pi
 `Agent` capabilities are unused and in what order to adopt them). Diagnostic
 overlay for agents: `.agents/skills/pi-sparkle/references/kernel-reuse.md`.
@@ -38,7 +38,7 @@ rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob '!src/pi-ad
 # gate now false-positives on the data mentions in src/pi-compat/check.ts)
 ```
 
-## What is wired today (verified 2026-08-24)
+## What is wired today (verified 2026-08-26)
 
 Every row below was verified on this branch by reading the source and running
 the listed check. "Wired" means a product path calls it, not merely that the
@@ -51,7 +51,7 @@ kernel exposes it.
 | Abort maps to `agent.abort()`; a consumer that stops draining also aborts the run | wired | `runAttempt` abort listener + walk-away guard | `test/unit/pi-adapter/executor-retry.test.ts` |
 | Bounded provider retry with a fresh `Agent` per attempt | wired | `runWithRetry` + `src/pi-adapter/provider-retry.ts` | `test/unit/pi-adapter/executor-retry.test.ts`, `provider-retry.test.ts` |
 | `prompt`, `abort`, `waitForIdle` via the facade | wired | executor drives `SparkleKernel.fromFactory(...)` | `test/unit/pi-adapter/kernel.test.ts` |
-| Live steering: `RunningRun.steer(text, { actor? })` → `AgentExecutor.steerText?` → facade `steerText` | wired (landed mid-round 2026-08-24) | `src/execution/contract.ts` (optional `steerText?` — absence means "steering unsupported", callers fail rather than drop); `SteerChannel` in `src/run/coordinator.ts`, returned by both `startRun` and `startParentRun`; `PiAgentExecutor.steerText` targets the single in-flight kernel and refuses when zero or several runs are live; each accepted steer persists as a `STEER_INJECTED` event carrying the text with the steering principal as event actor | `test/integration/pi-adapter/steer-blocked-tool.test.ts` (steer during a blocked tool reaches the next model call), `test/integration/m0/steer.test.ts` (actor + text in the event log; write settles before the run does), `test/unit/pi-adapter/steer-inflight.test.ts` |
+| Live steering: `RunningRun.steer(text, { actor? })` → `AgentExecutor.steerText?` → facade `steerText` | wired | `src/execution/contract.ts` exposes optional `steerText(text, agentInstanceId?)`; `startRun` passes its root agent id, so `PiAgentExecutor` delivers only to that live kernel and refuses a miss instead of falling back to a sibling (`57ade59`). Parent runs have no single agent and retain the untargeted sole-live-or-refuse rule. Text accepted during an attempt is retained for that execution and queued into a fresh retry kernel after its first turn (`4412fac`); each acceptance is persisted once as `STEER_INJECTED` with actor and target when known | `test/integration/pi-adapter/steer-blocked-tool.test.ts`, `steer-retry.test.ts`, `steer-target.test.ts`; `test/integration/m0/steer.test.ts`; `test/unit/pi-adapter/steer-inflight.test.ts` |
 | Spend ceiling: `RunLimits.maxCostUsd` → `AgentExecutionRequest.maxCostUsd` → `CostGate` as the loop's stop-after-turn hook | wired (landed mid-Round-3 2026-08-24) | `startRun` forwards `run.limits.maxCostUsd` on the root request and `startParentRun` hands it to `ChildCoordinator`, whose `costCapFor` gives each child the tighter of the per-task and run-level caps (`src/run/coordinator.ts`, `src/run/child-coordinator.ts`; the supervisor loop forwards the same limit). `PiAgentExecutor.buildCostGate` arms the gate only when a cap **and** catalog prices both exist; an unpriced or invalid cap is reported through `onCostGate` and then ignored — never priced by guesswork (`src/pi-adapter/cost-gate.ts`). A stop is also re-checked between retry attempts so a failing task cannot buy attempts past its budget | `test/unit/pi-adapter/cost-gate.test.ts`, `cost-gate-ledger.test.ts`, `test/integration/pi-adapter/cost-stop.test.ts` (gate math + stop); `test/integration/m0/coordinator.test.ts`, `test/integration/m1/child-coordinator.test.ts` (forwarding, set and unset) |
 | `followUpText`, `reset`, `sessionId` on the facade | **exposed, not product-wired** | `SparkleKernel` only; no caller outside `src/pi-adapter/**` | `rg -n "followUpText" src/` shows `kernel.ts` only |
 
@@ -69,19 +69,21 @@ tree mid-round** (uncommitted; parent commits). This subsection first went
 out as "not landed" from a pre-landing verification pass; every claim below
 was re-verified against the tree after the landing:
 
-- `AgentExecutor.steerText?(text)` on the contract; `RunningRun.steer(text,
-  { actor? })` wired through a `SteerChannel` that is open only while
-  execution is in flight, delivers to the executor before logging, and
-  blocks run settlement on the event-log write.
+- `AgentExecutor.steerText?(text, agentInstanceId?)` on the contract;
+  `RunningRun.steer(text, { actor? })` wired through a `SteerChannel` that is
+  open only while execution is in flight, delivers to the executor before
+  logging, and blocks run settlement on the event-log write.
 - Steer text persists with its actor as `STEER_INJECTED`
   (`src/run/events.ts`, replay-aware via `src/run/replay.ts`) — it is
   user-authored input, not chain-of-thought, so persisting it verbatim is
   the policy, unlike `THINKING_DELTA`.
-- Retry semantics unchanged: queued steering still does not survive the
-  fresh-`Agent` retry; a steer accepted before a retried attempt is
-  documented as dropped, not silently re-armed.
-- Test evidence: 8 passing steer tests across facade, executor, and
-  coordinator layers (suites listed in the table above).
+- Retry semantics were subsequently strengthened by `4412fac`: a steer
+  accepted by the live kernel is retained at execution scope and re-delivered
+  to each fresh retry kernel after that attempt's first turn. A request made
+  during retry backoff is not accepted because no kernel exists for the
+  target.
+- Test evidence spans facade, executor, retry, targeting, and coordinator
+  layers (suites listed in the table above).
 
 Gate correction: the claim gate circulated for this round,
 `rg -n "RunningRun.steer" src/run/coordinator.ts`, does **not** hit even
@@ -93,10 +95,7 @@ src/run/coordinator.ts` (both returned handles); the multiline form
 hits at the interface declaration.
 
 Still open after P0: a CLI verb for live steer; `followUpText` / `reset` /
-`sessionId` remain facade-only; and the pre-landing placeholder
-`test.skip("RunningRun.steer forwards in-flight text…")` in
-`test/unit/pi-adapter/steer-inflight.test.ts` is now stale — its coverage
-lives in `test/integration/m0/steer.test.ts` and the skip should be removed.
+`sessionId` remain facade-only.
 
 ### Round 3 status (2026-08-24, R3-fable-A)
 
@@ -128,12 +127,14 @@ landing, not promised before it):
 
 These are properties of the current adapter, not suggestions.
 
-- **Retry resets the agent.** `runWithRetry` builds a fresh `Agent` per
-  attempt. Queued steering/follow-up messages and `sessionId` do not survive a
-  retried attempt, and only the last attempt's events form the invocation
-  record. A steering feature must tolerate a retry restarting from the
-  original prompt — either re-arm queued messages after retry or document the
-  drop.
+- **Retry replaces the agent, while accepted steers survive the execution.**
+  `runWithRetry` builds a fresh `Agent` per attempt, so attempt-local queues
+  and session identity still reset. `PiAgentExecutor` separately retains each
+  steer accepted for that agent instance and queues it into a fresh retry
+  kernel after the new attempt's first turn (`4412fac`). A targeted steer
+  requested during backoff is refused because that instance has no live
+  kernel; it is never redirected to a sibling (`57ade59`). Follow-up messages
+  and `sessionId` have no equivalent replay contract.
 - **A cost stop outranks a queued steer.** Pi's loop consults
   `shouldStopAfterTurn` immediately after a turn settles and exits the loop
   when it answers true; the steering queue is drained only after that check
@@ -208,10 +209,12 @@ it actually landed:
    `src/execution/contract.ts`. Optionality is load-bearing: an executor
    without `steerText` means "steering unsupported", and the coordinator
    throws rather than accepting text it would drop.
-2. **Executor plumbing** — `PiAgentExecutor.steerText` forwards to the
-   per-attempt kernel and refuses to guess when zero or more than one run is
-   in flight. The retry decision went to document-and-drop: queued steering
-   does not survive the fresh-`Agent` retry.
+2. **Executor plumbing** — `PiAgentExecutor.steerText` accepts an optional
+   agent-instance target. Root-run handles always provide it; a missing target
+   refuses before logging and never falls back to a concurrent sibling
+   (`57ade59`). Untargeted parent steering keeps the sole-live-or-refuse
+   behavior. Accepted text is retained at execution scope and re-delivered
+   after the first turn of every fresh retry attempt (`4412fac`).
 3. **Product separation** — live steer stayed a separate channel from the
    flowchart `inject` verb, logged as a distinct event type
    (`STEER_INJECTED` vs. the injection events), so audits can tell which one
@@ -220,7 +223,8 @@ it actually landed:
    (`src/run/events.ts`; the steering principal is the event's `actor`), the
    run does not settle until accepted steers are written, and tests cover
    facade (`steer-inflight.test.ts`), executor under a blocked tool
-   (`steer-blocked-tool.test.ts`), and coordinator + event log
+   (`steer-blocked-tool.test.ts`), retry replay (`steer-retry.test.ts`),
+   exact-run targeting (`steer-target.test.ts`), and coordinator + event log
    (`test/integration/m0/steer.test.ts`).
 
 ## Verification gates
@@ -231,7 +235,9 @@ rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob '!src/pi-ad
 node scripts/kernel-reuse-probe.mjs                          # live-yield + facade export gates
 pnpm exec tsx --test test/unit/pi-adapter/kernel.test.ts \
   test/unit/pi-adapter/translate-thinking.test.ts \
-  test/integration/pi-adapter/live-stream.test.ts            # facade, redaction, live stream
+  test/integration/pi-adapter/live-stream.test.ts \
+  test/integration/pi-adapter/steer-retry.test.ts \
+  test/integration/pi-adapter/steer-target.test.ts            # facade, redaction, live stream, steer retry/target
 pnpm typecheck && pnpm test                                  # full gates before merge
 ```
 

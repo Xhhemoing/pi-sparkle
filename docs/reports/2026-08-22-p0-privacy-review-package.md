@@ -1,12 +1,15 @@
 # P0 privacy review package — 2026-08-22
 
 Purpose: make the P0 independent privacy review a single walk-through. This
-package does **not** close P0; the closing act is an independent reviewer
-signing "no blocker" against the questions in §5.
+package records the original review and its remediation. Technical
+re-verification closed P0 on 2026-08-26; see the
+[closure report](2026-08-26-p0-technical-reverification.md). An independent
+privacy-officer countersign remains welcome but no longer blocks the
+Developer Preview.
 
 Inputs under review:
 
-- [data-dictionary.md](../data-dictionary.md) — 17 durable record classes
+- [data-dictionary.md](../data-dictionary.md) — 18 durable record classes
 - `src/privacy/record-classes.ts` — source of truth
 - `src/privacy/deletion.ts` — tombstone/materialization helpers
 - Tests: `test/unit/privacy/record-classes.test.ts`,
@@ -51,16 +54,20 @@ every known durable path to a class, so a new path cannot ship unclassified.
 
 ## 3. Deletion story (current, honest)
 
-- `delete-files` classes: deletion is by removing the files under the state
-  root. **There is no `pi-sparkle delete --run <id>` CLI command yet** —
-  deletion today is manual file removal. (Open question Q2.)
+- `delete-files` classes are operator-accessible through `pi-sparkle delete
+  --run <id>` and `pi-sparkle delete --episode <id>`.
+- Run deletion removes the run subtree, filter-rewrites shared invocation
+  telemetry for that run, invalidates the derived observed-rate snapshot,
+  and verifies that the run records are gone.
 - `tombstone-ids` classes (feedback, preference, candidate): deletion is
   recorded as ids; payloads never leave the store again; propagation into
   dataset exports and materialized views is integration-tested
   (`test/integration/m3/redaction.test.ts`).
 - `episode` declares `deletionPropagatesTo: ["feedback"]`: episode deletion
-  must also tombstone its feedback records. **This propagation is declared
-  but not implemented as a single command** (open question Q2).
+  is implemented by `delete --episode`: it strips the bound feedback's
+  free-text fields and tombstones the feedback ids. Attached append-only run
+  logs are not rewritten; the command reports each residual run and points
+  the operator to `delete --run`.
 
 ## 4. Redaction chain (verified by tests)
 
@@ -74,32 +81,38 @@ every known durable path to a class, so a new path cannot ship unclassified.
 5. Model invocations: prompt/response bodies hashed only; missing usage
    stays `undefined`, never `0`.
 
-## 5. Questions for the independent reviewer
+## 5. Review questions and recorded decisions
 
-- **Q1 (ownership):** Are the owner assignments (runtime vs adaptation)
-  acceptable, given both planes share one state root?
-- **Q2 (deletion tooling):** Is manual file removal acceptable for
-  Developer Preview, or must a `delete` CLI (with episode→feedback tombstone
-  propagation) exist before P0 sign-off?
-- **Q3 (retention horizon):** `until-deleted` classes have no time bound.
-  Acceptable for a local single-user runtime?
+- **Q1 (ownership): closed.** Runtime and adaptation use separate plane roots;
+  boundary and transitive-import tests pin the sanctioned data crossings.
+- **Q2 (deletion tooling): closed.** `delete --run` and `delete --episode`
+  implement the required deletion and episode→feedback cascade, with
+  fail-closed locking and residual-copy disclosure.
+- **Q3 (retention horizon): closed.** `retain` applies a 90-day default age
+  policy to runtime invocations and episodes through the existing deletion
+  cascades. It is dry-run-first and operator-triggered; `retain --apply`
+  performs the deletion.
 - **Q4 (migration):** All classes are `migrationVersion: 1`. Acceptable to
   defer a migration plan to v2?
-- **Q5 (scope):** The state root is local (`~/.pi-sparkle/`). No network
-  transmission of any class is claimed. Confirm no class escapes the machine.
+- **Q5 (scope):** The durable state root is local (`~/.pi-sparkle/`) and no
+  state file is automatically exported. Opting into a real remote provider
+  does send the requested prompt/context to that provider; local persistence
+  is not a claim of offline execution.
 
 ## 6. How to verify independently
 
 ```bash
-pnpm tsx --test test/unit/privacy/record-classes.test.ts test/unit/privacy/plane-boundary.test.ts test/integration/m3/redaction.test.ts
-grep -rn "writeFile\|appendFile" src/ --include="*.ts"   # re-run the completeness audit
+pnpm test -- test/unit/privacy/ test/integration/cli/delete.test.ts
+pnpm test -- test/integration/m3/redaction.test.ts
 ```
 
-Verified 2026-08-22: privacy + redaction suites 8/8 green against the Q1/Q2
-remediation (commit of same date). Final sign-off stays with the reviewer.
+Verified 2026-08-26: the combined privacy-boundary and CLI-deletion command
+passed 87/87 tests. The technical closure is recorded in
+`2026-08-26-p0-technical-reverification.md`.
 
-Sign-off = answering Q1–Q5 with "no blocker" (or listing blockers), recorded
-in `tasks/todo.md` and `docs/status-matrix.md` (P0 row → Exit column).
+An independent reviewer may still countersign Q1–Q5 or record follow-up
+findings. That review is advisory for the Developer Preview rather than a
+release blocker.
 
 ## 7. Review verdict and remediation (2026-08-22)
 
@@ -135,8 +148,9 @@ were blockers. Both blockers are now implemented:
   removed, cascade strips only the bound feedback, unrelated payloads intact,
   run subtree removal, fail-closed exits).
 
-P0 remains open until the reviewer re-verifies §6 commands against this
-remediation and records the final sign-off.
+P0 was technically closed on 2026-08-26 after the §6 Q1/Q2 suites were
+re-run green. The closure does not claim production certification or
+Outcome-supported status.
 
 ## 8. Live state-root verification (2026-08-22)
 
@@ -153,4 +167,11 @@ The owner's real state root (`~/.pi-sparkle/`) was audited and drilled:
   `readFeedback` (first-layer filter) while remaining listed as a tombstone.
 - **Boundary suite**: record-classes + plane-boundary + redaction + delete
   tests 12/12 green; doctor reports the state root healthy.
+
+## 9. Technical closure (2026-08-26)
+
+The follow-up [technical re-verification
+report](2026-08-26-p0-technical-reverification.md) records the current test
+commands, results, and closure scope. `docs/status-matrix.md` now records P0
+as closed for the Developer Preview.
 

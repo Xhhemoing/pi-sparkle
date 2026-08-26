@@ -25,6 +25,7 @@ import {
   type LoopbackOpenAiProvider
 } from "../../helpers/loopback-openai-provider.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
+import { stripSkipContractWarning } from "../../helpers/skip-contract-warning.js";
 import { simulateProcessDeath } from "../../helpers/process-death.js";
 
 const PROVIDER_ID = "loopback";
@@ -339,7 +340,7 @@ test("flowchart resume sends flagged executor config to the offline provider", a
       started.io
     );
     assert.equal(startCode, 0, started.err.join(""));
-    assert.equal(started.err.join(""), "");
+    assert.equal(stripSkipContractWarning(started.err.join("")), "");
     assert.match(started.out.join(""), /WAITING_FOR_USER/);
     const runId = parseRunId(started.out.join(""));
     await waitForInvocationRows(stateRoot, 1);

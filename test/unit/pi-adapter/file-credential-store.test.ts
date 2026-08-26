@@ -39,7 +39,7 @@ test("read returns the stored credential and missing file is empty", async () =>
   });
 });
 
-test("save preserves credential bytes, ignores a legacy fixed temp, and chmods after publish", async () => {
+test("save preserves credential bytes, ignores a legacy fixed temp, and publishes owner-only", async () => {
   await withDir(async (dir) => {
     const path = join(dir, "runtime", "auth.json");
     const legacyTemp = `${path}.tmp`;
@@ -58,13 +58,37 @@ test("save preserves credential bytes, ignores a legacy fixed temp, and chmods a
   });
 });
 
-test("credential publishing delegates to the shared atomic writer before chmod", async () => {
+test("a permissive umask cannot widen the credential file", async () => {
+  const previous = process.umask(0o000);
+  try {
+    await withDir(async (dir) => {
+      const path = join(dir, "runtime", "auth.json");
+      const store = new FileCredentialStore(path);
+      await store.modify("openai", async () => ({ type: "api_key", key: "sk-secret" }));
+      // 0o666 is what the umask would have allowed the create to keep.
+      assert.equal((await stat(path)).mode & 0o777, 0o600);
+    });
+  } finally {
+    process.umask(previous);
+  }
+});
+
+test("credential publishing asks the shared atomic writer for the mode, and refuses to swallow chmod", async () => {
   const source = await readFile("src/pi-adapter/file-credential-store.ts", "utf8");
   assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/persist\/atomic-file\.js";/);
+  // The mode belongs on the write, not only after it: a chmod-only store leaves
+  // the published file readable for as long as the chmod takes to land.
   assert.match(
     source,
-    /await writeFileAtomic\(this\.filePath, serialized\);\s+await chmod\(this\.filePath, 0o600\)/
+    /await writeFileAtomic\(this\.filePath, serialized, \{ mode: CREDENTIAL_FILE_MODE \}\)/
   );
+  // A chmod this process could not apply means the credential on disk may be
+  // readable by other users, and that is the one outcome that must not pass
+  // silently. Provoking a real chmod failure needs a file this process does
+  // not own — nothing a unit test can arrange portably — so the shape is
+  // pinned instead: no `.catch`, and a raised DomainValidationError.
+  assert.doesNotMatch(source, /chmod\([^)]*\)\.catch/);
+  assert.match(source, /throw new DomainValidationError\(\s*`cannot restrict/);
   assert.doesNotMatch(source, /\b(?:open|rename|unlink)\(/);
   assert.doesNotMatch(source, /tempPath|`[^`]*\.tmp`/);
 });

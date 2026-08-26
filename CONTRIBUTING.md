@@ -2,6 +2,9 @@
 
 Thank you for your interest in contributing to pi-sparkle. This document provides guidelines and instructions for contributing.
 
+pi-sparkle is a Developer Preview with `"private": true`. It will not be
+published to npm; clone the repository and use pnpm locally.
+
 ## Development Setup
 
 ### Prerequisites
@@ -37,6 +40,7 @@ src/           # Source code (TypeScript)
   preferences/ # Preference detection and storage
 test/          # Test suites (unit + integration)
 docs/          # Specifications, ADRs, research
+examples/      # Reusable local CLI input examples
 tasks/         # Planning and task tracking
 ```
 
@@ -63,7 +67,9 @@ All contributions must pass:
 | `pnpm test` | Unit and integration tests (see Running Tests above) |
 | `pnpm build` | Production build (tsconfig.build.json) |
 | `pnpm gate` | All four in sequence (merge-time gate) |
-| `pnpm prerelease` | `pnpm gate` plus `pnpm security:probe` (static secret/boundary probes). Run before tagging a preview build |
+| `pnpm security:probe` | Built-artifact redaction and packaged-secret checks |
+| `pnpm pi:probe` | Pi adapter-boundary and legacy-symbol checks |
+| `pnpm prerelease` | `pnpm gate && pnpm security:probe && pnpm pi:probe`. Run before tagging a preview build |
 
 ## Commit Guidelines
 
@@ -78,6 +84,11 @@ All contributions must pass:
 3. Ensure all quality gates pass locally
 4. Open a PR with a clear description of changes
 5. Request review from maintainers
+
+Contributors must follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+security issues through [GitHub private vulnerability
+reporting](SECURITY.md), never in a public issue when secrets or sensitive
+data are involved.
 
 ## Code Style
 

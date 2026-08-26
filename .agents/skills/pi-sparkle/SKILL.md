@@ -34,12 +34,12 @@ command, or authorize auto-promotion.
 - Opt-in helper now exists (`scripts/log-skill-route.mjs` → `.pi/logs/skill-routes.jsonl`); `doctor --project` reports enabled/line count; empty until explicitly enabled
 
 ### 3. Cross-Project Silos
-- AIstudy: 4 agents + 2 skills + 5 prompts + better-harness reports (2 rounds)
-- cengfan: custom agents (temp-luna, tokenfree-luna) + cengfan-data-import skill + subagent runs
-- better-harness (QoderAI): 4 meta-skills (harness-skill-creator, change-traceability-review, etc.) + detailed AGENTS.md
+- One surveyed project had 4 agents, 2 skills, 5 prompts, and two rounds of harness reports
+- Another had custom agents, a project-specific data-import skill, and subagent runs
+- A harness-focused project had 4 meta-skills and detailed agent instructions
 - Pi core: no .pi/, no self-review harness, skills only at user level
 
-No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
+No sharing path existed for reusable project workflow and data-import assets.
 
 ### 4. Missing Meta-Skill
 - No harness-friction-analyzer that ingests multi-project reports and proposes global fixes
@@ -61,15 +61,15 @@ No sharing path for reusable assets (aistudy-git-workflow, cengfan-data-import)
 - 80 installed skills (all trees); bloat threshold (>20) breached ~4x. Skill
   counts are volatile point-in-time readings — always re-run
   `scripts/skill-audit.mjs` for the live number instead of trusting this line.
-- Route logging enabled (marker) in 5 active projects: AIstudy, Deep-student,
-  ai-key-manager, pi-sparkle, 蹭饭图. `skill-audit.mjs` now classifies per-project
-  logging state and **withholds** `neverActivated`/`topActivated` when no scanned
-  project has logging on — absence of logs is not evidence of non-use.
+- Route logging was enabled (marker) in 5 active project roots.
+  `skill-audit.mjs` now classifies per-project logging state and **withholds**
+  `neverActivated`/`topActivated` when no scanned project has logging on —
+  absence of logs is not evidence of non-use.
 - Helper copied next to installed router (`~/.pi/agent/skills/scenario-skill-router/log-skill-route.mjs`) so projects without this package can still log
 - 3 of 4 recorded subagent runs failed (agent `researcher`, exitCode 1, ~360s, no root-cause field captured)
 - usage frontmatter deliberately NOT hand-written: JSONL is the single source of truth (router forbids auto-persisting USED); use `scripts/skill-audit.mjs` for top/never-activated reports
 - New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, alias detection, scenario affinity, scope recommendations; `--skills-roots` audits non-default skill trees), `scripts/skill-prune.mjs` (evidence-gated pruning: dry-run lists confirmed aliases only; `--apply <skill>` moves ONE confirmed alias to skills-backup/<date>/ — `--backup-root` overrides the backup destination, and a refused `--apply` exits 1 so automation sees the evidence gate)
-- Verified 2026-08-21 after `pi install E:/Project/pi-sparkle`: package skill
+- Verified 2026-08-21 after `pi install /absolute/path/to/pi-sparkle`: package skill
   discoverable globally (outside the project), `/sparkle` template expands via
   `--prompt-template`, end-to-end audit run succeeded.
 - Pruned 2026-08-21: `~/.pi/agent/skills/jailbreak-engineering/` (self-declared

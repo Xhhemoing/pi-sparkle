@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { renameSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { renameSync, statSync } from "node:fs";
+import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -211,6 +211,86 @@ test("a failing fallback rename still cleans up its own temp", async () => {
     );
 
     assert.deepEqual(await tempFiles(directory), []);
+  });
+});
+
+async function permissions(path: string): Promise<number> {
+  return (await stat(path)).mode & 0o777;
+}
+
+test("a requested mode is in force before the payload exists, not after the rename", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "secret.json");
+    const modesAtPublish: number[] = [];
+
+    await writeFileAtomic(path, '{"key":"value"}\n', {
+      mode: 0o600,
+      rename: async (source, destination) => {
+        // The temp is what a concurrent reader could open; a chmod after the
+        // rename would leave it readable for the whole write.
+        modesAtPublish.push(statSync(source).mode & 0o777);
+        await rename(source, destination);
+      }
+    });
+
+    assert.deepEqual(modesAtPublish, [0o600]);
+    assert.equal(await permissions(path), 0o600);
+    assert.equal(await readFile(path, "utf8"), '{"key":"value"}\n');
+
+    // Replacing an existing wide file narrows it: the published inode is the temp's.
+    await writeFileAtomic(path, '{"key":"second"}\n', { mode: 0o600 });
+    assert.equal(await permissions(path), 0o600);
+  });
+});
+
+test("the requested mode is exact, not whatever the umask left of it", async () => {
+  const previous = process.umask(0o000);
+  try {
+    await withTempDir(async (directory) => {
+      const path = join(directory, "restricted.json");
+      await writeFileAtomic(path, "payload\n", { mode: 0o600 });
+      assert.equal(await permissions(path), 0o600);
+
+      const syncPath = join(directory, "restricted-sync.json");
+      writeFileAtomicSync(syncPath, "payload\n", { mode: 0o640 });
+      assert.equal(await permissions(syncPath), 0o640);
+    });
+  } finally {
+    process.umask(previous);
+  }
+});
+
+test("without a mode the writers leave permissions exactly where the platform puts them", async () => {
+  await withTempDir(async (directory) => {
+    const reference = join(directory, "reference.json");
+    await writeFile(reference, "payload\n", "utf8");
+
+    const asyncPath = join(directory, "default-async.json");
+    const syncPath = join(directory, "default-sync.json");
+    await writeFileAtomic(asyncPath, "payload\n");
+    writeFileAtomicSync(syncPath, "payload\n");
+
+    const expected = await permissions(reference);
+    assert.equal(await permissions(asyncPath), expected);
+    assert.equal(await permissions(syncPath), expected);
+  });
+});
+
+test("writeFileAtomicSync applies the mode to its temp too", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "secret-sync.json");
+    const modesAtPublish: number[] = [];
+
+    writeFileAtomicSync(path, "payload\n", {
+      mode: 0o600,
+      rename: (source, destination) => {
+        modesAtPublish.push(statSync(source).mode & 0o777);
+        renameSync(source, destination);
+      }
+    });
+
+    assert.deepEqual(modesAtPublish, [0o600]);
+    assert.equal(await permissions(path), 0o600);
   });
 });
 

@@ -1,12 +1,20 @@
 # pi-sparkle
 
-**Developer preview (0.1.0).** Fake-executor local CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) is the supported path. Real providers and adaptive routing are opt-in / proposal-first and are **not** Outcome-supported. This package is not an npm release (`private: true`). See [status-matrix.md](docs/status-matrix.md).
+**Developer Preview (0.1.0; `private: true`).** This repository **will not
+publish to npm**. Clone the repository and use pnpm locally; npm/global/package
+installation is unsupported. The fake-executor CLI (`run` / `inspect` /
+`resume` / `--flowchart` / `--children`) is the supported path. Real providers
+and adaptive routing are opt-in / proposal-first and are **not**
+Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
 `pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
 ## Quick Start
 
 ### Install
+
+Requires Node.js >= 22.19.0 and corepack. Clone + pnpm is the only supported
+installation path:
 
 ```bash
 git clone https://github.com/Xhhemoing/pi-sparkle.git
@@ -16,7 +24,10 @@ pnpm install
 pnpm cli version
 ```
 
-`pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI. `bin.pi-sparkle` is for a future packed install (`pnpm add -g .`); this repo stays `private: true`.
+`pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm
+pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI.
+The package metadata remains `private: true`; packaging is exercised only by
+the security probe and is not an installation or publication path.
 
 ### Install as a local Pi package
 
@@ -28,9 +39,8 @@ pi install /absolute/path/to/pi-sparkle
 pi list
 ```
 
-On this machine that is `pi install E:\Project\pi-sparkle`. In a Pi session,
-`/skill:pi-sparkle` or `/sparkle` runs the overlay. The CLI above is a
-separate runtime (`pnpm cli`), not a Pi slash command.
+In a Pi session, `/skill:pi-sparkle` or `/sparkle` runs the overlay. The CLI
+above is a separate runtime (`pnpm cli`), not a Pi slash command.
 
 ### Run with the built-in fake executor (no API keys)
 
@@ -137,6 +147,10 @@ pnpm cli run \
 
 Real providers remain opt-in: add `--executor pi` after `models set-default` (and credentials). Do not treat that path as the preview default.
 
+Reusable child and flowchart input files belong under `examples/`; the
+`tasks.json` and `flow.json` names in these snippets are placeholders for
+those local examples.
+
 ### Flowchart
 
 `--flowchart` takes an explicit flowchart JSON — the same DAG engine `--children` compiles onto, driven directly. Task ids must be `tsk_<suffix>`. Catalog aliases are `cheap` / `premium`. The flags are mutually exclusive: do not combine with `--children` or `--track`.
@@ -164,9 +178,11 @@ pnpm cli run \
 | `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |
 | `pnpm cli pause --run <runId> [--reason <text>]` | Write a pause token and `PAUSE_REQUESTED`; `pause --clear` removes the token, `resume --unpause` clears it and continues |
 | `pnpm cli inject --run <runId> --type fact\|override\|skip` | Record a typed fact/override/skip against the run's decision policy; user strings are recorded, never executed |
+| `pnpm cli unblock --run <runId> --reason <text> [--retry-node <nodeId>]` | Reopen the active `RUN_BLOCKED` interval without executing work; inspect first, then resume after the unblock succeeds. `--discard-executed` is available only with the exact failed retry node when the runtime computes executed descendants |
 | `pnpm cli episode events\|close --episode <epId>` | Print the episode event view, or close an episode with an acceptance-gated status (`COMPLETED`/`FAILED`/`ABANDONED`) |
 | `pnpm cli pref list\|correct\|export\|delete` | Inspect, correct, export, or delete recorded preferences. Export is tombstone-aware and drops deleted payloads |
 | `pnpm cli delete --run <runId> \| --episode <epId>` | Delete runtime records. Run delete also filter-rewrites the shared `invocations.jsonl` (dropping that run's rows, fail-closed on a corrupt log) and invalidates the observed-rate snapshot. Episode delete removes the episode files **and lock**, strips both free-text fields (`body` and `summary`) from bound feedback, tombstones their ids, and reports any attached runs whose append-only logs still hold a copy of the episode text (delete those runs to remove it) |
+| `pnpm cli retain [--max-age-days <n>] [--apply]` | Enforce the runtime invocation/episode age policy (90 days by default). Dry-run without `--apply`; applying uses the same deletion cascades and residual-copy reporting as `delete` |
 | `pnpm cli commits preview\|apply --run <runId>` | Emit conventional commit messages from a completed flowchart run's ledger with evidence refs; `apply` writes them via `git commit --allow-empty` |
 | `pnpm cli auth status\|login\|logout` | Manage stored per-provider credentials (stored credentials win over env keys) |
 | `pnpm cli models list\|enable\|disable\|set-default` | Manage the enabled model catalog and the default primary/fast models |
@@ -182,7 +198,7 @@ pnpm cli run \
 | `pnpm pi:probe` | Probe `src/pi-adapter` for the ADR-001 boundary and the legacy `GoogleThinkingLevel` symbol |
 | `pnpm test` | Run the full test suite. `pnpm test -- test/unit/<area>` runs one directory (expanded to its `*.test.ts` files); a single file path also works |
 | `pnpm gate` | `typecheck && lint && test && build` — merge-time quality gate |
-| `pnpm prerelease` | `pnpm gate` plus `pnpm security:probe` (static secret/boundary probes) — run before tagging a preview build |
+| `pnpm prerelease` | `pnpm gate && pnpm security:probe && pnpm pi:probe` — run the quality, packaged-security, and Pi-boundary probes before tagging a preview build |
 
 State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 
@@ -194,6 +210,8 @@ State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 - `--track` asks clarifying questions from the objective and recorded habits, plans scout → implement → review → test, executes, and tracks the episode
 - Validates flowcharts and DAGs, prevents cycles, and schedules joins deterministically
 - Persists resumable checkpoints, JSONL event logs, and an episode bound to each run. A truncated final JSONL line is recovered, not treated as a corrupt log
+- Bounds retained runtime invocations and episodes to 90 days by default
+  through the explicit, dry-run-first `retain --apply` command
 - `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start. Plain `--children` is a skip-contract start (`skipContract: true`) — no coverage gate on that path
 - Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
 - Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
@@ -215,7 +233,10 @@ authoritative grid is [docs/status-matrix.md](docs/status-matrix.md).
 - Live routing is R0-equivalent static `ModelRouter`; R1/bandit stay shadow-only
 - `adapt auto` proposes routing-policy candidates only; `adapt promote --approve` is required
 - Checkpoint F sealed holdout stays open (ADR-005); do not claim adaptive gains
-- Privacy dictionary: [docs/data-dictionary.md](docs/data-dictionary.md). P0 review is not closed.
+- Privacy dictionary: [docs/data-dictionary.md](docs/data-dictionary.md). P0
+  closed by technical re-verification on 2026-08-26; an independent
+  privacy-officer countersign remains welcome but does not block this
+  Developer Preview.
 
 Real-provider execution is opt-in via `PI_*` environment variables and `--executor pi`.
 
@@ -223,6 +244,9 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 
 - [Status matrix](docs/status-matrix.md)
 - [Data dictionary](docs/data-dictionary.md)
+- [P0 technical re-verification (2026-08-26)](docs/reports/2026-08-26-p0-technical-reverification.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
 - [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
 - [Architecture](docs/specs/m0-m2-architecture.md)

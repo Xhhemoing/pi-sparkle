@@ -1,21 +1,26 @@
 # Release gate
 
 `pnpm prerelease` = `pnpm gate` (typecheck/lint/test/build) **plus**
-`pnpm security:probe`. The probe runs against the built `dist/` artifact and
-blocks release while any finding is open. CI (`ci.yml`) runs the quality
-gate on every push; the security probe is the extra bar for **publishing**.
+`pnpm security:probe` **plus** `pnpm pi:probe`. The security probe runs
+against the built `dist/` artifact; the Pi probe checks the adapter boundary
+and rejects the legacy symbol. CI (`ci.yml`) runs the quality gate on every
+push. This repository is a Developer Preview with `"private": true` and will
+not be published to npm; prerelease is the bar for a preview tag, not an npm
+publication workflow.
 
-## Status: currently BLOCKED
+## Status: OPEN — green at HEAD
 
-Open findings (2026-08-22, from the weak-areas data collection):
+The two findings opened on 2026-08-22 were remediated and closed on
+2026-08-24:
 
-| id | probe | finding | candidate fixes (owner decision pending) |
+| id | probe | resolution | closed |
 |---|---|---|---|
-| `pii-redaction` | redaction coverage | email/IP/phone/CN-phone/credit-card/paths survive `redactFeedback`; the flag labels but never removes | real PII regex removal pass |
-| `secret-bodies` | redaction coverage | secret stripping removes only literal prefixes; key values survive | value-aware secret patterns (`key[:=]\s*\S+`) |
+| `pii-redaction` | redaction coverage | value-removing redaction for email, IP, phone, Luhn-valid cards, and home/UNC paths, with regression coverage | 2026-08-24 |
+| `secret-bodies` | redaction coverage | value-aware removal for keyed assignments, bearer/JWT/vendor tokens, and private-key blocks | 2026-08-24 |
 
-Until fixed, every `pnpm prerelease` exits 1. That is intentional: this
-package is `private: true`, so nothing can ship accidentally.
+At HEAD the release command is expected to exit 0. Any new open security or
+Pi-boundary finding closes the gate until fixed or validly waived under the
+rules below.
 
 ## Waivers
 
@@ -30,7 +35,11 @@ Rules:
 1. A waiver MUST be recorded below with reason + expiry before use.
 2. Waivers are per-release; they do not close the finding.
 3. `packaged-secrets` findings are **never waivable** — credential material
-   in the artifact is an unconditional block.
+   in the artifact is an unconditional block. The probe enforces this in code:
+   naming `packaged-secrets` in `SECURITY_WAIVER` cannot move that finding to
+   the waived set.
+4. Pi adapter-contract failures from `pnpm pi:probe` are not security-probe
+   findings and cannot be waived through `SECURITY_WAIVER`.
 
 ### Waiver register
 
