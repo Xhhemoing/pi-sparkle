@@ -48,7 +48,7 @@
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
-| 34 | 第 1–9 波进行中 | 6 / 10（A–F 已合入；G/H 运行中；I 本波派出） | claude-fable-5-thinking-xhigh | [round-34/PLAN.md](./round-34/PLAN.md) |
+| 34 | 第 1–10 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-34/PLAN.md](./round-34/PLAN.md) |
 
 ### Round 1 波次
 
@@ -393,9 +393,10 @@
 | 4 | R34-D 自优化 | D 已合入 |
 | 5 | R34-E 学习 | E 已合入 |
 | 6 | R34-F 实验门控 | F 已合入 |
-| 7 | R34-G 运行时/图 | G 运行中 |
+| 7 | R34-G 运行时/图 | G 已合入 |
 | 8 | R34-H 评价/需求 | H 运行中 |
-| 9 | R34-I CLI/适配器 | I 本波派出 |
+| 9 | R34-I CLI/适配器 | I 运行中 |
+| 10 | R34-J cluster/privacy | J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -727,7 +728,8 @@
 | R33-J | `cursor/r33-j-persist-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.8–237.4 / 408.0–541.2、jsonl 59.2–66.8 / 204.4–350.2 µs；五项换名检查拒列未铸 |
 | R34-A | `cursor/r34-a-tracking-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-A.md`）。无新排除 ID；预算复核 12.8–15.2 µs/gate ⇒ ~64–76 µs/run；三项换名检查拒列未铸 |
 | R34-D | `cursor/r34-d-adaptation-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-D.md`）。无新排除 ID；eval 地板复核 S0c 3.65–4.70 ms（主机偏高）；三项换名检查拒列未铸 |
-| R34-G | `cursor/r34-g-runtime-thirty-fourth-pass-83a1` | 已派出 |
+| R34-G | `cursor/r34-g-runtime-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-G.md`）。无新排除 ID；计算顶复核 0.292–0.301 vs I/O 86.8–94.4 ms；digest 第二十五次逐位；一项换名检查拒列未铸 |
+| R34-J | `cursor/r34-j-persist-thirty-fourth-pass-83a1` | 已派出 |
 | R34-B | `cursor/r34-b-live-routing-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-B.md`）。无新排除 ID；预算复核 M=2 8.5–9.5 / M=10 17–19（主机偏快）；零新 ID / 零新面 |
 | R34-C | `cursor/r34-c-offline-routing-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-C.md`）。无新排除 ID；中位复核 682.1–682.5；组合天花板 28.7–31.6 < 35；sink=7.309 |
 | R34-E | `cursor/r34-e-learning-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.8–15.1（主机偏快）；一项换名检查拒列未铸；S8-E-1 仍恰 3 处 |
