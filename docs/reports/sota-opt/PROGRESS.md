@@ -43,8 +43,8 @@
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
-| 29 | 第 1–10 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
-| 30 | 第 1–2 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
+| 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
+| 30 | 第 1–3 波进行中 | 0 / 10（A/B 运行中；C 本波派出） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
 
 ### Round 1 波次
 
@@ -317,14 +317,15 @@
 | 7 | R29-G 运行时/图 | G 已合入 |
 | 8 | R29-H 评价/需求 | H 已合入 |
 | 9 | R29-I CLI/适配器 | I 已合入 |
-| 10 | R29-J cluster/privacy | J 运行中 |
+| 10 | R29-J cluster/privacy | J 已合入 |
 
 ### Round 30 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
 | 1 | R30-A 跟踪门控 | A 运行中 |
-| 2 | R30-B live 路由 | B 本波派出 |
+| 2 | R30-B live 路由 | B 运行中 |
+| 3 | R30-C 离线路由 | C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -620,9 +621,10 @@
 | R29-G | `cursor/r29-g-runtime-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-G.md`）。无新排除 ID；计算顶复核 0.290–0.298 vs I/O 93.7–97.5 ms；digest 第二十次逐位；M2 supervised-engine adjudication lattice 归档 |
 | R29-H | `cursor/r29-h-eval-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-H.md`）。无新排除 ID；热层复核 8889–9147 ns；coverage-relation incidence topology face 归档 |
 | R29-I | `cursor/r29-i-cli-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-I.md`）。无新排除 ID；custom−builtin 复核 children +44.0~+50.5 / +22.6~+25.7、track +44.0~+53.2 / +22.5~+25.6、flowchart-flat64 +41.9~+42.8 / +18.5~+21.7 ms；input-file JSON serialization-form face 归档 |
-| R29-J | `cursor/r29-j-persist-twenty-ninth-pass-83a1` | 已派出 |
+| R29-J | `cursor/r29-j-persist-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-J.md`）。无新排除 ID；I/O 地板复核 preferences 146.5–234.7 / 431.5–542.6、jsonl 59.3–68.1 / 212.8–319.8 µs；CSPELL 不铸 ID |
 | R30-A | `cursor/r30-a-tracking-thirtieth-pass-83a1` | 已派出 |
 | R30-B | `cursor/r30-b-live-routing-thirtieth-pass-83a1` | 已派出 |
+| R30-C | `cursor/r30-c-offline-routing-thirtieth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
