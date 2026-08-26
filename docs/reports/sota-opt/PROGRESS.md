@@ -51,7 +51,7 @@
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
 | 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
-| 37 | 第 1–5 波进行中 | 6 / 10（A–F 已合入；G 运行中；H/I 本波派出） | claude-fable-5-thinking-xhigh | [round-37/PLAN.md](./round-37/PLAN.md) |
+| 37 | 第 1–6 波进行中 | 7 / 10（A–G 已合入；H/I 运行中；J 本波派出） | claude-fable-5-thinking-xhigh | [round-37/PLAN.md](./round-37/PLAN.md) |
 
 ### Round 1 波次
 
@@ -436,8 +436,9 @@
 | 1 | R37-A 跟踪门控、R37-B live 路由、R37-C 离线路由 | A/B/C 已合入 |
 | 2 | R37-D 自优化、R37-E 学习 | D/E 已合入 |
 | 3 | R37-F 实验 | F 已合入 |
-| 4 | R37-G 运行时 | G 运行中 |
-| 5 | R37-H 评估、R37-I CLI | H/I 本波派出 |
+| 4 | R37-G 运行时 | G 已合入 |
+| 5 | R37-H 评估、R37-I CLI | H/I 运行中 |
+| 6 | R37-J persist | J 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -786,7 +787,8 @@
 | R37-B | `cursor/r37-b-live-routing-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.12–10.55 / M=10 18.01–19.80；replay M=2 8.37–9.12；零新站点级换名记录 |
 | R37-D | `cursor/r37-d-adaptation-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-D.md`）。无新排除 ID；eval 地板复核 S0c 3.40–3.80 ms；零新站点级换名记录 |
 | R37-E | `cursor/r37-e-learning-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.7–15.3（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
-| R37-G | `cursor/r37-g-runtime-thirty-seventh-pass-83a1` | 已派出 |
+| R37-G | `cursor/r37-g-runtime-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-G.md`）。无新排除 ID；计算顶复核 0.286–0.298 vs I/O 92.8–95.1；digest 第二十八次逐位；零新站点级换名记录 |
+| R37-J | `cursor/r37-j-persist-thirty-seventh-pass-83a1` | 已派出 |
 | R37-C | `cursor/r37-c-offline-routing-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-C.md`）。无新排除 ID；中位复核 658.6–660.2（主机偏快）；组合天花板 28.1–28.5 < 35；sink=7.309；零新站点级换名记录 |
 | R37-F | `cursor/r37-f-experiments-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-F.md`）。无新排除 ID；锚点复核 r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53；零新站点级换名记录 |
 | R37-H | `cursor/r37-h-eval-thirty-seventh-pass-83a1` | 已派出 |

@@ -1,13 +1,13 @@
 # Round 37 作战计划
 
-**目标**：在 R36 十切片诚实空枚举关闭（无 S36-A-* … S36-J-*；R36-A 三项换名检查拒列；R36-C 一项换名检查拒列；R36-D 四项换名检查拒列；R36-G digest 第二十七次相同且一项换名检查拒列，未铸造 digest 轴号；R36-B / R36-E / R36-F / R36-H / R36-I / R36-J 零新站点级换名记录）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX / MODEX** 具名 ban 的前提下，对十切片做**第三十七遍**独立枚举。R36 已 10/10 关闭。本轮状态：**A–F 已合入；G 运行中；H/I 本波派出；J 待派**。
+**目标**：在 R36 十切片诚实空枚举关闭（无 S36-A-* … S36-J-*；R36-A 三项换名检查拒列；R36-C 一项换名检查拒列；R36-D 四项换名检查拒列；R36-G digest 第二十七次相同且一项换名检查拒列，未铸造 digest 轴号；R36-B / R36-E / R36-F / R36-H / R36-I / R36-J 零新站点级换名记录）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX / MODEX** 具名 ban 的前提下，对十切片做**第三十七遍**独立枚举。R36 已 10/10 关闭。本轮状态：**A–G 已合入；H/I 运行中；J 本波派出**。
 
 **约束**：
 
-- R8–R36 已合入切片全部诚实空枚举。无新 S36-A-* … S36-J-*。R37-A / R37-B / R37-C / R37-D / R37-E / R37-F 亦诚实空枚举关闭（无 S37-A-* … S37-F-*）。
+- R8–R36 已合入切片全部诚实空枚举。无新 S36-A-* … S36-J-*。R37-A / R37-B / R37-C / R37-D / R37-E / R37-F / R37-G 亦诚实空枚举关闭（无 S37-A-* … S37-G-*）。
 - 生产基线未变：最后 `src/` 提交仍为 `183df9b`（S7-C）。
 - 禁止再编号：FITQ、NAMESHAPE、SCALEX、XPROC、YMIX、SCHEDWIN、KFAN、NVG、SEEDX、TERMCLASS、SHAPEK、ORDX、CKMIX、CALLB、OCCX、JB、RUNLIM、VALCLASS、CG、AGEX、COTARG、PRICEX、RTL、DELINV、PROBX、RVL、SIDEC、PWL、ZREP、PAIRX、CSPELL、REPRX、LINKTOP、BINDX、MODEX（空枚举轴外号，**不是** EXCLUSIONS 表行）。
-- R21–R36 具名 / unnamed 面与上列停驻 / 分解 / 审计记录亦 plan-ban，**不**写入 EXCLUSIONS 表行。R32-A 重开条件哨兵审计（F12a–d）与 R32-B 闭合稳定性审计（54/54 裁决仍立；五扇残门 D1–D5 按归属关闭）按方法 / 停驻记录，**不**铸造新面、**不**写入 EXCLUSIONS 表行。R33-A 把 R32-B 三腿方法应用到 A 区 44 行账本（44/44 仍立）亦为方法卫生，**禁止**再铸「再查一遍闭合稳定性」式新面。**禁止**把「再查一遍重开条件 / 闭合稳定性 / 门扉」铸成新面。R36-G digest `06cbcf92c098c8f0` 第二十七次相同 — 若本轮再同，记**第二十八次**相同，**禁止**再铸 digest 轴号。
+- R21–R36 具名 / unnamed 面与上列停驻 / 分解 / 审计记录亦 plan-ban，**不**写入 EXCLUSIONS 表行。R32-A 重开条件哨兵审计（F12a–d）与 R32-B 闭合稳定性审计（54/54 裁决仍立；五扇残门 D1–D5 按归属关闭）按方法 / 停驻记录，**不**铸造新面、**不**写入 EXCLUSIONS 表行。R33-A 把 R32-B 三腿方法应用到 A 区 44 行账本（44/44 仍立）亦为方法卫生，**禁止**再铸「再查一遍闭合稳定性」式新面。**禁止**把「再查一遍重开条件 / 闭合稳定性 / 门扉」铸成新面。R36-G digest `06cbcf92c098c8f0` 第二十七次相同；R37-G 已记**第二十八次**相同 — 若后再同，记**第二十九次**相同，**禁止**再铸 digest 轴号。
 - 落地条件、硬不变量、sim 家族与 [PROGRESS.md](../PROGRESS.md) / [EXCLUSIONS.md](../EXCLUSIONS.md) / [round-36/PLAN.md](../round-36/PLAN.md) 一致。
 
 ## 切片（与 R1–R36 相同）
@@ -20,12 +20,12 @@
 | D | `src/adaptation/`（14） | 已合入（空枚举；未铸造新面；S0c 3.40–3.80 ms） |
 | E | `src/learning/`（10） | 已合入（空枚举；未铸造新面；SLICE-CPU cmp25 14.7–15.3；默认带沿用 14.7–15.2） |
 | F | `src/experiments/`（15） | 已合入（空枚举；未铸造新面；r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53） |
-| G | `src/run/`（除 A 两文件）+ `src/supervisor/`（除 model-router）+ `src/graph/` + `src/domain/`（42） | 运行中 |
-| H | evaluation 8 + requirement 7 + review 4 + rubric 2（21） | 本波派出 |
-| I | cli 13 + pi-adapter 9 + config 2 + telemetry 1（25） | 本波派出 |
-| J | cluster 3 + privacy 3 + preferences 7 + episode 5 + persist 2 + track 4 + context 2 + feedback 3（29） | 待派 |
+| G | `src/run/`（除 A 两文件）+ `src/supervisor/`（除 model-router）+ `src/graph/` + `src/domain/`（42） | 已合入（空枚举；未铸造新面；compute 0.286–0.298 vs I/O 92.8–95.1；digest 第二十八次相同） |
+| H | evaluation 8 + requirement 7 + review 4 + rubric 2（21） | 运行中 |
+| I | cli 13 + pi-adapter 9 + config 2 + telemetry 1（25） | 运行中 |
+| J | cluster 3 + privacy 3 + preferences 7 + episode 5 + persist 2 + track 4 + context 2 + feedback 3（29） | 本波派出 |
 
-默认对照取最近已合入轮：A = R37-A（13.1–16.3 µs/gate ⇒ ~65–82 µs/run）；B = R37-B（ceiling M=2 10.12–10.55 / M=10 18.01–19.80；replay M=2 8.37–9.12）；C = R37-C（中位 658.6–660.2；组合天花板 28.1–28.5 < 35；sink=7.309；主机偏快，freeze 0 行）；D = R37-D（S0c 3.40–3.80 ms）；E = R37-E（SLICE-CPU cmp25 14.7–15.3；默认带沿用 14.7–15.2；freeze 0 行）；F = R37-F（r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53；中段主机，freeze 0 行）；G = R36-G（compute 0.292–0.295 vs I/O 93.6–96.9；digest 第二十七次相同，**禁止**再铸 digest 轴号）；H = R36-H（默认链 9781/9262/9139 ns；宿主暖窗，freeze 0 行）；I = R36-I（custom−builtin children +25.1~+26.6 / +45.9~+47.0、track +23.2~+25.6 / +48.0~+51.4、flowchart +17.8~+22.6 / +42.1~+47.3；主机偏快，freeze 0 行）；J = R36-J（preferences 132.0–267.2 / 412.4–534.9；jsonl 59.6–65.1 / fsync=true 240.5–380.2；J1 2468 / 2823.6×；主机偏快，freeze 0 行）。S12-B-2 条件陆器仍未触发。S8-I-1 两侧 file-level 封死。S13-B-1 仍为 loser ID。S7-F-1 ≠ S6-F-5。S5-H-1 保持。catalog 行序契约决策承载（R28-B W3）。npm POSIX `.bin` symlink 静默 no-op（R28-I）**禁止**当优化修。
+默认对照取最近已合入轮：A = R37-A（13.1–16.3 µs/gate ⇒ ~65–82 µs/run）；B = R37-B（ceiling M=2 10.12–10.55 / M=10 18.01–19.80；replay M=2 8.37–9.12）；C = R37-C（中位 658.6–660.2；组合天花板 28.1–28.5 < 35；sink=7.309；主机偏快，freeze 0 行）；D = R37-D（S0c 3.40–3.80 ms）；E = R37-E（SLICE-CPU cmp25 14.7–15.3；默认带沿用 14.7–15.2；freeze 0 行）；F = R37-F（r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53；中段主机，freeze 0 行）；G = R37-G（compute 0.286–0.298 vs I/O 92.8–95.1；digest 第二十八次相同，**禁止**再铸 digest 轴号）；H = R36-H（默认链 9781/9262/9139 ns；宿主暖窗，freeze 0 行）；I = R36-I（custom−builtin children +25.1~+26.6 / +45.9~+47.0、track +23.2~+25.6 / +48.0~+51.4、flowchart +17.8~+22.6 / +42.1~+47.3；主机偏快，freeze 0 行）；J = R36-J（preferences 132.0–267.2 / 412.4–534.9；jsonl 59.6–65.1 / fsync=true 240.5–380.2；J1 2468 / 2823.6×；主机偏快，freeze 0 行）。S12-B-2 条件陆器仍未触发。S8-I-1 两侧 file-level 封死。S13-B-1 仍为 loser ID。S7-F-1 ≠ S6-F-5。S5-H-1 保持。catalog 行序契约决策承载（R28-B W3）。npm POSIX `.bin` symlink 静默 no-op（R28-I）**禁止**当优化修。
 
 ## 第三十七遍焦点
 
@@ -41,13 +41,13 @@
 
 **F — 已合入（空枚举；未铸造新面）**：[R37-F.md](./R37-F.md)。15 文件；基线 `519101f`。15 文件相对 `519101f` 三验 0 行；`wc -l` 2550。预算重锚 r5f 127.53/120.56/119.95、r6f 121.39/121.60/121.48、r7f 130.06/129.45/128.53（中段主机，历史包络内）。**零**新站点级换名记录。S7-F-1 ≠ S6-F-5。BINDX 10 token / 8 行维持。**禁止**再编号为新 F 轴；**禁止**写入 EXCLUSIONS 表行。
 
-**G — 运行中**：42 文件（`src/run/` 除 child-tracking / gate-apply；`src/supervisor/` 除 model-router；`src/graph/`；`src/domain/`）。基线 `4efee23`。预期冻结空；`wc -l` R36-G 记 8960。默认对照 R36-G（compute 0.292–0.295 vs I/O 93.6–96.9；digest `06cbcf92c098c8f0` 第二十七次相同，若再同记**第二十八次**，**禁止**再铸 digest 轴号）。非再移植：R31-G 18 门闭合审计、R36-G 一项换名检查（`contract.ts` `validateRequirementContract` 溯源中间数组）、R35-G 两项换名检查（孪生 Map 物化 / `familyForFlowNode`）、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举。若落地：gate + 既有 G harness。报告 `docs/reports/sota-opt/round-37/R37-G.md`。禁止开 PR。
+**G — 已合入（空枚举；未铸造新面）**：[R37-G.md](./R37-G.md)。42 文件；基线 `4efee23`。42 文件相对 `4efee23` 三验 0 行；`wc -l` 8960。预算重锚 compute 0.286–0.298 vs I/O 92.8–95.1。digest `06cbcf92c098c8f0` **第二十八次**相同，**禁止**再铸 digest 轴号。**零**新站点级换名记录。**禁止**再编号为新 G 轴；**禁止**写入 EXCLUSIONS 表行。
 
-**H — 本波派出**：21 文件（evaluation 8：evaluator / precedence / delivery-adapter / check-adapter / adapters / diff-adapter / types / ownership；requirement 7：coverage / critic / extractor / heuristic / precedence / provenance / normalizer；review 4：pairwise / self-review / reconcile / critic；rubric 2：registry / types）。基线 `fd437a9`。预期冻结空；`wc -l` R36-H 记 1750。S5-H-1 保持。默认对照 R36-H（默认链 9781/9262/9139 ns）。非再移植：provenance-resolution pathway、R31-H 四扇边界参数残门、R36-H 零新站点级记录、R35-H 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举。若落地：gate + 既有 H harness。报告 `docs/reports/sota-opt/round-37/R37-H.md`。禁止开 PR。
+**H — 运行中**：21 文件（evaluation 8：evaluator / precedence / delivery-adapter / check-adapter / adapters / diff-adapter / types / ownership；requirement 7：coverage / critic / extractor / heuristic / precedence / provenance / normalizer；review 4：pairwise / self-review / reconcile / critic；rubric 2：registry / types）。基线 `fd437a9`。预期冻结空；`wc -l` R36-H 记 1750。S5-H-1 保持。默认对照 R36-H（默认链 9781/9262/9139 ns）。非再移植：provenance-resolution pathway、R31-H 四扇边界参数残门、R36-H 零新站点级记录、R35-H 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举、R37-G 空枚举。若落地：gate + 既有 H harness。报告 `docs/reports/sota-opt/round-37/R37-H.md`。禁止开 PR。
 
-**I — 本波派出**：25 文件（cli 13：main / model-catalog / doctor-overlay / doctor / adapt / models / flowchart-io / commits / errors / episode / pause / auth / inject；pi-adapter 9：listed-model-lazy / listed-model-common / listed-model / auth-session / cluster-tools / index / pi-executor / file-credential-store / runtime；config 2：providers-config / model-ref；telemetry 1：model-invocation）。基线 `8dee7fb`。预期冻结空；`wc -l` R36-I 记 4708。S8-I-1 两侧 file-level 封死。**禁止**把 npm POSIX `.bin` symlink 静默 no-op 当优化修。默认对照 R36-I（custom−builtin children +25.1~+26.6 / +45.9~+47.0、track +23.2~+25.6 / +48.0~+51.4、flowchart +17.8~+22.6 / +42.1~+47.3）。非再移植：process-lifetime temporal-segment topology、R31-I CLI 进程边界门扉闭合审计、R36-I 零新站点级记录、R35-I 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举。若落地：gate + r4i/r5i/r7i（68/119/80）。报告 `docs/reports/sota-opt/round-37/R37-I.md`。禁止开 PR。
+**I — 运行中**：25 文件（cli 13：main / model-catalog / doctor-overlay / doctor / adapt / models / flowchart-io / commits / errors / episode / pause / auth / inject；pi-adapter 9：listed-model-lazy / listed-model-common / listed-model / auth-session / cluster-tools / index / pi-executor / file-credential-store / runtime；config 2：providers-config / model-ref；telemetry 1：model-invocation）。基线 `8dee7fb`。预期冻结空；`wc -l` R36-I 记 4708。S8-I-1 两侧 file-level 封死。**禁止**把 npm POSIX `.bin` symlink 静默 no-op 当优化修。默认对照 R36-I（custom−builtin children +25.1~+26.6 / +45.9~+47.0、track +23.2~+25.6 / +48.0~+51.4、flowchart +17.8~+22.6 / +42.1~+47.3）。非再移植：process-lifetime temporal-segment topology、R31-I CLI 进程边界门扉闭合审计、R36-I 零新站点级记录、R35-I 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举、R37-G 空枚举。若落地：gate + r4i/r5i/r7i（68/119/80）。报告 `docs/reports/sota-opt/round-37/R37-I.md`。禁止开 PR。
 
-**J — 待派**：29 文件；基线 `fb41417`。J1 锁定（2468 项逐位，2823.6× 宿主偏移）。默认对照 R36-J（preferences 132.0–267.2 / 412.4–534.9；jsonl 59.6–65.1 / fsync=true 240.5–380.2）。非再移植：**LINKTOP**、**CSPELL**、**ZREP**、**SIDEC**、**BINDX**、**MODEX**、R32-J 六个从未受控残余坐标、R34-J 四项换名检查、R36-J 零新站点级记录、R35-J 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举。若落地：gate + J1 仿真（2468）+ 既有 J harness。报告 `docs/reports/sota-opt/round-37/R37-J.md`。禁止开 PR。
+**J — 本波派出**：29 文件；基线 `fb41417`。J1 锁定（2468 项逐位，2823.6× 宿主偏移）。默认对照 R36-J（preferences 132.0–267.2 / 412.4–534.9；jsonl 59.6–65.1 / fsync=true 240.5–380.2）。非再移植：**LINKTOP**、**CSPELL**、**ZREP**、**SIDEC**、**BINDX**、**MODEX**、R32-J 六个从未受控残余坐标、R34-J 四项换名检查、R36-J 零新站点级记录、R35-J 零新站点级记录、R33-A … R36-J 空枚举、R37-A 空枚举、R37-B 空枚举、R37-C 空枚举、R37-D 空枚举、R37-E 空枚举、R37-F 空枚举、R37-G 空枚举。若落地：gate + J1 仿真（2468）+ 既有 J harness。报告 `docs/reports/sota-opt/round-37/R37-J.md`。禁止开 PR。
 
 A–J 均要求返回首行 `MODEL_SLUG=claude-fable-5-thinking-xhigh`，末两行 `MORE_OPTIMA=yes|no` 与 `BRANCH=...`。模型必须是 **claude-fable-5-thinking-xhigh**，禁止静默降级。
 
@@ -55,5 +55,5 @@ A–J 均要求返回首行 `MODEL_SLUG=claude-fable-5-thinking-xhigh`，末两�
 
 - 默认预期：诚实空枚举。空枚举轴外号只进本 PLAN「禁止再编号」+ 首段 unnamed plan-ban，**不**进 EXCLUSIONS 表。
 - 若有候选：理论 + 确定性 sim + 真尺度非噪声（offline-logit ±35 ms；µs/ns 与 once-per-run CLI 噪声拒收）。输家脚本只进报告附录，不提交仓库。
-- 平台硬顶 3 并发云 VM；本波保持 R37-G + R37-H + R37-I。
+- 平台硬顶 3 并发云 VM；本波保持 R37-H + R37-I + R37-J。
 - Round 36 已 10/10 收口。Round 37 在 J 返回并合入后 10/10 收口，再开 Round 38。
