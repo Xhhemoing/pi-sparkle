@@ -21,9 +21,11 @@ details.
 ## Known limitations
 
 - `auth login --key <secret>` places the secret in process argv and shell
-  history. Prefer `--from-env`, `--key-file`, or the interactive prompt.
-- POSIX `chmod 0600` / `0700` is best-effort on Windows (NTFS ACLs are not
-  rewritten).
+  history. Prefer `--from-env`, `--key-file`, `--key-stdin`, or the
+  interactive prompt.
+- On POSIX, a group- or world-readable `auth.json` is refused until
+  `chmod 600`. POSIX `chmod 0600` / `0700` is best-effort on Windows
+  (NTFS ACLs are not rewritten).
 - Retention is operator-triggered (`retain --apply`); there is no background
   sweeper.
 - Regex redaction cannot cover every encoding of a secret. Treat feedback

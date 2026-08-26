@@ -126,6 +126,18 @@ const redactionSamples = [
     name: "url-userinfo-token",
     body: "hit http://n0tAVendorPrefix99@127.0.0.1:9000/v1",
     core: "n0tAVendorPrefix99"
+  },
+  {
+    id: "secret-bodies",
+    name: "aws-sts-key",
+    body: "id ASIAIOSFODNN7EXAMPLE used",
+    core: "ASIAIOSFODNN7EXAMPLE"
+  },
+  {
+    id: "secret-bodies",
+    name: "stripe-live-key",
+    body: "charge sk_live_51NotARealStripeKey99 now",
+    core: "sk_live_51NotARealStripeKey99"
   }
 ];
 

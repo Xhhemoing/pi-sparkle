@@ -198,6 +198,18 @@ const GATE_CORES: readonly {
     body: "hit http://n0tAVendorPrefix99@127.0.0.1:9000/v1",
     core: "n0tAVendorPrefix99",
     expected: `hit http://${REDACTION_PLACEHOLDER.secret}@${REDACTION_PLACEHOLDER.ipv4}:9000/v1`
+  },
+  {
+    name: "aws-sts-key",
+    body: "id ASIAIOSFODNN7EXAMPLE used",
+    core: "ASIAIOSFODNN7EXAMPLE",
+    expected: `id ${REDACTION_PLACEHOLDER.secret} used`
+  },
+  {
+    name: "stripe-live-key",
+    body: "charge sk_live_51NotARealStripeKey99 now",
+    core: "sk_live_51NotARealStripeKey99",
+    expected: `charge ${REDACTION_PLACEHOLDER.secret} now`
   }
 ];
 
@@ -357,6 +369,8 @@ test("vendor-prefixed keys are removed by shape", () => {
     "ghp_abcdefghijklmnopqrstuvwxyz0123",
     "github_pat_11ABCDEFG0abcdefghijklmnop",
     "AKIAIOSFODNN7EXAMPLE",
+    "ASIAIOSFODNN7EXAMPLE",
+    "sk_live_51NotARealStripeKey99",
     "xoxb-123456789012-abcdefghijkl",
     "AIzaSyA1234567890abcdefghijklmnopqrstu"
   ]) {

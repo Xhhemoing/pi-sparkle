@@ -17,20 +17,26 @@ import {
 export interface AuthIo {
   stdout(text: string): void;
   stderr(text: string): void;
+  /**
+   * Optional stdin reader for `--key-stdin`. Tests inject a string; the CLI
+   * default reads process.stdin to EOF and refuses a TTY (docker/gh pattern).
+   */
+  readStdin?(): Promise<string>;
 }
 
 const AUTH_USAGE = `pi-sparkle auth — per-provider credentials (Pi CredentialStore)
 
 Usage:
   pi-sparkle auth status [--all] [--state-root <dir>]
-  pi-sparkle auth login <provider> [--key-file <path> | --from-env | --oauth | --key <key>] [--state-root <dir>]
+  pi-sparkle auth login <provider> [--from-env | --key-file <path> | --key-stdin | --oauth | --key <key>] [--state-root <dir>]
   pi-sparkle auth logout <provider> [--state-root <dir>]
 
-Stored credentials live in <state-root>/auth.json and win over environment
-variables. Status never prints secrets. Prefer --from-env, --key-file, or the
-interactive prompt; --key puts the credential in process argv and shell
-history. OPENAI_API_KEY / ANTHROPIC_API_KEY / … still work without login.
-PI_API_KEY is only a compatibility override for the default provider.
+Stored credentials live in <state-root>/runtime/auth.json and win over
+environment variables. Status never prints secrets. Prefer --from-env,
+--key-file, --key-stdin, or the interactive prompt; --key puts the credential
+in process argv and shell history. OPENAI_API_KEY / ANTHROPIC_API_KEY / …
+still work without login. PI_API_KEY is only a compatibility override for the
+default provider.
 `;
 
 export async function authCommand(args: string[], io: AuthIo): Promise<number> {
@@ -99,6 +105,7 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     options: {
       key: { type: "string" },
       "key-file": { type: "string" },
+      "key-stdin": { type: "boolean", default: false },
       "from-env": { type: "boolean", default: false },
       oauth: { type: "boolean", default: false },
       "state-root": { type: "string" }
@@ -119,12 +126,13 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   const selected = [
     values.key !== undefined,
     values["key-file"] !== undefined,
+    values["key-stdin"] === true,
     values["from-env"] === true,
     values.oauth === true
   ].filter(Boolean).length;
   if (selected > 1) {
     throw new DomainValidationError(
-      "auth login accepts only one of --key-file, --from-env, --oauth, or --key"
+      "auth login accepts only one of --key-file, --key-stdin, --from-env, --oauth, or --key"
     );
   }
   const stateRoot = stateRootOf(values);
@@ -150,9 +158,18 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
     return 0;
   }
+  if (values["key-stdin"] === true) {
+    const key = (await readKeyFromStdin(io)).trim();
+    if (key === "") {
+      throw new DomainValidationError("auth login --key-stdin must be non-empty");
+    }
+    const path = await storeApiKeyCredential(stateRoot, providerId, key);
+    io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
+    return 0;
+  }
   if (values.key !== undefined) {
     io.stderr(
-      "warning: auth login --key puts the credential in process argv and shell history; prefer --from-env, --key-file, or the interactive prompt.\n"
+      "warning: auth login --key puts the credential in process argv and shell history; prefer --from-env, --key-file, --key-stdin, or the interactive prompt.\n"
     );
     const path = await storeApiKeyCredential(stateRoot, providerId, values.key.trim());
     io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
@@ -181,4 +198,18 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+async function readKeyFromStdin(io: AuthIo): Promise<string> {
+  if (io.readStdin !== undefined) return io.readStdin();
+  if (process.stdin.isTTY === true) {
+    throw new DomainValidationError(
+      "auth login --key-stdin requires piped input (a TTY would echo or block); use --key-file or the interactive prompt"
+    );
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }

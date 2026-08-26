@@ -52,7 +52,7 @@ export async function withExclusiveFileLock<T>(
   let contentionRetries = 0;
   while (lock === undefined) {
     try {
-      lock = await open(lockPath, "wx");
+      lock = await open(lockPath, "wx", 0o600);
     } catch (error: unknown) {
       const code = errorCode(error);
       if (code === "ENOENT") {
@@ -76,6 +76,7 @@ export async function withExclusiveFileLock<T>(
     }
 
     try {
+      if (process.platform !== "win32") await lock.chmod(0o600);
       await lock.writeFile(
         JSON.stringify({ ownerToken, pid: process.pid, acquiredAt: new Date().toISOString() }),
         "utf8"

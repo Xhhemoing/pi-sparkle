@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type {
@@ -66,6 +66,7 @@ export class FileCredentialStore implements CredentialStore {
   }
 
   private async load(): Promise<Record<string, Credential>> {
+    await refuseGroupOrWorldReadable(this.filePath);
     const raw = await readFile(this.filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return "";
       throw error;
@@ -105,6 +106,29 @@ export class FileCredentialStore implements CredentialStore {
     await writeFileAtomic(this.filePath, serialized, { mode: CREDENTIAL_FILE_MODE });
     await restrictOwnerOnly(this.filePath, CREDENTIAL_FILE_MODE);
     await restrictOwnerOnly(`${this.filePath}.lock`, CREDENTIAL_FILE_MODE, { missingOk: true });
+  }
+}
+
+/**
+ * gh-style fail-closed: a group/world-readable credential file is treated as
+ * already leaked. POSIX only — NTFS mode bits are not a trustworthy ACL.
+ */
+async function refuseGroupOrWorldReadable(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(path);
+  } catch (error: unknown) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") return;
+    throw error;
+  }
+  if ((info.mode & 0o077) !== 0) {
+    const mode = (info.mode & 0o777).toString(8).padStart(3, "0");
+    throw new DomainValidationError(
+      `refusing to read ${path}: mode ${mode} is readable by group or others; chmod 600 the file before use`
+    );
   }
 }
 

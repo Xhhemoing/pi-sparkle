@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -196,4 +196,22 @@ test("metadata write failure closes and removes the partially acquired lock", as
     await assertMissing(lockPath);
     await withExclusiveFileLock(lockPath, async () => undefined);
   });
+});
+
+test("withExclusiveFileLock creates the lock owner-only even under a permissive umask", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("NTFS mode bits are not a trustworthy ACL");
+    return;
+  }
+  const previous = process.umask(0o000);
+  try {
+    await withTempDir(async (dir) => {
+      const lockPath = join(dir, "write.lock");
+      await withExclusiveFileLock(lockPath, async () => {
+        assert.equal((await stat(lockPath)).mode & 0o777, 0o600);
+      });
+    });
+  } finally {
+    process.umask(previous);
+  }
 });

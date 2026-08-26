@@ -75,6 +75,8 @@ const SECRET_RULES: readonly TextRule[] = [
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, replacement: REDACTION_PLACEHOLDER.secret },
   { pattern: /\bgh[pousr]_[A-Za-z0-9]{16,}/g, replacement: REDACTION_PLACEHOLDER.secret },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/g, replacement: REDACTION_PLACEHOLDER.secret },
+  { pattern: /\bASIA[0-9A-Z]{16}\b/g, replacement: REDACTION_PLACEHOLDER.secret },
+  { pattern: /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}/g, replacement: REDACTION_PLACEHOLDER.secret },
   { pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, replacement: REDACTION_PLACEHOLDER.secret },
   { pattern: /\bAIza[0-9A-Za-z_-]{20,}/g, replacement: REDACTION_PLACEHOLDER.secret },
   {

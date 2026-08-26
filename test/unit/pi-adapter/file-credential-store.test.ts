@@ -107,3 +107,23 @@ test("credential publishing asks the shared atomic writer for the mode, and refu
   assert.doesNotMatch(source, /\b(?:open|rename|unlink)\(/);
   assert.doesNotMatch(source, /tempPath|`[^`]*\.tmp`/);
 });
+
+test("a group-or-world-readable auth.json is refused on POSIX", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("NTFS mode bits are not a trustworthy ACL");
+    return;
+  }
+  await withDir(async (dir) => {
+    const runtime = join(dir, "runtime");
+    await mkdir(runtime, { recursive: true, mode: 0o700 });
+    const path = join(runtime, "auth.json");
+    await writeFile(path, '{\n  "openai": {\n    "type": "api_key",\n    "key": "sk-leaked"\n  }\n}\n', {
+      mode: 0o644
+    });
+    await chmod(path, 0o644);
+    const store = new FileCredentialStore(path);
+    await assert.rejects(() => store.read("openai"), /readable by group or others/);
+    await chmod(path, 0o600);
+    assert.deepEqual(await store.read("openai"), { type: "api_key", key: "sk-leaked" });
+  });
+});

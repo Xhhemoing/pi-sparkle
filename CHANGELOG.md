@@ -17,8 +17,10 @@ published to npm, and supports clone + pnpm installation only.
   re-verification.
 - Dry-run-first `retain` command with a 90-day default for runtime invocation
   and episode records.
-- `auth login --key-file <path>` as the argv-safe alternative to `--key`.
+- `auth login --key-file <path>` and `--key-stdin` as argv-safe alternatives
+  to `--key` (docker/`gh` stdin pattern).
 - URL userinfo redaction (`https://user:password@host` / `http://token@host`).
+- AWS STS (`ASIA…`) and Stripe live (`sk_live_` / `rk_live_`) token shapes.
 - Prerelease quality, security, and Pi-boundary probes.
 
 ### Known limitations
