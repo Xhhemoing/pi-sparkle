@@ -44,8 +44,8 @@
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
 | 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
-| 30 | 第 1–10 波进行中 | 8 / 10（A–H 已合入；I/J 运行中） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
-| 31 | 第 1 波进行中 | 0 / 10（A 本波派出） | claude-fable-5-thinking-xhigh | [round-31/PLAN.md](./round-31/PLAN.md) |
+| 30 | 第 1–10 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-30/PLAN.md](./round-30/PLAN.md) |
+| 31 | 第 1–2 波进行中 | 0 / 10（A 运行中；B 本波派出） | claude-fable-5-thinking-xhigh | [round-31/PLAN.md](./round-31/PLAN.md) |
 
 ### Round 1 波次
 
@@ -332,14 +332,15 @@
 | 6 | R30-F 实验门控 | F 已合入 |
 | 7 | R30-G 运行时/图 | G 已合入 |
 | 8 | R30-H 评价/需求 | H 已合入 |
-| 9 | R30-I CLI/适配器 | I 运行中 |
+| 9 | R30-I CLI/适配器 | I 已合入 |
 | 10 | R30-J cluster/privacy | J 运行中 |
 
 ### Round 31 波次
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R31-A 跟踪门控 | A 本波派出 |
+| 1 | R31-A 跟踪门控 | A 运行中 |
+| 2 | R31-B live 路由 | B 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -645,7 +646,8 @@
 | R30-G | `cursor/r30-g-runtime-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-G.md`）。无新排除 ID；计算顶复核 0.292–0.296 vs I/O 93.9–97.1 ms；digest 第二十一次逐位；M1 parent-run child-scheduling lattice 归档 |
 | R30-H | `cursor/r30-h-eval-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-H.md`）。无新排除 ID；热层复核 9178–9647 ns；provenance-resolution pathway face 归档 |
 | R31-A | `cursor/r31-a-tracking-thirty-first-pass-83a1` | 已派出 |
-| R30-I | `cursor/r30-i-cli-thirtieth-pass-83a1` | 已派出 |
+| R30-I | `cursor/r30-i-cli-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-I.md`）。无新排除 ID；custom−builtin 复核 children +38.2~+49.4 / +22.7~+26.4、track +46.0~+52.9 / +22.4~+26.1、flowchart-flat64 +42.5~+51.0 / +15.2~+20.3 ms；process-lifetime temporal-segment topology face 归档 |
+| R31-B | `cursor/r31-b-live-routing-thirty-first-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已派出 |
 
 ## 合并策略
