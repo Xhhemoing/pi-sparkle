@@ -175,6 +175,6 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 |---|---|---|---|---|
 | Fable-r11-next | Fable | claude-fable-5-thinking-xhigh | cloud | `bc-0366a1ee-f5a3-5eb3-aa04-3c9db9a002d2` |
 | GPT-r11-challenge | GPT | gpt-5.6-sol-xhigh-fast | cloud | `bc-02eb7756-e723-5538-a874-746192f5e7df` |
-| D40 | Opus-d40-commits-ledger | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
-| D42 | Opus-d42-episode-outcome | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
-| D41 | Opus-d41-inject-value | claude-opus-5-thinking-high-fast | cloud | (dispatching) |
+| D40 | Opus-d40-commits-ledger | claude-opus-5-thinking-high-fast | cloud | `bc-2be70548-1169-5a2c-9f11-6b01ed2acf33` |
+| D42 | Opus-d42-episode-outcome | claude-opus-5-thinking-high-fast | cloud | `bc-9645cabd-1b53-5cd9-8f98-87a931eb8606` |
+| D41 | Opus-d41-inject-value | claude-opus-5-thinking-high-fast | cloud | `bc-3b040382-c659-5cad-be0a-0e5f2c2acaeb` |
