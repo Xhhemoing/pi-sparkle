@@ -48,7 +48,7 @@
 | 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
-| 34 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-34/PLAN.md](./round-34/PLAN.md) |
+| 34 | 第 1–4 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-34/PLAN.md](./round-34/PLAN.md) |
 
 ### Round 1 波次
 
@@ -387,7 +387,10 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R34-A 跟踪门控、R34-B live 路由、R34-C 离线路由 | A/B/C 本波派出 |
+| 1 | R34-A 跟踪门控 | A 已合入 |
+| 2 | R34-B live 路由 | B 运行中 |
+| 3 | R34-C 离线路由 | C 运行中 |
+| 4 | R34-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -717,7 +720,8 @@
 | R33-H | `cursor/r33-h-eval-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-H.md`）。无新排除 ID；默认链复核 8991/8820/8843 ns；零新站点级换名记录 |
 | R33-I | `cursor/r33-i-cli-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-I.md`）。无新排除 ID；custom−builtin 复核 children +42.0~+45.9 / +22.8~+25.8、track +48.2~+52.8 / +23.6~+24.3、flowchart-flat64 +39.4~+46.8 / +16.8~+19.9；两项换名检查拒列未铸 |
 | R33-J | `cursor/r33-j-persist-thirty-third-pass-83a1` | 已合入专属分支（仅 `R33-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.8–237.4 / 408.0–541.2、jsonl 59.2–66.8 / 204.4–350.2 µs；五项换名检查拒列未铸 |
-| R34-A | `cursor/r34-a-tracking-thirty-fourth-pass-83a1` | 已派出 |
+| R34-A | `cursor/r34-a-tracking-thirty-fourth-pass-83a1` | 已合入专属分支（仅 `R34-A.md`）。无新排除 ID；预算复核 12.8–15.2 µs/gate ⇒ ~64–76 µs/run；三项换名检查拒列未铸 |
+| R34-D | `cursor/r34-d-adaptation-thirty-fourth-pass-83a1` | 已派出 |
 | R34-B | `cursor/r34-b-live-routing-thirty-fourth-pass-83a1` | 已派出 |
 | R34-C | `cursor/r34-c-offline-routing-thirty-fourth-pass-83a1` | 已派出 |
 | R30-J | `cursor/r30-j-persist-thirtieth-pass-83a1` | 已合入专属分支（仅 `R30-J.md`）。无新排除 ID；I/O 地板复核 preferences 134.2–238.7 / 415.9–525.4、jsonl 稳态 61.6–66.9 / 220.1–305.4 µs；LINKTOP 不铸 ID |
