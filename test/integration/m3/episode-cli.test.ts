@@ -856,6 +856,327 @@ test("an explicitly blank --state-root is refused as an argv fault on both episo
   }
 });
 
+/**
+ * `--outcome ""` is what `--outcome "$OC"` leaves behind when the shell
+ * variable is unset. Accepted, it is not a wording defect but a write: the
+ * close appends `"outcomeId":""` to an append-only log this CLI refuses to
+ * rewrite, so the blank reads back forever as an outcome the operator chose.
+ * The same blank-value rule D31 drew for `pause --reason` and `inject --key`,
+ * applied to the one free-text close flag it never reached.
+ */
+test("a blank --outcome is refused before the lock on every terminal status and writes nothing", async () => {
+  for (const [index, status] of ["FAILED", "COMPLETED"].entries()) {
+    for (const [rawIndex, raw] of ["", "  "].entries()) {
+      const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-blank-outcome-"));
+      const episode = openEpisodeFixture(`blank${index}${rawIndex}01`);
+      await seedEpisode(stateRoot, episode);
+      const snapshotBefore = await readFile(snapshotLogPath(stateRoot, episode.id), "utf8");
+      const eventsBefore = await readFile(eventLogPath(stateRoot, episode.id), "utf8");
+
+      const captured = capture();
+      const argv = [
+        "episode", "close", "--episode", episode.id, "--status", status,
+        "--outcome", raw, "--state-root", stateRoot
+      ];
+      const code = await main(argv, captured.io);
+
+      assert.equal(code, 1, argv.join(" "));
+      assert.deepEqual(captured.out, [], argv.join(" "));
+      assert.deepEqual(
+        parseCliErrorJson(captured.err.join("")),
+        {
+          ok: false,
+          command: "episode",
+          stage: "parse-args",
+          message: `invalid --outcome "${raw}": outcome id must be a non-empty string`,
+          next: "pass --outcome <id> or omit it"
+        },
+        argv.join(" ")
+      );
+      // The refusal precedes the lock and both stores: neither log gained a
+      // byte, so no blank outcome and no WAITING_FOR_USER were recorded.
+      assert.equal(await readFile(snapshotLogPath(stateRoot, episode.id), "utf8"), snapshotBefore);
+      assert.equal(await readFile(eventLogPath(stateRoot, episode.id), "utf8"), eventsBefore);
+    }
+  }
+});
+
+test("a nonblank --outcome is still accepted and a bad --status is still reported first", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-outcome-order-"));
+  const accepted = openEpisodeFixture("outcomeok1");
+  await seedEpisode(stateRoot, accepted);
+
+  // The value domain is untouched: any nonblank string closes as it did.
+  const closed = capture();
+  assert.equal(
+    await main(
+      [
+        "episode", "close", "--episode", accepted.id, "--status", "FAILED",
+        "--outcome", " oc_padded", "--state-root", stateRoot
+      ],
+      closed.io
+    ),
+    0,
+    closed.err.join("")
+  );
+  assert.equal(closed.out.join(""), `Episode ${accepted.id}: FAILED\n`);
+  const lines = await humanEventLines(stateRoot, accepted.id);
+  assertTimestampedLine(lines[1] ?? "", "EPISODE_CLOSED", "FAILED outcome= oc_padded");
+
+  // The blank guard sits after the status refusal, so a mixed argv still hears
+  // about the status it can name a legal value for.
+  const mixed = capture();
+  assert.equal(
+    await main(
+      [
+        "episode", "close", "--episode", accepted.id, "--status", "banana",
+        "--outcome", "", "--state-root", stateRoot
+      ],
+      mixed.io
+    ),
+    1
+  );
+  assert.deepEqual(parseCliErrorJson(mixed.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: "episode close requires --status COMPLETED, FAILED, or ABANDONED",
+    next: "pass --status COMPLETED, FAILED, or ABANDONED"
+  });
+});
+
+/** The whole refusal a terminal episode owes a second close, on either path. */
+const ALREADY_CLOSED_REPORT: Record<string, unknown> = {
+  ok: false,
+  command: "episode",
+  stage: "close",
+  message: "already-closed",
+  next: "inspect --episode to see the terminal status"
+};
+
+async function closeFailed(stateRoot: string, episodeId: EpisodeId): Promise<void> {
+  const captured = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", episodeId, "--status", "FAILED", "--state-root", stateRoot],
+      captured.io
+    ),
+    0,
+    captured.err.join("")
+  );
+}
+
+/**
+ * One fault, one remedy, and one that works.
+ *
+ * `decideClosure` returns `already-closed` for a terminal snapshot, but the
+ * COMPLETED branch wrapped every reason in the `acceptance-incomplete` next —
+ * and both actions it names refuse on a closed episode: no evidence reopens
+ * one, and closing it FAILED/ABANDONED lands on the guard that already owns
+ * the working envelope. That envelope is now the answer on both paths.
+ */
+test("a COMPLETED re-close of a terminal episode gets the remedy the FAILED path already gave", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-reclose-"));
+  const episode = openEpisodeFixture("reclose001");
+  await seedEpisode(stateRoot, episode);
+  await closeFailed(stateRoot, episode.id);
+  const snapshotBefore = await readFile(snapshotLogPath(stateRoot, episode.id), "utf8");
+  const eventsBefore = await readFile(eventLogPath(stateRoot, episode.id), "utf8");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "COMPLETED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const stderr = captured.err.join("");
+  assert.deepEqual(parseCliErrorJson(stderr), ALREADY_CLOSED_REPORT);
+  // The dead remedy is gone, and the bare reason line that printed the same
+  // word a second time is gone with it: the envelope is the whole report.
+  assert.doesNotMatch(stderr, /satisfy required evidence/);
+  assert.ok(
+    !stderr.split("\n").includes("already-closed"),
+    `the bare reason line is still printed: ${JSON.stringify(stderr)}`
+  );
+  assert.doesNotMatch(stderr, /WAITING_FOR_USER/);
+
+  // Byte-identical to the report the FAILED path issues for the same fault:
+  // one terminal episode, one remedy, however the operator spelled the close.
+  const failed = capture();
+  assert.equal(
+    await main(
+      ["episode", "close", "--episode", episode.id, "--status", "FAILED", "--state-root", stateRoot],
+      failed.io
+    ),
+    1
+  );
+  assert.equal(stderr, failed.err.join(""));
+  // A refusal on a terminal episode records nothing against either log.
+  assert.equal(await readFile(snapshotLogPath(stateRoot, episode.id), "utf8"), snapshotBefore);
+  assert.equal(await readFile(eventLogPath(stateRoot, episode.id), "utf8"), eventsBefore);
+});
+
+test("a FAILED re-close of a terminal episode keeps the envelope it already had", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-reclose-failed-"));
+  const episode = openEpisodeFixture("reclose002");
+  await seedEpisode(stateRoot, episode);
+  await closeFailed(stateRoot, episode.id);
+  const snapshotBefore = await readFile(snapshotLogPath(stateRoot, episode.id), "utf8");
+  const eventsBefore = await readFile(eventLogPath(stateRoot, episode.id), "utf8");
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "FAILED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  assert.deepEqual(parseCliErrorJson(captured.err.join("")), ALREADY_CLOSED_REPORT);
+  assert.equal(await readFile(snapshotLogPath(stateRoot, episode.id), "utf8"), snapshotBefore);
+  assert.equal(await readFile(eventLogPath(stateRoot, episode.id), "utf8"), eventsBefore);
+});
+
+/**
+ * The reason the shared next was written for keeps every byte it had. This is
+ * a real write disclosed as one, and generalising the terminal envelope over
+ * it would drop both the disclosure and the evidence the episode waits for.
+ */
+test("an acceptance-incomplete COMPLETED close keeps its disclosure, its evidence line and its next", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-incomplete-bytes-"));
+  const episode: ProjectEpisode = {
+    ...openEpisodeFixture("incompl001"),
+    acceptance: [{ id: "tests", description: "tests pass", observableCheck: "pnpm test" }]
+  };
+  await seedEpisode(stateRoot, episode);
+
+  const captured = capture();
+  const code = await main(
+    ["episode", "close", "--episode", episode.id, "--status", "COMPLETED", "--state-root", stateRoot],
+    captured.io
+  );
+
+  assert.equal(code, 1);
+  assert.deepEqual(captured.out, []);
+  const stderr = captured.err.join("");
+  assert.ok(
+    stderr.startsWith(
+      `note: recorded WAITING_FOR_USER for ${episode.id} — this refused close changed the episode ` +
+        "status; it now names its missing evidence\nacceptance-incomplete: tests\n"
+    ),
+    stderr
+  );
+  assert.deepEqual(parseCliErrorJson(stderr), {
+    ok: false,
+    command: "episode",
+    stage: "close",
+    message: "acceptance-incomplete",
+    next: "satisfy required evidence or close as FAILED/ABANDONED"
+  });
+  // The write the disclosure claims actually happened.
+  const snapshots = await new EpisodeStore(stateRoot, episode.id).readAll();
+  assert.equal(snapshots.episodes.at(-1)?.status, "WAITING_FOR_USER");
+  const events = await new EpisodeEventStore(stateRoot, episode.id).readAll();
+  assert.equal(events.events.at(-1)?.type, "EPISODE_WAITING");
+});
+
+/**
+ * `--status` and `--outcome` are close's flags. Parsed and ignored on `events`,
+ * an operator who reads `--status FAILED` as a filter is handed the whole
+ * unfiltered log as the answer to a question they did not ask — the same fault
+ * the close `--json` refusal already covers in the opposite direction.
+ */
+test("episode events refuses the close-only flags it used to ignore, in both output modes", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-episode-events-flags-"));
+  const episode = openEpisodeFixture("evflags001");
+  await seedEpisode(stateRoot, episode);
+
+  for (const [flag, value] of [["--status", "FAILED"], ["--outcome", "oc_probe"]] as const) {
+    for (const json of [[], ["--json"]]) {
+      const captured = capture();
+      const argv = [
+        "episode", "events", "--episode", episode.id, "--state-root", stateRoot, flag, value, ...json
+      ];
+      const code = await main(argv, captured.io);
+
+      assert.equal(code, 1, argv.join(" "));
+      assert.deepEqual(captured.out, [], argv.join(" "));
+      assert.deepEqual(
+        parseCliErrorJson(captured.err.join("")),
+        {
+          ok: false,
+          command: "episode",
+          stage: "parse-args",
+          message: `episode events does not accept ${flag}; ${flag} applies to episode close`,
+          next: `drop ${flag}, or use episode close`
+        },
+        argv.join(" ")
+      );
+    }
+  }
+
+  // The success path is untouched: the same command without the close flags
+  // still prints verbatim JSONL of the rows on disk.
+  const asJson = capture();
+  assert.equal(
+    await main(
+      ["episode", "events", "--episode", episode.id, "--state-root", stateRoot, "--json"],
+      asJson.io
+    ),
+    0,
+    asJson.err.join("")
+  );
+  assert.equal(asJson.out.join(""), await rawEventLogText(stateRoot, episode.id));
+});
+
+test("the events flag refusal does not displace the missing --episode or the blank --state-root", async () => {
+  // D39 put missing `--episode` ahead of the blank root, and both ahead of any
+  // flag this verb judges for itself: an operator who named no episode has not
+  // yet made a `--status` mistake, and the literal argv below must keep saying
+  // so rather than reporting the root or the flag.
+  const missing = capture();
+  assert.equal(await main(["episode", "events", "--status", "FAILED", "--state-root", ""], missing.io), 1);
+  assert.deepEqual(missing.out, []);
+  assert.deepEqual(parseCliErrorJson(missing.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: "episode command requires --episode <epId>",
+    next: "pass --episode <epId>"
+  });
+
+  // With the episode named, the blank root is still the earlier fault.
+  const blankRoot = capture();
+  assert.equal(
+    await main(
+      ["episode", "events", "--episode", "ep_evflags", "--status", "FAILED", "--state-root", ""],
+      blankRoot.io
+    ),
+    1
+  );
+  assert.deepEqual(blankRoot.out, []);
+  assert.deepEqual(parseCliErrorJson(blankRoot.err.join("")), blankStateRootReport(""));
+
+  // And the verb still settles before any of them.
+  const unknown = capture();
+  assert.equal(
+    await main(
+      ["episode", "nonsense", "--episode", "banana", "--status", "FAILED", "--state-root", ""],
+      unknown.io
+    ),
+    1
+  );
+  assert.deepEqual(parseCliErrorJson(unknown.err.join("")), {
+    ok: false,
+    command: "episode",
+    stage: "parse-args",
+    message: "Unknown episode command: nonsense",
+    next: "use episode events or episode close"
+  });
+});
+
 test("a blank --state-root does not displace the help return or the unknown-subcommand refusal", async () => {
   // D33's rule: which verb was asked for is settled before that verb's flags
   // are judged, and `--help` answers before any of them. Neither of these two
