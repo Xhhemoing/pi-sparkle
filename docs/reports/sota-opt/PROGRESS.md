@@ -49,7 +49,8 @@
 | 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
 | 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
 | 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
-| 35 | 第 1–10 波进行中 | 9 / 10（A–I 已合入；J 运行中） | claude-fable-5-thinking-xhigh | [round-35/PLAN.md](./round-35/PLAN.md) |
+| 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
+| 36 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-36/PLAN.md](./round-36/PLAN.md) |
 
 ### Round 1 波次
 
@@ -412,7 +413,13 @@
 | 7 | R35-G 运行时/图 | G 已合入 |
 | 8 | R35-H 评价/需求 | H 已合入 |
 | 9 | R35-I CLI/适配器 | I 已合入 |
-| 10 | R35-J cluster/privacy | J 运行中 |
+| 10 | R35-J cluster/privacy | J 已合入 |
+
+### Round 36 波次
+
+| 波 | 区 | 状态 |
+| --- | --- | --- |
+| 1 | R36-A 跟踪门控、R36-B live 路由、R36-C 离线路由 | A/B/C 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -752,7 +759,10 @@
 | R35-B | `cursor/r35-b-live-routing-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-B.md`）。无新排除 ID；天花板复核 ceiling M=2 9.78–10.25 / M=10 15.54–15.85；replay M=2 8.18–9.24（主机偏快）；零新站点级换名记录 |
 | R35-D | `cursor/r35-d-adaptation-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-D.md`）。无新排除 ID；eval 地板复核 S0c 3.54–3.93 ms；四项换名检查拒列未铸 |
 | R35-G | `cursor/r35-g-runtime-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-G.md`）。无新排除 ID；计算顶复核 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次逐位；两项换名检查拒列未铸 |
-| R35-J | `cursor/r35-j-persist-thirty-fifth-pass-83a1` | 已派出 |
+| R35-J | `cursor/r35-j-persist-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-J.md`）。无新排除 ID；I/O 地板复核 preferences 146.3–253.7 / 438.7–509.9、jsonl 69.7–76.9 / pass-2 290.0–326.3；J1 2468 / 2948.5×；零新站点级换名记录 |
+| R36-A | `cursor/r36-a-tracking-thirty-sixth-pass-83a1` | 已派出 |
+| R36-B | `cursor/r36-b-live-routing-thirty-sixth-pass-83a1` | 已派出 |
+| R36-C | `cursor/r36-c-offline-routing-thirty-sixth-pass-83a1` | 已派出 |
 | R35-C | `cursor/r35-c-offline-routing-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-C.md`）。无新排除 ID；中位复核 657.9–662.3（主机偏快）；组合天花板 22.3–27.7 < 35；sink=7.309；一项换名检查拒列未铸 |
 | R35-F | `cursor/r35-f-experiments-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-F.md`）。无新排除 ID；锚点复核 r5f 117.53/126.01/117.46、r6f 119.12/117.99/117.61、r7f 124.19/127.43/125.82（主机偏快）；零新站点级换名记录 |
 | R35-I | `cursor/r35-i-cli-thirty-fifth-pass-83a1` | 已合入专属分支（仅 `R35-I.md`）。无新排除 ID；custom−builtin 复核 children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5；零新站点级换名记录 |

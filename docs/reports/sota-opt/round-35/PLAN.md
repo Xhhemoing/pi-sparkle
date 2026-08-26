@@ -1,10 +1,10 @@
 # Round 35 作战计划
 
-**目标**：在 R34 十切片诚实空枚举关闭（无 S34-A-* … S34-J-*；R34-A 三项换名检查拒列，未铸造新面；R34-G digest 第二十五次相同，未铸造 digest 轴号；R34-J 四项换名检查拒列、六个从未受控残余坐标未过三合取）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX / MODEX** 具名 ban 的前提下，对十切片做**第三十五遍**独立枚举。R34 已 10/10 关闭。本轮状态：**A–I 已合入；J 运行中**。
+**目标**：在 R34 十切片诚实空枚举关闭（无 S34-A-* … S34-J-*；R34-A 三项换名检查拒列，未铸造新面；R34-G digest 第二十五次相同，未铸造 digest 轴号；R34-J 四项换名检查拒列、六个从未受控残余坐标未过三合取）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX / MODEX** 具名 ban 的前提下，对十切片做**第三十五遍**独立枚举。R34 已 10/10 关闭。本轮状态：**A–J 已合入；Round 35 10/10 关闭**。Round 36 见 [round-36/PLAN.md](../round-36/PLAN.md)。
 
 **约束**：
 
-- R8–R34 已合入切片全部诚实空枚举。无新 S34-A-* … S34-J-*。R35-A … R35-I 亦诚实空枚举关闭（无 S35-A-* … S35-I-*）。R35-G digest `06cbcf92c098c8f0` **第二十六次**相同，未铸造 digest 轴号。
+- R8–R34 已合入切片全部诚实空枚举。无新 S34-A-* … S34-J-*。R35-A … R35-J 亦诚实空枚举关闭（无 S35-A-* … S35-J-*）。R35-G digest `06cbcf92c098c8f0` **第二十六次**相同，未铸造 digest 轴号。R35-J 零新站点级换名记录、六个从未受控残余坐标未过三合取。
 - 生产基线未变：最后 `src/` 提交仍为 `183df9b`（S7-C）。
 - 禁止再编号：FITQ、NAMESHAPE、SCALEX、XPROC、YMIX、SCHEDWIN、KFAN、NVG、SEEDX、TERMCLASS、SHAPEK、ORDX、CKMIX、CALLB、OCCX、JB、RUNLIM、VALCLASS、CG、AGEX、COTARG、PRICEX、RTL、DELINV、PROBX、RVL、SIDEC、PWL、ZREP、PAIRX、CSPELL、REPRX、LINKTOP、BINDX、MODEX（空枚举轴外号，**不是** EXCLUSIONS 表行）。
 - R21–R34 具名 / unnamed 面与上列停驻 / 分解 / 审计记录亦 plan-ban，**不**写入 EXCLUSIONS 表行。R32-A 重开条件哨兵审计（F12a–d）与 R32-B 闭合稳定性审计（54/54 裁决仍立；五扇残门 D1–D5 按归属关闭）按方法 / 停驻记录，**不**铸造新面、**不**写入 EXCLUSIONS 表行。R33-A 把 R32-B 三腿方法应用到 A 区 44 行账本（44/44 仍立）亦为方法卫生，**禁止**再铸「再查一遍闭合稳定性」式新面。**禁止**把「再查一遍重开条件 / 闭合稳定性 / 门扉」铸成新面。R35-G digest `06cbcf92c098c8f0` 第二十六次相同 — 若本轮再同，记**第二十七次**相同，**禁止**再铸 digest 轴号。
@@ -23,9 +23,9 @@
 | G | `src/run/`（除 A 两文件）+ `src/supervisor/`（除 model-router）+ `src/graph/` + `src/domain/`（42） | 已合入（空枚举；未铸造新面；compute 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次相同） |
 | H | evaluation 8 + requirement 7 + review 4 + rubric 2（21） | 已合入（空枚举；未铸造新面；默认链 8927/9022/8970 ns） |
 | I | cli 13 + pi-adapter 9 + config 2 + telemetry 1（25） | 已合入（空枚举；未铸造新面；children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5；宿主窗动） |
-| J | cluster 3 + privacy 3 + preferences 7 + episode 5 + persist 2 + track 4 + context 2 + feedback 3（29） | 本波派出 |
+| J | cluster 3 + privacy 3 + preferences 7 + episode 5 + persist 2 + track 4 + context 2 + feedback 3（29） | 已合入（空枚举；未铸造新面；preferences 146.3–253.7 / 438.7–509.9；jsonl 69.7–76.9 / pass-2 290.0–326.3；宿主窗） |
 
-默认对照取最近已合入轮：A = R35-A（12.6–19.0 µs/gate ⇒ ~63–95 µs/run；19.0 单格宿主抖动）；B = R35-B（ceiling M=2 9.78–10.25 / M=10 15.54–15.85；replay M=2 8.18–9.24；主机偏快，freeze 0 行）；C = R35-C（中位 657.9–662.3；组合天花板 22.3–27.7 < 35；sink=7.309；主机偏快，freeze 0 行）；D = R35-D（S0c 3.54–3.93 ms）；E = R35-E（SLICE-CPU cmp25 14.6–15.2；主机偏快，freeze 0 行）；F = R35-F（r5f 117.53/126.01/117.46、r6f 119.12/117.99/117.61、r7f 124.19/127.43/125.82；主机偏快，freeze 0 行）；G = R35-G（compute 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次相同，**禁止**再铸 digest 轴号）；H = R35-H（默认链 8927/9022/8970 ns）；I = R35-I（custom−builtin children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5；宿主窗动，freeze 0 行）；J = R34-J（preferences 141.9–234.4 / 429.1–533.4；jsonl 61.2–69.4 / 227.1–338.2 µs）。S12-B-2 条件陆器仍未触发。S8-I-1 两侧 file-level 封死。S13-B-1 仍为 loser ID。S7-F-1 ≠ S6-F-5。S5-H-1 保持。catalog 行序契约决策承载（R28-B W3）。npm POSIX `.bin` symlink 静默 no-op（R28-I）**禁止**当优化修。
+默认对照取最近已合入轮：A = R35-A（12.6–19.0 µs/gate ⇒ ~63–95 µs/run；19.0 单格宿主抖动）；B = R35-B（ceiling M=2 9.78–10.25 / M=10 15.54–15.85；replay M=2 8.18–9.24；主机偏快，freeze 0 行）；C = R35-C（中位 657.9–662.3；组合天花板 22.3–27.7 < 35；sink=7.309；主机偏快，freeze 0 行）；D = R35-D（S0c 3.54–3.93 ms）；E = R35-E（SLICE-CPU cmp25 14.6–15.2；主机偏快，freeze 0 行）；F = R35-F（r5f 117.53/126.01/117.46、r6f 119.12/117.99/117.61、r7f 124.19/127.43/125.82；主机偏快，freeze 0 行）；G = R35-G（compute 0.293–0.303 vs I/O 87.0–100.0；digest 第二十六次相同，**禁止**再铸 digest 轴号）；H = R35-H（默认链 8927/9022/8970 ns）；I = R35-I（custom−builtin children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5；宿主窗动，freeze 0 行）；J = R35-J（preferences 146.3–253.7 / 438.7–509.9；jsonl 69.7–76.9 / pass-2 290.0–326.3；宿主窗，freeze 0 行）。S12-B-2 条件陆器仍未触发。S8-I-1 两侧 file-level 封死。S13-B-1 仍为 loser ID。S7-F-1 ≠ S6-F-5。S5-H-1 保持。catalog 行序契约决策承载（R28-B W3）。npm POSIX `.bin` symlink 静默 no-op（R28-I）**禁止**当优化修。
 
 ## 第三十五遍焦点
 
@@ -47,7 +47,7 @@
 
 **I — 已合入（空枚举；未铸造新面）**：[R35-I.md](./R35-I.md)。25 文件；基线 `8dee7fb`。25 文件相对 `8dee7fb` 五验 0 行；`wc -l` 4708。预算重锚 custom−builtin children +44.9~+58.9 / +20.8~+30.2、track +45.1~+69.6 / +23.2~+31.5、flowchart-flat64 +43.5~+48.9 / +10.5~+30.5（22.14 / 22.22；宿主窗动，freeze 0 行）。零新站点级换名记录。S8-I-1 仍两侧 file-level 封死。**禁止**再编号为新 I 轴；**禁止**写入 EXCLUSIONS 表行。
 
-**J — 运行中**：29 文件；基线 `fb41417`。J1 锁定（2468 项逐位，2760.9×）。默认对照 R34-J（preferences 141.9–234.4 / 429.1–533.4；jsonl 61.2–69.4 / 227.1–338.2 µs）。非再移植：**LINKTOP**、**CSPELL**、**ZREP**、**SIDEC**、**BINDX**、**MODEX**、R32-J 六个从未受控残余坐标、R34-J 四项换名检查（`track/plan.ts` 内联 regex / `readFeedback` 串行双读 / `host.ts` broadcast trim/slice / `closure.ts` legacy-match 模板）、R33-A … R34-J 空枚举、R35-A 空枚举、R35-B 空枚举、R35-C 空枚举、R35-D 空枚举、R35-E 空枚举、R35-F 空枚举、R35-G 空枚举、R35-H 空枚举、R35-I 空枚举。若落地：gate + J1 仿真（2468）+ 既有 J harness。报告 `docs/reports/sota-opt/round-35/R35-J.md`。禁止开 PR。
+**J — 已合入（空枚举；未铸造新面）**：[R35-J.md](./R35-J.md)。29 文件；基线 `fb41417`。29 文件相对 `fb41417` 多验 0 行；`wc -l` 3655。J1 锁定（2468 项逐位，2948.5× 宿主偏移）。零新站点级换名记录。I/O 地板重锚 preferences 146.3–253.7 / 438.7–509.9、jsonl 69.7–76.9 / pass-2 290.0–326.3（pass-1/3 fsync 设备慢窗；宿主窗，freeze 0 行）。**禁止**再编号为新 J 轴；**禁止**再铸 LINKTOP / CSPELL / ZREP / SIDEC / BINDX / MODEX 与六条 residual 坐标；**禁止**写入 EXCLUSIONS 表行。
 
 A–J 均要求返回首行 `MODEL_SLUG=claude-fable-5-thinking-xhigh`，末两行 `MORE_OPTIMA=yes|no` 与 `BRANCH=...`。模型必须是 **claude-fable-5-thinking-xhigh**，禁止静默降级。
 
@@ -55,5 +55,4 @@ A–J 均要求返回首行 `MODEL_SLUG=claude-fable-5-thinking-xhigh`，末两�
 
 - 默认预期：诚实空枚举。空枚举轴外号只进本 PLAN「禁止再编号」+ 首段 unnamed plan-ban，**不**进 EXCLUSIONS 表。
 - 若有候选：理论 + 确定性 sim + 真尺度非噪声（offline-logit ±35 ms；µs/ns 与 once-per-run CLI 噪声拒收）。输家脚本只进报告附录，不提交仓库。
-- 平台硬顶 3 并发云 VM；本波仅余 R35-J（Round 35 无剩余未派切片；Round 36 待 J 合入后开，不提前派出）。
-- Round 34 已 10/10 收口。Round 35 在 J 返回并合入后 10/10 收口，再开 Round 36。
+- 平台硬顶 3 并发云 VM。Round 35 已 10/10 收口。Round 36 见 [round-36/PLAN.md](../round-36/PLAN.md)。
