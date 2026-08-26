@@ -433,6 +433,19 @@ test("the gate's queued analysis and its owed evidence reach the operator verbat
       "the evidence the queued analysis is owed, named on the RUN_BLOCKED payload"
     );
     assert.ok(report.includes(`--run ${outcome.runId} `), report);
+
+    // Verbatim is not the same as sufficient: `ANALYSIS_QUEUED` reads as a job
+    // in flight, and nothing runs. The note names the code the gate actually
+    // recorded for this shape and says what will and will not end the block.
+    // `blocked-gate-cause.test.ts` pins the sentence; what belongs here is that
+    // the shape this file drives gets it, and that it does not promise work.
+    assert.match(
+      report,
+      /^ {2}note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded deterministic-fail on turn tsk_verify;/m,
+      report
+    );
+    assert.match(report, /no analysis consumer is wired and nothing dequeues this block/, report);
+    assert.match(report, /unblock is still what clears it/, report);
   });
 });
 

@@ -2,21 +2,25 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import type { AuthPrompt } from "@earendil-works/pi-ai";
 import {
   checkProviderAuth,
+  checkProviderEnvAuth,
   cliAuthInteraction,
   deleteStoredCredential,
   isKnownProvider,
   listBuiltinProviderIds,
   listStoredCredentials,
   loginProviderInteractive,
+  mutedPromptOutput,
   storeApiKeyCredential,
   type SparkleAuthIo
 } from "../../../src/pi-adapter/auth-session.js";
-import { authStorePath } from "../../../src/pi-adapter/file-credential-store.js";
+import {
+  authStorePath,
+  FileCredentialStore
+} from "../../../src/pi-adapter/file-credential-store.js";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 
 /**
@@ -256,6 +260,88 @@ test("checkProviderAuth invents nothing for an unknown or unconfigured provider"
   });
 });
 
+test("the env-only check ignores the credential store the ordinary check prefers", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await storeApiKeyCredential(stateRoot, "anthropic", FAKE_KEY);
+
+    await withEnv(clearedAnthropicEnv(), async () => {
+      // Stored-wins is Pi's precedence and the default login path depends on
+      // it, so the ordinary check must keep reporting the stored credential.
+      assert.deepEqual(await checkProviderAuth(stateRoot, "anthropic"), {
+        type: "api_key",
+        source: "stored credential"
+      });
+      // `--from-env` asks the narrower question, and a file is not an
+      // environment: with no variable set there is nothing to report.
+      assert.equal(await checkProviderEnvAuth(stateRoot, "anthropic"), undefined);
+    });
+
+    await withEnv({ ...clearedAnthropicEnv(), ANTHROPIC_API_KEY: `${FAKE_KEY}-env` }, async () => {
+      const env = await checkProviderEnvAuth(stateRoot, "anthropic");
+      assert.deepEqual(env, { type: "api_key", source: "ANTHROPIC_API_KEY" });
+      assert.equal(JSON.stringify(env).includes(FAKE_KEY), false);
+      // The stored credential still owns the provider for everything else.
+      assert.deepEqual(await checkProviderAuth(stateRoot, "anthropic"), {
+        type: "api_key",
+        source: "stored credential"
+      });
+    });
+
+    // A check writes nothing: the store is exactly what login left behind.
+    assert.deepEqual(await listStoredCredentials(stateRoot), [
+      { providerId: "anthropic", type: "api_key" }
+    ]);
+  });
+});
+
+test("the env-only check is blind to a stored oauth session too", async () => {
+  // An oauth credential resolves through a different Pi path than an api key,
+  // so "the store is invisible" has to hold for both. A check that filtered a
+  // reported source instead of emptying the store would pass the api-key case
+  // above and fail here.
+  await withStateRoot(async (stateRoot) => {
+    await new FileCredentialStore(authStorePath(stateRoot)).modify("anthropic", async () => ({
+      type: "oauth",
+      access: `${FAKE_KEY}-access`,
+      refresh: `${FAKE_KEY}-refresh`,
+      expires: Date.now() + 3_600_000
+    }));
+
+    await withEnv(clearedAnthropicEnv(), async () => {
+      assert.equal(await checkProviderEnvAuth(stateRoot, "anthropic"), undefined);
+    });
+
+    await withEnv({ ...clearedAnthropicEnv(), ANTHROPIC_API_KEY: `${FAKE_KEY}-env` }, async () => {
+      const env = await checkProviderEnvAuth(stateRoot, "anthropic");
+      assert.deepEqual(env, { type: "api_key", source: "ANTHROPIC_API_KEY" });
+      assert.equal(JSON.stringify(env).includes(FAKE_KEY), false);
+    });
+
+    // The session is still on disk and still the type it was stored as.
+    assert.deepEqual(await listStoredCredentials(stateRoot), [
+      { providerId: "anthropic", type: "oauth" }
+    ]);
+  });
+});
+
+test("the env-only check invents nothing for an unknown provider", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await withEnv(clearedAnthropicEnv(), async () => {
+      assert.equal(await checkProviderEnvAuth(stateRoot, UNKNOWN_PROVIDER), undefined);
+      assert.equal(await exists(authStorePath(stateRoot)), false);
+    });
+  });
+});
+
+test("logging out reports whether a credential was actually removed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), false);
+    await storeApiKeyCredential(stateRoot, "openai", FAKE_KEY);
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), true);
+    assert.equal(await deleteStoredCredential(stateRoot, "openai"), false);
+  });
+});
+
 test("the select prompt lists options, resolves to an option id, and refuses a bad answer", async () => {
   const prompt: AuthPrompt = {
     type: "select",
@@ -293,74 +379,30 @@ test("consecutive prompts on one interaction both reach the reader", async () =>
   assert.equal(cli.out.join("").includes(FAKE_KEY), false);
 });
 
-/**
- * A stdin that claims to be a terminal, which is what puts readline into the
- * line-editing mode where *it*, not the tty driver, redraws every character
- * the user types.
- */
-function ttyStdin(): PassThrough & { isTTY: boolean; setRawMode: (mode: boolean) => void } {
-  const stream = new PassThrough() as PassThrough & {
-    isTTY: boolean;
-    setRawMode: (mode: boolean) => void;
-  };
-  stream.isTTY = true;
-  stream.setRawMode = () => undefined;
-  return stream;
-}
+test("the secret prompt's output passes the question and then swallows the answer", () => {
+  // The terminal echo of a pasted API key is readline writing the typed line
+  // back to its output, so muting that output after the prompt — and only
+  // after it — is what keeps the key out of the operator's scrollback. A real
+  // TTY cannot be arranged in a unit test; the writer that does the muting can.
+  const written: string[] = [];
+  const output = mutedPromptOutput((text) => written.push(text));
 
-/** Runs `body` with process.stdin replaced and every real stdout write captured. */
-async function withStdio(
-  stdin: NodeJS.ReadableStream,
-  body: (terminal: string[]) => Promise<void>
-): Promise<void> {
-  const terminal: string[] = [];
-  const savedStdin = Object.getOwnPropertyDescriptor(process, "stdin");
-  const savedWrite = process.stdout.write.bind(process.stdout);
-  Object.defineProperty(process, "stdin", { value: stdin, configurable: true });
-  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
-    terminal.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
-    return true;
-  }) as typeof process.stdout.write;
-  try {
-    await body(terminal);
-  } finally {
-    process.stdout.write = savedWrite;
-    if (savedStdin !== undefined) Object.defineProperty(process, "stdin", savedStdin);
-  }
-}
+  output.stream.write("Enter API key: ");
+  output.mute();
+  output.stream.write(FAKE_KEY);
+  output.stream.write(Buffer.from(`${FAKE_KEY}\r\n`, "utf8"));
+  output.stream.write("\r\n");
 
-test("a secret prompt read from a terminal prints the prompt and echoes nothing", async () => {
-  const stdin = ttyStdin();
-  const out: string[] = [];
-  // No injected reader: this is the real stdin path, the only one where an
-  // echo can happen at all.
-  const io: SparkleAuthIo = { stdout: (text) => out.push(text) };
-
-  await withStdio(stdin, async (terminal) => {
-    const answered = cliAuthInteraction(io).prompt({ type: "secret", message: "Enter API key" });
-    stdin.write(`${FAKE_KEY}\n`);
-    assert.equal(await answered, FAKE_KEY);
-
-    // Readline drew the typed characters somewhere; it must not have been the
-    // terminal. The prompt itself still reaches the user, through io.stdout.
-    assert.equal(terminal.join(""), "", "readline wrote to the terminal during a secret prompt");
-    assert.equal(out.join("").includes(FAKE_KEY), false, "the secret was echoed");
-    assert.match(out.join(""), /Enter API key: /);
-  });
+  assert.deepEqual(written, ["Enter API key: "]);
+  assert.equal(written.join("").includes(FAKE_KEY), false);
 });
 
-test("a non-secret prompt still goes through the ordinary readline output", async () => {
-  const stdin = ttyStdin();
-  const io: SparkleAuthIo = { stdout: () => undefined };
-
-  await withStdio(stdin, async (terminal) => {
-    const answered = cliAuthInteraction(io).prompt({ type: "text", message: "Account" });
-    stdin.write("someone\n");
-    assert.equal(await answered, "someone");
-    // The contrast with the secret prompt above: this one is readline's to
-    // render, prompt and echo alike.
-    assert.match(terminal.join(""), /Account: /);
-  });
+test("the prompt reaches the sink as text, buffer chunks included", () => {
+  const written: string[] = [];
+  const output = mutedPromptOutput((text) => written.push(text));
+  output.stream.write("Enter API key: ");
+  output.stream.write(Buffer.from("(hidden)", "utf8"));
+  assert.equal(written.join(""), "Enter API key: (hidden)");
 });
 
 test("notify renders login events without inventing fields", () => {

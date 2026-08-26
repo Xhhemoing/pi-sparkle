@@ -526,7 +526,7 @@ test("--lock-wait-ms bounds the delete's wait; omitting it changes nothing", asy
  * (see `command-error-doctor.test.ts`, which still pays it on purpose to
  * witness the default).
  */
-test("--lock-wait-ms 0 refuses a held lock immediately, having removed nothing", async () => {
+test("--lock-wait-ms 0 refuses a held lock immediately, leaving the run's records", async () => {
   await withStateRoot(async (stateRoot) => {
     const runId = createRunId(UUID);
     const runDir = join(stateRoot, "runtime", "runs", runId);
@@ -557,8 +557,68 @@ test("--lock-wait-ms 0 refuses a held lock immediately, having removed nothing",
     // Well inside the 5s default: the bound came from the flag, not the lock.
     assert.ok(elapsedMs < 2_000, `the zero wait must not sit on the default: ${elapsedMs}ms`);
     // Fail-closed, exactly as the default-bounded refusal is.
-    assert.equal(existsSync(runDir), true, "a refused delete removes nothing");
+    assert.equal(existsSync(runDir), true, "a refused delete leaves the run's records");
     assert.deepEqual(io.out, []);
+    // This fixture has no invocation rows, so the refusal really did change
+    // nothing and there is nothing to disclose. The case below is the other
+    // one, where there is.
+    assert.deepEqual(io.err, []);
+  });
+});
+
+/**
+ * The refusal an operator actually meets on a state root with telemetry in it.
+ *
+ * The delete's first half — the invocation-log rewrite and the derived
+ * snapshot's invalidation — runs before any lock is requested and is not
+ * rolled back when the run lock then refuses. The success path reports those
+ * rows through `removedPaths`; the failure path throws that result away, so
+ * without this line the operator is told only that the delete failed, while
+ * their telemetry plane has already changed. USAGE promises this line.
+ */
+test("a delete refused at the run lock still discloses the rows it already dropped", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", doomed);
+    await new EventStore(stateRoot, doomed).append(
+      runEvent(doomed, "AGENT_EVENT", {
+        agentInstanceId: "agt_00000000-0000-4000-8000-00000000000d",
+        kind: "TEXT_DELTA",
+        summary: "work the refusal keeps"
+      })
+    );
+    const logPath = invocationsLogPath(stateRoot);
+    await writeFile(
+      logPath,
+      [invocationLine(doomed, "inv_doomed"), invocationLine(keeper, "inv_keeper")].join(""),
+      "utf8"
+    );
+
+    const io = capture();
+    let refusal: unknown;
+    await withExclusiveFileLock(runLockPath(stateRoot, doomed), async () => {
+      refusal = await deleteCommand(
+        ["--run", doomed, "--lock-wait-ms", "0", "--state-root", stateRoot],
+        io.io
+      ).then(
+        () => assert.fail("a held run lock with a zero wait must refuse"),
+        (error: unknown) => error
+      );
+    });
+
+    assert.equal((refusal as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.equal(existsSync(runDir), true, "the lock-guarded half is what was refused");
+    const rewritten = await readFile(logPath, "utf8");
+    assert.doesNotMatch(rewritten, new RegExp(doomed), "the pre-lock half is not rolled back");
+    assert.match(rewritten, new RegExp(keeper));
+
+    assert.deepEqual(io.out, [], "a failed delete reports no removals on stdout");
+    assert.equal(io.err.length, 1, `one disclosure line, got: ${JSON.stringify(io.err)}`);
+    const line = io.err[0] ?? "";
+    assert.match(line, /1 invocation row\(s\) were dropped/);
+    assert.ok(line.includes(logPath), "the line must name the log");
+    assert.ok(line.endsWith("\n") && line.indexOf("\n") === line.length - 1, "exactly one line");
   });
 });
 

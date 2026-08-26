@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { main } from "../../../src/cli/main.js";
 import type { CliIo } from "../../../src/cli/main.js";
+import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { adaptationRoot, runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { EventStore } from "../../../src/run/event-store.js";
 import { createEventId, createRunId, type RunId } from "../../../src/domain/ids.js";
@@ -215,6 +216,59 @@ test("a staging temp left by a killed apply does not block the CLI re-run", asyn
     );
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a blank --state-root is refused through the dispatcher, with the cwd untouched", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-migrate-blank-"));
+  const previousCwd = process.cwd();
+  try {
+    await writeFileAt(
+      join(stateRoot, "feedback", "records.jsonl"),
+      `${JSON.stringify({ id: "fbk_cwd", episodeId: "ep_cwd", kind: "user", score: 1 })}\n`
+    );
+
+    process.chdir(stateRoot);
+    const captured = capture();
+    // The defect: --apply from this cwd copied into <cwd>/adaptation and exited 0.
+    assert.equal(await main(["migrate-legacy", "--state-root", "", "--apply"], captured.io), 1);
+    process.chdir(previousCwd);
+
+    const report = parseCliErrorJson(captured.err());
+    assert.equal(report?.command, "migrate-legacy");
+    assert.equal(report?.stage, "parse-args");
+    assert.equal(
+      report?.message,
+      'invalid --state-root "": state root must be a non-empty directory path'
+    );
+    assert.equal(report?.next, "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle");
+    assert.equal(captured.out(), "");
+    assert.equal(existsSync(adaptationRoot(stateRoot)), false, "no plane tree under the cwd");
+  } finally {
+    process.chdir(previousCwd);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a --state-root that is a regular file is a lookup fault, not an unreadable legacy file", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "pi-sparkle-migrate-file-root-"));
+  try {
+    const notADirectory = join(parent, "state-root-file");
+    await writeFile(notADirectory, "not a state root\n", "utf8");
+
+    const captured = capture();
+    assert.equal(await main(["migrate-legacy", "--state-root", notADirectory], captured.io), 1);
+    const report = parseCliErrorJson(captured.err());
+    assert.equal(report?.command, "migrate-legacy");
+    assert.equal(report?.stage, "lookup");
+    assert.match(report?.message ?? "", /^cannot scan --state-root /);
+    assert.equal(
+      report?.next,
+      "check the --state-root path; it must be the flat pre-2026-08-22 state directory"
+    );
+    assert.equal(await readFile(notADirectory, "utf8"), "not a state root\n");
+  } finally {
+    await rm(parent, { recursive: true, force: true });
   }
 });
 

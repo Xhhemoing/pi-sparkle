@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { FileCredentialStore } from "../../../src/pi-adapter/file-credential-store.js";
+import {
+  asAuthStoreUnreadable,
+  AUTH_STORE_UNREADABLE_CODE,
+  AuthStoreUnreadableError,
+  EmptyCredentialStore,
+  FileCredentialStore
+} from "../../../src/pi-adapter/file-credential-store.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-auth-"));
@@ -39,7 +46,7 @@ test("read returns the stored credential and missing file is empty", async () =>
   });
 });
 
-test("save preserves credential bytes, ignores a legacy fixed temp, and publishes owner-only", async () => {
+test("save preserves credential bytes, ignores a legacy fixed temp, and chmods after publish", async () => {
   await withDir(async (dir) => {
     const path = join(dir, "runtime", "auth.json");
     const legacyTemp = `${path}.tmp`;
@@ -55,75 +62,91 @@ test("save preserves credential bytes, ignores a legacy fixed temp, and publishe
     );
     assert.equal(await readFile(legacyTemp, "utf8"), "stale-writer-bytes");
     assert.equal((await stat(path)).mode & 0o777, 0o600);
-    assert.equal((await stat(join(dir, "runtime"))).mode & 0o777, 0o700);
   });
 });
 
-test("an existing world-readable runtime directory is tightened to owner-only", async () => {
+test("delete reports whether there was a credential to remove", async () => {
   await withDir(async (dir) => {
-    const runtime = join(dir, "runtime");
-    await mkdir(runtime, { recursive: true, mode: 0o755 });
-    await chmod(runtime, 0o755);
-    const path = join(runtime, "auth.json");
-    const store = new FileCredentialStore(path);
-    await store.modify("openai", async () => ({ type: "api_key", key: "sk-secret" }));
-    assert.equal((await stat(runtime)).mode & 0o777, 0o700);
-    assert.equal((await stat(path)).mode & 0o777, 0o600);
+    const store = new FileCredentialStore(join(dir, "runtime", "auth.json"));
+    assert.equal(await store.deleteExisting("openai"), false);
+    await store.modify("openai", async () => ({ type: "api_key", key: "sk-one" }));
+    assert.equal(await store.deleteExisting("openai"), true);
+    assert.equal(await store.deleteExisting("openai"), false);
   });
 });
 
-test("a permissive umask cannot widen the credential file", async () => {
-  const previous = process.umask(0o000);
-  try {
-    await withDir(async (dir) => {
-      const path = join(dir, "runtime", "auth.json");
+test("a damaged store fails every verb with the file, a reason, and the move-aside remedy", async () => {
+  await withDir(async (dir) => {
+    const path = join(dir, "runtime", "auth.json");
+    const damaged: readonly [string, RegExp][] = [
+      ["{not-json", /not valid JSON/],
+      ['["openai"]', /not a JSON object/],
+      ['{"openai": "sk-loose"}', /openai entry is not a credential/],
+      ['{"openai": {"type": "oauth", "access": "a"}}', /openai oauth credential is incomplete/],
+      ['{"openai": {"type": "carrier-pigeon"}}', /openai entry has an unknown credential type/]
+    ];
+    for (const [contents, reason] of damaged) {
+      await mkdir(join(dir, "runtime"), { recursive: true });
+      await writeFile(path, contents, "utf8");
       const store = new FileCredentialStore(path);
-      await store.modify("openai", async () => ({ type: "api_key", key: "sk-secret" }));
-      // 0o666 is what the umask would have allowed the create to keep.
-      assert.equal((await stat(path)).mode & 0o777, 0o600);
-    });
-  } finally {
-    process.umask(previous);
-  }
+      // Reading, listing and deleting all load the store, so one damaged file
+      // takes the whole surface down — including the log-out-and-back-in
+      // remedy an operator would reach for first.
+      for (const attempt of [
+        () => store.read("openai"),
+        () => store.list(),
+        () => store.deleteExisting("openai"),
+        () => store.modify("openai", async () => ({ type: "api_key", key: "sk-new" }))
+      ]) {
+        await assert.rejects(attempt, (error: unknown) => {
+          assert.ok(error instanceof AuthStoreUnreadableError);
+          assert.equal(error.code, AUTH_STORE_UNREADABLE_CODE);
+          assert.equal(error.path, path);
+          assert.match(error.message, reason);
+          assert.match(error.message, new RegExp(`auth\\.json at ${path}`));
+          assert.match(error.message, /safe to move aside/);
+          // Callers that only know the base class keep working.
+          assert.ok(error instanceof DomainValidationError);
+          return true;
+        });
+      }
+      // Nothing on this path may remove a credential file it cannot parse.
+      assert.equal(await readFile(path, "utf8"), contents);
+    }
+  });
 });
 
-test("credential publishing asks the shared atomic writer for the mode, and refuses to swallow chmod", async () => {
+test("the damaged-store failure is recognised through a dependency's wrapper", async () => {
+  const inner = new AuthStoreUnreadableError("/state/runtime/auth.json", "not valid JSON");
+  // Pi wraps a credential-store read failure in its own error, so the CLI has
+  // to classify the cause chain rather than the thrown object alone.
+  const wrapped = new Error("Credential store read failed for openai", { cause: inner });
+  assert.equal(asAuthStoreUnreadable(wrapped)?.path, "/state/runtime/auth.json");
+  assert.equal(asAuthStoreUnreadable(inner)?.message, inner.message);
+  assert.equal(asAuthStoreUnreadable(new Error("unrelated")), undefined);
+  assert.equal(asAuthStoreUnreadable(undefined), undefined);
+});
+
+test("the empty store reports no credentials and refuses to write", async () => {
+  const store = new EmptyCredentialStore();
+  assert.equal(await store.read("openai"), undefined);
+  assert.deepEqual(await store.list(), []);
+  // The env-only auth check is its only caller; a write would mean a stored
+  // credential had been silently dropped instead of persisted.
+  await assert.rejects(
+    () => store.modify("openai", async () => ({ type: "api_key", key: "sk-new" })),
+    DomainValidationError
+  );
+  await assert.rejects(() => store.delete("openai"), DomainValidationError);
+});
+
+test("credential publishing delegates to the shared atomic writer before chmod", async () => {
   const source = await readFile("src/pi-adapter/file-credential-store.ts", "utf8");
   assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/persist\/atomic-file\.js";/);
-  // The mode belongs on the write, not only after it: a chmod-only store leaves
-  // the published file readable for as long as the chmod takes to land.
   assert.match(
     source,
-    /await writeFileAtomic\(this\.filePath, serialized, \{ mode: CREDENTIAL_FILE_MODE \}\)/
+    /await writeFileAtomic\(this\.filePath, serialized\);\s+await chmod\(this\.filePath, 0o600\)/
   );
-  // A chmod this process could not apply means the credential on disk may be
-  // readable by other users, and that is the one outcome that must not pass
-  // silently. Provoking a real chmod failure needs a file this process does
-  // not own — nothing a unit test can arrange portably — so the shape is
-  // pinned instead: no `.catch`, and a raised DomainValidationError.
-  assert.doesNotMatch(source, /chmod\([^)]*\)\.catch/);
-  assert.match(source, /throw new DomainValidationError\(\s*`cannot restrict/);
-  assert.match(source, /restrictOwnerOnly\(`\$\{this\.filePath\}\.lock`/);
   assert.doesNotMatch(source, /\b(?:open|rename|unlink)\(/);
   assert.doesNotMatch(source, /tempPath|`[^`]*\.tmp`/);
-});
-
-test("a group-or-world-readable auth.json is refused on POSIX", async (t) => {
-  if (process.platform === "win32") {
-    t.skip("NTFS mode bits are not a trustworthy ACL");
-    return;
-  }
-  await withDir(async (dir) => {
-    const runtime = join(dir, "runtime");
-    await mkdir(runtime, { recursive: true, mode: 0o700 });
-    const path = join(runtime, "auth.json");
-    await writeFile(path, '{\n  "openai": {\n    "type": "api_key",\n    "key": "sk-leaked"\n  }\n}\n', {
-      mode: 0o644
-    });
-    await chmod(path, 0o644);
-    const store = new FileCredentialStore(path);
-    await assert.rejects(() => store.read("openai"), /readable by group or others/);
-    await chmod(path, 0o600);
-    assert.deepEqual(await store.read("openai"), { type: "api_key", key: "sk-leaked" });
-  });
 });

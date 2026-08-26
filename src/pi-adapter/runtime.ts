@@ -1,4 +1,10 @@
-import { createProvider, envApiKeyAuth, type Model, type MutableModels } from "@earendil-works/pi-ai";
+import {
+  createProvider,
+  envApiKeyAuth,
+  type CredentialStore,
+  type Model,
+  type MutableModels
+} from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { CustomProviderConfig } from "../config/providers-config.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
@@ -10,15 +16,22 @@ import type { RetryOptions } from "./provider-retry.js";
 
 export interface PiRuntime {
   readonly models: MutableModels;
-  readonly credentials: FileCredentialStore;
+  readonly credentials: CredentialStore;
 }
 
 export async function createPiRuntime(input: {
   readonly stateRoot: string;
   readonly customProviders?: readonly CustomProviderConfig[];
+  /**
+   * Replaces the state root's `auth.json`. The only caller that passes one is
+   * the env-only auth check behind `auth login --from-env`, which hands Pi an
+   * empty store so a stored credential cannot answer a question about the
+   * environment.
+   */
+  readonly credentials?: CredentialStore;
 }): Promise<PiRuntime> {
   const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
-  const credentials = new FileCredentialStore(authStorePath(input.stateRoot));
+  const credentials = input.credentials ?? new FileCredentialStore(authStorePath(input.stateRoot));
   const models = builtinModels({ credentials });
   for (const custom of input.customProviders ?? []) {
     models.setProvider(buildCustomProvider(custom));

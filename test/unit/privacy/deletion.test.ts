@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -38,7 +38,14 @@ import {
   inspectPreferences,
   recordExplicitPreference
 } from "../../../src/preferences/service.js";
-import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+import { exportRoutingEvalDataset } from "../../../src/learning/eval-dataset.js";
+import {
+  EVAL_DATASET_ALIAS_CODE,
+  EvalDatasetAliasError
+} from "../../../src/privacy/eval-dataset-path.js";
+import { adaptationRoot, runtimeRoot } from "../../../src/privacy/state-layout.js";
+import { SUPERVISOR } from "../../../src/protocol/v1.js";
+import { ASSIGN_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 import {
   FREE_TEXT_FEEDBACK_FIELDS,
   RUN_RECORDS_SURVIVED_CODE,
@@ -154,6 +161,85 @@ function runEvent(runId: RunId, type: Event["type"], payload: unknown): Event {
     actor: "deletion-test",
     payload
   } as Event;
+}
+
+/**
+ * One routed, deterministically verified task — the minimum
+ * `exportRoutingEvalDataset` accepts, so the derived replay dataset in the
+ * cascade tests below is written by the real exporter rather than mocked.
+ */
+function routedRunEvents(runId: RunId, workspace: string, objective: string): Event[] {
+  const taskId = "tsk_dsdel01";
+  const occurredAt = parseIsoTimestamp("2026-08-24T00:00:00.000Z");
+  return [
+    runEvent(runId, "PROJECT_DISCOVERED", {
+      project: {
+        id: createProjectId(UUID),
+        rootPath: workspace,
+        discoveredAt: occurredAt,
+        instructionFiles: [],
+        manifests: [],
+        commands: [],
+        facts: []
+      }
+    }),
+    runEvent(runId, "TASK_GRAPH_ACCEPTED", {
+      tasks: [
+        {
+          id: taskId,
+          title: "cache work",
+          objective,
+          role: "implementer",
+          dependencies: [],
+          acceptanceCriteria: [{ id: "ac1", description: "tests pass" }],
+          status: "PENDING",
+          attempt: 0,
+          maxAttempts: 2,
+          timeoutMs: 60_000,
+          artifactIds: [],
+          evidenceIds: []
+        }
+      ]
+    }),
+    runEvent(runId, "MODEL_ROUTED", {
+      taskId,
+      role: "actor",
+      complexity: "MEDIUM",
+      model: "cheap",
+      justification: "cheapest eligible",
+      confidence: 0.8,
+      approvalPlan: { id: "ap_del", items: [{ id: "go", label: "go", selectable: true }] },
+      statusAfterRoute: "RUNNING",
+      policyVersion: "router-v1",
+      estimatedCostUsd: 0.1,
+      estimatedDurationMs: 1000,
+      family: "edit",
+      featureVersion: ASSIGN_FEATURE_VERSION,
+      modelVersion: "cheap-v1",
+      highRisk: false,
+      eligibleModels: ["cheap", "premium"],
+      rejections: [],
+      behaviorDistribution: { cheap: 1, premium: 0 },
+      agentRole: "implementer"
+    }),
+    runEvent(runId, "CHILD_MESSAGE", {
+      message: {
+        protocolVersion: 1,
+        id: "msg_00000000-0000-4000-8000-00000000d001",
+        occurredAt,
+        runId,
+        taskId,
+        from: "agt_00000000-0000-4000-8000-000000000009",
+        to: SUPERVISOR,
+        type: "TASK_RESULT",
+        outcome: "SUCCESS",
+        summary: "checks green",
+        artifactIds: [],
+        evidenceIds: ["evd_check"],
+        verification: { kind: "PASSED", evidenceIds: ["evd_check"] }
+      }
+    })
+  ];
 }
 
 /** A run whose event log opens the episode, i.e. embeds the whole snapshot. */
@@ -979,6 +1065,156 @@ function agentEvent(runId: RunId, summary: string): Event {
   });
 }
 
+/**
+ * D3 (GPT-r2): `adapt dataset` writes a durable, derived copy of the run's own
+ * task text under `adaptation/eval-datasets/<runId>/`, and no delete reached
+ * it — so deleting the source run left the objective excerpt and the project
+ * root on disk indefinitely while the record class claimed `delete-files`.
+ * The default path is derived from the run id, which is what makes the cascade
+ * possible without searching the filesystem for manifests.
+ */
+test("delete --run removes the replay dataset exported from that run", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const objective = "Ship the payroll importer for acme-corp";
+    const events = routedRunEvents(runId, workspace, objective);
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+
+    const exported = await exportRoutingEvalDataset({ stateRoot, runId, events });
+    assert.equal(
+      exported.datasetDir,
+      join(adaptationRoot(stateRoot), "eval-datasets", runId),
+      "the cascade only reaches the default path, so the export must use it"
+    );
+    assert.ok((await readFile(exported.manifestPath, "utf8")).includes("payroll importer"));
+
+    const result = await deleteRunRecords(stateRoot, runId);
+
+    assert.equal(existsSync(exported.datasetDir), false, "the derived task text survived the delete");
+    assert.ok(
+      result.removedPaths.includes(exported.datasetDir),
+      `the delete must report the dataset it removed: ${JSON.stringify(result.removedPaths)}`
+    );
+    // Only the run's own dataset goes; the plane it lives in stays.
+    assert.equal(existsSync(join(adaptationRoot(stateRoot), "eval-datasets")), true);
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
+
+test("a re-delete of a run whose dataset is already gone reports only what it removed", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const events = routedRunEvents(runId, workspace, "Implement the cache layer");
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+    const exported = await exportRoutingEvalDataset({ stateRoot, runId, events });
+
+    const first = await deleteRunRecords(stateRoot, runId);
+    assert.ok(first.removedPaths.includes(exported.datasetDir));
+
+    const second = await deleteRunRecords(stateRoot, runId);
+    assert.deepEqual(second.removedPaths, [], "an absent dataset is not a removal to report");
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
+
+/**
+ * D18: the cascade reached the default path by name, and a name is not the
+ * thing it names.
+ *
+ * With `adaptation/eval-datasets/<runId>` pre-created as a symlink to a
+ * directory outside the state root, the exporter canonicalized for its
+ * isolation checks and then published `manifest.json` *through* the alias, so
+ * the redacted objective excerpt landed externally. The delete then `stat`ed
+ * the path — which follows the link, so the dataset "existed" — and `rm`ed the
+ * lexical path — which does not, so only the alias went — and reported the
+ * default directory as removed. The derivative survived under a name no
+ * cascade can find, and nothing warned: the external-export warning is a
+ * `--dir` disclosure and the operator never passed `--dir`.
+ *
+ * Both halves now `lstat`. The export refuses the shape outright; the delete
+ * refuses before it removes anything, because following the alias would mean
+ * deleting an operator's external directory and unlinking it would mean
+ * claiming a removal that did not happen.
+ */
+test("delete --run fails closed on a symlinked default dataset path instead of unlinking the alias", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const workspace = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-ws-"));
+    const external = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-external-"));
+    const objective = "Ship the payroll importer for acme-corp";
+    const events = routedRunEvents(runId, workspace, objective);
+    const store = new EventStore(stateRoot, runId);
+    for (const event of events) await store.append(event);
+    const invocationsPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(runId, "inv_alias"))}\n`
+    ]);
+
+    const datasetDir = join(adaptationRoot(stateRoot), "eval-datasets", runId);
+    await mkdir(join(adaptationRoot(stateRoot), "eval-datasets"), { recursive: true });
+    await symlink(external, datasetDir, "junction");
+    const externalManifest = join(external, "manifest.json");
+    await writeFile(externalManifest, `{"objective":${JSON.stringify(objective)}}\n`, "utf8");
+
+    // How the shape gets here is not this test's subject: the exporter now
+    // refuses it (pinned in `eval-dataset.test.ts`), and before that it
+    // published straight through the alias. Either way a derivative sits at
+    // the target and the delete has to deal with it, so the export attempt is
+    // made and its outcome deliberately not asserted on.
+    await exportRoutingEvalDataset({ stateRoot, runId, events }).catch(() => undefined);
+    assert.equal(existsSync(externalManifest), true);
+
+    // The delete refuses, names the target, and is a genuine fail-closed: the
+    // preflight runs before either cooperative lock, so the run subtree, the
+    // invocation rows and the alias are all still there.
+    const outcome = await deleteRunRecords(stateRoot, runId).then(
+      (result) => ({ ok: true as const, result }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+    if (outcome.ok) {
+      // The invariant this test exists for, asserted on the path that would
+      // violate it rather than only on the path that cannot.
+      assert.equal(
+        existsSync(externalManifest),
+        false,
+        "delete --run reported success while the external derivative survived"
+      );
+      assert.fail("the symlinked default dataset path must not delete successfully");
+    }
+    assert.ok(outcome.error instanceof EvalDatasetAliasError, String(outcome.error));
+    assert.equal(outcome.error.code, EVAL_DATASET_ALIAS_CODE);
+    assert.equal(outcome.error.stage, "delete");
+    assert.equal(outcome.error.datasetDir, datasetDir);
+    assert.ok(outcome.error.message.includes(external), outcome.error.message);
+    assert.equal(existsSync(join(runtimeRoot(stateRoot), "runs", runId)), true);
+    assert.deepEqual(
+      (await loadInvocationsFromStateRoot(stateRoot)).map((row) => row.id),
+      ["inv_alias"],
+      "the telemetry half must not run ahead of a refusal it could not roll back"
+    );
+    assert.equal(existsSync(invocationsPath), true);
+    assert.equal(existsSync(externalManifest), true);
+    assert.equal(existsSync(datasetDir), true, "the alias itself was not unlinked");
+
+    // The remediation the message prescribes: the operator deletes the
+    // derivative the alias points at, then the alias, and the re-delete is an
+    // ordinary one.
+    await rm(datasetDir, { force: true });
+    await rm(external, { recursive: true, force: true });
+    const result = await deleteRunRecords(stateRoot, runId);
+    assert.equal(existsSync(externalManifest), false);
+    assert.ok(
+      result.removedPaths.includes(join(runtimeRoot(stateRoot), "runs", runId)),
+      JSON.stringify(result.removedPaths)
+    );
+    assert.equal(result.droppedInvocations, 1);
+    await rm(workspace, { recursive: true, force: true });
+  });
+});
+
 test("verifying a run delete passes on an absent subtree and fails on a recreated one", async () => {
   await withStateRoot(async (stateRoot) => {
     const runId = createRunId(UUID);
@@ -1179,7 +1415,9 @@ test("a live run's own writers cannot make a delete report a removal it lost", a
  * append put it back, and threw `RunRecordsSurvivedError` — fail-closed, but
  * only after destroying part of a live run. The two cases below are what
  * replaced it: the run ends inside the bounded wait and the delete is clean,
- * or the wait runs out and the delete removes nothing at all.
+ * or the wait runs out and the delete removes none of the run's own records.
+ * "None of the run's own records" is the whole claim — the telemetry half
+ * runs before the lock and stays run; the partiality cases below pin that.
  */
 function deletionFlowchart(): Flowchart {
   const only: FlowNode = {
@@ -1363,7 +1601,7 @@ test("delete --run waits for a live run-lock holder before removing anything", a
   });
 });
 
-test("a run delete that cannot take the run lock fails closed and removes nothing", async () => {
+test("a run delete that cannot take the run lock fails closed over the run's records", async () => {
   await withStateRoot(async (stateRoot) => {
     const runId = createRunId(UUID);
     const runDir = join(stateRoot, "runtime", "runs", runId);
@@ -1387,6 +1625,139 @@ test("a run delete that cannot take the run lock fails closed and removes nothin
 
     // Idempotent once the holder is gone.
     assert.deepEqual((await deleteRunRecords(stateRoot, runId)).removedPaths, [runDir]);
+  });
+});
+
+/**
+ * The half of a timed-out delete that *did* happen.
+ *
+ * The two tests above use fixtures with no invocation rows, so they cannot see
+ * the shape of the real contract: the telemetry rewrite runs before the run
+ * lock is ever requested, and a timeout at that lock does not put its rows
+ * back. Everything the operator-facing surfaces say about a lock timeout is
+ * pinned here — the run's records survive byte-for-byte, the dropped rows and
+ * the derived snapshot stay gone, exactly one disclosure line names them, and
+ * the re-delete finishes the refused half without re-dropping the first.
+ */
+test("a timed-out run delete keeps the invocation rows it already dropped, and discloses them", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const keeper = createRunId(UUID);
+    const runDir = join(stateRoot, "runtime", "runs", doomed);
+    await new EventStore(stateRoot, doomed).append(agentEvent(doomed, "work the timeout keeps"));
+    const beforeEvents = await readFile(join(runDir, "events.jsonl"), "utf8");
+    const logPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`,
+      `${JSON.stringify(invocationRow(keeper, "inv_b"))}\n`
+    ]);
+    const observed = catalogObservedPath(stateRoot);
+    await mkdir(join(stateRoot, "runtime", "routing"), { recursive: true });
+    await writeFile(observed, '{"models":[]}\n', "utf8");
+
+    const disclosed: string[] = [];
+    let outcome: unknown;
+    await withExclusiveFileLock(runLockPath(stateRoot, doomed), async () => {
+      outcome = await deleteRunRecords(stateRoot, doomed, {
+        timeoutMs: 40,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+    });
+
+    assert.equal((outcome as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.equal(
+      await readFile(join(runDir, "events.jsonl"), "utf8"),
+      beforeEvents,
+      "the lock-guarded half is the half a timeout refuses"
+    );
+    assert.deepEqual(
+      (await readFile(logPath, "utf8"))
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => (JSON.parse(line) as { id: string }).id),
+      ["inv_b"],
+      "the pre-lock rewrite is not rolled back by the failure that follows it"
+    );
+    assert.equal(existsSync(observed), false, "the derived snapshot goes with the rows");
+
+    assert.equal(disclosed.length, 1, `one disclosure, got: ${JSON.stringify(disclosed)}`);
+    const line = disclosed[0] ?? "";
+    assert.match(line, /1 invocation row\(s\) were dropped/);
+    assert.ok(line.includes(logPath), "the disclosure must name the log it rewrote");
+    assert.ok(line.includes(observed), "the disclosure must name the snapshot it invalidated");
+    assert.ok(!line.includes("\n"), "one line, so a CLI can write it as one");
+
+    // The re-delete finishes the half that was refused, and the half that
+    // already completed is a no-op the second time.
+    const after = await deleteRunRecords(stateRoot, doomed);
+    assert.deepEqual(after.removedPaths, [runDir]);
+    assert.equal(after.droppedInvocations, 0);
+  });
+});
+
+test("a run delete that drops no rows before failing discloses nothing", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    await new EventStore(stateRoot, runId).append(agentEvent(runId, "no telemetry for this run"));
+    const disclosed: string[] = [];
+
+    await withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      await deleteRunRecords(stateRoot, runId, {
+        timeoutMs: 40,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        () => assert.fail("a held run lock must refuse the delete"),
+        (error: unknown) => assert.equal((error as { code?: unknown }).code, LOCK_TIMEOUT_CODE)
+      );
+    });
+
+    assert.deepEqual(disclosed, [], "a delete that changed nothing must not claim it did");
+  });
+});
+
+/**
+ * `--lock-wait-ms` names one bound, and a `delete --run` takes two locks. The
+ * invocation log's acquisition used to keep the 5 s default no matter what the
+ * operator asked for, so a zero wait could still sit on it and a long wait was
+ * cut short by it. Pinned from the short end, where the difference is a wall
+ * clock reading rather than an assertion about which default applied.
+ */
+test("delete --run bounds the invocation log lock with the wait it was given", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const doomed = createRunId(UUID);
+    const logPath = await writeInvocationLog(stateRoot, [
+      `${JSON.stringify(invocationRow(doomed, "inv_a"))}\n`
+    ]);
+    const before = await readFile(logPath, "utf8");
+    const disclosed: string[] = [];
+    let outcome: unknown;
+    let elapsedMs = 0;
+
+    await withInvocationLogLock(stateRoot, async () => {
+      const startedAt = Date.now();
+      outcome = await deleteRunRecords(stateRoot, doomed, {
+        timeoutMs: 0,
+        retryMs: 5,
+        disclosePartial: (line) => disclosed.push(line)
+      }).then(
+        (result) => result,
+        (error: unknown) => error
+      );
+      elapsedMs = Date.now() - startedAt;
+    });
+
+    assert.equal((outcome as { code?: unknown }).code, LOCK_TIMEOUT_CODE);
+    assert.ok(
+      (outcome as Error).message.includes(invocationLogLockPath(stateRoot)),
+      "the refusal must name the lock the delete could not have"
+    );
+    assert.ok(elapsedMs < 2_000, `a zero wait must not sit on the 5s default: ${elapsedMs}ms`);
+    assert.equal(await readFile(logPath, "utf8"), before, "nothing was rewritten");
+    assert.deepEqual(disclosed, [], "a rewrite that never ran has nothing to disclose");
   });
 });
 

@@ -1,0 +1,21 @@
+{
+  "tasks": [
+    {
+      "id": "tsk_survey",
+      "role": "scout",
+      "objective": "List every call site that reads configuration directly, with file and line",
+      "acceptanceCriteria": [
+        {
+          "id": "ac_call_sites",
+          "description": "Each call site is named with its file path and line number"
+        }
+      ]
+    },
+    {
+      "id": "tsk_migrate",
+      "role": "implementer",
+      "objective": "Route the surveyed call sites through the shared configuration loader",
+      "dependsOn": ["tsk_survey"]
+    }
+  ]
+}

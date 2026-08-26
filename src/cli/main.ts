@@ -35,7 +35,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, parseTaskId, isArtifactId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type TaskId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
+import { parseRunId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
@@ -50,7 +50,12 @@ import {
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
-import { buildInspectSummaryJson, inspectRun } from "../run/inspection.js";
+import {
+  buildInspectSummaryJson,
+  gateBlockCause,
+  inspectRun,
+  type GateBlockCause
+} from "../run/inspection.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -82,10 +87,20 @@ import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learn
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { startTrackedRun } from "../track/loop.js";
 import {
+  isTrackClarificationWait,
+  readTrackClarification,
+  trackQuestionsPath,
+  type TrackClarificationRead
+} from "../track/questions-file.js";
+import {
   collectSelectedActionIds,
   parseChildNodeResultsFile,
   parseFlowchartFile
 } from "./flowchart-io.js";
+import { parseChildSpec } from "./children-spec.js";
+import { validateCommand } from "./validate.js";
+import { listCommand } from "./list.js";
+import { initExamplesCommand } from "./init-examples.js";
 import { commitsCommand } from "./commits.js";
 import { pauseCommand } from "./pause.js";
 import { injectCommand } from "./inject.js";
@@ -261,6 +276,9 @@ Usage:
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
+  pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
+  pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
+  pi-sparkle init [--dir <path>] [--force] [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -283,7 +301,9 @@ Usage:
   pi-sparkle adapt status [--state-root <dir>]
   pi-sparkle adapt learn --run <runId> [--state-root <dir>]
   pi-sparkle adapt auto [--run <runId>] [--project <path>] [--state-root <dir>]
+  pi-sparkle adapt eval --candidate <cnd_...> --dataset <dir> [--state-root <dir>]
   pi-sparkle adapt promote --candidate <id> --expected <ver> --content-file <path> --review-file <path> --approve [--eval-file <path>]
+  pi-sparkle adapt rollback --expected <rsv_...> --target <rsv_...> --reason <guardrail|degradation|user> [--state-root <dir>]
   pi-sparkle commits preview --run <runId> [--state-root <dir>] [--json] [--nodes <id,id>]
   pi-sparkle commits apply --run <runId> [--state-root <dir>] [--repo <path>] [--file <edited.json>] [--sign] [--nodes <id,id>]
   pi-sparkle help
@@ -307,10 +327,9 @@ the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 primary-owned split (planner on --primary-model, then scout → implement →
 review → test), compiles that plan into the flowchart supervisor, grounds each
 child with a bounded context packet and predecessor artifacts, assigns catalog
-models, and executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4 per parent).
-predecessor artifacts, assigns other catalog models from --primary-model
-(default premium / PI_MODEL) plus an optional cheaper --fast-model, executes
-with peer mail, scores three-line tracking on child TASK_RESULT facts when
+models from --primary-model (default premium / PI_MODEL) plus an optional
+cheaper --fast-model, executes a bounded cluster (peer mail, spawn depth ≤ 2 / 4
+per parent), scores three-line tracking on child TASK_RESULT facts when
 verification is PASSED or FAILED, then runs the automatic adaptation loop
 (collect feedback, diagnose model/project issues, propose a routing-policy
 candidate; never CAS-promotes. SPARKLE_AUTO_ADAPT=0 still collects). --public-prior loads a hashed frozen
@@ -368,98 +387,6 @@ feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
-
-/**
- * A declared per-child USD ceiling is load-bearing: the child coordinator
- * forwards the tighter of it and the run-level cap to the executor and stamps
- * it into the child's RUN_CREATED. Dropping it would give the operator a
- * silent exit 0 with no ceiling anywhere on disk; copying an invalid one would
- * surface as a protocol-validation failure far from the file they wrote. So
- * anything present that is not a positive finite number is refused here, by
- * task.
- */
-function parseChildCostCeiling(taskId: TaskId, value: unknown): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new DomainValidationError(
-      `Child task ${taskId}: limits.maxCostUsd must be a positive finite number`
-    );
-  }
-  return value;
-}
-
-/** Parses a --children spec file into validated ChildTaskInput values. */
-async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
-  const raw = await readFile(path, "utf8");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new DomainValidationError(
-      `Invalid child spec ${path}: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  if (typeof parsed !== "object" || parsed === null || !Array.isArray((parsed as { tasks?: unknown }).tasks)) {
-    throw new DomainValidationError("Child spec must be { \"tasks\": [...] }");
-  }
-  const registry = createAgentProfileRegistry(defaultAgentProfiles());
-  const tasks = (parsed as { tasks: unknown[] }).tasks;
-  const seen = new Set<TaskId>();
-  return tasks.map((entry, index) => {
-    if (typeof entry !== "object" || entry === null) {
-      throw new DomainValidationError(`Child task ${index} must be an object`);
-    }
-    const task = entry as Record<string, unknown>;
-    const taskId = parseTaskId(task.id);
-    if (seen.has(taskId)) throw new DomainValidationError(`Duplicate child task id: ${taskId}`);
-    seen.add(taskId);
-    if (typeof task.role !== "string" || !isAgentRole(task.role)) {
-      throw new DomainValidationError(`Child task ${taskId}: role must be a known AgentRole`);
-    }
-    if (typeof task.objective !== "string" || task.objective.trim() === "") {
-      throw new DomainValidationError(`Child task ${taskId}: objective must be a non-empty string`);
-    }
-    const acceptanceCriteria = Array.isArray(task.acceptanceCriteria)
-      ? task.acceptanceCriteria.map((criterion) => {
-          if (typeof criterion !== "object" || criterion === null) {
-            throw new DomainValidationError(`Child task ${taskId}: acceptanceCriteria must be objects`);
-          }
-          const c = criterion as Record<string, unknown>;
-          if (typeof c.id !== "string" || c.id === "" || typeof c.description !== "string" || c.description === "") {
-            throw new DomainValidationError(`Child task ${taskId}: acceptanceCriteria need {id, description}`);
-          }
-          return { id: c.id, description: c.description };
-        })
-      : [];
-    const inputArtifactIds = Array.isArray(task.inputArtifactIds)
-      ? task.inputArtifactIds.map((id) => {
-          if (!isArtifactId(id)) throw new DomainValidationError(`Child task ${taskId}: invalid inputArtifactId`);
-          return id;
-        })
-      : [];
-    const limits = task.limits as Record<string, unknown> | undefined;
-    const maxCostUsd = parseChildCostCeiling(taskId, limits?.maxCostUsd);
-    const profile = registry.resolve(task.role);
-    const dependsOn = Array.isArray(task.dependsOn)
-      ? task.dependsOn.map((id) => parseTaskId(id))
-      : undefined;
-    return {
-      taskId,
-      role: task.role,
-      objective: task.objective,
-      profile,
-      inputArtifactIds,
-      acceptanceCriteria,
-      limits: {
-        maxAttempts: typeof limits?.maxAttempts === "number" ? limits.maxAttempts : 1,
-        timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : 60_000,
-        maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000,
-        ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
-      },
-      ...(dependsOn !== undefined ? { dependsOn } : {})
-    };
-  });
-}
 
 async function smartChildPlan(
   children: ChildTaskInput[],
@@ -591,6 +518,14 @@ function reportFailedRun(
  * report is built from the event log alone and cannot see the checkpoint that
  * would say whether a descendant executed — so it states the precondition
  * instead of implying the flag applies here.
+ *
+ * The cause note is last and conditional, for the same reason it is a note at
+ * all. `reason:` prints the `RUN_BLOCKED` payload verbatim, and on the gate
+ * path that payload says `ANALYSIS_QUEUED` — the queue the block was filed
+ * under, not the anomaly. Correcting the payload would ripple through the
+ * fixtures and the matched-unblock ledger, so the honesty belongs here, where
+ * it can name the code the gate actually recorded without costing the ordinary
+ * four remedies a line or a place.
  */
 export function formatBlockedRunReport(
   runId: RunId,
@@ -602,6 +537,7 @@ export function formatBlockedRunReport(
     | { reason?: string; requiredEvidence?: readonly string[] }
     | undefined;
   const requiredEvidence = payload?.requiredEvidence ?? [];
+  const cause = gateBlockCause(events);
   return [
     `  reason: ${payload?.reason ?? "unknown"}\n`,
     `  required evidence: ${requiredEvidence.length === 0 ? "(none recorded)" : requiredEvidence.join(", ")}\n`,
@@ -609,8 +545,60 @@ export function formatBlockedRunReport(
     `  next: pnpm cli inject --run ${runId} --type fact --key <key> --value <text> --state-root ${stateRoot}\n`,
     `  next: pnpm cli unblock --run ${runId} --reason <text> [--retry-node <nodeId>] --state-root ${stateRoot}\n`,
     `  note: resume alone replays BLOCKED — unblock is the event that clears this log, so run unblock first, then pnpm cli resume --run ${runId} --state-root ${stateRoot} executes the reopened work\n`,
-    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`
+    `  note: if that unblock is refused because a descendant of the failed node already executed, --retry-node <nodeId> --discard-executed authorizes discarding it; the set is computed, not listed, and no budget is refunded\n`,
+    ...(cause === undefined ? [] : [formatGateCauseNote(cause)])
   ].join("");
+}
+
+/** Every criterion the block can name, as `id (evidence: …)`. */
+function formatUnmetCriteria(cause: GateBlockCause): string[] {
+  return cause.unmetCriteria.map((criterion) => {
+    const evidence =
+      criterion.evidenceIds.length === 0 ? "" : ` (evidence: ${criterion.evidenceIds.join(", ")})`;
+    return `${criterion.id}${evidence}`;
+  });
+}
+
+/**
+ * The one line that says what `reason: ANALYSIS_QUEUED` does not.
+ *
+ * It has to correct two readings of that word, not one. The first is that the
+ * word is the cause: it is not, the cause is the code the gate recorded, so the
+ * note names it and the turn it was recorded on. The second is that something
+ * is working on the block: nothing is. `queue_analysis` is the gate's own
+ * verdict word, and the packet `applyChildThreeLine` builds for it is dropped —
+ * `proposeFromAnomaly` has no production caller, so there is no durable item,
+ * no consumer, and no dequeue that could ever end this block. `unblock` is the
+ * only thing that clears it, which the resume note above already says and this
+ * one must not contradict.
+ *
+ * The diagnostics stay on `inspect`: the failed dimensions and the criteria the
+ * child reported unmet are one command away and are printed in full there, and
+ * a routing block is read for what to do next, not for the whole assessment.
+ */
+function formatGateCauseNote(cause: GateBlockCause): string {
+  return `  note: ANALYSIS_QUEUED is the tracking gate's verdict, not a running job — the gate recorded ${cause.reasonCode} on turn ${cause.turnId}; no analysis consumer is wired and nothing dequeues this block, so unblock is still what clears it, and inspect prints the failed dimensions and any unmet criteria the gate recorded\n`;
+}
+
+/**
+ * The same cause, as additive `inspect` prose. Prints nothing for a run the
+ * tracking gate did not block, and never for `--summary-json`: the four
+ * INSPECT_SUMMARY keys are frozen, and a machine-readable gate cause is a new
+ * public field that would need its own pins.
+ */
+function formatGateCauseLines(cause: GateBlockCause): string {
+  const kind = cause.gateKind === undefined ? "" : `${cause.gateKind} gate, `;
+  const lines = [`  gate cause: ${cause.reasonCode} (${kind}turn ${cause.turnId})\n`];
+  if (cause.codes.length > 1) {
+    lines.push(`  gate codes: ${cause.codes.join(", ")}\n`);
+  }
+  if (cause.failedDimensions.length > 0) {
+    lines.push(`  gate failed dimensions: ${cause.failedDimensions.join(", ")}\n`);
+  }
+  for (const criterion of formatUnmetCriteria(cause)) {
+    lines.push(`  gate unmet criterion: ${criterion}\n`);
+  }
+  return lines.join("");
 }
 
 function reportBlockedRun(io: CliIo, outcome: FlowchartRunOutcome, stateRoot: string): void {
@@ -622,7 +610,9 @@ function missingRun(io: CliIo, command: string, runId: RunId, stateRoot: string)
     command,
     stage: "lookup",
     message: `Run ${runId} not found under ${stateRoot}`,
-    next: `check --state-root and pnpm cli inspect --run ${runId}`,
+    // Re-inspecting the id that was just reported missing answers nothing; the
+    // inventory of ids that do exist under this state root does.
+    next: `check --state-root, then pnpm cli list --state-root ${stateRoot} for the run ids that exist there`,
     runId
   });
 }
@@ -1153,6 +1143,112 @@ async function inspectEpisode(stateRoot: string, rawId: string, json: boolean, i
   return 0;
 }
 
+/** The project root a run recorded at discovery, when its log carries one. */
+function projectRootFromEvents(events: readonly Event[]): string | undefined {
+  const discovered = events.findLast((event) => event.type === "PROJECT_DISCOVERED");
+  if (discovered === undefined || discovered.type !== "PROJECT_DISCOVERED") return undefined;
+  return discovered.payload.project.rootPath;
+}
+
+/**
+ * One recorded value on a labelled fact line, escaped only when it would
+ * otherwise break out of that line.
+ *
+ * A newline inside a persisted objective or project path would forge another
+ * `continuation ...` line, so control characters select JSON escaping; plain
+ * values stay readable as themselves.
+ */
+function trackFactValue(value: string): string {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return JSON.stringify(value);
+  }
+  return value;
+}
+
+/**
+ * The arguments a replacement tracked run needs, as labelled facts.
+ *
+ * Deliberately not a copy-pasteable command line. `projectRoot`, `stateRoot`
+ * and the persisted objective are operator/project data: concatenated into one
+ * `pnpm cli run --track ...` string, a path containing `;` or a space and an
+ * objective containing `$(...)` become shell syntax the moment the line is
+ * pasted, and `JSON.stringify` quoting does not suppress either. Every caller
+ * prints these as data the operator retypes into their own shell.
+ */
+function trackContinuationFacts(input: {
+  readonly stateRoot: string;
+  readonly projectRoot: string | undefined;
+  readonly objective: string | undefined;
+}): readonly string[] {
+  const project =
+    input.projectRoot === undefined
+      ? "(not recorded — supply the project this run was started on)"
+      : trackFactValue(input.projectRoot);
+  const objective =
+    input.objective === undefined
+      ? "(not recorded — supply the objective this run was started with)"
+      : trackFactValue(input.objective);
+  return [
+    "continuation verb: run --track",
+    `continuation project: ${project}`,
+    `continuation objective: ${objective}`,
+    "continuation answers: --answers <file.json>",
+    `continuation state-root: ${trackFactValue(input.stateRoot)}`
+  ];
+}
+
+/**
+ * What a `run --track` clarification wait is actually waiting for.
+ *
+ * The questions live only in `runtime/runs/<runId>/track-questions.json`: the
+ * `RUN_WAITING_FOR_USER` event carries a message id and nothing else, and
+ * `inspectRun` collects pending questions from child `QUESTION` messages,
+ * which this plane never produces. So without this block `inspect` shows a run
+ * waiting on a question it cannot name.
+ *
+ * The continuation is a *new* tracked run because nothing consumes an answer
+ * for the waiting one — `answer` refuses it for that reason. Saying so here is
+ * the honest version: the stranded run stays `WAITING_FOR_USER`.
+ *
+ * `undefined` when the run has no questions file, i.e. is not this plane.
+ */
+export function formatTrackClarificationReport(input: {
+  readonly runId: RunId;
+  readonly stateRoot: string;
+  readonly clarification: TrackClarificationRead;
+  readonly projectRoot: string | undefined;
+}): string | undefined {
+  const { clarification } = input;
+  if (clarification.kind === "absent") return undefined;
+  const path = trackQuestionsPath(input.stateRoot, input.runId);
+  const lines: string[] = [];
+  if (clarification.kind === "unreadable") {
+    lines.push(`  clarification: this run waits on run --track questions, but ${path} could not be read: ${clarification.reason}\n`);
+    lines.push("  next: read that file yourself — the questions are recorded nowhere else, so none are shown here\n");
+  } else {
+    lines.push(`  clarification: this run waits on ${clarification.questions.length} run --track question(s) recorded in ${path}\n`);
+    for (const question of clarification.questions) {
+      lines.push(`    ${question.id}: ${question.question}\n`);
+    }
+    if (clarification.questions.length === 0) {
+      lines.push("    (the file records no questions)\n");
+    }
+  }
+  const objective = clarification.kind === "read" ? clarification.objective : undefined;
+  lines.push("  next: this run stays WAITING_FOR_USER; start a new tracked run from the facts below (they are arguments, not a shell line)\n");
+  for (const fact of trackContinuationFacts({
+    stateRoot: input.stateRoot,
+    projectRoot: input.projectRoot,
+    objective
+  })) {
+    lines.push(`  ${fact}\n`);
+  }
+  lines.push("  note: --assume-defaults answers them with the recorded defaults instead of an answers file\n");
+  lines.push(`  note: answer --run ${input.runId} cannot continue this run — nothing consumes an answer on this plane, so it stays WAITING_FOR_USER and the continuation above is a new run\n`);
+  return lines.join("");
+}
+
 async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -1259,6 +1355,12 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`    - ${item}\n`);
     }
   }
+  // A gate-blocked run's `requiredEvidence` above names ids and no cause; these
+  // lines name the cause, off the same log.
+  const gateCause = gateBlockCause(read.events);
+  if (gateCause !== undefined) {
+    io.stdout(formatGateCauseLines(gateCause));
+  }
   if (inspection.children.length > 0) {
     io.stdout(`  children: ${inspection.children.length}\n`);
     for (const child of inspection.children) {
@@ -1282,6 +1384,15 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   }
   for (const answer of inspection.answers) {
     io.stdout(`  answer ${answer.messageId}: ${answer.answer}\n`);
+  }
+  const clarificationReport = formatTrackClarificationReport({
+    runId,
+    stateRoot,
+    clarification: await readTrackClarification(stateRoot, runId),
+    projectRoot: projectRootFromEvents(read.events)
+  });
+  if (clarificationReport !== undefined) {
+    io.stdout(clarificationReport);
   }
   if (state.anomalies.length > 0) {
     for (const anomaly of state.anomalies) {
@@ -1768,6 +1879,33 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   if (read.events.length === 0) {
     return missingRun(io, "answer", runId, stateRoot);
   }
+  // Refused before anything is appended, and before the flowchart plane is
+  // consulted at all: a `run --track` clarification wait never reaches the
+  // flowchart supervisor, so its questions file is the plane marker. The
+  // `USER_ANSWER` this used to write had no consumer, and worse, `replayRun`
+  // clears `sawWaiting` on it — the run then replays as RUNNING while nothing
+  // is running. Existence of the file is enough to refuse; the questions
+  // themselves are only needed to print them, which `inspect` does. A wait
+  // that lost the file is caught further down, by correlation instead.
+  const clarification = await readTrackClarification(stateRoot, runId);
+  if (isTrackClarificationWait(clarification)) {
+    const facts = trackContinuationFacts({
+      stateRoot,
+      projectRoot: projectRootFromEvents(read.events),
+      objective: clarification.kind === "read" ? clarification.objective : undefined
+    });
+    return cliFail(io, {
+      command: "answer",
+      stage: "validation",
+      message: `Run ${runId} is waiting on run --track clarification questions, and no answer recorded here is ever read`,
+      // Facts over one `next:` command line, and inside `next` rather than
+      // printed beside it so the JSON report carries them too.
+      next: `pnpm cli inspect --run ${runId} prints the questions (with the state root below); a new tracked run continues the work, from these arguments (or --assume-defaults):\n${facts
+        .map((fact) => `  ${fact}`)
+        .join("\n")}`,
+      runId
+    });
+  }
   const checkpoint = await readValidatedCheckpoint(stateRoot, runId);
   requireDurableFlowchartCheckpoint(runId, read.events, checkpoint);
   if (checkpoint?.flowchart !== undefined) {
@@ -1835,6 +1973,27 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   }
   if (selectedActionIds !== undefined || values.results !== undefined) {
     throw new DomainValidationError("answer --selected/--results require a flowchart checkpoint");
+  }
+  // Fail closed on a wait this answer cannot reach. The questions file above is
+  // only the tidy marker of a `run --track` wait: `waitForClarification`
+  // appends `RUN_WAITING_FOR_USER` before it writes that file, so a crash or a
+  // manual delete leaves a genuine wait with no sidecar and nothing here to
+  // recognise. What every answerable non-flowchart wait does have is the child
+  // `QUESTION` this message id belongs to, so that correlation — not the file —
+  // decides. Without it `replayRun` would clear `sawWaiting` on the appended
+  // `USER_ANSWER` and the stranded run would replay as RUNNING with no
+  // consumer. Runs that are not waiting keep recording answers as before.
+  if (replayRun(read.events).status === "WAITING_FOR_USER") {
+    const pending = (await inspectRun(stateRoot, runId)).pendingQuestions;
+    if (!pending.some((question) => question.id === values.message)) {
+      return cliFail(io, {
+        command: "answer",
+        stage: "validation",
+        message: `Run ${runId} is WAITING_FOR_USER but records no pending question ${trackFactValue(values.message)} to answer`,
+        next: `pnpm cli inspect --run ${runId} lists the questions this run actually recorded — answer one of those ids, and pass the same --state-root you passed here. Recording this answer would replay the run as RUNNING with nothing consuming it, so nothing was appended. A run --track wait whose track-questions.json was lost also lands here, and its questions are then recorded nowhere.`,
+        runId
+      });
+    }
   }
   const messageId = parseMessageId(values.message);
   await store.append({
@@ -2001,11 +2160,23 @@ the adaptation plane: feedback bound to that episode is tombstoned and its
 free-text body is stripped (see docs/data-dictionary.md). Exactly one of
 --run / --episode must be given.
 
---lock-wait-ms bounds how long the delete waits for the cooperative lock its
-target is under (default 5000). A live run holds its lock for as long as it
-runs, so a larger value is how an operator says "wait for that run to finish"
-instead of stopping it; 0 refuses immediately rather than waiting at all. The
-delete fails closed either way: a wait that runs out removes nothing.
+--lock-wait-ms bounds how long the delete waits for each cooperative lock it
+has to take (default 5000). A live run holds its lock for as long as it runs,
+so a larger value is how an operator says "wait for that run to finish"
+instead of stopping it; 0 refuses immediately rather than waiting at all.
+
+What a wait that runs out refuses is the lock-guarded half: removing
+runtime/runs/<runId>/, or unlinking the episode's own records. Those are left
+exactly as they were, and the command exits non-zero with LOCK_TIMEOUT.
+
+The other half runs first and is NOT rolled back. --run has by then dropped
+the run's rows from runtime/invocations.jsonl and invalidated the derived
+routing snapshot; --episode has by then stripped the free text from feedback
+bound to that episode and tombstoned those ids. Completing the privacy-safe
+half first is deliberate, so a delete that fails still leaves less user text on
+disk than it found. A --run delete that got that far says so on stderr before
+it exits. Re-running the same delete once the lock is free is idempotent: it
+finishes the half that was refused.
 `;
 
 /**
@@ -2061,7 +2232,14 @@ export async function deleteCommand(args: string[], io: CliIo): Promise<number> 
   const lock = lockWaitOptions(values["lock-wait-ms"]);
   const result =
     values.run !== undefined
-      ? await deleteRunRecords(stateRoot, parseRunId(values.run), lock)
+      ? await deleteRunRecords(stateRoot, parseRunId(values.run), {
+          ...lock,
+          // The failure path prints the thrown error and a `next:` line, and
+          // drops the DeletionResult on the way — so the telemetry rows this
+          // delete already dropped would otherwise be invisible to the
+          // operator it fails in front of.
+          disclosePartial: (line: string) => io.stderr(`${line}\n`)
+        })
       : await deleteEpisodeRecords(stateRoot, parseEpisodeId(values.episode as string), lock);
   for (const runId of result.residualEpisodeTextRunIds) io.stdout(`residual episode text: run ${runId} still holds a copy (append-only log; delete --run ${runId} to remove it)\n`);
   if (result.removedPaths.length === 0 && result.cascadedFeedbackTombstones.length === 0) {
@@ -2294,6 +2472,12 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
     switch (command) {
       case "run":
         return await runCommand(rest, io);
+      case "validate":
+        return await validateCommand(rest, io);
+      case "list":
+        return await listCommand(rest, io);
+      case "init":
+        return await initExamplesCommand(rest, io);
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":

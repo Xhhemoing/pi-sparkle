@@ -1,6 +1,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { runtimeRoot } from "./state-layout.js";
+import { assertDefaultEvalDatasetNotAliased } from "./eval-dataset-path.js";
+import { defaultEvalDatasetDir, runtimeRoot } from "./state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";
@@ -110,6 +111,23 @@ export interface DeletionResult {
 }
 
 export { feedbackTombstonesPath } from "../feedback/store.js";
+
+export interface RunDeletionOptions extends FileLockOptions {
+  /**
+   * Disclosure seam for the half of a `delete --run` that completes before any
+   * lock is taken.
+   *
+   * The invocation-log rewrite runs first and is not rolled back, so a delete
+   * that then fails — a lock it could not have, or records it could not prove
+   * gone — has already changed the telemetry plane while throwing away the
+   * `DeletionResult` that would have said so. When that happens and rows were
+   * actually dropped, this is called exactly once with a single line (no
+   * trailing newline) naming what stayed dropped. It is never called when the
+   * rewrite dropped nothing, and never on the success path, where the same
+   * facts are already in `removedPaths`.
+   */
+  readonly disclosePartial?: (line: string) => void;
+}
 
 async function statExists(path: string): Promise<boolean> {
   try {
@@ -229,14 +247,25 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
 
 /**
  * Delete one run's records: the runtime subtree (events, checkpoint, pause
- * state, track questions) under `runtime/runs/<runId>/`, plus that run's rows
- * in the shared `runtime/invocations.jsonl`. Deleting a run does not touch its
+ * state, track questions) under `runtime/runs/<runId>/`, that run's rows in the
+ * shared `runtime/invocations.jsonl`, and the replay dataset derived from the
+ * run at the default `adaptation/eval-datasets/<runId>/`
+ * (`removeDefaultEvalDataset`). Deleting a run does not touch its
  * episode: episodes can outlive individual runs (multi-run attach), which is
  * why the `run-event` record class does not declare episode propagation.
  *
  * The invocation rewrite runs first and fails closed: if the log has a corrupt
  * middle line we cannot prove which rows belong to this run, so nothing is
  * deleted at all rather than reporting a partial delete as success.
+ *
+ * Ahead of even that, the dataset cascade's target is checked with `lstat`: a
+ * `<runId>` leaf that is a symlink is refused (`EvalDatasetAliasError`) before
+ * anything is removed. `rm`ing it would unlink the alias and report the
+ * default path as removed while the exported manifest — the run's own task
+ * text, derived — stayed on disk at the target. The exporter no longer
+ * produces that shape, so reaching it means a pre-existing or hand-planted
+ * link; either way the operator, not this delete, decides what happens to the
+ * directory it points at.
  *
  * ## The subtree removal happens under the run's lock, and is verified twice
  *
@@ -248,12 +277,17 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * `appendJsonlLine` retries ENOENT through `mkdir` — which is how a delete
  * used to report success over records that were already back.
  *
- * `options` bounds that acquisition, and it fails closed: a live writer that
- * holds the lock for longer than the timeout means the delete throws with
- * nothing removed rather than deleting around it. Locks are never stolen here
- * either, so a lock left by a killed writer makes the delete fail until an
- * operator removes it — identical to `delete --episode`, and diagnosable with
- * `doctor`.
+ * `options` bounds that acquisition — and the invocation log's, so one
+ * `--lock-wait-ms` means the same thing at both locks this delete takes — and
+ * it fails closed: a live writer that holds the run lock for longer than the
+ * timeout means the delete throws without removing any of the run's records,
+ * rather than deleting around it. What it does *not* mean is that the delete
+ * changed nothing: the invocation rewrite above already ran, and stays run.
+ * `options.disclosePartial` is how that reaches the operator on the failure
+ * path, where the `DeletionResult` that would have reported it is thrown away.
+ * Locks are never stolen here either, so a lock left by a killed writer makes
+ * the delete fail until an operator removes it — identical to
+ * `delete --episode`, and diagnosable with `doctor`.
  *
  * Which writers take the lock is a measured decision, not a full set: the two
  * per-step writers (`EventStore.append`, `CheckpointStore.write`) do not,
@@ -286,9 +320,10 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
  * lifecycle lock — which is what a live run *does* hold. Against a real live
  * run the delete no longer reaches the removal at all: it waits, and then
  * either removes cleanly (the run ended inside the bounded wait) or fails with
- * `LOCK_TIMEOUT` having touched nothing. The refusal it replaces happened
- * *after* `rm` had already run, so a delete racing a live run used to destroy
- * part of that run's records on its way to failing closed.
+ * `LOCK_TIMEOUT` having touched none of the run's records — its invocation
+ * rows are already gone by then, disclosed rather than undone. The refusal it
+ * replaces happened *after* `rm` had already run, so a delete racing a live
+ * run used to destroy part of that run's records on its way to failing closed.
  *
  * The one limit that cannot be closed from here: a write that lands after the
  * final verification is a new fact, not a resurrection — the same posture the
@@ -298,28 +333,99 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
 export async function deleteRunRecords(
   stateRoot: string,
   runId: RunId,
-  options: FileLockOptions = {}
+  options: RunDeletionOptions = {}
 ): Promise<DeletionResult> {
-  const invocations = await dropRunFromInvocationLog(stateRoot, runId);
+  // Before anything is touched: the dataset cascade has to be able to remove
+  // the derivative, not just the name it is filed under. A `<runId>` leaf that
+  // is a symlink cannot be, so the delete refuses here — where nothing has
+  // been removed and nothing has to be disclosed — instead of at the end,
+  // after the run's records and telemetry rows are already gone.
+  await assertDefaultEvalDatasetNotAliased(stateRoot, runId, "delete");
+
+  const invocations = await dropRunFromInvocationLog(stateRoot, runId, options);
 
   const runDir = join(runtimeRoot(stateRoot), "runs", runId);
-  const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
-  // Re-assert outside the lock, so the claim this call returns with is about
-  // the moment it returns and not about the moment it let go: releasing a lock
-  // is itself two I/O turns, and a writer that does not take the lock can use
-  // them. One `readdir` on an absent directory, once per delete.
-  if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
-  if (invocations.droppedRows > 0) {
-    removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
-    if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
+  try {
+    const removed = await removeRunSubtreeLocked(stateRoot, runId, runDir, options);
+    // Re-assert outside the lock, so the claim this call returns with is about
+    // the moment it returns and not about the moment it let go: releasing a
+    // lock is itself two I/O turns, and a writer that does not take the lock
+    // can use them. One `readdir` on an absent directory, once per delete.
+    if (removed.length > 0) await verifyRunRecordsRemoved(stateRoot, runId);
+    removed.push(...(await removeDefaultEvalDataset(stateRoot, runId)));
+    if (invocations.droppedRows > 0) {
+      removed.push(`${invocations.path} (${invocations.droppedRows} invocation row(s))`);
+      if (invocations.staleAggregate !== undefined) removed.push(invocations.staleAggregate);
+    }
+    return {
+      target: `run:${runId}`,
+      removedPaths: removed,
+      cascadedFeedbackTombstones: [],
+      droppedInvocations: invocations.droppedRows,
+      residualEpisodeTextRunIds: []
+    };
+  } catch (error) {
+    disclosePartialRunDelete(runId, invocations, options.disclosePartial);
+    throw error;
   }
-  return {
-    target: `run:${runId}`,
-    removedPaths: removed,
-    cascadedFeedbackTombstones: [],
-    droppedInvocations: invocations.droppedRows,
-    residualEpisodeTextRunIds: []
-  };
+}
+
+/**
+ * Remove the replay dataset `adapt dataset --run <runId>` exports by default.
+ *
+ * That file is a derived copy of the run's own text — a redacted excerpt of
+ * every routed task's objective plus the redacted project root — so a run
+ * delete that left it behind would keep the run's task text on disk under a
+ * different name. It is reached by path rather than by search: the default
+ * directory is `defaultEvalDatasetDir`, the same helper the exporter writes to.
+ *
+ * This is the last step of the delete rather than the first, so a delete that
+ * fails at the run lock leaves the dataset in place instead of removing part of
+ * a delete it did not complete. The re-delete is idempotent and finishes it.
+ *
+ * A `--dir` export is out of reach on purpose: the operator named that path,
+ * nothing records it, and rediscovering it would mean searching arbitrary
+ * directories for manifests. `adapt dataset --dir` says so on stderr when it
+ * writes one. There is deliberately no global search for manifests here to
+ * make up for that.
+ *
+ * The alias check is repeated here even though `deleteRunRecords` preflights
+ * it: the preflight ran before two locks were taken, and a leaf that becomes a
+ * symlink in that window would otherwise be `rm`ed as if it were the dataset.
+ * `statExists` is what made this unsafe before — it follows the link, so the
+ * derivative "existed", and the `rm` beneath it removed only the alias.
+ */
+async function removeDefaultEvalDataset(stateRoot: string, runId: RunId): Promise<string[]> {
+  await assertDefaultEvalDatasetNotAliased(stateRoot, runId, "delete");
+  const datasetDir = defaultEvalDatasetDir(stateRoot, runId);
+  if (!(await statExists(datasetDir))) return [];
+  await rm(datasetDir, { recursive: true, force: true });
+  return [datasetDir];
+}
+
+/**
+ * Tell the caller what the failed delete already did, without letting the
+ * telling replace the failure: a reporter that throws would hide a
+ * `LOCK_TIMEOUT` behind a broken disclosure hook, which is the one outcome
+ * worse than no disclosure at all.
+ */
+function disclosePartialRunDelete(
+  runId: RunId,
+  invocations: InvocationRewrite,
+  disclose: ((line: string) => void) | undefined
+): void {
+  if (disclose === undefined || invocations.droppedRows === 0) return;
+  const invalidated =
+    invocations.staleAggregate === undefined
+      ? ""
+      : `, and the derived ${invocations.staleAggregate} snapshot was invalidated with them`;
+  try {
+    disclose(
+      `run:${runId}: the delete failed, but its telemetry half had already completed and is not rolled back: ${invocations.droppedRows} invocation row(s) were dropped from ${invocations.path}${invalidated}. Whether the run's own records under runtime/runs/ survived is what the reported error says. Re-run the same delete once that is resolved; it is idempotent and removes the rest.`
+    );
+  } catch {
+    // nothing left to report it to
+  }
 }
 
 /**
@@ -788,7 +894,11 @@ interface InvocationRewrite {
  *    (`withInvocationLogLock`), the same lock `appendInvocationRecord` takes.
  *    A live invocation append therefore lands either wholly before the read or
  *    wholly after the write, instead of into the window between them where the
- *    rewrite would clobber it.
+ *    rewrite would clobber it. `options` bounds that acquisition too: this is
+ *    one of the two locks a `delete --run` takes, so `--lock-wait-ms 0` must
+ *    refuse here as immediately as it does at the run lock, and a long wait
+ *    the operator chose must not be cut short by a 5 s default they did not.
+ *    The live append path keeps its own defaults; nothing here changes them.
  *  - The derived p50 snapshot is invalidated here, with the rows, rather than
  *    at the end of the delete: the subtree removal that follows can fail
  *    closed (`RunRecordsSurvivedError`), and a failed delete must not leave an
@@ -796,23 +906,28 @@ interface InvocationRewrite {
  */
 async function dropRunFromInvocationLog(
   stateRoot: string,
-  runId: RunId
+  runId: RunId,
+  options: FileLockOptions = {}
 ): Promise<InvocationRewrite> {
   const path = invocationsLogPath(stateRoot);
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
   if (!(await statExists(path))) return { path, droppedRows: 0, staleAggregate: undefined };
-  const droppedRows = await withInvocationLogLock(stateRoot, async () => {
-    const { values } = await readInvocationRecords(
-      stateRoot,
-      "refusing to rewrite it for a delete"
-    );
-    const kept = values.filter((row) => !rowNamesRun(row, runId));
-    const dropped = values.length - kept.length;
-    if (dropped === 0) return 0;
-    await writeInvocationRecords(stateRoot, kept);
-    return dropped;
-  });
+  const droppedRows = await withInvocationLogLock(
+    stateRoot,
+    async () => {
+      const { values } = await readInvocationRecords(
+        stateRoot,
+        "refusing to rewrite it for a delete"
+      );
+      const kept = values.filter((row) => !rowNamesRun(row, runId));
+      const dropped = values.length - kept.length;
+      if (dropped === 0) return 0;
+      await writeInvocationRecords(stateRoot, kept);
+      return dropped;
+    },
+    options
+  );
   const staleAggregate =
     droppedRows > 0 ? await invalidateCatalogObserved(stateRoot) : undefined;
   return { path, droppedRows, staleAggregate };

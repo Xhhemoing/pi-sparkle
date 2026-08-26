@@ -21,14 +21,18 @@ explicit plane directories:
   episode, model-invocation, catalog-observed, providers-config,
   auth-credential
 - `<root>/adaptation/` — feedback (+tombstones), preference,
-  preference-dataset, candidate, routing-eval-report, learned-routing-policy,
-  learning-bandit, experiment
+  preference-dataset, candidate, routing-eval-report, routing-eval-dataset,
+  learned-routing-policy, learning-bandit, experiment
 
 **Boundary rule:** adaptation modules never read runtime files directly.
 Runtime data reaches the adaptation plane only as (a) derived signals with no
 user text (taskSuccess PASS/FAIL via `src/learning/from-episode.ts`), or
-(b) through the redaction pipes (`redactFeedback` / `exportForDataset`). The
-current import exceptions are pinned in
+(b) through the redaction pipes (`redactFeedback` / `exportForDataset` /
+`exportRoutingEvalDataset`, which runs the task objective and the discovered
+project root through `redactSensitiveText` and only then cuts the objective
+down to a 500-character excerpt, before writing a replay dataset). Redaction
+there is best-effort pattern matching, so both fields stay declared sensitive
+rather than being called clean. The current import exceptions are pinned in
 `test/unit/privacy/plane-boundary.test.ts`; new ones require an explicit
 allowlist entry with a justification.
 
@@ -67,6 +71,7 @@ allowlist entry with a justification.
 | catalog-observed | runtime | `runtime/routing/catalog-observed.json` | until-deleted | delete-files | 1 |
 | candidate | adaptation | `adaptation/registry.json` | until-rollback | tombstone-ids | 1 |
 | routing-eval-report | adaptation | `adaptation/evals/<candidateId>.<cacheKey>.json` | until-deleted | exclude-from-export | 1 |
+| routing-eval-dataset | adaptation | `adaptation/eval-datasets/<runId>/manifest.json` (default, removed by `delete --run`; `adapt dataset --dir` may name another directory, which is an external export outside that cascade) | until-deleted | delete-files | 1 |
 | learned-routing-policy | adaptation | `adaptation/learning/projects/<stableProjectKey>/routing.json` | until-deleted | delete-files | 1 |
 | learning-bandit | adaptation | `adaptation/learning/projects/<stableProjectKey>/bandit.json` | until-deleted | delete-files | 1 |
 | experiment | adaptation | in-memory / fixture plans | until-deleted | exclude-from-export | 1 |
@@ -93,6 +98,32 @@ do not take this lock and can recreate the subtree. A write after the final
 verification is a new write, so deletion after termination remains the
 supported flow.
 
+`delete --run <id>` also removes `adaptation/eval-datasets/<id>/`, the replay
+dataset `adapt dataset --run <id>` writes by default. That file is a derived
+copy of the run's own text (a redacted excerpt of each routed task's objective
+plus the redacted project root), so leaving it behind would keep the run's task
+text on disk under another name. It is reached by path — the exporter and the
+delete share `defaultEvalDatasetDir` — and removed after the run subtree, so a
+delete that fails at the run lock leaves it for the idempotent re-delete rather
+than half-completing. **An `adapt dataset --dir <path>` export is not
+cascaded**: nothing records the operator's path and rediscovering it would mean
+searching arbitrary directories for manifests, so the export command warns on
+stderr that the copy is external and the operator owns its deletion.
+
+Sharing the path is not enough on its own, because a path is a name and not
+the thing it names. If the `<runId>` leaf is a **symlink**, an export publishes
+through it and a delete can only unlink it — which is how a default export with
+no `--dir` warning behind it used to produce an external derivative that
+`delete --run` then reported as removed. Both halves therefore `lstat` the leaf
+(`src/privacy/eval-dataset-path.ts`). A default export binds to the resolved
+`eval-datasets` container, creates the leaf with a non-recursive `mkdir`, and
+re-asserts the binding after publishing; a symlinked leaf is refused. A
+`delete --run` against that shape **fails closed** with
+`EvalDatasetAliasError` (`code: "EVAL_DATASET_ALIAS"`) before it takes either
+lock, naming the target: following the alias would delete an operator's
+external directory, and unlinking it would report a removal that did not
+happen. The operator removes the derivative and the link, then re-deletes.
+
 The M0, parent, flowchart, and supervised start/resume paths, plus clarification
 runs, take `runtime/runs/<runId>.lock` once for the whole record-writing
 lifecycle and release it after teardown. Clarification discovery remains
@@ -109,9 +140,34 @@ an empty `runtime/runs/` directory, but no run subtree, lock, or record.
 `delete --run <id>` and `delete --episode <id>` accept
 `--lock-wait-ms <ms>`. Omitting it preserves the lock's 5 s default, `0`
 refuses a held lock immediately, and only decimal whole milliseconds through
-the 24 h ceiling are accepted. A delete aimed at a live run waits for clean
-teardown up to that bound instead of removing records underneath it; if the
-run outlives the wait, deletion fails with `LOCK_TIMEOUT` and removes nothing.
+the 24 h ceiling are accepted. The bound applies to every cooperative lock the
+delete takes, not just the target's: on the `--run` path that is
+`invocations.jsonl.lock` as well as `runtime/runs/<runId>.lock`, so `0` refuses
+at both and a long chosen wait is not cut short by a default at the first one.
+A delete aimed at a live run waits for clean teardown up to that bound instead
+of removing records underneath it; if the run outlives the wait, deletion fails
+with `LOCK_TIMEOUT`.
+
+**A timed-out delete is partial, not a no-op, and that is deliberate.** Both
+targets complete their adaptation/telemetry half *before* taking the lock that
+guards the target's own records, so the privacy-safe work survives a failure:
+
+- `--run` has already filter-rewritten `runtime/invocations.jsonl` and
+  invalidated `catalog-observed.json` by the time it asks for the run lock.
+  Those rows are not restored on failure; the CLI prints one stderr line naming
+  the count and the paths before it exits non-zero, because the throw discards
+  the `DeletionResult` that reports them on the success path.
+- `--episode` has already stripped `body`/`summary` from feedback bound to the
+  episode and persisted those ids as tombstones by the time it asks for the
+  episode lock (`cascadeFeedbackTombstones` runs first, and the two locks are
+  never nested).
+
+What a `LOCK_TIMEOUT` refuses is the lock-guarded half — removing
+`runtime/runs/<id>/`, or unlinking `<epId>.jsonl` and `<epId>.events.jsonl` —
+and those records are left byte-identical. Re-running the same delete once the
+lock is free is idempotent: the completed half is a no-op the second time and
+the refused half finishes.
+
 `pause` deliberately has no matching flag: waiting longer can succeed only
 after the lifecycle holder has stopped, when writing a pause token would be a
 slow no-op rather than pausing a busy run. A cross-process pause therefore
@@ -122,7 +178,9 @@ pause/delete/track-question writes remain blocked until an operator inspects
 the recorded PID and run state with `pi-sparkle doctor`, stops any live owner,
 and manually removes a confirmed abandoned lock. The crash-probe case
 `sigkill-run-lock-operator-recovery` crosses that OS-process boundary: it proves
-the recorded PID is dead, proves a timed-out delete changes no bytes, checks
+the recorded PID is dead, proves a timed-out delete leaves every file under the
+run's own directory byte-identical (the scope it snapshots; the pre-lock
+telemetry half above is outside it), checks
 doctor's `pidLiveness: "not-running"` and manual-removal guidance, then removes
 the confirmed abandoned lock and verifies deletion. The standing probe has
 eleven ordered cases, each run for three iterations. The added tenth case,
@@ -246,6 +304,28 @@ the reopened work. `unblock` appends one `RUN_UNBLOCKED` naming the exact active
 block and reopens state without executing it; stale, repeated, and wrong-node
 requests are refused. A BLOCKED result still exits 1.
 
+On the gate path that recorded reason is the constant `ANALYSIS_QUEUED`, which
+names the queue the block was filed under rather than the anomaly. The anomaly
+is `GATE_TRANSITION.payload.reasonCode`; the failed dimensions are on the
+`TRACKING_ASSESSMENT` that transition cites; an acceptance criterion the child
+reported unmet is on that child's terminal `CHILD_MESSAGE`.
+`src/run/inspection.ts::gateBlockCause` reads those three back off the persisted
+log — pairing the newest `RUN_BLOCKED` with the transition that precedes it,
+requiring that transition to be the `queue_analysis` / `to: BLOCKED` shape that
+writes the block at all, joining the cited assessment by hash *and* `seq`, and
+never consulting `GateApplyResult` — and two verbs render it. `inspect --run`
+prose adds `gate cause:`, plus `gate codes:`, `gate failed dimensions:` and one
+`gate unmet criterion:` line per reported FAILED criterion when there are any;
+`--summary-json` is unchanged, still exactly the four frozen `INSPECT_SUMMARY`
+keys. The blocked report adds one trailing `note:` naming the same code and
+turn. That note also states what `ANALYSIS_QUEUED` is not: no analysis consumer
+is wired, nothing dequeues the block, and `unblock` remains what clears it. The
+diagnostics stay on `inspect`, and the note routes there. Both production causes,
+`deterministic-fail` and `unmet-acceptance-criterion`, are pinned end to end. The
+`RUN_BLOCKED` payload, the gate, and the four routed lines above are untouched:
+the unknown-is-not-unmet rule of `tracking/from-child.ts::unmetCriteriaOf`
+applies to what is named, so an `UNOBSERVED` or absent criterion stays open.
+
 Ordinary `RUN_UNBLOCKED` keeps exactly its three signed-off keys
 (`blockedEventId`, `reason`, optional `retryNodeId`) and cannot discard
 executed descendants. The stronger `--discard-executed` authorization has the
@@ -339,7 +419,9 @@ these are covered by the claims above:
   and the append-times-out-instead-of-writing-unlocked case). The run-plane
   lifecycle lock now prevents the locked M0, parent, flowchart, and supervised
   paths and their deletion from overlapping: deletion waits for teardown or
-  times out having removed nothing. The subtree removal still verifies once
+  times out having removed none of the run's own records — the rows this
+  rewrite already dropped stay dropped, and are disclosed on stderr rather
+  than restored. The subtree removal still verifies once
   while holding that lock and once after release. Event appends and checkpoint
   writes remain lock-free for measured end-to-end cost reasons, so a
   direct/out-of-lifecycle writer can still make deletion refuse with

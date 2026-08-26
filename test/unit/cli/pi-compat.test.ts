@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
-import { piCompatBreakage, readSparklePackageJson } from "../../../src/cli/pi-compat.js";
+import { PI_COMPAT_USAGE, piCompatBreakage, readSparklePackageJson } from "../../../src/cli/pi-compat.js";
 import { readPinnedPiVersions, type PiCompatReport } from "../../../src/pi-compat/index.js";
 
 /** A port nothing listens on, so --online fails closed without leaving the host. */
@@ -86,6 +86,28 @@ test("pi-compat rejects --offline together with --online", async () => {
   assert.equal(parsed?.command, "pi-compat");
   assert.equal(parsed?.stage, "parse-args");
   assert.match(parsed?.message ?? "", /either --offline or --online, not both/);
+});
+
+test("a mistyped pi-compat flag is an argv error that names --help", async () => {
+  const { io, out, err } = capture();
+  const code = await main(["pi-compat", "--ofline"], io);
+  assert.equal(code, 1);
+  assert.deepEqual(out, []);
+  const parsed = parseCliErrorJson(err.join(""));
+  assert.equal(parsed?.command, "pi-compat");
+  assert.equal(parsed?.stage, "parse-args");
+  assert.match(parsed?.message ?? "", /--ofline/);
+  assert.match(parsed?.next ?? "", /--help/);
+});
+
+// The positional form worked before; `--help` behind another flag threw.
+test("pi-compat honours --help wherever it appears", async () => {
+  for (const args of [["pi-compat", "--help"], ["pi-compat", "--offline", "--help"]]) {
+    const { io, out, err } = capture();
+    assert.equal(await main(args, io), 0, err.join(""));
+    assert.equal(out.join(""), PI_COMPAT_USAGE);
+    assert.deepEqual(err, []);
+  }
 });
 
 test("pi-compat --online fails closed when the registry is unreachable", async () => {

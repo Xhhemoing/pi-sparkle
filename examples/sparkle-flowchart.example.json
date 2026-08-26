@@ -1,0 +1,36 @@
+{
+  "id": "flw_example",
+  "nodes": [
+    {
+      "id": "survey",
+      "taskId": "tsk_survey",
+      "role": "actor",
+      "objective": "List every call site that reads configuration directly, with file and line",
+      "modelPolicy": {
+        "allowedModels": ["cheap", "premium"],
+        "preferredModel": "cheap"
+      },
+      "confidenceThreshold": 0.7,
+      "approvalRequired": false
+    },
+    {
+      "id": "migrate",
+      "taskId": "tsk_migrate",
+      "role": "actor",
+      "objective": "Route the surveyed call sites through the shared configuration loader",
+      "modelPolicy": {
+        "allowedModels": ["cheap", "premium"],
+        "preferredModel": "premium"
+      },
+      "confidenceThreshold": 0.7,
+      "approvalRequired": false
+    }
+  ],
+  "edges": [
+    {
+      "from": "survey",
+      "to": "migrate",
+      "condition": { "type": "success", "expected": true }
+    }
+  ]
+}

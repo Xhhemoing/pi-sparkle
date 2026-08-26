@@ -3,7 +3,11 @@ import { Writable } from "node:stream";
 import type { AuthInteraction, AuthType } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import type { CustomProviderConfig } from "../config/providers-config.js";
-import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
+import {
+  authStorePath,
+  EmptyCredentialStore,
+  FileCredentialStore
+} from "./file-credential-store.js";
 import { createPiRuntime } from "./runtime.js";
 
 export interface SparkleAuthIo {
@@ -51,10 +55,19 @@ export async function storeApiKeyCredential(
   return authStorePath(stateRoot);
 }
 
-/** Idempotent: removing a provider that has no stored credential is a no-op. */
-export async function deleteStoredCredential(stateRoot: string, providerId: string): Promise<void> {
+/**
+ * Removes a provider's stored credential and reports whether there was one.
+ *
+ * Idempotent: removing a provider that has no stored credential is a no-op, so
+ * `auth logout` stays safe to re-run. The boolean exists so the caller can say
+ * which of the two happened instead of claiming a removal either way.
+ */
+export async function deleteStoredCredential(
+  stateRoot: string,
+  providerId: string
+): Promise<boolean> {
   requireProviderId(providerId);
-  await new FileCredentialStore(authStorePath(stateRoot)).delete(providerId);
+  return new FileCredentialStore(authStorePath(stateRoot)).deleteExisting(providerId);
 }
 
 export async function listStoredCredentials(
@@ -63,12 +76,48 @@ export async function listStoredCredentials(
   return new FileCredentialStore(authStorePath(stateRoot)).list();
 }
 
+/**
+ * How this provider resolves auth today: a stored credential first, ambient
+ * environment only when nothing is stored. That is Pi's own precedence, and it
+ * is the question `auth status` asks — "can this provider be used".
+ */
 export async function checkProviderAuth(
   stateRoot: string,
   providerId: string,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<SparkleAuthCheck | undefined> {
   const runtime = await createPiRuntime({ stateRoot, customProviders });
+  return await checkAuthOf(runtime, providerId);
+}
+
+/**
+ * Whether the *environment* configures this provider, ignoring `auth.json`.
+ *
+ * `checkProviderAuth` cannot answer this: Pi reads the credential store first,
+ * so it reports success for a provider whose only source is a stored key —
+ * which would make `--from-env` pass on the strength of the file it claims not
+ * to consult. Running the same check against an empty store is the narrow
+ * question, and it stays honest for every provider Pi knows how to resolve
+ * ambiently (env vars, ADC files, AWS profiles) without this file re-deriving
+ * the variable names and drifting from the pin.
+ */
+export async function checkProviderEnvAuth(
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[] = []
+): Promise<SparkleAuthCheck | undefined> {
+  const runtime = await createPiRuntime({
+    stateRoot,
+    customProviders,
+    credentials: new EmptyCredentialStore()
+  });
+  return await checkAuthOf(runtime, providerId);
+}
+
+async function checkAuthOf(
+  runtime: Awaited<ReturnType<typeof createPiRuntime>>,
+  providerId: string
+): Promise<SparkleAuthCheck | undefined> {
   const check = await runtime.models.checkAuth(providerId);
   if (check === undefined) return undefined;
   return {
@@ -102,11 +151,13 @@ export async function listBuiltinProviderIds(): Promise<readonly string[]> {
  * injected reader: the interactive paths are otherwise only reachable through
  * a real stdin.
  *
- * A `secret` prompt is never echoed. On a TTY, readline — not the terminal
- * driver — is what redraws each typed character, so the answer is read through
- * an interface whose output is a sink: the prompt is printed by us, the
- * keystrokes are displayed by nobody, and the secret goes straight back to Pi.
- * It is not written to `io.stdout` either, at any point.
+ * What the user types at a `secret` prompt is never written anywhere by this
+ * module: the answer goes straight back to Pi, not to `io.stdout`, and on a
+ * real TTY the keystrokes are not echoed back to the terminal either — the
+ * readline interface for a secret writes through `mutedPromptOutput`, which
+ * passes the prompt and then swallows everything, so a pasted API key does not
+ * land in the operator's scrollback. An injected `io.question` owns its own
+ * echo policy; this module cannot mute a reader it did not create.
  */
 export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
   // Opened on the first prompt and closed after it, rather than once per
@@ -121,27 +172,9 @@ export function cliAuthInteraction(io: SparkleAuthIo): AuthInteraction {
       rl.close();
     }
   };
-  // The injected reader owns its own echo policy (a test recorder echoes
-  // nothing, an embedder may already be reading from a masked field), so it
-  // keeps the same path as every other prompt.
   const askSecret = async (message: string): Promise<string> => {
     if (io.question !== undefined) return io.question(message);
-    io.stdout(message);
-    const rl = createInterface({
-      input: process.stdin,
-      output: silentOutput(),
-      // Line editing, and therefore echo, only happens in terminal mode. It is
-      // forced off the sink's own (absent) TTY-ness and onto stdin's, so a
-      // piped stdin still reads a line and a real one still reads it silently.
-      terminal: process.stdin.isTTY === true
-    });
-    try {
-      return await question(rl, "");
-    } finally {
-      rl.close();
-      // The newline the user typed was swallowed with the rest of the echo.
-      io.stdout("\n");
-    }
+    return await hiddenQuestion(message);
   };
   return {
     async prompt(prompt) {
@@ -182,14 +215,72 @@ function requireProviderId(providerId: string): void {
 }
 
 function question(rl: ReturnType<typeof createInterface>, message: string): Promise<string> {
-  return new Promise((resolve) => rl.question(message, resolve));
+  return new Promise((resolve, reject) => {
+    // A closed stdin (EOF, a piped input that ran out, a killed parent) never
+    // delivers the answer, so without this the login promise settles never
+    // instead of failing.
+    rl.once("close", () => {
+      reject(new DomainValidationError("stdin closed before the prompt was answered"));
+    });
+    rl.question(message, resolve);
+  });
 }
 
-/** Accepts and discards everything readline would have drawn. */
-function silentOutput(): Writable {
-  return new Writable({
-    write(_chunk: unknown, _encoding: unknown, done: () => void) {
-      done();
+export interface MutedPromptOutput {
+  /** Readline's output stream: writes reach `sink` until `mute()` is called. */
+  readonly stream: Writable;
+  readonly mute: () => void;
+}
+
+/**
+ * A writable that forwards what readline prints and can then be silenced.
+ *
+ * On a TTY, readline turns off the terminal driver's own echo and re-renders
+ * the typed line to its output itself, so muting that output — after the
+ * prompt has been written and before the first keystroke is rendered — is what
+ * keeps a secret off the screen and out of scrollback. Exported for the unit
+ * test: the muting is the whole security property, so it is worth pinning on
+ * its own rather than only through a prompt that needs a real terminal.
+ */
+export function mutedPromptOutput(sink: (text: string) => void): MutedPromptOutput {
+  let muted = false;
+  const stream = new Writable({
+    write(chunk: string | Buffer, _encoding, callback) {
+      if (!muted) sink(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+      callback();
     }
   });
+  return {
+    stream,
+    mute: () => {
+      muted = true;
+    }
+  };
+}
+
+async function hiddenQuestion(message: string): Promise<string> {
+  const output = mutedPromptOutput((text) => process.stdout.write(text));
+  const rl = createInterface({
+    input: process.stdin,
+    output: output.stream,
+    // Raw mode is what stops the terminal driver from echoing; without it
+    // readline neither owns the echo nor can suppress it.
+    terminal: process.stdin.isTTY === true
+  });
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      rl.once("close", () => {
+        reject(new DomainValidationError("stdin closed before the prompt was answered"));
+      });
+      rl.question(message, resolve);
+      // Only now: `question` writes the prompt synchronously, so muting before
+      // it would hide the question along with the answer.
+      output.mute();
+    });
+  } finally {
+    rl.close();
+    // The submitted newline was swallowed with the rest of the echo, so the
+    // next line of output would otherwise start beside the prompt.
+    process.stdout.write("\n");
+  }
 }

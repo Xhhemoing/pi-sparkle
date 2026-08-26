@@ -44,3 +44,30 @@ test("enabled models join the live catalog and alias cheap/premium", async () =>
     assert.ok((cheap?.inputCostPerMTok ?? 0) >= 0);
   });
 });
+
+/**
+ * A single primary and no fast model is the `models set-default --primary`
+ * path, and the pi executor resolves both aliases to that one model. The
+ * catalog has to say the same thing, or the shipped flowchart example (which
+ * prefers `premium`) is refused on a state root that can run it. The list is
+ * exact because the aliases must follow the concrete rows: selection keeps the
+ * earliest catalog-order candidate on a tie, so prepending them would hand
+ * every equal-cost assignment to an alias.
+ */
+test("a lone primary still exposes both cheap and premium aliases", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await setDefaultModels(stateRoot, { primary: "openai/gpt-4o-mini" });
+    const catalog = await buildLiveCatalogConfig(stateRoot);
+    assert.deepEqual(
+      catalog.models.map((model) => model.id),
+      ["openai/gpt-4o-mini", DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID]
+    );
+    const concrete = catalog.models.find((model) => model.id === "openai/gpt-4o-mini");
+    assert.ok(concrete);
+    for (const aliasId of [DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID]) {
+      const alias = catalog.models.find((model) => model.id === aliasId);
+      assert.equal(alias?.providerId, "openai");
+      assert.equal(alias?.estimatedCostUsd, concrete.estimatedCostUsd);
+    }
+  });
+});

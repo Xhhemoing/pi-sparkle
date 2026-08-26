@@ -34,6 +34,22 @@ export function cliFail(io: CliErrorIo, report: Omit<CliErrorReport, "ok">): typ
 }
 
 /**
+ * The truncated-JSONL disclosure every reader of a crash-truncated log owes its
+ * operator: the tail line was dropped, so what follows is short. Structural
+ * `recovery` shape rather than the `JsonlRecovery` import so this module keeps
+ * depending on nothing.
+ */
+export function warnTruncatedJsonl(
+  io: CliErrorIo,
+  recovery: { incompleteLine?: string; lineNumber?: number },
+  label: string
+): void {
+  if (recovery.incompleteLine === undefined) return;
+  const at = recovery.lineNumber !== undefined ? ` at line ${recovery.lineNumber}` : "";
+  io.stderr(`warning: ignored truncated ${label}${at}\n`);
+}
+
+/**
  * The `code` of a typed failure, when it carries a string one.
  *
  * Discriminating on `code` is the only supported way to classify an error at

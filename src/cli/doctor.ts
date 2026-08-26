@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, stat, writeFile, unlink } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, stat, writeFile, unlink } from "node:fs/promises";
 import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,7 +10,8 @@ import {
   defaultUserPiAgentsDir,
   listPiAgentProfilesFromDirs
 } from "../agents/dispatch-preflight.js";
-import { loadProvidersConfig } from "../config/providers-config.js";
+import { loadProvidersConfig, type CustomProviderConfig } from "../config/providers-config.js";
+import { tryParseModelRef } from "../config/model-ref.js";
 import { isRunId, type RunId } from "../domain/ids.js";
 import {
   BanditStateUnreadableError,
@@ -23,12 +24,13 @@ import {
   PreferenceSnapshotUnreadableError,
   readPreferenceSnapshot
 } from "../preferences/store.js";
-import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
+import { adaptationRoot, runtimeRoot, type Plane } from "../privacy/state-layout.js";
 import {
   CatalogObservedCorruptError,
   catalogObservedPath,
   loadCatalogObservedSnapshot
 } from "../routing/catalog-observed.js";
+import { checkProviderAuth, type SparkleAuthCheck } from "../pi-adapter/auth-session.js";
 import { EventStore } from "../run/event-store.js";
 import { replayRun } from "../run/replay.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
@@ -46,7 +48,35 @@ export interface DoctorOptions {
   readonly nowMs?: number;
   /** Test seam; production checks the recorded PID on the local host. */
   readonly pidLiveness?: (pid: number) => RecordedPidLiveness;
+  /** Test seam; production resolves credentials the way a run would. */
+  readonly authCheck?: DoctorAuthCheck;
+  /**
+   * Test seam for the storage walk. Directory reads that fail for anything but
+   * ENOENT are the only way `storage.scanErrors` is populated, and no portable
+   * fixture produces that failure on both POSIX and Windows, so the tests
+   * inject it here instead of relying on mode bits.
+   */
+  readonly storageFs?: DoctorStorageFs;
 }
+
+/** The subset of `node:fs` Stats the storage walk reads; `Stats` satisfies it. */
+export interface DoctorStorageStats {
+  isDirectory(): boolean;
+  isFile(): boolean;
+  isSymbolicLink(): boolean;
+  readonly size: number;
+}
+
+export interface DoctorStorageFs {
+  readdir(dir: string): Promise<readonly string[]>;
+  lstat(path: string): Promise<DoctorStorageStats>;
+}
+
+export type DoctorAuthCheck = (
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+) => Promise<SparkleAuthCheck | undefined>;
 
 /**
  * Frozen `--json` contract. Additive changes only: consumers pin `checks[].name`
@@ -64,6 +94,7 @@ export interface DoctorJsonReport {
   readonly locks: DoctorLockInventory;
   readonly runStates: DoctorRunStateInventory;
   readonly learnedState: DoctorLearnedStateInventory;
+  readonly storage: DoctorStorageInventory;
 }
 
 export type DoctorLockPidLiveness = "running" | "not-running" | "unknown" | "not-recorded";
@@ -123,6 +154,25 @@ export interface DoctorLearnedStateInventory {
   readonly scanErrors: readonly string[];
 }
 
+export type DoctorStorageEntryKind = "file" | "directory" | "link" | "other";
+
+export interface DoctorStorageEntry {
+  readonly path: string;
+  readonly plane: Plane;
+  readonly kind: DoctorStorageEntryKind;
+  /** Logical bytes of the regular files totalled here, not disk allocation. */
+  readonly bytes: number;
+  readonly files: number;
+  /** Links found in this entry's subtree, counted rather than descended. */
+  readonly links: number;
+}
+
+export interface DoctorStorageInventory {
+  readonly advisory: string;
+  readonly entries: readonly DoctorStorageEntry[];
+  readonly scanErrors: readonly string[];
+}
+
 export interface PackageEngines {
   readonly version: string;
   readonly enginesNode: string;
@@ -134,6 +184,27 @@ export interface DoctorCheck {
   readonly ok: boolean;
   readonly detail: string;
 }
+
+/**
+ * Doctor is the remedy target of every generic and routed `next` in the CLI, so
+ * its own discovery gesture has to answer instead of failing. The posture line
+ * repeats the banner the human report prints: help must not read more honest
+ * than the report it describes.
+ */
+const DOCTOR_USAGE = `pi-sparkle doctor — preflight the install and inventory the state root
+
+Usage:
+  pi-sparkle doctor [--state-root <dir>] [--project <dir>] [--agents-dir <dir>] [--json]
+
+  --state-root <dir>  state root to inventory (default ~/.pi-sparkle)
+  --project <dir>     project root to check for package.json and Pi agent profiles
+  --agents-dir <dir>  Pi agents directory to load profiles from instead of the defaults
+  --json              print the frozen report object on stdout instead of the prose report
+
+Developer preview — not a production capability; live R1/bandit/topology stay
+off until Checkpoint F-PROD closes. doctor reads and reports only: it never
+steals locks, changes run state, or repairs learned state.
+`;
 
 const NEXT_STEPS: readonly string[] = [
   "pnpm cli run --project <path> --objective <text> uses the fake executor",
@@ -153,6 +224,8 @@ const PREFERENCE_STATE_REMEDIATION =
   "learned state: repair the file or move it aside and relearn preferences from an empty store; doctor never changes it";
 const DERIVED_STATE_REMEDIATION =
   "derived state: delete the damaged file and rebuild it from runtime/invocations.jsonl; doctor never changes it";
+const STORAGE_ADVISORY =
+  "Retention is unbounded by accepted policy: doctor measures and never deletes, and delete --run and episode deletion are the reclaim verbs; sizes are logical bytes of regular files rather than disk allocation, links are counted but never descended, and the whole walk is a best-effort snapshot of a tree that can change while it is read";
 
 function readPackageEngines(): PackageEngines {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -618,6 +691,119 @@ async function learnedStateInventory(
   return { advisory: LEARNED_STATE_ADVISORY, entries, scanErrors };
 }
 
+interface StorageTotals {
+  bytes: number;
+  files: number;
+  links: number;
+}
+
+const REAL_STORAGE_FS: DoctorStorageFs = {
+  readdir: (dir) => readdir(dir),
+  lstat: (path) => lstat(path)
+};
+
+function scanError(scanErrors: string[], path: string, error: unknown): void {
+  if (errorCode(error) === "ENOENT") return;
+  scanErrors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+async function storageSubtreeTotals(
+  dir: string,
+  fs: DoctorStorageFs,
+  scanErrors: string[]
+): Promise<StorageTotals> {
+  const totals: StorageTotals = { bytes: 0, files: 0, links: 0 };
+  let names: readonly string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (error) {
+    scanError(scanErrors, dir, error);
+    return totals;
+  }
+  for (const name of [...names].sort((left, right) => left.localeCompare(right))) {
+    const child = await storageNodeTotals(join(dir, name), fs, scanErrors);
+    totals.bytes += child.totals.bytes;
+    totals.files += child.totals.files;
+    totals.links += child.totals.links;
+  }
+  return totals;
+}
+
+/**
+ * `lstat` before recursion so a link is counted where it sits instead of being
+ * descended into. That is best-effort, not an identity guarantee: a directory
+ * can be replaced between this `lstat` and the `readdir` below it, and Node has
+ * no portable fd-relative no-follow walk to close that window with.
+ */
+async function storageNodeTotals(
+  path: string,
+  fs: DoctorStorageFs,
+  scanErrors: string[]
+): Promise<{ kind: DoctorStorageEntryKind | null; totals: StorageTotals }> {
+  let stats: DoctorStorageStats;
+  try {
+    stats = await fs.lstat(path);
+  } catch (error) {
+    scanError(scanErrors, path, error);
+    return { kind: null, totals: { bytes: 0, files: 0, links: 0 } };
+  }
+  if (stats.isSymbolicLink()) {
+    return { kind: "link", totals: { bytes: 0, files: 0, links: 1 } };
+  }
+  if (stats.isDirectory()) {
+    return { kind: "directory", totals: await storageSubtreeTotals(path, fs, scanErrors) };
+  }
+  if (stats.isFile()) {
+    return { kind: "file", totals: { bytes: stats.size, files: 1, links: 0 } };
+  }
+  return { kind: "other", totals: { bytes: 0, files: 0, links: 0 } };
+}
+
+/**
+ * Growth, measured from the two authoritative plane roots rather than from a
+ * hand-maintained list of record classes: every immediate entry under
+ * `runtime/` and `adaptation/` is totalled recursively, so a file nobody
+ * thought to enumerate here is still counted under the entry containing it.
+ * Read-only — doctor measures and never deletes.
+ */
+async function storageInventory(
+  stateRoot: string,
+  options: DoctorOptions
+): Promise<DoctorStorageInventory> {
+  const fs = options.storageFs ?? REAL_STORAGE_FS;
+  const entries: DoctorStorageEntry[] = [];
+  const scanErrors: string[] = [];
+  const planes: readonly (readonly [Plane, string])[] = [
+    ["runtime", runtimeRoot(stateRoot)],
+    ["adaptation", adaptationRoot(stateRoot)]
+  ];
+
+  for (const [plane, root] of planes) {
+    let names: readonly string[];
+    try {
+      names = await fs.readdir(root);
+    } catch (error) {
+      scanError(scanErrors, root, error);
+      continue;
+    }
+    for (const name of [...names].sort((left, right) => left.localeCompare(right))) {
+      const path = join(root, name);
+      const node = await storageNodeTotals(path, fs, scanErrors);
+      if (node.kind === null) continue;
+      entries.push({
+        path,
+        plane,
+        kind: node.kind,
+        bytes: node.totals.bytes,
+        files: node.totals.files,
+        links: node.totals.links
+      });
+    }
+  }
+
+  return { advisory: STORAGE_ADVISORY, entries, scanErrors };
+}
+
 function lockInventoryCheck(inventory: DoctorLockInventory): DoctorCheck {
   const unreadable = inventory.entries.filter((entry) => entry.metadata === "unreadable").length;
   const errors = inventory.scanErrors.length;
@@ -659,6 +845,26 @@ function learnedStateInventoryCheck(inventory: DoctorLearnedStateInventory): Doc
   };
 }
 
+function storageInventoryCheck(inventory: DoctorStorageInventory): DoctorCheck {
+  const errors = inventory.scanErrors.length;
+  const planeTotal = (plane: Plane): string => {
+    const planeEntries = inventory.entries.filter((entry) => entry.plane === plane);
+    const bytes = planeEntries.reduce((sum, entry) => sum + entry.bytes, 0);
+    const files = planeEntries.reduce((sum, entry) => sum + entry.files, 0);
+    return `${plane}=${bytes} logical byte(s) in ${files} file(s)`;
+  };
+  const links = inventory.entries.reduce((sum, entry) => sum + entry.links, 0);
+  return {
+    name: "storage",
+    ok: errors === 0,
+    detail: `${planeTotal("runtime")}; ${planeTotal("adaptation")}; ${
+      inventory.entries.length
+    } top-level entr(y|ies), ${links} link(s) counted but not followed${
+      errors === 0 ? "" : `; ${errors} scan error(s)`
+    }; ${inventory.advisory}`
+  };
+}
+
 function lockEntryDetail(entry: DoctorLockEntry): string {
   return `${entry.path}: age=${
     entry.ageMs === null ? "unknown" : `${Math.round(entry.ageMs)}ms`
@@ -674,6 +880,10 @@ function runStateEntryDetail(entry: DoctorRunStateEntry): string {
 function learnedStateEntryDetail(entry: DoctorLearnedStateEntry): string {
   const project = entry.projectKey === null ? "" : ` project-key=${entry.projectKey}`;
   return `${entry.kind}:${project} class=${entry.stateClass} status=${entry.status} path=${entry.path}; remediation=${entry.remediation}`;
+}
+
+function storageEntryDetail(entry: DoctorStorageEntry): string {
+  return `${entry.path}: plane=${entry.plane} kind=${entry.kind} bytes=${entry.bytes} files=${entry.files} links=${entry.links}`;
 }
 
 function nodeCheck(engines: PackageEngines, actual: string): DoctorCheck {
@@ -713,6 +923,86 @@ async function providersCheck(stateRoot: string): Promise<DoctorCheck> {
     const message = error instanceof Error ? error.message : String(error);
     return { name: "providers", ok: false, detail: message };
   }
+}
+
+/**
+ * Whether the models this state root would actually route to can authenticate.
+ *
+ * Without it, a missing credential is discovered mid-run, as Pi's
+ * `Provider is not configured` — after run state exists and after the operator
+ * has waited. The question is asked of exactly the providers a run would use
+ * (`primary`, `fast`, and everything enabled), and it is asked the way `auth
+ * status` asks it: a stored credential first, ambient environment second.
+ *
+ * Nothing is reported but the provider id and the *source* of its credential
+ * (an environment variable name, or "stored credential") — the same posture as
+ * `auth status`, and never the value. `--json` consumers read this detail, so
+ * a secret leaked here would be a secret written to whatever collects it.
+ */
+async function authCheck(stateRoot: string, options: DoctorOptions): Promise<DoctorCheck> {
+  let config;
+  try {
+    config = await loadProvidersConfig(stateRoot);
+  } catch {
+    // The `providers` check already fails on this and names the reason; a
+    // second failure for one cause would just be noise.
+    return {
+      name: "auth",
+      ok: true,
+      detail: "skipped: providers.json could not be read (see the providers check)"
+    };
+  }
+
+  const providerIds = uniqueProviderIds([
+    ...(config.primary !== undefined ? [config.primary] : []),
+    ...(config.fast !== undefined ? [config.fast] : []),
+    ...config.enabled
+  ]);
+  if (providerIds.length === 0) {
+    return {
+      name: "auth",
+      ok: true,
+      detail: "no models enabled — the fake executor needs no credentials"
+    };
+  }
+
+  const check = options.authCheck ?? checkProviderAuth;
+  const parts: string[] = [];
+  const missing: string[] = [];
+  for (const providerId of providerIds) {
+    try {
+      const resolved = await check(stateRoot, providerId, config.customProviders);
+      if (resolved === undefined) {
+        missing.push(providerId);
+        parts.push(`${providerId}=no credential`);
+      } else {
+        parts.push(`${providerId}=${resolved.type} via ${resolved.source ?? "unnamed source"}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      missing.push(providerId);
+      parts.push(`${providerId}=unresolved (${message})`);
+    }
+  }
+
+  const ok = missing.length === 0;
+  return {
+    name: "auth",
+    ok,
+    detail: ok
+      ? parts.join("; ")
+      : `${parts.join("; ")} — run pi-sparkle auth login <provider> or set the provider's environment variable; --executor pi fails mid-run without one`
+  };
+}
+
+function uniqueProviderIds(catalogIds: readonly string[]): string[] {
+  const ids: string[] = [];
+  for (const catalogId of catalogIds) {
+    const providerId = tryParseModelRef(catalogId)?.providerId;
+    if (providerId === undefined || ids.includes(providerId)) continue;
+    ids.push(providerId);
+  }
+  return ids;
 }
 
 async function projectCheck(projectRoot: string | undefined): Promise<DoctorCheck> {
@@ -761,7 +1051,8 @@ function buildDoctorJsonReport(
   checks: readonly DoctorCheck[],
   locks: DoctorLockInventory,
   runStates: DoctorRunStateInventory,
-  learnedState: DoctorLearnedStateInventory
+  learnedState: DoctorLearnedStateInventory,
+  storage: DoctorStorageInventory
 ): DoctorJsonReport {
   const ok = checks.every((check) => check.ok);
   return {
@@ -773,7 +1064,8 @@ function buildDoctorJsonReport(
     next: ok ? NEXT_STEPS : [FIX_FAILURES_NEXT, ...NEXT_STEPS],
     locks,
     runStates,
-    learnedState
+    learnedState,
+    storage
   };
 }
 
@@ -807,26 +1099,45 @@ export async function doctorCommand(
   io: DoctorIo,
   options: DoctorOptions = {}
 ): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      "state-root": { type: "string" },
-      project: { type: "string" },
-      "agents-dir": { type: "string" },
-      json: { type: "boolean" }
-    }
-  });
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        "state-root": { type: "string" },
+        project: { type: "string" },
+        "agents-dir": { type: "string" },
+        json: { type: "boolean" },
+        help: { type: "boolean", short: "h", default: false }
+      }
+    }));
+  } catch (error) {
+    return cliFail(io, {
+      command: "doctor",
+      stage: "parse-args",
+      message: error instanceof Error ? error.message : String(error),
+      next: "run pi-sparkle doctor --help"
+    });
+  }
+  // Help answers before any work: the report path mkdirs the state root through
+  // stateRootWritable, and asking how to run doctor must write nothing.
+  if (values.help === true) {
+    io.stdout(DOCTOR_USAGE);
+    return CLI_EXIT.ok;
+  }
   const engines = readPackageEngines();
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   const locks = await lockInventory(stateRoot, options);
   const runStates = await runStateInventory(stateRoot, options);
   const learnedState = await learnedStateInventory(stateRoot, values.project);
+  const storage = await storageInventory(stateRoot, options);
   const checks: DoctorCheck[] = [
     nodeCheck(engines, options.nodeVersion ?? process.versions.node),
     pnpmCheck(engines),
     await stateRootWritable(stateRoot),
     legacyLayoutCheck(stateRoot),
     await providersCheck(stateRoot),
+    await authCheck(stateRoot, options),
     await projectCheck(values.project),
     piDispatchCheck(values.project, values["agents-dir"]),
     skillRouteLogCheck(values.project),
@@ -835,13 +1146,16 @@ export async function doctorCommand(
     piCompatCheck(),
     lockInventoryCheck(locks),
     runStateInventoryCheck(runStates),
-    learnedStateInventoryCheck(learnedState)
+    learnedStateInventoryCheck(learnedState),
+    storageInventoryCheck(storage)
   ];
   const failed = checks.some((check) => !check.ok);
 
   if (values.json === true) {
     io.stdout(
-      `${JSON.stringify(buildDoctorJsonReport(engines.version, checks, locks, runStates, learnedState))}\n`
+      `${JSON.stringify(
+        buildDoctorJsonReport(engines.version, checks, locks, runStates, learnedState, storage)
+      )}\n`
     );
   } else {
     io.stdout(`pi-sparkle doctor ${engines.version} (developer preview — not a production capability)\n`);
@@ -857,6 +1171,9 @@ export async function doctorCommand(
     }
     for (const entry of learnedState.entries) {
       io.stdout(`    state: ${learnedStateEntryDetail(entry)}\n`);
+    }
+    for (const entry of storage.entries) {
+      io.stdout(`    storage: ${storageEntryDetail(entry)}\n`);
     }
     for (const step of NEXT_STEPS) {
       io.stdout(`  next: ${step}\n`);
