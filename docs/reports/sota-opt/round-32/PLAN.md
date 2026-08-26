@@ -1,22 +1,22 @@
 # Round 32 作战计划
 
-**目标**：在 R30 十面与 R31 已合入面（**BINDX** / I/O text-codec topology / per-run transcode-byte manifest；R31-A injected-callable 停驻；R31-B 面格六门停驻；R31-D R22-D 所有权单元格；R31-F 故障通道处置分解；R31-G 全切片门扉闭合审计；R31-H 边界参数平面四门分解/停驻；R31-I CLI 进程边界门扉闭合审计）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX** 具名 ban 的前提下，对十切片做**第三十二遍**独立枚举。R31 尚未 10/10（仅 J 仍运行中）；R31-J 合入后若铸新面，本轮在飞子代理须 rebase docs-only 并把新轴加入非移植清单。本轮状态：**A 运行中；B 本波派出；C–J 待派出**。
+**目标**：在 R30 十面与 R31 已合入面（**BINDX** / I/O text-codec topology / per-run transcode-byte manifest；R31-A injected-callable 停驻；R31-B 面格六门停驻；R31-D R22-D 所有权单元格；R31-F 故障通道处置分解；R31-G 全切片门扉闭合审计；R31-H 边界参数平面四门分解/停驻；R31-I CLI 进程边界门扉闭合审计）以及 **FITQ / NAMESHAPE / SCALEX / XPROC / YMIX / SCHEDWIN / KFAN / NVG / SEEDX / TERMCLASS / SHAPEK / ORDX / CKMIX / CALLB / OCCX / JB / RUNLIM / VALCLASS / CG / AGEX / COTARG / PRICEX / RTL / DELINV / PROBX / RVL / SIDEC / PWL / ZREP / PAIRX / CSPELL / REPRX / LINKTOP / BINDX** 具名 ban 的前提下，对十切片做**第三十二遍**独立枚举。R31 尚未 10/10（仅 J 仍运行中）；R31-J 合入后若铸新面，本轮在飞子代理须 rebase docs-only 并把新轴加入非移植清单。本轮状态：**A 已合入；B 运行中；C 本波派出；D–J 待派出**。
 
 **约束**：
 
-- R8–R31 已合入切片全部诚实空枚举（R31-J 待回）。无新 S31-A-* … S31-I-*。
+- R8–R31 已合入切片全部诚实空枚举（R31-J 待回）。无新 S31-A-* … S31-I-*。R32-A 亦诚实空枚举关闭（无 S32-A-*）。
 - 生产基线未变：最后 `src/` 提交仍为 `183df9b`（S7-C）。
 - 禁止再编号：FITQ、NAMESHAPE、SCALEX、XPROC、YMIX、SCHEDWIN、KFAN、NVG、SEEDX、TERMCLASS、SHAPEK、ORDX、CKMIX、CALLB、OCCX、JB、RUNLIM、VALCLASS、CG、AGEX、COTARG、PRICEX、RTL、DELINV、PROBX、RVL、SIDEC、PWL、ZREP、PAIRX、CSPELL、REPRX、LINKTOP、BINDX（空枚举轴外号，**不是** EXCLUSIONS 表行）。
-- R21–R31 具名 / unnamed 面与上列停驻 / 分解 / 审计记录亦 plan-ban，**不**写入 EXCLUSIONS 表行。
+- R21–R31 具名 / unnamed 面与上列停驻 / 分解 / 审计记录亦 plan-ban，**不**写入 EXCLUSIONS 表行。R32-A 重开条件哨兵审计（F12a–d）按方法 / 停驻记录，**不**铸造新面、**不**写入 EXCLUSIONS 表行。
 - 落地条件、硬不变量、sim 家族与 [PROGRESS.md](../PROGRESS.md) / [EXCLUSIONS.md](../EXCLUSIONS.md) / [round-31/PLAN.md](../round-31/PLAN.md) 一致。
 
 ## 切片（与 R1–R31 相同）
 
 | 切片 | 范围 | 状态 |
 | --- | --- | --- |
-| A | `src/tracking/` + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`（14） | 运行中 |
-| B | 在线路由 9 + `src/supervisor/model-router.ts`（10） | 本波派出 |
-| C | 离线路由 9 | 待派出 |
+| A | `src/tracking/` + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`（14） | 已合入（空枚举；未铸造新面；重开条件哨兵审计 F12a–d；13.5–15.7 µs/gate ⇒ ~68–79 µs/run） |
+| B | 在线路由 9 + `src/supervisor/model-router.ts`（10） | 运行中 |
+| C | 离线路由 9 | 本波派出 |
 | D | `src/adaptation/`（14） | 待派出 |
 | E | `src/learning/`（10） | 待派出 |
 | F | `src/experiments/`（15） | 待派出 |
@@ -29,11 +29,11 @@
 
 ## 第三十二遍焦点
 
-**A — 运行中**：14 文件（`src/tracking/` 12 + `src/run/child-tracking.ts` + `src/run/gate-apply.ts`）。基线 `7acb666`。默认对照 R31-A（13.6–16.9 µs/gate ⇒ ~68–84 µs/run）。非再移植：call-stream ordering / dispatch-history、跨工具调用序 / 跨工具时序拓扑、FITQ、CALLB、OCCX、SEEDX、KFAN、injected-callable 平面（R31-A 停驻；`generateEventId` / `readers.readToolBodies` 不是独立物理对象）、**BINDX**、I/O text-codec topology / per-run transcode-byte manifest、R31-B 六个停驻门、R31-D 的 R22-D 单元格、R31-F 故障通道处置残格、R31-G 门扉闭合审计、R31-H 四扇边界参数残门、R31-I CLI 进程边界门扉闭合审计。若落地：gate + 既有 A harness。报告 `docs/reports/sota-opt/round-32/R32-A.md`。禁止开 PR。
+**A — 已合入（空枚举；未铸造新面；重开条件哨兵审计 F12a–d）**：[R32-A.md](./R32-A.md)。14 文件；基线 `7acb666`。14 文件相对 `7acb666` 三验 0 行；`wc -l` 1796。本轮系统性验证全部在案重开条件均未触发（F12a 四入口无新调用方；F12b Math.* = 6 token 未变、切片零 fs/codec、零 `JSON.parse`；F12c `requiredChecks` 仍契约封顶；F12d `DEFAULT_TRACKING_CONFIG` 未变）。预算重锚 13.5–15.7 µs/gate ⇒ ~68–79 µs/run。**禁止**再编号为新 A 轴；**禁止**把「再查一遍重开条件」铸成新面；**禁止**写入 EXCLUSIONS 表行。
 
-**B — 本波派出**：10 文件（`src/routing/`：r0.ts、assign.ts、assign-plan.ts、policy.ts、live-cascade.ts、live-selection.ts、analyze-task.ts、primary-catalog.ts、catalog-model.ts + `src/supervisor/model-router.ts`）。基线 `94ed3d9`。S12-B-2 条件陆器仍未触发（`eval-routing.ts` 仍只传 `learned`）。S13-B-1 仍为 loser ID。默认对照 R31-B（M=2 9.25–11.46 / M=10 21.02–23.17；相对 R30-B +10–27% host offset，freeze 0 行）。catalog 行序契约决策承载（R28-B W3）——预排序是行为变更。非再移植：scale-cube 二阶交互、多任务并发规模立方、SCALEX、ORDX、AGEX、YMIX、SHAPEK、REPRX、LINKTOP、R31-B 六个停驻门（catalog-row hidden-class / IC-shape、cascade evidence×failure-class lattice、assignTasks cold-onset segmentation、batch class-composition mix、LINKTOP-in-B、prior alias-resolution pathway）、**BINDX**、I/O text-codec topology / per-run transcode-byte manifest、R31-I CLI 进程边界门扉闭合审计。若落地：gate + 既有 B harness。报告 `docs/reports/sota-opt/round-32/R32-B.md`。禁止开 PR。
+**B — 运行中**：10 文件（`src/routing/`：r0.ts、assign.ts、assign-plan.ts、policy.ts、live-cascade.ts、live-selection.ts、analyze-task.ts、primary-catalog.ts、catalog-model.ts + `src/supervisor/model-router.ts`）。基线 `94ed3d9`。S12-B-2 条件陆器仍未触发（`eval-routing.ts` 仍只传 `learned`）。S13-B-1 仍为 loser ID。默认对照 R31-B（M=2 9.25–11.46 / M=10 21.02–23.17；相对 R30-B +10–27% host offset，freeze 0 行）。catalog 行序契约决策承载（R28-B W3）——预排序是行为变更。非再移植：scale-cube 二阶交互、多任务并发规模立方、SCALEX、ORDX、AGEX、YMIX、SHAPEK、REPRX、LINKTOP、R31-B 六个停驻门（catalog-row hidden-class / IC-shape、cascade evidence×failure-class lattice、assignTasks cold-onset segmentation、batch class-composition mix、LINKTOP-in-B、prior alias-resolution pathway）、**BINDX**、I/O text-codec topology / per-run transcode-byte manifest、R31-I CLI 进程边界门扉闭合审计、R32-A 重开条件哨兵审计。若落地：gate + 既有 B harness。报告 `docs/reports/sota-opt/round-32/R32-B.md`。禁止开 PR。
 
-**C — 待派出**：9 文件；基线 `183df9b`。非再移植：**REPRX**、**BINDX**（realm-level 绑定态；C1 capture-hoist 已拒）、KFAN、COTARG、PROBX、DELINV、PRICEX、VALCLASS。digest / sink=7.309 位等不另铸轴。
+**C — 本波派出**：9 文件（`src/routing/r1.ts`、`r1-shadow-report.ts`、`posterior.ts`、`offline-logit.ts`、`offline-prob-add.ts`、`propensity.ts`、`lin-alg.ts`、`bandit.ts`、`shadow.ts`）。基线 `183df9b`（S7-C；最后 `src/routing/` 生产改动）。默认对照 R31-C（中位 658.1–660.1；APC 20.7–25.1 < 35；sink=floorSink=7.309）。r1c–r7c 8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193。非再移植：input object-representation / **REPRX**、**BINDX**（realm-level 绑定态；C1 capture-hoist 已价并拒——TurboFan 折叠 ambient load）、KFAN、COTARG、PROBX、DELINV、PRICEX、VALCLASS、PAIRX、R32-A 重开条件哨兵审计、R31-I CLI 进程边界门扉闭合审计。digest / sink=7.309 位等不另铸轴。若落地：重跑 r1c–r7c + gate；offline-logit ±35 ms。报告 `docs/reports/sota-opt/round-32/R32-C.md`。禁止开 PR。
 
 **D — 待派出**：14 文件；基线 `82bef36`。S9-D-4 / S12-D-1 永不再开。非再移植：approval-profile constraint-list geometry、SIDEC、PAIRX、CSPELL、ZREP、R31-D 的 R22-D 单元格。
 
@@ -55,5 +55,5 @@ A–J 均要求返回首行 `MODEL_SLUG=claude-fable-5-thinking-xhigh`，末两�
 
 - 默认预期：诚实空枚举。空枚举轴外号只进本 PLAN「禁止再编号」+ 首段 unnamed plan-ban，**不**进 EXCLUSIONS 表。
 - 若有候选：理论 + 确定性 sim + 真尺度非噪声（offline-logit ±35 ms；µs/ns 与 once-per-run CLI 噪声拒收）。输家脚本只进报告附录，不提交仓库。
-- 平台硬顶 3 并发云 VM；本波保持 R31-J + R32-A + R32-B。
+- 平台硬顶 3 并发云 VM；本波保持 R31-J + R32-B + R32-C。
 - Round 31 在 J 返回并合入后 10/10 收口；Round 32 在 J 返回并合入后 10/10 收口，再开 Round 33。
