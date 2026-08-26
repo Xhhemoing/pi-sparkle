@@ -180,3 +180,4 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | D41 | Opus-d41-inject-value | claude-opus-5-thinking-high-fast | cloud | `bc-3b040382-c659-5cad-be0a-0e5f2c2acaeb` |
 | GPT-d42-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-d6e1738d-4556-5e4c-b613-463f00bff59b` |
 | GPT-d41-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-752023bd-7203-53cc-9d9c-3ab6123ae427` |
+| GPT-d40-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | `bc-a08cf5ad-3167-5fe9-a8f6-fd4539b9fea3` |
