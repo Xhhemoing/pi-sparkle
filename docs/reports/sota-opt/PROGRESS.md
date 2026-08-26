@@ -43,7 +43,7 @@
 | 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
 | 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
 | 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
-| 29 | 第 1–6 波进行中 | 3 / 10（A/B/C 已合入；D/E 运行中；F 本波派出） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
+| 29 | 第 1–7 波进行中 | 4 / 10（A/B/C/E 已合入；D/F 运行中；G 本波派出） | claude-fable-5-thinking-xhigh | [round-29/PLAN.md](./round-29/PLAN.md) |
 
 ### Round 1 波次
 
@@ -311,8 +311,9 @@
 | 2 | R29-B live 路由 | B 已合入 |
 | 3 | R29-C 离线路由 | C 已合入 |
 | 4 | R29-D 自优化 | D 运行中 |
-| 5 | R29-E 学习 | E 运行中 |
-| 6 | R29-F 实验门控 | F 本波派出 |
+| 5 | R29-E 学习 | E 已合入 |
+| 6 | R29-F 实验门控 | F 运行中 |
+| 7 | R29-G 运行时/图 | G 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -603,8 +604,9 @@
 | R29-B | `cursor/r29-b-live-routing-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-B.md`）。无新排除 ID；天花板复核 M=2 8.70–9.30 / M=10 17.99–18.73 ms/eval；learned-policy container face 归档 |
 | R29-C | `cursor/r29-c-offline-routing-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-C.md`）。无新排除 ID；中位复核 657.1–659.6 ms；sink=7.309；PAIRX 不铸 ID |
 | R29-D | `cursor/r29-d-adaptation-twenty-ninth-pass-83a1` | 已派出 |
-| R29-E | `cursor/r29-e-learning-twenty-ninth-pass-83a1` | 已派出 |
+| R29-E | `cursor/r29-e-learning-twenty-ninth-pass-83a1` | 已合入专属分支（仅 `R29-E.md`）。无新排除 ID；SLICE-CPU 复核 14.7–15.2 µs/run；wall-clock sampling topology / timestamp-provenance face 归档 |
 | R29-F | `cursor/r29-f-experiments-twenty-ninth-pass-83a1` | 已派出 |
+| R29-G | `cursor/r29-g-runtime-twenty-ninth-pass-83a1` | 已派出 |
 
 ## 合并策略
 
