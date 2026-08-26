@@ -189,6 +189,23 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
   const episodeId = parseEpisodeId(values.episode);
 
   if (subcommand === "events") {
+    // `--status` and `--outcome` are parsed for every subcommand but only
+    // `close` acts on them. An operator who reads `--status FAILED` as a filter
+    // would otherwise be handed the whole unfiltered log as if it were the
+    // answer, which is the same fault the close `--json` refusal already
+    // covers in the opposite direction. Judged after the D39 argv order —
+    // verb, `--episode`, blank root, id shape — and before either store read,
+    // so it fires identically in both output modes.
+    const ignoredFlag =
+      values.status !== undefined ? "--status" : values.outcome !== undefined ? "--outcome" : undefined;
+    if (ignoredFlag !== undefined) {
+      return cliFail(io, {
+        command: "episode",
+        stage: "parse-args",
+        message: `episode events does not accept ${ignoredFlag}; ${ignoredFlag} applies to episode close`,
+        next: `drop ${ignoredFlag}, or use episode close`
+      });
+    }
     let read: EpisodeEventLogRead;
     try {
       read = await new EpisodeEventStore(stateRoot, episodeId).readAll();
@@ -245,6 +262,20 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
       next: "pass --status COMPLETED, FAILED, or ABANDONED"
     });
   }
+  // `--outcome "$OC"` with an unset variable would otherwise be recorded as if
+  // it were meant: the close appends `"outcomeId":""` to a log this CLI never
+  // rewrites. Refused here — after the status refusal, so a mixed argv still
+  // hears about the status first, and before the lock, so the refusal touches
+  // neither log. Only the blank instance is judged; every nonblank string the
+  // verb accepts today is still accepted.
+  if (values.outcome !== undefined && values.outcome.trim() === "") {
+    return cliFail(io, {
+      command: "episode",
+      stage: "parse-args",
+      message: `invalid --outcome "${values.outcome}": outcome id must be a non-empty string`,
+      next: "pass --outcome <id> or omit it"
+    });
+  }
 
   return await withExclusiveFileLock(
     join(runtimeRoot(stateRoot), "episodes", `${episodeId}.lock`),
@@ -276,6 +307,21 @@ export async function episodeCommand(args: string[], io: CliIo): Promise<number>
       if (status === "COMPLETED") {
         const decision = decideClosure(latest, latest.runIds);
         if (!decision.canClose) {
+          // A terminal episode is the one fault the non-COMPLETED guard below
+          // already answers correctly, and both actions the shared next names
+          // refuse on it: no evidence reopens a closed episode, and closing it
+          // FAILED/ABANDONED lands on that same guard. Reuse that envelope and
+          // let it be the whole report — the bare reason line printed the same
+          // word a second time. `acceptance-incomplete` keeps every byte,
+          // including its own disclosure of the WAITING_FOR_USER it just wrote.
+          if (decision.reason === "already-closed") {
+            return cliFail(io, {
+              command: "episode",
+              stage: "close",
+              message: "already-closed",
+              next: "inspect --episode to see the terminal status"
+            });
+          }
           if (decision.reason === "acceptance-incomplete" && latest.status !== "WAITING_FOR_USER") {
             const waiting = waitForUser(latest, decision.reason, decision.requiredEvidence);
             await snapshots.append(waiting.episode);
