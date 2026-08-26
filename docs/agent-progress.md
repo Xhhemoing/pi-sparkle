@@ -159,15 +159,15 @@ Fable-r10-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 | D38 | merged `39d4f33` from `cursor/init-migrate-target-0da8` `1268ea7` | GPT-d38-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d38.md`. |
 | D39 | merged `f447946` from `cursor/episode-corrupt-log-0da8` `0f773df` | GPT-d39-recheck **KEEP**. Report: `.agent_workspace/loop5-r10-gpt-d39.md`. |
 
-### Round 11 (implementing)
+### Round 11 (D41/D42 merged; D40 pending KEEP)
 
-Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf`. Through-line: remaining post-read faults still hit a doctor with no inventory. GPT-r11-challenge: **D40 FIX**, **D42 FIX**, **D41 FIX**; reorder **D40 → D42 → D41** (append-only write outranks late argv classification). Implementers apply the GPT-corrected contracts; do not merge until independent KEEP rechecks.
+Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/loop5-r11-fable-next.md`) at `d056bcf`. Through-line: remaining post-read faults still hit a doctor with no inventory. GPT-r11-challenge: **D40 FIX**, **D42 FIX**, **D41 FIX**; reorder **D40 → D42 → D41** (append-only write outranks late argv classification). Implementers applied the GPT-corrected contracts.
 
-| Slot | Owns | Spec |
+| Slot | Landing | Recheck |
 |---|---|---|
-| D40 | `src/cli/commits.ts` + `test/integration/cli/commits.test.ts` | Rank 1 as corrected by `.agent_workspace/loop5-r11-gpt-challenge.md` (path-free inspect nexts; D32 unknown-node bytes kept) |
-| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 2 as corrected; landed `cursor/episode-outcome-flags-0da8`; KEEP recheck in flight |
-| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` | Rank 3 as corrected; landed `cursor/inject-value-relevance-0da8`; KEEP recheck in flight |
+| D40 | landed `cursor/commits-ledger-envelopes-0da8` `f0162ff` | GPT-d40-recheck dispatching. Report: `.agent_workspace/loop5-r11-opus-d40.md`. |
+| D42 | merged `5057df8` from `cursor/episode-outcome-flags-0da8` `30ba559` | GPT-d42-recheck **KEEP**. Report: `.agent_workspace/loop5-r11-gpt-d42.md`. |
+| D41 | merged `be653d6` from `cursor/inject-value-relevance-0da8` `95ade00` | GPT-d41-recheck **KEEP**. Report: `.agent_workspace/loop5-r11-gpt-d41.md`. |
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); file-as-root (doctor answers); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string (blank instance only in D42).
 
