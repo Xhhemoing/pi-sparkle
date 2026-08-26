@@ -340,7 +340,7 @@ Fable-r11-next. Convert four stored-ledger throws to in-module `cliFail` (`comma
 
 Fable-r11-next. After per-type required flags, `override`/`skip` refuse supplied `--key`/`--value` as parse-args (`inject --type ${type} does not accept ${flag}`). Hoist `parseFactValue` into the path-free argv block (after blank-flags, before D37 blank-root); non-scalar/`null`/non-finite values are parse-args naming `--value`. Empty-string `--value` stays accepted. `--node` on `fact` and `--confidence` on every type stay legal. Do not edit `injection.ts`. Files: `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts`. Spec: Rank 2 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D30/D31/D37 only for this new defect.
 
-**Status:** GPT-r11 FIX rider is the implementation contract. Implementer dispatched.
+**Status:** landed on `cursor/inject-value-relevance-0da8` (`95ade00`). Report: `.agent_workspace/loop5-r11-opus-d41.md`. Merge gated on GPT-d41-recheck KEEP.
 
 **GPT-r11-challenge: FIX** (keep the batch; moved to rank 3). Implementation contract stands; pin the *complete* mixed argv `inject --run <valid-runId> --type fact --key k --value '{"a":1}' --state-root ""` as value-first with no state creation. Literal Fable argv omitted required `--run`/`--key` and cannot prove order. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
 
@@ -348,7 +348,7 @@ Fable-r11-next. After per-type required flags, `override`/`skip` refuse supplied
 
 Fable-r11-next. Blank/whitespace `--outcome` is parse-args (any-string domain otherwise untouched). Terminal re-close with `already-closed` uses the working `inspect --episode` envelope (no duplicate stderr reason; `acceptance-incomplete` bytes unchanged). `episode events` refuses `--status`/`--outcome` as parse-args after the D39 guard order. Do not edit stores or `closure.ts`. Files: `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts`. Spec: Rank 3 in `.agent_workspace/loop5-r11-fable-next.md`. Reopens D33/D39 only for this new defect.
 
-**Status:** GPT-r11 FIX rider is the implementation contract. Implementer dispatched.
+**Status:** landed on `cursor/episode-outcome-flags-0da8` (`30ba559`). Report: `.agent_workspace/loop5-r11-opus-d42.md`. Merge gated on GPT-d42-recheck KEEP.
 
 **GPT-r11-challenge: FIX** (keep the batch; moved to rank 2). Preserve D39 order: missing `--episode` before blank-root. Literal `episode events --status FAILED --state-root ""` keeps the missing-episode report; with a valid `--episode`, blank-root still precedes events-flag relevance. Copy the FAILED-path `already-closed` envelope for COMPLETED re-close; `acceptance-incomplete` bytes untouched. Report: `.agent_workspace/loop5-r11-gpt-challenge.md`.
 

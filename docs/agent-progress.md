@@ -166,8 +166,8 @@ Fable-r11-next ranked three file-disjoint operator batches (`.agent_workspace/lo
 | Slot | Owns | Spec |
 |---|---|---|
 | D40 | `src/cli/commits.ts` + `test/integration/cli/commits.test.ts` | Rank 1 as corrected by `.agent_workspace/loop5-r11-gpt-challenge.md` (path-free inspect nexts; D32 unknown-node bytes kept) |
-| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 2 as corrected (missing-episode before blank-root; complete argv for events-flag pin) |
-| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` | Rank 3 as corrected (complete required argv for value-before-root pin) |
+| D42 | `src/cli/episode.ts` + `test/integration/m3/episode-cli.test.ts` | Rank 2 as corrected; landed `cursor/episode-outcome-flags-0da8`; KEEP recheck in flight |
+| D41 | `src/cli/inject.ts` + `test/integration/cli/pause-inject.test.ts` | Rank 3 as corrected; landed `cursor/inject-value-relevance-0da8`; KEEP recheck in flight |
 
 HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart or terminal runs and unknown inject node (`flowchart-run.ts` / `main.ts`, PR #12); `unblock` / G5 / G7 / E4 / cost / completions / `pref` in `main.ts`; blank `--state-root` on verbs that parse the flag inside `main.ts`/`adapt.ts`; Windows smoke / status-matrix / README riders; corrupt `providers.json` (doctor remedy actually works); corrupt run logs (doctor names the file); file-as-root (doctor answers); `models list --available --provider <unknown>` `(no models)` pinned; F7 / F15; D7 Variant B; `episode close --outcome` any-string (blank instance only in D42).
 
@@ -178,3 +178,5 @@ HOLD still binding unless live evidence un-holds: pause/inject on non-flowchart 
 | D40 | Opus-d40-commits-ledger | claude-opus-5-thinking-high-fast | cloud | `bc-2be70548-1169-5a2c-9f11-6b01ed2acf33` |
 | D42 | Opus-d42-episode-outcome | claude-opus-5-thinking-high-fast | cloud | `bc-9645cabd-1b53-5cd9-8f98-87a931eb8606` |
 | D41 | Opus-d41-inject-value | claude-opus-5-thinking-high-fast | cloud | `bc-3b040382-c659-5cad-be0a-0e5f2c2acaeb` |
+| GPT-d42-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | (dispatching) |
+| GPT-d41-recheck | GPT | gpt-5.6-sol-xhigh-fast | local | (dispatching) |
