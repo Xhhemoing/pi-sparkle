@@ -52,7 +52,7 @@
 | 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
 | 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
 | 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
-| 38 | 第 1 波进行中 | 0 / 10（A/B/C 本波派出） | claude-fable-5-thinking-xhigh | [round-38/PLAN.md](./round-38/PLAN.md) |
+| 38 | 第 2 波进行中 | 1 / 10（A 已合入；B/C 运行中；D 本波派出） | claude-fable-5-thinking-xhigh | [round-38/PLAN.md](./round-38/PLAN.md) |
 
 ### Round 1 波次
 
@@ -445,7 +445,8 @@
 
 | 波 | 区 | 状态 |
 | --- | --- | --- |
-| 1 | R38-A 跟踪门控、R38-B live 路由、R38-C 离线路由 | A/B/C 本波派出 |
+| 1 | R38-A 跟踪门控、R38-B live 路由、R38-C 离线路由 | A 已合入；B/C 运行中 |
+| 2 | R38-D 自优化 | D 本波派出 |
 
 ## 待合并 PR / 分支
 
@@ -796,7 +797,8 @@
 | R37-E | `cursor/r37-e-learning-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-E.md`）。无新排除 ID；SLICE-CPU cmp25 14.7–15.3（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R37-G | `cursor/r37-g-runtime-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-G.md`）。无新排除 ID；计算顶复核 0.286–0.298 vs I/O 92.8–95.1；digest 第二十八次逐位；零新站点级换名记录 |
 | R37-J | `cursor/r37-j-persist-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-J.md`）。无新排除 ID；I/O 地板复核 preferences 132.8–277.5 / 411.4–521.6、jsonl 59.8–67.0 / fsync=true 215.5–385.6；J1 2468 / 2921.6×；零新站点级换名记录 |
-| R38-A | `cursor/r38-a-tracking-thirty-eighth-pass-83a1` | 已派出 |
+| R38-A | `cursor/r38-a-tracking-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-A.md`）。无新排除 ID；预算复核 14.0–19.0 µs/gate ⇒ ~70–95 µs/run；三项换名检查拒列未铸 |
+| R38-D | `cursor/r38-d-adaptation-thirty-eighth-pass-83a1` | 已派出 |
 | R38-B | `cursor/r38-b-live-routing-thirty-eighth-pass-83a1` | 已派出 |
 | R38-C | `cursor/r38-c-offline-routing-thirty-eighth-pass-83a1` | 已派出 |
 | R37-C | `cursor/r37-c-offline-routing-thirty-seventh-pass-83a1` | 已合入专属分支（仅 `R37-C.md`）。无新排除 ID；中位复核 658.6–660.2（主机偏快）；组合天花板 28.1–28.5 < 35；sink=7.309；零新站点级换名记录 |
