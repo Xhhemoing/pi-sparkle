@@ -1,5 +1,5 @@
-import { chmod, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type {
   AuthOperationOptions,
@@ -18,6 +18,8 @@ export function authStorePath(stateRoot: string): string {
 
 /** Owner-only. Anything wider on a shared machine is a readable credential. */
 const CREDENTIAL_FILE_MODE = 0o600;
+/** Owner-only directory so the credential file cannot be listed by others. */
+const CREDENTIAL_DIR_MODE = 0o700;
 
 /**
  * File-backed Pi CredentialStore. One credential per provider.
@@ -97,15 +99,32 @@ export class FileCredentialStore implements CredentialStore {
    */
   private async save(all: Record<string, Credential>): Promise<void> {
     const serialized = `${JSON.stringify(all, null, 2)}\n`;
+    const directory = dirname(this.filePath);
+    await mkdir(directory, { recursive: true, mode: CREDENTIAL_DIR_MODE });
+    await restrictOwnerOnly(directory, CREDENTIAL_DIR_MODE);
     await writeFileAtomic(this.filePath, serialized, { mode: CREDENTIAL_FILE_MODE });
-    try {
-      await chmod(this.filePath, CREDENTIAL_FILE_MODE);
-    } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new DomainValidationError(
-        `cannot restrict ${this.filePath} to owner-only permissions: ${reason}`
-      );
-    }
+    await restrictOwnerOnly(this.filePath, CREDENTIAL_FILE_MODE);
+    await restrictOwnerOnly(`${this.filePath}.lock`, CREDENTIAL_FILE_MODE, { missingOk: true });
+  }
+}
+
+async function restrictOwnerOnly(
+  path: string,
+  mode: number,
+  options: { readonly missingOk?: boolean } = {}
+): Promise<void> {
+  try {
+    await chmod(path, mode);
+  } catch (error: unknown) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (options.missingOk === true && code === "ENOENT") return;
+    // NTFS does not honor POSIX modes; failing closed here would make login
+    // impossible on Windows even though the ACL already excludes other users
+    // by default on a per-user profile.
+    if (process.platform === "win32") return;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new DomainValidationError(`cannot restrict ${path} to owner-only permissions: ${reason}`);
   }
 }
 

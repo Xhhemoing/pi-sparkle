@@ -100,7 +100,12 @@ pnpm cli run \
   --executor pi
 ```
 
-`pi-sparkle auth login openai --key sk-...` writes `~/.pi-sparkle/auth.json` (stored credentials win over env). `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` still work as a compatibility override for the default provider.
+`pi-sparkle auth login openai --from-env` or `auth login openai --key-file /path/to/key`
+copies nothing from argv. `auth login openai --key sk-...` still works but warns:
+the key is visible in process argv and shell history. Stored credentials live in
+`~/.pi-sparkle/runtime/auth.json` and win over environment variables. `PI_PROVIDER`
+/ `PI_MODEL` / `PI_API_KEY` still work as a compatibility override for the default
+provider.
 
 Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`), or `--thinking <level>` on `run`, which wins over the env var for that run only and never persists. Google models silently clamp `xhigh`/`max`.
 

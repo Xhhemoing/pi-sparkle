@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -55,6 +55,20 @@ test("save preserves credential bytes, ignores a legacy fixed temp, and publishe
     );
     assert.equal(await readFile(legacyTemp, "utf8"), "stale-writer-bytes");
     assert.equal((await stat(path)).mode & 0o777, 0o600);
+    assert.equal((await stat(join(dir, "runtime"))).mode & 0o777, 0o700);
+  });
+});
+
+test("an existing world-readable runtime directory is tightened to owner-only", async () => {
+  await withDir(async (dir) => {
+    const runtime = join(dir, "runtime");
+    await mkdir(runtime, { recursive: true, mode: 0o755 });
+    await chmod(runtime, 0o755);
+    const path = join(runtime, "auth.json");
+    const store = new FileCredentialStore(path);
+    await store.modify("openai", async () => ({ type: "api_key", key: "sk-secret" }));
+    assert.equal((await stat(runtime)).mode & 0o777, 0o700);
+    assert.equal((await stat(path)).mode & 0o777, 0o600);
   });
 });
 
@@ -89,6 +103,7 @@ test("credential publishing asks the shared atomic writer for the mode, and refu
   // pinned instead: no `.catch`, and a raised DomainValidationError.
   assert.doesNotMatch(source, /chmod\([^)]*\)\.catch/);
   assert.match(source, /throw new DomainValidationError\(\s*`cannot restrict/);
+  assert.match(source, /restrictOwnerOnly\(`\$\{this\.filePath\}\.lock`/);
   assert.doesNotMatch(source, /\b(?:open|rename|unlink)\(/);
   assert.doesNotMatch(source, /tempPath|`[^`]*\.tmp`/);
 });

@@ -17,6 +17,8 @@ published to npm, and supports clone + pnpm installation only.
   re-verification.
 - Dry-run-first `retain` command with a 90-day default for runtime invocation
   and episode records.
+- `auth login --key-file <path>` as the argv-safe alternative to `--key`.
+- URL userinfo redaction (`https://user:password@host` / `http://token@host`).
 - Prerelease quality, security, and Pi-boundary probes.
 
 ### Known limitations

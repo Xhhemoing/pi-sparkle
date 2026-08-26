@@ -114,6 +114,18 @@ const redactionSamples = [
       "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ\n" +
       "-----END PRIVATE KEY-----",
     core: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ"
+  },
+  {
+    id: "secret-bodies",
+    name: "url-userinfo-password",
+    body: "clone https://octocat:n0tAVendorPrefix99@github.com/org/repo.git",
+    core: "n0tAVendorPrefix99"
+  },
+  {
+    id: "secret-bodies",
+    name: "url-userinfo-token",
+    body: "hit http://n0tAVendorPrefix99@127.0.0.1:9000/v1",
+    core: "n0tAVendorPrefix99"
   }
 ];
 

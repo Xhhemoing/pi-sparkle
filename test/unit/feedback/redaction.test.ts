@@ -186,6 +186,18 @@ const GATE_CORES: readonly {
     ].join("\n"),
     core: "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ",
     expected: REDACTION_PLACEHOLDER.secret
+  },
+  {
+    name: "url-userinfo-password",
+    body: "clone https://octocat:n0tAVendorPrefix99@github.com/org/repo.git",
+    core: "n0tAVendorPrefix99",
+    expected: `clone https://${REDACTION_PLACEHOLDER.secret}@github.com/org/repo.git`
+  },
+  {
+    name: "url-userinfo-token",
+    body: "hit http://n0tAVendorPrefix99@127.0.0.1:9000/v1",
+    core: "n0tAVendorPrefix99",
+    expected: `hit http://${REDACTION_PLACEHOLDER.secret}@${REDACTION_PLACEHOLDER.ipv4}:9000/v1`
   }
 ];
 
@@ -206,6 +218,19 @@ for (const sample of GATE_CORES) {
     assert.equal(result.feedback.redacted, true);
   });
 }
+
+test("URL userinfo is stripped while scheme-less emails stay on the email rule", () => {
+  const url = redactSensitiveText("clone https://octocat:n0tAVendorPrefix99@github.com/org/repo.git");
+  assert.equal(url.text, `clone https://${REDACTION_PLACEHOLDER.secret}@github.com/org/repo.git`);
+  assert.ok(url.classes.includes("secret"));
+
+  const email = redactSensitiveText("contact jane.doe@example.com now");
+  assert.equal(email.text, `contact ${REDACTION_PLACEHOLDER.email} now`);
+  assert.equal(email.text.includes(REDACTION_PLACEHOLDER.secret), false);
+
+  const bareUrl = redactSensitiveText("docs at https://example.com/u/whiskey");
+  assert.equal(bareUrl.text, "docs at https://example.com/u/whiskey");
+});
 
 test("summary is redacted with the same rules as body", () => {
   const result = redactFeedback(

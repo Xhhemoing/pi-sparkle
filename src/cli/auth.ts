@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -22,13 +23,14 @@ const AUTH_USAGE = `pi-sparkle auth — per-provider credentials (Pi CredentialS
 
 Usage:
   pi-sparkle auth status [--all] [--state-root <dir>]
-  pi-sparkle auth login <provider> [--key <key> | --from-env | --oauth] [--state-root <dir>]
+  pi-sparkle auth login <provider> [--key-file <path> | --from-env | --oauth | --key <key>] [--state-root <dir>]
   pi-sparkle auth logout <provider> [--state-root <dir>]
 
 Stored credentials live in <state-root>/auth.json and win over environment
-variables. Status never prints secrets. OPENAI_API_KEY / ANTHROPIC_API_KEY / …
-still work without login. PI_API_KEY is only a compatibility override for the
-default provider.
+variables. Status never prints secrets. Prefer --from-env, --key-file, or the
+interactive prompt; --key puts the credential in process argv and shell
+history. OPENAI_API_KEY / ANTHROPIC_API_KEY / … still work without login.
+PI_API_KEY is only a compatibility override for the default provider.
 `;
 
 export async function authCommand(args: string[], io: AuthIo): Promise<number> {
@@ -96,6 +98,7 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     args: args.slice(1),
     options: {
       key: { type: "string" },
+      "key-file": { type: "string" },
       "from-env": { type: "boolean", default: false },
       oauth: { type: "boolean", default: false },
       "state-root": { type: "string" }
@@ -113,6 +116,17 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   if (values.key !== undefined && values.key.trim() === "") {
     throw new DomainValidationError("auth login --key must be non-empty");
   }
+  const selected = [
+    values.key !== undefined,
+    values["key-file"] !== undefined,
+    values["from-env"] === true,
+    values.oauth === true
+  ].filter(Boolean).length;
+  if (selected > 1) {
+    throw new DomainValidationError(
+      "auth login accepts only one of --key-file, --from-env, --oauth, or --key"
+    );
+  }
   const stateRoot = stateRootOf(values);
   if (values["from-env"] === true) {
     const check = await checkProviderAuth(stateRoot, providerId, config.customProviders);
@@ -122,8 +136,25 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
     io.stdout(`${providerId} configured via ${check.source ?? check.type} (not written to auth.json)\n`);
     return 0;
   }
+  if (values["key-file"] !== undefined) {
+    const keyFile = values["key-file"];
+    const raw = await readFile(keyFile, "utf8").catch((error: NodeJS.ErrnoException) => {
+      const reason = error.message;
+      throw new DomainValidationError(`auth login --key-file ${keyFile} cannot be read: ${reason}`);
+    });
+    const key = raw.trim();
+    if (key === "") {
+      throw new DomainValidationError(`auth login --key-file ${keyFile} must be non-empty`);
+    }
+    const path = await storeApiKeyCredential(stateRoot, providerId, key);
+    io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
+    return 0;
+  }
   if (values.key !== undefined) {
-    const path = await storeApiKeyCredential(stateRoot, providerId, values.key);
+    io.stderr(
+      "warning: auth login --key puts the credential in process argv and shell history; prefer --from-env, --key-file, or the interactive prompt.\n"
+    );
+    const path = await storeApiKeyCredential(stateRoot, providerId, values.key.trim());
     io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
     return 0;
   }

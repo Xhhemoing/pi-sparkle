@@ -81,6 +81,13 @@ const SECRET_RULES: readonly TextRule[] = [
     pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
     replacement: REDACTION_PLACEHOLDER.secret
   },
+  // URL userinfo (`https://user:password@host` / `http://token@host`). Bounded
+  // classes keep the engine from backtracking; requiring `://` keeps ordinary
+  // `user@domain` emails out of this rule.
+  {
+    pattern: /(https?:\/\/)(?:[^\s/@:]{1,128}:)?[^\s/@:]{1,256}@/gi,
+    replacement: `$1${REDACTION_PLACEHOLDER.secret}@`
+  },
   // `api_key: "value"` / `token='value'` — the quotes survive, the value does not.
   {
     pattern: new RegExp(`(${KEYED_SECRET_LABEL}"?'?\\s*[:=]\\s*)(["'])[^"'\\n]+\\2`, "gi"),
