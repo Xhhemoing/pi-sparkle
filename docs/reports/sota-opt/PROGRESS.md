@@ -53,7 +53,7 @@
 | 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
 | 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
 | 38 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-38/PLAN.md](./round-38/PLAN.md) |
-| 39 | 第 8 波进行中 | 8 / 10（H/J 在飞） | claude-fable-5-thinking-xhigh | [round-39/PLAN.md](./round-39/PLAN.md) |
+| 39 | 第 8 波进行中 | 9 / 10（J 在飞） | claude-fable-5-thinking-xhigh | [round-39/PLAN.md](./round-39/PLAN.md) |
 
 ### Round 1 波次
 
@@ -464,7 +464,7 @@
 | 3 | R39-E 学习 | E 已合入 |
 | 4 | R39-F 实验 | F 已合入 |
 | 5 | R39-G 运行时 | G 已合入 |
-| 6 | R39-H 评估 | H 在飞 |
+| 6 | R39-H 评估 | H 已合入 |
 | 7 | R39-I CLI/适配器 | I 已合入 |
 | 8 | R39-J persist | J 在飞 |
 
@@ -828,7 +828,7 @@
 | R39-E | `cursor/r39-e-learning-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-E.md`）。无新排除 ID；SLICE-CPU 15.0（默认带沿用 14.7–15.2）；零新站点级换名记录；S8-E-1 仍恰 3 处 |
 | R39-F | `cursor/r39-f-experiments-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-F.md`）。无新排除 ID；锚点复核 r5f 128.29/126.03/123.63、r6f 121.06/121.21/131.89、r7f 130.95/126.05/130.38；零新站点级换名记录 |
 | R39-G | `cursor/r39-g-runtime-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-G.md`）。无新排除 ID；计算顶复核 0.283–0.302 vs I/O 80.8–99.0；digest 第三十次逐位；零新站点级换名记录 |
-| R39-H | `cursor/r39-h-eval-thirty-ninth-pass-83a1` | 已派出 |
+| R39-H | `cursor/r39-h-eval-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-H.md`）。无新排除 ID；默认链复核 9201/9008/9247 ns（宿主中窗）；零新站点级换名记录；S5-H-1 保持 |
 | R39-I | `cursor/r39-i-cli-thirty-ninth-pass-83a1` | 已合入专属分支（仅 `R39-I.md`）。无新排除 ID；custom−builtin 复核 children +22.8~+24.1 / +41.9~+45.2、track +24.9~+29.2 / +47.8~+54.9、flowchart +12.6~+24.2 / +40.5~+43.9；零新站点级换名记录 |
 | R39-J | `cursor/r39-j-persist-thirty-ninth-pass-83a1` | 已派出 |
 | R38-B | `cursor/r38-b-live-routing-thirty-eighth-pass-83a1` | 已合入专属分支（仅 `R38-B.md`）。无新排除 ID；天花板复核 ceiling M=2 10.91–11.98 / M=10 16.91–18.00；replay M=2 9.00–10.14；零新站点级换名记录 |
