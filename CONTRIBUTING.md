@@ -69,7 +69,7 @@ All contributions must pass:
 | `pnpm gate` | All four in sequence (merge-time gate) |
 | `pnpm security:probe` | Built-artifact redaction and packaged-secret checks |
 | `pnpm pi:probe` | Pi adapter-boundary and legacy-symbol checks |
-| `pnpm prerelease` | `pnpm gate && pnpm security:probe && pnpm pi:probe`. Run before tagging a preview build |
+| `pnpm prerelease` | `pnpm preview:probe && pnpm gate && pnpm security:probe && pnpm pi:probe`. Run before tagging a preview build |
 
 ## Commit Guidelines
 

@@ -89,6 +89,20 @@ const redactionSamples = [
     core: "supersecretvalue123"
   },
   {
+    // No word boundary exists between `DATABASE_` and `PASSWORD`, so a keyed
+    // rule spelled with `\b` lets the whole screaming-snake family through.
+    id: "secret-bodies",
+    name: "screaming-snake-password-value",
+    body: "DATABASE_PASSWORD=hunter2-prod-db",
+    core: "hunter2-prod-db"
+  },
+  {
+    id: "secret-bodies",
+    name: "screaming-snake-token-value",
+    body: "API_TOKEN=abc123def456ghi789",
+    core: "abc123def456ghi789"
+  },
+  {
     id: "secret-bodies",
     name: "aws-secret-access-key",
     body: "aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",

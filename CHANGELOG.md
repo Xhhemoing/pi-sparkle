@@ -23,6 +23,12 @@ published to npm, and supports clone + pnpm installation only.
 - AWS STS (`ASIA…`) and Stripe live (`sk_live_` / `rk_live_`) token shapes.
 - Prerelease quality, security, and Pi-boundary probes.
 
+- `run --max-cost-usd <usd>` run-level cost ceiling on default and `--children` paths.
+- `inspect --run --follow` read-only event tail, with optional `--idle-timeout-ms`.
+- `inspect` child result lines print `verification=` via `inspect-format`.
+- Market-eval and preview-release probes (`pnpm market-eval:probe`, `pnpm preview:probe`).
+- `.env.example` and `.github/CODEOWNERS`.
+
 ### Known limitations
 
 - No capability is Outcome-supported.

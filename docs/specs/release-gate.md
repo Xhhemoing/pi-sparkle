@@ -1,7 +1,8 @@
 # Release gate
 
-`pnpm prerelease` = `pnpm gate` (typecheck/lint/test/build) **plus**
-`pnpm security:probe` **plus** `pnpm pi:probe`. The security probe runs
+`pnpm prerelease` = `pnpm preview:probe` **plus** `pnpm gate`
+(typecheck/lint/test/build) **plus** `pnpm security:probe` **plus**
+`pnpm pi:probe`. The security probe runs
 against the built `dist/` artifact; the Pi probe checks the adapter boundary
 and rejects the legacy symbol. CI (`ci.yml`) runs the quality gate on every
 push. This repository is a Developer Preview with `"private": true` and will

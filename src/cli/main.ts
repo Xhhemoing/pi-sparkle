@@ -30,6 +30,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
+import type { CostGateEvent } from "../pi-adapter/pi-executor.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
@@ -37,6 +38,7 @@ import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model
 import { isAgentRole } from "../domain/roles.js";
 import { parseRunId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
+import { defaultRunLimits } from "../domain/limits.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
@@ -52,10 +54,13 @@ import {
 } from "../run/flowchart-run.js";
 import {
   buildInspectSummaryJson,
+  followRunEvents,
   gateBlockCause,
   inspectRun,
+  FOLLOW_STOP_STATUSES,
   type GateBlockCause
 } from "../run/inspection.js";
+import { formatTaskResultLine, formatUnverifiedSummary } from "./inspect-format.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
@@ -192,7 +197,10 @@ function defaultStateRoot(): string {
 async function createExecutor(
   kind: string,
   stateRoot: string,
-  hooks?: { onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void },
+  hooks?: {
+    onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void;
+    onCostGate?: (event: CostGateEvent) => void;
+  },
   /** Explicit --primary-model wins over ambient env vars and providers.json. */
   modelOverride?: { readonly providerId: string; readonly modelId: string },
   /** Already-resolved --thinking level; falls back to PI_THINKING_LEVEL here. */
@@ -245,7 +253,11 @@ async function createExecutor(
             }
           }
         : {}),
-      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {})
+      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {}),
+      // Only the real executor has a cost gate. The fakes above ignore a cap
+      // by design, so wiring the sink onto them would promise a warning that
+      // could never fire.
+      ...(hooks?.onCostGate !== undefined ? { onCostGate: hooks.onCostGate } : {})
     });
   }
   throw new DomainValidationError(`Unknown executor "${kind}": expected "fake" or "pi"`);
@@ -266,20 +278,27 @@ function packageVersion(): string {
   return parsed.version;
 }
 
-const USAGE = `pi-sparkle — project-development multi-agent runtime (developer preview)
+/**
+ * The usage block, exported so the docs-parity test can hold it against the
+ * dispatch switch and the README command table instead of re-deriving it from
+ * source text. Adding a verb without a line here (or a README row) fails
+ * `test/unit/cli/readme-command-parity.test.ts`.
+ */
+export const USAGE = `pi-sparkle — project-development multi-agent runtime (developer preview)
 
 Usage:
   pi-sparkle --version
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
-  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
+  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
   pi-sparkle init [--dir <path>] [--force] [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
+  pi-sparkle inspect --run <runId> --follow [--json] [--idle-timeout-ms <ms>] [--state-root <dir>]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
@@ -320,9 +339,15 @@ compatibility override for the default provider only. --thinking
 <off|minimal|low|medium|high|xhigh|max> sets the reasoning effort for this run
 only and wins over PI_THINKING_LEVEL (default off); it is the headless
 counterpart of Pi's session-scoped /thinking TUI selector and never persists.
-Google models silently clamp xhigh/max. --children runs the
-parent as a coordinator over the child tasks in
-the spec file ({ "tasks": [{ "id", "role", "objective", ... }] }).
+Google models silently clamp xhigh/max.
+--max-cost-usd <usd> is a per-run USD ceiling forwarded to the executor's cost
+gate and stamped onto the run's own RUN_CREATED.limits; with --children each
+child attempt runs under the tighter of it and that child's own
+limits.maxCostUsd. An unpriced model cannot enforce it and says so on stderr.
+There is no cross-child spend ledger: N children under a $X run cap can spend
+up to N times $X between them. The flag is refused on --flowchart and --track.
+--children runs the parent as a coordinator over the child tasks in the spec
+file ({ "tasks": [{ "id", "role", "objective", ... }] }).
 --track clarifies the objective (using recorded habits), sends it through a
 primary-owned split (planner on --primary-model, then scout → implement →
 review → test), compiles that plan into the flowchart supervisor, grounds each
@@ -381,12 +406,80 @@ inspect --episode prints the latest bound episode snapshot (inspect --run also
 prints the episode id when a run is attached). inspect --run --json stays a pure
 event stream (one event per line); --summary-json prints one INSPECT_SUMMARY
 object with the status and the evidence the latest stall/block asked for.
+inspect --run --follow tails events.jsonl read-only — no lock, no writer, no
+daemon — printing each event as it lands and skipping a partially written last
+line until it completes. It stops and exits 0 as soon as the replayed status is
+COMPLETED, FAILED, CANCELLED, BLOCKED, WAITING_FOR_USER or PAUSED: the first
+three are terminal, the last three need an operator and would otherwise hang.
+Exit 0 means the log stopped, not that the run succeeded. By default there is
+no deadline: a RUNNING log left behind by a killed process is followed until
+Ctrl-C, because "no event for N seconds" is also what a slow provider call
+looks like. --idle-timeout-ms <ms> opts into one — follow gives up after that
+many milliseconds in which nothing was appended (idle, not total: every event
+restarts it) and exits 1 with the status it was still in, so a log nobody is
+writing to is never reported as a run that stopped. It requires --follow.
+--json --follow keeps stdout a pure event stream and puts the closing
+status on stderr. --follow is incompatible with --summary-json and unavailable
+for --episode.
 episode close/events provide the acceptance-gated closure and event views.
 adapt collects user and subagent
 feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
+
+/**
+ * `run --max-cost-usd <usd>` as the operator typed it.
+ *
+ * Absent stays absent: no layer invents a cap, so an omitted flag makes the
+ * call the CLI made before the flag existed. What is present must be a plain
+ * decimal — the `--lock-wait-ms` spelling discipline, for the same reason.
+ * `1e4`, `0x10` and ` 5 ` all coerce to a number JavaScript is happy with and
+ * an operator did not mean to type, and a budget is the wrong place to guess.
+ */
+export function parseRunCostCeiling(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new DomainValidationError(
+      `--max-cost-usd must be a positive finite number of US dollars, got: ${raw}`
+    );
+  }
+  return parsed;
+}
+
+/**
+ * The stderr line a requested-but-unenforceable ceiling owes the operator.
+ *
+ * A cap the gate could not arm is the dishonest case: the run continues with
+ * no ceiling at all, and without this it does so with no trace on any record.
+ * Every CLI custom provider without explicit rates is an unpriced model, so
+ * this is the common outcome, not a corner.
+ *
+ * `stopped` prints nothing: a real ceiling stop already ends the transcript
+ * visibly, and a second line would be a claim with no new fact behind it.
+ * `no-cap` is unreachable — the executor emits `disarmed` only when a cap was
+ * requested — and is handled here so the union stays exhaustive.
+ */
+export function formatCostGateWarning(event: CostGateEvent): string | undefined {
+  if (event.kind === "stopped") return undefined;
+  switch (event.reason) {
+    case "unpriced-model":
+      return (
+        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
+        `requested ${event.maxCostUsd} USD, but the catalog quotes no usable price ` +
+        "for this model, so spend is unknowable; the run continues uncapped\n"
+      );
+    case "invalid-cap":
+      return (
+        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
+        `requested ${event.maxCostUsd} USD is not a positive finite number of dollars; ` +
+        "the run continues uncapped\n"
+      );
+    case "no-cap":
+      return undefined;
+  }
+}
 
 async function smartChildPlan(
   children: ChildTaskInput[],
@@ -743,7 +836,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       answers: { type: "string" },
       "public-prior": { type: "string" },
       "require-public-prior": { type: "boolean", default: false },
-      thinking: { type: "string" }
+      thinking: { type: "string" },
+      "max-cost-usd": { type: "string" }
     }
   });
   const projectRoot = values.project;
@@ -780,6 +874,20 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --flowchart <file.json> with --results"
     });
   }
+  // Neither of those two planes forwards a run-level cap: --track would have to
+  // cross startTrackedRun's input, and --flowchart without childTasks executes
+  // its RUNNING nodes on a path that carries no cap at all. Accepting the flag
+  // there would be a ceiling the operator asked for and nothing enforced or
+  // even recorded, which is exactly the silence this flag exists to end.
+  if (values["max-cost-usd"] !== undefined && (values.flowchart !== undefined || values.track === true)) {
+    return cliFail(io, {
+      command: "run",
+      stage: "parse-args",
+      message:
+        "run --max-cost-usd is not wired for --flowchart or --track yet; it caps the default and --children paths",
+      next: "omit --max-cost-usd, or use the default or --children path"
+    });
+  }
   if (values.thinking !== undefined && !isThinkingLevel(values.thinking)) {
     return cliFail(io, {
       command: "run",
@@ -789,6 +897,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     });
   }
   const thinkingLevel = resolveThinkingLevel(values.thinking);
+  const maxCostUsd = parseRunCostCeiling(values["max-cost-usd"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   // One telemetry sink for every executor this command builds. It writes each
   // invocation through the log's exclusive lock, retries a lock timeout a few
@@ -799,6 +908,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
     }
   });
+  const reportCostGate = (event: CostGateEvent): void => {
+    const warning = formatCostGateWarning(event);
+    if (warning !== undefined) io.stderr(warning);
+  };
   if (values.flowchart !== undefined) {
     const liveCatalog = await buildLiveCatalogConfig(stateRoot);
     const flowchart = await parseFlowchartFile(
@@ -815,7 +928,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
             {
               onInvocation: (invocation) => {
                 void invocationSink(invocation);
-              }
+              },
+              onCostGate: reportCostGate
             },
             undefined,
             thinkingLevel
@@ -875,7 +989,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     {
       onInvocation: (invocation) => {
         void invocationSink(invocation);
-      }
+      },
+      onCostGate: reportCostGate
     },
     flaggedPrimary,
     thinkingLevel
@@ -964,6 +1079,14 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     if (outcome.learn !== undefined) {
       io.stdout(`  learn: ${outcome.learn.reason}${outcome.learn.candidateId !== undefined ? ` (${outcome.learn.candidateId})` : ""}\n`);
     }
+    // Same report-only line the --children path prints. --track never lists its
+    // children individually, so this is the only place its verification state
+    // is visible without a second `inspect --run`.
+    const trackInspection = await inspectRun(stateRoot, outcome.runId);
+    const trackUnverified = formatUnverifiedSummary(trackInspection.children);
+    if (trackUnverified !== undefined) {
+      io.stdout(`  ${trackUnverified}\n`);
+    }
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
     warnUndeliveredClusterMail(io, outcome.clusterMail);
     return outcome.status === "COMPLETED" || outcome.status === "WAITING_FOR_USER" ? 0 : 1;
@@ -1033,7 +1156,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         flowchart,
         objective,
         childTasks: planned.children,
-        assignments: planned.assignments
+        assignments: planned.assignments,
+        // Recorded and forwarded, not enforced by the child fake: the fake
+        // executor ignores a ceiling by design, so what this proves locally is
+        // that the number reaches the child's RUN_CREATED and the coordinator.
+        ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
       }
     );
     printFlowchartOutcome(io, outcome, stateRoot);
@@ -1041,9 +1168,9 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     io.stdout(`  children: ${inspection.children.length}\n`);
     for (const child of inspection.children) {
       io.stdout(`    ${child.childRunId} (${child.taskId}): ${child.outcome} (${child.attempts} attempt(s))\n`);
-      const terminal = child.messages.find((message) => message.type === "TASK_RESULT");
-      if (terminal !== undefined && terminal.type === "TASK_RESULT") {
-        io.stdout(`      result: ${terminal.outcome} — ${terminal.summary}\n`);
+      const terminal = child.terminalResult;
+      if (terminal !== undefined) {
+        io.stdout(`      result: ${formatTaskResultLine(terminal)}\n`);
         if (terminal.artifactIds.length > 0) {
           io.stdout(`      artifacts: ${terminal.artifactIds.join(", ")}\n`);
         }
@@ -1051,6 +1178,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
           io.stdout(`      evidence: ${terminal.evidenceIds.join(", ")}\n`);
         }
       }
+    }
+    const unverifiedSummary = formatUnverifiedSummary(inspection.children);
+    if (unverifiedSummary !== undefined) {
+      io.stdout(`  ${unverifiedSummary}\n`);
     }
     const episodeId = episodeIdFromEvents(outcome.events);
     try {
@@ -1081,7 +1212,17 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     }
     return flowchartExitCode(outcome.status);
   }
-  const running = startRun({ stateRoot, executor }, { projectRoot, objective });
+  // The whole limits block only when a cap was asked for: `startRun` reads
+  // `input.limits` or nothing, so handing it a lone `maxCostUsd` would drop
+  // every other default. Absent leaves the call the CLI has always made.
+  const running = startRun(
+    { stateRoot, executor },
+    {
+      projectRoot,
+      objective,
+      ...(maxCostUsd !== undefined ? { limits: { ...defaultRunLimits(), maxCostUsd } } : {})
+    }
+  );
   const outcome = await running.done;
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
@@ -1162,6 +1303,115 @@ function trackFactValue(value: string): string {
   for (const char of value) {
     const code = char.codePointAt(0) ?? 0;
     if (code < 0x20 || code === 0x7f) return JSON.stringify(value);
+  }
+  return value;
+}
+
+/**
+ * One prose line per followed event: when it happened, what it was, and which
+ * task it belonged to when it had one. Deliberately not the payload — follow is
+ * a progress surface, and `inspect --run --json` remains the way to read an
+ * event in full.
+ */
+export function formatFollowEventLine(event: Event): string {
+  const task = event.taskId === undefined ? "" : ` ${event.taskId}`;
+  return `  ${event.occurredAt} ${event.type}${task}\n`;
+}
+
+/**
+ * `inspect --run --follow`: tail the log until it stops, then report where.
+ *
+ * The exit code is 0 for every state follow stops in, including FAILED. That
+ * is not a swallowed failure — follow is an observer that attached to a log it
+ * did not start, and the run's own exit code already reported its outcome to
+ * whoever ran it. Making the observer non-zero on FAILED would mean a script
+ * that tails a run it does not own cannot tell "I could not follow" from "the
+ * run I watched failed", so the status is printed and the exit code is
+ * reserved for follow's own failures (a log that disappeared underneath it).
+ */
+async function followInspect(
+  stateRoot: string,
+  runId: RunId,
+  json: boolean,
+  idleTimeoutMs: number | undefined,
+  io: CliIo
+): Promise<number> {
+  if (!json) {
+    io.stdout(`Run ${runId}: following events.jsonl (read-only; Ctrl-C to stop)\n`);
+    io.stdout(`  stops at: ${FOLLOW_STOP_STATUSES.join(", ")}\n`);
+    if (idleTimeoutMs !== undefined) {
+      io.stdout(`  gives up after: ${idleTimeoutMs}ms with no new event\n`);
+    }
+  }
+  const result = await followRunEvents(
+    stateRoot,
+    runId,
+    (events) => {
+      for (const event of events) {
+        io.stdout(json ? `${JSON.stringify(event)}\n` : formatFollowEventLine(event));
+      }
+    },
+    idleTimeoutMs === undefined ? {} : { idleTimeoutMs }
+  );
+  if (result.stopReason === "log-vanished") {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "follow",
+      message: `Run ${runId} event log disappeared while following it (deleted or truncated under ${stateRoot})`,
+      next: `check --state-root and pnpm cli doctor --state-root ${stateRoot}`,
+      runId
+    });
+  }
+  // Only a tail still incomplete when following stopped is worth a word: a
+  // partial last line during an append is the normal shape of a live log, and
+  // warning on every poll would turn that into noise. On an idle timeout it is
+  // more than noise: a last line the writer never finished is the clearest
+  // evidence of the killed process the deadline just caught.
+  warnTruncatedJsonl(io, result.recovery, "event log");
+  if (result.stopReason === "idle-timeout") {
+    // Non-zero, unlike every status stop: the run did not reach a state, the
+    // follower ran out of patience, and a script that cannot tell those apart
+    // would read a killed run's log as a run that ended.
+    return cliFail(io, {
+      command: "inspect",
+      stage: "follow",
+      message: `Run ${runId} appended no event for ${idleTimeoutMs}ms and is still ${result.status} (${result.emitted} events); follow gave up without a stopping status`,
+      next: `pnpm cli doctor --state-root ${stateRoot} lists crash candidates; re-follow without --idle-timeout-ms to keep waiting`,
+      runId
+    });
+  }
+  if (result.stopReason === "aborted") {
+    return 1;
+  }
+  const line = `Run ${runId}: ${result.status} (${result.emitted} events, follow stopped)\n`;
+  if (json) io.stderr(line);
+  else io.stdout(line);
+  return 0;
+}
+
+/**
+ * Upper bound on `--idle-timeout-ms`, in milliseconds (24 hours), matching the
+ * ceiling `--lock-wait-ms` puts on the other flag an operator can use to wait
+ * out a long run. Same purpose: a typo with an extra digit is refused at parse
+ * time instead of presenting as a CLI that hung.
+ */
+const MAX_FOLLOW_IDLE_TIMEOUT_MS = 86_400_000;
+
+/**
+ * `--idle-timeout-ms` as a number, or undefined for the default: no deadline.
+ *
+ * Only whole decimal milliseconds above zero, for the reason `--lock-wait-ms`
+ * gives — `Number` would also accept `1e4`, `0x10` and ` 5 `. Zero is refused
+ * rather than read as "never wait" or "wait forever": both are plausible
+ * readings of the same digit, and neither is worth guessing at.
+ */
+function followIdleTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_FOLLOW_IDLE_TIMEOUT_MS) {
+    throw new DomainValidationError(
+      `--idle-timeout-ms must be a whole number of milliseconds between 1 and ${MAX_FOLLOW_IDLE_TIMEOUT_MS}, got: ${raw}`
+    );
   }
   return value;
 }
@@ -1257,7 +1507,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       episode: { type: "string" },
       "state-root": { type: "string" },
       json: { type: "boolean", default: false },
-      "summary-json": { type: "boolean", default: false }
+      "summary-json": { type: "boolean", default: false },
+      follow: { type: "boolean", default: false },
+      "idle-timeout-ms": { type: "string" }
     }
   });
   if (values.run !== undefined && values.episode !== undefined) {
@@ -1277,6 +1529,26 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --json for the event stream or --summary-json for one summary object"
     });
   }
+  const follow = values.follow === true;
+  if (follow && summaryJson) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect accepts either --follow or --summary-json, not both",
+      next: "pass --follow for the live event tail, or --summary-json for one summary object once it stops"
+    });
+  }
+  // Refused rather than ignored: a deadline the operator typed and the command
+  // silently dropped is the failure mode the flag exists to prevent.
+  if (values["idle-timeout-ms"] !== undefined && !follow) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect --idle-timeout-ms is only meaningful with --follow",
+      next: "pass --follow --idle-timeout-ms <ms>, or drop --idle-timeout-ms; a one-shot inspect already returns immediately"
+    });
+  }
+  const idleTimeoutMs = followIdleTimeoutMs(values["idle-timeout-ms"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.episode !== undefined) {
     if (summaryJson) {
@@ -1285,6 +1557,14 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
         stage: "parse-args",
         message: "inspect --summary-json is only available with --run",
         next: "pass --run <runId> --summary-json, or --episode --json for the snapshot"
+      });
+    }
+    if (follow) {
+      return cliFail(io, {
+        command: "inspect",
+        stage: "parse-args",
+        message: "inspect --follow is only available with --run",
+        next: "pass --run <runId> --follow; an episode snapshot is a single view, not a stream"
       });
     }
     return inspectEpisode(stateRoot, values.episode, values.json === true, io);
@@ -1302,6 +1582,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const read = await store.readAll();
   if (read.events.length === 0) {
     return missingRun(io, "inspect", runId, stateRoot);
+  }
+  if (follow) {
+    return await followInspect(stateRoot, runId, values.json === true, idleTimeoutMs, io);
   }
   warnTruncatedJsonl(io, read.recovery, "event log");
   if (values.json) {
@@ -1367,9 +1650,9 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(
         `    ${child.childRunId} (${child.taskId}): ${child.outcome} (${child.attempts} attempt(s), ${child.messages.length} message(s))\n`
       );
-      const terminal = child.messages.find((message) => message.type === "TASK_RESULT");
-      if (terminal !== undefined && terminal.type === "TASK_RESULT") {
-        io.stdout(`      result: ${terminal.outcome} — ${terminal.summary}\n`);
+      const terminal = child.terminalResult;
+      if (terminal !== undefined) {
+        io.stdout(`      result: ${formatTaskResultLine(terminal)}\n`);
         if (terminal.artifactIds.length > 0) {
           io.stdout(`      artifacts: ${terminal.artifactIds.join(", ")}\n`);
         }
@@ -1378,6 +1661,10 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
         }
       }
     }
+  }
+  const unverifiedSummary = formatUnverifiedSummary(inspection.children);
+  if (unverifiedSummary !== undefined) {
+    io.stdout(`  ${unverifiedSummary}\n`);
   }
   for (const question of inspection.pendingQuestions) {
     io.stdout(`  question ${question.id}: ${question.question}\n`);
@@ -1521,6 +1808,12 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       io.stderr(`warning: invocation telemetry dropped: ${reason}\n`);
     }
   });
+  // Resume gains no cap flag, but the work it re-drives can carry one from a
+  // durable record, so the same disarmed-ceiling silence is reachable here.
+  const reportCostGate = (event: CostGateEvent): void => {
+    const warning = formatCostGateWarning(event);
+    if (warning !== undefined) io.stderr(warning);
+  };
   const runId = parseRunId(values.run);
   const eventStore = new EventStore(stateRoot, runId);
   const read = await eventStore.readAll();
@@ -1539,7 +1832,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         executor: await createExecutor(executorKind, stateRoot, {
           onInvocation: (invocation) => {
             void invocationSink(invocation);
-          }
+          },
+          onCostGate: reportCostGate
         }, modelOverride, thinkingLevel),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
@@ -1583,7 +1877,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
         ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
             onInvocation: (invocation) => {
               void invocationSink(invocation);
-            }
+            },
+            onCostGate: reportCostGate
           }, modelOverride, thinkingLevel)
         : undefined;
     const outcome = await resumeFlowchartRun(

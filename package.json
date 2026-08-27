@@ -59,7 +59,9 @@
     "kernel-reuse:probe": "node scripts/kernel-reuse-probe.mjs",
     "retention:probe": "node scripts/retention-probe.mjs",
     "bench:runtime": "node scripts/bench-runtime.mjs",
-    "prerelease": "pnpm gate && pnpm security:probe && pnpm pi:probe",
+    "preview:probe": "node scripts/preview-release-probe.mjs",
+    "market-eval:probe": "node scripts/market-eval-probe.mjs",
+    "prerelease": "pnpm preview:probe && pnpm gate && pnpm security:probe && pnpm pi:probe",
     "prepublishOnly": "pnpm prerelease"
   },
   "dependencies": {

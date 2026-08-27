@@ -6,7 +6,9 @@ import { test } from "node:test";
 import type { EvaluationPlan } from "../../../src/adaptation/candidate.js";
 import {
   evalRoutingPolicy,
-  ROUTING_EVALUATOR_VERSION
+  parseRoutingEvalReport,
+  ROUTING_EVALUATOR_VERSION,
+  ROUTING_EVAL_QUALITY_EVIDENCE
 } from "../../../src/adaptation/eval-routing.js";
 import { loadAdaptationRegistry, saveAdaptationRegistry } from "../../../src/adaptation/promotion.js";
 import { ResourceRegistry } from "../../../src/adaptation/registry.js";
@@ -160,6 +162,16 @@ test("eval cannot emit an improvement claim without a passing comparison validat
   assert.equal(report.comparison.evidenceClass, "simulation");
   assert.equal(report.comparison.canCloseProductionCheckpointF, false);
   assert.deepEqual([...report.stages], ["static", "replay"]);
+  // Honesty by construction: both arms replay the recorded outcome, so the
+  // report must say it carries no quality evidence and utilityDelta is 0.
+  assert.equal(report.qualityEvidence, "none-by-construction");
+  assert.match(report.qualityEvidenceNote, /0 by construction/);
+  assert.equal(report.comparison.utilityDelta.mean, 0);
+  assert.ok(report.actionDiff.length >= 1, "avoid-cheap-edit must reroute edit episodes");
+  for (const row of report.actionDiff) {
+    assert.notEqual(row.baselineModel, row.candidateModel);
+    assert.equal(typeof row.costDeltaUsd, "number");
+  }
   assert.equal(report.comparison.utilityDelta.provisional, true);
   assert.ok(
     !report.comparison.claims.some((claim) => IMPROVE.test(claim)),
@@ -506,4 +518,30 @@ test("eval-routing and adapt CLI do not import r1, bandit, shadow, or topology",
     assert.doesNotMatch(text, /routing\/shadow/, `${file.pathname} must not import shadow`);
     assert.doesNotMatch(text, /routing\/topology/, `${file.pathname} must not import topology`);
   }
+});
+
+test("parseRoutingEvalReport fills honesty fields on older reports and refuses a quality claim", () => {
+  const legacy = {
+    candidateId: "cnd_legacy",
+    contentHash: "hash",
+    cacheKey: "ck",
+    stages: ["static", "replay"],
+    comparison: {
+      claims: [],
+      utilityDelta: { mean: 0 },
+      costDelta: { mean: 0 }
+    },
+    environmentVersion: "env-1",
+    evaluatorVersion: "routing-eval-v1",
+    rerunHash: "rr"
+  };
+  const parsed = parseRoutingEvalReport(legacy);
+  assert.equal(parsed.qualityEvidence, ROUTING_EVAL_QUALITY_EVIDENCE);
+  assert.match(parsed.qualityEvidenceNote, /0 by construction/);
+  assert.deepEqual(parsed.actionDiff, []);
+
+  assert.throws(
+    () => parseRoutingEvalReport({ ...legacy, qualityEvidence: "observed" }),
+    /qualityEvidence must be "none-by-construction"/
+  );
 });

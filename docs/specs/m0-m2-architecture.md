@@ -364,6 +364,23 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   the ceiling is reached; an executor that cannot price its own spend leaves the
   ceiling unenforced rather than inventing a dollar figure, so this stays a
   best-effort per-execution cap, not a cross-child run ledger.
+- The run-level side of that tighter-of rule is declared by the caller and
+  reaches both planes the same way. `startParentRun` takes it as
+  `RunLimits.maxCostUsd`; `startFlowchartRun` takes it as its own optional
+  `FlowchartRunInput.maxCostUsd`, deliberately not as a `FlowchartRunLimits`
+  field, because those limits are the supervisor's loop budget and their
+  `remainingCostUsd` is a separate routing-budget plane. Anything present that
+  is not a positive finite number is refused with a `DomainValidationError` in
+  the pre-lock zone, so a refused start leaves the state root untouched. An
+  accepted one is stamped into the run's own `RUN_CREATED.limits` — durable,
+  write-side validated by `validateRun`, an absent key when the caller declared
+  nothing — and handed to the child coordinator, which applies the unchanged
+  tighter-of rule against each child's own ceiling. It is coordinator state, not
+  a per-task declaration: it never enters a `TASK_REQUEST.limits`, never enters
+  the `taskCostCeilings` record, and does not alter the ceiling-free
+  substitution. A resume restores it only from the replayed `RUN_CREATED.limits`
+  — there is no `FlowchartContinuation` counterpart, because a resume must not
+  be a way to introduce or raise a cap — and no layer ever synthesizes one.
 
 On flowchart resume, a node whose parent log contains a `TASK_REQUEST` runs
 under that recorded spec. Objective, input artifacts, acceptance criteria, and

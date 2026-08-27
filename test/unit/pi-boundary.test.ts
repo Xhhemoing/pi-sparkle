@@ -50,3 +50,41 @@ test("the pi-adapter boundary is the only Pi importer", async () => {
   const importers = files.filter((file) => file.replace(/\\/g, "/").includes("/pi-adapter/"));
   assert.ok(importers.length >= 1, "src/pi-adapter must contain the adapter implementation");
 });
+
+// ADR-006 guardrail: the adapter may depend on the Pi runtime libraries only.
+// Adding any other @earendil-works package (e.g. the coding agent) requires an
+// explicit, reviewed change to this whitelist.
+const PI_ADAPTER_PACKAGE_WHITELIST = new Set(["pi-agent-core", "pi-ai"]);
+
+test("src/pi-adapter imports only whitelisted @earendil-works packages", async () => {
+  const files = await listSourceFiles(join(SRC, "pi-adapter"));
+  assert.ok(files.length >= 1, "src/pi-adapter must exist");
+  const offenders: string[] = [];
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    for (const match of content.matchAll(/@earendil-works\/([A-Za-z0-9_.-]+)/g)) {
+      const pkg = match[1] as string;
+      if (!PI_ADAPTER_PACKAGE_WHITELIST.has(pkg)) {
+        offenders.push(`${file}: @earendil-works/${pkg}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test("package.json declares no pi.extensions and no coding-agent dependency", async () => {
+  const raw = await readFile(join(REPO_ROOT, "package.json"), "utf8");
+  const pkg = JSON.parse(raw) as {
+    pi?: Record<string, unknown>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  assert.equal(
+    pkg.pi?.extensions,
+    undefined,
+    "package.json must not declare pi.extensions (ADR-006: adapter, not extension host)"
+  );
+  const allDeps = Object.keys({ ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) });
+  const codingAgent = allDeps.filter((name) => name.includes("pi-coding-agent"));
+  assert.deepEqual(codingAgent, [], "pi-coding-agent must not be a dependency");
+});

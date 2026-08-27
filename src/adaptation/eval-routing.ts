@@ -54,6 +54,27 @@ export interface RoutingEvalRequest {
   readonly datasetDir: string; // frozen replay episodes, never the live workspace
 }
 
+/**
+ * Honesty marker: replay pins baselineUtility === candidateUtility to the
+ * recorded episode outcome, so utilityDelta is 0 by construction. This eval
+ * produces cost and action-diff evidence only — never quality evidence.
+ */
+export const ROUTING_EVAL_QUALITY_EVIDENCE = "none-by-construction";
+
+export const ROUTING_EVAL_QUALITY_NOTE =
+  "replay assigns the recorded outcome to both arms (baselineUtility === candidateUtility), " +
+  "so utilityDelta is 0 by construction; this report carries cost and action-diff evidence only";
+
+/** One episode where the candidate policy routes to a different model. */
+export interface RoutingActionDiff {
+  readonly episodeHash: string;
+  readonly taskFamily: string;
+  readonly taskSuccess: "PASS" | "FAIL" | "UNOBSERVED";
+  readonly baselineModel: string;
+  readonly candidateModel: string;
+  readonly costDeltaUsd: number;
+}
+
 export interface RoutingEvalReport {
   readonly candidateId: string;
   readonly contentHash: string;
@@ -61,6 +82,9 @@ export interface RoutingEvalReport {
   readonly stages: readonly ("static" | "replay")[];
   readonly comparison: ComparisonReport;
   readonly evidenceClass: "replay";
+  readonly qualityEvidence: typeof ROUTING_EVAL_QUALITY_EVIDENCE;
+  readonly qualityEvidenceNote: string;
+  readonly actionDiff: readonly RoutingActionDiff[];
   readonly environmentVersion: string;
   readonly evaluatorVersion: string;
   readonly rerunHash: string;
@@ -105,7 +129,29 @@ export function parseRoutingEvalReport(value: unknown): RoutingEvalReport {
   if (typeof value.rerunHash !== "string" || value.rerunHash.trim() === "") {
     throw new DomainValidationError("eval report rerunHash is required");
   }
-  return value as unknown as RoutingEvalReport;
+  // Optional on older reports; when present it must be the honest marker —
+  // a routing replay can never carry quality evidence.
+  if (value.qualityEvidence !== undefined && value.qualityEvidence !== ROUTING_EVAL_QUALITY_EVIDENCE) {
+    throw new DomainValidationError(
+      `eval report qualityEvidence must be "${ROUTING_EVAL_QUALITY_EVIDENCE}" when present`
+    );
+  }
+  if (value.actionDiff !== undefined && !Array.isArray(value.actionDiff)) {
+    throw new DomainValidationError("eval report actionDiff must be an array when present");
+  }
+  // Older reports omit the honesty fields; parse fills the same marker a live
+  // eval writes, so callers can read `qualityEvidence` / `actionDiff` without
+  // a second "present?" check. A report that already carries a different
+  // qualityEvidence is refused above.
+  return {
+    ...(value as unknown as RoutingEvalReport),
+    qualityEvidence: ROUTING_EVAL_QUALITY_EVIDENCE,
+    qualityEvidenceNote:
+      typeof value.qualityEvidenceNote === "string" && value.qualityEvidenceNote.trim() !== ""
+        ? value.qualityEvidenceNote
+        : ROUTING_EVAL_QUALITY_NOTE,
+    actionDiff: Array.isArray(value.actionDiff) ? (value.actionDiff as RoutingActionDiff[]) : []
+  };
 }
 
 /**
@@ -212,6 +258,18 @@ export async function evalRoutingPolicy(
     stages: ["static", "replay"],
     comparison,
     evidenceClass: "replay",
+    qualityEvidence: ROUTING_EVAL_QUALITY_EVIDENCE,
+    qualityEvidenceNote: ROUTING_EVAL_QUALITY_NOTE,
+    actionDiff: actions
+      .filter((action) => action.baselineModel !== action.candidateModel)
+      .map((action) => ({
+        episodeHash: action.episodeHash,
+        taskFamily: action.taskFamily,
+        taskSuccess: action.taskSuccess,
+        baselineModel: action.baselineModel,
+        candidateModel: action.candidateModel,
+        costDeltaUsd: action.candidateCostUsd - action.baselineCostUsd
+      })),
     environmentVersion: dataset.environmentVersion,
     evaluatorVersion: ROUTING_EVALUATOR_VERSION,
     rerunHash
