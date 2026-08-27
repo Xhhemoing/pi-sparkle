@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -14,26 +15,31 @@ import {
   type SparkleAuthCheck
 } from "../pi-adapter/auth-session.js";
 import { asAuthStoreUnreadable, authStorePath } from "../pi-adapter/file-credential-store.js";
+import { DomainValidationError } from "../domain/errors.js";
 import { cliFail } from "./errors.js";
 
 export interface AuthIo {
   stdout(text: string): void;
   stderr(text: string): void;
+  /** Seam for tests and embedders; the real --key-stdin path reads process.stdin. */
+  readStdin?(): Promise<string>;
 }
 
 const AUTH_USAGE = `pi-sparkle auth — per-provider credentials (Pi CredentialStore)
 
 Usage:
   pi-sparkle auth status [--all] [--json] [--state-root <dir>]
-  pi-sparkle auth login <provider> [--key <key> | --from-env | --oauth] [--state-root <dir>]
+  pi-sparkle auth login <provider> [--key <key> | --key-file <path> | --key-stdin | --from-env | --oauth] [--state-root <dir>]
   pi-sparkle auth logout <provider> [--state-root <dir>]
 
 Stored credentials live in <state-root>/runtime/auth.json and win over
 environment variables. Status never prints secrets. OPENAI_API_KEY /
 ANTHROPIC_API_KEY / … still work without login. PI_API_KEY is only a
-compatibility override for the default provider.
+compatibility override for the default provider. Prefer --from-env, --key-file,
+or --key-stdin; --key puts the credential in process argv and shell history.
 
-login takes exactly one mode. --key and --oauth store a credential; --from-env
+login takes exactly one mode. --key, --key-file, --key-stdin and --oauth store a
+credential; --from-env
 stores nothing and only reports whether the environment configures the
 provider — a credential already in auth.json does not make it pass. "The
 environment" is whatever the provider resolves ambiently: environment
@@ -346,6 +352,8 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
       args: args.slice(1),
       options: {
         key: { type: "string" },
+        "key-file": { type: "string" },
+        "key-stdin": { type: "boolean", default: false },
         "from-env": { type: "boolean", default: false },
         oauth: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -380,15 +388,24 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
   // reading of `[--key | --from-env | --oauth]` that cannot lose a rotation.
   const modes = [
     ...(values.key !== undefined ? ["--key"] : []),
+    ...(values["key-file"] !== undefined ? ["--key-file"] : []),
+    ...(values["key-stdin"] === true ? ["--key-stdin"] : []),
     ...(values["from-env"] === true ? ["--from-env"] : []),
     ...(values.oauth === true ? ["--oauth"] : [])
   ];
   if (modes.length > 1) {
+    const hasFileMode = values["key-file"] !== undefined || values["key-stdin"] === true;
+    const message = hasFileMode
+      ? `auth login takes only one of --key-file, --key-stdin, --from-env, --oauth, or --key; got ${modes.join(" and ")} — nothing was stored`
+      : `auth login takes one of --key, --from-env, --oauth; got ${modes.join(" and ")} — nothing was stored`;
+    const next = hasFileMode
+      ? "pass exactly one of --key-file, --key-stdin, --from-env, --oauth, or --key"
+      : "pass exactly one of --key, --from-env, --oauth";
     return cliFail(io, {
       command: "auth login",
       stage: "parse-args",
-      message: `auth login takes one of --key, --from-env, --oauth; got ${modes.join(" and ")} — nothing was stored`,
-      next: "pass exactly one of --key, --from-env, --oauth"
+      message,
+      next
     });
   }
   // Beside the mode check rather than after the provider lookup: an empty
@@ -443,7 +460,33 @@ async function loginCommand(args: string[], io: AuthIo): Promise<number> {
       next: `add envVar for ${providerId} to providers.json, or use the per-run PI_API_KEY override for the selected default provider`
     });
   }
+  if (values["key-file"] !== undefined) {
+    const keyFile = values["key-file"];
+    const raw = await readFile(keyFile, "utf8").catch((error: NodeJS.ErrnoException) => {
+      const reason = error.message;
+      throw new DomainValidationError(`auth login --key-file ${keyFile} cannot be read: ${reason}`);
+    });
+    const key = raw.trim();
+    if (key === "") {
+      throw new DomainValidationError(`auth login --key-file ${keyFile} must be non-empty`);
+    }
+    const path = await storeApiKeyCredential(stateRoot, providerId, key);
+    io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
+    return 0;
+  }
+  if (values["key-stdin"] === true) {
+    const key = (await readKeyFromStdin(io)).trim();
+    if (key === "") {
+      throw new DomainValidationError("auth login --key-stdin must be non-empty");
+    }
+    const path = await storeApiKeyCredential(stateRoot, providerId, key);
+    io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
+    return 0;
+  }
   if (values.key !== undefined) {
+    io.stderr(
+      "warning: auth login --key puts the credential in process argv and shell history; prefer --from-env, --key-file, --key-stdin, or the interactive prompt.\n"
+    );
     const path = await storeApiKeyCredential(stateRoot, providerId, values.key);
     io.stdout(`Stored api_key credential for ${providerId} in ${path}\n`);
     return 0;
@@ -659,4 +702,22 @@ async function logoutCommand(args: string[], io: AuthIo): Promise<number> {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+/**
+ * The `--key-stdin` source: piped bytes only. A TTY would echo the credential
+ * to the terminal or block forever, so it is refused with the remedy named.
+ */
+async function readKeyFromStdin(io: AuthIo): Promise<string> {
+  if (io.readStdin !== undefined) return io.readStdin();
+  if (process.stdin.isTTY === true) {
+    throw new DomainValidationError(
+      "auth login --key-stdin requires piped input (a TTY would echo or block); use --key-file or the interactive prompt"
+    );
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }

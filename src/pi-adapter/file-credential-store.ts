@@ -1,5 +1,5 @@
-import { chmod, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type {
   AuthOperationOptions,
@@ -16,6 +16,10 @@ export function authStorePath(stateRoot: string): string {
   return join(runtimeRoot(stateRoot), "auth.json");
 }
 
+/** Owner-only. Anything wider on a shared machine is a readable credential. */
+const CREDENTIAL_FILE_MODE = 0o600;
+/** Owner-only directory so the credential file cannot be listed by others. */
+const CREDENTIAL_DIR_MODE = 0o700;
 export const AUTH_STORE_UNREADABLE_CODE = "AUTH_STORE_UNREADABLE" as const;
 
 /**
@@ -130,6 +134,7 @@ export class FileCredentialStore implements CredentialStore {
   }
 
   private async load(): Promise<Record<string, Credential>> {
+    await refuseGroupOrWorldReadable(this.filePath);
     const raw = await readFile(this.filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return "";
       throw error;
@@ -152,10 +157,66 @@ export class FileCredentialStore implements CredentialStore {
     return out;
   }
 
+  /**
+   * The mode is requested on the temp file, so the credential is owner-only from
+   * before it holds any bytes — a chmod after the rename leaves a window in which
+   * the published file is readable at whatever the umask allowed.
+   *
+   * The chmod that follows only confirms the published file, and its failure is
+   * raised rather than swallowed: silently keeping a credential file this process
+   * could not restrict is the failure mode the mode argument exists to prevent.
+   */
   private async save(all: Record<string, Credential>): Promise<void> {
     const serialized = `${JSON.stringify(all, null, 2)}\n`;
-    await writeFileAtomic(this.filePath, serialized);
-    await chmod(this.filePath, 0o600).catch(() => undefined);
+    const directory = dirname(this.filePath);
+    await mkdir(directory, { recursive: true, mode: CREDENTIAL_DIR_MODE });
+    await restrictOwnerOnly(directory, CREDENTIAL_DIR_MODE);
+    await writeFileAtomic(this.filePath, serialized, { mode: CREDENTIAL_FILE_MODE });
+    await restrictOwnerOnly(this.filePath, CREDENTIAL_FILE_MODE);
+    await restrictOwnerOnly(`${this.filePath}.lock`, CREDENTIAL_FILE_MODE, { missingOk: true });
+  }
+}
+
+/**
+ * gh-style fail-closed: a group/world-readable credential file is treated as
+ * already leaked. POSIX only — NTFS mode bits are not a trustworthy ACL.
+ */
+async function refuseGroupOrWorldReadable(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(path);
+  } catch (error: unknown) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") return;
+    throw error;
+  }
+  if ((info.mode & 0o077) !== 0) {
+    const mode = (info.mode & 0o777).toString(8).padStart(3, "0");
+    throw new DomainValidationError(
+      `refusing to read ${path}: mode ${mode} is readable by group or others; chmod 600 the file before use`
+    );
+  }
+}
+
+async function restrictOwnerOnly(
+  path: string,
+  mode: number,
+  options: { readonly missingOk?: boolean } = {}
+): Promise<void> {
+  try {
+    await chmod(path, mode);
+  } catch (error: unknown) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (options.missingOk === true && code === "ENOENT") return;
+    // NTFS does not honor POSIX modes; failing closed here would make login
+    // impossible on Windows even though the ACL already excludes other users
+    // by default on a per-user profile.
+    if (process.platform === "win32") return;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new DomainValidationError(`cannot restrict ${path} to owner-only permissions: ${reason}`);
   }
 }
 

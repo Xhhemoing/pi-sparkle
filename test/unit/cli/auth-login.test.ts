@@ -98,14 +98,13 @@ test("auth login refuses combining --key-stdin and --key-file", async () => {
   await withDir(async (dir) => {
     const keyFile = join(dir, "openai.key");
     await writeFile(keyFile, "sk-file\n", "utf8");
-    await assert.rejects(
-      () =>
-        authCommand(
-          ["login", "openai", "--key-stdin", "--key-file", keyFile, "--state-root", dir],
-          collectIo("sk-stdin").io
-        ),
-      /only one of --key-file/
+    const { stderr, io } = collectIo("sk-stdin");
+    const code = await authCommand(
+      ["login", "openai", "--key-stdin", "--key-file", keyFile, "--state-root", dir],
+      io
     );
+    assert.equal(code, 1);
+    assert.match(stderr.join(""), /only one of --key-file/);
   });
 });
 
@@ -135,23 +134,22 @@ test("auth login --key-file refuses an empty file", async () => {
 
 test("auth login refuses combining --key and --from-env", async () => {
   await withDir(async (dir) => {
-    await assert.rejects(
-      () =>
-        authCommand(
-          ["login", "openai", "--key", "sk-argv", "--from-env", "--state-root", dir],
-          collectIo().io
-        ),
-      /only one of --key-file/
+    const { stderr, io } = collectIo();
+    const code = await authCommand(
+      ["login", "openai", "--key", "sk-argv", "--from-env", "--state-root", dir],
+      io
     );
+    assert.equal(code, 1);
+    assert.match(stderr.join(""), /takes one of --key, --from-env, --oauth/);
   });
 });
 
 test("auth login --key refuses a blank secret", async () => {
   await withDir(async (dir) => {
-    await assert.rejects(
-      () => authCommand(["login", "openai", "--key", "   ", "--state-root", dir], collectIo().io),
-      /--key must be non-empty/
-    );
+    const { stderr, io } = collectIo();
+    const code = await authCommand(["login", "openai", "--key", "   ", "--state-root", dir], io);
+    assert.equal(code, 1);
+    assert.match(stderr.join(""), /--key must be non-empty/);
   });
 });
 
@@ -159,13 +157,12 @@ test("auth login refuses combining --key and --key-file", async () => {
   await withDir(async (dir) => {
     const keyFile = join(dir, "openai.key");
     await writeFile(keyFile, "sk-file\n", "utf8");
-    await assert.rejects(
-      () =>
-        authCommand(
-          ["login", "openai", "--key", "sk-argv", "--key-file", keyFile, "--state-root", dir],
-          collectIo().io
-        ),
-      /only one of --key-file/
+    const { stderr, io } = collectIo();
+    const code = await authCommand(
+      ["login", "openai", "--key", "sk-argv", "--key-file", keyFile, "--state-root", dir],
+      io
     );
+    assert.equal(code, 1);
+    assert.match(stderr.join(""), /only one of --key-file/);
   });
 });
