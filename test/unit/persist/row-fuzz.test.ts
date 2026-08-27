@@ -33,7 +33,7 @@ import {
 } from "../../../src/telemetry/model-invocation.js";
 
 const DEFAULT_SEED = 0x4f32_0007;
-const FUZZ_TIMEOUT_MS = 5_000;
+const FUZZ_TIMEOUT_MS = process.platform === "win32" ? 20_000 : 5_000;
 const SYNC_ITERATIONS = 1_200;
 const FILE_ITERATIONS = 240;
 const UUID = (): string => "01234567-89ab-cdef-0123-456789abcdef";

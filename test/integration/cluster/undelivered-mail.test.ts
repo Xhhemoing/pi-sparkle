@@ -410,7 +410,7 @@ test("pending and dead-lettered mail share one line, counts ordered by size then
  */
 test("both CLI run-summary paths warn about undelivered cluster mail", async () => {
   const mainPath = join(dirname(fileURLToPath(import.meta.url)), "../../../src/cli/main.ts");
-  const source = await readFile(mainPath, "utf8");
+  const source = (await readFile(mainPath, "utf8")).replace(/\r\n/g, "\n");
   const calls = source.match(/warnUndeliveredClusterMail\(io, /g) ?? [];
   assert.equal(calls.length, 2, "flowchart/children summary and --track summary both warn");
   const flowchartSummary = source.match(

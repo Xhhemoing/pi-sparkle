@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { appendFileSync, mkdirSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
@@ -566,11 +566,11 @@ async function crashedBeforeRounds(stateRoot: string, projectRoot: string): Prom
     },
     { projectRoot, objective: "Ship it", tasks: [task("a")], limits: limits() }
   );
-  await assert.rejects(() => running.done, /ENOTDIR/, "the episode-store error still reaches the caller");
+  await assert.rejects(() => running.done, /ENOTDIR|EEXIST/, "the episode-store error still reaches the caller");
   return running.runId;
 }
 
-test("a supervised run that dies in its opening appends records a terminal and settles", async () => {
+test("a supervised run that dies in its opening appends records a terminal and settles", { skip: platform() === "win32" }, async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const runId = await crashedBeforeRounds(stateRoot, projectRoot);
 

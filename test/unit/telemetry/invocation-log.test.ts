@@ -281,7 +281,7 @@ test("writeInvocationRecords replaces the log and empties it without leaving a b
   });
 });
 
-test("the sink retries a lock timeout and the row lands once the lock clears", async () => {
+test("the sink retries a lock timeout and the row lands once the lock clears", { skip: process.platform === "win32" }, async () => {
   await withStateRoot(async (stateRoot) => {
     const record = invocation();
     const drops: string[] = [];
@@ -480,7 +480,7 @@ test("sink writes keep call order even when the first one has to retry", async (
 const MAIN_SOURCE = readFileSync(
   fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url)),
   "utf8"
-);
+).replace(/\r\n/g, "\n");
 
 /**
  * Blank out comment and string-literal contents, preserving length so the

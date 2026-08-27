@@ -342,6 +342,15 @@ async function syncFile(path: string): Promise<void> {
  * throws, so a partially-written history is never silently copied.
  */
 export async function planLegacyMigration(stateRoot: string): Promise<MigrationPlan> {
+  const root = await stat(stateRoot).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (root !== undefined && !root.isDirectory()) {
+    const error: NodeJS.ErrnoException = new Error(`ENOTDIR: not a directory, stat '${stateRoot}'`);
+    error.code = "ENOTDIR";
+    throw error;
+  }
   const items: MigrationItem[] = [];
   const warnings: string[] = [];
   for (const source of LEGACY_SOURCES) {

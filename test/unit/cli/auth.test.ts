@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { authStorePath, FileCredentialStore } from "../../../src/pi-adapter/file-credential-store.js";
+import { escapeRegExp } from "../../helpers/repo-text.js";
 
 /**
  * The operator-facing half of `auth`: which flag combinations are refused,
@@ -315,7 +316,7 @@ test("--from-env discloses a stored credential that outranks the environment", a
       assert.equal(code, 0, err.join(""));
       const text = out.join("");
       assert.match(text, /configured by the environment via OPENAI_API_KEY/);
-      assert.match(text, new RegExp(`stored credential for openai in ${authStorePath(stateRoot)}`));
+      assert.match(text, new RegExp(`stored credential for openai in ${escapeRegExp(authStorePath(stateRoot))}`));
       assert.match(text, /wins over the environment/);
       assert.match(text, /auth logout openai/);
       assert.equal(text.includes(STORED_KEY), false);
@@ -346,7 +347,7 @@ test("--from-env answers off the environment when auth.json cannot be parsed at 
       // read as "nothing outranks the environment".
       assert.doesNotMatch(text, /wins over the environment/);
       const warning = err.join("");
-      assert.match(warning, new RegExp(`warning: ${path} could not be read`));
+      assert.match(warning, new RegExp(`warning: ${escapeRegExp(path)} could not be read`));
       assert.match(warning, /outranks the environment is unknown/);
 
       // A check does not repair, rewrite or move a credential file.
@@ -395,7 +396,7 @@ test("--from-env passes behind a stored oauth session when the environment also 
       const text = out.join("");
       assert.match(text, /configured by the environment via ANTHROPIC_API_KEY/);
       // The oauth session still outranks the key, so the operator is told.
-      assert.match(text, new RegExp(`stored credential for anthropic in ${authStorePath(stateRoot)}`));
+      assert.match(text, new RegExp(`stored credential for anthropic in ${escapeRegExp(authStorePath(stateRoot))}`));
       assert.match(text, /wins over the environment/);
       assert.equal(text.includes(ENV_KEY), false);
       assert.equal(text.includes(OAUTH_ACCESS), false);
@@ -906,7 +907,7 @@ test("--help on every subcommand prints usage, exits 0, and reads no credential 
         `${argv.join(" ")}: ${err.join("")}`
       );
       assert.deepEqual(err, [], argv.join(" "));
-      assert.match(out.join(""), /Usage:\n {2}pi-sparkle auth status/);
+      assert.match(out.join(""), /Usage:\r?\n {2}pi-sparkle auth status/);
       // Asking for help writes nothing and reads nothing.
       assert.equal(await exists(authStorePath(stateRoot)), false, argv.join(" "));
     });
@@ -1078,9 +1079,9 @@ test("a damaged auth.json is named by every verb that needs it, called safe to m
         const { io, err } = capture();
         assert.equal(await main(argv, io), 1, `${argv[1] ?? ""} must fail closed`);
         const text = err.join("");
-        assert.match(text, new RegExp(`auth\\.json at ${path} is unreadable`));
+        assert.match(text, new RegExp(`auth\\.json at ${escapeRegExp(path)} is unreadable`));
         assert.match(text, /safe to move aside/);
-        assert.match(text, new RegExp(`next: move ${path} aside`));
+        assert.match(text, new RegExp(`next: move ${escapeRegExp(path)} aside`));
         assert.match(text, /will not delete it for you/);
         assert.equal(text.includes(ROTATED_KEY), false);
       }
@@ -1197,7 +1198,7 @@ test("--help and the usage echo still precede the blank --state-root guard", asy
     const { io, out, err } = capture();
     assert.equal(await main([...argv, "--state-root", ""], io), 0, `${argv.join(" ")}: ${err.join("")}`);
     assert.deepEqual(err, [], argv.join(" "));
-    assert.match(out.join(""), /Usage:\n {2}pi-sparkle auth status/);
+    assert.match(out.join(""), /Usage:\r?\n {2}pi-sparkle auth status/);
   }
 });
 
@@ -1206,7 +1207,7 @@ test("auth --help names the file auth actually writes", async () => {
   assert.equal(await main(["auth", "--help"], io), 0, err.join(""));
   const text = out.join("");
   const stateRoot = join(tmpdir(), "sparkle-usage-probe");
-  const relative = authStorePath(stateRoot).slice(stateRoot.length);
+  const relative = authStorePath(stateRoot).slice(stateRoot.length).replaceAll("\\", "/");
   assert.ok(
     text.includes(`<state-root>${relative}`),
     `usage must name <state-root>${relative}, got: ${text}`

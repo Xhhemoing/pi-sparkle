@@ -35,7 +35,7 @@ import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
  * `runCommand`'s equivalent pin lives in `test/unit/telemetry/invocation-log.test.ts`.
  */
 const MAIN_PATH = fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url));
-const MAIN_SOURCE = readFileSync(MAIN_PATH, "utf8");
+const MAIN_SOURCE = readFileSync(MAIN_PATH, "utf8").replace(/\r\n/g, "\n");
 
 /**
  * Blank out comment and string-literal contents, preserving length and line

@@ -257,6 +257,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [P0 technical re-verification (2026-08-26)](docs/reports/2026-08-26-p0-technical-reverification.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+- [Developer Preview 0.1.0-preview.1 (2026-08-27)](docs/reports/2026-08-27-preview-declaration.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
 - [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
 - [Architecture](docs/specs/m0-m2-architecture.md)

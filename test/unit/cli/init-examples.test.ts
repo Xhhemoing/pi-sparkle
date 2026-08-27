@@ -103,8 +103,8 @@ describe("init writes example specs", () => {
   it("ships the same bytes in examples/ as in the embedded constants", async () => {
     const childrenUrl = new URL("../../../examples/sparkle-children.example.json", import.meta.url);
     const flowchartUrl = new URL("../../../examples/sparkle-flowchart.example.json", import.meta.url);
-    assert.equal(await readFile(childrenUrl, "utf8"), CHILDREN_EXAMPLE_JSON);
-    assert.equal(await readFile(flowchartUrl, "utf8"), FLOWCHART_EXAMPLE_JSON);
+    assert.equal((await readFile(childrenUrl, "utf8")).replace(/\r\n/g, "\n"), CHILDREN_EXAMPLE_JSON);
+    assert.equal((await readFile(flowchartUrl, "utf8")).replace(/\r\n/g, "\n"), FLOWCHART_EXAMPLE_JSON);
   });
 });
 

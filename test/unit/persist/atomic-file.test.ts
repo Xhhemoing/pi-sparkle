@@ -44,7 +44,7 @@ test("writeFileAtomic creates missing directories and publishes the exact bytes"
   });
 });
 
-test("concurrent writers publish one complete payload and never a torn hybrid", async () => {
+test("concurrent writers publish one complete payload and never a torn hybrid", { skip: process.platform === "win32" }, async () => {
   await withTempDir(async (directory) => {
     const path = join(directory, "contended.json");
     const writers = 8;
@@ -218,7 +218,7 @@ async function permissions(path: string): Promise<number> {
   return (await stat(path)).mode & 0o777;
 }
 
-test("a requested mode is in force before the payload exists, not after the rename", async () => {
+test("a requested mode is in force before the payload exists, not after the rename", { skip: process.platform === "win32" }, async () => {
   await withTempDir(async (directory) => {
     const path = join(directory, "secret.json");
     const modesAtPublish: number[] = [];
@@ -243,7 +243,7 @@ test("a requested mode is in force before the payload exists, not after the rena
   });
 });
 
-test("the requested mode is exact, not whatever the umask left of it", async () => {
+test("the requested mode is exact, not whatever the umask left of it", { skip: process.platform === "win32" }, async () => {
   const previous = process.umask(0o000);
   try {
     await withTempDir(async (directory) => {
@@ -276,7 +276,7 @@ test("without a mode the writers leave permissions exactly where the platform pu
   });
 });
 
-test("writeFileAtomicSync applies the mode to its temp too", async () => {
+test("writeFileAtomicSync applies the mode to its temp too", { skip: process.platform === "win32" }, async () => {
   await withTempDir(async (directory) => {
     const path = join(directory, "secret-sync.json");
     const modesAtPublish: number[] = [];

@@ -31,6 +31,10 @@ import { parseTrackingAssessment, type ConstraintRecord } from "../../../src/tra
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
+function repoRelative(file: string): string {
+  return file.slice(REPO_ROOT.length).replaceAll("\\", "/").replace(/^\//, "");
+}
+
 /**
  * Loop 4 R8-4 — the preconditions option (a) had to satisfy. Option (a)
  * shipped at R11-1, so this file is now the record of what moved.
@@ -274,7 +278,7 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
     const producers = new Map<string, string[]>();
     let piMessages = 0;
     for (const file of files) {
-      const relative = file.slice(REPO_ROOT.length);
+      const relative = repoRelative(file);
       // Comments discuss these shapes (`flowchart-run.ts` explains why a
       // FAILED verdict blocks a run); only code produces one. A producer whose
       // kind is decided at runtime writes it as a shorthand property, so the

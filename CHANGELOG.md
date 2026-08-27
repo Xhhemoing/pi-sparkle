@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## [0.1.0] - Unreleased
+## [0.1.0-preview.1] - 2026-08-27
 
 Developer Preview only. The package is `"private": true`, will not be
 published to npm, and supports clone + pnpm installation only.

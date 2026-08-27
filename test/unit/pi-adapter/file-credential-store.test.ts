@@ -11,6 +11,7 @@ import {
   FileCredentialStore
 } from "../../../src/pi-adapter/file-credential-store.js";
 import { DomainValidationError } from "../../../src/domain/errors.js";
+import { escapeRegExp } from "../../helpers/repo-text.js";
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-auth-"));
@@ -46,7 +47,7 @@ test("read returns the stored credential and missing file is empty", async () =>
   });
 });
 
-test("save preserves credential bytes, ignores a legacy fixed temp, and chmods after publish", async () => {
+test("save preserves credential bytes, ignores a legacy fixed temp, and chmods after publish", { skip: process.platform === "win32" }, async () => {
   await withDir(async (dir) => {
     const path = join(dir, "runtime", "auth.json");
     const legacyTemp = `${path}.tmp`;
@@ -103,7 +104,7 @@ test("a damaged store fails every verb with the file, a reason, and the move-asi
           assert.equal(error.code, AUTH_STORE_UNREADABLE_CODE);
           assert.equal(error.path, path);
           assert.match(error.message, reason);
-          assert.match(error.message, new RegExp(`auth\\.json at ${path}`));
+          assert.match(error.message, new RegExp(`auth\\.json at ${escapeRegExp(path)}`));
           assert.match(error.message, /safe to move aside/);
           // Callers that only know the base class keep working.
           assert.ok(error instanceof DomainValidationError);
@@ -141,11 +142,11 @@ test("the empty store reports no credentials and refuses to write", async () => 
 });
 
 test("credential publishing delegates to the shared atomic writer before chmod", async () => {
-  const source = await readFile("src/pi-adapter/file-credential-store.ts", "utf8");
+  const source = (await readFile("src/pi-adapter/file-credential-store.ts", "utf8")).replace(/\r\n/g, "\n");
   assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/persist\/atomic-file\.js";/);
   assert.match(
     source,
-    /await writeFileAtomic\(this\.filePath, serialized\);\s+await chmod\(this\.filePath, 0o600\)/
+    /await writeFileAtomic\(this\.filePath, serialized, \{ mode: CREDENTIAL_FILE_MODE \}\);\s+await restrictOwnerOnly\(this\.filePath, CREDENTIAL_FILE_MODE\);/
   );
   assert.doesNotMatch(source, /\b(?:open|rename|unlink)\(/);
   assert.doesNotMatch(source, /tempPath|`[^`]*\.tmp`/);

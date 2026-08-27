@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 
 const MAIN_PATH = fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url));
-const MAIN_SOURCE = readFileSync(MAIN_PATH, "utf8");
+const MAIN_SOURCE = readFileSync(MAIN_PATH, "utf8").replace(/\r\n/g, "\n");
 const DOCTOR_EXPRESSION = "${doctor}";
 
 const EXPECTED_GENERIC_FAILURE_NEXT =

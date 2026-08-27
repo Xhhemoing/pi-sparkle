@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { VALIDATE_USAGE } from "../../../src/cli/validate.js";
 import { enableModel, providersConfigPath } from "../../../src/config/providers-config.js";
+import { escapeRegExp } from "../../helpers/repo-text.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -70,13 +71,17 @@ async function withSpecDir(
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-state-"));
   const home = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-home-"));
   const savedHome = process.env.HOME;
+  const savedUserProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
   try {
     await run(specDir, stateRoot);
     assert.deepEqual(await readdir(home), [], "validate writes nothing under the default state root");
   } finally {
     if (savedHome === undefined) delete process.env.HOME;
     else process.env.HOME = savedHome;
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
     await rm(specDir, { recursive: true, force: true });
     await rm(stateRoot, { recursive: true, force: true });
     await rm(home, { recursive: true, force: true });
@@ -140,7 +145,7 @@ test("validate --flowchart accepts a tiny flowchart against an empty state root'
     const code = await main(["validate", "--flowchart", path, "--state-root", stateRoot], io);
     assert.equal(code, 0, err.join(""));
     assert.match(out.join(""), /valid: flowchart tiny \(2 nodes, 1 edges\)/);
-    assert.match(out.join(""), new RegExp(`live catalog at ${stateRoot}`));
+    assert.match(out.join(""), new RegExp(`live catalog at ${escapeRegExp(stateRoot)}`));
     assert.deepEqual(err, []);
     assert.deepEqual(
       await readdir(stateRoot),
@@ -222,7 +227,7 @@ test("validate --flowchart without --state-root reads the default root without c
     const path = await writeSpec(specDir, "flowchart.json", FLOWCHART_SPEC);
     const { io, out, err } = capture();
     assert.equal(await main(["validate", "--flowchart", path], io), 0, err.join(""));
-    assert.match(out.join(""), new RegExp(`live catalog at ${join(process.env.HOME as string, ".pi-sparkle")}`));
+    assert.match(out.join(""), new RegExp(`live catalog at ${escapeRegExp(join(homedir(), ".pi-sparkle"))}`));
   });
 });
 
@@ -236,7 +241,7 @@ test("validate --flowchart reports a broken catalog as a catalog problem, not a 
     assert.equal(await main(["validate", "--flowchart", path, "--state-root", stateRoot], io), 1);
     assert.deepEqual(out, []);
     const parsed = parseCliErrorJson(err.join(""));
-    assert.match(parsed?.message ?? "", new RegExp(`could not build the model catalog at ${stateRoot}`));
+    assert.match(parsed?.message ?? "", new RegExp(`could not build the model catalog at ${escapeRegExp(stateRoot)}`));
     assert.equal(
       parsed?.next,
       `disable an unknown enabled model with pi-sparkle models disable <provider/model>, repair ${configPath}, or pass --state-root <dir>`
@@ -291,7 +296,7 @@ test("validate reports unparseable JSON and a missing file with the path", async
     assert.equal(await main(["validate", "--children", broken], badJson.io), 1);
     const parsedBadJson = parseCliErrorJson(badJson.err.join(""));
     assert.equal(parsedBadJson?.stage, "validation");
-    assert.match(parsedBadJson?.message ?? "", new RegExp(`Invalid child spec ${broken}`));
+    assert.match(parsedBadJson?.message ?? "", new RegExp(`Invalid child spec ${escapeRegExp(broken)}`));
 
     const absent = join(specDir, "absent.json");
     const missing = capture();
@@ -366,7 +371,7 @@ test("validate classifies a directory passed as a spec path in the same lookup c
     const parsedChildren = parseCliErrorJson(children.err.join(""));
     assert.equal(parsedChildren?.command, "validate");
     assert.equal(parsedChildren?.stage, "lookup");
-    assert.match(parsedChildren?.message ?? "", new RegExp(`^cannot read --children ${asDir}: EISDIR`));
+    assert.match(parsedChildren?.message ?? "", new RegExp(`^cannot read --children ${escapeRegExp(asDir)}: EISDIR`));
     assert.equal(
       parsedChildren?.next,
       "check the --children path; pi-sparkle init writes example specs this command accepts"
@@ -377,7 +382,7 @@ test("validate classifies a directory passed as a spec path in the same lookup c
     assert.deepEqual(flowchart.out, []);
     const parsedFlowchart = parseCliErrorJson(flowchart.err.join(""));
     assert.equal(parsedFlowchart?.stage, "lookup");
-    assert.match(parsedFlowchart?.message ?? "", new RegExp(`^cannot read --flowchart ${asDir}: EISDIR`));
+    assert.match(parsedFlowchart?.message ?? "", new RegExp(`^cannot read --flowchart ${escapeRegExp(asDir)}: EISDIR`));
   });
 });
 

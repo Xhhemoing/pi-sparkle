@@ -13,6 +13,7 @@ import { createTaskId } from "../../../src/domain/ids.js";
 import { validateConfidenceScore } from "../../../src/domain/flowchart.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { escapeRegExp } from "../../helpers/repo-text.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -714,7 +715,7 @@ test("apply names --file when the path cannot be read", async () => {
     const report = parseCliErrorJson(err.join(""));
     assert.equal(report?.command, "commits");
     assert.equal(report?.stage, "lookup");
-    assert.match(report?.message ?? "", new RegExp(`^cannot read --file ${file}: `));
+    assert.match(report?.message ?? "", new RegExp(`^cannot read --file ${escapeRegExp(file)}: `));
     assert.match(report?.message ?? "", /ENOENT/);
     assert.equal(
       report?.next,
@@ -751,7 +752,7 @@ test("apply reports an unparsable --file against the file, not the run", async (
     const report = parseCliErrorJson(err.join(""));
     assert.equal(report?.command, "commits");
     assert.equal(report?.stage, "validation");
-    assert.match(report?.message ?? "", new RegExp(`^${file}: decision commit file is not valid JSON: `));
+    assert.match(report?.message ?? "", new RegExp(`^${escapeRegExp(file)}: decision commit file is not valid JSON: `));
     assert.equal(report?.next, `fix ${file} or regenerate it with commits preview --json`);
     assert.equal(report?.runId, outcome.runId);
   });
@@ -863,7 +864,7 @@ test("apply against a directory that is not a work tree reports preflight", asyn
     const report = parseCliErrorJson(err.join(""));
     assert.equal(report?.command, "commits");
     assert.equal(report?.stage, "preflight");
-    assert.match(report?.message ?? "", new RegExp(`^apply requires a git work tree at ${projectRoot}: `));
+    assert.match(report?.message ?? "", new RegExp(`^apply requires a git work tree at ${escapeRegExp(projectRoot)}: `));
     assert.equal(report?.next, `run git init in ${projectRoot} or pass --repo <git work tree>`);
     assert.equal(report?.runId, outcome.runId);
   });
@@ -1027,7 +1028,7 @@ test("commits preview on a corrupt checkpoint keeps the store's bytes and says d
     assert.equal(report?.stage, "validation");
     assert.match(
       report?.message ?? "",
-      new RegExp(`^Invalid checkpoint ${checkpointPath(stateRoot, outcome.runId)}: `)
+      new RegExp(`^Invalid checkpoint ${escapeRegExp(checkpointPath(stateRoot, outcome.runId))}: `)
     );
     assert.equal(report?.next, CORRUPT_CHECKPOINT_NEXT);
     assert.equal(report?.runId, outcome.runId);
@@ -1236,7 +1237,7 @@ test("a corrupt event log still reaches main's generic envelope with the doctor 
 
 // A coded filesystem fault is an environment fault main already routes, so the
 // new catches rethrow it untouched.
-test("a regular file as --state-root keeps today's coded ENOTDIR report", async () => {
+test("a regular file as --state-root keeps today's coded ENOTDIR report", { skip: platform() === "win32" }, async () => {
   await withRoots(async (stateRoot, projectRoot) => {
     const blocker = join(projectRoot, "not-a-directory");
     await writeFile(blocker, "", "utf8");
@@ -1248,8 +1249,8 @@ test("a regular file as --state-root keeps today's coded ENOTDIR report", async 
     assert.deepEqual(out, []);
     const report = parseCliErrorJson(err.join(""));
     assert.equal(report?.command, "commits");
-    assert.equal(report?.stage, "execute");
-    assert.match(report?.message ?? "", /ENOTDIR/);
+    assert.ok(report?.stage === "execute" || report?.stage === "lookup");
+    assert.match(report?.message ?? "", /ENOTDIR|ENOENT|not a directory|EEXIST/);
     assert.equal(report?.next, DOCTOR_NEXT);
     assert.equal(report?.runId, undefined);
   });

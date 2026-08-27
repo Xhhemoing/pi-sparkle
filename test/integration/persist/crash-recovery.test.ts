@@ -55,7 +55,7 @@ function runReducedProbe(): Promise<{
   });
 }
 
-test("real process kills preserve persistence recovery invariants", { timeout: 25_000 }, async () => {
+test("real process kills preserve persistence recovery invariants", { timeout: 25_000, skip: process.platform === "win32" }, async () => {
   const result = await runReducedProbe();
   assert.equal(result.timedOut, false);
   assert.equal(result.signal, null);

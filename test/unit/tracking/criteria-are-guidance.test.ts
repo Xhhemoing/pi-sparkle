@@ -17,6 +17,10 @@ import type { ConstraintRecord } from "../../../src/tracking/types.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
+function repoRelative(file: string): string {
+  return file.slice(REPO_ROOT.length).replaceAll("\\", "/").replace(/^\//, "");
+}
+
 /**
  * Loop 4 R7-2, parent-signed: the acceptance criteria a caller *asks for* are
  * prompt guidance, not evidence about the child. These pins hold that at the
@@ -414,7 +418,7 @@ describe("the recorded contract", () => {
     const behaviourModules = ["prescore.js", "turn.js", "gates.js", "from-child.js", "index.js"];
     const importers = new Map<string, string[]>();
     for (const file of files) {
-      const relative = file.slice(REPO_ROOT.length);
+      const relative = repoRelative(file);
       if (relative.startsWith("src/tracking/")) continue;
       const source = await readFile(file, "utf8");
       for (const module of behaviourModules) {

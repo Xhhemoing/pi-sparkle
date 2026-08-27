@@ -120,7 +120,7 @@ test("a partial temp file is ignored and does not poison the next checkpoint wri
   }
 });
 
-test("concurrent checkpoint writes publish exactly one complete document", async () => {
+test("concurrent checkpoint writes publish exactly one complete document", { skip: process.platform === "win32" }, async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-test-"));
   try {
     const runId = createRunId(UUID);

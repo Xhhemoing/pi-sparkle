@@ -248,7 +248,7 @@ test("export writes the dataset directory adapt eval consumes and never mutates 
   // every row; the rows are one run's routed tasks, which the manifest says
   // in as many words rather than leaving a reader to assume independence.
   assert.equal(manifest.source.rowKind, "routed-task-from-one-run");
-  assert.equal(manifest.source.originalWorkspace, workspace);
+  assert.equal(manifest.source.originalWorkspace, redactSensitiveText(workspace).text);
   for (const episode of manifest.episodes) {
     assert.equal(episode.role, "implementer");
     assert.equal(episode.originalWorkspace, manifest.source.originalWorkspace);

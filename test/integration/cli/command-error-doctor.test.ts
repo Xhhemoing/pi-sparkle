@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { escapeRegExp } from "../../helpers/repo-text.js";
 import { commandFailureNext, main, type CliIo } from "../../../src/cli/main.js";
 import { errorCodeOf, parseCliErrorJson } from "../../../src/cli/errors.js";
 import type { DoctorJsonReport } from "../../../src/cli/doctor.js";
@@ -421,7 +422,7 @@ test("delete --run refused by a held lock tells the operator to run doctor", asy
 
     const text = io.err.join("");
     // The existing surface is intact: the message still names the lock path.
-    assert.match(text, new RegExp(`^error: timed out waiting for lock at ${lockPath}$`, "m"));
+    assert.match(text, new RegExp(`^error: timed out waiting for lock at ${escapeRegExp(lockPath)}$`, "m"));
     assert.match(text, /^ {2}command: delete$/m);
     assert.match(text, /^ {2}stage: validation$/m);
     assert.match(text, /^ {2}next: .*pi-sparkle doctor --json --state-root /m);

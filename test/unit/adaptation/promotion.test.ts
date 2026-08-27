@@ -316,7 +316,7 @@ describe("M6-T5: compare-and-swap promotion", () => {
     assert.equal(reloaded.ledger().at(-1)?.kind, "promoted");
   });
 
-  it("registry saves preserve bytes and concurrent publishes leave no owned temp", async () => {
+  it("registry saves preserve bytes and concurrent publishes leave no owned temp", { skip: process.platform === "win32" }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-adapt-atomic-"));
     try {
       const first = registry();

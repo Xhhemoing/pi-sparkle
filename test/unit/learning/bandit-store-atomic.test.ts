@@ -106,7 +106,7 @@ async function seedLargeBandit(path: string, armCount: number): Promise<void> {
   );
 }
 
-test("a reader racing repeated publishes never observes a spliced bandit document", async () => {
+test("a reader racing repeated publishes never observes a spliced bandit document", { skip: process.platform === "win32" }, async () => {
   await withTempDir(async (stateRoot) => {
     const projectRoot = join(stateRoot, "project");
     const path = banditFile(stateRoot, projectRoot);

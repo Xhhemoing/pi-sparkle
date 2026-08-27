@@ -20,9 +20,9 @@ The two findings opened on 2026-08-22 were remediated and closed on
 | `secret-bodies` | redaction coverage | value-aware removal for keyed assignments, bearer/JWT/vendor tokens, and private-key blocks | 2026-08-24 |
 
 At HEAD the release command is expected to exit 0. The security probe reports
-`passed: 24` after the 2026-08-26 samples (IPv6, SSN, CN national id,
+`passed: 26` after the 2026-08-27 certifying run (IPv6, SSN, CN national id,
 `aws_secret_access_key`, URL userinfo, AWS STS `ASIA…`, Stripe live keys,
-plus the original set and the packaged-secrets scan).
+plus the original set and the packaged-secrets scan). Host: Node v24.18.0.
 Any new open security or Pi-boundary finding closes the gate until fixed or
 validly waived under the rules below.
 

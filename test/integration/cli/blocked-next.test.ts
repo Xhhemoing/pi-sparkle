@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readRepoText } from "../../helpers/repo-text.js";
 
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import { formatBlockedRunReport, main, type CliIo } from "../../../src/cli/main.js";
@@ -477,21 +477,21 @@ function assertBlockedWiring(source: string): void {
 }
 
 test("both flowchart outcomes in runCommand route BLOCKED before exiting", () => {
-  assertBlockedWiring(readFileSync(MAIN_PATH, "utf8"));
+  assertBlockedWiring(readRepoText(MAIN_PATH));
 });
 
 test("the wiring pin fails when the --children branch drops the BLOCKED block", () => {
-  const source = readFileSync(MAIN_PATH, "utf8");
+  const source = readRepoText(MAIN_PATH);
   const needle = `      return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
     }
     if (outcome.status === "BLOCKED") {
       reportBlockedRun(io, outcome, stateRoot);
-    }`;
+    }`.replace(/\r\n/g, "\n");
   assert.ok(source.includes(needle), "mutation target not found in runCommand");
   assert.throws(
     () => {
       assertBlockedWiring(source.replace(needle, `      return reportFailedRun(io, "run", "children", outcome.runId, stateRoot, reason);
-    }`));
+    }`.replace(/\r\n/g, "\n")));
     },
     assert.AssertionError,
     "the pin passed on a source that lost the children branch's BLOCKED block"
@@ -520,13 +520,13 @@ function assertEveryFlowchartExitRoutesBlocked(source: string): void {
 }
 
 test("resume and answer route BLOCKED alongside both run branches", () => {
-  assertEveryFlowchartExitRoutesBlocked(readFileSync(MAIN_PATH, "utf8"));
+  assertEveryFlowchartExitRoutesBlocked(readRepoText(MAIN_PATH));
 });
 
 test("the four-site pin fails when resume drops the BLOCKED block", () => {
-  const source = readFileSync(MAIN_PATH, "utf8");
+  const source = readRepoText(MAIN_PATH);
   const needle = `      return reportFailedRun(io, "resume", "flowchart", outcome.runId, stateRoot, reason);
-    }`;
+    }`.replace(/\r\n/g, "\n");
   assert.ok(source.includes(needle), "mutation target not found in resumeCommand");
   assert.throws(
     () => {
@@ -538,7 +538,7 @@ test("the four-site pin fails when resume drops the BLOCKED block", () => {
     // stderr is byte-pinned, and a DAG resume has no flowchart node to reopen.
     if (outcome.status === "BLOCKED") {
       reportBlockedRun(io, outcome, stateRoot);
-    }`,
+    }`.replace(/\r\n/g, "\n"),
           needle
         )
       );
@@ -556,7 +556,7 @@ test("the four-site pin fails when resume drops the BLOCKED block", () => {
  * remedy that does not apply.
  */
 test("the supervised resume branch prints no BLOCKED block", () => {
-  const source = readFileSync(MAIN_PATH, "utf8");
+  const source = readRepoText(MAIN_PATH);
   const start = source.indexOf("  if (values.supervised === true) {");
   assert.ok(start >= 0, "the supervised resume branch must remain identifiable");
   const end = source.indexOf("\n  if (checkpointCarriesFlowchart(existing)) {", start);
