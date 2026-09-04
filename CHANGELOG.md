@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased] - 2026-09-04
+
+### Added
+
+- Retention contract tests (4): concurrent-append survival, residual
+  episode-text disclosure via `retain --apply`, held-lock `LOCK_TIMEOUT`,
+  mtime fallback pinning.
+- F6 holdout decision package (proposal, owner sign-off pending) and the
+  xhh-relay dogfood acceptance report under `docs/reports/`.
+
+### Changed
+
+- Status matrix truthed-up in six cells (Pi pin 0.84.4, migrate-legacy,
+  cost-calibration, provider-retry, doctor, retention) after a three-model
+  cross-validation audit (xhh: fable / gpt-5.6-sol / kimi-k3) with host
+  adjudication; one suspected drift was checked and refuted.
+
 ## [Unreleased] - 2026-09-01
 
 ### Changed
