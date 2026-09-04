@@ -10,7 +10,7 @@ Previous `[x]` marks on M3-T1/T2/T4/T5/T6/T8 and Checkpoint D were **overclaims*
 - [x] Adaptive specification approved (2026-08-21; six defaults ratified unchanged).
 - [x] ADR-004 accepted (2026-08-21).
 - [x] Six implementation defaults approved, unchanged (2026-08-21).
-- [ ] P0 privacy/storage/authority preflight passes.
+- [x] P0 privacy/storage/authority preflight passes. (Closed 2026-08-26 by technical re-verification; countersign welcome, non-blocking — see status-matrix.md.)
 
 ## M3 gaps (Checkpoint D cannot close until these land)
 
