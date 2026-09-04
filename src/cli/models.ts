@@ -8,6 +8,11 @@ import {
   setDefaultModels
 } from "../config/providers-config.js";
 import { parseModelRef, tryParseModelRef } from "../config/model-ref.js";
+import type { CustomProviderConfig } from "../config/providers-config.js";
+import {
+  listCredentialedProviders,
+  type CredentialedProvider
+} from "../pi-adapter/auth-session.js";
 import type { SparkleListedModel } from "../pi-adapter/listed-model.js";
 import { cliFail } from "./errors.js";
 
@@ -16,24 +21,40 @@ export interface ModelsIo {
   stderr(text: string): void;
 }
 
+export type ModelsCredentialScan = (
+  stateRoot: string,
+  providerIds: readonly string[],
+  customProviders: readonly CustomProviderConfig[]
+) => Promise<readonly CredentialedProvider[]>;
+
+export interface ModelsCommandOptions {
+  /** Test seam; production asks Pi's auth resolver about every provider once. */
+  readonly credentialScan?: ModelsCredentialScan;
+}
+
 const MODELS_USAGE = `pi-sparkle models — enable Pi models for routing
 
 Usage:
   pi-sparkle models list [--available] [--provider <id>] [--state-root <dir>] [--json]
   pi-sparkle models enable <provider/model> [--state-root <dir>]
+  pi-sparkle models enable --suggest [--state-root <dir>]
   pi-sparkle models disable <provider/model> [--state-root <dir>]
   pi-sparkle models set-default --primary <provider/model> [--fast <provider/model>] [--state-root <dir>]
 
 Routing only uses enabled models. Browse the Pi catalog with --available.
 `;
 
-export async function modelsCommand(args: string[], io: ModelsIo): Promise<number> {
+export async function modelsCommand(
+  args: string[],
+  io: ModelsIo,
+  options: ModelsCommandOptions = {}
+): Promise<number> {
   const [sub, ...rest] = args;
   switch (sub) {
     case "list":
       return await listCommand(rest, io);
     case "enable":
-      return await enableCommand(rest, io);
+      return await enableCommand(rest, io, options);
     case "disable":
       return await disableCommand(rest, io);
     case "set-default":
@@ -86,7 +107,7 @@ function refuseBlankStateRoot(io: ModelsIo, command: string, raw: string): numbe
 }
 
 type ParsedArgs<T> =
-  | { readonly ok: true; readonly values: T }
+  | { readonly ok: true; readonly values: T; readonly positionals: readonly string[] }
   | { readonly ok: false; readonly code: number };
 
 /**
@@ -95,9 +116,14 @@ type ParsedArgs<T> =
  * help someone who typed `--jsn`. Every models subcommand routes its argv
  * errors through the one house dialect instead.
  */
-function parseModelsArgs<T>(io: ModelsIo, command: string, parse: () => { values: T }): ParsedArgs<T> {
+function parseModelsArgs<T>(
+  io: ModelsIo,
+  command: string,
+  parse: () => { values: T; positionals: readonly string[] }
+): ParsedArgs<T> {
   try {
-    return { ok: true, values: parse().values };
+    const parsed = parse();
+    return { ok: true, values: parsed.values, positionals: parsed.positionals };
   } catch (error) {
     return {
       ok: false,
@@ -292,17 +318,40 @@ async function listCommand(args: string[], io: ModelsIo): Promise<number> {
   return 0;
 }
 
-async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
-  const catalogId = args[0];
+async function enableCommand(
+  args: string[],
+  io: ModelsIo,
+  options: ModelsCommandOptions
+): Promise<number> {
   const parsed = parseModelsArgs(io, "models enable", () =>
     parseArgs({
-      args: args.slice(1),
-      options: { "state-root": { type: "string" } }
+      args,
+      allowPositionals: true,
+      options: {
+        suggest: { type: "boolean", default: false },
+        "state-root": { type: "string" }
+      }
     })
   );
   if (!parsed.ok) return parsed.code;
-  const { values } = parsed;
-  if (catalogId === undefined || catalogId.startsWith("-")) {
+  const { values, positionals } = parsed;
+  const rawStateRoot = values["state-root"];
+  if (values.suggest === true) {
+    if (positionals.length > 0) {
+      return cliFail(io, {
+        command: "models enable",
+        stage: "parse-args",
+        message: "models enable --suggest takes no <provider/model>",
+        next: "drop the positional model id; run the printed enable command after reviewing suggestions"
+      });
+    }
+    if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+      return refuseBlankStateRoot(io, "models enable", rawStateRoot);
+    }
+    return await suggestModels(stateRootOf(values), io, options);
+  }
+  const catalogId = positionals[0];
+  if (catalogId === undefined) {
     return cliFail(io, {
       command: "models enable",
       stage: "parse-args",
@@ -310,10 +359,17 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
       next: "run pi-sparkle models --help"
     });
   }
+  if (positionals.length > 1) {
+    return cliFail(io, {
+      command: "models enable",
+      stage: "parse-args",
+      message: `models enable accepts one <provider/model>; received ${positionals.length}`,
+      next: "run one pi-sparkle models enable command per model"
+    });
+  }
   if (tryParseModelRef(catalogId) === undefined) {
     return refuseMalformedId(io, "models enable", "<provider/model>", catalogId);
   }
-  const rawStateRoot = values["state-root"];
   if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
     return refuseBlankStateRoot(io, "models enable", rawStateRoot);
   }
@@ -324,6 +380,72 @@ async function enableCommand(args: string[], io: ModelsIo): Promise<number> {
   }
   await enableModel(stateRoot, catalogId);
   io.stdout(`Enabled ${catalogId}\n`);
+  return 0;
+}
+
+const MAX_SUGGESTIONS_PER_PROVIDER = 8;
+
+/**
+ * Show models whose providers already resolve credentials, without mutating
+ * providers.json. This is the missing discovery bridge: Pi decides whether a
+ * credential is usable, the operator still decides which model enters routing.
+ */
+async function suggestModels(
+  stateRoot: string,
+  io: ModelsIo,
+  options: ModelsCommandOptions
+): Promise<number> {
+  const config = await loadProvidersConfig(stateRoot);
+  const catalog = await import("../pi-adapter/listed-model.js");
+  const providerIds = [
+    ...new Set([
+      ...catalog.listSparkleProviders(),
+      ...config.customProviders.map((provider) => provider.id)
+    ])
+  ];
+  const scan = options.credentialScan ?? listCredentialedProviders;
+  const credentialed = await scan(stateRoot, providerIds, config.customProviders);
+  if (credentialed.length === 0) {
+    io.stdout(
+      "No provider credentials found in auth.json or the environment. Run pi-sparkle auth login <provider> or set the provider's environment variable, then re-run models enable --suggest.\n"
+    );
+    return 0;
+  }
+
+  const enabled = new Set(config.enabled);
+  let printedCommands = 0;
+  for (const credential of credentialed) {
+    if (!providerIds.includes(credential.providerId)) continue;
+    const builtin = catalog.listSparkleModels(credential.providerId);
+    const custom = config.customProviders
+      .filter((provider) => provider.id === credential.providerId)
+      .flatMap((provider) => catalog.listedModelsFromCustom(provider));
+    const candidates = [
+      ...new Map(
+        [...builtin, ...custom]
+          .filter((model) => !enabled.has(model.catalogId))
+          .map((model) => [model.catalogId, model] as const)
+      ).values()
+    ];
+    const source = credential.source ?? "unnamed source";
+    io.stdout(
+      `${credential.providerId} (${credential.type} via ${source}): ${candidates.length} catalog model(s) not enabled\n`
+    );
+    for (const model of candidates.slice(0, MAX_SUGGESTIONS_PER_PROVIDER)) {
+      io.stdout(`  pi-sparkle models enable ${model.catalogId}\n`);
+      printedCommands += 1;
+    }
+    if (candidates.length > MAX_SUGGESTIONS_PER_PROVIDER) {
+      io.stdout(
+        `  ...and ${candidates.length - MAX_SUGGESTIONS_PER_PROVIDER} more; browse with pi-sparkle models list --available --provider ${credential.providerId}\n`
+      );
+    }
+  }
+  io.stdout(
+    printedCommands > 0
+      ? "Nothing was written. Run a printed command after reviewing the model and cost.\n"
+      : "Nothing was written. Every catalog model for credentialed providers is already enabled.\n"
+  );
   return 0;
 }
 

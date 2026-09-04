@@ -253,6 +253,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 ## Documentation
 
 - [Status matrix](docs/status-matrix.md)
+- [Real-provider acceptance runbook](docs/preview-acceptance.md)
 - [Data dictionary](docs/data-dictionary.md)
 - [P0 technical re-verification (2026-08-26)](docs/reports/2026-08-26-p0-technical-reverification.md)
 - [Security policy](SECURITY.md)

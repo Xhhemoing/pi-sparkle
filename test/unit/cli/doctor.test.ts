@@ -136,6 +136,23 @@ test("doctor reports the pinned Pi packages and the offline compat status", asyn
   }
 });
 
+test("doctor accepts pyproject.toml as a project marker", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-py-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-pyproj-"));
+  try {
+    await writeFile(join(projectRoot, "pyproject.toml"), "[project]\nname = \"x\"\n", "utf8");
+    const { io, out } = capture();
+    const code = await main(["doctor", "--state-root", stateRoot, "--project", projectRoot], io);
+    assert.match(out.join(""), /ok {2}project: .*pyproject\.toml/);
+    // auth may still fail on this host; the project check itself must pass.
+    assert.ok(!out.join("").includes("FAIL  project:"));
+    void code;
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("doctor fails closed when --project has no package.json", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-miss-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-empty-"));
@@ -289,7 +306,7 @@ test("doctor --json ok mirrors the checks and drives the exit code", async () =>
 
 test("doctor --json keeps stdout parseable while cliFail reports on stderr", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-json-fail-"));
-  // No package.json: the `project` check fails deterministically on any host.
+  // No project marker at all: the `project` check fails deterministically on any host.
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-json-fail-proj-"));
   try {
     const { report, code, err } = await runDoctorJson([
@@ -302,7 +319,7 @@ test("doctor --json keeps stdout parseable while cliFail reports on stderr", asy
     assert.equal(report.ok, false);
     const project = report.checks.find((check) => check.name === "project");
     assert.equal(project?.ok, false);
-    assert.match(project?.detail ?? "", /missing package\.json/);
+    assert.match(project?.detail ?? "", /missing a project marker \(package\.json or pyproject\.toml\)/);
     assert.equal(report.next[0], "fix the failing entries in checks[], then re-run pi-sparkle doctor");
 
     // JSON mode never mixes prose into stdout; the operator-facing failure
@@ -666,6 +683,37 @@ test("doctor says the fake executor needs no credentials when nothing is enabled
   }
 });
 
+test("doctor names models enable --suggest when nothing is enabled but a credential resolves", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-suggest-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-suggest-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [] });
+    const { io, out, err } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        authCheck: async (_root, providerId) =>
+          providerId === "anthropic" ? { type: "api_key", source: "ANTHROPIC_API_KEY" } : undefined
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    const auth = report.checks.find((check) => check.name === "auth");
+    // Still not a failure: the fake executor genuinely needs no credentials.
+    assert.equal(auth?.ok, true);
+    // The hint names the credentialed provider and the discovery command.
+    assert.match(auth?.detail ?? "", /anthropic/);
+    assert.match(auth?.detail ?? "", /models enable --suggest/);
+    assert.match(auth?.detail ?? "", /fake executor needs no credentials/);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("doctor reports the credential source of every provider a run would use", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-ok-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-ok-proj-"));
@@ -729,6 +777,34 @@ test("doctor fails closed for an enabled provider with no credential", async () 
     assert.match(auth?.detail ?? "", /openai=no credential/);
     assert.match(auth?.detail ?? "", /pi-sparkle auth login <provider>/);
     assert.equal(parseCliErrorJson(err.join(""))?.command, "doctor");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor annotates the routing role of each provider missing a credential", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-role-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-doctor-auth-role-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    await writeProviders(stateRoot, { enabled: [CLAUDE, GPT], primary: CLAUDE });
+    const { io, out } = capture();
+    const code = await doctorCommand(
+      ["--json", "--state-root", stateRoot, "--project", projectRoot],
+      io,
+      {
+        nodeVersion: COMPLIANT_NODE_VERSION,
+        authCheck: async () => undefined
+      }
+    );
+    // Still fail-closed: annotation changes triage, never the exit code.
+    assert.equal(code, 1);
+    const report = JSON.parse(out.join("")) as DoctorJsonReport;
+    const auth = report.checks.find((check) => check.name === "auth");
+    assert.equal(auth?.ok, false);
+    assert.match(auth?.detail ?? "", /anthropic=no credential \(primary/);
+    assert.match(auth?.detail ?? "", /openai=no credential \(enabled only/);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });

@@ -14,7 +14,7 @@
 1. Mandate `.pi/logs/` with:
    - skill-routes.jsonl (task hash, activated skills, skipped skills, reason)
    - delivery-events.jsonl (PR created/merged, acceptance verdict, rollback recorded)
-2. Negative-case reporter: when router skips a skill that matches >70% of past successful triggers, log warning
+2. Negative-case reporter: SHIPPED as `negativeCases` in `scripts/skill-audit.mjs` — a skill skipped despite >70% activation across past candidate appearances (min sample 3) is flagged as a should-route-but-did-not signal. Offline aggregation only; gated on actual routed records so a freshly enabled project reports nothing.
 3. Completion template in AGENTS.md requires 4-step evidence chain (failure→cause→fix→recheck) with command output
 
 ## Skill-route log (shipped, opt-in)

@@ -38,6 +38,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: No unresolved merge-conflict markers
+        # Guards AI-assisted/auto-resolved landings: a conflict marker must
+        # never reach main. Uses ^{7} repetition so this file does not
+        # self-match the literal marker.
+        run: |
+          if grep -rnE '^<{7}|^>{7}' \
+              --include='*.ts' --include='*.js' --include='*.mjs' \
+              --include='*.json' --include='*.md' --include='*.yml' --include='*.yaml' \
+              src test docs scripts examples prompts .github 2>/dev/null; then
+            echo '::error::Unresolved merge-conflict markers found (see lines above)'
+            exit 1
+          fi
+
       - name: Type check
         run: pnpm typecheck
 

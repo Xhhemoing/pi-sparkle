@@ -30,7 +30,11 @@ import {
   catalogObservedPath,
   loadCatalogObservedSnapshot
 } from "../routing/catalog-observed.js";
-import { checkProviderAuth, type SparkleAuthCheck } from "../pi-adapter/auth-session.js";
+import {
+  checkProviderAuth,
+  listCredentialedProviders,
+  type SparkleAuthCheck
+} from "../pi-adapter/auth-session.js";
 import { EventStore } from "../run/event-store.js";
 import { replayRun } from "../run/replay.js";
 import { CLI_EXIT, cliFail, type CliErrorIo } from "./errors.js";
@@ -953,16 +957,37 @@ async function authCheck(stateRoot: string, options: DoctorOptions): Promise<Doc
     };
   }
 
+  const primaryProvider =
+    config.primary !== undefined ? tryParseModelRef(config.primary)?.providerId : undefined;
+  const fastProvider =
+    config.fast !== undefined ? tryParseModelRef(config.fast)?.providerId : undefined;
   const providerIds = uniqueProviderIds([
     ...(config.primary !== undefined ? [config.primary] : []),
     ...(config.fast !== undefined ? [config.fast] : []),
     ...config.enabled
   ]);
   if (providerIds.length === 0) {
+    const { listSparkleProviders } = await import("../pi-adapter/listed-model.js");
+    const providerUniverse = [
+      ...new Set([
+        ...listSparkleProviders(),
+        ...config.customProviders.map((provider) => provider.id)
+      ])
+    ];
+    const credentialed = await listCredentialedProviders(
+      stateRoot,
+      providerUniverse,
+      config.customProviders,
+      options.authCheck
+    );
+    const hint =
+      credentialed.length > 0
+        ? `; credentials resolve for ${credentialed.map((provider) => provider.providerId).join(", ")} — run pi-sparkle models enable --suggest to list reviewed enable commands`
+        : "";
     return {
       name: "auth",
       ok: true,
-      detail: "no models enabled — the fake executor needs no credentials"
+      detail: `no models enabled${hint} — the fake executor needs no credentials`
     };
   }
 
@@ -974,7 +999,16 @@ async function authCheck(stateRoot: string, options: DoctorOptions): Promise<Doc
       const resolved = await check(stateRoot, providerId, config.customProviders);
       if (resolved === undefined) {
         missing.push(providerId);
-        parts.push(`${providerId}=no credential`);
+        // Role annotation is triage only: fail-closed semantics do not change,
+        // but an enabled-only miss should not read as urgently as a primary
+        // miss that every run would hit.
+        const role =
+          providerId === primaryProvider
+            ? "primary — every run routes here"
+            : providerId === fastProvider
+              ? "fast model"
+              : "enabled only — runs that never route here are unaffected; disable it or add a credential";
+        parts.push(`${providerId}=no credential (${role})`);
       } else {
         parts.push(`${providerId}=${resolved.type} via ${resolved.source ?? "unnamed source"}`);
       }
@@ -1005,16 +1039,33 @@ function uniqueProviderIds(catalogIds: readonly string[]): string[] {
   return ids;
 }
 
+const PROJECT_MARKERS = ["package.json", "pyproject.toml"] as const;
+
 async function projectCheck(projectRoot: string | undefined): Promise<DoctorCheck> {
   if (projectRoot === undefined) {
-    return { name: "project", ok: true, detail: "omitted (pass --project to check package.json)" };
+    return {
+      name: "project",
+      ok: true,
+      detail: "omitted (pass --project to check project markers)"
+    };
   }
-  try {
-    await access(join(projectRoot, "package.json"), constants.R_OK);
-    return { name: "project", ok: true, detail: `${projectRoot} has package.json` };
-  } catch {
-    return { name: "project", ok: false, detail: `${projectRoot} is missing package.json` };
+  const found: string[] = [];
+  for (const marker of PROJECT_MARKERS) {
+    try {
+      await access(join(projectRoot, marker), constants.R_OK);
+      found.push(marker);
+    } catch {
+      // marker absent; try the next one
+    }
   }
+  if (found.length > 0) {
+    return { name: "project", ok: true, detail: `${projectRoot} has ${found.join(", ")}` };
+  }
+  return {
+    name: "project",
+    ok: false,
+    detail: `${projectRoot} is missing a project marker (${PROJECT_MARKERS.join(" or ")})`
+  };
 }
 
 function piDispatchCheck(projectRoot: string | undefined, agentsDir: string | undefined): DoctorCheck {

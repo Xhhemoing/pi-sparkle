@@ -23,3 +23,17 @@ Closes #(issue number)
 - [ ] Comments added for complex logic
 - [ ] Documentation updated if needed
 - [ ] No new warnings introduced
+
+## AI-Assisted / Automated Merge Landings (skip if fully hand-written)
+- [ ] A human read every auto-resolved conflict hunk line-by-line (no blind
+      "take branch code" resolutions)
+- [ ] `pnpm gate` output for the merged HEAD is pasted or linked below
+- [ ] Frozen contracts touched (event types, `--summary-json`/`doctor --json`
+      shapes, CLI error strings, status-matrix claims) were diffed against
+      their pinning tests
+- [ ] Working artifacts (triage CSVs, scan dumps, loop logs) were kept out of
+      the commit or archived under `.agent_workspace/`
+
+Gate evidence / conflict-resolution notes:
+
+<!-- paste here -->

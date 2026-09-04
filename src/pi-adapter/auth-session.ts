@@ -27,6 +27,16 @@ export interface SparkleAuthCheck {
   readonly type: string;
 }
 
+export interface CredentialedProvider extends SparkleAuthCheck {
+  readonly providerId: string;
+}
+
+export type ProviderAuthCheck = (
+  stateRoot: string,
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+) => Promise<SparkleAuthCheck | undefined>;
+
 export async function isKnownProvider(
   providerId: string,
   customProviders: readonly CustomProviderConfig[] = []
@@ -88,6 +98,45 @@ export async function checkProviderAuth(
 ): Promise<SparkleAuthCheck | undefined> {
   const runtime = await createPiRuntime({ stateRoot, customProviders });
   return await checkAuthOf(runtime, providerId);
+}
+
+/**
+ * Resolve every credentialed provider from one Pi runtime. Discovery commands
+ * and the empty-catalog doctor hint need to ask about the whole provider set;
+ * constructing a runtime once avoids repeating auth-store parsing for every
+ * provider. An optional single-provider check is the hermetic test seam and
+ * preserves the same stored-first, ambient-second contract.
+ *
+ * Per-provider failures are omitted: this is advisory discovery over providers
+ * no run selected. Enabled providers still use the doctor's fail-closed auth
+ * check, where an error is material and reported.
+ */
+export async function listCredentialedProviders(
+  stateRoot: string,
+  providerIds: readonly string[],
+  customProviders: readonly CustomProviderConfig[] = [],
+  check?: ProviderAuthCheck
+): Promise<readonly CredentialedProvider[]> {
+  if (providerIds.length === 0) return [];
+  const runtime = check === undefined ? await createPiRuntime({ stateRoot, customProviders }) : undefined;
+  const credentialed: CredentialedProvider[] = [];
+  for (const providerId of providerIds) {
+    try {
+      const resolved =
+        check !== undefined
+          ? await check(stateRoot, providerId, customProviders)
+          : await checkAuthOf(runtime!, providerId);
+      if (resolved === undefined) continue;
+      credentialed.push({
+        providerId,
+        type: resolved.type,
+        ...(resolved.source !== undefined ? { source: resolved.source } : {})
+      });
+    } catch {
+      // Advisory scan: the enabled-provider auth check owns blocking failures.
+    }
+  }
+  return credentialed;
 }
 
 /**

@@ -19,6 +19,10 @@ command, or authorize auto-promotion.
 - `/sparkle [focus]` — prompt template that forces the same workflow
 - Then load **at most 1–2** references below. Keep analysis evidence-based;
   do not invent usage data or persist skill `USED`.
+- The `pi-sparkle` bin is only on `PATH` if the package was globally linked.
+  From a clone, run `pnpm cli <command>` (or `node dist/cli/main.js <command>`
+  after `pnpm build`) — the same convention doctor's own `next:` lines use. Do
+  not report "command not found" as a product defect; report it as this note. 
 
 ## Core Findings Recorded (from local multi-project survey)
 
@@ -85,7 +89,8 @@ No sharing path existed for reusable project workflow and data-import assets.
 
 ## Pi 0.84.3 Adaptation (2026-08-24)
 
-Latest published Pi as of this date is **0.84.3**. Do not trust prose for the
+Superseded by 0.84.4 — see the next section. Latest published Pi as of
+2026-08-24 was **0.84.3**. Do not trust prose for the
 live pin — read `package.json` (`@earendil-works/pi-agent-core` /
 `@earendil-works/pi-ai`) or run the shipped commands:
 
@@ -132,6 +137,27 @@ Behavior changes in 0.84.3 that matter to this overlay:
 
 On any Pi version bump, run the checklist in references/pi-version-adapt.md
 (it counts toward the 1–2 reference cap).
+
+## Pi 0.84.4 Adaptation (2026-09-01)
+
+Latest published Pi as of this date is **0.84.4** (2026-08-28). Verified live:
+`scripts/pi-latest-check.mjs` (npm dist-tags), tarball CHANGELOG review, and
+`pi-sparkle pi-compat` after the pin bump. Do not trust prose for the live
+pin — re-run the shipped commands.
+
+- **Pins bumped** 0.84.3 → 0.84.4 (agent-core + ai). Changelog: patch release,
+  no breaking changes, no skill/prompt discovery changes, no thinking-level
+  renames; additive export `detectSupportedImageMimeTypeFromFile()`. The
+  0.84.3 adapter contract checks (legacy `GoogleThinkingLevel` absent,
+  thinking levels present) re-probed OK on 0.84.4.
+- **Extension surface grew** (`ui_prompt_start`/`ui_prompt_end`, RPC
+  `clear_queue`) — still out of scope: ADR-006 remains Proposed, this overlay
+  registers nothing.
+- **Thinking knobs unchanged** — the three knobs from the 0.84.3 section
+  still apply; 0.84.4's thinking fix (visibility toggle clearing Bash output)
+  is TUI-internal.
+- **doctor `project` check** now accepts `pyproject.toml` as a project marker
+  alongside `package.json` (Python projects no longer false-positive FAIL).
 
 ## Routing to References
 

@@ -85,6 +85,28 @@ All contributions must pass:
 4. Open a PR with a clear description of changes
 5. Request review from maintainers
 
+### AI-Assisted / Automated Merge Landings
+
+Much of this repository's history is produced by agent loops landing branches
+(see `merge: integrate origin/...` commits). Velocity is welcome; unreviewed
+landings are not. For any change substantially written or merged by an agent:
+
+- **Never land an auto-resolved conflict unreviewed.** A human must read every
+  conflict hunk. "Take branch code" / "keep main docs" bulk resolutions are
+  the top source of silently dropped work — re-run the losing side's tests
+  when in doubt.
+- **Paste `pnpm gate` output** (or link the CI run) for the merged HEAD in the
+  PR. The PR template has a dedicated section for this.
+- **Frozen surfaces need explicit diff review**: event-type unions,
+  `--summary-json` / `doctor --json` shapes, CLI error strings pinned by
+  tests, and `docs/status-matrix.md` claims. If the agent edited both the
+  contract and its pinning test in one landing, treat it as a red flag and
+  review the semantics, not just the diff.
+- **Keep working artifacts out of the tree**: triage CSVs, scan dumps, and
+  loop logs belong under `.agent_workspace/` (gitignored), not the repo root.
+- CI enforces a mechanical floor (no unresolved conflict markers, full gate,
+  probes); human review owns everything above it.
+
 Contributors must follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report
 security issues through [GitHub private vulnerability
 reporting](SECURITY.md), never in a public issue when secrets or sensitive

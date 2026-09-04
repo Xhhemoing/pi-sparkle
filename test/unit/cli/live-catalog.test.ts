@@ -3,8 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { writeFile, mkdir } from "node:fs/promises";
 import { enableModel, setDefaultModels } from "../../../src/config/providers-config.js";
-import { buildLiveCatalogConfig } from "../../../src/cli/model-catalog.js";
+import {
+  buildLiveCatalogConfig,
+  UnknownCatalogModelError
+} from "../../../src/cli/model-catalog.js";
+import { commandFailureNext } from "../../../src/cli/main.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../../../src/routing/primary-catalog.js";
 
 async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise<void> {
@@ -54,6 +59,87 @@ test("enabled models join the live catalog and alias cheap/premium", async () =>
  * earliest catalog-order candidate on a tie, so prepending them would hand
  * every equal-cost assignment to an alias.
  */
+test("an unknown default names the provider status: builtin provider, missing model", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await setDefaultModels(stateRoot, { primary: "openai/not-a-real-model" });
+    const failure = await buildLiveCatalogConfig(stateRoot).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    assert.ok(failure instanceof UnknownCatalogModelError);
+    assert.equal(failure.message, 'unknown model "openai/not-a-real-model"');
+    assert.equal(failure.providerId, "openai");
+    assert.equal(failure.providerStatus, "builtin");
+  });
+});
+
+test("an unknown model under a registered custom provider reports status custom", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(
+      join(stateRoot, "runtime", "providers.json"),
+      `${JSON.stringify({
+        version: 1,
+        enabled: ["local/ghost"],
+        customProviders: [
+          { id: "local", baseUrl: "http://127.0.0.1:9/v1", models: [{ id: "m1" }] }
+        ]
+      })}\n`,
+      "utf8"
+    );
+    const failure = await buildLiveCatalogConfig(stateRoot).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    assert.ok(failure instanceof UnknownCatalogModelError);
+    assert.equal(failure.providerStatus, "custom");
+  });
+});
+
+test("an unknown model whose provider is registered nowhere reports status unregistered", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await mkdir(join(stateRoot, "runtime"), { recursive: true });
+    await writeFile(
+      join(stateRoot, "runtime", "providers.json"),
+      `${JSON.stringify({ version: 1, enabled: ["ghost/m1"], customProviders: [] })}\n`,
+      "utf8"
+    );
+    const failure = await buildLiveCatalogConfig(stateRoot).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    assert.ok(failure instanceof UnknownCatalogModelError);
+    assert.equal(failure.providerStatus, "unregistered");
+  });
+});
+
+test("commandFailureNext routes an unknown builtin-provider model to that provider's catalog page", () => {
+  const next = commandFailureNext(
+    new UnknownCatalogModelError("openai/not-a-real-model", "openai", "builtin"),
+    ["run"]
+  );
+  assert.match(next, /models list --available --provider openai/);
+  assert.match(next, /models enable/);
+});
+
+test("commandFailureNext names providers.json when the custom provider lists no such model", () => {
+  const next = commandFailureNext(
+    new UnknownCatalogModelError("local/ghost", "local", "custom"),
+    ["run"]
+  );
+  assert.match(next, /providers\.json customProviders/);
+  assert.match(next, /--provider local/);
+});
+
+test("commandFailureNext names registration when the provider exists nowhere", () => {
+  const next = commandFailureNext(
+    new UnknownCatalogModelError("ghost/m1", "ghost", "unregistered"),
+    ["run"]
+  );
+  assert.match(next, /register/);
+  assert.match(next, /models list --available/);
+});
+
 test("a lone primary still exposes both cheap and premium aliases", async () => {
   await withStateRoot(async (stateRoot) => {
     await setDefaultModels(stateRoot, { primary: "openai/gpt-4o-mini" });

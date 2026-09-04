@@ -17,3 +17,11 @@ graphify-out/
 dataset/*
 !dataset/public-priors/
 _dbg*.mjs
+
+# branch-triage working dumps: archive under .agent_workspace/, never repo root
+/all_branch_scan.csv
+/branch_*.csv
+/branch_*.json
+/branch_*.txt
+/merge_*.csv
+/merge_*.txt

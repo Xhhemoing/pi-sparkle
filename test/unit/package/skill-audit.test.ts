@@ -175,6 +175,55 @@ test("audit counts corrupt lines and exits non-zero", async () => {
   });
 });
 
+test("audit flags negative cases: skipped despite >70% past activation", async () => {
+  await withDirs(async ({ skillsRoot, projectA }) => {
+    for (const name of ["gamma", "delta", "epsilon"]) {
+      await installSkill(skillsRoot, name, `does ${name} things`);
+    }
+    await enableLogging(projectA);
+    await writeLog(projectA, [
+      // gamma: 3 activations + 1 skip across 4 appearances -> 0.75, flagged.
+      record(["gamma"]),
+      record(["gamma"]),
+      record(["gamma"]),
+      record([], ["gamma"]),
+      // delta: 1/3 activation -> below threshold, not flagged.
+      record(["delta"]),
+      record([], ["delta"]),
+      record([], ["delta"]),
+      // epsilon: 2 appearances -> below min sample, not flagged.
+      record(["epsilon"], ["epsilon"]),
+    ]);
+
+    const out = runCli(["--projects", projectA, "--skills-roots", skillsRoot]);
+    assert.equal(out.status, 0, out.stderr);
+    const neg = report(out.stdout).negativeCases as Record<string, unknown>;
+    assert.equal(neg.available, true);
+    const flagged = neg.flagged as Array<Record<string, unknown>>;
+    assert.equal(flagged.length, 1);
+    assert.equal(flagged[0]?.skill, "gamma");
+    assert.equal(flagged[0]?.skippedCount, 1);
+    assert.equal(flagged[0]?.candidateAppearances, 4);
+    assert.equal(flagged[0]?.activationRate, 0.75);
+  });
+});
+
+test("audit withholds usage claims when logging is on but zero sessions ran", async () => {
+  await withDirs(async ({ skillsRoot, projectA }) => {
+    await installSkill(skillsRoot, "alpha", "does alpha things");
+    await enableLogging(projectA);
+    // Marker present, log file never written: enablement is not usage.
+
+    const out = runCli(["--projects", projectA, "--skills-roots", skillsRoot]);
+    assert.equal(out.status, 0, out.stderr);
+    const rep = report(out.stdout);
+    assert.equal(rep.loggingProjectCount, 1);
+    assert.deepEqual(rep.neverActivated, []);
+    assert.equal((rep.negativeCases as Record<string, unknown>).available, false);
+    assert.match(String(rep.warning), /no routed sessions are recorded yet/);
+  });
+});
+
 test("alias detection: confirmed only when the target exists", async () => {
   await withDirs(async ({ skillsRoot, quietProject }) => {
     await installSkill(skillsRoot, "real-skill", "the canonical implementation");

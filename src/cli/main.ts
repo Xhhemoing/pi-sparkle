@@ -10,15 +10,10 @@ import {
 } from "../privacy/deletion.js";
 import {
   LOCK_TIMEOUT_CODE,
-  withExclusiveFileLock,
   type FileLockOptions
 } from "../persist/file-lock.js";
 import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
-import {
-  PREFERENCE_SNAPSHOT_UNREADABLE_CODE,
-  preferenceSnapshotLockPath,
-  preferenceSnapshotPath
-} from "../preferences/store.js";
+import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
 import {
   DEFAULT_RETENTION_POLICY,
   pruneRetention,
@@ -36,19 +31,18 @@ import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, createEpisodeId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
+import { parseRunId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { defaultRunLimits } from "../domain/limits.js";
 import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
-import type { Event, RewoundDescendant } from "../run/events.js";
+import type { Event } from "../run/events.js";
 import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
   startFlowchartRun,
-  unblockFlowchartRun,
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
@@ -65,6 +59,8 @@ import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { adaptCommand } from "./adapt.js";
 import { episodeCommand } from "./episode.js";
+import { bindPreferenceStore, prefCommand } from "./pref.js";
+import { unblockCommand } from "./unblock.js";
 import {
   checkpointCarriesFlowchart,
   eventsLookLikeFlowchartRun,
@@ -74,11 +70,11 @@ import {
   type RunCheckpoint
 } from "../run/replay.js";
 import { resumeSupervisedRun } from "../run/supervisor.js";
-import { configurePreferencePersistence, correctPreference, deletePreference, inspectPreferences } from "../preferences/service.js";
-import { exportAuthorizedPreferences } from "../preferences/export.js";
-import { getMaterializedView } from "../preferences/materialize.js";
-import type { PreferenceScope } from "../preferences/types.js";
-import { createCalibratedCliModelRouter, buildLiveCatalogConfig } from "./model-catalog.js";
+import {
+  createCalibratedCliModelRouter,
+  buildLiveCatalogConfig,
+  UnknownCatalogModelError
+} from "./model-catalog.js";
 import { createModelRouter } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
@@ -1923,228 +1919,6 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-/**
- * The one command that ends a BLOCKED run.
- *
- * It is separate from `inject` on purpose: injection adds a typed fact and
- * deliberately holds no lifecycle lock because it may be aimed at a live run,
- * while this changes what every writer thinks the run's terminal is and has to
- * serialize against resume and delete. `unblockFlowchartRun` takes that lock,
- * insists the run is actually blocked, and refuses a stale or repeated attempt.
- *
- * It executes nothing. `resume` is still the only surface that spends money, so
- * the operator authorizes and runs in two separately auditable steps — which is
- * also why the success output ends by naming the resume rather than doing it.
- *
- * `--discard-executed` is the one flag that changes which authorization is
- * recorded. It is boolean because the set it authorizes is computed under the
- * run lock from the flowchart and the blocked checkpoint: an operator listing
- * nodes could omit a consequential one and get a partially coherent rewind that
- * still reads as authorized. Its output names every node discarded, the state
- * it was in and what its attempts charged, because that is the record the
- * operator is signing.
- */
-async function unblockCommand(args: string[], io: CliIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      run: { type: "string" },
-      reason: { type: "string" },
-      "retry-node": { type: "string" },
-      "discard-executed": { type: "boolean" },
-      actor: { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
-  const reason = values.reason;
-  if (values.run === undefined || reason === undefined || reason.trim() === "") {
-    return cliFail(io, {
-      command: "unblock",
-      stage: "parse-args",
-      message: "unblock requires --run <runId> and a non-empty --reason <text>",
-      next: "pass --run <runId> and --reason <text> recording why the block is cleared",
-      ...(values.run !== undefined ? { runId: values.run } : {})
-    });
-  }
-  const retryNode = values["retry-node"];
-  if (retryNode !== undefined && retryNode.trim() === "") {
-    return cliFail(io, {
-      command: "unblock",
-      stage: "parse-args",
-      message: "unblock --retry-node requires a non-empty flowchart node id",
-      next: "pass --retry-node <nodeId> from the flowchart line of pi-sparkle inspect, or omit it",
-      runId: values.run
-    });
-  }
-  const discardExecuted = values["discard-executed"] === true;
-  if (discardExecuted && retryNode === undefined) {
-    return cliFail(io, {
-      command: "unblock",
-      stage: "parse-args",
-      message: "unblock --discard-executed requires --retry-node <nodeId>",
-      next: "discarding is defined relative to one failed node: pass --retry-node <nodeId>, or drop --discard-executed",
-      runId: values.run
-    });
-  }
-  const stateRoot = values["state-root"] ?? defaultStateRoot();
-  const runId = parseRunId(values.run);
-  const outcome = await unblockRun(io, {
-    stateRoot,
-    runId,
-    reason,
-    discardExecuted,
-    ...(retryNode !== undefined ? { retryNode } : {}),
-    ...(values.actor !== undefined ? { actor: values.actor } : {})
-  });
-  if (typeof outcome === "number") return outcome;
-  const nodes = Object.entries(outcome.snapshot.nodes)
-    .map(([id, node]) => `${id}=${node.state}`)
-    .join(" ");
-  io.stdout(`Run ${runId}: unblocked (${outcome.status})\n`);
-  io.stdout(`  reason: ${reason}\n`);
-  if (retryNode !== undefined) {
-    io.stdout(`  reopened: ${retryNode}\n`);
-  }
-  for (const descendant of discardedDescendants(outcome.events)) {
-    io.stdout(
-      `  discarded: ${descendant.nodeId} (was ${descendant.previousState}; charged estimate ${descendant.chargedEstimatedCostUsd} USD / ${descendant.chargedEstimatedDurationMs} ms across ${descendant.modelRouteEventIds.length} route(s), not refunded)\n`
-    );
-  }
-  io.stdout(`  flowchart: ${outcome.snapshot.status}${nodes === "" ? "" : ` (${nodes})`}\n`);
-  io.stdout(`  resume: pnpm cli resume --run ${runId} --state-root ${stateRoot}\n`);
-  return CLI_EXIT.ok;
-}
-
-/** What the stronger authorization on this log says it superseded, if it is one. */
-function discardedDescendants(events: readonly Event[]): readonly RewoundDescendant[] {
-  const discard = events.findLast(
-    (event): event is Extract<Event, { type: "RUN_UNBLOCKED_WITH_DISCARD" }> =>
-      event.type === "RUN_UNBLOCKED_WITH_DISCARD"
-  );
-  return discard?.payload.rewoundDescendants ?? [];
-}
-
-/**
- * The unblock call, with one refusal turned into routing.
- *
- * An operator who reopens a node whose downstream work already ran meets a
- * refusal that is correct and, on its own, a dead end: it names the blocking
- * nodes but not the command that can proceed. The refusal message itself is the
- * state machine's and stays exactly as it is — this adds the `next:` line the
- * operator needs beside it, at the only surface that knows the flag exists.
- */
-async function unblockRun(
-  io: CliIo,
-  request: {
-    readonly stateRoot: string;
-    readonly runId: RunId;
-    readonly reason: string;
-    readonly discardExecuted: boolean;
-    readonly retryNode?: string;
-    readonly actor?: string;
-  }
-): Promise<FlowchartRunOutcome | number> {
-  try {
-    return await unblockFlowchartRun(
-      {
-        stateRoot: request.stateRoot,
-        router: await createCalibratedCliModelRouter(request.stateRoot),
-        pause: createFilePauseController(request.stateRoot)
-      },
-      request.runId,
-      {
-        reason: request.reason,
-        ...(request.retryNode !== undefined ? { retryNodeId: request.retryNode } : {}),
-        ...(request.actor !== undefined ? { actor: request.actor } : {}),
-        ...(request.discardExecuted ? { discardExecuted: true } : {})
-      }
-    );
-  } catch (error) {
-    if (
-      request.retryNode === undefined ||
-      !(error instanceof DomainValidationError) ||
-      !error.message.includes("rewinding executed work is not authorized by an unblock")
-    ) {
-      throw error;
-    }
-    return cliFail(io, {
-      command: "unblock",
-      stage: "validation",
-      message: error.message,
-      next: `re-run with --retry-node ${request.retryNode} --discard-executed to authorize discarding that executed work, or leave the run blocked`,
-      runId: request.runId
-    });
-  }
-}
-
-const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;
-
-function isPreferenceScope(value: string): value is PreferenceScope {
-  return (PREFERENCE_SCOPES as readonly string[]).includes(value);
-}
-
-function parsePreferenceValue(raw: string): string | number | boolean {
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  const num = Number(raw);
-  if (raw.trim() !== "" && Number.isFinite(num)) return num;
-  return raw;
-}
-
-const PREF_USAGE = `pi-sparkle pref — preference inspection and correction
-
-Usage:
-  pi-sparkle pref list [--scope user|project|task-family|role|model] [--state-root <dir>]
-  pi-sparkle pref correct --scope <scope> --scope-key <key> --key <name> --value <value> [--episode <epId>] [--lock-wait-ms <ms>] [--state-root <dir>]
-  pi-sparkle pref export [--scope <scope>] [--state-root <dir>]
-  pi-sparkle pref delete --id <preferenceId> [--lock-wait-ms <ms>] [--state-root <dir>]
-
-correct and delete rewrite the whole preference snapshot, so each holds the
-cooperative lock adaptation/preferences.json.lock while it reads, changes and
-republishes the file. --lock-wait-ms bounds that wait (default 5000); 0 refuses
-immediately rather than waiting at all. Either way the mutation fails closed: a
-wait that runs out writes nothing. list and export do not take the lock — the
-snapshot is published by rename, so a reader sees one whole version or another.
-`;
-
-function bindPreferenceStore(stateRoot: string): void {
-  configurePreferencePersistence(preferenceSnapshotPath(stateRoot));
-}
-
-/**
- * One preference mutation, serialized against every other process mutating the
- * same snapshot.
- *
- * `bindPreferenceStore` loads the whole snapshot and every mutator persists the
- * whole in-memory state, so the read-modify-write window is the entire command.
- * Two unsynchronized `pref` mutations that overlap in that window are
- * last-writer-wins, and the loser vanishes without an error — including a
- * `pref delete` whose tombstone a concurrent `pref correct` bound a moment
- * earlier would write back out, resurrecting an observation the CLI already
- * reported deleted. The lock therefore has to cover the load as well as the
- * write: binding happens *inside* it, so what gets persisted derives from bytes
- * read while no other writer could be between its own load and its own write.
- *
- * Acquisition is bounded and fails closed. A timeout throws the frozen
- * `LOCK_TIMEOUT` before anything binds or is written, and the CLI's failure
- * surface routes that code to `pi-sparkle doctor --json`, whose `locks[]`
- * inventory names the holder. Locks are never stolen.
- */
-async function withPreferenceSnapshotLock<T>(
-  stateRoot: string,
-  mutate: () => T,
-  options: FileLockOptions
-): Promise<T> {
-  return await withExclusiveFileLock(
-    preferenceSnapshotLockPath(stateRoot),
-    () => {
-      bindPreferenceStore(stateRoot);
-      return Promise.resolve(mutate());
-    },
-    options
-  );
-}
-
 async function answerCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -2304,148 +2078,6 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-async function prefList(args: string[], io: CliIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: { scope: { type: "string" }, "state-root": { type: "string" } }
-  });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
-  let scope: PreferenceScope | undefined;
-  if (values.scope !== undefined) {
-    if (!isPreferenceScope(values.scope)) {
-      io.stderr(`Invalid preference scope: ${values.scope}\n`);
-      return 1;
-    }
-    scope = values.scope;
-  }
-  const result = inspectPreferences(scope);
-  io.stdout(`preferences: ${result.count} observation(s)\n`);
-  for (const obs of result.observations) {
-    io.stdout(
-      `  ${obs.id} [${obs.scope}:${obs.scopeKey}] ${obs.key}=${String(obs.value)} explicit=${obs.explicit} recurrence=${obs.recurrenceCount} episode=${obs.evidenceEpisodeId}\n`
-    );
-  }
-  const pairs = new Map<string, { scope: PreferenceScope; scopeKey: string }>();
-  for (const obs of result.observations) {
-    pairs.set(`${obs.scope}:${obs.scopeKey}`, { scope: obs.scope, scopeKey: obs.scopeKey });
-  }
-  for (const pair of Array.from(pairs.values())) {
-    const materialized = getMaterializedView(pair.scope, pair.scopeKey);
-    if (materialized === undefined) continue;
-    io.stdout(
-      `  effective [${pair.scope}:${pair.scopeKey}] confidence=${materialized.view.confidence} sources=${materialized.view.sourceCount}\n`
-    );
-    for (const [key, value] of Object.entries(materialized.effectiveKeys)) {
-      io.stdout(`    ${key}=${String(value)}\n`);
-    }
-  }
-  return 0;
-}
-
-async function prefCorrect(args: string[], io: CliIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      scope: { type: "string" },
-      "scope-key": { type: "string" },
-      key: { type: "string" },
-      value: { type: "string" },
-      episode: { type: "string" },
-      "lock-wait-ms": { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
-  const scope = values.scope;
-  const scopeKey = values["scope-key"];
-  const key = values.key;
-  const value = values.value;
-  if (scope === undefined || !isPreferenceScope(scope)) {
-    io.stderr(`pref correct requires --scope to be one of ${PREFERENCE_SCOPES.join("|")}\n`);
-    return 1;
-  }
-  if (!scopeKey || !key || value === undefined) {
-    io.stderr("pref correct requires --scope-key, --key and --value\n");
-    return 1;
-  }
-  const episodeId = values.episode !== undefined ? parseEpisodeId(values.episode) : createEpisodeId();
-  // Arguments are checked first, so the lock is only ever asked for by an
-  // invocation that is going to write: a misspelled scope has no business
-  // making a concurrent mutator wait behind it.
-  const obs = await withPreferenceSnapshotLock(
-    values["state-root"] ?? defaultStateRoot(),
-    () => correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId),
-    lockWaitOptions(values["lock-wait-ms"])
-  );
-  io.stdout(`recorded explicit preference ${obs.id}\n`);
-  return 0;
-}
-
-async function prefExport(args: string[], io: CliIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: { scope: { type: "string" }, "state-root": { type: "string" } }
-  });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
-  let scopes: PreferenceScope[] | undefined;
-  if (values.scope !== undefined) {
-    if (!isPreferenceScope(values.scope)) {
-      io.stderr(`Invalid preference scope: ${values.scope}\n`);
-      return 1;
-    }
-    scopes = [values.scope];
-  }
-  const result = exportAuthorizedPreferences(scopes !== undefined ? { scopes } : {});
-  io.stdout(`${result.data}\n`);
-  return 0;
-}
-
-async function prefDelete(args: string[], io: CliIo): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      id: { type: "string" },
-      "lock-wait-ms": { type: "string" },
-      "state-root": { type: "string" }
-    }
-  });
-  const id = values.id;
-  if (id === undefined) {
-    io.stderr("pref delete requires --id <preferenceId>\n");
-    return 1;
-  }
-  const deleted = await withPreferenceSnapshotLock(
-    values["state-root"] ?? defaultStateRoot(),
-    () => deletePreference(id),
-    lockWaitOptions(values["lock-wait-ms"])
-  );
-  io.stdout(deleted ? `tombstoned preference ${id}\n` : `preference not found: ${id}\n`);
-  return deleted ? 0 : 1;
-}
-
-async function prefCommand(args: string[], io: CliIo): Promise<number> {
-  const [sub, ...rest] = args;
-  switch (sub) {
-    case "list":
-      return await prefList(rest, io);
-    case "correct":
-      return await prefCorrect(rest, io);
-    case "export":
-      return await prefExport(rest, io);
-    case "delete":
-      return await prefDelete(rest, io);
-    case "help":
-    case "--help":
-    case "-h":
-    case undefined:
-      io.stdout(PREF_USAGE);
-      return 0;
-    default:
-      io.stderr(`Unknown pref command: ${sub}\n`);
-      io.stderr(PREF_USAGE);
-      return 1;
-  }
-}
-
 const DELETE_USAGE = `Usage:
   pi-sparkle delete --run <runId> [--lock-wait-ms <ms>] [--state-root <dir>]
   pi-sparkle delete --episode <epId> [--lock-wait-ms <ms>] [--state-root <dir>]
@@ -2496,7 +2128,7 @@ const MAX_LOCK_WAIT_MS = 86_400_000;
  * also take `1e4`, `0x10` and ` 5 `; a command that waits a different amount
  * of time than the operator typed is worse than one that refuses the spelling.
  */
-function lockWaitOptions(raw: string | undefined): FileLockOptions {
+export function lockWaitOptions(raw: string | undefined): FileLockOptions {
   if (raw === undefined) return {};
   const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(value) || value > MAX_LOCK_WAIT_MS) {
@@ -2758,7 +2390,39 @@ function stateRootArgument(args: readonly string[]): string | undefined {
  * failure carries a routed code, the generic advice otherwise.
  */
 export function commandFailureNext(error: unknown, args: readonly string[]): string {
-  return doctorRoutedNext(error, doctorJsonCommand(stateRootArgument(args))) ?? GENERIC_FAILURE_NEXT;
+  return (
+    unknownCatalogModelNext(error) ??
+    doctorRoutedNext(error, doctorJsonCommand(stateRootArgument(args))) ??
+    GENERIC_FAILURE_NEXT
+  );
+}
+
+/**
+ * An unknown catalog id used to earn the doctor preflight remedy, which cannot
+ * fix a model providers.json names and the catalog does not know. The error
+ * already partitioned the cause (builtin provider / custom provider /
+ * unregistered provider), so the remedy names the exact browsing or editing
+ * step for that cause. The same --state-root caveat as the models verbs
+ * applies: the line never interpolates this run's state-root value.
+ */
+function unknownCatalogModelNext(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current === null || typeof current !== "object") return undefined;
+    if (current instanceof UnknownCatalogModelError) {
+      const { providerId, providerStatus } = current;
+      switch (providerStatus) {
+        case "builtin":
+          return `browse the real ids with: pi-sparkle models list --available --provider ${providerId} (same --state-root), then enable one with pi-sparkle models enable <${providerId}/model>`;
+        case "custom":
+          return `the model is not listed under custom provider "${providerId}" in providers.json customProviders: add it there, or pick a listed id via pi-sparkle models list --available --provider ${providerId}`;
+        case "unregistered":
+          return `provider "${providerId}" is not in the Pi catalog or this state root's customProviders: register it in providers.json, or copy an id from pi-sparkle models list --available`;
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {

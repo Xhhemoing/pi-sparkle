@@ -150,6 +150,88 @@ async function run(stateRoot: string, args: string[]): Promise<string> {
   return out.join("");
 }
 
+test("enable --suggest prints enable commands only for credentialed providers, minus enabled ids", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["enable", "local/m1"]);
+    const { io, out, err } = capture();
+    const code = await modelsCommand(
+      ["enable", "--suggest", "--state-root", stateRoot],
+      io,
+      {
+        credentialScan: async () => [
+          { providerId: "local", type: "api_key", source: "LOCAL_API_KEY" },
+          { providerId: "anthropic", type: "api_key", source: "ANTHROPIC_API_KEY" }
+        ]
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    const text = out.join("");
+    // The already-enabled m1 is not re-suggested; m2 and gateway are.
+    assert.equal(text.includes("models enable local/m1"), false);
+    assert.match(text, /pi-sparkle models enable local\/m2/);
+    // anthropic has a credential in this stub, so its builtin ids are offered.
+    assert.match(text, /anthropic\//);
+    // gateway has no credential: nothing to suggest from it.
+    assert.equal(text.includes("gateway/fast"), false);
+    // The source is named, never the secret.
+    assert.match(text, /LOCAL_API_KEY/);
+    // Nothing was written: the suggestion is a proposal, not a mutation.
+    const after = await readFile(join(stateRoot, "runtime", "providers.json"), "utf8");
+    assert.deepEqual(JSON.parse(after).enabled, ["local/m1"]);
+  });
+});
+
+test("enable --suggest says all models are enabled when it has no command to print", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    await run(stateRoot, ["enable", "local/m1"]);
+    await run(stateRoot, ["enable", "local/m2"]);
+    const { io, out, err } = capture();
+    const code = await modelsCommand(
+      ["enable", "--suggest", "--state-root", stateRoot],
+      io,
+      {
+        credentialScan: async () => [
+          { providerId: "local", type: "api_key", source: "LOCAL_API_KEY" }
+        ]
+      }
+    );
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /already enabled/);
+    assert.equal(out.join("").includes("Run a printed command"), false);
+  });
+});
+
+test("enable --suggest with no credentials anywhere points at auth login and exits 0", async () => {
+  await withStateRoot(async (stateRoot) => {
+    await writeCustomProviders(stateRoot);
+    const { io, out, err } = capture();
+    const code = await modelsCommand(
+      ["enable", "--suggest", "--state-root", stateRoot],
+      io,
+      { credentialScan: async () => [] }
+    );
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /auth login/);
+  });
+});
+
+test("enable --suggest refuses a positional model id as a parse-args failure", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const { io, err } = capture();
+    const code = await modelsCommand(
+      ["enable", "--suggest", "local/m1", "--state-root", stateRoot],
+      io,
+      { credentialScan: async () => [] }
+    );
+    assert.equal(code, 1);
+    const report = parseCliErrorJson(err.join(""));
+    assert.equal(report?.stage, "parse-args");
+    assert.match(report?.message ?? "", /--suggest/);
+  });
+});
+
 test("disable discloses the routing default it took with it", async () => {
   await withStateRoot(async (stateRoot) => {
     await writeCustomProviders(stateRoot);

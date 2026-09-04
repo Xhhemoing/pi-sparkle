@@ -107,7 +107,9 @@ export function detectAliasCandidates(
 export function audit(projects, skillRoots) {
   const activated = new Map();
   const skipped = new Map();
+  const mentioned = new Map();
   let records = 0;
+  let loggingRecords = 0;
   let corrupt = 0;
   const perProject = [];
   const loggingProjects = [];
@@ -129,6 +131,7 @@ export function audit(projects, skillRoots) {
           const rec = JSON.parse(line);
           records += 1;
           if (!loggingEnabled) continue;
+          loggingRecords += 1;
           if (!projectAffinity.has(project)) projectAffinity.set(project, new Set());
           for (const name of rec.activated ?? []) {
             activated.set(name, (activated.get(name) ?? 0) + 1);
@@ -136,6 +139,16 @@ export function audit(projects, skillRoots) {
           }
           for (const name of rec.skipped ?? []) {
             skipped.set(name, (skipped.get(name) ?? 0) + 1);
+          }
+          // Candidate evidence: any mention (explicit candidates list, an
+          // activation, or a skip) means the skill was in play for that task.
+          const inPlay = new Set([
+            ...(rec.candidates ?? []),
+            ...(rec.activated ?? []),
+            ...(rec.skipped ?? []),
+          ]);
+          for (const name of inPlay) {
+            mentioned.set(name, (mentioned.get(name) ?? 0) + 1);
           }
         } catch {
           corrupt += 1;
@@ -149,8 +162,11 @@ export function audit(projects, skillRoots) {
   // "Never activated" is only meaningful across logging-enabled projects.
   // With zero logging projects there is no usage signal at all — say so
   // instead of listing every skill as never-activated.
+  // Gated on actual routed records too: a project that just enabled logging
+  // but has run zero sessions would otherwise list every skill as
+  // "never activated" — enablement noise, not usage evidence.
   const neverActivated =
-    loggingProjects.length > 0
+    loggingProjects.length > 0 && loggingRecords > 0
       ? installed.filter((n) => !activated.has(n))
       : [];
   const top = [...activated.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -166,6 +182,45 @@ export function audit(projects, skillRoots) {
     topSkipped: Object.fromEntries(topSkipped),
     neverActivated,
     aliasCandidates: detectAliasCandidates(installed, skillRoots),
+    // Negative cases (evidence-loop.md fix #2): a skill the router skipped
+    // even though past candidate appearances led to activation >threshold of
+    // the time — the "should-route-but-did-not" signal. Minimum sample keeps
+    // one-off appearances from flagging.
+    negativeCases: (() => {
+      const THRESHOLD = 0.7;
+      const MIN_SAMPLE = 3;
+      if (loggingProjects.length === 0 || loggingRecords === 0) {
+        return { available: false };
+      }
+      const flagged = [...skipped.entries()]
+        .map(([name, skippedCount]) => {
+          const appearances = mentioned.get(name) ?? 0;
+          const activations = activated.get(name) ?? 0;
+          return {
+            skill: name,
+            skippedCount,
+            candidateAppearances: appearances,
+            activationRate:
+              appearances === 0
+                ? 0
+                : Math.round((activations / appearances) * 1000) / 1000,
+          };
+        })
+        .filter(
+          (entry) =>
+            entry.candidateAppearances >= MIN_SAMPLE &&
+            entry.activationRate > THRESHOLD,
+        )
+        .sort((a, b) => b.activationRate - a.activationRate);
+      return {
+        available: true,
+        threshold: THRESHOLD,
+        minSample: MIN_SAMPLE,
+        flagged,
+        note:
+          "skipped despite >threshold past activation — investigate router table gaps, not the skills",
+      };
+    })(),
     // Scope recommendations: evidence for WHERE a skill should live so each
     // session only discovers what its context needs.
     //   multi-project activation -> keep global
@@ -215,7 +270,12 @@ export function audit(projects, skillRoots) {
           warning:
             "no project has route logging enabled; neverActivated/topActivated are withheld because absence of logs is not evidence of non-use",
         }
-      : {}),
+      : loggingRecords === 0
+        ? {
+            warning:
+              "route logging is enabled but no routed sessions are recorded yet; neverActivated/negativeCases are withheld because enablement is not usage",
+          }
+        : {}),
   };
 }
 

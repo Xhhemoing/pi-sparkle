@@ -14,6 +14,41 @@ import {
 } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
 import { createModelRouter, type ModelRouter, type ModelRouterConfig } from "../supervisor/model-router.js";
+import type { CustomProviderConfig } from "../config/providers-config.js";
+
+/**
+ * Why a catalog id failed to resolve, partitioned by where the provider lives,
+ * because the remedy is different in each case: a builtin provider means the
+ * model id itself is wrong (browse the provider's real ids), a custom provider
+ * means providers.json does not list the model (add it there), and a provider
+ * registered nowhere means the config drifted (register it, or pick a catalog
+ * id). `commandFailureNext` turns the status into that specific remedy, so the
+ * run path stops answering every cause with "use doctor".
+ */
+export type CatalogProviderStatus = "builtin" | "custom" | "unregistered";
+
+export class UnknownCatalogModelError extends DomainValidationError {
+  readonly catalogId: string;
+  readonly providerId: string;
+  readonly providerStatus: CatalogProviderStatus;
+
+  constructor(catalogId: string, providerId: string, providerStatus: CatalogProviderStatus) {
+    super(`unknown model "${catalogId}"`);
+    this.name = "UnknownCatalogModelError";
+    this.catalogId = catalogId;
+    this.providerId = providerId;
+    this.providerStatus = providerStatus;
+  }
+}
+
+async function catalogProviderStatus(
+  providerId: string,
+  customProviders: readonly CustomProviderConfig[]
+): Promise<CatalogProviderStatus> {
+  if (customProviders.some((provider) => provider.id === providerId)) return "custom";
+  const { listSparkleProviders } = await import("../pi-adapter/listed-model.js");
+  return listSparkleProviders().includes(providerId) ? "builtin" : "unregistered";
+}
 
 export function defaultCliModelRouterConfig(): ModelRouterConfig {
   return {
@@ -55,7 +90,11 @@ export async function buildLiveCatalogConfig(
     const ref = parseModelRef(id);
     const listed = resolveListedModel(ref.providerId, ref.modelId, config.customProviders);
     if (listed === undefined) {
-      throw new DomainValidationError(`unknown model "${id}"`);
+      throw new UnknownCatalogModelError(
+        id,
+        ref.providerId,
+        await catalogProviderStatus(ref.providerId, config.customProviders)
+      );
     }
     const row = routableFromListed(listed, id === primaryId);
     models.push(row);
