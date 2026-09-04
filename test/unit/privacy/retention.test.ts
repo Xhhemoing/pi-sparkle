@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -16,6 +16,10 @@ import {
   pruneRetention,
   validateRetentionPolicy
 } from "../../../src/privacy/retention.js";
+import { LOCK_TIMEOUT_CODE, withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { episodeLockPath } from "../../../src/run/episode-bind.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { createEventId, createRunId } from "../../../src/domain/ids.js";
 import { runtimeRoot } from "../../../src/privacy/state-layout.js";
 import { catalogObservedPath } from "../../../src/routing/catalog-observed.js";
 import { invocationsLogPath } from "../../../src/telemetry/invocation-log.js";
@@ -311,3 +315,103 @@ test("prune is idempotent: a second apply finds nothing over the bound", async (
     assert.equal(isWithinRetentionBound(second.plan), true);
   });
 });
+
+test("a row appended after a prune survives the next prune unchanged", async () => {
+  await withStateRoot(async (stateRoot) => {
+    // Black-box pin for the documented contract that the invocation rewrite
+    // re-derives expiry from the cutoff under the lock: rows are judged by
+    // their own timestamps, never by membership in a stale plan, so a writer
+    // that appends between (or after) prune runs cannot lose live data.
+    const path = await writeInvocations(stateRoot, [invocationRow("inv_old", daysAgo(200))]);
+    const first = await pruneRetention(stateRoot, { now: at, apply: true });
+    assert.equal(first.droppedInvocations, 1);
+
+    await writeInvocations(stateRoot, [invocationRow("inv_new", daysAgo(1))]);
+    const second = await pruneRetention(stateRoot, { now: at, apply: true });
+
+    assert.equal(second.droppedInvocations, 0);
+    const kept = (await readFile(path, "utf8")).trim().split("\n");
+    assert.deepEqual(
+      kept.map((line) => (JSON.parse(line) as { id: string }).id),
+      ["inv_new"]
+    );
+  });
+});
+
+test("retain apply reports run logs that still hold an expired episode's text", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = await seedEpisode(stateRoot, daysAgo(200), daysAgo(199));
+    // A run whose append-only log opens the episode embeds the snapshot.
+    const runId = createRunId(UUID);
+    const store = new EventStore(stateRoot, runId);
+    await store.append({
+      id: createEventId(UUID),
+      schemaVersion: 1,
+      occurredAt: parseIsoTimestamp(daysAgo(199)),
+      runId,
+      type: "EPISODE_OPENED",
+      actor: "retention-test",
+      payload: { episode: episodeFixture(episodeId, daysAgo(200), daysAgo(199)) }
+    } as never);
+    const logPath = join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl");
+    const before = await readFile(logPath, "utf8");
+
+    const result = await pruneRetention(stateRoot, { now: at, apply: true });
+
+    assert.deepEqual(result.deletedEpisodes, [episodeId]);
+    // The append-only log is disclosed, never edited, and never claimed removed.
+    assert.deepEqual(result.residualEpisodeTextRunIds, [runId]);
+    assert.equal(await readFile(logPath, "utf8"), before);
+    assert.ok(!result.removedPaths.includes(logPath));
+  });
+});
+
+test("a held episode lock fails the prune closed with LOCK_TIMEOUT and keeps the episode", async () => {
+  await withStateRoot(async (stateRoot) => {
+    const episodeId = await seedEpisode(stateRoot, daysAgo(200), daysAgo(199));
+    const lockPath = episodeLockPath(stateRoot, episodeId);
+    await mkdir(join(runtimeRoot(stateRoot), "episodes"), { recursive: true });
+
+    await withExclusiveFileLock(lockPath, async () => {
+      await assert.rejects(
+        () => pruneRetention(stateRoot, { now: at, apply: true, lock: { timeoutMs: 100, retryMs: 20 } }),
+        (error: unknown) =>
+          error !== null &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === LOCK_TIMEOUT_CODE
+      );
+    });
+    // Nothing was unlinked while the lock was held.
+    assert.equal(
+      existsSync(join(runtimeRoot(stateRoot), "episodes", `${episodeId}.jsonl`)),
+      true
+    );
+  });
+});
+
+test("an episode without parseable timestamps ages from file mtime", async () => {
+  await withStateRoot(async (stateRoot) => {
+    // Designed behavior pin: content timestamps win when present; a file with
+    // none falls back to mtime rather than being guessed or silently skipped.
+    const episodeId = createEpisodeId(UUID);
+    const dir = join(runtimeRoot(stateRoot), "episodes");
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, `${episodeId}.jsonl`);
+    await writeFile(path, "{ not json, no timestamps }\n", "utf8");
+
+    const old = new Date(NOW.getTime() - 200 * MS_PER_DAY);
+    await utimes(path, old, old);
+    const expiredPlan = await planRetention(stateRoot, { now: at });
+    assert.deepEqual(
+      expiredPlan.expired.map((record) => record.id),
+      [episodeId]
+    );
+
+    const fresh = new Date(NOW.getTime() - MS_PER_DAY);
+    await utimes(path, fresh, fresh);
+    const freshPlan = await planRetention(stateRoot, { now: at });
+    assert.ok(!freshPlan.expired.some((record) => record.id === episodeId));
+  });
+});
+
