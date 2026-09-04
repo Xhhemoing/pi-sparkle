@@ -25,3 +25,4 @@ _dbg*.mjs
 /branch_*.txt
 /merge_*.csv
 /merge_*.txt
+.wpscomate/
