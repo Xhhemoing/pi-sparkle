@@ -6,6 +6,12 @@ All notable changes to this project will be documented here.
 
 ### Added
 
+- Invocation provenance (`executorClass`: `pi`/`faux`, closed vocabulary,
+  fail-closed) and cache observation (`cacheHit` from provider `cacheRead`
+  tokens, three-state) — F6 §2.2/§2.9 prerequisites.
+- F6 Week-0 tooling: `scripts/holdout-seal.mjs` (commitment seal/verify),
+  `scripts/holdout-block.mjs` (clean-room paired-block runner),
+  `docs/specs/f6-preregistration-template.md`.
 - Retention contract tests (4): concurrent-append survival, residual
   episode-text disclosure via `retain --apply`, held-lock `LOCK_TIMEOUT`,
   mtime fallback pinning.
