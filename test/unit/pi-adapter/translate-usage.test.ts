@@ -25,6 +25,43 @@ describe("translatePiEvent usage extraction", () => {
     assert.deepEqual(translated.usage, { inputTokens: 92, outputTokens: 31 });
   });
 
+  it("maps a reported cacheRead onto cacheReadTokens (F6 cache detection)", () => {
+    const event = {
+      type: "turn_end",
+      message: {
+        role: "assistant",
+        content: [],
+        usage: { input: 92, output: 31, cacheRead: 50, cacheWrite: 0, totalTokens: 173 }
+      },
+      toolResults: []
+    } as never;
+    const translated = translatePiEvent(event);
+    assert.ok(translated);
+    assert.equal(translated.type, "TURN_FINISHED");
+    assert.deepEqual(
+      translated.type === "TURN_FINISHED" ? translated.usage : undefined,
+      { inputTokens: 92, outputTokens: 31, cacheReadTokens: 50 }
+    );
+  });
+
+  it("omits cacheReadTokens when the provider reports zero cache", () => {
+    const event = {
+      type: "turn_end",
+      message: {
+        role: "assistant",
+        content: [],
+        usage: { input: 92, output: 31, cacheRead: 0, cacheWrite: 0, totalTokens: 123 }
+      },
+      toolResults: []
+    } as never;
+    const translated = translatePiEvent(event);
+    assert.ok(translated);
+    assert.deepEqual(
+      translated.type === "TURN_FINISHED" ? translated.usage : undefined,
+      { inputTokens: 92, outputTokens: 31 }
+    );
+  });
+
   it("omits usage when the provider did not report it", () => {
     const event = {
       type: "turn_end",

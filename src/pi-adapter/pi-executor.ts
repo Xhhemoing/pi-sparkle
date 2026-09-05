@@ -153,10 +153,14 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
     case "turn_end": {
       // Usage flows on the assistant message; without it cost telemetry is
       // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
-      const message = event.message as { role?: string; usage?: { input?: number; output?: number } };
+      const message = event.message as {
+        role?: string;
+        usage?: { input?: number; output?: number; cacheRead?: number };
+      };
       const usage = message.role === "assistant" ? message.usage : undefined;
       const rawInput = usageCount(usage?.input);
       const rawOutput = usageCount(usage?.output);
+      const rawCacheRead = usageCount(usage?.cacheRead);
       // All-zero usage is what error payloads and stub providers report;
       // recording it would fabricate cost data ("undefined, never zero").
       const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
@@ -170,7 +174,12 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         type: "TURN_FINISHED",
         usage: {
           ...(inputTokens !== undefined ? { inputTokens } : {}),
-          ...(outputTokens !== undefined ? { outputTokens } : {})
+          ...(outputTokens !== undefined ? { outputTokens } : {}),
+          // Cache reads ride along so the invocation can record cacheHit —
+          // F6 paired blocks treat an undetected cache hit as contamination.
+          ...(rawCacheRead !== undefined && rawCacheRead > 0
+            ? { cacheReadTokens: rawCacheRead }
+            : {})
         }
       };
     }
@@ -876,15 +885,21 @@ export class PiAgentExecutor implements AgentExecutor {
     let responseText = "";
     let tokensIn: number | undefined;
     let tokensOut: number | undefined;
+    let cacheReadTokens = 0;
+    let sawUsage = false;
     for (const event of collected) {
       if (event.type === "TEXT_DELTA") {
         responseText += event.text;
       } else if (event.type === "TURN_FINISHED" && event.usage !== undefined) {
+        sawUsage = true;
         if (event.usage.inputTokens !== undefined) {
           tokensIn = (tokensIn ?? 0) + event.usage.inputTokens;
         }
         if (event.usage.outputTokens !== undefined) {
           tokensOut = (tokensOut ?? 0) + event.usage.outputTokens;
+        }
+        if (event.usage.cacheReadTokens !== undefined) {
+          cacheReadTokens += event.usage.cacheReadTokens;
         }
       }
     }
@@ -892,6 +907,10 @@ export class PiAgentExecutor implements AgentExecutor {
     // payloads carry a zeroed usage block, and a partial stream reports only
     // what arrived before the failure. Cost aggregates must see undefined.
     const usageIsTrustworthy = callOutcome === "ok";
+    // F6 §2.2: cacheHit is a three-state observation — true (cache tokens
+    // seen), false (usage reported, zero cache), undefined (no trustworthy
+    // usage, so cache status is unknown, never guessed).
+    const cacheHit = !usageIsTrustworthy || !sawUsage ? undefined : cacheReadTokens > 0;
     const toolNames = (this.options.tools ?? []).map((tool) => tool.name).sort();
     const parameterHash = hash32(
       `${identity.providerId}|${identity.modelId}|${this.options.thinkingLevel ?? "off"}|${toolNames.join(",")}|${this.options.systemPrompt ?? ""}`
@@ -914,6 +933,13 @@ export class PiAgentExecutor implements AgentExecutor {
       occurredAt: nowIso(),
       attempt,
       callOutcome,
+      // F6 §2.9 provenance: which executor class produced this row. The faux
+      // loopback provider is test infrastructure; labeling it keeps holdout
+      // audits able to prove no test double ever posed as production. Keyed
+      // off the resolved identity (not the constructor handle) so executors
+      // built with an injected Models registry are classified too.
+      executorClass: identity.providerId === "faux" ? "faux" : "pi",
+      ...(cacheHit !== undefined ? { cacheHit } : {}),
     };
   }
 }

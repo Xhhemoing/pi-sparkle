@@ -161,6 +161,17 @@ it("retries, cache hits, timeouts, and cancellations are attributable", () => {
   assert.equal(cancelled.callOutcome, "cancelled");
 });
 
+it("executorClass is a closed vocabulary: pi and faux pass, anything else fails closed", () => {
+  // F6 §2.9: provenance must be programmatic — a row claiming an executor
+  // class outside the vocabulary is rejected, never recorded.
+  assert.equal(invocationError(invocation({ executorClass: "pi" })), undefined);
+  assert.equal(invocationError(invocation({ executorClass: "faux" })), undefined);
+  const unknown = invocation({ executorClass: "real-honest-i-promise" as never });
+  assert.match(invocationError(unknown) ?? "", /executorClass/);
+  assert.throws(() => validateInvocation(unknown));
+  assert.equal(isInvocation(unknown), false);
+});
+
 /**
  * Regression for the R2-7 fuzz finding (seed 0x4f320007, iteration 11): a row
  * whose `config` or `pricing` is the wrong shape used to escape as a TypeError

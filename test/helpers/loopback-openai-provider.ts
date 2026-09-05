@@ -20,6 +20,10 @@ export interface LoopbackOpenAiProviderOptions {
   readonly responseText?: (requestNumber: number) => string;
   readonly promptTokens?: number;
   readonly completionTokens?: number;
+  /** OpenAI-style cached prompt tokens (prompt_tokens_details.cached_tokens). */
+  readonly cachedTokens?: number;
+  /** Send no usage block at all (provider silence on usage). */
+  readonly omitUsage?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,6 +54,31 @@ function sendCompletion(
   const text = options.responseText?.(requestNumber) ?? `loopback response ${requestNumber}`;
   const promptTokens = options.promptTokens ?? 11;
   const completionTokens = options.completionTokens ?? 5;
+  const cachedTokens = options.cachedTokens ?? 0;
+  const usageChunk =
+    options.omitUsage === true
+      ? {
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model: modelId,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+        }
+      : {
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model: modelId,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+            ...(cachedTokens > 0
+              ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
+              : {})
+          }
+        };
   const chunks = [
     {
       id,
@@ -58,18 +87,7 @@ function sendCompletion(
       model: modelId,
       choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }]
     },
-    {
-      id,
-      object: "chat.completion.chunk",
-      created,
-      model: modelId,
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      usage: {
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens
-      }
-    }
+    usageChunk
   ];
 
   response.writeHead(200, {

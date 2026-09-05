@@ -30,7 +30,15 @@ export type ExecutionEvent =
   | { type: "THINKING_DELTA"; bytes: number }
   | { type: "TOOL_STARTED"; toolCallId: string; toolName: string }
   | { type: "TOOL_FINISHED"; toolCallId: string; isError: boolean; summary: string }
-  | { type: "TURN_FINISHED"; usage?: { inputTokens?: number; outputTokens?: number } }
+  | {
+      type: "TURN_FINISHED";
+      usage?: {
+        inputTokens?: number;
+        outputTokens?: number;
+        /** Provider-reported cached prompt tokens; present only when > 0. */
+        cacheReadTokens?: number;
+      };
+    }
   | { type: "MESSAGE"; message: AgentMessage }
   | { type: "EXECUTION_FINISHED"; outcome: "SUCCESS" | "FAILURE" | "CANCELLED" };
 

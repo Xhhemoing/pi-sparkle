@@ -28,6 +28,14 @@ export const INVOCATION_CALL_OUTCOMES: readonly InvocationCallOutcome[] = [
   "error"
 ];
 
+/** Closed provenance vocabulary for {@link ModelInvocation.executorClass}. */
+export type InvocationExecutorClass = "pi" | "faux";
+
+export const INVOCATION_EXECUTOR_CLASSES: readonly InvocationExecutorClass[] = [
+  "pi",
+  "faux"
+];
+
 /**
  * Pricing snapshot recorded separately from provider-reported usage. The
  * catalog version identifies the price table used for any derived cost;
@@ -58,6 +66,13 @@ export interface ModelInvocation {
   readonly cacheHit?: boolean | undefined;
   /** Terminal call disposition for attribution. */
   readonly callOutcome?: InvocationCallOutcome | undefined;
+  /**
+   * Provenance class of the executor that produced this row (F6 §2.9).
+   * Closed vocabulary: "pi" = real provider call, "faux" = loopback test
+   * double. Absent on legacy rows (unknown, not "pi") — three states are
+   * distinct by design, matching redactionClasses.
+   */
+  readonly executorClass?: InvocationExecutorClass | undefined;
   /** Price table used for derived cost; never merged into usage fields. */
   readonly pricing?: InvocationPricing | undefined;
 }
@@ -160,6 +175,12 @@ export function invocationError(value: unknown): string | undefined {
   }
   if (inv.cacheHit !== undefined && typeof inv.cacheHit !== "boolean") {
     return "cacheHit must be a boolean when present";
+  }
+  if (
+    inv.executorClass !== undefined &&
+    !(INVOCATION_EXECUTOR_CLASSES as readonly unknown[]).includes(inv.executorClass)
+  ) {
+    return `invalid executorClass: ${describe(inv.executorClass)}`;
   }
   if (
     inv.callOutcome !== undefined &&
