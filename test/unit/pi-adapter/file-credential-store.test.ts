@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -89,6 +89,9 @@ test("a damaged store fails every verb with the file, a reason, and the move-asi
     for (const [contents, reason] of damaged) {
       await mkdir(join(dir, "runtime"), { recursive: true });
       await writeFile(path, contents, "utf8");
+      // The parse failure is the verdict under test — it must not be masked by
+      // the group/world-readable refusal the store runs first.
+      await chmod(path, 0o600);
       const store = new FileCredentialStore(path);
       // Reading, listing and deleting all load the store, so one damaged file
       // takes the whole surface down — including the log-out-and-back-in

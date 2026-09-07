@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -158,6 +158,9 @@ async function writeCorruptStore(stateRoot: string): Promise<string> {
   const path = authStorePath(stateRoot);
   await mkdir(join(stateRoot, "runtime"), { recursive: true });
   await writeFile(path, CORRUPT_STORE, "utf8");
+  // The parse failure is the verdict under test — it must not be masked by
+  // the group/world-readable refusal the store runs first (POSIX).
+  await chmod(path, 0o600);
   return path;
 }
 
