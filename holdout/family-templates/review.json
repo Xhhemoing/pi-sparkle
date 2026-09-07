@@ -1,0 +1,19 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "family": "review",
+  "id": "spec_review_<nnn>",
+  "baseCommit": "<frozen at seal>",
+  "tasks": [
+    {
+      "id": "tsk_review_NNN",
+      "role": "reviewer",
+      "objective": "Review the change at <path/diff-ref> in the worktree. Report defects as a JSON list at <out path>: [{\"file\": \"...\", \"line\": <n>, \"defect\": \"...\"}]. Do not modify the code."
+    }
+  ],
+  "allowedModels": ["<frozen at pre-registration>"],
+  "oracle": {
+    "kind": "planted-defects",
+    "custodianRef": "oracle_review_<nnn>",
+    "notes": "Custodian holds the independently-constructed planted-defect ground truth for this change, with the pre-registered precision/recall thresholds. taskSuccess = precision >= <p> AND recall >= <r> against that ground truth."
+  }
+}

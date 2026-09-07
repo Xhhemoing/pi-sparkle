@@ -1,0 +1,19 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "family": "research",
+  "id": "spec_research_<nnn>",
+  "baseCommit": "<frozen at seal>",
+  "tasks": [
+    {
+      "id": "tsk_research_NNN",
+      "role": "scout",
+      "objective": "<exploratory question about the codebase>, answered in <out path> with citations to files/lines."
+    }
+  ],
+  "allowedModels": ["<frozen at pre-registration>"],
+  "oracle": {
+    "kind": "rubric",
+    "custodianRef": "oracle_research_<nnn>",
+    "notes": "EXPLORATORY ONLY — results are descriptive, never promoted, and no research-family claim is made at n=10 (decision package §2.4). Custodian holds the expert rubric and named source set."
+  }
+}

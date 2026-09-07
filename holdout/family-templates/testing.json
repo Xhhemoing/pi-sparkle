@@ -1,0 +1,19 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "family": "testing",
+  "id": "spec_test_<nnn>",
+  "baseCommit": "<frozen at seal>",
+  "tasks": [
+    {
+      "id": "tsk_test_NNN",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author tests for <target module/behavior> at <path>. The tests must pass against the base commit as-is."
+    }
+  ],
+  "allowedModels": ["<frozen at pre-registration>"],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_test_<nnn>",
+    "notes": "Custodian holds: (1) the authored tests must pass on base+patch; (2) the spec ships with <k> pre-registered mutants (small seeded defects in the target); the tests must FAIL on at least one. taskSuccess = pass-on-base AND kill >= 1 mutant."
+  }
+}

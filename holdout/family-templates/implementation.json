@@ -1,0 +1,19 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "family": "implementation",
+  "id": "spec_impl_<nnn>",
+  "baseCommit": "<frozen at seal>",
+  "tasks": [
+    {
+      "id": "tsk_impl_NNN",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, <one-paragraph change request>. The change must keep `pnpm build && pnpm lint && pnpm typecheck && node scripts/run-tests.mjs` green. Do not touch <excluded paths>."
+    }
+  ],
+  "allowedModels": ["<frozen at pre-registration>"],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_<nnn>",
+    "notes": "Custodian holds: (1) hidden acceptance tests authored with this spec, run against the arm's worktree; (2) repo gates must pass. taskSuccess = hidden tests pass AND repo gates pass."
+  }
+}
