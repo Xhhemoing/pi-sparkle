@@ -24,6 +24,30 @@ export function parseChildCostCeiling(taskId: TaskId, value: unknown): number | 
   return value;
 }
 
+/**
+ * A declared per-child model pin is load-bearing for the same reason the cost
+ * ceiling is: the operator wrote it to constrain routing, so a malformed one
+ * is refused by task rather than dropped. The pin is not checked against the
+ * catalog here — this parser never builds one; `run --children` and
+ * `validate --children` do, and fail closed on an unknown id.
+ */
+/**
+ * The parser default for `limits.timeoutMs`. Exported so the run path can
+ * tell "the spec said nothing" apart from "the spec said 60s" — real-provider
+ * children need the distinction (see the timeout disclosure in the run path).
+ */
+export const DEFAULT_CHILD_TIMEOUT_MS = 60_000;
+
+export function parseChildModelPin(taskId: TaskId, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new DomainValidationError(
+      `Child task ${taskId}: model must be a non-empty catalog model id string`
+    );
+  }
+  return value;
+}
+
 /** Parses a --children spec file into validated ChildTaskInput values. */
 export async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
   const raw = await readFile(path, "utf8");
@@ -79,6 +103,13 @@ export async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
     const dependsOn = Array.isArray(task.dependsOn)
       ? task.dependsOn.map((id) => parseTaskId(id))
       : undefined;
+    // `"model"` is an exact per-task pin, the children-spec counterpart of a
+    // flowchart node's `modelPolicy: { allowedModels: [m], preferredModel: m
+    // }`. Anything present that is not a non-empty string is refused here, by
+    // task — a pin that silently no-ops would read as routing output in the
+    // event stream while never constraining it. Catalog membership is checked
+    // later, against the live catalog, by the run/validate paths that build one.
+    const pinnedModel = parseChildModelPin(taskId, task.model);
     return {
       taskId,
       role: task.role,
@@ -86,12 +117,14 @@ export async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
       profile,
       inputArtifactIds,
       acceptanceCriteria,
+      ...(pinnedModel !== undefined ? { pinnedModel } : {}),
       limits: {
         maxAttempts: typeof limits?.maxAttempts === "number" ? limits.maxAttempts : 1,
-        timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : 60_000,
+        timeoutMs: typeof limits?.timeoutMs === "number" ? limits.timeoutMs : DEFAULT_CHILD_TIMEOUT_MS,
         maxWallTimeMs: typeof limits?.maxWallTimeMs === "number" ? limits.maxWallTimeMs : 3_600_000,
         ...(maxCostUsd !== undefined ? { maxCostUsd } : {})
       },
+      ...(typeof limits?.timeoutMs === "number" ? { timeoutMsDeclared: true as const } : {}),
       ...(dependsOn !== undefined ? { dependsOn } : {})
     };
   });

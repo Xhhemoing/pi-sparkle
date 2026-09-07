@@ -92,8 +92,24 @@ export interface ChildTaskInput {
    * executor-dependent enforcement contract.
    */
   limits: ChildRunLimits;
+  /**
+   * True when the spec explicitly declared `limits.timeoutMs` (vs the parser
+   * default). The real-executor run path uses this to disclose a probably
+   * too-short default instead of silently inheriting the 2026-09-04 dogfood
+   * failure mode (first real-provider attempt failed 3/3 on the 60s default).
+   */
+  timeoutMsDeclared?: boolean;
   /** Optional predecessor task ids; used when compiling `--children` into a flowchart. */
   dependsOn?: readonly TaskId[];
+  /**
+   * Operator-declared exact model pin from the children spec (`"model"`). A
+   * pinned child is not routed: smart routing leaves it untouched, the
+   * flowchart node is compiled with `allowedModels: [pinnedModel]`, and the
+   * live catalog check fails the start closed when the pin names a model the
+   * state root does not expose. Distinct from `assignedModel`, which is the
+   * planner's output; a pin is the operator's input and wins over routing.
+   */
+  pinnedModel?: string;
   /** Model id assigned by smart routing for this child. */
   assignedModel?: string;
   /** First-attempt cascade: escalate only on deterministic model FAIL. */

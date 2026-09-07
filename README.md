@@ -114,6 +114,8 @@ Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low`
 
 Provide a child spec JSON file. Task ids must be `tsk_<suffix>`. Roles must be one of `worker`, `scout`, `planner`, `implementer`, `reviewer`, `tester`, `debugger`. `--children` compiles the spec through `compileChildrenToFlowchart` and executes it on the same flowchart engine as `--flowchart`; the child coordinator preserves parent/child protocol semantics inside that run (bounded children, peer mail, exactly one terminal `TASK_RESULT` per task). The original M1 entry `startParentRun` remains a library/test-only path.
 
+A task may declare `"model": "<catalog-id>"` as an exact per-task pin (the children-spec counterpart of a flowchart node's single-model `modelPolicy`). A pinned task is not routed: the planner leaves it untouched, the flowchart node compiles to `allowedModels: [pin]`, no cascade escalates off it, and the run refuses to start if the pin names a model the live catalog does not expose. Pins print on their own `(pinned)` routing line so operator input is never mistaken for planner output. `validate --children` checks pins against the same live catalog (pass `--state-root` to point it at a non-default root).
+
 Honesty note: plain `--children` starts **without a requirement contract** —
 the run records `skipContract: true` and the coverage gate does not run on
 this path. Per-task `acceptanceCriteria` still gate each child's
@@ -136,7 +138,8 @@ start (refusing while mandatory criteria are uncovered), use `--track`.
       "id": "tsk_impl",
       "role": "implementer",
       "objective": "Integrate the chosen gateway",
-      "inputArtifactIds": ["art_research-report"]
+      "inputArtifactIds": ["art_research-report"],
+      "model": "anthropic/claude-sonnet-4-5"
     }
   ]
 }

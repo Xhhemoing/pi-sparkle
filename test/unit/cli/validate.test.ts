@@ -610,3 +610,59 @@ test("validate --help prints its usage and exits 0", async () => {
     assert.deepEqual(err, []);
   });
 });
+
+test("validate --children checks a pinned model against the live catalog", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    await enableModel(stateRoot, "openai/gpt-4o-mini");
+    const enabledEntries = await readdir(stateRoot);
+    const pinnedSpec = {
+      tasks: [
+        { id: "tsk_free", role: "implementer", objective: "Routed task" },
+        { id: "tsk_pinned", role: "reviewer", objective: "Pinned task", model: "openai/gpt-4o-mini" }
+      ]
+    };
+    const path = await writeSpec(specDir, "pinned.json", pinnedSpec);
+
+    const accepted = capture();
+    assert.equal(
+      await main(["validate", "--children", path, "--state-root", stateRoot], accepted.io),
+      0,
+      accepted.err.join("")
+    );
+    assert.match(accepted.out.join(""), /pinned models checked against the live catalog/);
+    assert.deepEqual(
+      await readdir(stateRoot),
+      enabledEntries,
+      "the pinned-catalog read adds nothing to the state root"
+    );
+
+    const otherRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-validate-pinless-"));
+    try {
+      const refused = capture();
+      assert.equal(
+        await main(["validate", "--children", path, "--state-root", otherRoot], refused.io),
+        1,
+        "a state root without the pinned model must refuse the same spec"
+      );
+      const parsed = parseCliErrorJson(refused.err.join(""));
+      assert.equal(parsed?.stage, "validation");
+      assert.match(parsed?.message ?? "", /pinned model not in the live catalog: tsk_pinned -> "openai\/gpt-4o-mini"/);
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("validate --children without pins never consults the catalog", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const path = await writeSpec(specDir, "children.json", CHILDREN_SPEC);
+    const { io, out, err } = capture();
+    // A state root whose providers.json is malformed would fail a catalog
+    // build; a no-pin spec must not even read it.
+    await writeFile(join(stateRoot, "providers.json"), "{ not json", "utf8");
+    const code = await main(["validate", "--children", path, "--state-root", stateRoot], io);
+    assert.equal(code, 0, err.join(""));
+    assert.match(out.join(""), /valid: children 2 tasks/);
+    assert.ok(!out.join("").includes("pinned models checked"), "no catalog claim without pins");
+  });
+});

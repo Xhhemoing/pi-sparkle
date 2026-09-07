@@ -38,8 +38,8 @@ run --flowchart applies: node models are checked against the catalog built
 from the providers config under --state-root (default ~/.pi-sparkle), so a
 node naming a model that state root does not expose fails, and a node naming a
 model you enabled there passes. Reading that config is a read — it creates no
-run and writes nothing. --state-root is ignored by --children, which never
-consults the catalog.
+run and writes nothing. --state-root is ignored by --children unless a task
+pins "model"; pinned children are checked against the same live catalog.
 
 --json prints one VALIDATE_OK object on success (frozen-additive: type,
 preview, kind, path, taskCount, nodeCount, edgeCount, flowchartId,
@@ -93,7 +93,12 @@ function compilableChildren(tasks: Awaited<ReturnType<typeof parseChildSpec>>): 
       taskId: task.taskId,
       role: task.role,
       objective: task.objective,
-      ...(task.dependsOn !== undefined ? { dependsOn: task.dependsOn } : {})
+      ...(task.dependsOn !== undefined ? { dependsOn: task.dependsOn } : {}),
+      // A pinned task compiles to the same single-model policy the run path
+      // produces, so validate compiles what run would compile.
+      ...(task.pinnedModel !== undefined
+        ? { allowedModels: [task.pinnedModel], preferredModel: task.pinnedModel }
+        : {})
     };
   });
 }
@@ -172,6 +177,40 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
     if (childrenPath !== undefined) {
       const tasks = await parseChildSpec(childrenPath);
       const flowchart: Flowchart = compileChildrenToFlowchart(compilableChildren(tasks));
+      // A task that pins `"model"` constrains the live catalog, so a spec
+      // pinning a model the state root does not expose must fail here exactly
+      // as run --children would fail — validating it against the default
+      // cheap/premium policy would report `valid` for a run that refuses.
+      const pins = tasks.flatMap((task) =>
+        task.pinnedModel !== undefined ? [{ taskId: task.taskId, model: task.pinnedModel }] : []
+      );
+      let catalogSource: "live" | undefined;
+      let childrenStateRoot: string | undefined;
+      if (pins.length > 0) {
+        childrenStateRoot = values["state-root"] ?? defaultStateRoot();
+        let catalogIds: readonly string[];
+        try {
+          catalogIds = (await buildLiveCatalogConfig(childrenStateRoot)).models.map((model) => model.id);
+        } catch (error) {
+          return cliFail(io, {
+            command: "validate",
+            stage: error instanceof DomainValidationError ? "validation" : "execute",
+            message: `could not build the model catalog at ${childrenStateRoot}: ${error instanceof Error ? error.message : String(error)}`,
+            next: `disable an unknown enabled model with pi-sparkle models disable <provider/model>, repair ${providersConfigPath(childrenStateRoot)}, or pass --state-root <dir>`
+          });
+        }
+        const known = new Set(catalogIds);
+        const unknown = pins.filter((pin) => !known.has(pin.model));
+        if (unknown.length > 0) {
+          return cliFail(io, {
+            command: "validate",
+            stage: "validation",
+            message: `pinned model not in the live catalog: ${unknown.map((pin) => `${pin.taskId} -> "${pin.model}"`).join(", ")}`,
+            next: "enable the model with pi-sparkle models enable <provider/model>, or fix the spec's model field"
+          });
+        }
+        catalogSource = "live";
+      }
       report = {
         type: "VALIDATE_OK",
         preview: true,
@@ -179,9 +218,11 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
         path: childrenPath,
         taskCount: tasks.length,
         nodeCount: flowchart.nodes.length,
-        flowchartId: flowchart.id
+        flowchartId: flowchart.id,
+        ...(catalogSource !== undefined ? { catalogSource } : {}),
+        ...(childrenStateRoot !== undefined ? { stateRoot: childrenStateRoot } : {})
       };
-      prose = `valid: children ${tasks.length} tasks → flowchart ${flowchart.id} (${flowchart.nodes.length} nodes)\n`;
+      prose = `valid: children ${tasks.length} tasks → flowchart ${flowchart.id} (${flowchart.nodes.length} nodes)${catalogSource !== undefined ? `; pinned models checked against the live catalog at ${childrenStateRoot}` : ""}\n`;
     } else {
       // The catalog `run --flowchart` would check against, built the same way
       // from the same state root: a static cheap/premium list here would

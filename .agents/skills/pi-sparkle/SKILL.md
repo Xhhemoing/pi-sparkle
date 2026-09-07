@@ -140,7 +140,8 @@ On any Pi version bump, run the checklist in references/pi-version-adapt.md
 
 ## Pi 0.84.4 Adaptation (2026-09-01)
 
-Latest published Pi as of this date is **0.84.4** (2026-08-28). Verified live:
+Superseded by 0.85.1 — see the 0.85.x section above. Latest published Pi as
+of 2026-09-01 was **0.84.4** (2026-08-28). Verified live:
 `scripts/pi-latest-check.mjs` (npm dist-tags), tarball CHANGELOG review, and
 `pi-sparkle pi-compat` after the pin bump. Do not trust prose for the live
 pin — re-run the shipped commands.
@@ -158,6 +159,43 @@ pin — re-run the shipped commands.
   is TUI-internal.
 - **doctor `project` check** now accepts `pyproject.toml` as a project marker
   alongside `package.json` (Python projects no longer false-positive FAIL).
+
+## Pi 0.85.x Adaptation (2026-09-05)
+
+Latest published Pi as of this date: agent-core / pi-ai **0.85.1**
+(2026-09-05), pi-coding-agent **0.85.0** (2026-09-04). Pins bumped 0.84.4 →
+0.85.1 and verified live: `scripts/pi-latest-check.mjs`, 0.85.0 changelog
+review, adapter-contract probe (`pnpm pi:probe`), typecheck, and the full
+suite (2561 tests, 0 fail). Do not trust prose for the live pin — re-run the
+shipped commands.
+
+- **Adapter contract holds on 0.85.1:** `ThinkingLevel` unchanged
+  (`off|minimal|low|medium|high|xhigh|max`), legacy `GoogleThinkingLevel`
+  still absent from adapter sources. pi-ai 0.85.1 exports a NEW
+  `GoogleApiThinkingLevel` / `ResolvedGoogleThinkingLevel` pair — not the
+  legacy symbol; the probe's `\bGoogleThinkingLevel\b` word boundary does not
+  match it. Do not report this as a legacy-symbol regression.
+- **Loop order re-verified:** `shouldStopAfterTurn` still runs immediately
+  after `turn_end`, before the steering-queue poll (`dist/agent-loop.js`).
+  The "cost stop outranks a queued steer" contract in
+  `references/kernel-reuse.md` is unchanged.
+- **Behavior changes that matter to this overlay:**
+  - `ctx.cwd` fix (#8627): `bash`/`edit`/`find`/`grep`/`ls`/`read`/`write`
+    tools no longer ignore `ctx.cwd`. Executor working-directory behavior is
+    now trustworthy across all file tools — re-verify any audit finding that
+    assumed cwd slippage.
+  - Skills availability fix (#8552): skills no longer unavailable when Bash
+    is the only enabled tool. Retract any stale "skills missing" finding
+    from that configuration.
+  - Persistent Claude thinking effort: Anthropic transports preserve
+    per-turn effort. The three thinking knobs (TUI `/thinking`,
+    `PI_THINKING_LEVEL`, `run --thinking`) are unchanged and still not to be
+    conflated.
+  - `SessionManager.inMemory()` (SDK) restores externally managed session
+    entries — relevant to a future extension (ADR-006 still Proposed), not
+    to this diagnostic overlay.
+- **Extension surface:** no new extension-event additions affecting this
+  overlay; ADR-006 remains Proposed, nothing registered.
 
 ## Routing to References
 

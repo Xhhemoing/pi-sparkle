@@ -108,12 +108,12 @@ the runtime never takes a dependency on `pi-coding-agent`.
    thinking text before shipping; a length/byte count is the most any
    durable record may carry.
 
-5. **Pin stays 0.84.3.** Kernel-reuse work rides the pinned
-   `@earendil-works/pi-agent-core` / `pi-ai` at `0.84.3`; do not bump pins
-   as part of a feature branch. Read `package.json` or run
-   `pi-sparkle pi-compat` for the live pin — never trust prose, including
-   this file. A version bump is its own task and runs the full
-   `references/pi-version-adapt.md` checklist first.
+5. **Pin is read from `package.json`, never from prose.** Kernel-reuse work
+   rides the pinned `@earendil-works/pi-agent-core` / `pi-ai` pair (0.85.1 as
+   of 2026-09-05); do not bump pins as part of a feature branch. Read
+   `package.json` or run `pi-sparkle pi-compat` for the live pin — never
+   trust prose, including this file. A version bump is its own task and runs
+   the full `references/pi-version-adapt.md` checklist first.
 
 6. **Respect retry and queue semantics.** The executor retries transient
    provider failures with a *fresh* `Agent` per attempt, so whatever the
@@ -130,7 +130,7 @@ the runtime never takes a dependency on `pi-coding-agent`.
 
    The cost ceiling (item 2) is a second drop path: Pi consults the
    `shouldStopAfterTurn` hook *before* draining the steering queue
-   (pi-agent-core 0.84.3 loop order), so text steered during the turn
+   (loop order verified on 0.84.3, re-verified unchanged on 0.85.1), so text steered during the turn
    that crosses the ceiling is dropped with the attempt — reordering
    would need a Pi fork. The loss is auditable, not silent: read
    `STEER_INJECTED` as accepted into the queue, not seen by the model;
@@ -158,7 +158,7 @@ the runtime never takes a dependency on `pi-coding-agent`.
 rg -n "(from|import\(|require\()\s*[\"']@earendil-works" src/ --glob '!src/pi-adapter/**'
                                                             # imports only; must be empty
 rg -n "SparkleKernel|steerText|followUpText|maxCostUsd" src/  # claim gate
-rg -n "0\.84\.3" package.json                               # pin unchanged
+node -p "require('./package.json').dependencies['@earendil-works/pi-agent-core']"  # live pin
 ```
 
 Plus the relevant unit/integration tests for the facade and live stream

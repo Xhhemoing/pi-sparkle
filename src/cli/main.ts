@@ -489,8 +489,20 @@ async function smartChildPlan(
     await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
     stateRoot
   );
+  // An operator pin (`"model"` in the spec) is validated against the live
+  // catalog here so an unknown id fails before any run starts, and the child
+  // is then excluded from routing: a pin is operator input, not a routing
+  // output, and letting the planner override it would make the spec lie.
+  const catalogIds = new Set(catalog.models.map((model) => model.id));
+  for (const child of children) {
+    if (child.pinnedModel !== undefined && !catalogIds.has(child.pinnedModel)) {
+      throw new DomainValidationError(
+        `Child task ${child.taskId}: pinned model "${child.pinnedModel}" is not in the live catalog; enable it with pi-sparkle models enable ${child.pinnedModel} or fix the spec`
+      );
+    }
+  }
   const assignable = children.flatMap((child) =>
-    isAgentRole(child.role)
+    isAgentRole(child.role) && child.pinnedModel === undefined
       ? [{ taskId: child.taskId, role: child.role, objective: child.objective }]
       : []
   );
@@ -501,6 +513,11 @@ async function smartChildPlan(
     ...(prior !== undefined ? { prior } : {})
   });
   const routed = children.map((child) => {
+    if (child.pinnedModel !== undefined) {
+      // Pinned: exact model, no cascade — escalating off an operator's pin on
+      // first failure would silently defeat the constraint they declared.
+      return { ...child, assignedModel: child.pinnedModel };
+    }
     const assignment = assignments.find((item) => item.taskId === child.taskId);
     if (assignment === undefined) return child;
     return {
@@ -1099,12 +1116,19 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       learned,
       publicPrior
     );
-    if (planned.assignments.length > 0) {
+    const pinnedChildren = planned.children.filter((child) => child.pinnedModel !== undefined);
+    if (planned.assignments.length > 0 || pinnedChildren.length > 0) {
       io.stdout(`  routing (primary=${primaryModelId}, fast=${fastModelId}):\n`);
       for (const assignment of planned.assignments) {
         io.stdout(
           `    ${assignment.taskId} (${assignment.role}, ${assignment.analysis.complexity}) -> ${assignment.decision.model}\n`
         );
+      }
+      // Pins are operator input, not planner output, so they are reported on
+      // their own line shape: auditable as a declared constraint, never
+      // mistaken for a routing decision in the transcript.
+      for (const child of pinnedChildren) {
+        io.stdout(`    ${child.taskId} (${child.role}) -> ${child.pinnedModel} (pinned)\n`);
       }
     }
     const catalog = await calibrateCatalogFromState(
@@ -1116,13 +1140,18 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     const flowchart = compileChildrenToFlowchart(
       planned.children.flatMap((child) => {
         if (!isAgentRole(child.role)) return [];
+        // A pinned child compiles to a single-model policy so the flowchart
+        // layer enforces the pin, not just prefers it: the supervisor's
+        // router has exactly one eligible model, and an unknown pin already
+        // failed closed in smartChildPlan.
+        const nodeAllowed = child.pinnedModel !== undefined ? [child.pinnedModel] : catalogIds;
         return [
           {
             taskId: child.taskId,
             role: child.role,
             objective: child.objective,
             ...(child.dependsOn !== undefined ? { dependsOn: child.dependsOn } : {}),
-            allowedModels: catalogIds,
+            allowedModels: nodeAllowed,
             ...(child.assignedModel !== undefined ? { preferredModel: child.assignedModel } : {})
           }
         ];

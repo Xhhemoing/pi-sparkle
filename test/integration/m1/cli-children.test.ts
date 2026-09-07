@@ -545,3 +545,65 @@ test("fake children e2e: run, inspect, checkpoint, TASK_REQUEST/RESULT, and repl
     }
   });
 });
+
+test("run --children honours a declared per-task model pin end to end", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        tasks: [
+          {
+            id: "tsk_pinned",
+            role: "implementer",
+            objective: "Implement the parser on a pinned model",
+            model: "premium",
+            acceptanceCriteria: [{ id: "ac-1", description: "Parses empty input" }],
+            limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 300_000 }
+          }
+        ]
+      }),
+      "utf8"
+    );
+    const { io, out, err } = capture();
+    const code = await main(
+      ["run", "--project", projectRoot, "--objective", "Ship the parser", "--children", specPath, "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 0, err.join(""));
+    // The pin is reported as operator input, not planner output.
+    assert.match(out.join(""), /tsk_pinned \(implementer\) -> premium \(pinned\)/);
+    const runId = requireCompletedRunId(out, err);
+
+    // The flowchart node must carry the single-model policy, so the pin is
+    // enforced by the supervisor's router, not only by the planner's say-so.
+    const parentEvents = await readEventLog(stateRoot, runId);
+    const routed = parentEvents.filter((event) => event.type === "MODEL_ROUTED");
+    assert.equal(routed.length, 1);
+    const routedPayload = routed[0]!.payload as { model?: string; taskId?: string };
+    assert.equal(routedPayload.model, "premium");
+  });
+});
+
+test("run --children refuses a pin naming a model the catalog does not expose", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(
+      specPath,
+      JSON.stringify({
+        tasks: [
+          { id: "tsk_ghost", role: "implementer", objective: "Pinned to a ghost", model: "openai/gpt-4o-mini" }
+        ]
+      }),
+      "utf8"
+    );
+    const { io, err } = capture();
+    const code = await main(
+      ["run", "--project", projectRoot, "--objective", "Ship the parser", "--children", specPath, "--state-root", stateRoot],
+      io
+    );
+    assert.equal(code, 1, "an unknown pin must fail before any run starts");
+    assert.deepEqual(await runDirectoryNames(stateRoot), [], "no run directory is created");
+    assert.match(err.join(""), /pinned model "openai\/gpt-4o-mini" is not in the live catalog/);
+  });
+});

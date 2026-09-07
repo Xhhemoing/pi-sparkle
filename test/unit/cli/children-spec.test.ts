@@ -89,3 +89,35 @@ test("parseChildCostCeiling refuses anything but a positive finite number", () =
     );
   }
 });
+
+test("parseChildSpec carries a declared per-task model pin", async () => {
+  await withSpec(
+    {
+      tasks: [
+        { id: "tsk_free", role: "implementer", objective: "Routed task" },
+        { id: "tsk_pinned", role: "reviewer", objective: "Pinned task", model: "openai/gpt-4o-mini" }
+      ]
+    },
+    async (path) => {
+      const tasks = await parseChildSpec(path);
+      assert.equal(tasks[0]?.pinnedModel, undefined);
+      assert.equal(tasks[1]?.pinnedModel, "openai/gpt-4o-mini");
+    }
+  );
+});
+
+test("parseChildModelPin refuses anything but a non-empty string", async () => {
+  const { parseChildModelPin } = await import("../../../src/cli/children-spec.js");
+  const taskId = parseTaskId("tsk_a");
+  assert.equal(parseChildModelPin(taskId, undefined), undefined);
+  assert.equal(parseChildModelPin(taskId, "openai/gpt-4o-mini"), "openai/gpt-4o-mini");
+  for (const bad of ["", "   ", 42, null, ["openai/gpt-4o-mini"], { id: "x" }]) {
+    assert.throws(
+      () => parseChildModelPin(taskId, bad),
+      /model must be a non-empty catalog model id string/
+    );
+  }
+  await withSpec({ tasks: [{ id: "tsk_a", role: "worker", objective: "A", model: "" }] }, async (path) => {
+    await assert.rejects(parseChildSpec(path), /model must be a non-empty catalog model id string/);
+  });
+});
