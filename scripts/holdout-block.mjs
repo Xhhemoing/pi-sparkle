@@ -57,6 +57,30 @@ const specBody = await readFile(specPath);
 const specHash = createHash("sha256").update(specBody).digest("hex");
 const spec = JSON.parse(specBody.toString("utf8"));
 
+// Pre-flight the spec against the same vocabulary the CLI will enforce, so a
+// malformed taskSpec dies here — before two worktrees are provisioned and an
+// arm burns its schedule slot on a validation exit.
+const specProblems = [];
+for (const [index, task] of (spec.tasks ?? []).entries()) {
+  if (typeof task.id !== "string" || !/^tsk_[A-Za-z0-9_-]{1,64}$/.test(task.id)) {
+    specProblems.push(`tasks[${index}].id ${JSON.stringify(task.id)} is not a TaskId (needs the tsk_ prefix, src/domain/ids.ts)`);
+  }
+  if (typeof task.role !== "string" || !["worker", "scout", "planner", "implementer", "reviewer", "tester", "debugger"].includes(task.role)) {
+    specProblems.push(`tasks[${index}].role ${JSON.stringify(task.role)} is not a known AgentRole (src/domain/roles.ts)`);
+  }
+  if (typeof task.objective !== "string" || task.objective.trim() === "") {
+    specProblems.push(`tasks[${index}].objective is empty`);
+  }
+}
+if ((spec.tasks ?? []).length === 0) specProblems.push("spec.tasks is empty");
+if (!Array.isArray(spec.allowedModels) || spec.allowedModels.length === 0) {
+  specProblems.push("spec.allowedModels (catalog ids) is required for the R1 arm");
+}
+if (specProblems.length > 0) {
+  console.error(`spec preflight failed:\n  ${specProblems.join("\n  ")}`);
+  process.exit(2);
+}
+
 // Committed-seed arm order: hash(seed || specHash) bit 0 decides which arm runs
 // first. Deterministic, reproducible, and pre-registerable.
 const orderSeed = createHash("sha256").update(`${seedText}|${specHash}`).digest();

@@ -1,0 +1,19 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_<family>_<nnn>",
+  "family": "implementation | testing | review | research",
+  "baseCommit": "<sha the block runner checks out; overridden by --base-commit>",
+  "tasks": [
+    {
+      "id": "tsk_<unique_suffix>",
+      "role": "implementer | tester | reviewer | planner | worker | scout | debugger",
+      "objective": "<the full task text the arm sees — self-contained>"
+    }
+  ],
+  "allowedModels": ["<catalog ids the R1 arm may pick — must be in the live CLI catalog>"],
+  "oracle": {
+    "kind": "hidden-acceptance-tests | mutant-kill | planted-defects | rubric",
+    "custodianRef": "<custodian-held artifact id — never the plaintext>"
+  },
+  "notes": "taskId needs the tsk_ prefix (src/domain/ids.ts); role must be a known AgentRole (src/domain/roles.ts); allowedModels validate against the LIVE catalog (cheap/premium aliases work for smoke, real provider/model ids for production blocks)."
+}
