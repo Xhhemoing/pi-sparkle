@@ -18,6 +18,7 @@
  * backlog.
  */
 import { execFileSync } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
