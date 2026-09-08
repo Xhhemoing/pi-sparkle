@@ -1,0 +1,25 @@
+{
+  "$schema": "f6-price-table-v1",
+  "status": "ESTIMATE",
+  "frozenAt": "2026-09-07",
+  "adr": "docs/decisions/0007-f6-owner-questions-adjudicated.md (Q3)",
+  "note": "xhh relay exposes /v1/models but no accessible billing/usage endpoint as of the freeze; the three dogfood models are unpriced in the catalog. All holdout cost CIs are computed on this table and reported as ESTIMATE-class. If provider billing becomes available, reconcile per invocation ID and re-evaluate the cost gate (report as correction).",
+  "currency": "USD",
+  "models": {
+    "claude-fable-5": {
+      "inputPerMTok": 3.0,
+      "outputPerMTok": 15.0,
+      "basis": "frontier-claude-class estimate; catalog has no price entry"
+    },
+    "gpt-5.6-sol": {
+      "inputPerMTok": 2.5,
+      "outputPerMTok": 10.0,
+      "basis": "frontier-gpt-class estimate; catalog has no price entry"
+    },
+    "kimi-k3": {
+      "inputPerMTok": 0.6,
+      "outputPerMTok": 2.5,
+      "basis": "mid-tier estimate; catalog has no price entry"
+    }
+  }
+}
