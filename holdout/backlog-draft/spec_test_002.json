@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_test_002",
+  "family": "testing",
+  "tasks": [
+    {
+      "id": "tsk_test_002",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author a test file for src/routing/r1.ts covering: routeR1 estimate ordering: well-sampled vs cold tiers, LCB ties broken by cost, and exploratory flag propagation. The tests must pass against the base commit as-is with `npx tsx --test <your file>`. Write under test/unit/ mirroring the repo's existing layout and import style (.js suffixes, node:test)."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_test_002"
+  }
+}

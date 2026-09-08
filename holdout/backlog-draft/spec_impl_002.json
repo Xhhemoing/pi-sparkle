@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_002",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_002",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add `--since <ISO-date>` filtering to `pi-sparkle list --runs` (only runs created at or after the instant are listed; invalid dates are refused with the flag named). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/list.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_002"
+  }
+}

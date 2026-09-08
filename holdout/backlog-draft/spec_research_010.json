@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_research_010",
+  "family": "research",
+  "tasks": [
+    {
+      "id": "tsk_research_010",
+      "role": "scout",
+      "objective": "Trace resume after crash: which events must exist, which must not, and how the rebuild decides. Answer in .holdout-research.md with file:line citations for every claim."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "rubric",
+    "custodianRef": "oracle_research_010"
+  }
+}

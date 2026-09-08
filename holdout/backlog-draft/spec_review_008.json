@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_review_008",
+  "family": "review",
+  "tasks": [
+    {
+      "id": "tsk_review_008",
+      "role": "reviewer",
+      "objective": "In the worktree at the sealed base commit, review the change at .holdout-diff.patch affecting src/pi-adapter/pi-executor.ts (a change adding streaming retry). Report every defect you find as a JSON list at .holdout-review.json: [{\"file\": \"<path>\", \"line\": <n>, \"defect\": \"<one sentence>\"}]. Do not modify any code."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "planted-defects",
+    "custodianRef": "oracle_review_008"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_test_016",
+  "family": "testing",
+  "tasks": [
+    {
+      "id": "tsk_test_016",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author a test file for src/routing/assign.ts covering: assignTasks: per-task model pinning, cascade plan construction, and privacyRequired propagation into the route request. The tests must pass against the base commit as-is with `npx tsx --test <your file>`. Write under test/unit/ mirroring the repo's existing layout and import style (.js suffixes, node:test)."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_test_016"
+  }
+}

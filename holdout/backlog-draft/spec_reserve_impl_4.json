@@ -1,0 +1,22 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_reserve_impl_4",
+  "family": "implementation",
+  "reserve": true,
+  "tasks": [
+    {
+      "id": "tsk_reserve_impl_4",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, implement reserve implementation task 4 per the custodian's attached brief. Keep the repo gates green."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_reserve_impl_4"
+  }
+}

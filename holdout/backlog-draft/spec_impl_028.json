@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_028",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_028",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--explain` flag to `pi-sparkle adapt status` printing why each candidate is or is not promotable (missing eval, stale review, cost-CI block — one line each). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/adapt.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_028"
+  }
+}

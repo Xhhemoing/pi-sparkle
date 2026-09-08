@@ -1,0 +1,22 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_reserve_review_4",
+  "family": "review",
+  "reserve": true,
+  "tasks": [
+    {
+      "id": "tsk_reserve_review_4",
+      "role": "reviewer",
+      "objective": "In the worktree at the sealed base commit, review the custodian's reserve diff 4 at .holdout-diff.patch and report defects to .holdout-review.json."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "planted-defects",
+    "custodianRef": "oracle_reserve_review_4"
+  }
+}

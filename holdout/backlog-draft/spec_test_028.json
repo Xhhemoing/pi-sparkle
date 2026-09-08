@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_test_028",
+  "family": "testing",
+  "tasks": [
+    {
+      "id": "tsk_test_028",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author a test file for src/cli/model-catalog.ts covering: buildLiveCatalogConfig: provider merge order, unknown-model error naming, and default-model resolution. The tests must pass against the base commit as-is with `npx tsx --test <your file>`. Write under test/unit/ mirroring the repo's existing layout and import style (.js suffixes, node:test)."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_test_028"
+  }
+}

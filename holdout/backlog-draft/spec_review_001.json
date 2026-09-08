@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_review_001",
+  "family": "review",
+  "tasks": [
+    {
+      "id": "tsk_review_001",
+      "role": "reviewer",
+      "objective": "In the worktree at the sealed base commit, review the change at .holdout-diff.patch affecting src/run/event-store.ts (a change adding a second append queue shard). Report every defect you find as a JSON list at .holdout-review.json: [{\"file\": \"<path>\", \"line\": <n>, \"defect\": \"<one sentence>\"}]. Do not modify any code."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "planted-defects",
+    "custodianRef": "oracle_review_001"
+  }
+}

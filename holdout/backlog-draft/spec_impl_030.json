@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_030",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_030",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--json` flag to `pi-sparkle pi-compat` printing the probe verdict as structured JSON (the human line stays default; `--offline --json` composes). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/pi-compat.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_030"
+  }
+}

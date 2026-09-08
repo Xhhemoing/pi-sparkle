@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_research_002",
+  "family": "research",
+  "tasks": [
+    {
+      "id": "tsk_research_002",
+      "role": "scout",
+      "objective": "Trace how a child's TASK_RESULT reaches the tracking gate, naming every transformation of the verdict. Answer in .holdout-research.md with file:line citations for every claim."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "rubric",
+    "custodianRef": "oracle_research_002"
+  }
+}

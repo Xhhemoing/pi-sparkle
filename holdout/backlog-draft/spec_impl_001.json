@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_001",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_001",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--format json|table` flag to `pi-sparkle list --runs` (default table; `--json` already exists and stays the machine channel — the new flag selects the human table explicitly and conflicts with `--json` are refused with a named error). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/list.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_001"
+  }
+}

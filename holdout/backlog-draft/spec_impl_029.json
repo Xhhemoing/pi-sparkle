@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_029",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_029",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--since <ISO-date>` flag to `pi-sparkle adapt eval --candidate <id>` restricting the dataset to episodes at or after the instant (invalid dates refused with the flag named). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/adapt.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_029"
+  }
+}

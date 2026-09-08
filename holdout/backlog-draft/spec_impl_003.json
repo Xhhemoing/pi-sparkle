@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_003",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_003",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add `--until <ISO-date>` filtering to `pi-sparkle list --runs` composing with `--since` (both present = closed interval; until < since is a named argv error). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/list.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_003"
+  }
+}

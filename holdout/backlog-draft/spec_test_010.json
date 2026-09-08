@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_test_010",
+  "family": "testing",
+  "tasks": [
+    {
+      "id": "tsk_test_010",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author a test file for src/domain/flowchart.ts covering: flowchart validation: node id uniqueness, edge target existence, and agentRole vocabulary enforcement. The tests must pass against the base commit as-is with `npx tsx --test <your file>`. Write under test/unit/ mirroring the repo's existing layout and import style (.js suffixes, node:test)."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_test_010"
+  }
+}

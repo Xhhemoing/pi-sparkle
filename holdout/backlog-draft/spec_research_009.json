@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_research_009",
+  "family": "research",
+  "tasks": [
+    {
+      "id": "tsk_research_009",
+      "role": "scout",
+      "objective": "Document the cost observability chain: where tokens are counted, priced, and gated. Answer in .holdout-research.md with file:line citations for every claim."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "rubric",
+    "custodianRef": "oracle_research_009"
+  }
+}

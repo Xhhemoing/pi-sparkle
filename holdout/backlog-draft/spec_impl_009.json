@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_009",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_009",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--timeline` flag to `pi-sparkle inspect --run <id>` printing one line per event: seq, type, taskId when present (read-only; works on running and terminal runs). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/inspect.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_009"
+  }
+}

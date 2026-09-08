@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_004",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_004",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--limit <n>` flag to `pi-sparkle list --runs` (most recent n after other filters; 0 and negatives are named argv errors). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/list.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_004"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_023",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_023",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--amend` flag to `pi-sparkle commits apply` that amends the HEAD commit with the ledger message instead of creating a new one (refused when HEAD is not the run's own commit, named error). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/commits.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_023"
+  }
+}

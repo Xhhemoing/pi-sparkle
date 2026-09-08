@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_020",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_020",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--check` flag to `pi-sparkle models enable <id>` that probes the provider's catalog reachability before enabling (offline failure keeps the model disabled and exits 1 with the probe error). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/models.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_020"
+  }
+}

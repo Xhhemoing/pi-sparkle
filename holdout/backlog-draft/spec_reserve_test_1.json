@@ -1,0 +1,22 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_reserve_test_1",
+  "family": "testing",
+  "reserve": true,
+  "tasks": [
+    {
+      "id": "tsk_reserve_test_1",
+      "role": "tester",
+      "objective": "In the worktree at the sealed base commit, author tests for reserve testing task 1 per the custodian's attached brief. They must pass on base."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "mutant-kill",
+    "custodianRef": "oracle_reserve_test_1"
+  }
+}

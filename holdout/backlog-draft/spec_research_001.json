@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_research_001",
+  "family": "research",
+  "tasks": [
+    {
+      "id": "tsk_research_001",
+      "role": "scout",
+      "objective": "Map the event-sourcing write path from CLI command to events.jsonl append, naming every fsync/lock point. Answer in .holdout-research.md with file:line citations for every claim."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "rubric",
+    "custodianRef": "oracle_research_001"
+  }
+}

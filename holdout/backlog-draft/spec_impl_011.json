@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_011",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_011",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `--dry-run` flag to `pi-sparkle delete --run <id>` printing what would be deleted (event log, checkpoint, ledger rows) with byte counts and deleting nothing. The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/delete.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_011"
+  }
+}

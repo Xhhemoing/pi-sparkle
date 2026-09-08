@@ -1,0 +1,21 @@
+{
+  "$schema": "f6-taskSpec-v1",
+  "id": "spec_impl_007",
+  "family": "implementation",
+  "tasks": [
+    {
+      "id": "tsk_impl_007",
+      "role": "implementer",
+      "objective": "In the worktree at the sealed base commit, add a `pi-sparkle inspect --run <id> --watch-cost` mode that polls the run's invocation ledger every 2s and prints cumulative cost until the run terminates or Ctrl-C (fake executor runs print $0.000000). The change must keep `corepack pnpm run build && corepack pnpm run lint && corepack pnpm run typecheck && node scripts/run-tests.mjs` green. Stay inside src/cli/inspect.ts and its test file; do not refactor neighbours."
+    }
+  ],
+  "allowedModels": [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "kimi-k3"
+  ],
+  "oracle": {
+    "kind": "hidden-acceptance-tests",
+    "custodianRef": "oracle_impl_007"
+  }
+}
