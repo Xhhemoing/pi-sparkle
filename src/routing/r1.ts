@@ -82,10 +82,14 @@ export function routeR1(input: R1Input): R1Decision {
 
   for (const modelId of tierIds) {
     const model = input.models.find((m) => m.modelId === modelId);
+    // Fail closed on version identity: a tier whose descriptor (and therefore
+    // pinned version) is missing gets no estimate. An id must never
+    // impersonate a version, or posteriors would silently mix versions.
+    if (model === undefined || model.version.trim() === "") continue;
     const parts = {
       taskFamily: request.taskFamily,
       role: input.role,
-      modelVersion: model?.version ?? modelId,
+      modelVersion: model.version,
       featureVersion: input.featureVersion,
     };
     const keyed = observationsForKey(observations, parts);

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { DomainValidationError } from "../../../src/domain/errors.js";
-import { createProjectId } from "../../../src/domain/ids.js";
+import { createEpisodeId, createProjectId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import * as banditStore from "../../../src/learning/bandit-store.js";
 import {
@@ -15,7 +15,7 @@ import {
   updateProjectBandit
 } from "../../../src/learning/bandit-store.js";
 import { stableProjectKey } from "../../../src/learning/learned-routing.js";
-import type { ObservedSignal } from "../../../src/learning/signals.js";
+import { parseObservedSignal, type ObservedSignal } from "../../../src/learning/signals.js";
 import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 import { adaptationRoot, runtimeRoot } from "../../../src/privacy/state-layout.js";
 
@@ -38,7 +38,15 @@ function expectedBanditPath(stateRoot: string, projectRoot: string): string {
   );
 }
 
-function taskSuccess(modelId: string, outcomeKind: "PASS" | "FAIL"): ObservedSignal {
+function taskSuccess(
+  modelId: string,
+  outcomeKind: "PASS" | "FAIL",
+  failureClass?: ObservedSignal["failureClass"]
+): ObservedSignal {
+  // Under 9e46be8 a FAIL only counts when attributed to the model; the default
+  // keeps the pre-gate tests meaning "a real model failure".
+  const attribution =
+    outcomeKind === "FAIL" ? failureClass ?? ("model" as const) : failureClass;
   return {
     source: "deterministic",
     kind: "deterministic",
@@ -47,6 +55,7 @@ function taskSuccess(modelId: string, outcomeKind: "PASS" | "FAIL"): ObservedSig
     score: outcomeKind === "PASS" ? 90 : 15,
     criterion: "taskSuccess",
     outcomeKind,
+    ...(attribution !== undefined ? { failureClass: attribution } : {}),
     boundary: "execution",
     summary: `task ${outcomeKind.toLowerCase()}`,
     evidenceIds: [],
@@ -298,3 +307,94 @@ test("updates acquire the project bandit lock before writing", async () => {
     await assert.rejects(access(`${path}.lock`), { code: "ENOENT" });
   });
 });
+
+// ---- 9035 increments: model-attributed rewards only ----
+
+test("bandit rewards are model-attributed taskSuccess only", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-bandit-"));
+  const projectRoot = "/tmp/proj-bandit";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    const state = await updateProjectBandit(stateRoot, projectRoot, [
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "PASS" }),
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "model" }),
+      // Non-model failures must not lower the posterior.
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "environment" }),
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "tool" }),
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "run" }),
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "contract" }),
+      // Unattributed FAIL is not evidence.
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL" })
+    ]);
+    assert.equal(state.pulls.cheap, 2, "only PASS and model-FAIL count as pulls");
+    assert.equal(state.rewardSum.cheap, 1);
+    const reloaded = await loadProjectBanditByKey(stateRoot, stableProjectKey(projectRoot));
+    assert.equal(reloaded?.pulls.cheap, 2);
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("a prose-only extraSignals FAIL cannot lower the posterior", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-bandit-"));
+  const projectRoot = "/tmp/proj-bandit-prose";
+  try {
+    const projectId = createProjectId();
+    const episodeId = createEpisodeId();
+    const afterPass = await updateProjectBandit(stateRoot, projectRoot, [
+      modelTaskSuccess({ projectId, episodeId, modelId: "premium", outcomeKind: "PASS" })
+    ]);
+    assert.equal(afterPass.pulls.premium, 1);
+    assert.equal(afterPass.rewardSum.premium, 1);
+
+    // The measured A5 probe, inverted: an extraSignals FAIL whose only
+    // "evidence" is unrecognised caller prose must leave the arm untouched
+    // instead of dragging the mean from 1.00 to 0.50.
+    const proseOnlyFail = parseObservedSignal({
+      source: "subagent",
+      kind: "deterministic",
+      projectId,
+      score: 15,
+      criterion: "taskSuccess",
+      outcomeKind: "FAIL",
+      boundary: "execution",
+      summary: "it produced nonsense",
+      createdAt: nowIso(),
+      evidenceIds: [],
+      modelId: "premium"
+    });
+    assert.equal(proseOnlyFail.failureClass, undefined);
+    const afterProseFail = await updateProjectBandit(stateRoot, projectRoot, [proseOnlyFail]);
+    assert.equal(afterProseFail.pulls.premium, 1, "prose-only FAIL is not a pull");
+    assert.equal(afterProseFail.rewardSum.premium, 1, "prose-only FAIL is not evidence");
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+function modelTaskSuccess(input: {
+  projectId: ReturnType<typeof createProjectId>;
+  episodeId: ReturnType<typeof createEpisodeId>;
+  modelId: string;
+  outcomeKind: "PASS" | "FAIL";
+  failureClass?: ObservedSignal["failureClass"];
+}): ObservedSignal {
+  return {
+    source: "subagent",
+    kind: "deterministic",
+    projectId: input.projectId,
+    modelId: input.modelId,
+    family: "edit",
+    role: "implementer",
+    score: input.outcomeKind === "PASS" ? 90 : 15,
+    criterion: "taskSuccess",
+    outcomeKind: input.outcomeKind,
+    ...(input.failureClass !== undefined ? { failureClass: input.failureClass } : {}),
+    boundary: "execution",
+    summary: `TASK_RESULT ${input.outcomeKind}`,
+    episodeId: input.episodeId,
+    evidenceIds: ["evd_x"],
+    createdAt: nowIso()
+  };
+}

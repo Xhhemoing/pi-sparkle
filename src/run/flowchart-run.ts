@@ -77,6 +77,7 @@ import type { FileLockOptions } from "../persist/file-lock.js";
 import {
   routingContextFields,
   type Event,
+  type AnswerSource,
   type ModelRoutedPayload,
   type RewoundDescendant,
   type RunUnblockedWithDiscardPayload
@@ -174,6 +175,13 @@ export interface FlowchartRunInput {
   contract?: RequirementContract;
   assignments?: readonly TaskAssignment[];
   resolvedQuestionIds?: readonly string[];
+  /**
+   * When true, a WAITING_FOR_USER route/branch gate is recorded then
+   * auto-answered with the plan's defaultSelected items. Used by
+   * `--assume-defaults` so unattended track still completes after the
+   * high-risk human gate is armed. Clarify ≠ this flag.
+   */
+  autoSelectDefaultApprovals?: boolean;
 }
 
 export interface FlowchartContinuation {
@@ -622,12 +630,18 @@ function childTasksFromLog(
   for (const node of definition.nodes) {
     // The definition decides membership, so a resume launches children for the
     // same nodes it always did; the log only decides what they are asked to do.
+    // A prior MODEL_ROUTED role wins over the role-label mapping so a resume
+    // matches the start; the compile-time agentRole is NOT consulted — tracking
+    // reads role from the rebuilt spec, and a persisted AgentRole would turn an
+    // untracked caller label ("actor") into tracked criteria (tester), changing
+    // the gate's verdict across a resume (R6-2's pinned invariant).
     const nodeRole = mappedAgentRole(node.role);
     if (nodeRole === undefined) continue;
     const request = requests.get(node.taskId);
     const routed = routes.get(node.taskId);
     const role = routed?.agentRole ?? nodeRole;
     const dependsOn = dependencies.get(node.taskId) ?? [];
+
     tasks.push({
       taskId: node.taskId,
       role,
@@ -972,6 +986,9 @@ interface FlowchartLoopContext {
    * a task has none.
    */
   taskCostCeilings?: TaskCostCeiling[];
+  /** --assume-defaults consent: high-risk gates auto-clear; recorded so replay knows they were machine-sourced. */
+  autoSelectDefaultApprovals?: boolean;
+
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
@@ -1138,7 +1155,8 @@ async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
 async function applyApproval(
   ctx: FlowchartLoopContext,
   reply: ApprovalReply,
-  answer?: string
+  answer?: string,
+  answeredBy: AnswerSource = "user"
 ): Promise<void> {
   const pending = ctx.supervisor.pendingApproval;
   if (pending === undefined) {
@@ -1158,7 +1176,12 @@ async function applyApproval(
   await ctx.append(
     ctx.make(
       "USER_ANSWER",
-      { messageId: pending.question.id, answer: text, approvalReply: correlated },
+      {
+        messageId: pending.question.id,
+        answer: text,
+        approvalReply: correlated,
+        answeredBy
+      },
       nodeTaskId(ctx.definition, pending.nodeId)
     )
   );
@@ -1193,6 +1216,27 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
       await ctx.append(ctx.make("MODEL_ROUTED", toModelRoutedPayload(lease.decision), lease.taskId));
     }
     if (leases.length > 0) await persistCheckpoint(ctx);
+
+    if (ctx.autoSelectDefaultApprovals === true && ctx.supervisor.status === "WAITING_FOR_USER") {
+      const pending = ctx.supervisor.pendingApproval;
+      const selectedActionIds =
+        pending?.plan.items
+          .filter((item) => item.selectable && item.defaultSelected === true)
+          .map((item) => item.id) ?? [];
+      if (pending !== undefined && selectedActionIds.length > 0) {
+        await persistWaiting(ctx);
+        await applyApproval(
+          ctx,
+          {
+            approvalPlanId: pending.plan.id,
+            selectedActionIds
+          },
+          undefined,
+          "assume-defaults-auto"
+        );
+        await persistCheckpoint(ctx);
+      }
+    }
 
     const afterLease = await finishIfSettled(ctx);
     if (afterLease !== undefined) return afterLease;
@@ -1321,7 +1365,7 @@ function mappedAgentRole(role: FlowNode["role"]): AgentRole | undefined {
 }
 
 function familyForFlowNode(node: FlowNode): string {
-  const mapped = mappedAgentRole(node.role);
+  const mapped = node.agentRole ?? mappedAgentRole(node.role);
   if (mapped !== undefined) return analyzeTask(node.objective, mapped).family;
   return node.role;
 }
@@ -1559,7 +1603,9 @@ async function startLockedFlowchartRun(
     ...(index !== undefined ? { index } : {}),
     ...(input.contract !== undefined ? { contract: input.contract } : {}),
     ...(plannedCriteria !== undefined ? { taskCriteria: plannedCriteria } : {}),
-    ...(plannedCeilings !== undefined ? { taskCostCeilings: plannedCeilings } : {})
+    ...(plannedCeilings !== undefined ? { taskCostCeilings: plannedCeilings } : {}),
+    ...(input.autoSelectDefaultApprovals === true ? { autoSelectDefaultApprovals: true } : {})
+
   };
   await persistCheckpoint(ctx);
   return withRunTeardown(ctx, () => runFlowchartLoop(ctx));

@@ -28,6 +28,38 @@ test("diagnostics group taskSuccess failures by model and project", () => {
   assert.equal(premium?.actionable, false);
 });
 
+test("non-model failures stay out of routing-quality diagnostics", () => {
+  const projectId = createProjectId();
+  const episodeId = createEpisodeId();
+  const nonModel: ObservedSignal[] = (["environment", "tool", "run", "contract"] as const).flatMap(
+    (failureClass) => [
+      signal({
+        projectId, episodeId, modelId: "cheap", source: "subagent", kind: "deterministic",
+        score: 15, family: "edit", criterion: "taskSuccess", failureClass
+      }),
+      signal({
+        projectId, episodeId, modelId: "cheap", source: "subagent", kind: "deterministic",
+        score: 15, family: "edit", criterion: "taskSuccess", failureClass
+      })
+    ]
+  );
+  const issues = diagnoseModelProjectIssues(nonModel);
+  assert.equal(issues.length, 0, "8 non-model failures must not create a model-project issue");
+});
+
+test("a FAIL without failure attribution is not evidence against the model", () => {
+  const projectId = createProjectId();
+  const episodeId = createEpisodeId();
+  const unattributed: ObservedSignal[] = Array.from({ length: 5 }, () =>
+    signal({
+      projectId, episodeId, modelId: "cheap", source: "subagent", kind: "deterministic",
+      score: 15, family: "edit", criterion: "taskSuccess", failureClass: undefined, omitFailureClass: true
+    })
+  );
+  const issues = diagnoseModelProjectIssues(unattributed);
+  assert.equal(issues.length, 0);
+});
+
 function signal(input: {
   projectId: ReturnType<typeof createProjectId>;
   episodeId: ReturnType<typeof createEpisodeId>;
@@ -37,7 +69,14 @@ function signal(input: {
   score: number;
   family: string;
   criterion?: ObservedSignal["criterion"];
+  failureClass?: ObservedSignal["failureClass"];
+  omitFailureClass?: boolean;
 }): ObservedSignal {
+  const outcomeKind = input.criterion === "taskSuccess" ? (input.score >= 50 ? "PASS" : "FAIL") : undefined;
+  const failureClass =
+    input.omitFailureClass === true
+      ? undefined
+      : input.failureClass ?? (outcomeKind === "FAIL" ? "model" : undefined);
   return {
     source: input.source,
     kind: input.kind,
@@ -47,7 +86,8 @@ function signal(input: {
     role: "implementer",
     score: input.score,
     ...(input.criterion !== undefined ? { criterion: input.criterion } : {}),
-    ...(input.criterion === "taskSuccess" ? { outcomeKind: input.score >= 50 ? "PASS" : "FAIL" } : {}),
+    ...(outcomeKind !== undefined ? { outcomeKind } : {}),
+    ...(failureClass !== undefined ? { failureClass } : {}),
     boundary: input.source === "user" ? "review" : "execution",
     summary: `${input.source} ${input.score}`,
     episodeId: input.episodeId,

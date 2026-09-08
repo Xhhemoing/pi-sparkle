@@ -1232,7 +1232,12 @@ test("the re-specification does not change the gate's verdict", async () => {
     const verdictOf = (assessment: RecordedAssessment, id: string): string | undefined =>
       assessment.dimensions.find((dimension) => dimension.id === id)?.verdict;
     assert.equal(verdictOf(specified, "check-coverage"), "PASS");
-    assert.equal(verdictOf(respecified, "check-coverage"), "NOT_APPLICABLE");
+    // Node b crashed mid-flight: its TASK_REQUEST reached the parent log twice
+    // (crash-resume re-dispatch + final resume re-execution), so the R6-2
+    // rebuild reads the caller's criteria back off the log and the coverage
+    // dimension matches node a. NOT_APPLICABLE survives only in the log-silent
+    // case, pinned by "a node the log never saw run" below.
+    assert.equal(verdictOf(respecified, "check-coverage"), "PASS");
   });
 });
 

@@ -107,6 +107,16 @@ test("tracked run with assumed defaults plans, routes, and executes without inve
     assert.equal(outcome.learn?.created, false);
     assert.ok(outcome.checkpoint.flowchart, "track executes through the flowchart supervisor");
     assert.equal(outcome.checkpoint.flowchart?.snapshot.status, "COMPLETED");
+    const tester = outcome.events.find(
+      (event) =>
+        event.type === "MODEL_ROUTED" &&
+        event.payload.agentRole === "tester" &&
+        event.payload.featureVersion.startsWith("flowchart-")
+    );
+    assert.ok(tester);
+    if (tester?.type === "MODEL_ROUTED") {
+      assert.equal(tester.payload.family, "test");
+    }
     const requests = outcome.events.filter(
       (event) => event.type === "CHILD_MESSAGE" && event.payload.message.type === "TASK_REQUEST"
     );
@@ -163,6 +173,87 @@ test("tracked routing writes calibrated catalog cost from invocations.jsonl into
       assert.match(event.payload.policyVersion, /calibrated/);
       assert.ok(event.payload.estimatedCostUsd > 0.1);
     }
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("high-risk track arms the human gate then assume-defaults auto-selects it", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-risk-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-risk-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const outcome = await startTrackedRun({
+      projectRoot,
+      objective: "Deploy payment credentials to production",
+      stateRoot,
+      executor: new ProtocolChildExecutor(),
+      primaryModelId: "premium",
+      fastModelId: "cheap",
+      assumeDefaults: true
+    });
+    assert.equal(outcome.status, "COMPLETED");
+    assert.ok(outcome.events.some((event) => event.type === "RUN_WAITING_FOR_USER"));
+    assert.ok(outcome.events.some((event) => event.type === "USER_ANSWER"));
+    const flowchartRoutes = outcome.events.filter(
+      (event) =>
+        event.type === "MODEL_ROUTED" && event.payload.featureVersion.startsWith("flowchart-")
+    );
+    assert.ok(flowchartRoutes.length >= 1);
+    for (const event of flowchartRoutes) {
+      if (event.type !== "MODEL_ROUTED") continue;
+      assert.equal(event.payload.highRisk, true);
+      assert.equal(event.payload.statusAfterRoute, "WAITING_FOR_USER");
+      assert.equal(event.payload.model, "premium");
+    }
+    const implementer = flowchartRoutes.find(
+      (event) => event.type === "MODEL_ROUTED" && event.payload.agentRole === "implementer"
+    );
+    const reviewer = flowchartRoutes.find(
+      (event) => event.type === "MODEL_ROUTED" && event.payload.agentRole === "reviewer"
+    );
+    assert.ok(implementer, "compiled implementer role must survive flowchart routing");
+    assert.ok(reviewer, "compiled reviewer role must survive flowchart routing");
+    const consents = outcome.events.filter((event) => event.type === "USER_ANSWER");
+    assert.equal(consents.length, 4);
+    for (const event of consents) {
+      if (event.type !== "USER_ANSWER") continue;
+      assert.equal(event.payload.answeredBy, "assume-defaults-auto");
+    }
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("cli --track --assume-defaults names auto-cleared high-risk gates", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-gate-cli-"));
+  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-track-gate-cli-proj-"));
+  try {
+    await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
+    const { io, out } = capture();
+    const code = await withIsolatedPiEnv(() =>
+      main(
+        [
+          "run",
+          "--track",
+          "--assume-defaults",
+          "--executor",
+          "fake",
+          "--project",
+          projectRoot,
+          "--objective",
+          "Deploy payment credentials to production",
+          "--state-root",
+          stateRoot
+        ],
+        io
+      )
+    );
+    assert.equal(code, 0);
+    assert.match(out.join(""), /COMPLETED/);
+    assert.match(out.join(""), /4 high-risk approval gate\(s\) were auto-cleared by --assume-defaults/);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
     await rm(projectRoot, { recursive: true, force: true });

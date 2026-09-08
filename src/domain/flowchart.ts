@@ -1,6 +1,7 @@
 import { DomainValidationError } from "./errors.js";
 import { isTaskId, type TaskId } from "./ids.js";
 import { isRecord } from "./record.js";
+import { isAgentRole, type AgentRole } from "./roles.js";
 
 export const DEFAULT_HUMAN_CONFIDENCE = 0.7;
 
@@ -149,6 +150,12 @@ export interface FlowNode {
   readonly approvalRequired: boolean;
   readonly parallelGroup?: string;
   readonly joinPolicy?: JoinPolicy;
+  /**
+   * Optional AgentRole preserved from `--children` / `--track` compile.
+   * FlowchartNodeRole collapses tester/planner/implementer to `actor`;
+   * when this is set, live analyzeTask uses it instead of the inverse map.
+   */
+  readonly agentRole?: AgentRole;
 }
 
 export type SuccessCondition = {
@@ -372,6 +379,9 @@ export function validateFlowchart(value: unknown): Flowchart {
     validateConfidenceScore(rawNode.confidenceThreshold, `node ${rawNode.id} confidenceThreshold`);
     if (typeof rawNode.approvalRequired !== "boolean") {
       throw new DomainValidationError(`node ${rawNode.id} approvalRequired must be a boolean`);
+    }
+    if (rawNode.agentRole !== undefined && !isAgentRole(rawNode.agentRole)) {
+      throw new DomainValidationError(`node ${rawNode.id} agentRole is invalid`);
     }
     if (rawNode.parallelGroup !== undefined && !nonEmpty(rawNode.parallelGroup)) {
       throw new DomainValidationError(`node ${rawNode.id} parallelGroup must be non-empty`);

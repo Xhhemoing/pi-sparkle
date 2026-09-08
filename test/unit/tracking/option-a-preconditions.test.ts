@@ -299,7 +299,7 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
       Object.fromEntries([...producers].toSorted()),
       {
         "src/cli/main.ts": ["PASSED"],
-        "src/pi-adapter/pi-executor.ts": ["<runtime>", "UNOBSERVED"],
+        "src/pi-adapter/pi-executor.ts": ["<runtime>"],
         "src/testing/fake-executor.ts": ["PASSED"]
       },
       "the two fakes still hard-code PASSED; the real executor reports or falls back to UNOBSERVED"

@@ -68,11 +68,10 @@ test("replay reflects RUN_WAITING_FOR_USER and USER_ANSWER status flow", () => {
   const waiting = replayRun(events);
   assert.equal(waiting.status, "WAITING_FOR_USER");
 
-  const answered = replayRun([
-    ...events,
-    makeEvent("USER_ANSWER", { messageId: question.id, answer: "Yes" }, { taskId })
-  ]);
+  const legacyAnswer = makeEvent("USER_ANSWER", { messageId: question.id, answer: "Yes" }, { taskId });
+  const answered = replayRun([...events, legacyAnswer]);
   assert.equal(answered.status, "RUNNING");
+  assert.equal("answeredBy" in legacyAnswer.payload, false, "pre-increment USER_ANSWER has no answeredBy");
 });
 
 test("replay accepts M1 child lifecycle events without anomalies", () => {

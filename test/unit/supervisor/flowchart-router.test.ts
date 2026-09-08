@@ -21,6 +21,8 @@ import {
   routeFlowNode,
   type ModelRouterConfig
 } from "../../../src/supervisor/model-router.js";
+import { RoutingRefusalError } from "../../../src/domain/errors.js";
+import { FLOWCHART_FEATURE_VERSION } from "../../../src/routing/feature-version.js";
 
 const taskId = (suffix: string) => createTaskId(() => suffix);
 
@@ -235,6 +237,243 @@ test("routed approval plans carry a stable non-empty id", () => {
   assert.ok(first.approvalPlan.id.trim() !== "");
   assert.deepEqual(validateApprovalPlan(first.approvalPlan), first.approvalPlan);
   assert.throws(() => validateApprovalPlan({ ...first.approvalPlan, id: "" }), /id must be a non-empty/i);
+});
+
+test("live flowchart routing applies analyzeTask high-risk and capability filters", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "small",
+        version: "small-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000,
+        approvedForHighRisk: false,
+        capabilities: ["tool-use"]
+      },
+      {
+        id: "large",
+        version: "large-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000,
+        approvedForHighRisk: true,
+        capabilities: ["tool-use", "vision"]
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const deploy = routeFlowNode(
+    router,
+    { ...node("prod"), objective: "Deploy payment credentials to production" },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(deploy.model, "large");
+  assert.equal(deploy.highRisk, true);
+  assert.equal(deploy.family, "deploy");
+  assert.equal(deploy.featureVersion, FLOWCHART_FEATURE_VERSION);
+  assert.equal(deploy.statusAfterRoute, "WAITING_FOR_USER");
+
+  const vision = routeFlowNode(
+    router,
+    { ...node("ui"), objective: "Look at this screenshot and fix the padding" },
+    "LOW",
+    limits
+  );
+  assert.equal(vision.model, "large");
+  assert.equal(vision.statusAfterRoute, "RUNNING");
+
+  const tester = routeFlowNode(
+    router,
+    {
+      ...node("qa"),
+      agentRole: "tester",
+      objective: "Refactor the billing helper and add a unit test"
+    },
+    "LOW",
+    limits
+  );
+  assert.equal(tester.agentRole, "tester");
+  assert.equal(tester.family, "test");
+  assert.equal(tester.complexity, "LOW");
+  assert.equal(tester.statusAfterRoute, "RUNNING");
+
+  const reviewerVision = routeFlowNode(
+    router,
+    {
+      ...node("review"),
+      agentRole: "reviewer",
+      objective: "Look at this screenshot and fix the padding"
+    },
+    "LOW",
+    limits
+  );
+  assert.equal(reviewerVision.model, "small");
+  assert.equal(reviewerVision.family, "review");
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...node("local"), objective: "Refactor billing; this must stay local" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) => error instanceof RoutingRefusalError
+  );
+});
+
+test("a refusal message names the constraint that actually bound it", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cloud",
+        version: "cloud-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000,
+        privacyClass: "cloud-general",
+        capabilities: ["tool-use"]
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const localOnly = { ...node("local"), modelPolicy: { allowedModels: ["cloud"] } };
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...localOnly, objective: "Refactor billing; this must stay local" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) =>
+      error instanceof RoutingRefusalError &&
+      /privacy class/i.test(error.message) &&
+      /cloud-general cannot serve local/i.test(error.message)
+  );
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...localOnly, objective: "Look at this screenshot and fix the padding" },
+        "LOW",
+        limits
+      ),
+    (error: unknown) =>
+      error instanceof RoutingRefusalError &&
+      /required capability/i.test(error.message) &&
+      /vision/i.test(error.message)
+  );
+});
+
+test("persisted agentRole records analyzeTask complexity instead of the supervisor floor", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "small",
+        version: "small-v1",
+        roles: ["actor", "critic", "tool"],
+        maxComplexity: "MEDIUM",
+        estimatedCostUsd: 0.1,
+        estimatedDurationMs: 1_000
+      },
+      {
+        id: "large",
+        version: "large-v1",
+        roles: ["actor", "critic", "router", "judge", "tool"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000
+      }
+    ]
+  });
+  const limits = { remainingTimeMs: 10_000 };
+  const scout = routeFlowNode(
+    router,
+    {
+      ...node("survey"),
+      agentRole: "scout",
+      objective: "Survey the payment module"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(scout.complexity, "LOW");
+  assert.equal(scout.family, "research");
+  assert.equal(scout.featureVersion, FLOWCHART_FEATURE_VERSION);
+
+  const tester = routeFlowNode(
+    router,
+    {
+      ...node("qa"),
+      agentRole: "tester",
+      objective: "Run the unit tests"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(tester.complexity, "LOW");
+  assert.equal(tester.family, "test");
+
+  const legacyTool = routeFlowNode(
+    router,
+    {
+      ...node("legacy", "tool"),
+      objective: "Run the unit tests"
+    },
+    "MEDIUM",
+    limits
+  );
+  assert.equal(legacyTool.complexity, "MEDIUM");
+  assert.equal(legacyTool.family, "test");
+});
+
+test("high-risk and cost/time refusal wordings stay stable for their callers", () => {
+  const router = createModelRouter({
+    policyVersion: "router-v1",
+    models: [
+      {
+        id: "cheap",
+        version: "cheap-v1",
+        roles: ["actor"],
+        maxComplexity: "HIGH",
+        estimatedCostUsd: 0.5,
+        estimatedDurationMs: 4_000,
+        privacyClass: "cloud-general",
+        capabilities: ["tool-use"],
+        approvedForHighRisk: false
+      }
+    ]
+  });
+  const onlyCheap = { ...node("only"), modelPolicy: { allowedModels: ["cheap"] } };
+
+  assert.throws(
+    () =>
+      routeFlowNode(
+        router,
+        { ...onlyCheap, objective: "Deploy payment credentials to production" },
+        "LOW",
+        { remainingTimeMs: 10_000 }
+      ),
+    /No allowed model is approved for high-risk tasks/
+  );
+
+  // The flowchart supervisor matches this phrase to fail one node instead of
+  // the whole run, so it must not drift.
+  assert.throws(
+    () => routeFlowNode(router, onlyCheap, "LOW", { remainingCostUsd: 0.1, remainingTimeMs: 10_000 }),
+    /No allowed model fits the remaining cost and time limits/
+  );
 });
 
 const plan: ApprovalPlan = {

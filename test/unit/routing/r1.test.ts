@@ -266,6 +266,21 @@ describe("M5-T2: R1 router", () => {
     assert.equal(decision.fallback, true);
   });
 
+  it("fails closed when a tier has no pinned version — an id never impersonates a version", () => {
+    // Observations recorded under a "mid" key that would only match if the
+    // model id were allowed to stand in for the missing version.
+    const impersonated = Array.from({ length: 5 }, () =>
+      obs({ modelId: "mid", modelVersion: "mid", outcome: "PASS" })
+    );
+    // "mid" is absent from the descriptor list, so its tier cannot be estimated.
+    const decision = routeR1(r1Input(impersonated, { models: [CHEAP] }));
+    assert.equal(decision.estimates.some((e) => e.modelId === "mid"), false);
+    assert.equal(decision.estimates.some((e) => e.key.includes("|mid|")), false);
+    // The cheap tier stays estimable; sparse cheap evidence falls back to R0.
+    assert.equal(decision.fallback, true);
+    assert.equal(decision.selection, "cheap");
+  });
+
   it("is fully deterministic for frozen inputs", () => {
     const observations = Array.from({ length: 5 }, () => obs({ outcome: "PASS" }));
     const a = routeR1(r1Input(observations));

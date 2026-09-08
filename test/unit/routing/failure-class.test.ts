@@ -66,6 +66,35 @@ test("maps permission and sandbox summaries to environment", () => {
   );
 });
 
+test("429 and transport errors are environment, even if the agent tagged MODEL_ERROR", () => {
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      httpStatus: 429,
+      summary: "provider said no"
+    }),
+    "environment"
+  );
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      transportCode: "ECONNRESET"
+    }),
+    "environment"
+  );
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      failure: { category: "MODEL_ERROR" },
+      summary: "upstream 429 rate limited"
+    }),
+    "environment"
+  );
+});
+
 test("unlabeled deterministic FAILED defaults to model", () => {
   assert.equal(
     classifyTaskFailure({

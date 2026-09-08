@@ -4,7 +4,9 @@ import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/a
 import { createAgentInstanceId, parseTaskId, type AgentInstanceId } from "../../../src/domain/ids.js";
 import type { AgentRole } from "../../../src/domain/roles.js";
 import { DEFAULT_MAX_ROLE_REQUEUES, type ClusterDeadLetter } from "../../../src/cluster/mailbox.js";
-import { createClusterHost, type ClusterHost } from "../../../src/cluster/host.js";
+import { createClusterHost, type ClusterHost, type ClusterSpawnedTask } from "../../../src/cluster/host.js";
+import { MAX_SPAWN_DEPTH } from "../../../src/cluster/spawn.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 
 const registry = createAgentProfileRegistry(defaultAgentProfiles());
 
@@ -16,16 +18,27 @@ function makeHost(onDeadLetter?: (entry: ClusterDeadLetter) => void): ClusterHos
   });
 }
 
+const agent = (id: string): AgentInstanceId => id as AgentInstanceId;
+
+/** 9035 tests drive spawn/maxTasks instead of the dead-letter observer. */
+function makeSpawnHost(spawned: ClusterSpawnedTask[] = [], maxTasks = 10): ClusterHost {
+  return createClusterHost({
+    registry,
+    maxTasks,
+    onSpawn: (task) => spawned.push(task)
+  });
+}
+
 let nextTask = 0;
 function join(host: ClusterHost, agentId: AgentInstanceId, role: AgentRole): void {
   nextTask += 1;
   host.register(agentId, role, parseTaskId(`tsk_host${nextTask}`));
 }
 
-/** Re-register the lone role holder until its own role-cast is dropped. */
+/** Fresh-id registrations of the lone role holder until its own role-cast is dropped. */
 function starve(host: ClusterHost, agentId: AgentInstanceId, role: AgentRole): void {
   for (let claim = 0; claim <= DEFAULT_MAX_ROLE_REQUEUES; claim += 1) {
-    join(host, agentId, role);
+    join(host, createAgentInstanceId(), role);
   }
 }
 
@@ -46,13 +59,13 @@ test("sender-only role-cast starvation reaches the host's dead-letter report", (
   assert.equal(host.mailbox().requeueCount(mail.id), 0);
 
   for (let claim = 1; claim <= DEFAULT_MAX_ROLE_REQUEUES; claim += 1) {
-    join(host, lonely, "reviewer");
+    join(host, createAgentInstanceId(), "reviewer");
     assert.equal(host.mailbox().requeueCount(mail.id), claim);
     assert.equal(host.deadLetterReport().total, 0);
     assert.equal(seen.length, 0);
   }
 
-  join(host, lonely, "reviewer");
+  join(host, createAgentInstanceId(), "reviewer");
   const report = host.deadLetterReport();
   assert.equal(report.total, 1);
   assert.deepEqual(report.byRole, [{ role: "reviewer", count: 1 }]);
@@ -167,11 +180,11 @@ test("an observer that throws is tallied and does not fail the registration", ()
   assert.equal(report.total, 1);
   assert.equal(report.observerErrors, 1);
   assert.equal(report.entries[0]?.reason, "requeue-limit");
-  // The registration that observed the drop still took effect.
-  assert.deepEqual(
-    host.peers().map((entry) => entry.agentId),
-    [lonely]
-  );
+  // The registrations that observed the drop still took effect: the original
+  // sender plus every fresh-id claimer of the role are all present.
+  const peers = host.peers().map((entry) => entry.agentId);
+  assert.ok(peers.includes(lonely), "the sender's registration survived the throwing observer");
+  assert.equal(peers.length, DEFAULT_MAX_ROLE_REQUEUES + 2);
 });
 
 test("a drop caused outside register is reported at once and pushed exactly once", () => {
@@ -214,4 +227,100 @@ test("a report is a snapshot, not a live view", () => {
   assert.equal(snapshot.total, 1);
   assert.equal(snapshot.entries.length, 1);
   assert.equal(host.deadLetterReport().total, 2);
+});
+
+// ---- 9035 lifecycle increments: duplicate registration, spawn depth, deregistration ----
+
+test("duplicate agent registration fails closed", () => {
+  const host = makeHost();
+  host.register(agent("agt_a"), "planner", parseTaskId("tsk_a"));
+  assert.throws(
+    () => host.register(agent("agt_a"), "worker", parseTaskId("tsk_b")),
+    DomainValidationError
+  );
+});
+
+test("spawn-tree depth accumulates and MAX_SPAWN_DEPTH refuses further spawns", () => {
+  const spawned: ClusterSpawnedTask[] = [];
+  const host = makeSpawnHost(spawned);
+  host.register(agent("agt_planner"), "planner", parseTaskId("tsk_root"), { depth: 0 });
+  host.spawn({ parentAgentId: agent("agt_planner"), role: "worker", objective: "level 1" });
+  assert.equal(spawned[0]?.depth, 1);
+  assert.equal(spawned[0]?.parentAgentId, agent("agt_planner"));
+
+  // The child registers with the depth fixed at spawn time, even though its
+  // parent has already finished and deregistered.
+  host.deregister(agent("agt_planner"), "complete");
+  host.register(agent("agt_worker"), "worker", spawned[0]!.taskId, {
+    depth: spawned[0]!.depth,
+    parentAgentId: spawned[0]!.parentAgentId
+  });
+  host.spawn({ parentAgentId: agent("agt_worker"), role: "tester", objective: "level 2" });
+  assert.equal(spawned[1]?.depth, 2);
+
+  host.register(agent("agt_tester"), "tester", spawned[1]!.taskId, { depth: spawned[1]!.depth });
+  assert.equal(spawned[1]!.depth, MAX_SPAWN_DEPTH);
+  assert.throws(
+    () => host.spawn({ parentAgentId: agent("agt_tester"), role: "scout", objective: "level 3" }),
+    /depth|delegate/
+  );
+
+  // Even a delegating role refuses at the depth ceiling — the bound is depth,
+  // not just the role allowlist.
+  host.register(agent("agt_deep_worker"), "worker", parseTaskId("tsk_deep"), {
+    depth: MAX_SPAWN_DEPTH
+  });
+  assert.throws(
+    () => host.spawn({ parentAgentId: agent("agt_deep_worker"), role: "scout", objective: "level 3" }),
+    /depth/
+  );
+});
+
+test("deregistration frees cluster task capacity", () => {
+  const spawned: ClusterSpawnedTask[] = [];
+  const host = makeSpawnHost(spawned, 2);
+  host.register(agent("agt_p"), "planner", parseTaskId("tsk_p"));
+  host.register(agent("agt_done"), "scout", parseTaskId("tsk_done"));
+  // Directory is at maxTasks — spawn refuses.
+  assert.throws(
+    () => host.spawn({ parentAgentId: agent("agt_p"), role: "worker", objective: "x" }),
+    /maxTasks/
+  );
+  // A finished agent releases its slot.
+  host.deregister(agent("agt_done"), "complete");
+  host.spawn({ parentAgentId: agent("agt_p"), role: "worker", objective: "x" });
+  assert.equal(spawned.length, 1);
+  assert.equal(host.peers().length, 1);
+});
+
+test("handoff deregistration re-queues undrained mail for a same-role successor", () => {
+  const host = makeHost();
+  host.register(agent("agt_scout"), "scout", parseTaskId("tsk_s"));
+  host.register(agent("agt_impl1"), "implementer", parseTaskId("tsk_i"));
+  host.send({ from: agent("agt_scout"), body: "found src/parser.ts", addressRole: "implementer" });
+  assert.equal(host.inbox(agent("agt_impl1")).length, 1);
+
+  // Attempt 1 dies without draining; a successor attempt must inherit the mail.
+  host.deregister(agent("agt_impl1"), "handoff");
+  host.register(agent("agt_impl2"), "implementer", parseTaskId("tsk_i"));
+  const inherited = host.inbox(agent("agt_impl2"));
+  assert.equal(inherited.length, 1);
+  assert.equal(inherited[0]?.body, "found src/parser.ts");
+});
+
+test("complete deregistration consumes undrained mail instead of re-queuing it", () => {
+  const host = makeHost();
+  host.register(agent("agt_scout"), "scout", parseTaskId("tsk_s"));
+  host.register(agent("agt_impl1"), "implementer", parseTaskId("tsk_i"));
+  host.send({ from: agent("agt_scout"), body: "stale finding", addressRole: "implementer" });
+
+  host.deregister(agent("agt_impl1"), "complete");
+  host.register(agent("agt_impl2"), "implementer", parseTaskId("tsk_i2"));
+  assert.equal(host.inbox(agent("agt_impl2")).length, 0, "completed work must not replay its mail");
+});
+
+test("deregistering an unknown agent is a safe no-op", () => {
+  const host = makeHost();
+  host.deregister(agent("agt_ghost"), "complete");
+  assert.equal(host.peers().length, 0);
 });

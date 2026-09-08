@@ -29,3 +29,58 @@ test("mentioning delete or auth in a document objective is not high-risk", () =>
   assert.equal(docs.highRisk, false);
   assert.equal(docs.family, "edit");
 });
+
+test("screenshot work requires vision; docker image does not", () => {
+  const vision = analyzeTask("Look at this screenshot and fix the button spacing", "implementer");
+  assert.ok(vision.requiredCapabilities.includes("vision"));
+  const docker = analyzeTask("Build the docker image for the worker service", "implementer");
+  assert.ok(!docker.requiredCapabilities.includes("vision"));
+  assert.deepEqual([...docker.requiredCapabilities], ["tool-use"]);
+});
+
+test("a shared screenshot objective scopes vision to implementer debugger worker", () => {
+  const objective = "Look at this screenshot and fix the button spacing";
+  for (const role of ["implementer", "debugger", "worker"] as const) {
+    assert.ok(
+      analyzeTask(objective, role).requiredCapabilities.includes("vision"),
+      `${role} must require vision`
+    );
+  }
+  for (const role of ["planner", "scout", "reviewer", "tester"] as const) {
+    assert.deepEqual(
+      [...analyzeTask(objective, role).requiredCapabilities],
+      ["tool-use"],
+      `${role} must not inherit sibling vision`
+    );
+  }
+});
+
+test("generic edit roles do not inherit a verify/QA test family", () => {
+  const objective = "Verify the invoice totals and validate the QA coverage report";
+  assert.equal(analyzeTask(objective, "implementer").family, "edit");
+  assert.equal(analyzeTask(objective, "debugger").family, "edit");
+  assert.equal(analyzeTask(objective, "worker").family, "edit");
+  assert.equal(analyzeTask(objective, "tester").family, "test");
+  assert.equal(analyzeTask(objective, "reviewer").family, "review");
+});
+
+test("role outranks a shared objective so reviewer is not labelled test", () => {
+  const objective = "Refactor the billing helper and add a unit test";
+  assert.equal(analyzeTask(objective, "implementer").family, "refactor");
+  assert.equal(analyzeTask(objective, "reviewer").family, "review");
+  assert.equal(analyzeTask(objective, "tester").family, "test");
+  assert.equal(analyzeTask(objective, "planner").family, "plan");
+});
+
+test("keyword reasoning escalates complexity instead of adding a capability", () => {
+  const analysis = analyzeTask("Prove the cache invariant and write a formal verification note", "implementer");
+  assert.equal(analysis.complexity, "HIGH");
+  assert.ok(!analysis.requiredCapabilities.includes("reasoning"));
+});
+
+test("local-only wording raises a local privacy requirement", () => {
+  const local = analyzeTask("Refactor the billing module; this must stay local", "implementer");
+  assert.equal(local.privacyRequired, "local");
+  const ordinary = analyzeTask("Refactor the billing module", "implementer");
+  assert.equal(ordinary.privacyRequired, "cloud-general");
+});

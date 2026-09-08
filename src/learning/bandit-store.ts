@@ -179,7 +179,9 @@ export async function loadProjectBanditByKey(
 /**
  * Epsilon-greedy mean reward over models for one project. Adaptation-plane only;
  * live routing still reads the promoted routing-policy, not this file.
- * Rewards are taskSuccess PASS=1 / FAIL=0 only.
+ * Rewards are taskSuccess PASS=1 / FAIL=0 only, and a FAIL counts only when
+ * the failure is attributed to the model (failureClass === "model").
+ * Contract, tool, environment, and run failures never lower a posterior.
  *
  * The lock serializes writers; `writeFileAtomic` is what makes each publish whole, so a reader
  * that does not take the lock still sees either the previous state or this call's complete one.
@@ -223,7 +225,7 @@ export async function updateProjectBandit(
       if (signal.modelId === undefined || !state.arms.includes(signal.modelId)) continue;
       if (signal.outcomeKind === "PASS") {
         state = recordReward(state, signal.modelId, 1);
-      } else if (signal.outcomeKind === "FAIL") {
+      } else if (signal.outcomeKind === "FAIL" && signal.failureClass === "model") {
         state = recordReward(state, signal.modelId, 0);
       }
     }

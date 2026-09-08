@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { RoutingRefusalError } from "../../../src/domain/errors.js";
 import { parseTaskId } from "../../../src/domain/ids.js";
 import { assignTasks } from "../../../src/routing/assign.js";
+import { inferPrivacyClass } from "../../../src/routing/capability-registry.js";
 import type { CatalogModelInput } from "../../../src/routing/catalog-model.js";
 import { createModelRouter, type RouteTaskInput } from "../../../src/supervisor/model-router.js";
 
@@ -163,14 +164,23 @@ test("undeclared model privacy cannot serve local", () => {
   );
 });
 
-test("undeclared model privacy skips the privacy-class filter for cloud-approved", () => {
+test("undeclared model privacy fails closed for cloud-approved data", () => {
   const router = createModelRouter({
     policyVersion: "router-v1",
     models: [actorModel("plain")]
   });
-  const decision = router.route(routeInput(["plain"], { privacyRequired: "cloud-approved" }));
-  assert.equal(decision.model, "plain");
-  assert.ok(!decision.rejections.some((row) => row.constraint === "privacy-class"));
+  assert.throws(
+    () => router.route(routeInput(["plain"], { privacyRequired: "cloud-approved" })),
+    (error: unknown) => {
+      assert.ok(error instanceof RoutingRefusalError);
+      assert.ok(error.refusals.some((row) => row.constraint === "privacy-class"));
+      return true;
+    }
+  );
+  // The most permissive class is still served without a declaration.
+  const general = router.route(routeInput(["plain"], { privacyRequired: "cloud-general" }));
+  assert.equal(general.model, "plain");
+  assert.ok(!general.rejections.some((row) => row.constraint === "privacy-class"));
 });
 
 test("task requiredCapabilities must be declared on the model", () => {
@@ -186,4 +196,11 @@ test("task requiredCapabilities must be declared on the model", () => {
       return true;
     }
   );
+});
+
+test("inferPrivacyClass treats local providers as local and others as cloud-general", () => {
+  assert.equal(inferPrivacyClass("ollama"), "local");
+  assert.equal(inferPrivacyClass("local-llama"), "local");
+  assert.equal(inferPrivacyClass("openai"), "cloud-general");
+  assert.equal(inferPrivacyClass("anthropic"), "cloud-general");
 });

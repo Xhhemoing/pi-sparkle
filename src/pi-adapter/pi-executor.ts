@@ -796,7 +796,7 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
-    yield* this.finish(request, collected, outcome, gate.stopRequested);
+    yield* this.finish(request, collected, outcome, gate.stopRequested, failure);
   }
 
   private reportInvocation(
@@ -820,9 +820,15 @@ export class PiAgentExecutor implements AgentExecutor {
     request: AgentExecutionRequest,
     collected: readonly ExecutionEvent[],
     outcome: "SUCCESS" | "FAILURE" | "CANCELLED",
-    stoppedAtCostCeiling: boolean
+    stoppedAtCostCeiling: boolean,
+    failure?: ProviderFailure
   ): Generator<ExecutionEvent> {
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
+      // The classified provider failure carries the reason a bare "finished"
+      // would hide: surface it the way 9035's agent.state.errorMessage did.
+      const errorMessage = failure !== undefined && failure.message.trim() !== ""
+        ? failure.message.trim()
+        : undefined;
       yield {
         type: "MESSAGE",
         message: {
@@ -835,10 +841,18 @@ export class PiAgentExecutor implements AgentExecutor {
           to: SUPERVISOR,
           type: "TASK_RESULT",
           outcome,
-          summary: stoppedAtCostCeiling ? "pi agent stopped at the cost ceiling" : "pi agent finished",
+          summary:
+            stoppedAtCostCeiling
+              ? "pi agent stopped at the cost ceiling"
+              : errorMessage !== undefined
+                ? `pi agent failed: ${errorMessage}`
+                : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
-          verification: { kind: "UNOBSERVED", evidenceIds: [] }
+          verification:
+            outcome === "FAILURE" && errorMessage !== undefined
+              ? { kind: "FAILED", evidenceIds: [] }
+              : { kind: "UNOBSERVED", evidenceIds: [] }
         }
       };
     }

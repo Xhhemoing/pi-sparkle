@@ -7,6 +7,7 @@ import * as childCompiler from "../../../src/graph/compile-children.js";
 import {
   compileChildrenToFlowchart,
   flowchartRoleForAgentRole,
+  resolvedAgentRole,
   type CompilableChild
 } from "../../../src/graph/compile-children.js";
 
@@ -30,6 +31,24 @@ test("flowchartRoleForAgentRole maps reviewer to critic and everyone else to act
   assert.equal(flowchartRoleForAgentRole("implementer"), "actor");
   assert.equal(flowchartRoleForAgentRole("tester"), "actor");
   assert.equal(flowchartRoleForAgentRole("planner"), "actor");
+});
+
+test("compile persists AgentRole so tester does not collapse to implementer", () => {
+  const flowchart = compileChildrenToFlowchart([child("test", "tester"), child("plan", "planner")]);
+  assert.equal(flowchart.nodes[0]?.role, "actor");
+  assert.equal(flowchart.nodes[0]?.agentRole, "tester");
+  assert.equal(resolvedAgentRole(flowchart.nodes[0]!), "tester");
+  assert.equal(flowchart.nodes[1]?.agentRole, "planner");
+  assert.equal(resolvedAgentRole(flowchart.nodes[1]!), "planner");
+});
+
+test("compile forwards high-risk approvalRequired from the child spec", () => {
+  const gated = compileChildrenToFlowchart([
+    { ...child("ship", "implementer"), approvalRequired: true }
+  ]);
+  assert.equal(gated.nodes[0]?.approvalRequired, true);
+  const ordinary = compileChildrenToFlowchart([child("edit", "implementer")]);
+  assert.equal(ordinary.nodes[0]?.approvalRequired, false);
 });
 
 test("independent children compile to a validated flowchart with a shared parallel group and no edges", () => {

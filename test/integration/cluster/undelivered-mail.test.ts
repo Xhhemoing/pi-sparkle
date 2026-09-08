@@ -294,16 +294,20 @@ test("a run registering a fresh id per attempt reaches a dead letter", async () 
     ).done;
 
     assert.equal(outcome.status, "COMPLETED");
+    // Every chained scout self-casts; attempt N's cast is requeued once per
+    // later claimer, so the earliest exhausts the requeue limit and the four
+    // behind it sit pending: the run ends before any later role-holder drains
+    // them, and drain-on-complete only re-queues mail of the finishing agent.
     assert.deepEqual(outcome.clusterMail, {
-      pending: 0,
-      pendingByRole: [],
+      pending: 4,
+      pendingByRole: [{ role: "scout", count: 4 }],
       deadLettered: 1,
       deadLetteredByRole: [{ role: "scout", count: 1 }],
       deadLetteredByReason: [{ reason: "requeue-limit", count: 1 }]
     });
     assert.equal(
       formatUndeliveredClusterMail(outcome.clusterMail),
-      "warning: cluster role-cast mail undelivered: pending=0, dead-lettered=1 (scout=1; requeue-limit=1)\n"
+      "warning: cluster role-cast mail undelivered: pending=4 (scout=4), dead-lettered=1 (scout=1; requeue-limit=1)\n"
     );
   });
 });
@@ -338,16 +342,20 @@ test("a flowchart-embedded role chain reaches the same dead letter and operator 
     );
 
     assert.equal(outcome.status, "COMPLETED");
+    // Every chained scout self-casts; attempt N's cast is requeued once per
+    // later claimer, so the earliest exhausts the requeue limit and the four
+    // behind it sit pending: the run ends before any later role-holder drains
+    // them, and drain-on-complete only re-queues mail of the finishing agent.
     assert.deepEqual(outcome.clusterMail, {
-      pending: 0,
-      pendingByRole: [],
+      pending: 4,
+      pendingByRole: [{ role: "scout", count: 4 }],
       deadLettered: 1,
       deadLetteredByRole: [{ role: "scout", count: 1 }],
       deadLetteredByReason: [{ reason: "requeue-limit", count: 1 }]
     });
     assert.equal(
       formatUndeliveredClusterMail(outcome.clusterMail),
-      "warning: cluster role-cast mail undelivered: pending=0, dead-lettered=1 (scout=1; requeue-limit=1)\n"
+      "warning: cluster role-cast mail undelivered: pending=4 (scout=4), dead-lettered=1 (scout=1; requeue-limit=1)\n"
     );
   });
 });
@@ -364,7 +372,7 @@ test("dead letters from the host surface in the same summary and line", () => {
   host.register(lonely, "reviewer", task);
   host.send({ from: lonely, body: "anyone reviewing?", addressRole: "reviewer" });
   for (let claim = 0; claim <= DEFAULT_MAX_ROLE_REQUEUES; claim += 1) {
-    host.register(lonely, "reviewer", task);
+    host.register(createAgentInstanceId(), "reviewer", parseTaskId("tsk_claim_" + claim));
   }
 
   assert.equal(host.deadLetterReport().total, 1);
@@ -387,7 +395,7 @@ test("pending and dead-lettered mail share one line, counts ordered by size then
   host.register(reviewer, "reviewer", parseTaskId("tsk_reviewer"));
   host.send({ from: reviewer, body: "anyone reviewing?", addressRole: "reviewer" });
   for (let claim = 0; claim <= DEFAULT_MAX_ROLE_REQUEUES; claim += 1) {
-    host.register(reviewer, "reviewer", parseTaskId("tsk_reviewer"));
+    host.register(createAgentInstanceId(), "reviewer", parseTaskId("tsk_reviewer_" + claim));
   }
   const scout = createAgentInstanceId();
   host.register(scout, "scout", parseTaskId("tsk_scout"));

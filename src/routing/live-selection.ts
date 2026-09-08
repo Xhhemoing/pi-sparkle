@@ -39,9 +39,24 @@ export function selectLiveModel(
   return best;
 }
 
+const CONSTRAINT_LABELS: Readonly<Record<string, string>> = {
+  "provider-policy": "provider policy",
+  "privacy-class": "privacy class",
+  capability: "required capability",
+  "context-window": "context window",
+  "max-output": "max output tokens",
+  role: "role",
+  complexity: "complexity"
+};
+
 /**
  * Fail-closed message precedence is part of the public contract:
- * high-risk-approval first, then budget/deadline, then role/complexity.
+ * high-risk-approval first, then budget/deadline, then the named constraints
+ * that actually bound the refusal. The rejection matrix always carried them,
+ * but the caller only ever sees `message`, so a privacy or capability refusal
+ * used to be reported as a role/complexity mismatch. The high-risk and
+ * budget/deadline wordings are load-bearing: the flowchart supervisor matches
+ * the cost/time phrase to fail a node instead of the run.
  */
 export function liveRefusalMessage(
   input: {
@@ -51,11 +66,25 @@ export function liveRefusalMessage(
   },
   refusals: readonly RoutingRefusal[]
 ): string {
-  if (input.highRisk && refusals.some((row) => row.constraint === "high-risk-approval")) {
+  const constraints = [...new Set(refusals.map((row) => row.constraint))];
+  if (input.highRisk && constraints.includes("high-risk-approval")) {
     return "No allowed model is approved for high-risk tasks";
   }
-  if (refusals.some((row) => row.constraint === "budget" || row.constraint === "deadline")) {
+  if (constraints.includes("budget") || constraints.includes("deadline")) {
     return "No allowed model fits the remaining cost and time limits";
   }
-  return `No allowed model satisfies role ${input.role} and complexity ${input.complexity}`;
+  const named = constraints.filter((row) => row !== "role" && row !== "complexity");
+  if (named.length === 0) {
+    return `No allowed model satisfies role ${input.role} and complexity ${input.complexity}`;
+  }
+  const detail = named
+    .map((constraint) => {
+      const rows = refusals
+        .filter((row) => row.constraint === constraint)
+        .map((row) => `${row.modelId}: ${row.detail}`)
+        .join("; ");
+      return `${CONSTRAINT_LABELS[constraint] ?? constraint} (${rows})`;
+    })
+    .join(", ");
+  return `No allowed model satisfies ${detail}`;
 }

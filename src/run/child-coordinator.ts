@@ -114,6 +114,10 @@ export interface ChildTaskInput {
   assignedModel?: string;
   /** First-attempt cascade: escalate only on deterministic model FAIL. */
   cascade?: LiveCascadePlan;
+  /** Spawn-tree depth when this task was dynamically spawned by a cluster agent. */
+  clusterDepth?: number;
+  /** The cluster agent that spawned this task, when applicable. */
+  clusterParentAgentId?: AgentInstanceId;
   /** Bounded repo facts compiled at launch; omitted items stay inspectable. */
   contextPacket?: ContextPacket;
   /** Predecessor task summaries so later children do not re-invent findings. */
@@ -150,6 +154,7 @@ export interface ChildRunHandle {
 
 interface AttemptResult {
   timedOut: boolean;
+  agentId: AgentInstanceId;
   terminalMessage?: TaskResult;
   executorOutcome?: "SUCCESS" | "FAILURE" | "CANCELLED";
   failureReason?: string;
@@ -302,7 +307,12 @@ export class ChildCoordinator {
     if (question !== undefined) {
       await this.appendParentEvent(
         "USER_ANSWER",
-        { messageId, answer, ...(approvalReply !== undefined ? { approvalReply } : {}) },
+        {
+          messageId,
+          answer,
+          answeredBy: "user",
+          ...(approvalReply !== undefined ? { approvalReply } : {})
+        },
         question.taskId
       );
     }
@@ -465,6 +475,7 @@ export class ChildCoordinator {
     let outcome: ChildOutcome = "FAILURE";
     let summary = "child execution ended without a terminal result";
     let assignedModel = input.assignedModel;
+    let lastAgentId: AgentInstanceId | undefined;
 
     // The protocol requires a positive integer wall budget; limits built
     // in-process bypass that validator, so anything non-positive or
@@ -499,9 +510,15 @@ export class ChildCoordinator {
           break;
         }
         attempts = attempt;
+        // A new attempt supersedes the previous agent: hand off its cluster
+        // slot and undrained mail so the successor (same role) inherits them.
+        if (lastAgentId !== undefined) {
+          this.cluster?.deregister(lastAgentId, "handoff");
+        }
         const attemptInput =
           assignedModel === undefined ? input : { ...input, assignedModel };
         const attemptResult = await this.runAttempt(attemptInput, childRunId, parentSignal, attempt);
+        lastAgentId = attemptResult.agentId;
         messages.push(...attemptResult.messages);
 
         if (parentSignal.aborted) {
@@ -603,6 +620,10 @@ export class ChildCoordinator {
       if (wallTimer !== undefined) wallTimer.cancel();
     }
 
+    if (lastAgentId !== undefined) {
+      this.cluster?.deregister(lastAgentId, "complete");
+    }
+
     // Terminal child-run event.
     if (outcome === "CANCELLED") {
       await this.appendChildEvent(childRunId, "RUN_CANCEL_REQUESTED", {}, input.taskId);
@@ -667,7 +688,12 @@ export class ChildCoordinator {
   ): Promise<AttemptResult> {
     const childAgentId = createAgentInstanceId(this.generateId);
     if (this.cluster !== undefined && isAgentRole(input.role)) {
-      this.cluster.register(childAgentId, input.role, input.taskId);
+      this.cluster.register(childAgentId, input.role, input.taskId, {
+        depth: input.clusterDepth ?? 0,
+        ...(input.clusterParentAgentId !== undefined
+          ? { parentAgentId: input.clusterParentAgentId }
+          : {})
+      });
     }
     const attemptController = new AbortController();
     this.attemptControllers.set(childRunId, attemptController);
@@ -756,6 +782,7 @@ export class ChildCoordinator {
 
     return {
       timedOut,
+      agentId: childAgentId,
       ...(terminalMessage !== undefined ? { terminalMessage } : {}),
       ...(executorOutcome !== undefined ? { executorOutcome } : {}),
       ...(failureReason !== undefined ? { failureReason } : {}),

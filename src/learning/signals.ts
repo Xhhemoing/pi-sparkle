@@ -6,7 +6,8 @@ import type { FeedbackKind } from "../feedback/types.js";
 import type { EpisodeSignatureKind } from "./signatures.js";
 import type { Event } from "../run/events.js";
 import type { AgentMessage, TaskOutcome, VerificationKind } from "../protocol/v1.js";
-import type { OutcomeCriterion, OutcomeKind } from "../routing/outcomes.js";
+import { classifyTaskFailure } from "../routing/failure-class.js";
+import type { FailureClass, OutcomeCriterion, OutcomeKind } from "../routing/outcomes.js";
 import {
   taskSuccessFromResult,
   type TaskSuccessRouteBinding
@@ -26,6 +27,12 @@ export interface ObservedSignal {
   readonly score: number;
   readonly criterion?: OutcomeCriterion | undefined;
   readonly outcomeKind?: OutcomeKind | undefined;
+  /**
+   * Attribution of a taskSuccess FAIL. Only `model` failures may lower a
+   * model's routing posterior; contract/tool/environment/run failures must
+   * stay out of the bandit and avoid diagnostics. Missing = not attributable.
+   */
+  readonly failureClass?: FailureClass | undefined;
   readonly boundary: EpisodeSignatureKind;
   readonly summary: string;
   readonly episodeId?: EpisodeId | undefined;
@@ -90,6 +97,24 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
   if (value.criterion === "taskSuccess" && (value.source === "user" || value.kind === "human")) {
     throw new DomainValidationError("extraSignals cannot forge criterion taskSuccess");
   }
+  if (value.failureClass !== undefined) {
+    throw new DomainValidationError("extraSignals cannot forge failureClass");
+  }
+  // The only evidence in this path is caller-authored prose, so it may
+  // exculpate the model (recognised 429/tool/contract hints) but never
+  // inculpate it: classifyTaskFailure's `model` fallback is reserved for
+  // runtime-observed failures, and here it degrades to "not attributable"
+  // so a prose-only FAIL can never lower a posterior (ADR-004).
+  const proseDerivedFailureClass =
+    value.outcomeKind === "FAIL"
+      ? classifyTaskFailure({
+          outcome: "FAILURE",
+          verificationKind: "FAILED",
+          summary: typeof value.summary === "string" ? value.summary : ""
+        })
+      : undefined;
+  const derivedFailureClass =
+    proseDerivedFailureClass === "model" ? undefined : proseDerivedFailureClass;
   return baseSignal({
     source: value.source,
     kind: value.kind as ObservedSignal["kind"],
@@ -107,6 +132,7 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
     ...(typeof value.outcomeKind === "string"
       ? { outcomeKind: value.outcomeKind as ObservedSignal["outcomeKind"] }
       : {}),
+    ...(derivedFailureClass !== undefined ? { failureClass: derivedFailureClass } : {}),
     ...(typeof value.episodeId === "string" ? { episodeId: value.episodeId as EpisodeId } : {}),
     ...(typeof value.runId === "string" ? { runId: value.runId as RunId } : {}),
     ...(typeof value.taskId === "string" ? { taskId: value.taskId as TaskId } : {}),
@@ -122,6 +148,10 @@ export function parseObservedSignal(value: unknown): ObservedSignal {
  * taskSuccess is delegated to the deterministic adapter (TASK_RESULT PASSED/FAILED).
  * USER_ANSWER, JUDGE_DECISION, and TRACKING_ASSESSMENT never write that criterion.
  * Numeric process exits on Pi subagent runs are not taskSuccess.
+ *
+ * Model bindings follow event order: MODEL_ROUTED opens a binding and a
+ * cascade TASK_RETRY rebinds the task to the escalated model, so a result
+ * after escalation is attributed to the model that actually produced it.
  */
 export function collectSignalsFromEvents(
   events: readonly Event[],
@@ -133,14 +163,19 @@ export function collectSignalsFromEvents(
   const roleByTask = new Map<string, string>();
   const familyByTask = new Map<string, string>();
   const featureVersionByTask = new Map<string, string>();
+  const timedOutTasks = new Set<string>();
   const signals: ObservedSignal[] = [];
   const createdAt = nowIso();
 
   for (const event of events) {
     if (event.type === "PROJECT_DISCOVERED") {
-      const id = event.payload.project.id;
-      projectId = id;
+      projectId = event.payload.project.id;
+      break;
     }
+  }
+  if (projectId === undefined) return [];
+
+  for (const event of events) {
     if (event.type === "MODEL_ROUTED") {
       modelByTask.set(event.payload.taskId, event.payload.model);
       roleByTask.set(event.payload.taskId, event.payload.role);
@@ -154,10 +189,23 @@ export function collectSignalsFromEvents(
         featureVersionByTask.set(event.payload.taskId, event.payload.featureVersion);
       }
     }
-  }
-  if (projectId === undefined) return [];
-
-  for (const event of events) {
+    if (event.type === "TASK_TIMEOUT" && event.taskId !== undefined) {
+      timedOutTasks.add(event.taskId);
+    }
+    if (event.type === "TASK_RETRY" && event.taskId !== undefined) {
+      const nextModel = event.payload.nextModel;
+      if (nextModel !== undefined && nextModel.trim() !== "" && modelByTask.has(event.taskId)) {
+        modelByTask.set(event.taskId, nextModel);
+        const nextVersion = event.payload.nextModelVersion;
+        if (nextVersion !== undefined && nextVersion.trim() !== "") {
+          modelVersionByTask.set(event.taskId, nextVersion);
+        } else {
+          // The escalated model's version is unknown — never let the previous
+          // model's version impersonate it.
+          modelVersionByTask.delete(event.taskId);
+        }
+      }
+    }
     if (event.type === "CHILD_MESSAGE") {
       const message = event.payload.message;
       const fromResult = signalFromAgentMessage(message, {
@@ -167,6 +215,7 @@ export function collectSignalsFromEvents(
         roleByTask,
         familyByTask,
         featureVersionByTask,
+        timedOutTasks,
         episodeId: context.episodeId,
         createdAt
       });
@@ -290,6 +339,7 @@ function signalFromAgentMessage(
     roleByTask: ReadonlyMap<string, string>;
     familyByTask: ReadonlyMap<string, string>;
     featureVersionByTask: ReadonlyMap<string, string>;
+    timedOutTasks: ReadonlySet<string>;
     episodeId?: EpisodeId | undefined;
     createdAt: IsoTimestamp;
   }
@@ -309,6 +359,16 @@ function signalFromAgentMessage(
       ...(role !== undefined ? { role } : {})
     };
     const taskSuccess = taskSuccessFromResult(message.outcome, message.verification.kind, binding);
+    const failureClass =
+      taskSuccess?.outcomeKind === "FAIL"
+        ? classifyTaskFailure({
+            outcome: message.outcome,
+            verificationKind: message.verification.kind,
+            summary: message.summary,
+            timedOut: ctx.timedOutTasks.has(message.taskId),
+            ...(message.failure !== undefined ? { failure: message.failure } : {})
+          })
+        : undefined;
     return baseSignal({
       source: "subagent",
       kind: "deterministic",
@@ -327,6 +387,7 @@ function signalFromAgentMessage(
         ? {
             criterion: taskSuccess.criterion,
             outcomeKind: taskSuccess.outcomeKind,
+            ...(failureClass !== undefined ? { failureClass } : {}),
             ...(taskSuccess.modelVersion !== undefined ? { modelVersion: taskSuccess.modelVersion } : {}),
             ...(taskSuccess.featureVersion !== undefined
               ? { featureVersion: taskSuccess.featureVersion }
@@ -414,6 +475,7 @@ function baseSignal(input: {
   featureVersion?: string | undefined;
   criterion?: OutcomeCriterion | undefined;
   outcomeKind?: OutcomeKind | undefined;
+  failureClass?: FailureClass | undefined;
   evidenceIds?: readonly string[] | undefined;
 }): ObservedSignal {
   return {
@@ -432,6 +494,7 @@ function baseSignal(input: {
     ...(input.featureVersion !== undefined ? { featureVersion: input.featureVersion } : {}),
     ...(input.criterion !== undefined ? { criterion: input.criterion } : {}),
     ...(input.outcomeKind !== undefined ? { outcomeKind: input.outcomeKind } : {}),
+    ...(input.failureClass !== undefined ? { failureClass: input.failureClass } : {}),
     ...(input.episodeId !== undefined ? { episodeId: input.episodeId } : {}),
     ...(input.runId !== undefined ? { runId: input.runId } : {}),
     ...(input.taskId !== undefined ? { taskId: input.taskId } : {})
