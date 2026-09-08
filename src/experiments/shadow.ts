@@ -230,11 +230,33 @@ export function recordExperimentOutcome<
 }
 
 export function requirePopulationEpisode(plan: ExperimentPlan, episodeHash: string): void {
-  if (typeof episodeHash !== "string" || episodeHash.trim() === "") {
-    throw new DomainValidationError("episodeHash is required");
-  }
+  requireEpisodeHash(episodeHash);
   if (!plan.population.includes(episodeHash)) {
     throw new DomainValidationError(`episode ${episodeHash} is not in the frozen population`);
+  }
+}
+
+/**
+ * Membership check against a prebuilt Set over the frozen population.
+ * `Set.has` and `Array.includes` both use SameValueZero over the same
+ * (already validated: unique, non-empty string) population, so accept/reject
+ * and error messages are identical to `requirePopulationEpisode` — O(1) per
+ * assignment instead of O(P). Restores validate every assignment on every
+ * call (fail-closed, unchanged); this only removes the nested O(P) factor.
+ */
+export function requirePopulationMember(
+  population: ReadonlySet<string>,
+  episodeHash: string
+): void {
+  requireEpisodeHash(episodeHash);
+  if (!population.has(episodeHash)) {
+    throw new DomainValidationError(`episode ${episodeHash} is not in the frozen population`);
+  }
+}
+
+function requireEpisodeHash(episodeHash: string): void {
+  if (typeof episodeHash !== "string" || episodeHash.trim() === "") {
+    throw new DomainValidationError("episodeHash is required");
   }
 }
 
@@ -275,6 +297,35 @@ function shadowDecisionAt(seed: number, index: number): "baseline" | "candidate"
   return value < 0.5 ? "candidate" : "baseline";
 }
 
+/**
+ * Resolve the reversed membership re-validation (S6-F-1) for the pending
+ * (deduplicated) assignment hashes: scan the population — whose full content
+ * validateExperimentPlan just re-validated — counting hits, and stop once
+ * every pending hash is matched. Population entries are unique, so counting
+ * hits decides membership exactly. On any miss, replay the exact
+ * per-assignment probe so the first offender is named with the production
+ * message.
+ */
+function resolvePendingMembership(serialized: ShadowState, pending: ReadonlySet<string>): void {
+  const target = pending.size;
+  if (target === 0) {
+    return;
+  }
+  let found = 0;
+  for (const hash of serialized.plan.population) {
+    if (pending.has(hash)) {
+      found += 1;
+      if (found === target) {
+        return;
+      }
+    }
+  }
+  const population = new Set(serialized.plan.population);
+  for (const assignment of serialized.assignments) {
+    requirePopulationMember(population, assignment.episodeHash);
+  }
+}
+
 function restoreShadowState(serialized: ShadowState, expected: ExperimentPlan): ShadowState {
   if (typeof serialized !== "object" || serialized === null) {
     throw new DomainValidationError("shadow state is required");
@@ -301,14 +352,89 @@ function restoreShadowState(serialized: ShadowState, expected: ExperimentPlan): 
   if (typeof serialized.elapsedMs !== "number" || !Number.isFinite(serialized.elapsedMs) || serialized.elapsedMs < 0) {
     throw new DomainValidationError("elapsedMs must be a finite number >= 0");
   }
-  for (const assignment of serialized.assignments) {
+  // Reversed membership re-validation with an aligned-prefix fast path. An
+  // assignment hash that is string-equal to the population entry at the SAME
+  // index is thereby a unique non-empty string and a member of the frozen
+  // population (the population content was just re-validated by
+  // validateExperimentPlan above), so the aligned prefix needs no hash-table
+  // work and no separate hash check. The first misalignment falls back to
+  // the pending-Set scheme (S6-F-1) for the remaining suffix — prefix
+  // membership is already proven — and a misalignment at index 0 re-runs
+  // the plain loop so fully unaligned inputs pay only one extra compare
+  // instead of a per-iteration tax. Structural faults are captured, not
+  // thrown, because a membership fault at an earlier index must still win
+  // the first-fault race; the failure path replays the exact per-assignment
+  // probe to name the first offender with the same message. The fail-closed
+  // Ω(P + A) content re-read is unchanged.
+  const assignments = serialized.assignments;
+  const population = serialized.plan.population;
+  let structuralFault: DomainValidationError | undefined;
+  let index = 0;
+  for (; index < assignments.length; index++) {
+    const assignment = assignments[index] as ShadowAssignment;
     if (assignment.liveAction !== "baseline" || assignment.changedLiveAction !== false) {
-      throw new DomainValidationError("shadow state must not change the live action");
+      structuralFault = new DomainValidationError("shadow state must not change the live action");
+      break;
     }
     if (assignment.shadowDecision !== "baseline" && assignment.shadowDecision !== "candidate") {
-      throw new DomainValidationError("invalid shadowDecision");
+      structuralFault = new DomainValidationError("invalid shadowDecision");
+      break;
     }
-    requirePopulationEpisode(serialized.plan, assignment.episodeHash);
+    if (assignment.episodeHash !== population[index]) {
+      break;
+    }
+  }
+  if (structuralFault === undefined && index < assignments.length) {
+    if (index === 0) {
+      // Fully unaligned head: the plain reversed scheme, verbatim.
+      const pending = new Set<string>();
+      for (const assignment of assignments) {
+        if (assignment.liveAction !== "baseline" || assignment.changedLiveAction !== false) {
+          structuralFault = new DomainValidationError("shadow state must not change the live action");
+          break;
+        }
+        if (assignment.shadowDecision !== "baseline" && assignment.shadowDecision !== "candidate") {
+          structuralFault = new DomainValidationError("invalid shadowDecision");
+          break;
+        }
+        if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+          structuralFault = new DomainValidationError("episodeHash is required");
+          break;
+        }
+        pending.add(assignment.episodeHash);
+      }
+      resolvePendingMembership(serialized, pending);
+    } else {
+      // Aligned prefix ended at `index`: that assignment already passed the
+      // liveAction/shadowDecision checks; only its hash check is pending.
+      const pending = new Set<string>();
+      const transition = assignments[index] as ShadowAssignment;
+      if (typeof transition.episodeHash !== "string" || transition.episodeHash.trim() === "") {
+        structuralFault = new DomainValidationError("episodeHash is required");
+      } else {
+        pending.add(transition.episodeHash);
+        for (let i = index + 1; i < assignments.length; i++) {
+          const assignment = assignments[i] as ShadowAssignment;
+          if (assignment.liveAction !== "baseline" || assignment.changedLiveAction !== false) {
+            structuralFault = new DomainValidationError("shadow state must not change the live action");
+            break;
+          }
+          if (assignment.shadowDecision !== "baseline" && assignment.shadowDecision !== "candidate") {
+            structuralFault = new DomainValidationError("invalid shadowDecision");
+            break;
+          }
+          if (typeof assignment.episodeHash !== "string" || assignment.episodeHash.trim() === "") {
+            structuralFault = new DomainValidationError("episodeHash is required");
+            break;
+          }
+          pending.add(assignment.episodeHash);
+        }
+      }
+      resolvePendingMembership(serialized, pending);
+    }
+  }
+  if (structuralFault !== undefined) {
+    throw structuralFault;
   }
   const haltReason = canonicalHaltReason(serialized.haltReason, serialized.halted);
   return {

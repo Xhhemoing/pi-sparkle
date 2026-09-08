@@ -1,0 +1,31 @@
+# Round 27 分区（10 子代理，3-VM 分波）
+
+模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
+
+Round 1–26 已对各区做过二十六遍穷尽裁决（Round 26 已关闭，全部空枚举），并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S26-* 条目（含已合入的 S13-B-1 与 R12–R26 全部空枚举收口，含刚合入的 R25-A … R25-J / R26-A … R26-J / R27-A … R27-J）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。禁止再编号 **FITQ** / **NAMESHAPE** / **SCALEX** / **XPROC** / **YMIX** / **SCHEDWIN** / **KFAN** / **NVG** / **SEEDX** / **TERMCLASS** / **SHAPEK** / **ORDX** / **CKMIX** / **CALLB** / **OCCX** / **JB** / **RUNLIM** / **VALCLASS** / **CG** / **AGEX** / **COTARG** / **PRICEX** / **RTL** / **DELINV** / **PROBX** / **RVL** / **SIDEC**。空枚举轴「M=1 catalog collapse」「approval-authority face」「state serialization-boundary provenance face」「operand-residency census」「adaptation-state coordinate」「value-domain / string content-class census」「task-face optional-field presence topology」「identity-coordinate face」「plan-header identity-geometry face」「injection command-kind face」「consumer-stage string-representation census」「process-environment coordinate」「collation-locale face」「privacy / provider-policy constraint-leg face」「injection-seam default-arm face」「input storage-state face」「edge condition-kind face」「argv surface-form face」「consumer-stage operand-realm face」「scalar numeric value-class face」「batch-cardinality bottom + prelude intercept face」「policy-content tree-geometry face」「input access-path mechanics face」「join-policy face」「process output-channel disposition face」「execution-substrate face」不铸 ID、不写入排除表，但禁止再编号或跨区移植。
+
+R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口——先复核再找新角度，不要硬凑。
+
+分区与 Round 1 相同（R27-A … R27-J），报告写入 `docs/reports/sota-opt/round-27/`。
+
+状态：第 1–6 波 A–J 已合入，Round 27 关闭。Round 28 已开卷（A/B 运行中、C 本波派出）。
+
+A 切片已合入：空枚举，未铸 S27-A-*。切片 `git diff 7acb666..HEAD` 为空。预算复核 ~68–84 µs/run（与 R26-A ~69–84 重叠）。本轮新增 scalar numeric value-class face（数字字段 IEEE 类：hash 面 int 最便宜、epsilon 界 ×1.25–1.29、最坏 +7.2–8.4 µs/run；生产只铸 `toFixed(4)` 网格 40 值字母表，贵类仅公开 API）。R26-A collation-locale face 与 R25-A value-domain / string content-class census / R24-A list-dimension / R23-A G×E / R22-A 公开导出普查 / R21-A H 输入面 / R20-A openMinors / R25-I process-environment coordinate / R26-I argv surface-form face / R26-J **DELINV** / R26-H consumer-stage operand-realm face 不补铸。基线 `7acb666` 空 diff 再确认。
+
+B 切片已合入：空枚举，未铸 S27-B-*。切片 `git diff 94ed3d9..HEAD` 为空。天花板复核 M=2 8.62–9.24 / M=10 17.27–17.73 ms/eval（历史带快侧）。S12-B-2 / S13-B-1 重开条件未触发。本轮新增 batch-cardinality bottom + prelude intercept face（N∈{0,1,2,3,5,8,16} 与仿射截距；生产 1–5 children / N=0 可达；截距 ~1.1 µs (M=2) / ~2.8 µs (M=7)/call，C=1 相对份额 ~50–52%，绝对池 1–3 µs，低落地线约四量级）。R26-B privacy / provider-policy constraint-leg face 与 R25-B task-face optional-field presence topology / R24-B M=1 catalog collapse / R23-B batch arrangement / R22-B 标识符几何（G×T）不补铸。基线 `94ed3d9` 空 diff 再确认。
+
+C 切片已合入：空枚举，未铸 S27-C-*。切片 `git diff 183df9b..HEAD` 为空。生产中位复核 660.6–668.4 ms（正典 660.6–665.4，与 R26-C 663.0–669.9 重叠）。APC ceiling 15.7–21.0 < 35；sink=7.309。本轮新增 **PROBX**（策略概率坐标 / 重要性权重几何：`behaviorProbability`/`targetProbability` 联合剂量；最坏 0.924 ms/call，生产 0 次/报告，低 ±35 ms 带 ≥3 量级）。**PRICEX** / **AGEX** / **FITQ** / **SCALEX** / **YMIX** / **SEEDX** / **ORDX** / **OCCX** 不补铸。r1c–r7c 8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193 全绿。基线 `183df9b` 空 diff 再确认。
+
+D 切片已合入：空枚举，未铸 S27-D-*。切片 `git diff 82bef36..HEAD` 为空。eval 地板复核 3.62–3.70 ms（落在 R25-D 3.55–4.28 带内）。S9-D-4 / S12-D-1 未重开。本轮新增 policy-content tree-geometry face（固定字节下 JSON 树几何：节点密度 / 容器类 / 键值字节拆 / 深度；walk 在 ~3.6k 深度悬崖；128 KB 几何把 eval 从 3.0 推到 9.4 ms，生产几何扁平 depth 4，生产字节最坏超额 +116–123 µs/eval）。R26-D injection-seam default-arm face 与 R25-D identity-coordinate face / R24-D approval-authority face / R23-D 两相 P-dose / R22-D 公开导出流普查不补铸。基线 `82bef36` 空 diff 再确认。
+
+E 切片已合入：空枚举，未铸 S27-E-*。切片 `git diff adb20d7..HEAD` 为空。SLICE-CPU 复核：cmp25 回放 R25-E VERDICT 逐位相同，4/6 跑在 14.7–15.2 µs 带。本轮新增 **RVL**（TASK_RESULT 裁决格面：outcome × verification 的 12 个协议合法格；最坏格 × 26 results/run = 30.4–31.9 µs/run，低落地线 313–329×）。**RTL** / **CG** / **JB** / **NVG** 不补铸。基线 `adb20d7` 空 diff 再确认。
+
+F 切片已合入：空枚举，未铸 S27-F-*。切片 `git diff 519101f..HEAD` 为空。锚点复核 r5f 129.98/120.26、r6f 117.92、r7f 129.62/131.86（历史带重叠）。S7-F-1 ≠ S6-F-5。本轮新增 input access-path mechanics face（描述符类 × 查找基 × 膜：PXY-POP +246–252 ms/实验约 ×3.2；PXY-OUT +25–31 ms；其余臂贴零；调用方关税，零池）。R26-F input storage-state face 与 R25-F plan-header identity-geometry face / R24-F state serialization-boundary provenance face / R23-F plan count-field 联合面 / R22-F membership-topology 不补铸。基线 `519101f` 空 diff 再确认。
+
+G 切片已合入：空枚举，未铸 S27-G-*。切片 `git diff 4efee23..HEAD` 为空。计算顶复核 0.294–0.297 vs I/O 99.8–119.8 ms（~331–403×）。digest `06cbcf92c098c8f0` 第十八次逐位相同，勿补铸 digest。本轮新增 join-policy face（`JoinPolicy` 模式 × 声明出处 × 入边态组成 × 相关性子集；生产全覆盖 all-mode 满剂量 +0.65–1.47 µs/join，低 I/O 地板；O(R²) includes 天花板 +30.8–36.2 µs @ R=32）。R26-G edge condition-kind face 与 R25-G injection command-kind face / **RUNLIM** / **CKMIX** / **TERMCLASS** / **SCHEDWIN** / **XPROC** / **NAMESHAPE** 不补铸。基线 `4efee23` 空 diff 再确认。
+
+H 切片已合入：空枚举，未铸 S27-H-*。切片 `git diff fd437a9..HEAD` 为空。热层复核 9005–9493 ns（与 R26-H 9.22–9.75 µs 重叠）。S5-H-1 两基质 attested。本轮新增 execution-substrate face（tsc-dist vs tsx-src：热层跨基质比 1.004–1.239，|Δ| 亚 µs；冷层 +174–183 ms/进程属 once-per-process 拒收）。先建的属性来源面撞 R27-F 后按先例降级存档。基线 `fd437a9` 空 diff 再确认。
+
+I 切片已合入：空枚举，未铸 S27-I-*。切片 `git diff 8dee7fb..HEAD` 为空。S8-I-1 两臂文件级 blocked（第二十轮）。custom−builtin 复核 children +43.0~+46.0 / +22.4~+24.1、track +45.8~+52.6 / +23.2~+25.9、flowchart-flat64 +42.3~+46.8 / +18.2~+20.6 ms（历史带重叠）。本轮新增 process output-channel disposition face（spawn 第四通道：stdout/stderr fd 类型；子进程侧天花板 ≤6–12 µs；e2e 符号翻转贴零）。R26-I argv surface-form face 与 R25-I process-environment coordinate / R24-I adaptation-state coordinate / R23-I `.pi/` 可观测树 / R22-I run-record 回读 / R21-I flowchart 平面 / **NAMESHAPE** 不补铸。基线 `8dee7fb` 空 diff 再确认。
+
+J 切片已合入：空枚举，未铸 S27-J-*。切片 `git diff fb41417..HEAD` 为空。I/O 地板复核 preferences 125.8–310.6 / 422.0–533.8 µs；jsonl 60.7–70.2 / 232.2–324.7 µs（历史带重叠，高缘为云宿主抖动）。J1 2468 逐位全绿。本轮新增 **SIDEC**（feedback 删除面 sidecar 存量承载：`adaptation/feedback/tombstones.json`；~0.19 µs/tombstone，现实 T 亚噪声）。**DELINV** / **COTARG** / **VALCLASS** / **CALLB** / **SHAPEK** / **KFAN** 不补铸。基线 `fb41417` 空 diff 再确认。

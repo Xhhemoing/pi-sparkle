@@ -30,7 +30,7 @@ import {
   isPromotableStatus,
   validateChangeNote,
   validatePromotionReview
-} from "./promotion.js";
+} from "./promotion-rules.js";
 import type {
   BeginPromotionResult,
   PendingPromotion,

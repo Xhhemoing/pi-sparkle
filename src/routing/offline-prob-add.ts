@@ -118,9 +118,11 @@ export function fitProbabilityAdditive(
   const muInterval = betaInterval(whole.n, muS);
   effects.push({ name: "mu_s", point: muS, lcb: muInterval.lcb, ucb: muInterval.ucb });
 
+  const modelStats = new Map<string, CellStats>();
   const modelDiffs = new Map<string, { point: number; lcb: number; ucb: number }>();
   for (const [model, list] of byModel) {
     const stats = cell(list);
+    modelStats.set(model, stats);
     const pM = shrink(kappaScenario, stats, muS);
     const diff = diffInterval(stats, muS);
     void pM;
@@ -128,15 +130,20 @@ export function fitProbabilityAdditive(
     effects.push({ name: `p_m-mu_s:${model}`, ...diff });
   }
 
+  const projectStats = new Map<string, CellStats>();
   const projectDiffs = new Map<string, { point: number; lcb: number; ucb: number }>();
   for (const [project, list] of byProject) {
     const stats = cell(list);
+    projectStats.set(project, stats);
     const diff = diffInterval(stats, muS);
     projectDiffs.set(project, diff);
     effects.push({ name: `p_p-mu_s:${project}`, ...diff });
   }
 
   // Interaction residual: p_mp - p_add, where parents were computed once above.
+  // Parent stats are reused from the loops above; a "|" inside modelVersion can
+  // desynchronize the split parts from the real group keys, and that case falls
+  // back to the exact original empty-cell expression.
   const interactionDiffs = new Map<string, { point: number; lcb: number; ucb: number }>();
   for (const [pair, list] of byPair) {
     const stats = cell(list);
@@ -144,10 +151,10 @@ export function fitProbabilityAdditive(
     const model = parts[0];
     const project = parts[1];
     if (model === undefined || project === undefined) continue;
-    const modelStats = cell(byModel.get(model) ?? []);
-    const projectStats = cell(byProject.get(project) ?? []);
-    const pM = shrink(kappaScenario, modelStats, muS);
-    const pP = shrink(kappaScenario, projectStats, muS);
+    const modelParentStats = modelStats.get(model) ?? cell(byModel.get(model) ?? []);
+    const projectParentStats = projectStats.get(project) ?? cell(byProject.get(project) ?? []);
+    const pM = shrink(kappaScenario, modelParentStats, muS);
+    const pP = shrink(kappaScenario, projectParentStats, muS);
     const pAdd = Math.min(1, Math.max(0, pM + pP - muS));
     const pMp = shrink(INTERACTION_KAPPA, stats, pAdd);
     const diff = diffInterval(stats, pAdd);

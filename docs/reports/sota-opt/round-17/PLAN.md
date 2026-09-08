@@ -1,0 +1,31 @@
+# Round 17 分区（10 子代理，3-VM 分波）
+
+模型一律 `claude-fable-5-thinking-xhigh`。基线：最新 `cursor/sota-persistent-opt-83a1`。
+
+Round 1–16 已对各区做过十六遍穷尽裁决，并落地 S1-F / J1 / S1-C / S1-I / S2-C / S3-C / S4-C / S4-I / S5-C / S5-F / S5-I-1 / S6-C / S6-F-1 / S7-C / S7-F-1 / S7-F-2 / S7-I-1。本轮只接受排除表未覆盖、且理论+仿真达门槛的新更优解。禁止重开任何 X* / S1-* … S16-* 条目（含已合入的 S13-B-1 与 R12–R16 全部空枚举收口，含刚合入的 R16-A … R16-J / R17-A … R17-J）。S7-C 已落地，不得另起平行实现。S7-F-1 不是 S6-F-5。S5-H-1 必须保留。
+
+R7-I 的教训：默认态夹具会遮蔽配置态主路径。本轮须按「配置态 × 命令类」矩阵复核测量盲区。多个切片已有整片预算收口（A/B/D/E/H 的 µs 级上界；G/J 的契约/I/O 地板；C 的 ±35 ms 噪声带；F 的全实验 ~120 ms 锚点；I 的 custom 回退是唯一数十 ms 结构且被健全性反例封死）——先复核再找新角度，不要硬凑。
+
+分区与 Round 1 相同（R17-A … R17-J），报告写入 `docs/reports/sota-opt/round-17/`。
+
+状态：完成 10/10。A–J 全部合入（空枚举）。无新落地。第 18 轮进行中，见 [round-18/PLAN.md](../round-18/PLAN.md)。
+
+A 切片已合入：空枚举，未铸 S17-A-*。预算复核 65–74 µs/run（13.0–14.8 µs/gate，与 R16-A 66–76 同带）。本轮新增事件表组成轴（GT 饱和 10 ms 越线收紧至 E≈4.7–5.2×10⁴，仍约 3.1 量级高于生产 E=41）与生产态冷进程预算（2.7–8.5 ms/run，主导为 `hashAssessment` localeCompare 触发的 ICU collator 惰性初始化 ~5.0 ms，once-per-run）。R14-A / R15-A / R16-A 轴不补铸。基线 `7acb666` 空 diff 再确认。
+
+B 切片已合入：空枚举，未铸 S17-B-*。天花板复核 M=2 9.1–11.4 / M=10 19.0–23.8 / replay 7.2–8.2 / 10× 104–128 ms/eval（粗格偏慢属 VM 噪声；细粒度 live face 48.1–48.9 µs 稳定）。S12-B-2 / S13-B-1 重开条件未触发。本轮新增拒绝/异常路径定价（单次抛出 11.6–12.1 µs；全拒批 21–25 µs）与逐任务尾部分布（max/p50 1.4–1.6×，tail-cap 9.3–10.9 ms）。R15-B / R16-B 轴不补铸。Live = R0。基线 `94ed3d9` 空 diff 再确认。
+
+C 切片已合入：空枚举，未铸 S17-C-*。切片 `git diff 183df9b..HEAD` 为空。生产中位复核 657.6–689.3 ms（本机 659.9–662.8，仍在 R14-C 带）。三处从未点名位点关闭不铸 ID：NSQRT（IRLS 收敛范数 `Math.sqrt`，8,966 次/报告，独立池 0.21–0.23 ms，约 150× 低于 ±35 ms）、PMV（void 保留的死 `pM`/`pMp` shrink；整份 `fitProbabilityAdditive` ~1.16 ms，零池 memo）、OSTZ（`oneSidedTail(_z)` 死参；生产走 `betaQuantileLcb`，亚 µs）。APC floor 再锚定：ceiling = 池 − floor 全程 < 35 ms；sink=7.309 与 R14-C/R16-C 逐位相同。r1c–r7c 绿（8028 / 14420 / 14730 / 24888 / 28555 / 25483 / 6193）。禁止再编号 ICOL / SFILL / ITERX / COLDX / AAFLR / GCAX / STORD / RIDGE / R13–R15 未编号 / **NSQRT / PMV / OSTZ**。基线 `183df9b` 空 diff 再确认。
+
+D 切片已合入：空枚举，未铸 S17-D-*。eval 地板复核配置态 3.57–4.00 ms（成功对照 3.25–3.33，与 R16-D 3.47–3.62 交叠）。本轮新增 fail-closed 拒绝路径普查（28 条终点；最贵拒绝 2.20–2.28 ms，稳态流量为零）。S9-D-4 / S12-D-1 未以任何形态重开。R14-D / R15-D / R16-D 轴不补铸。基线 `82bef36` 空 diff 再确认。
+
+E 切片已合入：空枚举，未铸 S17-E-*。SLICE-CPU 复核 18.5–20.2 µs/run（与 R16-E 19.0–22.0 同带）。本轮新增拒绝路径定价（parse/load/outcomes 全部单数 µs，catch 为防御纵深）与逐事件类价表（`collectSignalsFromEvents` 各类 ns–低 µs，解释历轮夹具构成漂移）。S8-E-1 / S9-E-2 / S13-B-1 未触。R13–R16 轴不补铸。基线 `adb20d7` 空 diff 再确认。
+
+F 切片已合入：空枚举，未铸 S17-F-*。切片 `git diff 519101f..HEAD` 为空（连续第十一轮字节不变）。全实验锚点复核 120.5–129.6 ms（与 R16-F 118.5–133.5 / R15-F 120.7–132.3 重叠）。四次序符号两轮同号为正。本轮新增 fail-closed 拒绝路径普查（142 抛点；最贵拒绝 0.31–0.47 ms，稳态流量为零）、冷进程预算（首实验 +16.8–22.0 ms once-per-process）与操作粒度尾部分布（p50 ~56–58 µs，无悬崖）。r1f/r5f/r6f/r7f 绿（2668 / 224 / 27 / 169）。R16-F 剖析归属 / A 越线点 / 编码格与 R14-F / R15-F 轴不补铸。**S7-F-1 不是 S6-F-5**。基线 `519101f` 空 diff 再确认。
+
+G 切片已合入：空枚举，未铸 S17-G-*（连续第六次完全空枚举）。切片 `git diff 4efee23..HEAD` 为空。计算顶复核 0.287–0.295 ms vs I/O 95.8–98.4 ms（~325–343×）。digest `06cbcf92c098c8f0` 第八次逐位相同。本轮新增存储后端分解（disk vs tmpfs；设备时间 1:1 集中在两条带 fsync 契约动词；物理上限 6.0–7.4 ms/run，且需易失存储，违反耐久契约）与拒绝路径定价（207 抛点；代表格 2.3–7.2 µs；饱和上界 ~2.2 ms 仍亚线）。禁止去 fsync / 完整性再哈希。SYSCENSUS / digest / R14-G / R15-G / 存储后端 / 拒绝路径轴不补铸。基线 `4efee23` 空 diff 再确认。
+
+H 切片已合入：空枚举，未铸 S17-H-*。切片 `git diff fd437a9..HEAD` 为空（十七遍零 diff）。热层默认复核 9.17–10.18 µs/run（与 R16-H 9.35–9.78 交叠）。本轮新增 fail-closed 拒绝路径普查（33 终点：17 throw 2.5–12.1 µs，16 非抛返回 115–941 ns；稳态流量为零）。PATH_RE 回溯重开条件未触发。S5-H-1 字节级维持。R14-H / R15-H / R16-H 基底格不补铸。基线 `fd437a9` 空 diff 再确认。
+
+I 切片已合入：空枚举，未铸 S17-I-*（九连空）。切片 `git diff 8dee7fb..HEAD` 为空（连续第十轮字节不变）。custom−builtin 复核 children +47.3/+24.7、track +46.5/+21.8 ms（十轮同构）。本轮新增 fail-closed 拒绝路径定价（六终点中五条贴 `--version` 地板；unknown-model@children 105.6/80.1 ms 即地板 + 一次 `providers/all` 咨询，消除形态恰为 S8-I-1 反例所封）。S8-I-1 重开条件第五次直接测量仍未满足。r4i/r5i/r7i 绿（68 / 119 / 80）。R16-I flowchart / 增量归因与 R15-I / R14-I / R13-I 轴不补铸。基线 `8dee7fb` 空 diff 再确认。
+
+J 切片已合入：空枚举，未铸 S17-J-*。切片 `git diff fb41417..HEAD` 为空（J1 以来十五遍零后续代码）。I/O 地板复核 saveToDisk 134.7–539.2 µs；jsonl 63.6–77.8 / 226.2–455.9 µs；级联 812.0–960.6 / 282.6–389.5 µs；index 40.4–41.9 µs；plan 1.12–1.14 µs（I/O 支配第十七次成立）。本轮新增 fail-closed 拒绝路径普查（46 终点；CPU 抛 2.40–4.37 µs；稳态流量为零）与冷进程预算（六格合计 ≈4.0–4.8 ms once-per-process）。J1 仿真 2468 项绿。S5-J-3 / S6-J-1 / S8-J-2 / J1 原样。R16-J SYSCENSUS-J / payload 与 R15-J / R14-J 轴不补铸。基线 `fb41417` 空 diff 再确认。

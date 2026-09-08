@@ -92,7 +92,11 @@ export function replayPolicy(
   }
 
   const rng = createSeededRng(manifest.seed);
-  const orderedHashes = [...manifest.episodeHashes].filter((h) => !manifest.exclusions.includes(h));
+  // Membership-only lookup: Set.has and Array.includes both use SameValueZero,
+  // so the filter keeps exactly the same hashes in the same order — O(N+E)
+  // instead of O(N×E) without touching the rng consumption order.
+  const excludedHashes = new Set(manifest.exclusions);
+  const orderedHashes = [...manifest.episodeHashes].filter((h) => !excludedHashes.has(h));
   const actions: ReplayAction[] = [];
 
   for (const hash of orderedHashes) {

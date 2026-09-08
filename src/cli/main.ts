@@ -57,8 +57,6 @@ import {
 import { formatTaskResultLine, formatUnverifiedSummary } from "./inspect-format.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
-import { adaptCommand } from "./adapt.js";
-import { episodeCommand } from "./episode.js";
 import { bindPreferenceStore, prefCommand } from "./pref.js";
 import { unblockCommand } from "./unblock.js";
 import {
@@ -75,7 +73,7 @@ import {
   buildLiveCatalogConfig,
   UnknownCatalogModelError
 } from "./model-catalog.js";
-import { createModelRouter } from "../supervisor/model-router.js";
+import { createModelRouter, type ModelRouterConfig } from "../supervisor/model-router.js";
 import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/primary-catalog.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
 import { createInvocationSink } from "../telemetry/invocation-log.js";
@@ -86,7 +84,6 @@ import { type PublicPriorSnapshot } from "../routing/public-prior.js";
 import { loadPublicPriorSnapshot } from "../routing/public-prior-store.js";
 import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
-import { startTrackedRun } from "../track/loop.js";
 import {
   isTrackClarificationWait,
   readTrackClarification,
@@ -102,12 +99,6 @@ import { parseChildSpec } from "./children-spec.js";
 import { validateCommand } from "./validate.js";
 import { listCommand } from "./list.js";
 import { initExamplesCommand } from "./init-examples.js";
-import { commitsCommand } from "./commits.js";
-import { pauseCommand } from "./pause.js";
-import { injectCommand } from "./inject.js";
-import { authCommand } from "./auth.js";
-import { modelsCommand } from "./models.js";
-import { doctorCommand } from "./doctor.js";
 import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
 import { CLI_EXIT, cliFail, doctorJsonCommand, errorCodeOf } from "./errors.js";
@@ -484,7 +475,12 @@ async function smartChildPlan(
   stateRoot: string,
   learned?: LearnedRoutingPolicy,
   prior?: PublicPriorSnapshot
-): Promise<{ children: ChildTaskInput[]; assignments: ReturnType<typeof assignTasks> }> {
+): Promise<{
+  children: ChildTaskInput[];
+  assignments: ReturnType<typeof assignTasks>;
+  /** The calibrated catalog the assignments were routed against; callers reuse it instead of rebuilding. */
+  catalog: ModelRouterConfig;
+}> {
   const catalog = await calibrateCatalogFromState(
     await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
     stateRoot
@@ -526,7 +522,7 @@ async function smartChildPlan(
       cascade: liveCascadePlanFromAssignment(assignment, catalog)
     };
   });
-  return { children: routed, assignments };
+  return { children: routed, assignments, catalog };
 }
 
 /** Hashed CLI load: fail-soft on DomainValidationError / missing file unless required. */
@@ -1056,6 +1052,11 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         Object.entries(raw as Record<string, unknown>).map(([key, value]) => [key, String(value)])
       );
     }
+    // Loaded at the point of use (S5-I): the track plane is reachable only
+    // from this --track branch, and keeping this edge out of main's static
+    // import list avoids a measured ~15-20ms package-scope-resolution penalty
+    // that every command paid when track/loop was a direct static dependency.
+    const { startTrackedRun } = await import("../track/loop.js");
     const outcome = await startTrackedRun({
       projectRoot,
       objective,
@@ -1141,10 +1142,10 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         io.stdout(`    ${child.taskId} (${child.role}) -> ${child.pinnedModel} (pinned)\n`);
       }
     }
-    const catalog = await calibrateCatalogFromState(
-      await buildLiveCatalogConfig(stateRoot, { primaryModelId, fastModelId }),
-      stateRoot
-    );
+    // Reuse the calibrated catalog smartChildPlan already built with these
+    // exact arguments: assignments, cascade plans, and the router now share
+    // one snapshot instead of re-reading providers.json + invocations.jsonl.
+    const catalog = planned.catalog;
     const catalogIds = catalog.models.map((model) => model.id);
     const preferredFast = catalogIds.includes(fastModelId) ? fastModelId : catalogIds[0]!;
     const flowchart = compileChildrenToFlowchart(
@@ -2482,34 +2483,54 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
         return await resumeCommand(rest, io);
       case "answer":
         return await answerCommand(rest, io);
-      case "auth":
+      // One-shot subcommand handlers are loaded at their dispatch site
+      // (S4-I pattern): each module subtree is dead weight for every other
+      // command, and the ESM cache keeps the singleton identical.
+      case "auth": {
+        const { authCommand } = await import("./auth.js");
         return await authCommand(rest, io);
-      case "models":
+      }
+      case "models": {
+        const { modelsCommand } = await import("./models.js");
         return await modelsCommand(rest, io);
+      }
       case "pref":
         return await prefCommand(rest, io);
-      case "adapt":
+      case "adapt": {
+        const { adaptCommand } = await import("./adapt.js");
         return await adaptCommand(rest, io);
-      case "episode":
+      }
+      case "episode": {
+        const { episodeCommand } = await import("./episode.js");
         return await episodeCommand(rest, io);
+      }
       case "delete":
         return await deleteCommand(rest, io);
       case "retain":
         return await retainCommand(rest, io);
       case "migrate-legacy":
         return await migrateLegacyCommand(rest, io);
-      case "commits":
-        return await commitsCommand(rest, io);
-      case "pause":
+      case "commits": {
+        const { commitsCommand: runCommits } = await import("./commits.js");
+        return await runCommits(rest, io);
+      }
+      case "pause": {
+        const { pauseCommand } = await import("./pause.js");
         return await pauseCommand(rest, io);
-      case "inject":
+      }
+      case "inject": {
+        const { injectCommand } = await import("./inject.js");
         return await injectCommand(rest, io);
+      }
       case "unblock":
         return await unblockCommand(rest, io);
-      case "doctor":
-        return await doctorCommand(rest, io);
+      case "doctor": {
+        const { doctorCommand: runDoctor } = await import("./doctor.js");
+        return await runDoctor(rest, io);
+      }
       case "pi-compat":
         return await piCompatCommand(rest, io);
+
       case "version":
       case "--version":
       case "-V":

@@ -96,6 +96,7 @@ export async function checkProviderAuth(
   providerId: string,
   customProviders: readonly CustomProviderConfig[] = []
 ): Promise<SparkleAuthCheck | undefined> {
+  const { createPiRuntime } = await import("./runtime.js");
   const runtime = await createPiRuntime({ stateRoot, customProviders });
   return await checkAuthOf(runtime, providerId);
 }

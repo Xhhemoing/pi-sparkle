@@ -232,7 +232,12 @@ test("all dynamic imports in src use string-literal arguments", () => {
   );
   assert.deepEqual(
     computedImportModules,
-    [],
+    // listed-model-lazy resolves `@earendil-works/pi-ai/providers/<id>.models`
+    // from a caller-supplied provider id: the computed specifier is the whole
+    // point of the per-provider lazy table (S7-I-1). Safety comes from pi-ai's
+    // published subpath exports — an unknown id fails module resolution and
+    // falls back to providers/all — not from anything the walker could see.
+    ["src/pi-adapter/listed-model-lazy.ts"],
     "computed import(expr) is invisible to the closure walker and must be justified before allowlisting"
   );
 });

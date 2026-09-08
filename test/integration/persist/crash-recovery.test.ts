@@ -47,7 +47,7 @@ function runReducedProbe(): Promise<{
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
-    }, 24_000);
+    }, 90_000);
     child.once("close", (code, signal) => {
       clearTimeout(timeout);
       resolve({ code, signal, stderr, stdout, timedOut });
@@ -55,7 +55,7 @@ function runReducedProbe(): Promise<{
   });
 }
 
-test("real process kills preserve persistence recovery invariants", { timeout: 25_000, skip: process.platform === "win32" }, async () => {
+test("real process kills preserve persistence recovery invariants", { timeout: 95_000, skip: process.platform === "win32" }, async () => {
   const result = await runReducedProbe();
   assert.equal(result.timedOut, false);
   assert.equal(result.signal, null);

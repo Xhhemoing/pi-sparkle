@@ -6,7 +6,8 @@ import { hash32 } from "../domain/hash.js";
 import { isRecord } from "../domain/record.js";
 import { hashCandidateContent } from "../adaptation/candidate.js";
 import { loadAdaptationRegistry } from "../adaptation/promotion.js";
-import type { ResourceIdentity } from "../adaptation/resource.js";
+import type { ResourceRegistry } from "../adaptation/registry.js";
+import type { ResourceIdentity, ResourceVersion } from "../adaptation/resource.js";
 
 export const ROUTING_POLICY_NAME = "smart-assign";
 
@@ -145,6 +146,26 @@ export async function saveLearnedRouting(
 
 export function routingPolicyContent(policy: LearnedRoutingPolicy): string {
   return JSON.stringify(policy, null, 2);
+}
+
+/**
+ * Active routing-policy version for the project, registering the empty
+ * baseline (no avoid/prefer) first when the identity has no active pointer.
+ * Never moves an existing pointer.
+ */
+export function ensureRoutingBaseline(
+  registry: ResourceRegistry,
+  identity: ResourceIdentity,
+  primaryModelId: string,
+  detectorIdentity: string
+): ResourceVersion {
+  const active = registry.getActiveVersion(identity);
+  if (active !== undefined) return active;
+  return registry.registerBaseline({
+    identity,
+    content: routingPolicyContent({ primaryModelId, avoid: [], prefer: [] }),
+    author: { kind: "detector", identity: detectorIdentity }
+  });
 }
 
 export function policyFromAssignments(

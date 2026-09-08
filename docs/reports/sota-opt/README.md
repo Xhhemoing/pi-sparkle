@@ -1,0 +1,52 @@
+# 全库持久 SOTA 优化战役
+
+**专属分支:** `cursor/sota-persistent-opt-83a1`  
+**停轮条件:** 仅当用户明确说停。至少 20 轮 × 每轮 10 个云端子代理，达到后仍继续。  
+**子代理模型:** `claude-fable-5-thinking-xhigh`（用户当次指定）。  
+**父代理直改:** 仅文档/注释/配置措辞，或 ≤10 行且不涉及业务逻辑/权限/数据面。
+
+本目录是进度、方案与排除表的单一来源。每轮子代理必须先读本目录再动手，并在返回摘要第一行自报 `MODEL_SLUG=...`。
+
+- [PROGRESS.md](./PROGRESS.md) — 轮次与合并状态
+- [EXCLUSIONS.md](./EXCLUSIONS.md) — 全局排除表（禁止重复提案）
+- [round-01/PLAN.md](./round-01/PLAN.md) — 第 1 轮分区
+- [round-03/PLAN.md](./round-03/PLAN.md) — 第 3 轮分区
+- [round-04/PLAN.md](./round-04/PLAN.md) — 第 4 轮分区
+- [round-05/PLAN.md](./round-05/PLAN.md) — 第 5 轮分区
+- [round-06/PLAN.md](./round-06/PLAN.md) — 第 6 轮分区
+- [round-07/PLAN.md](./round-07/PLAN.md) — 第 7 轮分区
+- [round-08/PLAN.md](./round-08/PLAN.md) — 第 8 轮分区
+- [round-09/PLAN.md](./round-09/PLAN.md) — 第 9 轮分区
+- [round-10/PLAN.md](./round-10/PLAN.md) — 第 10 轮分区
+- [round-11/PLAN.md](./round-11/PLAN.md) — 第 11 轮分区
+- [round-12/PLAN.md](./round-12/PLAN.md) — 第 12 轮分区
+- [round-13/PLAN.md](./round-13/PLAN.md) — 第 13 轮分区
+- [round-14/PLAN.md](./round-14/PLAN.md) — 第 14 轮分区
+- [round-15/PLAN.md](./round-15/PLAN.md) — 第 15 轮分区
+- [round-16/PLAN.md](./round-16/PLAN.md) — 第 16 轮分区
+- [round-17/PLAN.md](./round-17/PLAN.md) — 第 17 轮分区
+- [round-18/PLAN.md](./round-18/PLAN.md) — 第 18 轮分区
+- [round-19/PLAN.md](./round-19/PLAN.md) — 第 19 轮分区
+- [round-20/PLAN.md](./round-20/PLAN.md) — 第 20 轮分区
+- [round-21/PLAN.md](./round-21/PLAN.md) — 第 21 轮分区
+- [round-22/PLAN.md](./round-22/PLAN.md) — 第 22 轮分区
+- [round-23/PLAN.md](./round-23/PLAN.md) — 第 23 轮分区
+- [round-24/PLAN.md](./round-24/PLAN.md) — 第 24 轮分区
+- [round-25/PLAN.md](./round-25/PLAN.md) — 第 25 轮分区
+- [round-26/PLAN.md](./round-26/PLAN.md) — 第 26 轮分区
+- [round-27/PLAN.md](./round-27/PLAN.md) — 第 27 轮分区
+- [round-28/PLAN.md](./round-28/PLAN.md) — 第 28 轮分区
+- [round-29/PLAN.md](./round-29/PLAN.md) — 第 29 轮分区
+- [round-30/PLAN.md](./round-30/PLAN.md) — 第 30 轮分区
+- [round-31/PLAN.md](./round-31/PLAN.md) — 第 31 轮分区
+- [round-32/PLAN.md](./round-32/PLAN.md) — 第 32 轮分区
+- [round-33/PLAN.md](./round-33/PLAN.md) — 第 33 轮分区
+- [round-34/PLAN.md](./round-34/PLAN.md) — 第 34 轮分区
+- [round-35/PLAN.md](./round-35/PLAN.md) — 第 35 轮分区
+- [round-36/PLAN.md](./round-36/PLAN.md) — 第 36 轮分区
+- [round-37/PLAN.md](./round-37/PLAN.md) — 第 37 轮分区
+- [round-38/PLAN.md](./round-38/PLAN.md) — 第 38 轮分区
+- [round-39/PLAN.md](./round-39/PLAN.md) — 第 39 轮分区
+- [round-40/PLAN.md](./round-40/PLAN.md) — 第 40 轮分区
+
+不声称 Outcome-supported。Checkpoint F-PROD 仍开放（ADR-005）。

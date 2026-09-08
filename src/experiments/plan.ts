@@ -54,14 +54,32 @@ function assertUniqueNonEmpty(values: readonly string[], label: string): void {
     throw new DomainValidationError(`${label} must be a non-empty array`);
   }
   const seen = new Set<string>();
+  let unique = 0;
   for (const value of values) {
-    if (typeof value !== "string" || value.trim() === "") {
+    if (typeof value !== "string") {
       throw new DomainValidationError(`${label} contains an empty entry`);
     }
-    if (seen.has(value)) {
+    // Printable-ASCII head guard: a first character in 33..126 proves the
+    // string is non-empty and cannot trim to "" (every ECMAScript
+    // WhiteSpace/LineTerminator code point lies outside that range), so the
+    // hot hash-shaped entries skip the trim() builtin call entirely. `head`
+    // is NaN for "" and NaN comparisons are false, so the empty string — like
+    // any head outside 33..126 — falls through to the exact landed trim probe
+    // with the identical fault and message.
+    const head = value.charCodeAt(0);
+    if (!(head > 32 && head < 127) && value.trim() === "") {
+      throw new DomainValidationError(`${label} contains an empty entry`);
+    }
+    // Single table probe per entry: `add` plus a size counter detects the
+    // duplicate exactly where `has` + `add` would (a duplicate `add` is a
+    // no-op, so `size` stalls), with identical first-fault order and message.
+    // This validator runs on every fail-closed restore, so the probe count
+    // dominates the mandated Ω(P) re-validation cost.
+    seen.add(value);
+    unique += 1;
+    if (seen.size !== unique) {
       throw new DomainValidationError(`${label} contains a duplicate: ${value}`);
     }
-    seen.add(value);
   }
 }
 
