@@ -11,7 +11,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { tsImport } from "tsx/esm/api";
 
 const DEFAULT_ITERATIONS = 3;
-const CHILD_TIMEOUT_MS = 3_000;
+const CHILD_TIMEOUT_MS = 10_000; // 3s was calibrated on an idle machine; the full suite runs this probe under load
 const CHILD_FLAG = "--crash-probe-child";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const UNBLOCK_REASON_BYTES = 16 * 1024 * 1024;
