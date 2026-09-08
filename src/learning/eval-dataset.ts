@@ -255,15 +255,35 @@ function originalWorkspace(events: readonly Event[]): string | undefined {
   return root !== undefined && root.trim() !== "" ? root : undefined;
 }
 
+/**
+ * The recorded task text, by planning authority: an accepted task graph
+ * (`TASK_GRAPH_ACCEPTED`, supervisor/`--track` path) wins; otherwise the
+ * objective the coordinator actually handed the child on its `TASK_REQUEST`
+ * (`--children` / flowchart path, which never accepts a graph). Both are
+ * events this run already recorded, so neither source invents a row.
+ */
 function objectivesByTaskId(events: readonly Event[]): Map<string, string> {
   const objectives = new Map<string, string>();
+  const fromRequests = new Map<string, string>();
   for (const event of events) {
-    if (event.type !== "TASK_GRAPH_ACCEPTED") continue;
-    for (const task of event.payload.tasks) {
-      if (typeof task.objective === "string" && task.objective.trim() !== "") {
-        objectives.set(task.id, task.objective);
+    if (event.type === "TASK_GRAPH_ACCEPTED") {
+      for (const task of event.payload.tasks) {
+        if (typeof task.objective === "string" && task.objective.trim() !== "") {
+          objectives.set(task.id, task.objective);
+        }
       }
+      continue;
     }
+    if (event.type !== "CHILD_MESSAGE") continue;
+    const message = event.payload.message;
+    if (message.type !== "TASK_REQUEST") continue;
+    if (typeof message.objective !== "string" || message.objective.trim() === "") continue;
+    // First request wins: a retry's regrounded request is the same task text
+    // plus predecessor context, not a different task.
+    if (!fromRequests.has(message.taskId)) fromRequests.set(message.taskId, message.objective);
+  }
+  for (const [taskId, objective] of fromRequests) {
+    if (!objectives.has(taskId)) objectives.set(taskId, objective);
   }
   return objectives;
 }

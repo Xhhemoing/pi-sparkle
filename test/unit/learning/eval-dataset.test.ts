@@ -171,6 +171,45 @@ function routedRun(runId: RunId, workspace: string, tasks: readonly TaskFixture[
   ];
 }
 
+/**
+ * The `--children` / flowchart coordinator never appends TASK_GRAPH_ACCEPTED;
+ * the only place it records a task's objective is the TASK_REQUEST it sends
+ * the child (`CHILD_MESSAGE`). Mirrors a real `run --children` log.
+ */
+function taskRequest(runId: RunId, taskId: TaskId, objective: string): Event {
+  return makeEvent(
+    "CHILD_MESSAGE",
+    {
+      message: {
+        protocolVersion: 1 as const,
+        id: createMessageId(),
+        occurredAt: OCCURRED,
+        runId,
+        taskId,
+        from: AGENT,
+        to: AGENT,
+        type: "TASK_REQUEST" as const,
+        objective,
+        inputArtifactIds: [],
+        acceptanceCriteria: [],
+        limits: { maxAttempts: 1, timeoutMs: 60_000, maxWallTimeMs: 3_600_000 }
+      }
+    },
+    { taskId, runId }
+  );
+}
+
+function childrenRun(runId: RunId, workspace: string, tasks: readonly TaskFixture[]): Event[] {
+  return [
+    projectDiscovered(runId, workspace),
+    ...tasks.flatMap((task) => [
+      modelRouted(runId, task.taskId),
+      taskRequest(runId, task.taskId, task.objective),
+      taskResult(runId, task.taskId, task.outcome)
+    ])
+  ];
+}
+
 function editTasks(count: number): TaskFixture[] {
   return Array.from({ length: count }, (_, index) => ({
     taskId: parseTaskId(`tsk_ds${String(index + 1).padStart(2, "0")}`),
@@ -271,6 +310,58 @@ test("export writes the dataset directory adapt eval consumes and never mutates 
   assert.equal(evaluated.report.comparison.rawCounts.episodes, 2);
   assert.equal(evaluated.report.environmentVersion, manifest.environmentVersion);
   assert.equal(evaluated.report.evidenceClass, "replay");
+});
+
+/**
+ * A `run --children` log has no TASK_GRAPH_ACCEPTED, so the exporter used to
+ * refuse every candidate learned from that path ("no recorded task objective")
+ * — and `adapt promote` requires the eval report for routing-policy kinds, so
+ * children-learned candidates were unpromotable. The objective a child was
+ * actually given is on the TASK_REQUEST; that is the recorded task text.
+ */
+test("export reads objectives from TASK_REQUEST when a children run has no task graph", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const tasks = editTasks(2);
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: childrenRun(runId, workspace, tasks)
+  });
+
+  const manifest = await readManifest(exported.manifestPath);
+  assert.deepEqual(
+    manifest.episodes.map((episode) => [episode.taskId, episode.taskSuccess, episode.objective]),
+    [
+      [tasks[0]?.taskId, "PASS", "Implement the cache layer"],
+      [tasks[1]?.taskId, "FAIL", "Implement the cache layer"]
+    ]
+  );
+  assert.equal(exported.skippedWithoutObjective, 0);
+});
+
+/** When both are present the accepted graph is the planning authority; the request must not override it. */
+test("TASK_GRAPH_ACCEPTED objective wins over a differing TASK_REQUEST for the same task", async () => {
+  const { stateRoot, workspace } = await dirs();
+  const runId = createRunId();
+  const [task] = editTasks(1);
+  assert.ok(task);
+
+  const exported = await exportRoutingEvalDataset({
+    stateRoot,
+    runId,
+    events: [
+      projectDiscovered(runId, workspace),
+      taskGraph(runId, [task]),
+      modelRouted(runId, task.taskId),
+      taskRequest(runId, task.taskId, "Grounded request text with predecessor context appended"),
+      taskResult(runId, task.taskId, task.outcome)
+    ]
+  });
+
+  const manifest = await readManifest(exported.manifestPath);
+  assert.equal(manifest.episodes[0]?.objective, "Implement the cache layer");
 });
 
 /**
