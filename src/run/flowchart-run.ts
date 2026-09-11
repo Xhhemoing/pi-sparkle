@@ -1206,13 +1206,10 @@ const INJECTABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
   "RUNNING"
 ]);
 
-function controlPlaneFor(ctx: Pick<FlowchartLoopContext, "stateRoot" | "runId" | "now" | "generateId">): RunControlPlane {
-  return createFileRunControlPlane(
-    ctx.stateRoot,
-    ctx.runId,
-    ctx.now,
-    ctx.generateId !== undefined ? () => ctx.generateId!() : undefined
-  );
+function controlPlaneFor(ctx: Pick<FlowchartLoopContext, "stateRoot" | "runId" | "now">): RunControlPlane {
+  // Control requestIds must not share the run event IdGenerator — consuming a
+  // sequenced id for the queue would steal an event id and break mid-inject crash contracts.
+  return createFileRunControlPlane(ctx.stateRoot, ctx.runId, ctx.now);
 }
 
 /**
@@ -1261,7 +1258,7 @@ async function applyControlMessage(
         requestId: message.requestId,
         status: "applied",
         kind: "pause",
-        runStatus: outcome.status
+        appliedStatus: outcome.status
       },
       stop: outcome
     };
@@ -1303,7 +1300,7 @@ async function applyControlMessage(
       requestId: message.requestId,
       status: "applied",
       kind: "inject",
-      runStatus: replayRun((await ctx.eventStore.readAll()).events).status
+      appliedStatus: replayRun((await ctx.eventStore.readAll()).events).status
     }
   };
 }
@@ -1386,12 +1383,7 @@ async function submitControlAndAwait(
     | { kind: "inject"; request: unknown }
 ): Promise<FlowchartRunOutcome> {
   const now = deps.now ?? nowIso;
-  const plane = createFileRunControlPlane(
-    deps.stateRoot,
-    runId,
-    now,
-    deps.generateId !== undefined ? () => deps.generateId!() : undefined
-  );
+  const plane = createFileRunControlPlane(deps.stateRoot, runId, now);
   const submitted =
     message.kind === "pause"
       ? await plane.submit({ kind: "pause", ...(message.reason !== undefined ? { reason: message.reason } : {}) })

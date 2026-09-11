@@ -35,8 +35,8 @@ export interface ControlAck {
   readonly acknowledgedAt: IsoTimestamp;
   /** Present when status is rejected. */
   readonly reason?: string;
-  /** Replay status after apply, when applied. */
-  readonly runStatus?: string;
+  /** Replay status after apply, when applied. Named appliedStatus so it is not confused with GateApplyResult.runStatus. */
+  readonly appliedStatus?: string;
 }
 
 function controlRoot(stateRoot: string, runId: RunId): string {
@@ -113,7 +113,7 @@ function parseControlAck(raw: string): ControlAck {
     kind: parsed.kind,
     acknowledgedAt: parsed.acknowledgedAt,
     ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
-    ...(typeof parsed.runStatus === "string" ? { runStatus: parsed.runStatus } : {})
+    ...(typeof parsed.appliedStatus === "string" ? { appliedStatus: parsed.appliedStatus } : {})
   };
 }
 

@@ -114,7 +114,7 @@ test("control plane submit assigns requestId and ack round-trips", async () => {
       requestId: "req-1",
       status: "applied",
       kind: "pause",
-      runStatus: "PAUSED"
+      appliedStatus: "PAUSED"
     });
     assert.equal((await plane.listPending()).length, 0);
     const ack = await plane.waitForAck("req-1", { timeoutMs: 100 });
