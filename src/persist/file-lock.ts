@@ -59,7 +59,11 @@ export async function withExclusiveFileLock<T>(
         await mkdir(parentDir, { recursive: true });
         continue;
       }
-      if (code !== "EEXIST") throw error;
+      // Windows often surfaces create races / held locks as EPERM/EACCES on "wx"
+      // (sometimes without a stable EEXIST). Treat those as contention and wait;
+      // a true permission problem still surfaces as LOCK_TIMEOUT once the budget
+      // is spent without an acquisition.
+      if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES") throw error;
       const remainingMs = timeoutMs - (Date.now() - startedAt);
       if (remainingMs <= 0) {
         throw new FileLockTimeoutError(`timed out waiting for lock at ${lockPath}`);
@@ -94,7 +98,23 @@ export async function withExclusiveFileLock<T>(
     await lock.close();
     const current = await readFile(lockPath, "utf8").catch(() => "");
     if (isOwnedBy(current, ownerToken)) {
-      await rm(lockPath, { force: true });
+      // Windows can return EPERM/EBUSY while a contended peer still has the
+      // directory entry cached; retry briefly rather than leave a stuck lock.
+      let lastRmError: unknown;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          await rm(lockPath, { force: true });
+          lastRmError = undefined;
+          break;
+        } catch (rmError: unknown) {
+          lastRmError = rmError;
+          const code = errorCode(rmError);
+          if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") break;
+          await new Promise((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
+        }
+      }
+      // Leave a stuck lock for the next acquirer to wait out rather than
+      // masking a successful operation behind unlock cleanup noise.
     }
   }
 }

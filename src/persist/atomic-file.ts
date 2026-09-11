@@ -110,8 +110,25 @@ export async function writeFileAtomic(
       await renameFile(tempPath, path);
     } catch (error: unknown) {
       if (!RENAME_FALLBACK_CODES.has(String(errorCode(error)))) throw error;
-      await rm(path, { force: true });
-      await renameFile(tempPath, path);
+      // Move the live file aside instead of unlinking it. If publishing the temp
+      // still fails, the aside copy is renamed back so the previous payload survives.
+      const asidePath = `${path}.${process.pid}.${uniqueSuffix()}.bak`;
+      let asideMoved = false;
+      try {
+        await renameFile(path, asidePath);
+        asideMoved = true;
+      } catch (asideError: unknown) {
+        if (errorCode(asideError) !== "ENOENT") throw asideError;
+      }
+      try {
+        await renameFile(tempPath, path);
+      } catch (publishError: unknown) {
+        if (asideMoved) {
+          await renameFile(asidePath, path).catch(() => undefined);
+        }
+        throw publishError;
+      }
+      if (asideMoved) await rm(asidePath, { force: true }).catch(() => undefined);
     }
     published = true;
   } finally {
@@ -140,7 +157,7 @@ function openUniqueTempSync(
 /**
  * `writeFileAtomic` for callers whose own API is synchronous and therefore cannot await it —
  * the preference store, whose `recordPreference`/`deleteObservation` persist inline. Same
- * publish protocol (unique temp, `"wx"`, fsync, rename with the unlink fallback) and the same
+ * publish protocol (unique temp, `"wx"`, fsync, rename with an aside-and-restore fallback) and the same
  * guarantee: a reader sees the previous file or this call's whole payload, never a splice.
  * `options.mode` behaves as it does there: exact permissions from before the first byte.
  * Prefer the async writer wherever the call site can await.
@@ -168,8 +185,33 @@ export function writeFileAtomicSync(
       renameFile(tempPath, path);
     } catch (error: unknown) {
       if (!RENAME_FALLBACK_CODES.has(String(errorCode(error)))) throw error;
-      rmSync(path, { force: true });
-      renameFile(tempPath, path);
+      const asidePath = `${path}.${process.pid}.${uniqueSuffix()}.bak`;
+      let asideMoved = false;
+      try {
+        renameFile(path, asidePath);
+        asideMoved = true;
+      } catch (asideError: unknown) {
+        if (errorCode(asideError) !== "ENOENT") throw asideError;
+      }
+      try {
+        renameFile(tempPath, path);
+      } catch (publishError: unknown) {
+        if (asideMoved) {
+          try {
+            renameFile(asidePath, path);
+          } catch {
+            // Best-effort restore; the publish failure is what the caller sees.
+          }
+        }
+        throw publishError;
+      }
+      if (asideMoved) {
+        try {
+          rmSync(asidePath, { force: true });
+        } catch {
+          // Aside is disposable once the new file is published.
+        }
+      }
     }
     published = true;
   } finally {

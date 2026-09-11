@@ -83,17 +83,30 @@ test("appendJsonlLine writes and syncs through the same file handle", async () =
   });
 });
 
-test("readJsonlObjects recovers a truncated last line", async () => {
+test("readJsonlObjects recovers a truncated last line and repairs the file", async () => {
   await withTempFile(async (path) => {
     const bytes = Buffer.from('{"ok":true}\n{"partial', "utf8");
     await writeFile(path, bytes);
-    const before = await readFile(path);
     const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
     assert.deepEqual(read, {
       values: [{ ok: true }],
       recovery: { incompleteLine: '{"partial', lineNumber: 2 }
     });
-    assert.deepEqual(await readFile(path), before);
+    assert.equal(await readFile(path, "utf8"), '{"ok":true}\n');
+  });
+});
+
+test("after tail repair, append and re-read stay clean", async () => {
+  await withTempFile(async (path) => {
+    await writeFile(path, Buffer.from('{"ok":true}\n{"partial', "utf8"));
+    const recovered = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    assert.equal(recovered.recovery.incompleteLine, '{"partial');
+    await appendJsonlLine(path, JSON.stringify({ n: 2 }), false);
+    const again = await readJsonlObjects(
+      path,
+      (lineNumber) => new Error(`JSONL_AFTER_ERROR corrupt line ${lineNumber}`)
+    );
+    assert.deepEqual(again, { values: [{ ok: true }, { n: 2 }], recovery: {} });
   });
 });
 

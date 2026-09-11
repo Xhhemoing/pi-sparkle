@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, readFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, truncate } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export interface JsonlRecovery {
@@ -9,6 +9,11 @@ export interface JsonlRecovery {
 /**
  * Shared append-only JSONL helper for run events and episode logs.
  * Callers own schema validation; this module serializes lines and recovers a truncated tail.
+ *
+ * When the last line is incomplete, the on-disk file is truncated back to the last
+ * complete line (including its newline) before returning. Leaving the fragment on
+ * disk would make the next append bury it mid-file, where recovery can no longer
+ * treat it as a trailing partial.
  */
 export async function appendJsonlLine(filePath: string, line: string, fsync: boolean): Promise<void> {
   const contents = `${line}\n`;
@@ -49,15 +54,21 @@ export async function readJsonlObjects(
   const segments = raw.split("\n");
   const values: unknown[] = [];
   const recovery: JsonlRecovery = {};
+  let completePrefix = "";
   for (let index = 0; index < segments.length; index += 1) {
     const line = segments[index];
     if (line === undefined || line === "") continue;
     try {
       values.push(JSON.parse(line) as unknown);
+      completePrefix += `${line}\n`;
     } catch {
       if (index === segments.length - 1) {
         recovery.incompleteLine = line;
         recovery.lineNumber = index + 1;
+        const keepBytes = Buffer.byteLength(completePrefix, "utf8");
+        if (keepBytes < Buffer.byteLength(raw, "utf8")) {
+          await truncate(filePath, keepBytes);
+        }
         continue;
       }
       throw corrupt(index + 1);
