@@ -73,7 +73,6 @@ import {
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
 import { EventStore } from "./event-store.js";
-import type { FileLockOptions } from "../persist/file-lock.js";
 import {
   routingContextFields,
   type Event,
@@ -83,7 +82,18 @@ import {
   type RunUnblockedWithDiscardPayload
 } from "./events.js";
 import { injectionEventPayload, validateInjection } from "./injection.js";
-import { createFilePauseController, type PauseController } from "./pause-controller.js";
+import {
+  createFileRunControlPlane,
+  type ControlAck,
+  type ControlMessage,
+  type RunControlPlane
+} from "./control-plane.js";
+import { FileLockTimeoutError, type FileLockOptions } from "../persist/file-lock.js";
+import {
+  createFilePauseController,
+  writePauseTokenUnlocked,
+  type PauseController
+} from "./pause-controller.js";
 import {
   hasUnmatchedPause,
   materializeCheckpoint,
@@ -1188,6 +1198,234 @@ async function applyApproval(
   ctx.supervisor.applyApprovalReply(correlated);
 }
 
+
+const INJECTABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "PAUSED",
+  "WAITING_FOR_USER",
+  "BLOCKED",
+  "RUNNING"
+]);
+
+function controlPlaneFor(ctx: Pick<FlowchartLoopContext, "stateRoot" | "runId" | "now" | "generateId">): RunControlPlane {
+  return createFileRunControlPlane(
+    ctx.stateRoot,
+    ctx.runId,
+    ctx.now,
+    ctx.generateId !== undefined ? () => ctx.generateId!() : undefined
+  );
+}
+
+/**
+ * Applies one control message under the sole writer. Never called by pause/inject
+ * submitters themselves — only by the main loop or an idle drain that holds the
+ * lifecycle lock.
+ */
+async function applyControlMessage(
+  ctx: FlowchartLoopContext,
+  message: ControlMessage
+): Promise<{ ack: Omit<ControlAck, "acknowledgedAt">; stop?: FlowchartRunOutcome }> {
+  const read = await ctx.eventStore.readAll();
+  const replayed = replayRun(read.events);
+  if (message.kind === "pause") {
+    if (
+      replayed.status === "COMPLETED" ||
+      replayed.status === "FAILED" ||
+      replayed.status === "CANCELLED" ||
+      replayed.status === "BLOCKED"
+    ) {
+      return {
+        ack: {
+          requestId: message.requestId,
+          status: "rejected",
+          kind: "pause",
+          reason: `cannot pause a ${replayed.status} run`
+        }
+      };
+    }
+    await ctx.abort.cancelAndSettle();
+    const token = {
+      paused: true as const,
+      requestedAt: ctx.now(),
+      ...(message.reason !== undefined ? { reason: message.reason } : {})
+    };
+    await writePauseTokenUnlocked(ctx.stateRoot, ctx.runId, token);
+    const after = await ctx.eventStore.readAll();
+    if (!hasUnmatchedPause(after.events)) {
+      await ctx.append(
+        ctx.make("PAUSE_REQUESTED", message.reason !== undefined ? { reason: message.reason } : {})
+      );
+    }
+    const outcome = await finish(ctx);
+    return {
+      ack: {
+        requestId: message.requestId,
+        status: "applied",
+        kind: "pause",
+        runStatus: outcome.status
+      },
+      stop: outcome
+    };
+  }
+
+  // inject
+  if (!INJECTABLE_STATUSES.has(replayed.status)) {
+    return {
+      ack: {
+        requestId: message.requestId,
+        status: "rejected",
+        kind: "inject",
+        reason: `cannot inject into a ${replayed.status} run`
+      }
+    };
+  }
+  const policy = defaultDecisionPolicy(ctx.flowchartLimits.minHumanConfidence ?? DEFAULT_HUMAN_CONFIDENCE);
+  const injection = validateInjection(message.request, {
+    policy,
+    nodeState: (nodeId) => {
+      try {
+        return ctx.supervisor.nodeState(nodeId);
+      } catch {
+        return undefined;
+      }
+    }
+  });
+  const injectMake = makeEventFactory(ctx.runId, ctx.now, ctx.generateId, injection.actor);
+  await ctx.append(injectMake("INJECTION_REQUESTED", injectionEventPayload(injection)));
+  ctx.supervisor.applyInjection(injection);
+  const advanced = ctx.supervisor.advanceRound();
+  await persistLedger(ctx);
+  if (advanced.blocked) {
+    await persistBlocked(ctx);
+  }
+  // Idle drain finishes; live loop persists and continues without tearing down.
+  return {
+    ack: {
+      requestId: message.requestId,
+      status: "applied",
+      kind: "inject",
+      runStatus: replayRun((await ctx.eventStore.readAll()).events).status
+    }
+  };
+}
+
+/**
+ * Sole-writer drain of the pause/inject control queue. Returns a stop outcome
+ * when a pause message ends the loop; otherwise undefined after acking all.
+ */
+async function drainControlQueue(
+  ctx: FlowchartLoopContext,
+  options: { finishInject: boolean } = { finishInject: false }
+): Promise<FlowchartRunOutcome | undefined> {
+  const plane = controlPlaneFor(ctx);
+  const pending = await plane.listPending();
+  for (const message of pending) {
+    try {
+      const { ack, stop } = await applyControlMessage(ctx, message);
+      await plane.acknowledge(ack);
+      if (stop !== undefined) return stop;
+      if (options.finishInject && message.kind === "inject" && ack.status === "applied") {
+        return await finish(ctx);
+      }
+      if (ack.status === "applied" && message.kind === "inject") {
+        await persistCheckpoint(ctx);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await plane.acknowledge({
+        requestId: message.requestId,
+        status: "rejected",
+        kind: message.kind,
+        reason
+      });
+      if (message.kind === "inject") {
+        await preserveResumableState(ctx);
+      }
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+async function outcomeAfterControl(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  ack: ControlAck
+): Promise<FlowchartRunOutcome> {
+  if (ack.status === "rejected") {
+    throw new DomainValidationError(ack.reason ?? `control request ${ack.requestId} rejected`);
+  }
+  const { ctx } = await restoreFlowchartSession(deps, runId);
+  // Read-only finish projection: state was already persisted by the sole writer.
+  const checkpoint = await ctx.checkpointStore.read();
+  if (checkpoint === undefined) {
+    throw new DomainValidationError(`Flowchart run ${runId} has no durable checkpoint after control apply`);
+  }
+  const read = await ctx.eventStore.readAll();
+  const replayed = replayRun(read.events);
+  const pendingApproval = ctx.supervisor.pendingApproval;
+  return {
+    runId,
+    status: replayed.status,
+    events: read.events,
+    checkpoint: validateCheckpoint(checkpoint),
+    project: ctx.project,
+    snapshot: ctx.supervisor.snapshot(),
+    ...(pendingApproval !== undefined ? { pendingApproval } : {})
+  };
+}
+
+/**
+ * Submit a control message, then either drain it as the idle sole writer (when
+ * the lifecycle lock is free) or wait for the live main loop to ack it.
+ */
+async function submitControlAndAwait(
+  deps: FlowchartRunDeps,
+  runId: RunId,
+  message:
+    | { kind: "pause"; reason?: string }
+    | { kind: "inject"; request: unknown }
+): Promise<FlowchartRunOutcome> {
+  const now = deps.now ?? nowIso;
+  const plane = createFileRunControlPlane(
+    deps.stateRoot,
+    runId,
+    now,
+    deps.generateId !== undefined ? () => deps.generateId!() : undefined
+  );
+  const submitted =
+    message.kind === "pause"
+      ? await plane.submit({ kind: "pause", ...(message.reason !== undefined ? { reason: message.reason } : {}) })
+      : await plane.submit({ kind: "inject", request: message.request });
+
+  const tryDrain = async (): Promise<FlowchartRunOutcome> => {
+    const { ctx } = await restoreFlowchartSession(deps, runId);
+    const stopped = await drainControlQueue(ctx, { finishInject: true });
+    if (stopped !== undefined) return stopped;
+    // Pause rejected without stop, or inject applied via finishInject.
+    const ack = await plane.readAck(submitted.requestId);
+    if (ack === undefined) {
+      throw new DomainValidationError(`control request ${submitted.requestId} was not acknowledged`);
+    }
+    return outcomeAfterControl(deps, runId, ack);
+  };
+
+  try {
+    return await withRunLifecycleLock(
+      deps.stateRoot,
+      runId,
+      tryDrain,
+      { timeoutMs: deps.runLock?.timeoutMs ?? 50, retryMs: deps.runLock?.retryMs ?? 5 }
+    );
+  } catch (error) {
+    if (!(error instanceof FileLockTimeoutError)) throw error;
+    const ack = await plane.waitForAck(submitted.requestId, {
+      timeoutMs: deps.runLock?.timeoutMs ?? 30_000,
+      pollMs: 20
+    });
+    return outcomeAfterControl(deps, runId, ack);
+  }
+}
+
 async function pauseIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome | undefined> {
   if (ctx.pause === undefined) return undefined;
   const token = await ctx.pause.token(ctx.runId);
@@ -1205,6 +1443,9 @@ async function pauseIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRun
 
 async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
   for (let round = 1; round <= ctx.maxRounds; round += 1) {
+    const controlStop = await drainControlQueue(ctx);
+    if (controlStop !== undefined) return controlStop;
+
     const pausedAtStart = await pauseIfRequested(ctx);
     if (pausedAtStart !== undefined) return pausedAtStart;
 
@@ -1240,6 +1481,9 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
 
     const afterLease = await finishIfSettled(ctx);
     if (afterLease !== undefined) return afterLease;
+
+    const controlAfterLease = await drainControlQueue(ctx);
+    if (controlAfterLease !== undefined) return controlAfterLease;
 
     const pausedAfterLease = await pauseIfRequested(ctx);
     if (pausedAfterLease !== undefined) return pausedAfterLease;
@@ -1871,13 +2115,6 @@ async function resumeRestoredRun(
   return runFlowchartLoop(ctx);
 }
 
-const INJECTABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
-  "PAUSED",
-  "WAITING_FOR_USER",
-  "BLOCKED",
-  "RUNNING"
-]);
-
 async function restoreFlowchartSession(
   deps: FlowchartRunDeps,
   runId: RunId,
@@ -1959,71 +2196,36 @@ async function restoreFlowchartSession(
   return { ctx, replayed };
 }
 
+/**
+ * Submits a pause control message with a requestId. The main run loop (or an
+ * idle drain holding the lifecycle lock) is the sole writer that appends
+ * `PAUSE_REQUESTED` and persists — submitters never restore-and-finish themselves.
+ */
 export async function pauseFlowchartRun(
   deps: FlowchartRunDeps,
   runId: RunId,
   reason?: string
 ): Promise<FlowchartRunOutcome> {
-  const { ctx, replayed } = await restoreFlowchartSession(deps, runId);
-  if (
-    replayed.status === "COMPLETED" ||
-    replayed.status === "FAILED" ||
-    replayed.status === "CANCELLED" ||
-    replayed.status === "BLOCKED"
-  ) {
-    throw new DomainValidationError(`cannot pause a ${replayed.status} run`);
+  if (reason !== undefined && reason.trim() === "") {
+    throw new DomainValidationError("pause reason must be a non-empty string");
   }
-  const pause = deps.pause ?? createFilePauseController(deps.stateRoot, ctx.now);
-  const token = await pause.requestPause(runId, reason);
-  const read = await ctx.eventStore.readAll();
-  if (!hasUnmatchedPause(read.events)) {
-    await ctx.append(
-      ctx.make("PAUSE_REQUESTED", token.reason !== undefined ? { reason: token.reason } : {})
-    );
-  }
-  return finish(ctx);
+  return submitControlAndAwait(deps, runId, {
+    kind: "pause",
+    ...(reason !== undefined ? { reason } : {})
+  });
 }
 
+/**
+ * Submits an inject control message with a requestId. Persistence happens only
+ * in the sole writer (live loop or idle drain), so a stale restore cannot
+ * overwrite a concurrent terminal write.
+ */
 export async function injectFlowchartRun(
   deps: FlowchartRunDeps,
   runId: RunId,
   request: unknown
 ): Promise<FlowchartRunOutcome> {
-  const { ctx, replayed } = await restoreFlowchartSession(deps, runId);
-  if (!INJECTABLE_STATUSES.has(replayed.status)) {
-    throw new DomainValidationError(`cannot inject into a ${replayed.status} run`);
-  }
-  const policy = defaultDecisionPolicy(ctx.flowchartLimits.minHumanConfidence ?? DEFAULT_HUMAN_CONFIDENCE);
-  const injection = validateInjection(request, {
-    policy,
-    nodeState: (nodeId) => {
-      try {
-        return ctx.supervisor.nodeState(nodeId);
-      } catch {
-        return undefined;
-      }
-    }
-  });
-  const injectMake = makeEventFactory(runId, ctx.now, ctx.generateId, injection.actor);
-  await ctx.append(injectMake("INJECTION_REQUESTED", injectionEventPayload(injection)));
-  ctx.supervisor.applyInjection(injection);
-  const advanced = ctx.supervisor.advanceRound();
-  try {
-    await persistLedger(ctx);
-    if (advanced.blocked) {
-      await persistBlocked(ctx);
-    }
-    return await finish(ctx);
-  } catch (error) {
-    // An injection applied here but never checkpointed is simply gone: the log
-    // keeps `INJECTION_REQUESTED`, but resume rebuilds the supervisor from the
-    // checkpoint and never replays it. Unlike the run's own teardown this
-    // records no terminal — inject is a side channel that may be pointed at a
-    // run another process is still driving, and failing that run from here
-    // would be a lie.
-    await preserveResumableState(ctx);
-    throw error;
-  }
+  return submitControlAndAwait(deps, runId, { kind: "inject", request });
 }
 
 export interface FlowchartUnblockRequest {
