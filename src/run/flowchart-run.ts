@@ -72,6 +72,7 @@ import {
 } from "../supervisor/flowchart-supervisor.js";
 import { validateFlowchartRunLimits } from "../supervisor/flowchart-snapshot.js";
 import { CheckpointStore } from "./checkpoint-store.js";
+import { loadReplayForPersist, writeRunCheckpoint } from "./flowchart-checkpoint.js";
 import { EventStore } from "./event-store.js";
 import {
   routingContextFields,
@@ -99,9 +100,11 @@ import {
   materializeCheckpoint,
   replayedTerminalStatus,
   replayRun,
+  snapshotReplay,
   validateCheckpoint,
   type FlowchartCheckpointState,
   type ReconstructedRun,
+  type ReplayCursor,
   type RunCheckpoint,
   type TaskAcceptanceCriteria,
   type TaskCostCeiling
@@ -998,22 +1001,31 @@ interface FlowchartLoopContext {
   taskCostCeilings?: TaskCostCeiling[];
   /** --assume-defaults consent: high-risk gates auto-clear; recorded so replay knows they were machine-sourced. */
   autoSelectDefaultApprovals?: boolean;
+  /** Live replay cursor for incremental persist. Seeded on first persist; reused after. */
+  replayCursor?: ReplayCursor;
+  /** Byte offset after the last complete event the cursor has consumed. */
+  eventLogByteOffset?: number;
 
 }
 
 async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoint> {
   const snapshot = ctx.supervisor.snapshot();
   ctx.flowchartLimits = limitsFromSnapshot(ctx.flowchartLimits, snapshot);
-  const read = await ctx.eventStore.readAll();
-  const replayed = replayRun(read.events);
+  const loaded = await loadReplayForPersist({
+    eventStore: ctx.eventStore,
+    ...(ctx.replayCursor !== undefined ? { cursor: ctx.replayCursor } : {}),
+    ...(ctx.eventLogByteOffset !== undefined ? { eventLogByteOffset: ctx.eventLogByteOffset } : {})
+  });
+  ctx.replayCursor = loaded.cursor;
+  ctx.eventLogByteOffset = loaded.eventLogByteOffset;
   // Only ever set, never cleared: the merge returns `undefined` exactly when
   // both sources are empty, which is the state the context is already in.
-  const advanced = advanceTaskCriteria(ctx.taskCriteria, loggedTaskRequests(read.events));
+  const advanced = advanceTaskCriteria(ctx.taskCriteria, loggedTaskRequests(loaded.appliedEvents));
   if (advanced !== undefined) ctx.taskCriteria = advanced;
   // The ceiling record advances beside the criteria record rather than inside
   // its merge: two records, two shapes, one rule each, and the criteria writer
   // stays exactly the code its own pins describe.
-  const advancedCeilings = advanceTaskCostCeilings(ctx.taskCostCeilings, loggedTaskRequests(read.events));
+  const advancedCeilings = advanceTaskCostCeilings(ctx.taskCostCeilings, loggedTaskRequests(loaded.appliedEvents));
   if (advancedCeilings !== undefined) ctx.taskCostCeilings = advancedCeilings;
   const flowchart: FlowchartCheckpointState = {
     definition: ctx.definition,
@@ -1033,9 +1045,10 @@ async function persistCheckpoint(ctx: FlowchartLoopContext): Promise<RunCheckpoi
     // record is the only thing that can give a declared one back.
     ...(ctx.taskCostCeilings !== undefined ? { taskCostCeilings: ctx.taskCostCeilings } : {})
   };
-  const checkpoint = validateCheckpoint(materializeCheckpoint(replayed, ctx.now(), flowchart));
-  await ctx.checkpointStore.write(checkpoint);
-  return checkpoint;
+  return writeRunCheckpoint({
+    checkpointStore: ctx.checkpointStore,
+    checkpoint: validateCheckpoint(materializeCheckpoint(snapshotReplay(loaded.cursor), ctx.now(), flowchart))
+  });
 }
 
 function limitsFromSnapshot(

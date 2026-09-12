@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
-import { appendJsonlLine, readJsonlObjects } from "../persist/jsonl.js";
+import { appendJsonlLine, readJsonlObjectsFromOffset } from "../persist/jsonl.js";
 import { validateEvent, type Event } from "./events.js";
 
 const TERMINAL_EVENT_TYPES = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL_REQUESTED"]);
@@ -42,6 +42,23 @@ export interface EventLogRecovery {
 export interface EventLogRead {
   events: Event[];
   recovery: EventLogRecovery;
+  /** UTF-8 byte offset after the last complete record. Safe incremental resume point. */
+  completeByteLength: number;
+}
+
+export type EventLogReadMode = "incremental" | "full-fallback";
+
+export interface EventLogReadFromOffset extends EventLogRead {
+  readonly mode: EventLogReadMode;
+  readonly fromByteOffset: number;
+  readonly fallbackReason?: "offset-beyond-eof";
+}
+
+export class EventLogOffsetError extends DomainValidationError {
+  constructor(message: string) {
+    super(message);
+    this.name = "EventLogOffsetError";
+  }
 }
 
 /**
@@ -123,13 +140,50 @@ export class EventStore {
   }
 
   async readAll(): Promise<EventLogRead> {
-    const { values, recovery } = await readJsonlObjects(
+    const { values, recovery, completeByteLength } = await readJsonlObjectsFromOffset(
       this.eventsPath,
+      0,
       (lineNumber) => new DomainValidationError(`Corrupt event log line ${lineNumber}`)
     );
     return {
       events: values.map((value) => validateEvent(value)),
-      recovery
+      recovery,
+      completeByteLength
+    };
+  }
+
+  /**
+   * Read events after an absolute byte offset that must sit on a record
+   * boundary. Wrong offsets fail closed ({@link EventLogOffsetError}) so a
+   * persist path can fall back to {@link readAll} without treating a corrupt
+   * middle as a resume hint.
+   */
+  async readFromOffset(byteOffset: number): Promise<EventLogReadFromOffset> {
+    const read = await readJsonlObjectsFromOffset(
+      this.eventsPath,
+      byteOffset,
+      (lineNumber) => new DomainValidationError(`Corrupt event log line ${lineNumber}`)
+    );
+    if (read.unsafe === "offset-not-on-boundary") {
+      throw new EventLogOffsetError(
+        `Event log offset ${byteOffset} is not on a record boundary`
+      );
+    }
+    if (read.unsafe === "offset-beyond-eof") {
+      const full = await this.readAll();
+      return {
+        ...full,
+        mode: "full-fallback",
+        fromByteOffset: 0,
+        fallbackReason: "offset-beyond-eof"
+      };
+    }
+    return {
+      events: read.values.map((value) => validateEvent(value)),
+      recovery: read.recovery,
+      completeByteLength: read.completeByteLength,
+      mode: "incremental",
+      fromByteOffset: read.fromByteOffset
     };
   }
 }
