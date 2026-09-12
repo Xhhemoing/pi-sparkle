@@ -31,3 +31,7 @@ Run-scoped content-addressed observation archive + pure projection/recall on `gr
 
 On tip after PR-A+PR-B (`da38a44`). Provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable.
 
+## PS-P3 real closed loop (2026-09-12 / 2026-09-13)
+
+Isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only). Does not flip `independentEvidence` from child self-report. No P4/P5/Soul; no merge.
+

@@ -22,6 +22,7 @@ const REQUIRED_IDS = [
   "run-pause",
   "track-questions",
   "run-observation",
+  "run-loop-artifact",
   "routing-eval-report",
   "routing-eval-dataset",
   "learning-bandit",
@@ -79,10 +80,11 @@ const IMPLEMENTED_PROPAGATION: ReadonlyArray<{
       "run-pause",
       "track-questions",
       "run-observation",
+      "run-loop-artifact",
       "model-invocation",
       "routing-eval-dataset"
     ],
-    by: "deleteRunRecords: rm -r runtime/runs/<runId>/ (incl. observations/), filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
+    by: "deleteRunRecords: rm -r runtime/runs/<runId>/ (incl. observations/ and loop-artifacts/), filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
   },
   {
     from: "model-invocation",
@@ -171,6 +173,7 @@ test("completeness: every known durable state-root path is covered by a class", 
     "runtime/runs/<runId>/pause.json", // run-pause
     "runtime/runs/<runId>/track-questions.json", // track-questions
     "runtime/runs/<runId>/observations/objects/<sha256>.txt", // run-observation
+    "runtime/runs/<runId>/loop-artifacts/<sha256>.json", // run-loop-artifact
     "runtime/episodes/<episodeId>.jsonl", // episode (project-episode log)
     "adaptation/feedback/records.jsonl", // feedback
     "adaptation/feedback/tombstones.json", // feedback tombstones

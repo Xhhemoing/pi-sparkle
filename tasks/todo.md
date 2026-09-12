@@ -48,4 +48,14 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 - [x] Regression: provider fail ∉ taskSuccess FAIL; model FAILED-with-evidence still counts
 - [x] docs/reports HOTFIX note; pending-local-review cleaned
 
+## PS-P3 real closed loop
+
+- [x] Isolated worktree create/dispose (`src/execution/worktree.ts`)
+- [x] Worktree-scoped coding tools read/write/run (`src/execution/coding-tools.ts`) + path-escape refusal
+- [x] Independent check runner binds exitCode / stdout+stderr hash / cwd / revision (`src/execution/independent-check.ts`)
+- [x] Acceptance requires independentCheck + artifactHash; self-report alone fails closed (`src/execution/acceptance.ts`)
+- [x] Run-scoped loop artifacts + `run-loop-artifact` durable class (delete cascade via run subtree)
+- [x] `createConfiguredPiExecutor` accepts `tools` at execution boundary
+- [x] Unit + integration tests (no live LLM)
+- [x] `pnpm gate` green + freeze tip (no merge)
 

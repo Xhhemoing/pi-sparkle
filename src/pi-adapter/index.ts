@@ -57,3 +57,8 @@ export {
   resolveListedModel,
   type SparkleListedModel
 } from "./listed-model.js";
+export {
+  createWorktreeCodingTools,
+  type WorktreeCodingToolsContext
+} from "./worktree-coding-tools.js";
+

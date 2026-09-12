@@ -11,7 +11,7 @@ import { loadProvidersConfig } from "../config/providers-config.js";
 import type { ModelRef } from "../config/model-ref.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { authStorePath, FileCredentialStore } from "./file-credential-store.js";
-import { PiAgentExecutor, type CostGateEvent, type SparkleThinkingLevel } from "./pi-executor.js";
+import { PiAgentExecutor, type CostGateEvent, type PiExecutorOptions, type SparkleThinkingLevel } from "./pi-executor.js";
 import type { RetryOptions } from "./provider-retry.js";
 
 export interface PiRuntime {
@@ -57,6 +57,12 @@ export async function createConfiguredPiExecutor(input: {
    * case here: every custom provider without explicit rates is unpriced.
    */
   readonly onCostGate?: (event: CostGateEvent) => void;
+  /**
+   * Real tools injected at the execution boundary (e.g. worktree-scoped coding
+   * tools from `createWorktreeCodingTools`). Merged ahead of cluster + report
+   * tools inside `PiAgentExecutor`. Not prompt-only permissions.
+   */
+  readonly tools?: PiExecutorOptions["tools"];
 }): Promise<PiAgentExecutor> {
   // Omitted customProviders means "load the state root's providers.json";
   // callers may still pass an explicit list (tests, embedded setups).
@@ -77,7 +83,8 @@ export async function createConfiguredPiExecutor(input: {
     ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
     ...(input.retry !== undefined ? { retry: input.retry } : {}),
     ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {}),
-    ...(input.onCostGate !== undefined ? { onCostGate: input.onCostGate } : {})
+    ...(input.onCostGate !== undefined ? { onCostGate: input.onCostGate } : {}),
+    ...(input.tools !== undefined ? { tools: input.tools } : {})
   });
 }
 

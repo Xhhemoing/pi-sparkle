@@ -53,7 +53,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     sensitiveFields: ["prompt", "tool payloads", "model output text"],
     redaction: "event bodies are append-only; do not copy into optimization datasets",
     deletion: "delete-files",
-    // deleteRunRecords removes the whole runtime/runs/<runId>/ subtree (events, checkpoint, pause, track-questions, observations), drops
+    // deleteRunRecords removes the whole runtime/runs/<runId>/ subtree (events, checkpoint, pause, track-questions, observations, loop-artifacts), drops
     // the run's rows from the shared invocation log, and removes the replay
     // dataset derived from the run at the default eval-datasets path (a
     // `--dir` export is outside that cascade and the exporter says so). It
@@ -64,6 +64,7 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
       "run-pause",
       "track-questions",
       "run-observation",
+      "run-loop-artifact",
       "model-invocation",
       "routing-eval-dataset"
     ],
@@ -245,6 +246,20 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     deletionPropagatesTo: [],
     migrationVersion: 1,
     recovery: "missing object fails recall closed; hash mismatch refuses reuse; over-quota puts are rejected"
+  },
+  {
+    id: "run-loop-artifact",
+    owner: "runtime",
+    path: "runtime/runs/<runId>/loop-artifacts/<sha256>.json",
+    retention: "run-scoped",
+    sensitiveFields: ["diff/body text", "command stdout/stderr hashes bound in acceptance"],
+    redaction: "PS-P3 closed-loop artifacts (diff + independent-check + acceptance); content-addressed; not copied into optimization datasets",
+    deletion: "delete-files",
+    // Removed with the whole runtime/runs/<runId>/ subtree by deleteRunRecords
+    // (same cascade as observations). No separate unlink.
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "missing artifact fails acceptance binding closed; hash is the acceptance evidence id"
   },
   {
     id: "routing-eval-report",

@@ -18,7 +18,7 @@ The state root (`~/.pi-sparkle/`, override `--state-root`) is split into two
 explicit plane directories:
 
 - `<root>/runtime/` — run-event, run-checkpoint, run-pause, track-questions,
-  run-observation, episode, model-invocation, catalog-observed, providers-config,
+  run-observation, run-loop-artifact, episode, model-invocation, catalog-observed, providers-config,
   auth-credential
 - `<root>/adaptation/` — feedback (+tombstones), preference,
   preference-dataset, candidate, routing-eval-report, routing-eval-dataset,
