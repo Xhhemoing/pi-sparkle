@@ -87,7 +87,9 @@ test("readJsonlObjects recovers a truncated last line and repairs the file", asy
   await withTempFile(async (path) => {
     const bytes = Buffer.from('{"ok":true}\n{"partial', "utf8");
     await writeFile(path, bytes);
-    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.deepEqual(read, {
       values: [{ ok: true }],
       recovery: { incompleteLine: '{"partial', lineNumber: 2 }
@@ -99,7 +101,9 @@ test("readJsonlObjects recovers a truncated last line and repairs the file", asy
 test("after tail repair, append and re-read stay clean", async () => {
   await withTempFile(async (path) => {
     await writeFile(path, Buffer.from('{"ok":true}\n{"partial', "utf8"));
-    const recovered = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const recovered = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.equal(recovered.recovery.incompleteLine, '{"partial');
     await appendJsonlLine(path, JSON.stringify({ n: 2 }), false);
     const again = await readJsonlObjects(
@@ -193,7 +197,9 @@ test("readJsonlObjects truncates at real byte offset with leading blank lines", 
     // Heidi repro: leading blanks + complete JSON + truncated tail must not
     // recompute keepBytes by rejoining parsed lines (which drops blank bytes).
     await writeFile(path, Buffer.from('\n\n{"ok":1}\n{"partial', "utf8"));
-    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.deepEqual(read.values, [{ ok: 1 }]);
     assert.equal(read.recovery.incompleteLine, '{"partial');
     assert.equal(await readFile(path, "utf8"), '\n\n{"ok":1}\n');
@@ -210,7 +216,9 @@ test("readJsonlObjects truncates at real byte offset with leading blank lines", 
 test("readJsonlObjects preserves middle blank lines when repairing a truncated tail", async () => {
   await withTempFile(async (path) => {
     await writeFile(path, Buffer.from('{"a":1}\n\n{"b":2}\n{"partial', "utf8"));
-    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.deepEqual(read.values, [{ a: 1 }, { b: 2 }]);
     assert.equal(await readFile(path, "utf8"), '{"a":1}\n\n{"b":2}\n');
   });
@@ -219,7 +227,9 @@ test("readJsonlObjects preserves middle blank lines when repairing a truncated t
 test("readJsonlObjects repairs CRLF logs using real byte offsets", async () => {
   await withTempFile(async (path) => {
     await writeFile(path, Buffer.from('{"ok":true}\r\n{"partial', "utf8"));
-    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.deepEqual(read.values, [{ ok: true }]);
     assert.equal(await readFile(path, "utf8"), '{"ok":true}\r\n');
   });
@@ -229,9 +239,22 @@ test("readJsonlObjects keeps multibyte UTF-8 prefix bytes when truncating", asyn
   await withTempFile(async (path) => {
     const prefix = '{"msg":"你好"}\n';
     await writeFile(path, Buffer.from(`${prefix}{"partial`, "utf8"));
-    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`), {
+      repair: true
+    });
     assert.deepEqual(read.values, [{ msg: "你好" }]);
     assert.equal(await readFile(path, "utf8"), prefix);
     assert.equal(Buffer.byteLength(await readFile(path), "utf8"), Buffer.byteLength(prefix, "utf8"));
+  });
+});
+
+test("readJsonlObjects does not truncate by default (follow-safe)", async () => {
+  await withTempFile(async (path) => {
+    const original = '\n\n{"ok":1}\n{"partial';
+    await writeFile(path, Buffer.from(original, "utf8"));
+    const read = await readJsonlObjects(path, (lineNumber) => new Error(`corrupt ${lineNumber}`));
+    assert.deepEqual(read.values, [{ ok: 1 }]);
+    assert.equal(read.recovery.incompleteLine, '{"partial');
+    assert.equal(await readFile(path, "utf8"), original);
   });
 });
