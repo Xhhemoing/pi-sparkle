@@ -152,7 +152,7 @@ test("a colliding temp name is retried with a fresh one instead of truncating it
 });
 
 for (const code of ["EPERM", "EEXIST", "EACCES"]) {
-  test(`rename failing with ${code} falls back to unlink-then-rename`, async () => {
+  test(`rename failing with ${code} falls back to aside-then-rename`, async () => {
     await withTempDir(async (directory) => {
       const path = join(directory, "fallback.json");
       await writeFileAtomic(path, '{"generation":1}\n');
@@ -166,7 +166,7 @@ for (const code of ["EPERM", "EEXIST", "EACCES"]) {
         }
       });
 
-      assert.equal(attempts, 2);
+      assert.equal(attempts, 3);
       assert.equal(await readFile(path, "utf8"), '{"generation":2}\n');
       assert.deepEqual(await tempFiles(directory), []);
     });
@@ -210,6 +210,26 @@ test("a failing fallback rename still cleans up its own temp", async () => {
       { code: "EPERM" }
     );
 
+    assert.deepEqual(await tempFiles(directory), []);
+  });
+});
+
+test("a failing fallback rename keeps the previous file", async () => {
+  await withTempDir(async (directory) => {
+    const path = join(directory, "keep-old.json");
+    await writeFileAtomic(path, '{"generation":1}\n');
+
+    await assert.rejects(
+      () =>
+        writeFileAtomic(path, '{"generation":2}\n', {
+          rename: async () => {
+            throw codedError("EPERM");
+          }
+        }),
+      { code: "EPERM" }
+    );
+
+    assert.equal(await readFile(path, "utf8"), '{"generation":1}\n');
     assert.deepEqual(await tempFiles(directory), []);
   });
 });
@@ -347,7 +367,7 @@ test("writeFileAtomicSync refuses a stale temp instead of truncating it, and ret
   });
 });
 
-test("writeFileAtomicSync falls back to unlink-then-rename on EPERM", async () => {
+test("writeFileAtomicSync falls back to aside-then-rename on EPERM", async () => {
   await withTempDir(async (directory) => {
     const path = join(directory, "fallback-sync.json");
     writeFileAtomicSync(path, '{"generation":1}');
@@ -361,7 +381,7 @@ test("writeFileAtomicSync falls back to unlink-then-rename on EPERM", async () =
       }
     });
 
-    assert.equal(attempts, 2);
+    assert.equal(attempts, 3);
     assert.equal(await readFile(path, "utf8"), '{"generation":2}');
     assert.deepEqual(await tempFiles(directory), []);
   });
