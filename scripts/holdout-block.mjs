@@ -30,6 +30,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { classifyHoldoutBlockEvidenceClass } from "./lib/holdout-block-evidence.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -240,18 +241,10 @@ try {
     seed: seedText,
     armOrder: arms,
     executor,
-    evidenceClass: (() => {
-      if (executor !== "pi") return "simulation";
-      // Collector/config failure (no invocations and no real terminal status) is
-      // not an experimental outcome — demote so empty arms cannot enter F-PROD.
-      // Real task failures that still wrote invocation rows stay eligible.
-      const harnessOnly = results.every(
-        (result) =>
-          result.invocations.length === 0 &&
-          (result.status === "UNKNOWN" || result.runId === undefined)
-      );
-      return harnessOnly ? "harness-failure" : "production-candidate";
-    })(),
+    // Collector/config failure (no invocations and no real terminal status) is
+    // not an experimental outcome — demote so empty arms cannot enter F-PROD.
+    // Real task failures that still wrote invocation rows stay eligible.
+    evidenceClass: classifyHoldoutBlockEvidenceClass({ executor, results }),
     executedAt: new Date().toISOString(),
     arms: results.map(({ arm, runId, status, exitCode, r1, invocations }) => ({
       arm,
