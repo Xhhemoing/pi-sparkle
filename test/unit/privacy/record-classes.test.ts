@@ -21,6 +21,7 @@ const REQUIRED_IDS = [
   "learned-routing-policy",
   "run-pause",
   "track-questions",
+  "run-observation",
   "routing-eval-report",
   "routing-eval-dataset",
   "learning-bandit",
@@ -77,10 +78,11 @@ const IMPLEMENTED_PROPAGATION: ReadonlyArray<{
       "run-checkpoint",
       "run-pause",
       "track-questions",
+      "run-observation",
       "model-invocation",
       "routing-eval-dataset"
     ],
-    by: "deleteRunRecords: rm -r runtime/runs/<runId>/, filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
+    by: "deleteRunRecords: rm -r runtime/runs/<runId>/ (incl. observations/), filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
   },
   {
     from: "model-invocation",
@@ -168,6 +170,7 @@ test("completeness: every known durable state-root path is covered by a class", 
     "runtime/runs/<runId>/checkpoint.json", // run-checkpoint
     "runtime/runs/<runId>/pause.json", // run-pause
     "runtime/runs/<runId>/track-questions.json", // track-questions
+    "runtime/runs/<runId>/observations/objects/<sha256>.txt", // run-observation
     "runtime/episodes/<episodeId>.jsonl", // episode (project-episode log)
     "adaptation/feedback/records.jsonl", // feedback
     "adaptation/feedback/tombstones.json", // feedback tombstones

@@ -32,3 +32,12 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 ## PR-A harness-efficiency
 
 - [x] Offline `EfficiencyRow` / `EfficiencyReport` aggregator + `scripts/analyze-harness-efficiency.ts` (`--evidence-class synthetic|observed --input --json`). `monetarySavingUsd` always null. PR-B observation store is out of scope.
+
+## PR-B observation store + offline projection
+
+- [x] `ObservationStore` put/recall under `runtime/runs/<runId>/observations/objects/<sha256>.txt` (SHA-256, 8 MiB/object, 64 MiB/run, run lock, symlink refusal, 0700/0600)
+- [x] `projectObservation` eligibility + priorFullSends full vs placeholder; enabled=false ⇒ no archive
+- [x] Unit + integration tests (store / projection / lifecycle reduction ≥70%)
+- [x] `run-observation` durable class + dictionary + status-matrix; delete cascade via run subtree
+- [ ] Reviewer / merge (do not push from this worktree)
+

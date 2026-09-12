@@ -6,8 +6,9 @@ import { join } from "node:path";
  * records can never be co-located:
  *
  *   <stateRoot>/runtime/     run-event, run-checkpoint, run-pause,
- *                            track-questions, episode, model-invocation,
- *                            catalog-observed, providers-config, auth-credential
+ *                            track-questions, run-observation, episode,
+ *                            model-invocation, catalog-observed, providers-config,
+ *                            auth-credential
  *   <stateRoot>/adaptation/  feedback (+tombstones), preference,
  *                            preference-dataset, candidate, routing-eval-report,
  *                            routing-eval-dataset, learning-bandit, experiment

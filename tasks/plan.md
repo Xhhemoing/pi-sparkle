@@ -22,3 +22,8 @@ Next architecture (not yet a task plan): [Pi intelligent adaptive loop report](.
 ## PR-A harness-efficiency (2026-09-12)
 
 Offline JSONL aggregator + thin CLI on `grok/sol-efficiency`. Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).
+
+## PR-B observation store + offline projection (2026-09-13)
+
+Run-scoped content-addressed observation archive + pure projection/recall on `grok/sol-efficiency`. No live Pi executor / CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm.
+

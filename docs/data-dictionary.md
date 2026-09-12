@@ -18,7 +18,7 @@ The state root (`~/.pi-sparkle/`, override `--state-root`) is split into two
 explicit plane directories:
 
 - `<root>/runtime/` — run-event, run-checkpoint, run-pause, track-questions,
-  episode, model-invocation, catalog-observed, providers-config,
+  run-observation, episode, model-invocation, catalog-observed, providers-config,
   auth-credential
 - `<root>/adaptation/` — feedback (+tombstones), preference,
   preference-dataset, candidate, routing-eval-report, routing-eval-dataset,
@@ -54,7 +54,7 @@ allowlist entry with a justification.
 > builds before 2026-08-22 sits at the legacy flat locations and is not
 > auto-migrated (per Q4 decision: migration planning deferred to v2).
 
-## Classes (18)
+## Classes (19)
 
 | id | owner | path | retention | deletion | migration |
 |---|---|---|---|---|---|
@@ -62,6 +62,7 @@ allowlist entry with a justification.
 | run-checkpoint | runtime | `runtime/runs/<runId>/checkpoint.json` | run-scoped | delete-files | 1 |
 | run-pause | runtime | `runtime/runs/<runId>/pause.json` | run-scoped | delete-files | 1 |
 | track-questions | runtime | `runtime/runs/<runId>/track-questions.json` | run-scoped | delete-files | 1 |
+| run-observation | runtime | `runtime/runs/<runId>/observations/objects/<sha256>.txt` | run-scoped | delete-files | 1 |
 | episode | runtime | `runtime/episodes/<episodeId>.jsonl` (+ `<episodeId>.events.jsonl`) | episode-scoped | delete-files | 1 |
 | artifact-ref | runtime | TASK_RESULT ids only | run-scoped | exclude-from-export | 1 |
 | feedback | adaptation | `adaptation/feedback/records.jsonl` (+ `tombstones.json`) | until-deleted | tombstone-ids | 1 |
@@ -81,7 +82,7 @@ allowlist entry with a justification.
 ## Deletion tooling (Q2 remediation, extended through 2026-08-24 Round 6)
 
 `pi-sparkle delete --run <id>` removes the run's whole subtree under
-`runtime/runs/<id>/`, **filter-rewrites the shared `runtime/invocations.jsonl`**
+`runtime/runs/<id>/` (events, checkpoint, pause, track-questions, observations), **filter-rewrites the shared `runtime/invocations.jsonl`**
 so the run's rows are dropped (under the log's cooperative lock; a corrupt
 middle line fails the whole rewrite closed rather than reporting a partial
 delete as success), and — when rows were dropped — **invalidates the derived
