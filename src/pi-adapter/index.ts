@@ -28,6 +28,7 @@ export {
   DEFAULT_RETRY_POLICY,
   callOutcomeForFailure,
   classifyProviderFailure,
+  taskFailureForProvider,
   decideRetry,
   resolveRetryPolicy,
   sleepWithAbort,

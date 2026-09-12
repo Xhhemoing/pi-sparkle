@@ -27,3 +27,7 @@ Offline JSONL aggregator + thin CLI on `grok/sol-efficiency`. Does not touch the
 
 Run-scoped content-addressed observation archive + pure projection/recall on `grok/sol-efficiency`. No live Pi executor / CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm.
 
+## PS-HOTFIX provider failure attribution (2026-09-12)
+
+On tip after PR-A+PR-B (`da38a44`). Provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable.
+

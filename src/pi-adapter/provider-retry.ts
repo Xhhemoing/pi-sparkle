@@ -154,6 +154,21 @@ export function callOutcomeForFailure(failure: ProviderFailure): InvocationCallO
   return failure.kind === "timeout" ? "timeout" : "error";
 }
 
+
+/**
+ * Map a classified provider failure onto protocol TaskResult.failure so
+ * downstream attribution can label it `provider` without inventing a
+ * deterministic FAILED verification (empty evidenceIds poison taskSuccess).
+ */
+export function taskFailureForProvider(failure: ProviderFailure): {
+  readonly category: "PROVIDER_ERROR";
+  readonly detail: string;
+} {
+  const status = failure.status !== undefined ? ` status=${failure.status}` : "";
+  const detail = `provider ${failure.kind}${status}: ${failure.message}`.trim();
+  return { category: "PROVIDER_ERROR", detail };
+}
+
 /**
  * Decide whether to make another attempt and how long to wait first.
  * Precedence for the wait: remedy hint, then Retry-After, then exponential

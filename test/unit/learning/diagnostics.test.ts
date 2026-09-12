@@ -31,7 +31,7 @@ test("diagnostics group taskSuccess failures by model and project", () => {
 test("non-model failures stay out of routing-quality diagnostics", () => {
   const projectId = createProjectId();
   const episodeId = createEpisodeId();
-  const nonModel: ObservedSignal[] = (["environment", "tool", "run", "contract"] as const).flatMap(
+  const nonModel: ObservedSignal[] = (["environment", "tool", "run", "contract", "provider"] as const).flatMap(
     (failureClass) => [
       signal({
         projectId, episodeId, modelId: "cheap", source: "subagent", kind: "deterministic",
@@ -44,7 +44,7 @@ test("non-model failures stay out of routing-quality diagnostics", () => {
     ]
   );
   const issues = diagnoseModelProjectIssues(nonModel);
-  assert.equal(issues.length, 0, "8 non-model failures must not create a model-project issue");
+  assert.equal(issues.length, 0, "10 non-model failures must not create a model-project issue");
 });
 
 test("a FAIL without failure attribution is not evidence against the model", () => {

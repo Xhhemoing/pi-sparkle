@@ -41,3 +41,11 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 - [x] `run-observation` durable class + dictionary + status-matrix; delete cascade via run subtree
 - [ ] Reviewer / merge (do not push from this worktree)
 
+## PS-HOTFIX provider failure attribution
+
+- [x] finish() provider fail → UNOBSERVED + PROVIDER_ERROR (not FAILED empty evidence)
+- [x] FailureClass `provider` + classifyTaskFailure / R1 / bandit / diagnostics filters
+- [x] Regression: provider fail ∉ taskSuccess FAIL; model FAILED-with-evidence still counts
+- [x] docs/reports HOTFIX note; pending-local-review cleaned
+
+
