@@ -10,10 +10,12 @@ export interface JsonlRecovery {
  * Shared append-only JSONL helper for run events and episode logs.
  * Callers own schema validation; this module serializes lines and recovers a truncated tail.
  *
- * When the last line is incomplete, the on-disk file is truncated back to the last
- * complete line (including its newline) before returning. Leaving the fragment on
- * disk would make the next append bury it mid-file, where recovery can no longer
- * treat it as a trailing partial.
+ * When the last line is incomplete, the on-disk file is truncated to the real byte
+ * offset after the last complete record (including its newline and any blank lines
+ * that preceded that record). Truncation must NOT be derived by rejoining parsed
+ * lines — that drops leading/middle blank bytes and can cut through a complete
+ * record. Callers that append concurrently should hold the run write lock around
+ * recover-then-append; this helper only repairs a trailing fragment.
  */
 export async function appendJsonlLine(filePath: string, line: string, fsync: boolean): Promise<void> {
   const contents = `${line}\n`;
@@ -41,6 +43,10 @@ export async function appendJsonlLine(filePath: string, line: string, fsync: boo
   }
 }
 
+function lineForParse(segment: string): string {
+  return segment.endsWith("\r") ? segment.slice(0, -1) : segment;
+}
+
 export async function readJsonlObjects(
   filePath: string,
   corrupt: (lineNumber: number) => Error
@@ -54,19 +60,34 @@ export async function readJsonlObjects(
   const segments = raw.split("\n");
   const values: unknown[] = [];
   const recovery: JsonlRecovery = {};
-  let completePrefix = "";
+  let cursor = 0;
+  /** Absolute UTF-8 byte offset of the end of the last successfully parsed record. */
+  let keepBytes = 0;
+
   for (let index = 0; index < segments.length; index += 1) {
-    const line = segments[index];
-    if (line === undefined || line === "") continue;
+    const segment = segments[index];
+    if (segment === undefined) continue;
+    const isLast = index === segments.length - 1;
+    const segmentBytes = Buffer.byteLength(segment, "utf8");
+    const newlineBytes = isLast ? 0 : 1;
+    const segmentEnd = cursor + segmentBytes + newlineBytes;
+    const parseLine = lineForParse(segment);
+
+    if (parseLine === "") {
+      cursor = segmentEnd;
+      continue;
+    }
+
     try {
-      values.push(JSON.parse(line) as unknown);
-      completePrefix += `${line}\n`;
+      values.push(JSON.parse(parseLine) as unknown);
+      keepBytes = segmentEnd;
+      cursor = segmentEnd;
     } catch {
-      if (index === segments.length - 1) {
-        recovery.incompleteLine = line;
+      if (isLast) {
+        recovery.incompleteLine = parseLine;
         recovery.lineNumber = index + 1;
-        const keepBytes = Buffer.byteLength(completePrefix, "utf8");
-        if (keepBytes < Buffer.byteLength(raw, "utf8")) {
+        const rawBytes = Buffer.byteLength(raw, "utf8");
+        if (keepBytes < rawBytes) {
           await truncate(filePath, keepBytes);
         }
         continue;

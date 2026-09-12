@@ -100,14 +100,11 @@ export async function withExclusiveFileLock<T>(
     if (isOwnedBy(current, ownerToken)) {
       // Windows can return EPERM/EBUSY while a contended peer still has the
       // directory entry cached; retry briefly rather than leave a stuck lock.
-      let lastRmError: unknown;
       for (let attempt = 0; attempt < 8; attempt += 1) {
         try {
           await rm(lockPath, { force: true });
-          lastRmError = undefined;
           break;
         } catch (rmError: unknown) {
-          lastRmError = rmError;
           const code = errorCode(rmError);
           if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") break;
           await new Promise((resolve) => setTimeout(resolve, 5 * (attempt + 1)));
