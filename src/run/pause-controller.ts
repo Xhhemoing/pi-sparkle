@@ -25,6 +25,18 @@ function pausePath(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId, "pause.json");
 }
 
+/**
+ * Writes `pause.json` without taking the run lifecycle lock. For the single-writer
+ * control plane: the caller already holds that lock (main loop or idle drain).
+ */
+export async function writePauseTokenUnlocked(
+  stateRoot: string,
+  runId: RunId,
+  token: PauseToken
+): Promise<void> {
+  await writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`);
+}
+
 function parsePauseToken(raw: string): PauseToken {
   let parsed: unknown;
   try {
@@ -99,7 +111,7 @@ export function createFilePauseController(
       };
       await withExclusiveFileLock(
         runLockPath(stateRoot, runId),
-        () => writeFileAtomic(pausePath(stateRoot, runId), `${JSON.stringify(token, null, 2)}\n`),
+        () => writePauseTokenUnlocked(stateRoot, runId, token),
         lockOptions
       );
       return token;
