@@ -78,7 +78,7 @@ is not a dependency.
 | Telemetry attribution | yes | `invocations.jsonl` round-trip | unit + integration (`pi-telemetry`) | no | Pricing catalog version separate from usage; retry/cache/timeout/cancel attributable; taxonomy versioning never rewrites history. Loop 2: every write to `invocations.jsonl` goes through the single locked writer surface `src/telemetry/invocation-log.ts` (validating append, fail-closed on a malformed record); `cost-calibration` re-exports the path from it so writer and reader cannot disagree on the location; reads stay lock-free. |
 | Severe safety one-offs | yes | pattern detector | unit (`patterns.test.ts`) | no | Single explicit severe safety events surface as one-off readiness findings below the recurrence floor. |
 | Checkpoint F-SIM | machinery | experiments | simulation tests | no | Must not close F-PROD. Paired utility is identically observed on both arms (`observedUtilityOnBothArms`), so utility delta is always 0. Selection disagreement rate and cost delta are the informative simulation metrics. |
-| Checkpoint F-PROD | no | no | no | no | Sealed holdout still open (ADR-005). |
+| Checkpoint F-PROD | no | no | no | no | Sealed holdout still open (ADR-005). PS-P4 trusted-experiment machinery landed (equivalent arms / freeze / ledger dedupe / oracle / keep-raw evidence) — does **not** close F-PROD or claim Week-1 seal. |
 
 ## Policy gates (human)
 

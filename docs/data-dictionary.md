@@ -619,6 +619,14 @@ must be added to `knownPaths` and to a record class together, or the suite
 fails. Lock sidecars are not durable paths and are not listed there; the list
 of them lives in the completeness audit above.
 
+## PS-P4 trusted experiment records (2026-09-13)
+
+- `adaptation/learning/projects/<stableProjectKey>/observation-ledger.json` — applied observation identity hashes; prevents double bandit reward apply. Class `observation-ledger`.
+- `adaptation/experiments/holdout/<blockId>/freeze.json` — frozen config/catalog/dirs/provenance/clock for a block. Class `experiment` (path extended).
+- `adaptation/experiments/holdout/<blockId>/arms/<arm>/evidence.jsonl` — de-sensitized per-invocation evidence. Default retention **keep-raw** (`DEFAULT_HOLDOUT_EVIDENCE_RETENTION`); `assertHoldoutEvidenceDeletionAllowed` refuses raw delete under keep-raw. Class `holdout-arm-evidence`.
+- Harness UNKNOWN / 0 invocations is `harness-failure`, not `production-candidate`.
+
+
 ## Rules
 
 - Raw prompts, response bodies, secrets, and hidden reasoning are excluded from

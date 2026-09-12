@@ -200,14 +200,38 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "experiment",
     owner: "adaptation",
-    path: "in-memory / fixture plans (no live assignment store)",
+    path: "adaptation/experiments/holdout/<blockId>/freeze.json (or in-memory / fixture plans)",
     retention: "until-deleted",
-    sensitiveFields: [],
-    redaction: "simulation evidence cannot close F-PROD",
+    sensitiveFields: ["de-sensitized per-invocation evidence under arms/*/"],
+    redaction: "PS-P4: keep-raw default for holdout armRuns; simulation evidence cannot close F-PROD; harness UNKNOWN ≠ production-candidate",
     deletion: "exclude-from-export",
     deletionPropagatesTo: [],
     migrationVersion: 1,
-    recovery: "re-validate the frozen plan before any assignment"
+    recovery: "re-validate the frozen plan + freeze record before any assignment"
+  },
+  {
+    id: "observation-ledger",
+    owner: "adaptation",
+    path: "adaptation/learning/projects/<stableProjectKey>/observation-ledger.json",
+    retention: "until-deleted",
+    sensitiveFields: [],
+    redaction: "applied observation identity hashes only; no task text, no bodies",
+    deletion: "delete-files",
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "missing ledger means no prior applies; duplicates then re-apply until ledger catches up"
+  },
+  {
+    id: "holdout-arm-evidence",
+    owner: "adaptation",
+    path: "adaptation/experiments/holdout/<blockId>/arms/<arm>/evidence.jsonl",
+    retention: "until-deleted",
+    sensitiveFields: ["redacted invocation rows", "oracle labels"],
+    redaction: "PS-P4 keep-raw default: de-sensitized per-invocation evidence retained for audit; aggregates-only only when policy says so",
+    deletion: "delete-files",
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "paired analysis reconstructible from freeze + retained evidence; do not drop raw under keep-raw"
   },
   {
     id: "run-pause",

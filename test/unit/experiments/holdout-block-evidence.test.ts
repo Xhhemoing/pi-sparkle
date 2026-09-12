@@ -1,13 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { pathToFileURL } from "node:url";
-import { join } from "node:path";
-
-const moduleUrl = pathToFileURL(
-  join(process.cwd(), "scripts/lib/holdout-block-evidence.mjs")
-).href;
-
-const { classifyHoldoutBlockEvidenceClass } = await import(moduleUrl);
+import { classifyHoldoutBlockEvidenceClass } from "../../../src/experiments/arm-outcome.js";
 
 describe("F6 holdout-block evidenceClass", () => {
   it("marks fake executor as simulation", () => {
@@ -24,8 +17,6 @@ describe("F6 holdout-block evidenceClass", () => {
   });
 
   it("demotes empty arms with UNKNOWN status to harness-failure (config/collector miss)", () => {
-    // Heidi / report repro: both arms never started (invocationCount 0, UNKNOWN)
-    // must not be production-candidate.
     assert.equal(
       classifyHoldoutBlockEvidenceClass({
         executor: "pi",

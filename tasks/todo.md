@@ -59,3 +59,12 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 - [x] Unit + integration tests (no live LLM)
 - [x] `pnpm gate` green + freeze tip (no merge)
 
+## PS-P4 trusted experiments (F6 hard gate)
+
+- [x] Equivalent R0/R1 full taskSpec compile (`src/experiments/task-spec.ts`); kill tasks[0]/placeholder prices/`Date.now`/fake family
+- [x] Freeze config/catalog/dirs/provenance/clock; empty freeze + empty provenance fail closed
+- [x] Observation ledger dedupe before bandit (`src/learning/observation-ledger.ts`); wired in auto-loop
+- [x] Independent oracle + auditable pairing; collection vs task vs telemetry vs evidenceClass
+- [x] Evidence retention keep-raw default; wired into retention delete gate; durable classes
+- [x] Tests + `pnpm gate`; freeze tip (no merge / no push / no P5)
+

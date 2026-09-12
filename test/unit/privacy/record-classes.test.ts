@@ -26,6 +26,8 @@ const REQUIRED_IDS = [
   "routing-eval-report",
   "routing-eval-dataset",
   "learning-bandit",
+  "observation-ledger",
+  "holdout-arm-evidence",
   "providers-config",
   "auth-credential"
 ] as const;
@@ -186,7 +188,10 @@ test("completeness: every known durable state-root path is covered by a class", 
     "adaptation/learning/projects/<stableProjectKey>/routing.json", // learned-routing-policy
     "adaptation/learning/projects/<stableProjectKey>/bandit.json", // learning-bandit
     "runtime/providers.json", // providers-config
-    "runtime/auth.json" // auth-credential
+    "runtime/auth.json", // auth-credential
+    "adaptation/learning/projects/<stableProjectKey>/observation-ledger.json", // observation-ledger
+    "adaptation/experiments/holdout/<blockId>/arms/<arm>/evidence.jsonl", // holdout-arm-evidence
+    "adaptation/experiments/holdout/<blockId>/freeze.json" // experiment freeze
   ];
   // A class path may list variant file shapes parenthetically (e.g. the
   // feedback log plus its tombstone sidecar); every listed shape counts as
