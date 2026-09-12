@@ -18,3 +18,7 @@ Phase D: [2026-08-18-phase-d-promotion-cas.md](../docs/superpowers/plans/2026-08
 Unplanned code already in the tree (`src/track/`, `src/cluster/`, `src/learning/auto-loop.ts`, `src/graph/compile-children.ts`) is **not** treated as a closed plan. It stays until it has its own accepted spec or is folded into the remaining adaptive work.
 
 Next architecture (not yet a task plan): [Pi intelligent adaptive loop report](../docs/reports/pi-intelligent-adaptive-loop.md) Phases 0–5, gated on ADR-006 (Proposed) and Checkpoint F.
+
+## PR-A harness-efficiency (2026-09-12)
+
+Offline JSONL aggregator + thin CLI on `grok/sol-efficiency`. Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).

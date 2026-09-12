@@ -28,3 +28,7 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 
 - [ ] Review whether consented data justifies external SFT/preference/RL.
 - [ ] Keep training infrastructure outside this TypeScript runtime.
+
+## PR-A harness-efficiency
+
+- [x] Offline `EfficiencyRow` / `EfficiencyReport` aggregator + `scripts/analyze-harness-efficiency.ts` (`--evidence-class synthetic|observed --input --json`). `monetarySavingUsd` always null. PR-B observation store is out of scope.
