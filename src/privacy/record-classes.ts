@@ -277,13 +277,13 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
     path: "runtime/runs/<runId>/loop-artifacts/<sha256>.json",
     retention: "run-scoped",
     sensitiveFields: ["diff/body text", "command stdout/stderr hashes bound in acceptance"],
-    redaction: "PS-P3 closed-loop artifacts (diff + independent-check + acceptance); content-addressed; not copied into optimization datasets",
+    redaction: "PS-P3/G1B closed-loop artifacts (envelope loop-artifact-v1; content-addressed body; hash verified on read); not copied into optimization datasets",
     deletion: "delete-files",
     // Removed with the whole runtime/runs/<runId>/ subtree by deleteRunRecords
     // (same cascade as observations). No separate unlink.
     deletionPropagatesTo: [],
     migrationVersion: 1,
-    recovery: "missing artifact fails acceptance binding closed; hash is the acceptance evidence id"
+    recovery: "missing artifact or hash/schema mismatch fails acceptance binding closed; hash is the acceptance evidence id"
   },
   {
     id: "routing-eval-report",

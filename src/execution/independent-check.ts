@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
+import { authorizeCommand, type CommandPolicy } from "./command-policy.js";
 import { readWorktreeRevision } from "./worktree.js";
 import {
   WORKTREE_FINGERPRINT_SCHEMA,
@@ -25,6 +26,12 @@ export interface IndependentCheckInput {
   readonly timeoutMs?: number;
   /** Host-fixed snapshot scope (model cannot override after the fact). */
   readonly snapshotManifest?: SnapshotManifest;
+  /**
+   * Optional host command policy (shared with sparkle_run_command). When
+   * omitted, the host-supplied command/args are treated as an allow rule with
+   * empty env allowlist — host API reuse, not model default-deny.
+   */
+  readonly commandPolicy?: CommandPolicy;
 }
 
 /**
@@ -78,12 +85,21 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
   const before = captureWorktreeFingerprint(cwd, manifest);
 
   const args = input.args ?? [];
-  const result = spawnSync(input.command, [...args], {
+  const policy: CommandPolicy =
+    input.commandPolicy ??
+    ({
+      allow: [{ executable: input.command, maxArgs: 256 }],
+      envAllowlist: [],
+      timeoutMs: input.timeoutMs ?? 60_000
+    } satisfies CommandPolicy);
+  const authorized = authorizeCommand(policy, input.command, args);
+  const result = spawnSync(authorized.executable, [...authorized.args], {
     cwd,
     encoding: "utf8",
     windowsHide: true,
-    timeout: input.timeoutMs ?? 60_000,
-    env: process.env
+    timeout: authorized.timeoutMs,
+    env: authorized.env,
+    maxBuffer: Math.max(authorized.maxStdoutBytes, authorized.maxStderrBytes)
   });
 
   if (result.error !== undefined && result.status === null && result.signal === null) {

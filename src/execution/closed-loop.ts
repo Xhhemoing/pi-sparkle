@@ -5,7 +5,12 @@ import {
   type SelfReportClaim
 } from "./acceptance.js";
 import { runIndependentCheck, type IndependentCheckRecord } from "./independent-check.js";
-import { saveLoopArtifact, type LoopArtifactRef } from "./loop-artifact.js";
+import { mkdir } from "node:fs/promises";
+import {
+  runDirectoryPath,
+  saveLoopArtifact,
+  type LoopArtifactRef
+} from "./loop-artifact.js";
 import {
   createIsolatedWorktree,
   disposeIsolatedWorktree,
@@ -64,6 +69,9 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
   const cwd = input.session.worktree.cwd;
   const revision = readWorktreeRevision(cwd);
   const args = input.args ?? [];
+  // Create the run directory once for this host check. saveLoopArtifact will
+  // not recreate a deleted run (assert under run lock).
+  await mkdir(runDirectoryPath(input.stateRoot, input.runId), { recursive: true, mode: 0o700 });
   const check = runIndependentCheck({
     cwd,
     command: input.command,
