@@ -29,7 +29,7 @@ export interface ObservedSignal {
   readonly outcomeKind?: OutcomeKind | undefined;
   /**
    * Attribution of a taskSuccess FAIL. Only `model` failures may lower a
-   * model's routing posterior; contract/tool/environment/run failures must
+   * model's routing posterior; contract/tool/environment/provider/run failures must
    * stay out of the bandit and avoid diagnostics. Missing = not attributable.
    */
   readonly failureClass?: FailureClass | undefined;

@@ -28,3 +28,43 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 
 - [ ] Review whether consented data justifies external SFT/preference/RL.
 - [ ] Keep training infrastructure outside this TypeScript runtime.
+
+## PR-A harness-efficiency
+
+- [x] Offline `EfficiencyRow` / `EfficiencyReport` aggregator + `scripts/analyze-harness-efficiency.ts` (`--evidence-class synthetic|observed --input --json`). `monetarySavingUsd` always null. PR-B observation store is out of scope.
+
+## PR-B observation store + offline projection
+
+- [x] `ObservationStore` put/recall under `runtime/runs/<runId>/observations/objects/<sha256>.txt` (SHA-256, 8 MiB/object, 64 MiB/run, run lock, symlink refusal, 0700/0600)
+- [x] `projectObservation` eligibility + priorFullSends full vs placeholder; enabled=false ⇒ no archive
+- [x] Unit + integration tests (store / projection / lifecycle reduction ≥70%)
+- [x] `run-observation` durable class + dictionary + status-matrix; delete cascade via run subtree
+- [ ] Reviewer / merge (do not push from this worktree)
+
+## PS-HOTFIX provider failure attribution
+
+- [x] finish() provider fail → UNOBSERVED + PROVIDER_ERROR (not FAILED empty evidence)
+- [x] FailureClass `provider` + classifyTaskFailure / R1 / bandit / diagnostics filters
+- [x] Regression: provider fail ∉ taskSuccess FAIL; model FAILED-with-evidence still counts
+- [x] docs/reports HOTFIX note; pending-local-review cleaned
+
+## PS-P3 real closed loop
+
+- [x] Isolated worktree create/dispose (`src/execution/worktree.ts`)
+- [x] Worktree-scoped coding tools read/write/run (`src/execution/coding-tools.ts`) + path-escape refusal
+- [x] Independent check runner binds exitCode / stdout+stderr hash / cwd / revision (`src/execution/independent-check.ts`)
+- [x] Acceptance requires independentCheck + artifactHash; self-report alone fails closed (`src/execution/acceptance.ts`)
+- [x] Run-scoped loop artifacts + `run-loop-artifact` durable class (delete cascade via run subtree)
+- [x] `createConfiguredPiExecutor` accepts `tools` at execution boundary
+- [x] Unit + integration tests (no live LLM)
+- [x] `pnpm gate` green + freeze tip (no merge)
+
+## PS-P4 trusted experiments (F6 hard gate)
+
+- [x] Equivalent R0/R1 full taskSpec compile (`src/experiments/task-spec.ts`); kill tasks[0]/placeholder prices/`Date.now`/fake family
+- [x] Freeze config/catalog/dirs/provenance/clock; empty freeze + empty provenance fail closed
+- [x] Observation ledger dedupe before bandit (`src/learning/observation-ledger.ts`); wired in auto-loop
+- [x] Independent oracle + auditable pairing; collection vs task vs telemetry vs evidenceClass
+- [x] Evidence retention keep-raw default; wired into retention delete gate; durable classes
+- [x] Tests + `pnpm gate`; freeze tip (no merge / no push / no P5)
+

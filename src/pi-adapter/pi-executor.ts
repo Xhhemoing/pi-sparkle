@@ -53,6 +53,7 @@ import {
   decideRetry,
   resolveRetryPolicy,
   sleepWithAbort,
+  taskFailureForProvider,
   type ProviderFailure,
   type RetryOptions
 } from "./provider-retry.js";
@@ -826,9 +827,19 @@ export class PiAgentExecutor implements AgentExecutor {
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       // The classified provider failure carries the reason a bare "finished"
       // would hide: surface it the way 9035's agent.state.errorMessage did.
+      // Provider/env failures stay UNOBSERVED so they never enter taskSuccess
+      // as FAILED-with-empty-evidence (which defaults to failureClass=model).
       const errorMessage = failure !== undefined && failure.message.trim() !== ""
         ? failure.message.trim()
         : undefined;
+      const providerFailure = failure !== undefined ? taskFailureForProvider(failure) : undefined;
+      // Synthesized silence is always UNOBSERVED (never FAILED with empty
+      // evidenceIds). Assign the object first so the option-a producer census
+      // still sees only the child-tool runtime path as a verification producer.
+      const synthesizedVerification = {
+        kind: "UNOBSERVED" as const,
+        evidenceIds: [] as EvidenceId[]
+      };
       yield {
         type: "MESSAGE",
         message: {
@@ -849,10 +860,8 @@ export class PiAgentExecutor implements AgentExecutor {
                 : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
-          verification:
-            outcome === "FAILURE" && errorMessage !== undefined
-              ? { kind: "FAILED", evidenceIds: [] }
-              : { kind: "UNOBSERVED", evidenceIds: [] }
+          verification: synthesizedVerification,
+          ...(providerFailure !== undefined ? { failure: providerFailure } : {})
         }
       };
     }

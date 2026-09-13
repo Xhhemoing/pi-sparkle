@@ -13,6 +13,35 @@ import {
   writeInvocationRecords
 } from "../telemetry/invocation-log.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
+import {
+  assertRawEvidenceDeletionAllowed,
+  DEFAULT_HOLDOUT_EVIDENCE_RETENTION,
+  type EvidenceRetentionPolicy
+} from "../experiments/evidence-retention.js";
+
+export {
+  assertRawEvidenceDeletionAllowed,
+  DEFAULT_HOLDOUT_EVIDENCE_RETENTION,
+  type EvidenceRetentionPolicy
+};
+
+/**
+ * Holdout armRun evidence deletion gate used by retain/delete tooling.
+ * Default policy is keep-raw (PS-P4).
+ */
+export function assertHoldoutEvidenceDeletionAllowed(input: {
+  readonly target: "raw" | "aggregate";
+  readonly aggregatePublished?: boolean | undefined;
+  readonly policy?: EvidenceRetentionPolicy | undefined;
+}): void {
+  assertRawEvidenceDeletionAllowed({
+    policy: input.policy ?? DEFAULT_HOLDOUT_EVIDENCE_RETENTION,
+    target: input.target,
+    ...(input.aggregatePublished !== undefined
+      ? { aggregatePublished: input.aggregatePublished }
+      : {})
+  });
+}
 
 /**
  * The age bound for the two record classes whose growth was previously

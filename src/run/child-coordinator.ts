@@ -37,6 +37,7 @@ import {
 } from "../protocol/v1.js";
 import { isAgentRole } from "../domain/roles.js";
 import type { ClusterHost } from "../cluster/host.js";
+import { DeltaAggregator } from "./event-aggregation.js";
 import { EventStore } from "./event-store.js";
 import type { Event } from "./events.js";
 import { classifyTaskFailure } from "../routing/failure-class.js";
@@ -733,12 +734,24 @@ export class ChildCoordinator {
     let terminalMessage: TaskResult | undefined;
     let executorOutcome: "SUCCESS" | "FAILURE" | "CANCELLED" | undefined;
     let failureReason: string | undefined;
+    const deltaAggregator = new DeltaAggregator();
 
     try {
       for await (const executionEvent of this.executor.execute(request, signal)) {
         if (timedOut || parentSignal.aborted) break;
+        const observed = deltaAggregator.observe(executionEvent);
+        for (const flush of observed.flushes) {
+          await this.appendChildEvent(
+            childRunId,
+            "AGENT_EVENT",
+            { agentInstanceId: childAgentId, kind: flush.kind, summary: flush.summary },
+            input.taskId
+          );
+        }
+        const passed = observed.passThrough;
+        if (passed === undefined) continue;
         const terminal = await this.handleExecutionEvent(
-          executionEvent,
+          passed,
           childRunId,
           input.taskId,
           childAgentId,
@@ -748,9 +761,17 @@ export class ChildCoordinator {
         // Do not break on the first terminal: a second TASK_RESULT must be
         // rejected by the transcript as a protocol violation.
         if (terminal !== undefined) terminalMessage = terminal;
-        if (executionEvent.type === "EXECUTION_FINISHED") {
-          executorOutcome = executionEvent.outcome;
+        if (passed.type === "EXECUTION_FINISHED") {
+          executorOutcome = passed.outcome;
         }
+      }
+      for (const flush of deltaAggregator.flush()) {
+        await this.appendChildEvent(
+          childRunId,
+          "AGENT_EVENT",
+          { agentInstanceId: childAgentId, kind: flush.kind, summary: flush.summary },
+          input.taskId
+        );
       }
     } catch (error) {
       executorOutcome = "FAILURE";

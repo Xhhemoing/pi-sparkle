@@ -21,9 +21,13 @@ const REQUIRED_IDS = [
   "learned-routing-policy",
   "run-pause",
   "track-questions",
+  "run-observation",
+  "run-loop-artifact",
   "routing-eval-report",
   "routing-eval-dataset",
   "learning-bandit",
+  "observation-ledger",
+  "holdout-arm-evidence",
   "providers-config",
   "auth-credential"
 ] as const;
@@ -77,10 +81,12 @@ const IMPLEMENTED_PROPAGATION: ReadonlyArray<{
       "run-checkpoint",
       "run-pause",
       "track-questions",
+      "run-observation",
+      "run-loop-artifact",
       "model-invocation",
       "routing-eval-dataset"
     ],
-    by: "deleteRunRecords: rm -r runtime/runs/<runId>/, filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
+    by: "deleteRunRecords: rm -r runtime/runs/<runId>/ (incl. observations/ and loop-artifacts/), filter-rewrite runtime/invocations.jsonl, and rm -r the default adaptation/eval-datasets/<runId>/ export"
   },
   {
     from: "model-invocation",
@@ -168,6 +174,8 @@ test("completeness: every known durable state-root path is covered by a class", 
     "runtime/runs/<runId>/checkpoint.json", // run-checkpoint
     "runtime/runs/<runId>/pause.json", // run-pause
     "runtime/runs/<runId>/track-questions.json", // track-questions
+    "runtime/runs/<runId>/observations/objects/<sha256>.txt", // run-observation
+    "runtime/runs/<runId>/loop-artifacts/<sha256>.json", // run-loop-artifact
     "runtime/episodes/<episodeId>.jsonl", // episode (project-episode log)
     "adaptation/feedback/records.jsonl", // feedback
     "adaptation/feedback/tombstones.json", // feedback tombstones
@@ -180,7 +188,10 @@ test("completeness: every known durable state-root path is covered by a class", 
     "adaptation/learning/projects/<stableProjectKey>/routing.json", // learned-routing-policy
     "adaptation/learning/projects/<stableProjectKey>/bandit.json", // learning-bandit
     "runtime/providers.json", // providers-config
-    "runtime/auth.json" // auth-credential
+    "runtime/auth.json", // auth-credential
+    "adaptation/learning/projects/<stableProjectKey>/observation-ledger.json", // observation-ledger
+    "adaptation/experiments/holdout/<blockId>/arms/<arm>/evidence.jsonl", // holdout-arm-evidence
+    "adaptation/experiments/holdout/<blockId>/freeze.json" // experiment freeze
   ];
   // A class path may list variant file shapes parenthetically (e.g. the
   // feedback log plus its tombstone sidecar); every listed shape counts as

@@ -15,8 +15,12 @@ export interface ClassifyTaskFailureInput {
 
 const CONTRACT_HINT =
   /\b(acceptance|criterion|criteria|contract|unspecified|not specified|planning omission|missing requirement|scope leak)\b/i;
+/** Provider/API/network faults — not the model's reasoning quality. */
+const PROVIDER_HINT =
+  /\b(ECONN(?:RESET|REFUSED)?|ETIMEDOUT|ENETUNREACH|EPIPE|ENOTFOUND|network|429|rate[- ]?limit(?:ed)?|too many requests|quota(?: exceeded)?|retry-after|socket hang up|upstream (?:overloaded|unavailable)|HTTP[/ ]?5\d\d|provider)\b/i;
+/** Local sandbox / filesystem environment — distinct from upstream provider. */
 const ENVIRONMENT_HINT =
-  /\b(EACCES|EPERM|ENOENT|ENOSPC|ECONN(?:RESET|REFUSED)?|ETIMEDOUT|ENETUNREACH|EPIPE|permission denied|sandbox|network|429|rate[- ]?limit(?:ed)?|too many requests|quota(?: exceeded)?|retry-after|socket hang up|upstream (?:overloaded|unavailable)|HTTP[/ ]?5\d\d)\b/i;
+  /\b(EACCES|EPERM|ENOENT|ENOSPC|permission denied|sandbox)\b/i;
 const TOOL_HINT = /\b(tool error|tool crashed|command failed|spawn)\b/i;
 
 /**
@@ -30,14 +34,15 @@ export function classifyTaskFailure(input: ClassifyTaskFailureInput): FailureCla
   if (input.verificationKind === "PASSED" || input.outcome === "SUCCESS") return undefined;
 
   if (input.httpStatus === 429 || (input.httpStatus !== undefined && input.httpStatus >= 500)) {
-    return "environment";
+    return "provider";
   }
   if (input.transportCode !== undefined && /^(ECONN|ENET|ETIMEDOUT|EPIPE|ENOTFOUND)/i.test(input.transportCode)) {
-    return "environment";
+    return "provider";
   }
 
   const text = `${input.summary ?? ""} ${input.failure?.detail ?? ""}`.trim();
   if (CONTRACT_HINT.test(text)) return "contract";
+  if (PROVIDER_HINT.test(text)) return "provider";
   if (ENVIRONMENT_HINT.test(text)) return "environment";
   if (TOOL_HINT.test(text)) return "tool";
 
@@ -50,6 +55,8 @@ export function classifyTaskFailure(input: ClassifyTaskFailureInput): FailureCla
       return "contract";
     case "MODEL_ERROR":
       return "model";
+    case "PROVIDER_ERROR":
+      return "provider";
     default:
       break;
   }

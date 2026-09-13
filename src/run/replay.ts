@@ -198,188 +198,173 @@ function isAgentOutcomeRecord(value: unknown): value is AgentOutcomeRecord {
   return true;
 }
 
-export function replayRun(events: readonly Event[]): ReconstructedRun {
-  let run: Run | undefined;
-  let project: ProjectSnapshot | undefined;
-  let status: RunStatus = "PLANNING";
-  const agentOutcomes: AgentOutcomeRecord[] = [];
-  let lastEventId: EventId | undefined;
-  const anomalies: string[] = [];
-  let sawCreated = false;
-  let sawStarted = false;
-  let sawTerminal = false;
-  // Which terminal is active, and — for BLOCKED — which event opened it. An
-  // unblock must name that exact event, so the pair travels together.
-  let activeTerminalType: "RUN_COMPLETED" | "RUN_FAILED" | "RUN_BLOCKED" | undefined;
-  let activeBlockedEventId: EventId | undefined;
-  let clearingUnblockEventId: EventId | undefined;
-  let sawCancel = false;
-  let sawWaiting = false;
-  let unmatchedPause = false;
+export class ReplayCursor {
+  run?: Run;
+  project?: ProjectSnapshot;
+  status: RunStatus = "PLANNING";
+  agentOutcomes: AgentOutcomeRecord[] = [];
+  lastEventId?: EventId;
+  anomalies: string[] = [];
+  sawCreated = false;
+  sawStarted = false;
+  sawTerminal = false;
+  activeTerminalType: "RUN_COMPLETED" | "RUN_FAILED" | "RUN_BLOCKED" | undefined = undefined;
+  activeBlockedEventId: EventId | undefined = undefined;
+  clearingUnblockEventId: EventId | undefined = undefined;
+  sawCancel = false;
+  sawWaiting = false;
+  unmatchedPause = false;
+}
 
-  for (const event of events) {
-    switch (event.type) {
-      case "RUN_CREATED": {
-        if (sawCreated) anomalies.push("multiple RUN_CREATED events");
-        sawCreated = true;
-        run = event.payload.run;
-        break;
-      }
-      case "PROJECT_DISCOVERED":
-        project = event.payload.project;
-        break;
-      case "RUN_STARTED": {
-        if (!sawCreated) anomalies.push("RUN_STARTED before RUN_CREATED");
-        sawStarted = true;
-        break;
-      }
-      case "AGENT_STARTED":
-      case "AGENT_EVENT":
-        break;
-      case "AGENT_FINISHED": {
-        agentOutcomes.push({
-          agentInstanceId: event.payload.agentInstanceId,
-          outcome: event.payload.outcome,
-          ...(event.taskId !== undefined ? { taskId: event.taskId } : {})
-        });
-        break;
-      }
-      case "RUN_COMPLETED":
-      case "RUN_FAILED": {
-        if (sawTerminal) anomalies.push("multiple terminal events");
-        sawTerminal = true;
-        activeTerminalType = event.type;
-        activeBlockedEventId = undefined;
-        clearingUnblockEventId = undefined;
-        status = event.type === "RUN_COMPLETED" ? "COMPLETED" : "FAILED";
-        break;
-      }
-      case "RUN_BLOCKED": {
-        if (sawTerminal) anomalies.push("RUN_BLOCKED after a terminal event");
-        sawTerminal = true;
-        activeTerminalType = "RUN_BLOCKED";
-        activeBlockedEventId = event.id;
-        clearingUnblockEventId = undefined;
-        status = "BLOCKED";
-        break;
-      }
-      case "RUN_UNBLOCKED":
-      case "RUN_UNBLOCKED_WITH_DISCARD": {
-        // Only an unblock that names the block currently in force clears the
-        // latch. Everything else is a fact the log keeps and an anomaly it
-        // reports: the terminal stays exactly where it was, so every writer
-        // that consults `replayedTerminalStatus` keeps refusing.
-        //
-        // Both clearing events answer to exactly these rules. The stronger one
-        // authorizes a wider *transform*, not a wider replay: if matching were
-        // laxer for it, an operator could clear a block the ordinary event
-        // could not by asking for more, which is the opposite of what the
-        // stronger authorization means. The anomaly names the event that
-        // caused it so a log reader can tell the two apart.
-        if (activeTerminalType === undefined) {
-          anomalies.push(`${event.type} without an active RUN_BLOCKED`);
-          break;
-        }
-        if (activeTerminalType !== "RUN_BLOCKED") {
-          anomalies.push(`${event.type} after a terminal event`);
-          break;
-        }
-        if (event.payload.blockedEventId !== activeBlockedEventId) {
-          anomalies.push(`${event.type} does not match the active RUN_BLOCKED`);
-          break;
-        }
-        sawTerminal = false;
-        activeTerminalType = undefined;
-        activeBlockedEventId = undefined;
-        clearingUnblockEventId = event.id;
-        // Back to the pre-terminal ladder below: started, waiting, paused and
-        // cancelled are all decided there, so the unblocked status is whatever
-        // the rest of the log says rather than a second opinion held here.
-        status = "PLANNING";
-        break;
-      }
-      case "RUN_CANCEL_REQUESTED": {
-        if (sawTerminal) anomalies.push("RUN_CANCEL_REQUESTED after a terminal event");
-        sawCancel = true;
-        break;
-      }
-      case "RUN_WAITING_FOR_USER": {
-        if (sawTerminal) anomalies.push("RUN_WAITING_FOR_USER after a terminal event");
-        sawWaiting = true;
-        break;
-      }
-      case "USER_ANSWER": {
-        sawWaiting = false;
-        break;
-      }
-      case "PAUSE_REQUESTED": {
-        if (sawTerminal) anomalies.push("PAUSE_REQUESTED after a terminal event");
-        unmatchedPause = true;
-        break;
-      }
-      case "PAUSE_CLEARED": {
-        if (sawTerminal) anomalies.push("PAUSE_CLEARED after a terminal event");
-        unmatchedPause = false;
-        break;
-      }
-      case "INJECTION_REQUESTED":
-      case "STEER_INJECTED":
-      case "CHILD_RUN_CREATED":
-      case "CHILD_MESSAGE":
-      case "TASK_TIMEOUT":
-      case "TASK_RETRY":
-      case "TASK_GRAPH_ACCEPTED":
-      case "TASK_LEASED":
-      case "TASK_LEASE_EXPIRED":
-      case "TASK_STATUS_CHANGED":
-      case "LEDGER_UPDATED":
-      case "STALL_DETECTED":
-      case "JUDGE_DECISION":
-      case "MODEL_ROUTED":
-      case "EPISODE_OPENED":
-      case "RUN_ATTACHED":
-      case "EPISODE_WAITING":
-      case "EPISODE_CLOSED":
-      case "TRACKING_ASSESSMENT":
-      case "GATE_TRANSITION":
-        break;
+export function createReplayCursor(): ReplayCursor {
+  return new ReplayCursor();
+}
+
+function applyOneReplayEvent(cursor: ReplayCursor, event: Event): void {
+  switch (event.type) {
+    case "RUN_CREATED": {
+      if (cursor.sawCreated) cursor.anomalies.push("multiple RUN_CREATED events");
+      cursor.sawCreated = true;
+      cursor.run = event.payload.run;
+      break;
     }
-    lastEventId = event.id;
+    case "PROJECT_DISCOVERED":
+      cursor.project = event.payload.project;
+      break;
+    case "RUN_STARTED": {
+      if (!cursor.sawCreated) cursor.anomalies.push("RUN_STARTED before RUN_CREATED");
+      cursor.sawStarted = true;
+      break;
+    }
+    case "AGENT_STARTED":
+    case "AGENT_EVENT":
+      break;
+    case "AGENT_FINISHED": {
+      cursor.agentOutcomes.push({
+        agentInstanceId: event.payload.agentInstanceId,
+        outcome: event.payload.outcome,
+        ...(event.taskId !== undefined ? { taskId: event.taskId } : {})
+      });
+      break;
+    }
+    case "RUN_COMPLETED":
+    case "RUN_FAILED": {
+      if (cursor.sawTerminal) cursor.anomalies.push("multiple terminal events");
+      cursor.sawTerminal = true;
+      cursor.activeTerminalType = event.type;
+      cursor.activeBlockedEventId = undefined;
+      cursor.clearingUnblockEventId = undefined;
+      cursor.status = event.type === "RUN_COMPLETED" ? "COMPLETED" : "FAILED";
+      break;
+    }
+    case "RUN_BLOCKED": {
+      if (cursor.sawTerminal) cursor.anomalies.push("RUN_BLOCKED after a terminal event");
+      cursor.sawTerminal = true;
+      cursor.activeTerminalType = "RUN_BLOCKED";
+      cursor.activeBlockedEventId = event.id;
+      cursor.clearingUnblockEventId = undefined;
+      cursor.status = "BLOCKED";
+      break;
+    }
+    case "RUN_UNBLOCKED":
+    case "RUN_UNBLOCKED_WITH_DISCARD": {
+      if (cursor.activeTerminalType === undefined) {
+        cursor.anomalies.push(`${event.type} without an active RUN_BLOCKED`);
+        break;
+      }
+      if (cursor.activeTerminalType !== "RUN_BLOCKED") {
+        cursor.anomalies.push(`${event.type} after a terminal event`);
+        break;
+      }
+      if (event.payload.blockedEventId !== cursor.activeBlockedEventId) {
+        cursor.anomalies.push(`${event.type} does not match the active RUN_BLOCKED`);
+        break;
+      }
+      cursor.sawTerminal = false;
+      cursor.activeTerminalType = undefined;
+      cursor.activeBlockedEventId = undefined;
+      cursor.clearingUnblockEventId = event.id;
+      cursor.status = "PLANNING";
+      break;
+    }
+    case "RUN_CANCEL_REQUESTED": {
+      if (cursor.sawTerminal) cursor.anomalies.push("RUN_CANCEL_REQUESTED after a terminal event");
+      cursor.sawCancel = true;
+      break;
+    }
+    case "RUN_WAITING_FOR_USER": {
+      if (cursor.sawTerminal) cursor.anomalies.push("RUN_WAITING_FOR_USER after a terminal event");
+      cursor.sawWaiting = true;
+      break;
+    }
+    case "USER_ANSWER": {
+      cursor.sawWaiting = false;
+      break;
+    }
+    case "PAUSE_REQUESTED": {
+      if (cursor.sawTerminal) cursor.anomalies.push("PAUSE_REQUESTED after a terminal event");
+      cursor.unmatchedPause = true;
+      break;
+    }
+    case "PAUSE_CLEARED": {
+      if (cursor.sawTerminal) cursor.anomalies.push("PAUSE_CLEARED after a terminal event");
+      cursor.unmatchedPause = false;
+      break;
+    }
+    case "INJECTION_REQUESTED":
+    case "STEER_INJECTED":
+    case "CHILD_RUN_CREATED":
+    case "CHILD_MESSAGE":
+    case "TASK_TIMEOUT":
+    case "TASK_RETRY":
+    case "TASK_GRAPH_ACCEPTED":
+    case "TASK_LEASED":
+    case "TASK_LEASE_EXPIRED":
+    case "TASK_STATUS_CHANGED":
+    case "LEDGER_UPDATED":
+    case "STALL_DETECTED":
+    case "JUDGE_DECISION":
+    case "MODEL_ROUTED":
+    case "EPISODE_OPENED":
+    case "RUN_ATTACHED":
+    case "EPISODE_WAITING":
+    case "EPISODE_CLOSED":
+    case "TRACKING_ASSESSMENT":
+    case "GATE_TRANSITION":
+      break;
   }
+  cursor.lastEventId = event.id;
+}
 
-  if (!sawTerminal) {
-    if (sawCancel) status = "CANCELLED";
-    else if (unmatchedPause) status = "PAUSED";
-    else if (sawWaiting) status = "WAITING_FOR_USER";
-    else if (sawStarted) status = "RUNNING";
+export function applyReplayEvents(cursor: ReplayCursor, events: readonly Event[]): ReplayCursor {
+  for (const event of events) applyOneReplayEvent(cursor, event);
+  return cursor;
+}
+
+export function snapshotReplay(cursor: ReplayCursor): ReconstructedRun {
+  let status = cursor.status;
+  if (!cursor.sawTerminal) {
+    if (cursor.sawCancel) status = "CANCELLED";
+    else if (cursor.unmatchedPause) status = "PAUSED";
+    else if (cursor.sawWaiting) status = "WAITING_FOR_USER";
+    else if (cursor.sawStarted) status = "RUNNING";
   }
-
   return {
-    ...(run !== undefined ? { run } : {}),
-    ...(project !== undefined ? { project } : {}),
+    ...(cursor.run !== undefined ? { run: cursor.run } : {}),
+    ...(cursor.project !== undefined ? { project: cursor.project } : {}),
     status,
-    agentOutcomes,
-    ...(lastEventId !== undefined ? { lastEventId } : {}),
-    anomalies,
-    ...(activeBlockedEventId !== undefined ? { activeBlockedEventId } : {}),
-    ...(clearingUnblockEventId !== undefined ? { clearingUnblockEventId } : {})
+    agentOutcomes: cursor.agentOutcomes.slice(),
+    ...(cursor.lastEventId !== undefined ? { lastEventId: cursor.lastEventId } : {}),
+    anomalies: cursor.anomalies.slice(),
+    ...(cursor.activeBlockedEventId !== undefined ? { activeBlockedEventId: cursor.activeBlockedEventId } : {}),
+    ...(cursor.clearingUnblockEventId !== undefined ? { clearingUnblockEventId: cursor.clearingUnblockEventId } : {})
   };
 }
 
-/**
- * The statuses a replayed log treats as terminal: exactly the ones
- * {@link replayRun} sets `sawTerminal` for, so a second terminal event after any
- * of them is an anomaly. `RUN_BLOCKED` is one of them — the tracking gate's
- * `queue_analysis` means "terminal BLOCKED until an explicit unblock", not "keep
- * going" — which is why it belongs here next to COMPLETED and FAILED.
- *
- * Neither clearing event — `RUN_UNBLOCKED` nor `RUN_UNBLOCKED_WITH_DISCARD` —
- * is in this set, and neither is a status: they end the active BLOCKED
- * interval, after which the log has no terminal at all and the next COMPLETED,
- * FAILED or BLOCKED is the new one. That is the whole integration seam — every
- * writer that asks {@link replayedTerminalStatus} whether the log already ended
- * opens again with no per-writer exception.
- */
+export function replayRun(events: readonly Event[]): ReconstructedRun {
+  return snapshotReplay(applyReplayEvents(createReplayCursor(), events));
+}
+
 export const TERMINAL_REPLAY_STATUSES: ReadonlySet<RunStatus> = new Set([
   "COMPLETED",
   "FAILED",

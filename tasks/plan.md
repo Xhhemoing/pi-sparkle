@@ -18,3 +18,20 @@ Phase D: [2026-08-18-phase-d-promotion-cas.md](../docs/superpowers/plans/2026-08
 Unplanned code already in the tree (`src/track/`, `src/cluster/`, `src/learning/auto-loop.ts`, `src/graph/compile-children.ts`) is **not** treated as a closed plan. It stays until it has its own accepted spec or is folded into the remaining adaptive work.
 
 Next architecture (not yet a task plan): [Pi intelligent adaptive loop report](../docs/reports/pi-intelligent-adaptive-loop.md) Phases 0–5, gated on ADR-006 (Proposed) and Checkpoint F.
+
+## PR-A harness-efficiency (2026-09-12)
+
+Offline JSONL aggregator + thin CLI on `grok/sol-efficiency`. Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).
+
+## PR-B observation store + offline projection (2026-09-13)
+
+Run-scoped content-addressed observation archive + pure projection/recall on `grok/sol-efficiency`. No live Pi executor / CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm.
+
+## PS-HOTFIX provider failure attribution (2026-09-12)
+
+On tip after PR-A+PR-B (`da38a44`). Provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable.
+
+## PS-P3 real closed loop (2026-09-12 / 2026-09-13)
+
+Isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only). Does not flip `independentEvidence` from child self-report. No P4/P5/Soul; no merge.
+

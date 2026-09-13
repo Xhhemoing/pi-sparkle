@@ -28,6 +28,7 @@ export {
   DEFAULT_RETRY_POLICY,
   callOutcomeForFailure,
   classifyProviderFailure,
+  taskFailureForProvider,
   decideRetry,
   resolveRetryPolicy,
   sleepWithAbort,
@@ -56,3 +57,8 @@ export {
   resolveListedModel,
   type SparkleListedModel
 } from "./listed-model.js";
+export {
+  createWorktreeCodingTools,
+  type WorktreeCodingToolsContext
+} from "./worktree-coding-tools.js";
+

@@ -32,6 +32,7 @@ import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-loc
 import { CheckpointStore } from "./checkpoint-store.js";
 import { ChildCoordinator, type ChildRunHandle, type ChildRunOutcome, type ChildTaskInput } from "./child-coordinator.js";
 import { groundChildTask } from "./child-grounding.js";
+import { DeltaAggregator } from "./event-aggregation.js";
 import { EventStore, runLockPath } from "./event-store.js";
 import { type AgentEventKind, type Event, type M0EventType, type ModelRoutedPayload, routingContextFields } from "./events.js";
 import { assertCoverageAllowsStart } from "../requirement/coverage.js";
@@ -383,6 +384,7 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
 
     try {
       let sawTerminal = false;
+      const deltaAggregator = new DeltaAggregator();
       for await (const executionEvent of deps.executor.execute(
         {
           runId,
@@ -398,32 +400,40 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
         controller.signal
       )) {
         if (sawTerminal) break;
-        switch (executionEvent.type) {
+        const observed = deltaAggregator.observe(executionEvent);
+        for (const flush of observed.flushes) {
+          await append(agentEvent(flush.kind, flush.summary));
+        }
+        const passed = observed.passThrough;
+        if (passed === undefined) continue;
+        switch (passed.type) {
           case "TEXT_DELTA":
-            await append(agentEvent("TEXT_DELTA", `text delta (${executionEvent.text.length} chars)`));
-            break;
           case "THINKING_DELTA":
-            await append(agentEvent("THINKING_DELTA", `thinking delta (${executionEvent.bytes} bytes)`));
             break;
           case "TOOL_STARTED":
-            await append(agentEvent("TOOL_STARTED", bounded(executionEvent.toolName)));
+            await append(agentEvent("TOOL_STARTED", bounded(passed.toolName)));
             break;
           case "TOOL_FINISHED":
-            await append(agentEvent("TOOL_FINISHED", executionEvent.isError ? "tool error" : "tool finished"));
+            await append(agentEvent("TOOL_FINISHED", passed.isError ? "tool error" : "tool finished"));
             break;
           case "TURN_FINISHED":
             await append(agentEvent("TURN_FINISHED", "turn finished"));
             break;
+          case "MESSAGE":
+            break;
           case "EXECUTION_FINISHED": {
             sawTerminal = true;
-            outcome = executionEvent.outcome;
-            if (executionEvent.outcome === "FAILURE") {
+            outcome = passed.outcome;
+            if (passed.outcome === "FAILURE") {
               failureReason = "agent reported failure";
             }
             await append(make("AGENT_FINISHED", { agentInstanceId, outcome }, rootTaskId));
             break;
           }
         }
+      }
+      for (const flush of deltaAggregator.flush()) {
+        await append(agentEvent(flush.kind, flush.summary));
       }
     } catch (error) {
       outcome = "FAILURE";

@@ -1,0 +1,3 @@
+{"schemaVersion":1,"runId":"r-complete","requestId":"q1","observationId":"o1","baselineBytes":1000,"projectedBytes":250}
+{"schemaVersion":1,"runId":"r-complete","requestId":"q2","observationId":"o2","baselineBytes":null,"projectedBytes":100}
+{"schemaVersion":1,"runId":"r-complete","requestId":"q3","observationId":"o3","baselineBytes":1000,"projectedBytes":null}
