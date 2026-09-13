@@ -5,9 +5,8 @@ import {
   type SelfReportClaim
 } from "./acceptance.js";
 import { runIndependentCheck, type IndependentCheckRecord } from "./independent-check.js";
-import { mkdir } from "node:fs/promises";
 import {
-  runDirectoryPath,
+  assertRunPresent,
   saveLoopArtifact,
   type LoopArtifactRef
 } from "./loop-artifact.js";
@@ -62,16 +61,14 @@ export interface ClosedLoopResult {
 }
 
 /**
- * Independent check → save artifact → record acceptance. Self-report is
- * optional and never sufficient alone.
+ * Independent check, then save artifact, then record acceptance. Self-report is
+ * optional and never sufficient alone. Does not create a run directory.
  */
 export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promise<ClosedLoopResult> {
   const cwd = input.session.worktree.cwd;
   const revision = readWorktreeRevision(cwd);
   const args = input.args ?? [];
-  // Create the run directory once for this host check. saveLoopArtifact will
-  // not recreate a deleted run (assert under run lock).
-  await mkdir(runDirectoryPath(input.stateRoot, input.runId), { recursive: true, mode: 0o700 });
+  await assertRunPresent(input.stateRoot, input.runId);
   const check = runIndependentCheck({
     cwd,
     command: input.command,

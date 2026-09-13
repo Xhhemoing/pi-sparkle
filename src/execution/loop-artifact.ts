@@ -27,6 +27,10 @@ export function runDirectoryPath(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId);
 }
 
+export function runEventsPath(stateRoot: string, runId: RunId): string {
+  return join(runDirectoryPath(stateRoot, runId), "events.jsonl");
+}
+
 export interface LoopArtifactRef {
   readonly id: string;
   readonly sha256: string;
@@ -47,9 +51,10 @@ function sha256OfText(text: string): { hex: string; bytes: Buffer } {
   return { hex, bytes };
 }
 
-async function assertRunPresent(stateRoot: string, runId: RunId): Promise<void> {
+/** Durable run identity is events.jsonl, not an empty directory from mkdir. */
+export async function assertRunPresent(stateRoot: string, runId: RunId): Promise<void> {
   try {
-    await access(runDirectoryPath(stateRoot, runId));
+    await access(runEventsPath(stateRoot, runId));
   } catch {
     throw new DomainValidationError(
       `loop artifact refused: run directory missing for ${runId} (deleted or never created)`

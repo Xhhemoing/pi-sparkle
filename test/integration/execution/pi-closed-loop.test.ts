@@ -26,7 +26,8 @@ import {
 import type { CommandPolicy } from "../../../src/execution/command-policy.js";
 import {
   loopArtifactPath,
-  readLoopArtifact
+  readLoopArtifact,
+  runDirectoryPath
 } from "../../../src/execution/loop-artifact.js";
 import { createConfiguredPiExecutor } from "../../../src/pi-adapter/runtime.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
@@ -54,6 +55,13 @@ const NODE_POLICY: CommandPolicy = {
   timeoutMs: 15_000,
   envAllowlist: []
 };
+
+
+async function seedDurableRun(stateRoot: string, runId: ReturnType<typeof createRunId>): Promise<void> {
+  const dir = runDirectoryPath(stateRoot, runId);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(dir, "events.jsonl"), "", "utf8");
+}
 
 function git(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true });
@@ -135,7 +143,8 @@ async function withHarness(
     scriptedResponse
   });
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     await withIsolatedPiEnv(async () => {
       await run({ sourceRepo, sandbox, stateRoot, session, provider, runId });
     });
@@ -525,7 +534,8 @@ test("G2 negative: session cleanup does not wipe sole failure evidence under sta
     scriptedResponse: () => ({ text: "no tools used" })
   });
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  let artifactSha: string | undefined;
+
+    await seedDurableRun(stateRoot, runId);  let artifactSha: string | undefined;
   try {
     await withIsolatedPiEnv(async () => {
       const tools = createWorktreeCodingTools({

@@ -11,7 +11,8 @@ import {
   runClosedLoopCheck
 } from "../../../src/execution/closed-loop.js";
 import { evaluateIndependentAcceptance } from "../../../src/execution/acceptance.js";
-import { loopArtifactsDir } from "../../../src/execution/loop-artifact.js";
+import { loopArtifactsDir, runDirectoryPath } from "../../../src/execution/loop-artifact.js";
+import { deleteRunRecords } from "../../../src/privacy/deletion.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 
 function git(cwd: string, args: readonly string[]): void {
@@ -33,6 +34,13 @@ async function makeSourceRepo(): Promise<string> {
   return repo;
 }
 
+
+async function seedDurableRun(stateRoot: string, runId: ReturnType<typeof createRunId>): Promise<void> {
+  const dir = runDirectoryPath(stateRoot, runId);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(dir, "events.jsonl"), "", "utf8");
+}
+
 /** Independent check: file must contain the expected token. */
 const CHECK_ARGS = [
   "-e",
@@ -46,7 +54,8 @@ test("closed loop: edit in worktree → independent test sees it → artifact �
   const runId = createRunId();
 
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd });
     const write = tools.find((t) => t.name === "sparkle_write_file");
     assert.ok(write);
@@ -98,7 +107,8 @@ test("closed loop: command failure surfaces as acceptance fail", async () => {
   const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
   const runId = createRunId();
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     // No edit — version remains 1, so the version=2 check fails.
     const result = await runClosedLoopCheck({
       session,
@@ -141,7 +151,8 @@ test("closed loop: check that only writes under allowedOutputDirs still accepts"
   const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
   const runId = createRunId();
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd });
     const write = tools.find((t) => t.name === "sparkle_write_file");
     assert.ok(write);
@@ -191,7 +202,8 @@ test("closed loop: quotePath Chinese file rewrite during check is not accepted",
   const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
   const runId = createRunId();
   const session = await openClosedLoop({ sourceRepo: repo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     git(session.worktree.cwd, ["config", "core.quotePath", "true"]);
     await writeFile(path.join(session.worktree.cwd, "ä¸­æ–‡.txt"), "v2\n", "utf8");
     const result = await runClosedLoopCheck({
@@ -212,3 +224,37 @@ test("closed loop: quotePath Chinese file rewrite during check is not accepted",
   }
 });
 
+test("closed loop: deleted run is not revived by runClosedLoopCheck", async () => {
+  const sourceRepo = await makeSourceRepo();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
+  const runId = createRunId();
+  const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
+
+    await seedDurableRun(stateRoot, runId);  try {
+    const runDir = runDirectoryPath(stateRoot, runId);
+    await mkdir(runDir, { recursive: true, mode: 0o700 });
+    await writeFile(path.join(runDir, "events.jsonl"), "", "utf8");
+    await deleteRunRecords(stateRoot, runId);
+    await assert.rejects(() => access(runDir));
+
+    await assert.rejects(
+      () =>
+        runClosedLoopCheck({
+          session,
+          stateRoot,
+          runId,
+          command: "node",
+          args: ["-e", "process.exit(0)"]
+        }),
+      /missing|refused/
+    );
+
+    await assert.rejects(() => access(runDir));
+  } finally {
+    await closeClosedLoop(session);
+    await rm(sourceRepo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
