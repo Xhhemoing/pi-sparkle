@@ -1,4 +1,8 @@
 import type { IndependentCheckRecord } from "./independent-check.js";
+import {
+  WORKTREE_FINGERPRINT_SCHEMA,
+  type WorktreeFingerprint
+} from "./worktree-snapshot.js";
 
 /**
  * Optional child self-report. Never sufficient alone for independent
@@ -13,8 +17,9 @@ export interface SelfReportClaim {
 
 /**
  * Closed-loop acceptance record. Acceptance requires a successful independent
- * command check bound to revision / artifactHash / cwd / command. A self-report
- * with PASSED and empty evidenceIds fails closed.
+ * command check bound to revision / artifactHash / cwd / command / argv and
+ * g1a-v1 content fingerprints. A self-report with PASSED and empty evidenceIds
+ * fails closed.
  */
 export interface ClosedLoopAcceptance {
   readonly selfReport?: SelfReportClaim;
@@ -23,6 +28,7 @@ export interface ClosedLoopAcceptance {
   readonly revision: string;
   readonly cwd: string;
   readonly command: string;
+  readonly args: readonly string[];
   readonly accepted: boolean;
   readonly reason: string;
 }
@@ -34,22 +40,43 @@ export interface EvaluateAcceptanceInput {
   readonly artifactHash?: string;
   readonly revision: string;
   readonly cwd: string;
+  /** Host-declared check command (must match independentCheck.command). */
   readonly command: string;
+  /** Host-declared argv (must match independentCheck.args). */
+  readonly args?: readonly string[];
+}
+
+function argsEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function fingerprintUsable(fp: WorktreeFingerprint | undefined): boolean {
+  return fp !== undefined && fp.schemaVersion === WORKTREE_FINGERPRINT_SCHEMA && fp.digest.length === 64;
 }
 
 /**
  * Fail closed unless an independent command check succeeded and an artifact
  * hash is bound. Self-report alone (including PASSED + empty evidenceIds) is
  * never enough — that is the known failure mode this closes.
+ *
+ * G1A: also requires command/argv match, g1a-v1 fingerprints before/after the
+ * check, and identical digests (or host-declared compatible equality already
+ * enforced when the check was produced).
  */
 export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): ClosedLoopAcceptance {
+  const hostArgs = input.args ?? [];
   const base = {
     ...(input.selfReport !== undefined ? { selfReport: input.selfReport } : {}),
     ...(input.independentCheck !== undefined ? { independentCheck: input.independentCheck } : {}),
     ...(input.artifactHash !== undefined ? { artifactHash: input.artifactHash } : {}),
     revision: input.revision,
     cwd: input.cwd,
-    command: input.command
+    command: input.command,
+    args: hostArgs
   };
 
   if (input.independentCheck === undefined) {
@@ -60,11 +87,13 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  if (!input.independentCheck.ok || input.independentCheck.exitCode !== 0) {
+  const check = input.independentCheck;
+
+  if (!check.ok || check.exitCode !== 0) {
     return {
       ...base,
       accepted: false,
-      reason: `independent check failed (exitCode=${input.independentCheck.exitCode})`
+      reason: `independent check failed (exitCode=${check.exitCode})`
     };
   }
 
@@ -76,11 +105,7 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  // Bindings must agree with the check record when present.
-  if (
-    input.independentCheck.cwd !== input.cwd ||
-    input.independentCheck.revision !== input.revision
-  ) {
+  if (check.cwd !== input.cwd || check.revision !== input.revision) {
     return {
       ...base,
       accepted: false,
@@ -88,10 +113,47 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  if (
-    input.independentCheck.artifactHash !== undefined &&
-    input.independentCheck.artifactHash !== input.artifactHash
-  ) {
+  if (check.command !== input.command || !argsEqual(check.args, hostArgs)) {
+    return {
+      ...base,
+      accepted: false,
+      reason: "independent check command/argv mismatch with host-declared acceptance binding"
+    };
+  }
+
+  if (check.schemaVersion !== WORKTREE_FINGERPRINT_SCHEMA) {
+    return {
+      ...base,
+      accepted: false,
+      reason: "independent check missing g1a-v1 schemaVersion (legacy HEAD-only evidence is not upgraded)"
+    };
+  }
+
+  if (!fingerprintUsable(check.contentFingerprintBefore) || !fingerprintUsable(check.contentFingerprintAfter)) {
+    return {
+      ...base,
+      accepted: false,
+      reason: "independent check missing g1a-v1 content fingerprints"
+    };
+  }
+
+  if (check.contentFingerprintBefore!.digest !== check.contentFingerprintAfter!.digest) {
+    return {
+      ...base,
+      accepted: false,
+      reason: "candidate content fingerprint changed across independent check"
+    };
+  }
+
+  if (check.contentFingerprintBefore!.headRevision !== input.revision) {
+    return {
+      ...base,
+      accepted: false,
+      reason: "fingerprint headRevision does not match acceptance revision binding"
+    };
+  }
+
+  if (check.artifactHash !== undefined && check.artifactHash !== input.artifactHash) {
     return {
       ...base,
       accepted: false,
@@ -102,6 +164,6 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
   return {
     ...base,
     accepted: true,
-    reason: "independent check ok with artifact binding"
+    reason: "independent check ok with artifact + g1a-v1 content binding"
   };
 }
