@@ -1,5 +1,6 @@
 # Active implementation plan
 
+Process entry point: [AGENTS.md](../AGENTS.md) -> [docs/development-workflow.md](../docs/development-workflow.md) -> [	asks/README.md](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
 Completed runtime M0–M2.5 and accepted adaptive slices were archived on 2026-08-17:
 
 - [M0–M2.5 plan](archive/m0-m2-plan.md)
@@ -35,3 +36,10 @@ On tip after PR-A+PR-B (`da38a44`). Provider/env failures synthesize `verificati
 
 Isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only). Does not flip `independentEvidence` from child self-report. No P4/P5/Soul; no merge.
 
+## Grok follow-up — trusted execution (2026-09-13)
+
+`TASK-20260913-grok-trusted-execution`: [next-round plan](../docs/superpowers/plans/2026-09-13-grok-trusted-execution.md). Research base: merged PR #36 / remote main `6ee16a3722fda35d9b6098144602f199fb0a7d0f`. Sequence: G0 reproducible workflow baseline → G1A independent acceptance/content binding → G1B tool/artifact boundaries → G2 real-adapter offline loopback. G3 inventories F6 readiness (report-only). Do not repeat A/B/HOTFIX/P3/P4/P5. Active seat work starts at G0 on branch `grok/trusted-execution-g0`.
+
+## SoL-Pi efficiency delivery (2026-09-13)
+
+`TASK-20260913-sol-pi-efficiency` merged via [PR #36](https://github.com/Xhhemoing/pi-sparkle/pull/36): head `4804d4c625559b58675a4726bbdd43eeecb78e4c`, remote main `6ee16a3722fda35d9b6098144602f199fb0a7d0f`. Evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts / GitHub reviews: see G0 report (unavailable on GitHub reviews API). Do not reimplement the merged chain.
