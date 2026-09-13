@@ -6,6 +6,8 @@ Do not begin claiming `Outcome-supported` until Checkpoint F item 1 is closed. D
 
 ## P0: Freeze privacy, storage, and authority
 
+> **G0 reconciliation (2026-09-13):** P0 privacy/storage/authority is closed per [docs/status-matrix.md](../docs/status-matrix.md) and [	asks/adaptive-todo.md](adaptive-todo.md) (technical re-verification 2026-08-26). Unchecked boxes below in this archive-oriented plan are historical leftovers, not a claim that P0 is open again. Do not re-open P0 from this file alone.
+
 **Blocked on:** independent privacy review only. ADR-004 was accepted and the six defaults approved unchanged on 2026-08-21 (see `docs/reports/2026-08-21-gates-readiness.md`).
 
 **Acceptance:**

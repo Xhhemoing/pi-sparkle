@@ -1,5 +1,6 @@
 # Active checklist
 
+Process entry point: [AGENTS.md](../AGENTS.md) -> [docs/development-workflow.md](../docs/development-workflow.md) -> [	asks/README.md](README.md). Every [x] below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-2026-08-17.md).
 
 ## Human / policy gates (block claims, not local fake tests)
@@ -68,3 +69,18 @@ See [adaptive-todo.md](adaptive-todo.md) for older M3 leftovers. Do not mark Che
 - [x] Evidence retention keep-raw default; wired into retention delete gate; durable classes
 - [x] Tests + `pnpm gate`; freeze tip (no merge / no push / no P5)
 
+## Grok follow-up — trusted execution (2026-09-13)
+
+Plan: [TASK-20260913-grok-trusted-execution](../docs/superpowers/plans/2026-09-13-grok-trusted-execution.md).
+
+- [ ] G0 — reproducible workflow baseline + evidence reconciliation; report `docs/reports/2026-09-13-grok-g0-baseline.md`.
+- [ ] G1A — independent acceptance binds command/argv + candidate content; focused RED/GREEN + `pnpm gate`.
+- [ ] G1B — tool/artifact boundaries; gate/security/Pi probes.
+- [ ] G2 — real adapter + local HTTP loopback after G1A/B; no live LLM / default CLI.
+- [ ] G3 — F6 readiness/pollution inventory (report-only); no seal/oracle.
+
+## SoL-Pi efficiency — delivery (2026-09-13)
+
+- [x] PR #36 MERGED 2026-09-13T08:19:09Z; main `6ee16a3722fda35d9b6098144602f199fb0a7d0f` includes tip `4804d4c`.
+- [ ] SCM supplies per-stage independent Reviewer PASS artifacts with exact SHAs (GitHub reviews array empty — unavailable).
+- [ ] F6 seal/real-provider holdout remain separately gated.
