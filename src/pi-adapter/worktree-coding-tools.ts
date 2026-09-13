@@ -7,12 +7,18 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import { resolveInsideRoot } from "../execution/paths.js";
+import { authorizeCommand, type CommandPolicy } from "../execution/command-policy.js";
 
 export interface WorktreeCodingToolsContext {
   /** Absolute isolated worktree root; all paths are bound here. */
   readonly worktreeRoot: string;
   /** Optional max bytes for a single read (default 1 MiB). */
   readonly maxReadBytes?: number;
+  /**
+   * Host command authorization. Required for `sparkle_run_command` (default
+   * deny). Not an OS sandbox — see command-policy docs.
+   */
+  readonly commandPolicy?: CommandPolicy;
 }
 
 function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
@@ -21,8 +27,12 @@ function textResult(text: string): { content: Array<{ type: "text"; text: string
 
 /**
  * Real CLI tools scoped to an isolated worktree. Permissions are enforced in
- * tool code (path escape refused), not only in prompts. Pass the returned
- * array into `PiAgentExecutor` / `createConfiguredPiExecutor` via `tools`.
+ * tool code (path escape refused; commandPolicy default-deny), not only in
+ * prompts. Pass the returned array into `PiAgentExecutor` /
+ * `createConfiguredPiExecutor` via `tools`.
+ *
+ * Migration: callers that used unrestricted `sparkle_run_command` must pass
+ * an explicit `commandPolicy.allow` list.
  */
 export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): AgentTool<any>[] {
   const root = ctx.worktreeRoot;
@@ -33,7 +43,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
       name: "sparkle_read_file",
       label: "Sparkle Read File",
       description:
-        "Read a UTF-8 file inside the isolated worktree. Paths are resolved against the worktree root; escape is refused.",
+        "Read a UTF-8 file inside the isolated worktree. Paths are resolved against the worktree root; escape and out-of-root symlinks are refused.",
       parameters: Type.Object({
         path: Type.String()
       }),
@@ -56,7 +66,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
       name: "sparkle_write_file",
       label: "Sparkle Write File",
       description:
-        "Controlled write of UTF-8 contents to a path inside the isolated worktree. Escape is refused. Creates parent directories as needed.",
+        "Controlled write of UTF-8 contents to a path inside the isolated worktree. Escape and out-of-root symlinks are refused. Creates parent directories as needed.",
       parameters: Type.Object({
         path: Type.String(),
         contents: Type.String()
@@ -71,6 +81,8 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
         }
         const abs = resolveInsideRoot(root, record.path);
         await mkdir(dirname(abs), { recursive: true });
+        // Re-check after mkdir in case a parent link appeared (best-effort TOCTOU).
+        resolveInsideRoot(root, record.path);
         await writeFile(abs, record.contents, "utf8");
         return textResult(`wrote ${record.path} (${Buffer.byteLength(record.contents, "utf8")} bytes)`);
       }
@@ -79,7 +91,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
       name: "sparkle_run_command",
       label: "Sparkle Run Command",
       description:
-        "Run a command with cwd bound to the isolated worktree (no shell). Use for tests or checks. Escape of cwd is refused by construction.",
+        "Run a host-authorized command with cwd bound to the isolated worktree (no shell). Default deny without commandPolicy. Not a general sandbox.",
       parameters: Type.Object({
         command: Type.String(),
         args: Type.Optional(Type.Array(Type.String()))
@@ -97,12 +109,14 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
               return a;
             })
           : [];
-        const result = spawnSync(record.command, args, {
+        const authorized = authorizeCommand(ctx.commandPolicy, record.command, args);
+        const result = spawnSync(authorized.executable, [...authorized.args], {
           cwd: root,
           encoding: "utf8",
           windowsHide: true,
-          timeout: 120_000,
-          env: process.env
+          timeout: authorized.timeoutMs,
+          env: authorized.env,
+          maxBuffer: Math.max(authorized.maxStdoutBytes, authorized.maxStderrBytes)
         });
         if (result.error !== undefined && result.status === null) {
           throw new DomainValidationError(`command failed to start: ${result.error.message}`);
@@ -110,6 +124,12 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
         const exitCode = result.status ?? 1;
         const stdout = result.stdout ?? "";
         const stderr = result.stderr ?? "";
+        if (Buffer.byteLength(stdout, "utf8") > authorized.maxStdoutBytes) {
+          throw new DomainValidationError("sparkle_run_command denied: stdout exceeds host maxStdoutBytes");
+        }
+        if (Buffer.byteLength(stderr, "utf8") > authorized.maxStderrBytes) {
+          throw new DomainValidationError("sparkle_run_command denied: stderr exceeds host maxStderrBytes");
+        }
         return textResult(
           JSON.stringify({
             exitCode,

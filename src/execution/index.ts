@@ -23,10 +23,17 @@ export {
   loopArtifactPath,
   loopArtifactsDir,
   readLoopArtifact,
+  runDirectoryPath,
   saveLoopArtifact,
   type LoopArtifactRef,
   type SaveLoopArtifactInput
 } from "./loop-artifact.js";
+export {
+  authorizeCommand,
+  type AuthorizedCommand,
+  type CommandAllowRule,
+  type CommandPolicy
+} from "./command-policy.js";
 export {
   closeClosedLoop,
   openClosedLoop,

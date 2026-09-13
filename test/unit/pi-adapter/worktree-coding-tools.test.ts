@@ -5,8 +5,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 
-async function toolByName(root: string, name: string) {
-  const tools = createWorktreeCodingTools({ worktreeRoot: root });
+async function toolByName(root: string, name: string, commandPolicy?: Parameters<typeof createWorktreeCodingTools>[0]["commandPolicy"]) {
+  const tools = createWorktreeCodingTools({ worktreeRoot: root, ...(commandPolicy ? { commandPolicy } : {}) });
   const tool = tools.find((t) => t.name === name);
   assert.ok(tool, `missing tool ${name}`);
   return tool;
@@ -39,10 +39,23 @@ test("coding tools refuse path escape on read and write", async () => {
   );
 });
 
-test("sparkle_run_command executes with cwd bound to worktree", async () => {
+test("sparkle_run_command default-denies without commandPolicy", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
+  const run = await toolByName(root, "sparkle_run_command");
+  await assert.rejects(
+    () => run.execute("tc", { command: "node", args: ["-e", "process.exit(0)"] }),
+    /commandPolicy required|denied/
+  );
+});
+
+test("sparkle_run_command executes when host allows node -e", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
   await writeFile(path.join(root, "marker.txt"), "yes\n", "utf8");
-  const run = await toolByName(root, "sparkle_run_command");
+  const run = await toolByName(root, "sparkle_run_command", {
+    allow: [{ executable: "node", argvPrefix: ["-e"], maxArgs: 8 }],
+    envAllowlist: [],
+    timeoutMs: 30_000
+  });
   const out = await run.execute("tc", {
     command: "node",
     args: ["-e", "const fs=require('fs'); process.exit(fs.existsSync('marker.txt')?0:2)"]
@@ -53,4 +66,24 @@ test("sparkle_run_command executes with cwd bound to worktree", async () => {
   };
   assert.equal(payload.exitCode, 0);
   assert.equal(payload.cwd, root);
+});
+
+test("sparkle_run_command refuses unauthorized executable and does not leak host secret env", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
+  process.env.G1B_FIXTURE_SECRET = "should-not-appear";
+  try {
+    const run = await toolByName(root, "sparkle_run_command", {
+      allow: [{ executable: "node", argvPrefix: ["-e"] }],
+      envAllowlist: []
+    });
+    await assert.rejects(() => run.execute("tc", { command: "python", args: [] }), /not allowed|denied/);
+    const out = await run.execute("tc", {
+      command: "node",
+      args: ["-e", "process.stdout.write(process.env.G1B_FIXTURE_SECRET||'ABSENT')"]
+    });
+    const payload = JSON.parse((out.content[0] as { text: string }).text) as { stdout: string };
+    assert.equal(payload.stdout, "ABSENT");
+  } finally {
+    delete process.env.G1B_FIXTURE_SECRET;
+  }
 });
