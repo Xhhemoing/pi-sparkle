@@ -36,3 +36,11 @@ export {
   type OpenClosedLoopInput,
   type RunClosedLoopCheckInput
 } from "./closed-loop.js";
+export {
+  WORKTREE_FINGERPRINT_SCHEMA,
+  captureWorktreeFingerprint,
+  fingerprintsCompatible,
+  type FingerprintEntry,
+  type SnapshotManifest,
+  type WorktreeFingerprint
+} from "./worktree-snapshot.js";

@@ -1,11 +1,28 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { test } from "node:test";
 import { evaluateIndependentAcceptance } from "../../../src/execution/acceptance.js";
 import type { IndependentCheckRecord } from "../../../src/execution/independent-check.js";
+import {
+  WORKTREE_FINGERPRINT_SCHEMA,
+  type WorktreeFingerprint
+} from "../../../src/execution/worktree-snapshot.js";
+
+function fp(over: Partial<WorktreeFingerprint> = {}): WorktreeFingerprint {
+  const digest = over.digest ?? "d".repeat(64);
+  return {
+    schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
+    headRevision: over.headRevision ?? "deadbeef",
+    entries: over.entries ?? [],
+    digest,
+    ...over
+  };
+}
 
 function okCheck(over: Partial<IndependentCheckRecord> = {}): IndependentCheckRecord {
+  const fingerprint = fp({ headRevision: "deadbeef" });
   return {
     kind: "command-check",
+    schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
     cwd: "/tmp/wt",
     command: "node",
     args: ["-e", "process.exit(0)"],
@@ -14,6 +31,9 @@ function okCheck(over: Partial<IndependentCheckRecord> = {}): IndependentCheckRe
     stderrHash: "b".repeat(64),
     revision: "deadbeef",
     artifactHash: "c".repeat(64),
+    contentFingerprintBefore: fingerprint,
+    contentFingerprintAfter: fingerprint,
+    snapshotManifest: {},
     ok: true,
     ...over
   };
@@ -35,7 +55,115 @@ test("self-report PASSED with empty evidenceIds alone is not independent accepta
   assert.match(result.reason, /self-report alone|independentCheck required/);
 });
 
-test("independent check success + artifactHash accepts", () => {
+test("G1A: different command than host binding rejects (plan RED fixture)", () => {
+  const result = evaluateIndependentAcceptance({
+    revision: "same-head",
+    cwd: "/fixture",
+    command: "required-check",
+    artifactHash: "a".repeat(64),
+    independentCheck: {
+      kind: "command-check",
+      schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
+      cwd: "/fixture",
+      command: "different-check",
+      args: [],
+      exitCode: 0,
+      stdoutHash: "b".repeat(64),
+      stderrHash: "c".repeat(64),
+      revision: "same-head",
+      snapshotManifest: {},
+      contentFingerprintBefore: fp({ headRevision: "same-head", digest: "e".repeat(64) }),
+      contentFingerprintAfter: fp({ headRevision: "same-head", digest: "e".repeat(64) }),
+      ok: true
+    }
+  });
+  assert.equal(result.accepted, false);
+  assert.match(result.reason, /command\/argv mismatch/);
+});
+
+test("G1A: argv mismatch rejects", () => {
+  const result = evaluateIndependentAcceptance({
+    independentCheck: okCheck({ args: ["-e", "process.exit(0)"] }),
+    artifactHash: "c".repeat(64),
+    revision: "deadbeef",
+    cwd: "/tmp/wt",
+    command: "node",
+    args: ["-e", "process.exit(1)"]
+  });
+  assert.equal(result.accepted, false);
+  assert.match(result.reason, /command\/argv mismatch/);
+});
+
+test("G1A: missing schemaVersion / fingerprints rejects (legacy not upgraded)", () => {
+  const legacy = okCheck();
+  const stripped = { ...legacy } as IndependentCheckRecord & {
+    schemaVersion?: string;
+    contentFingerprintBefore?: WorktreeFingerprint;
+  };
+  // simulate pre-g1a record shape for acceptance input
+  const result = evaluateIndependentAcceptance({
+    independentCheck: {
+      ...stripped,
+      schemaVersion: "legacy" as typeof WORKTREE_FINGERPRINT_SCHEMA
+    },
+    artifactHash: "c".repeat(64),
+    revision: "deadbeef",
+    cwd: "/tmp/wt",
+    command: "node",
+    args: ["-e", "process.exit(0)"]
+  });
+  assert.equal(result.accepted, false);
+  assert.match(result.reason, /schemaVersion|fingerprint/i);
+});
+
+test("G1A: fingerprint candidate drift rejects", () => {
+  const before = fp({
+    digest: "1".repeat(64),
+    entries: [{ path: "src/a.ts", kind: "modified", sha256: "a".repeat(64) }]
+  });
+  const after = fp({
+    digest: "2".repeat(64),
+    entries: [{ path: "src/a.ts", kind: "modified", sha256: "b".repeat(64) }]
+  });
+  const result = evaluateIndependentAcceptance({
+    independentCheck: okCheck({
+      contentFingerprintBefore: before,
+      contentFingerprintAfter: after,
+      ok: true
+    }),
+    artifactHash: "c".repeat(64),
+    revision: "deadbeef",
+    cwd: "/tmp/wt",
+    command: "node",
+    args: ["-e", "process.exit(0)"]
+  });
+  assert.equal(result.accepted, false);
+  assert.match(result.reason, /candidate content changed|fingerprint/i);
+});
+
+test("G1A: allowedOutputDirs digest change still accepts when compatible", () => {
+  const before = fp({ digest: "1".repeat(64), entries: [] });
+  const after = fp({
+    digest: "2".repeat(64),
+    entries: [{ path: "out/log.txt", kind: "untracked", sha256: "f".repeat(64) }]
+  });
+  const result = evaluateIndependentAcceptance({
+    independentCheck: okCheck({
+      contentFingerprintBefore: before,
+      contentFingerprintAfter: after,
+      snapshotManifest: { allowedOutputDirs: ["out"] },
+      ok: true
+    }),
+    artifactHash: "c".repeat(64),
+    revision: "deadbeef",
+    cwd: "/tmp/wt",
+    command: "node",
+    args: ["-e", "process.exit(0)"]
+  });
+  assert.equal(result.accepted, true);
+});
+
+test("independent check success + artifactHash + matching argv/fingerprint accepts", () => {
   const check = okCheck();
   const result = evaluateIndependentAcceptance({
     selfReport: {
@@ -47,7 +175,8 @@ test("independent check success + artifactHash accepts", () => {
     artifactHash: "c".repeat(64),
     revision: "deadbeef",
     cwd: "/tmp/wt",
-    command: "node"
+    command: "node",
+    args: ["-e", "process.exit(0)"]
   });
   assert.equal(result.accepted, true);
   assert.equal(result.artifactHash, "c".repeat(64));
@@ -61,7 +190,8 @@ test("independent check non-zero exit fails acceptance", () => {
     artifactHash: "c".repeat(64),
     revision: "deadbeef",
     cwd: "/tmp/wt",
-    command: "node"
+    command: "node",
+    args: ["-e", "process.exit(0)"]
   });
   assert.equal(result.accepted, false);
   assert.match(result.reason, /independent check failed/);
@@ -72,7 +202,8 @@ test("missing artifactHash fails closed even when check ok", () => {
     independentCheck: okCheck(),
     revision: "deadbeef",
     cwd: "/tmp/wt",
-    command: "node"
+    command: "node",
+    args: ["-e", "process.exit(0)"]
   });
   assert.equal(result.accepted, false);
   assert.match(result.reason, /artifactHash/);
@@ -84,7 +215,8 @@ test("cwd/revision mismatch with check fails closed", () => {
     artifactHash: "c".repeat(64),
     revision: "other",
     cwd: "/tmp/wt",
-    command: "node"
+    command: "node",
+    args: ["-e", "process.exit(0)"]
   });
   assert.equal(result.accepted, false);
   assert.match(result.reason, /mismatch/);

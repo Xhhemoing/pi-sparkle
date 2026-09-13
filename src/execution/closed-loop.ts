@@ -12,6 +12,7 @@ import {
   readWorktreeRevision,
   type IsolatedWorktree
 } from "./worktree.js";
+import type { SnapshotManifest } from "./worktree-snapshot.js";
 
 export interface ClosedLoopSession {
   readonly worktree: IsolatedWorktree;
@@ -46,6 +47,7 @@ export interface RunClosedLoopCheckInput {
   readonly selfReport?: SelfReportClaim;
   /** Extra body fields stored alongside the acceptance artifact. */
   readonly note?: string;
+  readonly snapshotManifest?: SnapshotManifest;
 }
 
 export interface ClosedLoopResult {
@@ -61,19 +63,22 @@ export interface ClosedLoopResult {
 export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promise<ClosedLoopResult> {
   const cwd = input.session.worktree.cwd;
   const revision = readWorktreeRevision(cwd);
+  const args = input.args ?? [];
   const check = runIndependentCheck({
     cwd,
     command: input.command,
-    ...(input.args !== undefined ? { args: input.args } : {})
+    args,
+    ...(input.snapshotManifest !== undefined ? { snapshotManifest: input.snapshotManifest } : {})
   });
 
   const provisional = {
     kind: "ps-p3-closed-loop" as const,
+    schemaVersion: check.schemaVersion,
     note: input.note ?? "",
     revision,
     cwd,
     command: input.command,
-    args: input.args ?? [],
+    args,
     check,
     ...(input.selfReport !== undefined ? { selfReport: input.selfReport } : {})
   };
@@ -89,7 +94,8 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
     artifactHash: artifact.sha256,
     revision,
     cwd,
-    command: input.command
+    command: input.command,
+    args
   });
 
   await saveLoopArtifact({

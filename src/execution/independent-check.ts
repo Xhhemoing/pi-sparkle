@@ -4,6 +4,13 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { readWorktreeRevision } from "./worktree.js";
+import {
+  WORKTREE_FINGERPRINT_SCHEMA,
+  captureWorktreeFingerprint,
+  fingerprintsCompatible,
+  type SnapshotManifest,
+  type WorktreeFingerprint
+} from "./worktree-snapshot.js";
 
 export interface IndependentCheckInput {
   /** Worktree cwd the command must run inside. */
@@ -16,6 +23,8 @@ export interface IndependentCheckInput {
   readonly artifactPath?: string;
   /** Max wall time in ms (default 60s). */
   readonly timeoutMs?: number;
+  /** Host-fixed snapshot scope (model cannot override after the fact). */
+  readonly snapshotManifest?: SnapshotManifest;
 }
 
 /**
@@ -25,6 +34,7 @@ export interface IndependentCheckInput {
  */
 export interface IndependentCheckRecord {
   readonly kind: "command-check";
+  readonly schemaVersion: typeof WORKTREE_FINGERPRINT_SCHEMA;
   readonly cwd: string;
   readonly command: string;
   readonly args: readonly string[];
@@ -34,6 +44,10 @@ export interface IndependentCheckRecord {
   readonly revision: string;
   readonly artifactPath?: string;
   readonly artifactHash?: string;
+  readonly contentFingerprintBefore: WorktreeFingerprint;
+  readonly contentFingerprintAfter: WorktreeFingerprint;
+  /** Host manifest used for before/after compatibility (must match accept). */
+  readonly snapshotManifest: SnapshotManifest;
   readonly ok: boolean;
 }
 
@@ -51,13 +65,17 @@ function sha256File(filePath: string): string | undefined {
 
 /**
  * Run a declared command inside the worktree and bind exit code, stdout/stderr
- * hashes, cwd, and git revision. Does not trust any agent-authored verdict.
+ * hashes, cwd, git revision, and g1a-v1 content fingerprints before/after.
+ * Does not trust any agent-authored verdict.
  */
 export function runIndependentCheck(input: IndependentCheckInput): IndependentCheckRecord {
   const cwd = path.resolve(input.cwd);
   if (input.command.trim() === "") {
     throw new DomainValidationError("independent check command must be non-empty");
   }
+
+  const manifest = input.snapshotManifest ?? {};
+  const before = captureWorktreeFingerprint(cwd, manifest);
 
   const args = input.args ?? [];
   const result = spawnSync(input.command, [...args], {
@@ -72,6 +90,9 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
     throw new DomainValidationError(`independent check failed to start: ${result.error.message}`);
   }
 
+  const after = captureWorktreeFingerprint(cwd, manifest);
+  const compat = fingerprintsCompatible(before, after, manifest);
+
   const exitCode = result.status ?? (result.signal !== null ? 128 : 1);
   const stdoutHash = sha256Text(result.stdout ?? "");
   const stderrHash = sha256Text(result.stderr ?? "");
@@ -80,10 +101,14 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
   const artifactHash =
     input.artifactPath !== undefined ? sha256File(input.artifactPath) : undefined;
 
-  const ok = exitCode === 0 && (input.artifactPath === undefined || artifactHash !== undefined);
+  const ok =
+    exitCode === 0 &&
+    compat.ok &&
+    (input.artifactPath === undefined || artifactHash !== undefined);
 
   return {
     kind: "command-check",
+    schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
     cwd,
     command: input.command,
     args,
@@ -93,6 +118,9 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
     revision,
     ...(input.artifactPath !== undefined ? { artifactPath: input.artifactPath } : {}),
     ...(artifactHash !== undefined ? { artifactHash } : {}),
+    contentFingerprintBefore: before,
+    contentFingerprintAfter: after,
+    snapshotManifest: manifest,
     ok
   };
 }
