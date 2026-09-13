@@ -77,7 +77,7 @@ Plan: [TASK-20260913-grok-trusted-execution](../docs/superpowers/plans/2026-09-1
 - [ ] G1A — independent acceptance binds command/argv + candidate content; focused RED/GREEN + `pnpm gate`.
 - [ ] G1B — tool/artifact boundaries; gate/security/Pi probes.
 - [ ] G2 — real adapter + local HTTP loopback after G1A/B; no live LLM / default CLI.
-- [ ] G3 — F6 readiness/pollution inventory (report-only); no seal/oracle.
+- [x] G3 — F6 readiness/pollution inventory (report-only); no seal/oracle. See [g3 report](../docs/reports/2026-09-13-grok-g3-f6-readiness.md). **NOT READY**; experiments NOT RUN.
 
 ## SoL-Pi efficiency — delivery (2026-09-13)
 

@@ -33,3 +33,24 @@ Authoring checklist per spec:
    hand it over under the reveal-on-schedule protocol.
 4. At seal: `node scripts/holdout-seal.mjs seal --specs <custodian-dir> --out
    holdout/commitments.json`, then commit ONLY the commitments file.
+
+## G3 status note (2026-09-13) — evidence only
+
+Inventory tip: `docs/reports/2026-09-13-grok-g3-f6-readiness.md` on
+`grok/trusted-execution-g3` (base `ba561c33`).
+
+- **Six states:** 115 draft exists = yes; schema validate 115/115 = yes;
+  oracle/implant/reserve briefs complete = no; current base runnable =
+  partial / **not exercised** this round; uncontaminated = **owner decision**
+  (do not claim clean-room); sealed = no (`commitments.json` / sealed blob
+  absent).
+- **Command hygiene:** the dry-run line above is **stale** vs current
+  `scripts/holdout-block.mjs`, which **requires** `--now-ms` and defaults
+  `--executor` to `pi`. Do **not** copy that old command for real providers.
+  Schema-only validation or an explicit `--executor fake --now-ms <n>
+  --price-table holdout/price-table-v1.json` recipe belongs in a docs follow-up;
+  G3 did not run arms.
+- **Policy tension:** this README forbids plaintext taskSpecs here, while
+  `backlog-draft/` remains tracked and was published in git history
+  (`dc187a1`). Encryption/deletion does not un-expose; owner rules pilot vs
+  new samples.
