@@ -64,3 +64,19 @@ rm -rf holdout/backlog-draft
 After seal, `holdout/backlog-draft/` must not exist in any clone that tunes
 the router. The draft's git history copy is acceptable (commits are
 pre-registration public), but the working tree must be clean.
+
+## G3 status note (2026-09-13) — evidence only
+
+See `docs/reports/2026-09-13-grok-g3-f6-readiness.md`. Reconfirmed on base
+`ba561c33` without seal/custody/live arms:
+
+| Claim in this draft | G3 finding |
+|---|---|
+| 115 specs present | **Yes** — 115 tracked files under `holdout/backlog-draft/` |
+| Pass `holdout-block` / taskSpec validate | **Schema yes** — `validateHoldoutTaskSpec` 115/115; **runner arms NOT RUN** |
+| Seal cleanly under `holdout-seal.mjs` | **Not executed** this round; no committed `commitments.json` |
+| Custodian oracle / review diffs / reserve briefs | **Still owed** — refs only; 0 patch/oracle payload files in-repo |
+| Ready for Week 1 | **NOT READY** — pollution ruling + seal + key + materials required |
+
+Historical exposure: plaintext landed in `dc187a1` on `main`. This note does
+not rewrite that history or change ADR-005/007.
