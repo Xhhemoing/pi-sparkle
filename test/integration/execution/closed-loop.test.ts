@@ -176,3 +176,39 @@ test("closed loop: check that only writes under allowedOutputDirs still accepts"
     await rm(stateRoot, { recursive: true, force: true });
   }
 });
+
+test("closed loop: quotePath Chinese file rewrite during check is not accepted", async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), "sparkle-src-"));
+  git(repo, ["init"]);
+  git(repo, ["config", "user.email", "test@example.com"]);
+  git(repo, ["config", "user.name", "Test"]);
+  git(repo, ["config", "core.quotePath", "true"]);
+  await writeFile(path.join(repo, "ä¸­æ–‡.txt"), "v1\n", "utf8");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-m", "init-zh"]);
+
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
+  const runId = createRunId();
+  const session = await openClosedLoop({ sourceRepo: repo, sandboxRoot: sandbox });
+  try {
+    git(session.worktree.cwd, ["config", "core.quotePath", "true"]);
+    await writeFile(path.join(session.worktree.cwd, "ä¸­æ–‡.txt"), "v2\n", "utf8");
+    const result = await runClosedLoopCheck({
+      session,
+      stateRoot,
+      runId,
+      command: "node",
+      args: ["-e", "require('fs').writeFileSync('ä¸­æ–‡.txt','v3\\n'); process.exit(0)"]
+    });
+    assert.equal(result.check.exitCode, 0);
+    assert.equal(result.check.ok, false);
+    assert.equal(result.acceptance.accepted, false);
+  } finally {
+    await closeClosedLoop(session);
+    await rm(repo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
