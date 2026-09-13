@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { test } from "node:test";
 import { evaluateIndependentAcceptance } from "../../../src/execution/acceptance.js";
 import type { IndependentCheckRecord } from "../../../src/execution/independent-check.js";
@@ -33,6 +33,7 @@ function okCheck(over: Partial<IndependentCheckRecord> = {}): IndependentCheckRe
     artifactHash: "c".repeat(64),
     contentFingerprintBefore: fingerprint,
     contentFingerprintAfter: fingerprint,
+    snapshotManifest: {},
     ok: true,
     ...over
   };
@@ -70,6 +71,7 @@ test("G1A: different command than host binding rejects (plan RED fixture)", () =
       stdoutHash: "b".repeat(64),
       stderrHash: "c".repeat(64),
       revision: "same-head",
+      snapshotManifest: {},
       contentFingerprintBefore: fp({ headRevision: "same-head", digest: "e".repeat(64) }),
       contentFingerprintAfter: fp({ headRevision: "same-head", digest: "e".repeat(64) }),
       ok: true
@@ -114,9 +116,15 @@ test("G1A: missing schemaVersion / fingerprints rejects (legacy not upgraded)", 
   assert.match(result.reason, /schemaVersion|fingerprint/i);
 });
 
-test("G1A: fingerprint digest drift rejects", () => {
-  const before = fp({ digest: "1".repeat(64) });
-  const after = fp({ digest: "2".repeat(64) });
+test("G1A: fingerprint candidate drift rejects", () => {
+  const before = fp({
+    digest: "1".repeat(64),
+    entries: [{ path: "src/a.ts", kind: "modified", sha256: "a".repeat(64) }]
+  });
+  const after = fp({
+    digest: "2".repeat(64),
+    entries: [{ path: "src/a.ts", kind: "modified", sha256: "b".repeat(64) }]
+  });
   const result = evaluateIndependentAcceptance({
     independentCheck: okCheck({
       contentFingerprintBefore: before,
@@ -130,7 +138,29 @@ test("G1A: fingerprint digest drift rejects", () => {
     args: ["-e", "process.exit(0)"]
   });
   assert.equal(result.accepted, false);
-  assert.match(result.reason, /fingerprint changed/);
+  assert.match(result.reason, /candidate content changed|fingerprint/i);
+});
+
+test("G1A: allowedOutputDirs digest change still accepts when compatible", () => {
+  const before = fp({ digest: "1".repeat(64), entries: [] });
+  const after = fp({
+    digest: "2".repeat(64),
+    entries: [{ path: "out/log.txt", kind: "untracked", sha256: "f".repeat(64) }]
+  });
+  const result = evaluateIndependentAcceptance({
+    independentCheck: okCheck({
+      contentFingerprintBefore: before,
+      contentFingerprintAfter: after,
+      snapshotManifest: { allowedOutputDirs: ["out"] },
+      ok: true
+    }),
+    artifactHash: "c".repeat(64),
+    revision: "deadbeef",
+    cwd: "/tmp/wt",
+    command: "node",
+    args: ["-e", "process.exit(0)"]
+  });
+  assert.equal(result.accepted, true);
 });
 
 test("independent check success + artifactHash + matching argv/fingerprint accepts", () => {

@@ -1,6 +1,7 @@
 import type { IndependentCheckRecord } from "./independent-check.js";
 import {
   WORKTREE_FINGERPRINT_SCHEMA,
+  fingerprintsCompatible,
   type WorktreeFingerprint
 } from "./worktree-snapshot.js";
 
@@ -137,11 +138,16 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  if (check.contentFingerprintBefore!.digest !== check.contentFingerprintAfter!.digest) {
+  const compat = fingerprintsCompatible(
+    check.contentFingerprintBefore!,
+    check.contentFingerprintAfter!,
+    check.snapshotManifest ?? {}
+  );
+  if (!compat.ok) {
     return {
       ...base,
       accepted: false,
-      reason: "candidate content fingerprint changed across independent check"
+      reason: compat.reason || "candidate content fingerprint changed across independent check"
     };
   }
 

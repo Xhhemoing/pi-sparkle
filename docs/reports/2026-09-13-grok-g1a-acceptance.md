@@ -36,3 +36,15 @@ cwd: E:\Project\pi-sparkle-g1a
 exit: 0
 summary: workflow-check ok; typecheck+lint+test+build; tests 2750 pass 2732 fail 0 skipped 18; git diff --check 0
 ```
+
+## FAIL fix (Reviewer)
+- Accept now uses `fingerprintsCompatible` + persisted `snapshotManifest` (not raw digest equality).
+- Closed-loop case: check writes only under `out/` with `allowedOutputDirs: ["out"]` → digest changes, `accepted: true`.
+
+## Freeze gate paste (post-fix)
+```
+command: pnpm gate
+cwd: E:\Project\pi-sparkle-g1a
+exit: 0
+summary: workflow-check ok; tests 2752 pass 2734 fail 0 skipped 18; git diff --check 0
+```

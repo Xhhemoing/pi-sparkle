@@ -46,6 +46,8 @@ export interface IndependentCheckRecord {
   readonly artifactHash?: string;
   readonly contentFingerprintBefore: WorktreeFingerprint;
   readonly contentFingerprintAfter: WorktreeFingerprint;
+  /** Host manifest used for before/after compatibility (must match accept). */
+  readonly snapshotManifest: SnapshotManifest;
   readonly ok: boolean;
 }
 
@@ -118,6 +120,7 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
     ...(artifactHash !== undefined ? { artifactHash } : {}),
     contentFingerprintBefore: before,
     contentFingerprintAfter: after,
+    snapshotManifest: manifest,
     ok
   };
 }

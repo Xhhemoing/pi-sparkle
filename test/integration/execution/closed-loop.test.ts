@@ -133,3 +133,46 @@ test("self-report-only path is rejected even when claiming PASSED", () => {
   });
   assert.equal(rejected.accepted, false);
 });
+
+
+test("closed loop: check that only writes under allowedOutputDirs still accepts", async () => {
+  const sourceRepo = await makeSourceRepo();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
+  const runId = createRunId();
+  const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
+  try {
+    const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd });
+    const write = tools.find((t) => t.name === "sparkle_write_file");
+    assert.ok(write);
+    await write.execute("t1", {
+      path: "src/app.txt",
+      contents: "version=2\n"
+    });
+
+    const result = await runClosedLoopCheck({
+      session,
+      stateRoot,
+      runId,
+      command: "node",
+      args: [
+        "-e",
+        "const fs=require('fs'); fs.mkdirSync('out',{recursive:true}); fs.writeFileSync('out/log.txt','ok'); const t=fs.readFileSync('src/app.txt','utf8'); process.exit(t.includes('version=2')?0:1);"
+      ],
+      snapshotManifest: { allowedOutputDirs: ["out"] }
+    });
+
+    assert.equal(result.check.ok, true, `check exit=${result.check.exitCode}`);
+    assert.notEqual(
+      result.check.contentFingerprintBefore.digest,
+      result.check.contentFingerprintAfter.digest,
+      "digest should change due to out/log.txt"
+    );
+    assert.equal(result.acceptance.accepted, true, result.acceptance.reason);
+  } finally {
+    await closeClosedLoop(session);
+    await rm(sourceRepo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
