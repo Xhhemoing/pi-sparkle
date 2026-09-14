@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { DomainValidationError } from "../domain/errors.js";
@@ -71,8 +71,8 @@ function sha256Bytes(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-function gitPorcelain(cwd: string): string {
-  const r = spawnSync("git", ["status", "--porcelain=v1", "-uall"], {
+function gitPorcelainZ(cwd: string): string {
+  const r = spawnSync("git", ["status", "--porcelain=v1", "-z", "-uall"], {
     cwd,
     encoding: "utf8",
     windowsHide: true
@@ -85,6 +85,59 @@ function gitPorcelain(cwd: string): string {
   return r.stdout ?? "";
 }
 
+function parsePorcelainZ(stdout: string): Array<{ xy: string; rel: string }> {
+  const records: Array<{ xy: string; rel: string }> = [];
+  let i = 0;
+  while (i < stdout.length) {
+    if (stdout.charCodeAt(i) === 0) {
+      i += 1;
+      continue;
+    }
+    if (i + 3 > stdout.length) {
+      throw new DomainValidationError("worktree fingerprint: truncated git status -z record");
+    }
+    const xy = stdout.slice(i, i + 2);
+    if (stdout[i + 2] !== " ") {
+      throw new DomainValidationError("worktree fingerprint: malformed git status -z record");
+    }
+    i += 3;
+    const n1 = stdout.indexOf("\0", i);
+    if (n1 < 0) {
+      throw new DomainValidationError("worktree fingerprint: missing NUL terminator");
+    }
+    const first = stdout.slice(i, n1);
+    i = n1 + 1;
+    if (xy.includes("R") || xy.includes("C")) {
+      const n2 = stdout.indexOf("\0", i);
+      if (n2 < 0) {
+        throw new DomainValidationError("worktree fingerprint: missing rename/copy path NUL");
+      }
+      // git status -z emits "R  NEW\\0OLD\\0" (destination first).
+      i = n2 + 1;
+    }
+    records.push({ xy, rel: normalizeRel(first) });
+  }
+  return records;
+}
+
+function entryKey(e: FingerprintEntry): string {
+  return `${e.path}\0${e.kind}`;
+}
+
+function hashExistingFile(root: string, rel: string): string {
+  const abs = path.join(root, rel);
+  try {
+    const st = statSync(abs);
+    if (!st.isFile()) {
+      throw new Error("not a regular file");
+    }
+    return sha256Bytes(readFileSync(abs));
+  } catch (err) {
+    if (err instanceof DomainValidationError) throw err;
+    throw new DomainValidationError(`worktree fingerprint: unreadable non-delete path: ${rel}`);
+  }
+}
+
 /**
  * Capture a deterministic fingerprint of HEAD + dirty/untracked candidate
  * content without mutating the index (`git add` is never used).
@@ -95,20 +148,12 @@ export function captureWorktreeFingerprint(
 ): WorktreeFingerprint {
   const root = path.resolve(cwd);
   const headRevision = readWorktreeRevision(root);
-  const lines = gitPorcelain(root).split(/\r?\n/).filter((l) => l.length > 0);
+  const records = parsePorcelainZ(gitPorcelainZ(root));
   const entries: FingerprintEntry[] = [];
 
-  for (const line of lines) {
-    const xy = line.slice(0, 2);
-    let rawPath = line.slice(3);
-    // rename: "R  old -> new"
-    if (rawPath.includes(" -> ")) {
-      rawPath = rawPath.split(" -> ").pop() ?? rawPath;
-    }
-    const rel = normalizeRel(rawPath.replace(/^"|"$/g, ""));
+  for (const { xy, rel } of records) {
     if (isExcluded(rel, manifest)) continue;
 
-    const abs = path.join(root, rel);
     let kind: FingerprintEntryKind;
     if (xy === "??") kind = "untracked";
     else if (xy.includes("D") || xy === " D") kind = "deleted";
@@ -119,11 +164,7 @@ export function captureWorktreeFingerprint(
       entries.push({ path: rel, kind, sha256: null });
       continue;
     }
-    if (!existsSync(abs) || !statSync(abs).isFile()) {
-      entries.push({ path: rel, kind, sha256: null });
-      continue;
-    }
-    entries.push({ path: rel, kind, sha256: sha256Bytes(readFileSync(abs)) });
+    entries.push({ path: rel, kind, sha256: hashExistingFile(root, rel) });
   }
 
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -159,13 +200,14 @@ export function fingerprintsCompatible(
     return { ok: true, reason: "fingerprints identical" };
   }
 
-  const beforeMap = new Map(before.entries.map((e) => [e.path, e]));
-  const afterMap = new Map(after.entries.map((e) => [e.path, e]));
-  const paths = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+  const beforeMap = new Map(before.entries.map((e) => [entryKey(e), e]));
+  const afterMap = new Map(after.entries.map((e) => [entryKey(e), e]));
+  const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
 
-  for (const p of paths) {
-    const b = beforeMap.get(p);
-    const a = afterMap.get(p);
+  for (const key of keys) {
+    const b = beforeMap.get(key);
+    const a = afterMap.get(key);
+    const p = (b ?? a)?.path ?? key;
     if (b && a) {
       if (b.kind !== a.kind || b.sha256 !== a.sha256) {
         return { ok: false, reason: `candidate content changed: ${p}` };
@@ -173,11 +215,11 @@ export function fingerprintsCompatible(
       continue;
     }
     if (!b && a) {
-      if (isAllowedOutput(p, manifest)) continue;
-      return { ok: false, reason: `new candidate path during check: ${p}` };
+      if (isAllowedOutput(a.path, manifest)) continue;
+      return { ok: false, reason: `new candidate path during check: ${a.path}` };
     }
     if (b && !a) {
-      return { ok: false, reason: `candidate path disappeared during check: ${p}` };
+      return { ok: false, reason: `candidate path disappeared during check: ${b.path}` };
     }
   }
   return { ok: true, reason: "fingerprints compatible (allowed outputs ignored)" };

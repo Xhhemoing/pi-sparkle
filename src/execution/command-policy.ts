@@ -88,7 +88,15 @@ export function authorizeCommand(
     args,
     env,
     timeoutMs: policy.timeoutMs ?? 60_000,
-    maxStdoutBytes: policy.maxStdoutBytes ?? 256 * 1024,
-    maxStderrBytes: policy.maxStderrBytes ?? 256 * 1024
+    maxStdoutBytes: requirePositiveInt(policy.maxStdoutBytes, 256 * 1024, "maxStdoutBytes"),
+    maxStderrBytes: requirePositiveInt(policy.maxStderrBytes, 256 * 1024, "maxStderrBytes")
   };
+}
+
+function requirePositiveInt(value: number | undefined, fallback: number, name: string): number {
+  const n = value ?? fallback;
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new DomainValidationError(`${name} must be a positive integer`);
+  }
+  return n;
 }
