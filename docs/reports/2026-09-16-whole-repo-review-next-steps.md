@@ -62,7 +62,8 @@ Subagent dispatch of both fixes (from-episode hotfix in main worktree; RR1/RR2/R
 - Commits: main worktree `052fd5a` (process/governance + gate wiring) and `5256339` (provider-fail hotfix) on `cursor/ps-hotfix-provider-fail-attribution`; merge-r3r4 `aeb4993` (RR1/RR2/RR4) on `local/merge-r3r4` atop `412230a`.
 - Pushed: `cursor/ps-hotfix-provider-fail-attribution` → origin (new branch); `aeb4993` → origin `grok/trusted-execution-review-fixes` (**fast-forward** — `5357163` verified ancestor; PR #42 head now `aeb4993`, state open, not merged). Hosted CI on the head: cli-smoke windows+ubuntu SUCCESS, quality in_progress at packaging (run 35197315145).
 - Independent review package: [2026-09-16-rr-fix-review-package.md](2026-09-16-rr-fix-review-package.md) — exact SHAs, RR→test map, reviewer protocol, acceptance conditions.
-- Worktree cleanup: deferred pending review PASS; temp worktrees checked, only clean ones pruned (see below).
+- Worktree cleanup: `pi-sparkle-main-clean` pruned (commit verified contained in origin/main history); the three dirty temp worktrees (`dbg-wt-r03XWB`, `mainwt`, `pi-sparkle-t15-t16-verify`) left untouched — each has uncommitted deletions of scratch files; owner decides. `.agent_workspace/` evidence preserved; branch-carrying worktrees kept until review PASS.
+- CI note: first hosted run on `aeb4993` failed `quality` on a pre-existing delete-vs-writer race flake (`deletion.test.ts:1365`, delta-untouched files verified); failed-job rerun → run success. Follow-up task proposed to owner (see review package §5).
 
 ## Verification record
 

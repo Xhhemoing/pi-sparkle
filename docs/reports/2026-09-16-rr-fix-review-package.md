@@ -31,7 +31,8 @@
 2. Original five regressions: `.agent_workspace/grok-rereview/review-regressions.test.ts` imports `./tree/` — point a fresh `tree/` checkout at `aeb4993` (or re-clone into that layout); expect 5 pass / 0 fail.
 3. The three new scenarios are now product tests (names above); additionally `pnpm test -- test/unit/execution/ test/unit/pi-adapter/worktree-coding-tools.test.ts test/integration/execution/` → expect 61/61.
 4. `pnpm gate` → expect exit 0, 2771 pass / 0 fail / 18 skip; then `pnpm security:probe` and `pnpm pi:probe` (dist exists after gate build).
-5. Hosted CI on the exact head: run 35197315145 — cli-smoke windows+ubuntu SUCCESS, quality in_progress at packaging time; reviewer must confirm all green before sign-off.
+5. Hosted CI on the exact head: run 35197315145 — first run: cli-smoke windows+ubuntu SUCCESS; **quality FAILED at Test** (`test/unit/privacy/deletion.test.ts:1365` "a live run's own writers cannot make a delete report a removal it lost", assertion "a returned delete must leave nothing on disk" `true !== false`). Root-cause verified **pre-existing platform flake, not a regression**: `git diff --stat 5357163..aeb4993` shows zero changes under `test/unit/privacy/`, `src/privacy/`, `src/run/event-store.ts`, `src/persist/`; the test is the documented adversarial tight-loop-appender vs `deleteRunRecords` race (see `src/run/event-store.ts` header) and lost one Linux-timing race. Failed-job rerun → **run completed success** (both jobs green on the same head).
+   **Follow-up (owner):** an intermittent Linux race loss in the delete/removal privacy invariant deserves its own task (reproduce on ubuntu, harden or document the scheduling window) — not silently absorbed by reruns.
 6. Acceptance = independent reviewer PASS on `aeb4993` + owner authorization; only then merge PR #42.
 
 ## Explicitly not closed
