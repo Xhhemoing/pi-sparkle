@@ -57,6 +57,13 @@ Subagent dispatch of both fixes (from-episode hotfix in main worktree; RR1/RR2/R
 
 - These fixes are implementation + self-verification on the local candidate; the re-review's required final same-head independent review (old 5 + new 3 regressions, focused, gate, post-build probes) has not run. PR #42 head remains `5357163` (only R3/R1); SCM alignment is a separate human/SCM step. All changes left uncommitted for owner review. F6 NOT READY; no provider/holdout/seal runs.
 
+### Delivery record — 2026-09-16 (owner approved 1A→2A→3A→4A)
+
+- Commits: main worktree `052fd5a` (process/governance + gate wiring) and `5256339` (provider-fail hotfix) on `cursor/ps-hotfix-provider-fail-attribution`; merge-r3r4 `aeb4993` (RR1/RR2/RR4) on `local/merge-r3r4` atop `412230a`.
+- Pushed: `cursor/ps-hotfix-provider-fail-attribution` → origin (new branch); `aeb4993` → origin `grok/trusted-execution-review-fixes` (**fast-forward** — `5357163` verified ancestor; PR #42 head now `aeb4993`, state open, not merged). Hosted CI on the head: cli-smoke windows+ubuntu SUCCESS, quality in_progress at packaging (run 35197315145).
+- Independent review package: [2026-09-16-rr-fix-review-package.md](2026-09-16-rr-fix-review-package.md) — exact SHAs, RR→test map, reviewer protocol, acceptance conditions.
+- Worktree cleanup: deferred pending review PASS; temp worktrees checked, only clean ones pruned (see below).
+
 ## Verification record
 
 | Command | Result |
