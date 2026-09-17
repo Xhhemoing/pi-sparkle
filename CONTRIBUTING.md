@@ -7,6 +7,8 @@ published to npm; clone the repository and use pnpm locally.
 
 ## Development Setup
 
+The repository process is defined in [`AGENTS.md`](AGENTS.md) and [`docs/development-workflow.md`](docs/development-workflow.md). Before starting work, read [`tasks/README.md`](tasks/README.md) to identify the active plan and checklist. Important decisions, blockers, and verification results must be recorded in the repository, not left only in chat.
+
 ### Prerequisites
 
 - Node.js >= 22.19.0
@@ -23,7 +25,7 @@ cd pi-sparkle
 corepack enable
 pnpm install
 
-# Run the merge-time quality gate (typecheck + lint + test + build)
+# Run the merge-time quality gate (workflow check + typecheck + lint + test + build)
 pnpm gate
 ```
 
@@ -66,10 +68,11 @@ All contributions must pass:
 | `pnpm lint` | ESLint checks |
 | `pnpm test` | Unit and integration tests (see Running Tests above) |
 | `pnpm build` | Production build (tsconfig.build.json) |
-| `pnpm gate` | All four in sequence (merge-time gate) |
+| `pnpm gate` | Workflow check + typecheck + lint + test + build (merge-time gate) |
 | `pnpm security:probe` | Built-artifact redaction and packaged-secret checks |
 | `pnpm pi:probe` | Pi adapter-boundary and legacy-symbol checks |
 | `pnpm prerelease` | `pnpm preview:probe && pnpm gate && pnpm security:probe && pnpm pi:probe`. Run before tagging a preview build |
+| `pnpm workflow:check` | Governance files, required sections, and gate wiring |
 
 ## Commit Guidelines
 

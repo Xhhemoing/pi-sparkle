@@ -51,6 +51,9 @@ jobs:
             exit 1
           fi
 
+      - name: Workflow contract
+        run: pnpm workflow:check
+
       - name: Type check
         run: pnpm typecheck
 

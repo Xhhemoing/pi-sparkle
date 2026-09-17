@@ -12,10 +12,16 @@ Brief description of the changes.
 Closes #(issue number)
 
 ## Quality Gates
+
+Before selecting the checks below, update the task plan and test-first record described in [`docs/development-workflow.md`](../docs/development-workflow.md).
+- [ ] `pnpm workflow:check` passes
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm lint` passes
 - [ ] `pnpm test` passes
 - [ ] `pnpm build` passes
+
+- [ ] Verification record/state/checklist updated with exact outcomes
+- [ ] `pnpm gate` output pasted or linked for merge-ready changes
 
 ## Checklist
 - [ ] Code follows project style guidelines
