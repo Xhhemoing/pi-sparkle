@@ -366,6 +366,7 @@ function signalFromAgentMessage(
             verificationKind: message.verification.kind,
             summary: message.summary,
             timedOut: ctx.timedOutTasks.has(message.taskId),
+            evidenceIds: message.verification.evidenceIds,
             ...(message.failure !== undefined ? { failure: message.failure } : {})
           })
         : undefined;

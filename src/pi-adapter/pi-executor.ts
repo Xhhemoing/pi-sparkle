@@ -829,6 +829,20 @@ export class PiAgentExecutor implements AgentExecutor {
       const errorMessage = failure !== undefined && failure.message.trim() !== ""
         ? failure.message.trim()
         : undefined;
+      // Provider/runtime failures must stay out of taskSuccess learning.
+      // taskSuccessFromResult only emits PASS/FAIL for verification
+      // PASSED/FAILED; synthesizing FAILED here (with empty evidenceIds)
+      // was scored as a model FAIL and poisoned the bandit. Keep the
+      // TASK_RESULT diagnosable via summary + failure classification, and
+      // leave verification UNOBSERVED so ObservedSignal never gets a
+      // deterministic taskSuccess FAIL for infra outages.
+      const failureClassification =
+        failure === undefined
+          ? undefined
+          : {
+              category: failure.kind === "timeout" ? ("TIMEOUT" as const) : ("UNKNOWN" as const),
+              detail: errorMessage ?? failure.kind
+            };
       yield {
         type: "MESSAGE",
         message: {
@@ -849,10 +863,8 @@ export class PiAgentExecutor implements AgentExecutor {
                 : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
-          verification:
-            outcome === "FAILURE" && errorMessage !== undefined
-              ? { kind: "FAILED", evidenceIds: [] }
-              : { kind: "UNOBSERVED", evidenceIds: [] }
+          verification: { kind: "UNOBSERVED", evidenceIds: [] },
+          ...(failureClassification !== undefined ? { failure: failureClassification } : {})
         }
       };
     }

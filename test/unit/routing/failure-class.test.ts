@@ -115,3 +115,27 @@ test("PASSED verification is not a failure class", () => {
     undefined
   );
 });
+
+test("FAILED with empty evidenceIds is environment, not model", () => {
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      summary: "pi agent failed: 429 Too Many Requests",
+      evidenceIds: []
+    }),
+    "environment"
+  );
+});
+
+test("FAILED with cited evidence still defaults to model when unlabeled", () => {
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      summary: "output did not match the golden fixture",
+      evidenceIds: ["evd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    }),
+    "model"
+  );
+});
