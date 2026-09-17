@@ -35,6 +35,24 @@
    **Follow-up (owner):** an intermittent Linux race loss in the delete/removal privacy invariant deserves its own task (reproduce on ubuntu, harden or document the scheduling window) — not silently absorbed by reruns.
 6. Acceptance = independent reviewer PASS on `aeb4993` + owner authorization; only then merge PR #42.
 
+## Independent review dispatch attempts (2026-09-17)
+
+Both provider paths for a subagent reviewer failed: `luna-fast` relay unstable for multi-turn sessions (see 2026-09-16 report), and the default-model relay returned **402 budget-pool quota exhausted** during the reviewer dispatch. Independent review therefore remains with the owner / Grok bot; the protocol above is turnkey.
+
+## Same-head author-run evidence on fresh checkout (2026-09-17)
+
+Fresh detached checkout of `aeb4993` at `.agent_workspace/rr-final-verify/tree` (not this session's authoring worktree), `pnpm install --frozen-lockfile --offline` exit 0:
+
+| Command | Result |
+|---|---|
+| Original five regressions (`review-regressions.test.ts` vs the fresh tree) | **5 pass / 0 fail** |
+| Re-review's three boundary scenarios (`additional-regressions.test.ts`) | **3 pass / 0 fail** — RR4 probe updated to the rejection contract the re-review demanded ("拒绝 timeoutMs=0 等非法值"): the original probe asserted a returned positive deadline, incompatible by design with authorize-time rejection; raw 2/3 pre-update output preserved in session log, rationale inline in the probe copy |
+| Focused (`test/unit/execution/ + worktree-coding-tools + test/integration/execution/`) | **61 pass / 0 fail / 0 skip** |
+| `pnpm gate` | exit 0 — **2771 pass / 0 fail / 18 skip** |
+| `pnpm security:probe` / `pnpm pi:probe` | no open findings / PASS |
+
+These are author-run (not independent); they complete the same-head evidence the re-review asked for and make the independent review turnkey.
+
 ## Explicitly not closed
 
 - PR #42 not merged; merge is an owner action after review PASS.
