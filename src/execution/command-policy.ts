@@ -87,10 +87,22 @@ export function authorizeCommand(
     executable,
     args,
     env,
-    timeoutMs: policy.timeoutMs ?? 60_000,
+    timeoutMs: requireTimeoutMs(policy.timeoutMs),
     maxStdoutBytes: requirePositiveInt(policy.maxStdoutBytes, 256 * 1024, "maxStdoutBytes"),
     maxStderrBytes: requirePositiveInt(policy.maxStderrBytes, 256 * 1024, "maxStderrBytes")
   };
+}
+
+function requireTimeoutMs(value: number | undefined): number {
+  const n = value ?? 60_000;
+  // spawnSync treats 0 as "no timeout"; anything outside the 32-bit signed
+  // range is not a representable deadline. Never authorize an unbounded run.
+  if (!Number.isSafeInteger(n) || n <= 0 || n > 2_147_483_647) {
+    throw new DomainValidationError(
+      "timeoutMs must be a finite positive integer within the spawn-supported range (1..2147483647)"
+    );
+  }
+  return n;
 }
 
 function requirePositiveInt(value: number | undefined, fallback: number, name: string): number {

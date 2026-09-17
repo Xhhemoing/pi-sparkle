@@ -85,8 +85,8 @@ function gitPorcelainZ(cwd: string): string {
   return r.stdout ?? "";
 }
 
-function parsePorcelainZ(stdout: string): Array<{ xy: string; rel: string }> {
-  const records: Array<{ xy: string; rel: string }> = [];
+function parsePorcelainZ(stdout: string): Array<{ xy: string; rel: string; source?: string }> {
+  const records: Array<{ xy: string; rel: string; source?: string }> = [];
   let i = 0;
   while (i < stdout.length) {
     if (stdout.charCodeAt(i) === 0) {
@@ -112,8 +112,13 @@ function parsePorcelainZ(stdout: string): Array<{ xy: string; rel: string }> {
       if (n2 < 0) {
         throw new DomainValidationError("worktree fingerprint: missing rename/copy path NUL");
       }
-      // git status -z emits "R  NEW\\0OLD\\0" (destination first).
+      // git status -z emits "R  NEW\\0OLD\\0" (destination first). The source
+      // path is part of the file-set identity: swapping which identical file
+      // was renamed must change the fingerprint, so it is preserved.
+      const source = stdout.slice(i, n2);
       i = n2 + 1;
+      records.push({ xy, rel: normalizeRel(first), source: normalizeRel(source) });
+      continue;
     }
     records.push({ xy, rel: normalizeRel(first) });
   }
@@ -151,7 +156,7 @@ export function captureWorktreeFingerprint(
   const records = parsePorcelainZ(gitPorcelainZ(root));
   const entries: FingerprintEntry[] = [];
 
-  for (const { xy, rel } of records) {
+  for (const { xy, rel, source } of records) {
     if (isExcluded(rel, manifest)) continue;
 
     let kind: FingerprintEntryKind;
@@ -159,6 +164,18 @@ export function captureWorktreeFingerprint(
     else if (xy.includes("D") || xy === " D") kind = "deleted";
     else if (xy.includes("A") || xy === " A") kind = "added";
     else kind = "modified";
+
+    // Rename/copy semantics: the source path is part of the candidate's
+    // file-set identity. A rename removes the source from the worktree
+    // (recorded as deleted); a copy leaves the source in place (recorded
+    // with its actual content, never as a deletion). Both paths honor the
+    // same include/exclude scope filter.
+    if (source !== undefined && xy.includes("R") && !isExcluded(source, manifest)) {
+      entries.push({ path: source, kind: "deleted", sha256: null });
+    }
+    if (source !== undefined && xy.includes("C") && !isExcluded(source, manifest)) {
+      entries.push({ path: source, kind: "modified", sha256: hashExistingFile(root, source) });
+    }
 
     if (kind === "deleted") {
       entries.push({ path: rel, kind, sha256: null });

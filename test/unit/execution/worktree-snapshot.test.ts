@@ -185,6 +185,28 @@ test("staged delete plus same-name untracked keeps both entries and detects cont
   }
 });
 
+test("rename source identity changes the fingerprint even when file contents match", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "g1a-rename-source-"));
+  try {
+    gitOk(dir, ["init"]);
+    gitOk(dir, ["config", "user.email", "g1a@test"]);
+    gitOk(dir, ["config", "user.name", "g1a"]);
+    writeFileSync(path.join(dir, "a.txt"), "same\n", "utf8");
+    writeFileSync(path.join(dir, "b.txt"), "same\n", "utf8");
+    gitOk(dir, ["add", "a.txt", "b.txt"]);
+    gitOk(dir, ["commit", "-m", "rename-source"]);
+    gitOk(dir, ["mv", "a.txt", "dest.txt"]);
+    const before = captureWorktreeFingerprint(dir);
+    const command = "const {execFileSync}=require('node:child_process'); execFileSync('git',['mv','dest.txt','a.txt']); execFileSync('git',['mv','b.txt','dest.txt']);";
+    const check = runIndependentCheck({ cwd: dir, command: "node", args: ["-e", command] });
+    assert.equal(check.exitCode, 0);
+    assert.equal(check.ok, false, "swapping identical rename sources changes the file set");
+    assert.notEqual(check.contentFingerprintAfter.digest, before.digest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("non-delete unreadable path fails closed instead of a silent null hash", () => {
   const dir = initRepo();
   try {

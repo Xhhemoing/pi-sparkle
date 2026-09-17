@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm, access, readFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { createRunId } from "../../../src/domain/ids.js";
+import { createProjectId, createRunId, createTaskId } from "../../../src/domain/ids.js";
 import {
   closeClosedLoop,
   openClosedLoop,
@@ -13,6 +13,11 @@ import {
 import { evaluateIndependentAcceptance } from "../../../src/execution/acceptance.js";
 import { loopArtifactsDir, runDirectoryPath } from "../../../src/execution/loop-artifact.js";
 import { deleteRunRecords } from "../../../src/privacy/deletion.js";
+import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
+import { EventStore, runLockPath } from "../../../src/run/event-store.js";
+import { defaultRunLimits } from "../../../src/domain/limits.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { makeEvent } from "../../../test/helpers/event-factory.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 
 function git(cwd: string, args: readonly string[]): void {
@@ -36,9 +41,27 @@ async function makeSourceRepo(): Promise<string> {
 
 
 async function seedDurableRun(stateRoot: string, runId: ReturnType<typeof createRunId>): Promise<void> {
-  const dir = runDirectoryPath(stateRoot, runId);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(dir, "events.jsonl"), "", "utf8");
+  // A durable run is a valid initialized event log (RUN_CREATED), not an
+  // empty file: assertRunPresent validates run identity through the
+  // EventStore, so fixtures must initialize real events.
+  const createdAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+  await new EventStore(stateRoot, runId).append(
+    makeEvent(
+      "RUN_CREATED",
+      {
+        run: {
+          id: runId,
+          projectId: createProjectId(),
+          rootTaskId: createTaskId(),
+          status: "PLANNING",
+          limits: defaultRunLimits(),
+          createdAt,
+          updatedAt: createdAt
+        }
+      },
+      { runId }
+    )
+  );
 }
 
 /** Independent check: file must contain the expected token. */
@@ -224,6 +247,30 @@ test("closed loop: quotePath Chinese file rewrite during check is not accepted",
   }
 });
 
+test("closed loop: empty or corrupt event logs do not authorize execution", async () => {
+  const sourceRepo = await makeSourceRepo();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
+  const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
+  try {
+    for (const contents of ["", "not-json\\n"]) {
+      const runId = createRunId();
+      const dir = runDirectoryPath(stateRoot, runId);
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(dir, "events.jsonl"), contents, "utf8");
+      await assert.rejects(
+        () => runClosedLoopCheck({ session, stateRoot, runId, command: "node", args: ["-e", "process.exit(0)"] }),
+        /event|run|corrupt|created|identity/i
+      );
+    }
+  } finally {
+    await closeClosedLoop(session);
+    await rm(sourceRepo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
 test("closed loop: deleted run is not revived by runClosedLoopCheck", async () => {
   const sourceRepo = await makeSourceRepo();
   const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
@@ -252,6 +299,68 @@ test("closed loop: deleted run is not revived by runClosedLoopCheck", async () =
 
     await assert.rejects(() => access(runDir));
   } finally {
+    await closeClosedLoop(session);
+    await rm(sourceRepo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("closed loop: run lock is respected and no nested same-lock acquisition happens", async () => {
+  const sourceRepo = await makeSourceRepo();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-state-"));
+  const runId = createRunId();
+  const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
+  let releaseLock: () => void = () => undefined;
+  try {
+    await seedDurableRun(stateRoot, runId);
+
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const lockHold = withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
+      await lockGate;
+    });
+    // Wait until the lock file actually exists (acquisition succeeded).
+    while (true) {
+      try {
+        await access(runLockPath(stateRoot, runId));
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
+    let settled: "done" | "failed" | undefined;
+    const pending = runClosedLoopCheck({
+      session,
+      stateRoot,
+      runId,
+      command: "node",
+      args: ["-e", "process.exit(0)"]
+    }).then(
+      (result) => {
+        settled = "done";
+        return result;
+      },
+      (error) => {
+        settled = "failed";
+        throw error;
+      }
+    );
+    // The check must block at saveLoopArtifact's lock acquisition, not fail.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(settled, undefined, "check must wait for the held run lock");
+    releaseLock();
+
+    // If assertRunPresent (inside the artifact write) re-acquired the same
+    // exclusive lock, the check would reject with LOCK_TIMEOUT here.
+    const result = await pending;
+    assert.equal(result.acceptance.accepted, true);
+    await lockHold;
+  } finally {
+    releaseLock();
     await closeClosedLoop(session);
     await rm(sourceRepo, { recursive: true, force: true });
     await rm(sandbox, { recursive: true, force: true });

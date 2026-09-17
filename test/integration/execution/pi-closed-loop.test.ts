@@ -13,6 +13,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   createAgentInstanceId,
+  createProjectId,
   createRunId,
   createTaskId
 } from "../../../src/domain/ids.js";
@@ -26,11 +27,14 @@ import {
 import type { CommandPolicy } from "../../../src/execution/command-policy.js";
 import {
   loopArtifactPath,
-  readLoopArtifact,
-  runDirectoryPath
+  readLoopArtifact
 } from "../../../src/execution/loop-artifact.js";
 import { createConfiguredPiExecutor } from "../../../src/pi-adapter/runtime.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { defaultRunLimits } from "../../../src/domain/limits.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { makeEvent } from "../../../test/helpers/event-factory.js";
 import {
   startLoopbackOpenAiProvider,
   type LoopbackOpenAiProvider,
@@ -58,9 +62,27 @@ const NODE_POLICY: CommandPolicy = {
 
 
 async function seedDurableRun(stateRoot: string, runId: ReturnType<typeof createRunId>): Promise<void> {
-  const dir = runDirectoryPath(stateRoot, runId);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await writeFile(path.join(dir, "events.jsonl"), "", "utf8");
+  // A durable run is a valid initialized event log (RUN_CREATED), not an
+  // empty file: assertRunPresent validates run identity through the
+  // EventStore, so fixtures must initialize real events.
+  const createdAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+  await new EventStore(stateRoot, runId).append(
+    makeEvent(
+      "RUN_CREATED",
+      {
+        run: {
+          id: runId,
+          projectId: createProjectId(),
+          rootTaskId: createTaskId(),
+          status: "PLANNING",
+          limits: defaultRunLimits(),
+          createdAt,
+          updatedAt: createdAt
+        }
+      },
+      { runId }
+    )
+  );
 }
 
 function git(cwd: string, args: readonly string[]): void {
