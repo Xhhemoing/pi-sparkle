@@ -279,6 +279,10 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
     // synthesizes FAILED; provider failures carry structured `failure`
     // classification and stay UNOBSERVED), so the census now records that
     // literal alongside `<runtime>`. Wire/protocol contract unchanged.
+    // 2026-09-17 merge reconciliation with main's `ed9a6e9`: the synthesized
+    // object is assigned to a variable before the yield (comment above), so
+    // the census again sees only the child-tool runtime path (`<runtime>`);
+    // the UNOBSERVED literal is no longer a distinct source-form producer.
     const files = await typeScriptFilesUnder(join(REPO_ROOT, "src"));
     const producers = new Map<string, string[]>();
     let piMessages = 0;
@@ -304,7 +308,7 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
       Object.fromEntries([...producers].toSorted()),
       {
         "src/cli/main.ts": ["PASSED"],
-        "src/pi-adapter/pi-executor.ts": ["<runtime>", "UNOBSERVED"],
+        "src/pi-adapter/pi-executor.ts": ["<runtime>"],
         "src/testing/fake-executor.ts": ["PASSED"]
       },
       "the two fakes still hard-code PASSED; the real executor reports or falls back to UNOBSERVED"

@@ -127,7 +127,11 @@ test("PASSED verification is not a failure class", () => {
   );
 });
 
-test("FAILED with empty evidenceIds is environment, not model", () => {
+test("FAILED with empty evidenceIds and a provider hint is provider, not model", () => {
+  // Reconciled 2026-09-17 with main's enhanced classifier (ed9a6e9): a 429
+  // summary matches PROVIDER_HINT and classifies as "provider" — more precise
+  // than the original hotfix's "environment". Both keep the failure out of
+  // the model posterior; the assertion's purpose (never model) is unchanged.
   assert.equal(
     classifyTaskFailure({
       outcome: "FAILURE",
@@ -135,7 +139,7 @@ test("FAILED with empty evidenceIds is environment, not model", () => {
       summary: "pi agent failed: 429 Too Many Requests",
       evidenceIds: []
     }),
-    "environment"
+    "provider"
   );
 });
 
