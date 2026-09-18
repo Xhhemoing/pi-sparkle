@@ -4,7 +4,7 @@
 
 - ID: `TASK-20260917-delete-writer-race-flake`
 - Owner: open (proposed by coding assistant session 2026-09-16/17; not yet assigned)
-- State: `planned`
+- State: `accepted` (closed 2026-09-17 per the abort condition — not reproducible at will; monitoring-only, owner decision recorded in the resolution report)
 - Date opened: 2026-09-17
 - Related ADR/spec/status row: privacy delete cascade row (docs/status-matrix.md, archive §9); `src/run/event-store.ts` header comment (adversarial tight-loop appender measurement); P0 privacy review package §7.
 
@@ -92,6 +92,7 @@ window is real but rare; it must not be absorbed by CI reruns.
 
 ## Closeout
 
-- Verified commit/date: not started.
-- Evidence links: CI run 35197315145 (failure log line ~12564, rerun success);
-  review package 2026-09-16-rr-fix-review-package.md §5.
+- Verified commit/date: `6ae179c` on `cursor/ps-hotfix-provider-fail-attribution` (2026-09-17) — test-only change, await writer before outcome assertions.
+- Abort-condition decision (owner, 2026-09-17): the test observation was fixed (the failure was in the test sampling, not the product invariant); a Linux reproduction effort was bounded by the resolution report's evidence (1 hosted failure in 1 of 3 runs, rerun green; Windows 0/30 losses; product verification confirmed inside the run lock twice). Task closed as **monitoring-only** — no speculative production locking change warranted. Reopen condition: an independent Linux reproduction of a returned-success delete leaving records on disk.
+- Evidence links: [resolution report](../../docs/reports/2026-09-17-delete-writer-race-flake-resolution.md); CI run 35197315145 (failure log line ~12564, rerun success); review package 2026-09-16-rr-fix-review-package.md §5.
+- Commands: `pnpm test -- test/unit/privacy/deletion.test.ts` 51 pass / 0 fail (2026-09-17); `pnpm workflow:check` pass; `git diff --check` pass.
