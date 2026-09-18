@@ -12,7 +12,7 @@ export const OUTCOME_CRITERIA = [
 ] as const;
 export type OutcomeCriterion = (typeof OUTCOME_CRITERIA)[number];
 
-export type FailureClass = "model" | "contract" | "tool" | "environment" | "run";
+export type FailureClass = "model" | "contract" | "tool" | "environment" | "provider" | "run";
 
 export interface OutcomeObservation {
   readonly taskFamily: string;
@@ -71,7 +71,7 @@ export function parseOutcomeObservation(value: unknown): OutcomeObservation {
   if (value.criterion === "taskSuccess" && value.source !== "deterministic-check") {
     throw new DomainValidationError("taskSuccess requires source deterministic-check");
   }
-  const failureClasses = ["model", "contract", "tool", "environment", "run"];
+  const failureClasses = ["model", "contract", "tool", "environment", "provider", "run"];
   if (value.failureClass !== undefined &&
       (typeof value.failureClass !== "string" || !failureClasses.includes(value.failureClass))) {
     throw new DomainValidationError("outcome observation failureClass is invalid");

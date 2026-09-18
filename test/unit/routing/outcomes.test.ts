@@ -61,6 +61,18 @@ describe("outcome vector", () => {
     assert.deepEqual(observationsForR1([contractFail]), []);
   });
 
+  it("excludes provider FAIL from R1 and accepts the class", () => {
+    const providerFail = parseOutcomeObservation({
+      ...base,
+      criterion: "taskSuccess",
+      outcome: "FAIL",
+      source: "deterministic-check",
+      failureClass: "provider"
+    });
+    assert.equal(providerFail.failureClass, "provider");
+    assert.deepEqual(observationsForR1([providerFail]), []);
+  });
+
   it("rejects taskSuccess that is not a deterministic check", () => {
     assert.throws(
       () =>

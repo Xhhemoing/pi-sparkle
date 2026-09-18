@@ -82,23 +82,73 @@ async function repairCrashTruncatedTail(filePath: string): Promise<void> {
   }
 }
 
-export async function readJsonlObjects(
+
+export type JsonlOffsetUnsafe = "offset-beyond-eof" | "offset-not-on-boundary";
+
+export interface ReadJsonlFromOffset {
+  values: unknown[];
+  recovery: JsonlRecovery;
+  fromByteOffset: number;
+  completeByteLength: number;
+  unsafe?: JsonlOffsetUnsafe;
+}
+
+/**
+ * Read JSONL starting at an absolute UTF-8 byte offset that must sit on a
+ * record boundary (0, or immediately after a newline). Offsets that are not
+ * on a boundary, or that sit past EOF after a repair/truncate, are reported
+ * via `unsafe` rather than parsed — callers decide whether to fall back.
+ */
+export async function readJsonlObjectsFromOffset(
   filePath: string,
+  byteOffset: number,
   corrupt: (lineNumber: number) => Error,
   options: ReadJsonlOptions = {}
-): Promise<{ values: unknown[]; recovery: JsonlRecovery }> {
+): Promise<ReadJsonlFromOffset> {
+  if (!Number.isInteger(byteOffset) || byteOffset < 0) {
+    throw new RangeError(`JSONL byte offset must be a non-negative integer, got ${byteOffset}`);
+  }
   const repair = options.repair === true;
-  const raw = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "";
+  const buf = await readFile(filePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return Buffer.alloc(0);
     throw error;
   });
-  if (raw === "") return { values: [], recovery: {} };
+  if (byteOffset > buf.length) {
+    return {
+      values: [],
+      recovery: {},
+      fromByteOffset: byteOffset,
+      completeByteLength: buf.length,
+      unsafe: "offset-beyond-eof"
+    };
+  }
+  if (byteOffset > 0 && buf[byteOffset - 1] !== 0x0a) {
+    return {
+      values: [],
+      recovery: {},
+      fromByteOffset: byteOffset,
+      completeByteLength: byteOffset,
+      unsafe: "offset-not-on-boundary"
+    };
+  }
+  const raw = buf.subarray(byteOffset).toString("utf8");
+  if (raw === "") {
+    return { values: [], recovery: {}, fromByteOffset: byteOffset, completeByteLength: byteOffset };
+  }
+
+  let lineNumberBase = 1;
+  if (byteOffset > 0) {
+    let newlines = 0;
+    for (let i = 0; i < byteOffset; i += 1) {
+      if (buf[i] === 0x0a) newlines += 1;
+    }
+    lineNumberBase = 1 + newlines;
+  }
 
   const segments = raw.split("\n");
   const values: unknown[] = [];
   const recovery: JsonlRecovery = {};
   let cursor = 0;
-  /** Absolute UTF-8 byte offset of the end of the last successfully parsed record. */
   let keepBytes = 0;
 
   for (let index = 0; index < segments.length; index += 1) {
@@ -122,17 +172,31 @@ export async function readJsonlObjects(
     } catch {
       if (isLast) {
         recovery.incompleteLine = parseLine;
-        recovery.lineNumber = index + 1;
+        recovery.lineNumber = lineNumberBase + index;
         if (repair) {
           const rawBytes = Buffer.byteLength(raw, "utf8");
           if (keepBytes < rawBytes) {
-            await truncate(filePath, keepBytes);
+            await truncate(filePath, byteOffset + keepBytes);
           }
         }
         continue;
       }
-      throw corrupt(index + 1);
+      throw corrupt(lineNumberBase + index);
     }
   }
-  return { values, recovery };
+  return {
+    values,
+    recovery,
+    fromByteOffset: byteOffset,
+    completeByteLength: byteOffset + keepBytes
+  };
+}
+
+export async function readJsonlObjects(
+  filePath: string,
+  corrupt: (lineNumber: number) => Error,
+  options: ReadJsonlOptions = {}
+): Promise<{ values: unknown[]; recovery: JsonlRecovery }> {
+  const read = await readJsonlObjectsFromOffset(filePath, 0, corrupt, options);
+  return { values: read.values, recovery: read.recovery };
 }

@@ -53,6 +53,7 @@ import {
   decideRetry,
   resolveRetryPolicy,
   sleepWithAbort,
+  taskFailureForProvider,
   type ProviderFailure,
   type RetryOptions
 } from "./provider-retry.js";
@@ -826,23 +827,19 @@ export class PiAgentExecutor implements AgentExecutor {
     if (!collected.some((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT")) {
       // The classified provider failure carries the reason a bare "finished"
       // would hide: surface it the way 9035's agent.state.errorMessage did.
+      // Provider/env failures stay UNOBSERVED so they never enter taskSuccess
+      // as FAILED-with-empty-evidence (which defaults to failureClass=model).
       const errorMessage = failure !== undefined && failure.message.trim() !== ""
         ? failure.message.trim()
         : undefined;
-      // Provider/runtime failures must stay out of taskSuccess learning.
-      // taskSuccessFromResult only emits PASS/FAIL for verification
-      // PASSED/FAILED; synthesizing FAILED here (with empty evidenceIds)
-      // was scored as a model FAIL and poisoned the bandit. Keep the
-      // TASK_RESULT diagnosable via summary + failure classification, and
-      // leave verification UNOBSERVED so ObservedSignal never gets a
-      // deterministic taskSuccess FAIL for infra outages.
-      const failureClassification =
-        failure === undefined
-          ? undefined
-          : {
-              category: failure.kind === "timeout" ? ("TIMEOUT" as const) : ("UNKNOWN" as const),
-              detail: errorMessage ?? failure.kind
-            };
+      const providerFailure = failure !== undefined ? taskFailureForProvider(failure) : undefined;
+      // Synthesized silence is always UNOBSERVED (never FAILED with empty
+      // evidenceIds). Assign the object first so the option-a producer census
+      // still sees only the child-tool runtime path as a verification producer.
+      const synthesizedVerification = {
+        kind: "UNOBSERVED" as const,
+        evidenceIds: [] as EvidenceId[]
+      };
       yield {
         type: "MESSAGE",
         message: {
@@ -863,8 +860,8 @@ export class PiAgentExecutor implements AgentExecutor {
                 : "pi agent finished",
           artifactIds: [],
           evidenceIds: [],
-          verification: { kind: "UNOBSERVED", evidenceIds: [] },
-          ...(failureClassification !== undefined ? { failure: failureClassification } : {})
+          verification: synthesizedVerification,
+          ...(providerFailure !== undefined ? { failure: providerFailure } : {})
         }
       };
     }

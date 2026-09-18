@@ -50,7 +50,7 @@ export type TaskOutcome = (typeof TASK_OUTCOMES)[number];
 export const VERIFICATION_KINDS = ["PASSED", "FAILED", "UNOBSERVED"] as const;
 export type VerificationKind = (typeof VERIFICATION_KINDS)[number];
 
-export const FAILURE_CATEGORIES = ["TIMEOUT", "TOOL_ERROR", "MODEL_ERROR", "VALIDATION", "UNKNOWN"] as const;
+export const FAILURE_CATEGORIES = ["TIMEOUT", "TOOL_ERROR", "MODEL_ERROR", "VALIDATION", "PROVIDER_ERROR", "UNKNOWN"] as const;
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
 
 /** Recipient value used when a message targets the coordinating supervisor. */

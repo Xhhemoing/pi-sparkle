@@ -1,27 +1,14 @@
 /**
- * F6 paired-block evidence classification (PS-P1 ship-clean).
- *
- * Empty arms / config-collector failure must not enter production-candidate.
- * Real task failures that still wrote invocation rows stay eligible.
+ * Thin re-export of PS-P4 arm-outcome classification from the built library.
+ * Prefer importing `src/experiments/arm-outcome.ts` in unit tests.
  */
+import { pathToFileURL } from "node:url";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-/**
- * @param {{
- *   executor: string,
- *   results: ReadonlyArray<{
- *     invocations: ReadonlyArray<unknown>,
- *     status: string,
- *     runId?: string
- *   }>
- * }} input
- * @returns {"simulation" | "harness-failure" | "production-candidate"}
- */
-export function classifyHoldoutBlockEvidenceClass({ executor, results }) {
-  if (executor !== "pi") return "simulation";
-  const harnessOnly = results.every(
-    (result) =>
-      result.invocations.length === 0 &&
-      (result.status === "UNKNOWN" || result.runId === undefined)
-  );
-  return harnessOnly ? "harness-failure" : "production-candidate";
-}
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const mod = await import(pathToFileURL(join(repoRoot, "dist", "experiments", "arm-outcome.js")).href);
+
+export const classifyHoldoutBlockEvidenceClass = mod.classifyHoldoutBlockEvidenceClass;
+export const classifyArmOutcome = mod.classifyArmOutcome;
+export const analyzePairedArms = mod.analyzePairedArms;

@@ -1,0 +1,3 @@
+{"schemaVersion":1,"runId":"r-miss","requestId":"q1","observationId":"o1"}
+{"schemaVersion":1,"runId":"r-miss","requestId":"q2","observationId":"o2","baselineBytes":800}
+{"schemaVersion":1,"runId":"r-miss","requestId":"q3","observationId":"o3","projectedBytes":200}

@@ -14,7 +14,7 @@ import type { FeedbackRecord } from "../feedback/types.js";
 import { appendFeedbackWithRetry, type FeedbackAppendRetryOptions } from "../feedback/store.js";
 import type { Event } from "../run/events.js";
 import type { TaskAssignment } from "../routing/assign.js";
-import { updateProjectBandit } from "./bandit-store.js";
+import { updateProjectBanditDeduped } from "./observation-ledger.js";
 import { diagnoseModelProjectIssues, type ModelProjectIssue } from "./diagnostics.js";
 import { isAutoAdaptEnabled } from "../adaptation/approval-profile.js";
 import {
@@ -170,7 +170,7 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
 
   const banditUpdated = signals.some((signal) => signal.modelId !== undefined);
   if (banditUpdated) {
-    await updateProjectBandit(input.stateRoot, input.projectRoot, signals);
+    await updateProjectBanditDeduped(input.stateRoot, input.projectRoot, signals);
   }
   const failing = issues.filter(
     (issue) => issue.actionable && issue.modelId !== input.primaryModelId

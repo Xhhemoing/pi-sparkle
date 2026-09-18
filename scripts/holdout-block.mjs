@@ -43,9 +43,11 @@ const outPath = flag("out");
 const seedText = flag("seed");
 const observationsPath = flag("observations");
 const executor = flag("executor") ?? "pi";
+const priceTableFlag = flag("price-table");
+const nowMsFlag = flag("now-ms");
 
-if (specPath === undefined || baseCommit === undefined || outPath === undefined || seedText === undefined) {
-  console.error("usage: holdout-block --spec <file> --base-commit <sha> --out <block.json> --seed <n> [--observations <file>] [--executor pi|fake]");
+if (specPath === undefined || baseCommit === undefined || outPath === undefined || seedText === undefined || nowMsFlag === undefined) {
+  console.error("usage: holdout-block --spec <file> --base-commit <sha> --out <block.json> --seed <n> --now-ms <n> [--observations <file>] [--executor pi|fake] [--price-table <file>]");
   process.exit(2);
 }
 if (executor !== "pi" && executor !== "fake") {
@@ -54,6 +56,12 @@ if (executor !== "pi" && executor !== "fake") {
 }
 
 const repoRoot = resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const priceTablePath = priceTableFlag ?? join(repoRoot, "holdout", "price-table-v1.json");
+const frozenNowMs = nowMsFlag !== undefined ? Number(nowMsFlag) : undefined;
+if (nowMsFlag !== undefined && !Number.isFinite(frozenNowMs)) {
+  console.error(`--now-ms must be a finite number, got ${nowMsFlag}`);
+  process.exit(2);
+}
 const specBody = await readFile(specPath);
 const specHash = createHash("sha256").update(specBody).digest("hex");
 const spec = JSON.parse(specBody.toString("utf8"));
@@ -80,6 +88,19 @@ if (!Array.isArray(spec.allowedModels) || spec.allowedModels.length === 0) {
 if (specProblems.length > 0) {
   console.error(`spec preflight failed:\n  ${specProblems.join("\n  ")}`);
   process.exit(2);
+}
+
+// PS-P4: full taskSpec validate (family, multi-task shape) before worktrees.
+{
+  const { validateHoldoutTaskSpec } = await import(
+    pathToFileURL(join(repoRoot, "dist", "experiments", "task-spec.js")).href
+  );
+  try {
+    validateHoldoutTaskSpec(spec);
+  } catch (error) {
+    console.error(`spec validate failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(2);
+  }
 }
 
 // Committed-seed arm order: hash(seed || specHash) bit 0 decides which arm runs
@@ -150,76 +171,40 @@ async function runArm(arm, worktree, stateRoot, flowchartPath) {
   };
 }
 
-// R1 offline assignment (experiments plane). Returns undefined when the R1
-// decision falls back to the R0 baseline — the block then records fallback and
-// the R1 arm runs the same model, which is the honest cold-start outcome.
+// R1 offline assignment via PS-P4 compileEquivalentArms (experiments plane).
+// Full multi-task flowchart; real price table; injectable clock; family from spec.
 async function r1FlowchartFor(worktree) {
-  const { routeR0 } = await import(pathToFileURL(join(repoRoot, "dist", "routing", "r0.js")).href);
-  const { routeR1 } = await import(pathToFileURL(join(repoRoot, "dist", "routing", "r1.js")).href);
+  const { validateHoldoutTaskSpec, compileEquivalentArms, modelDescriptorsFromPriceTable } =
+    await import(pathToFileURL(join(repoRoot, "dist", "experiments", "task-spec.js")).href);
   const observations = observationsPath !== undefined
     ? JSON.parse(await readFile(observationsPath, "utf8"))
     : [];
-  const task = (spec.tasks ?? [])[0];
-  if (task === undefined) throw new Error("spec has no tasks[0]");
-  const catalogIds = spec.allowedModels ?? [];
-  if (catalogIds.length === 0) throw new Error("spec.allowedModels (catalog ids) is required for the R1 arm");
-  // Minimal well-formed descriptors: the block runner's job is arm
-  // assignment, not cost estimation — prices come from the live catalog when
-  // the flowchart runs. Costs here are placeholders so eligibility works.
-  const models = catalogIds.map((id) => ({
-    modelId: id,
-    providerId: id.split("/")[0] ?? id,
-    version: `${id}-holdout`,
-    capabilities: [],
-    providerPolicy: "approved",
-    inputCostPerMTok: 1,
-    outputCostPerMTok: 1,
-    latencyMsPer1K: 1000,
-    approvedForHighRisk: true
-  }));
-  const request = {
-    taskFamily: "holdout",
-    privacyRequired: "none",
-    requiredCapabilities: [],
-    contextNeeded: 0,
-    outputNeeded: 0,
-    budgetUsd: Number.MAX_SAFE_INTEGER,
-    deadlineMs: Number.MAX_SAFE_INTEGER,
-    highRisk: false,
-    fixedCostUsd: 1,
-    fixedLatencyMs: 1000
-  };
-  const r0 = routeR0(
-    { confidenceGate: 0.7, cascade: false, policyVersion: "holdout-r0-v1" },
-    models,
-    request
-  );
-  const r1 = routeR1({
-    r0,
-    role: "actor",
-    featureVersion: "holdout-block-v1",
-    models,
+  const priceTable = JSON.parse(await readFile(priceTablePath, "utf8"));
+  const validated = validateHoldoutTaskSpec(spec);
+  const catalog = modelDescriptorsFromPriceTable(validated.allowedModels, priceTable);
+  if (frozenNowMs === undefined) {
+    throw new Error("PS-P4: --now-ms is required for sealed R1 compile (no wall Date.now)");
+  }
+  const compiled = compileEquivalentArms({
+    spec: validated,
+    catalog,
+    nowMs: frozenNowMs,
     observations,
-    nowMs: Date.now()
+    featureVersion: "holdout-block-v1"
   });
-  const chosen = r1.selection ?? r0.selection;
-  if (chosen === undefined) throw new Error("no eligible model for the R1 arm");
-  const flowchart = {
-    id: "flw_holdout_block",
-    nodes: [{
-      id: "task",
-      taskId: task.id,
-      role: "actor",
-      objective: task.objective,
-      modelPolicy: { allowedModels: models.map((model) => model.modelId), preferredModel: chosen },
-      confidenceThreshold: 0.7,
-      approvalRequired: false
-    }],
-    edges: []
-  };
   const flowchartPath = join(worktree, ".holdout-flowchart.json");
-  await writeFile(flowchartPath, JSON.stringify(flowchart, null, 2), "utf8");
-  return { flowchartPath, r1: { selection: r1.selection, fallback: r1.fallback, reason: r1.reason } };
+  await writeFile(flowchartPath, JSON.stringify(compiled.r1.flowchart, null, 2), "utf8");
+  const r1 = compiled.r1.decision;
+  return {
+    flowchartPath,
+    r1: { selection: r1.selection, fallback: r1.fallback, reason: r1.reason },
+    compiled: {
+      taskFamily: compiled.shared.taskFamily,
+      taskCount: compiled.shared.tasks.length,
+      specHash: compiled.shared.specHash,
+      nowMs: compiled.shared.nowMs
+    }
+  };
 }
 
 const worktrees = [];

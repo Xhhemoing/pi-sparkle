@@ -247,9 +247,9 @@ async function removeRunSubtree(stateRoot: string, runId: RunId, runDir: string)
 
 /**
  * Delete one run's records: the runtime subtree (events, checkpoint, pause
- * state, track questions) under `runtime/runs/<runId>/`, that run's rows in the
- * shared `runtime/invocations.jsonl`, and the replay dataset derived from the
- * run at the default `adaptation/eval-datasets/<runId>/`
+ * state, track questions, observation archive) under `runtime/runs/<runId>/`,
+ * that run's rows in the shared `runtime/invocations.jsonl`, and the replay
+ * dataset derived from the run at the default `adaptation/eval-datasets/<runId>/`
  * (`removeDefaultEvalDataset`). Deleting a run does not touch its
  * episode: episodes can outlive individual runs (multi-run attach), which is
  * why the `run-event` record class does not declare episode propagation.

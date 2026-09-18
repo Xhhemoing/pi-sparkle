@@ -8,7 +8,7 @@ Do not begin claiming `Outcome-supported` until Checkpoint F item 1 is closed. D
 
 ## P0: Freeze privacy, storage, and authority
 
-**Closed 2026-08-26** by [technical re-verification](../docs/reports/2026-08-26-p0-technical-reverification.md): Q1/Q2 tests green; an independent privacy-officer countersign remains welcome but is non-blocking (authoritative: `docs/status-matrix.md` P0 row). Acceptance criteria below kept for the record:
+**Closed 2026-08-26** by [technical re-verification](../docs/reports/2026-08-26-p0-technical-reverification.md): Q1/Q2 tests green; an independent privacy-officer countersign remains welcome but is non-blocking (authoritative: `docs/status-matrix.md` P0 row). Unchecked acceptance criteria below are historical records of the original gate, not a claim that P0 is open again — do not re-open P0 from this file alone.
 
 - [ ] Every durable record class has owner, retention, redaction, deletion, and migration rules.
 - [ ] Active resources cannot be changed by the execution plane (documented and tested as a P0 gate, not only implied by promotion CAS).

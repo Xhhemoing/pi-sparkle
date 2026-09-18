@@ -66,7 +66,7 @@ test("maps permission and sandbox summaries to environment", () => {
   );
 });
 
-test("429 and transport errors are environment, even if the agent tagged MODEL_ERROR", () => {
+test("429 and transport errors are provider, even if the agent tagged MODEL_ERROR", () => {
   assert.equal(
     classifyTaskFailure({
       outcome: "FAILURE",
@@ -74,7 +74,7 @@ test("429 and transport errors are environment, even if the agent tagged MODEL_E
       httpStatus: 429,
       summary: "provider said no"
     }),
-    "environment"
+    "provider"
   );
   assert.equal(
     classifyTaskFailure({
@@ -82,7 +82,7 @@ test("429 and transport errors are environment, even if the agent tagged MODEL_E
       verificationKind: "FAILED",
       transportCode: "ECONNRESET"
     }),
-    "environment"
+    "provider"
   );
   assert.equal(
     classifyTaskFailure({
@@ -91,7 +91,18 @@ test("429 and transport errors are environment, even if the agent tagged MODEL_E
       failure: { category: "MODEL_ERROR" },
       summary: "upstream 429 rate limited"
     }),
-    "environment"
+    "provider"
+  );
+});
+
+test("maps protocol PROVIDER_ERROR to provider", () => {
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "UNOBSERVED",
+      failure: { category: "PROVIDER_ERROR", detail: "provider rate-limit status=429: slow down" }
+    }),
+    "provider"
   );
 });
 

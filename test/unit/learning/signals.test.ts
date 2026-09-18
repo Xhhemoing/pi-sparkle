@@ -205,7 +205,7 @@ test("Pi subagent runs contribute model-attributed feedback and drop thinking tr
   assert.notEqual(signals[0]?.criterion, "taskSuccess");
 });
 
-test("extraSignals cannot forge failureClass; 429 summaries derive environment", () => {
+test("extraSignals cannot forge failureClass; 429 summaries derive provider", () => {
   const projectId = createProjectId();
   assert.throws(
     () =>
@@ -236,7 +236,7 @@ test("extraSignals cannot forge failureClass; 429 summaries derive environment",
     createdAt: nowIso(),
     evidenceIds: []
   });
-  assert.equal(derived.failureClass, "environment");
+  assert.equal(derived.failureClass, "provider");
 });
 
 test("extraSignals prose can exculpate but never inculpate the model", () => {
@@ -264,7 +264,7 @@ test("extraSignals prose can exculpate but never inculpate the model", () => {
   // Recognised exculpatory evidence in the prose still lands.
   assert.equal(parse("acceptance criteria were not specified").failureClass, "contract");
   assert.equal(parse("tool error: command failed").failureClass, "tool");
-  assert.equal(parse("socket hang up talking upstream").failureClass, "environment");
+  assert.equal(parse("socket hang up talking upstream").failureClass, "provider");
 
   // PASS derives nothing, as before.
   assert.equal(parse("all good", "PASS").failureClass, undefined);
@@ -295,6 +295,33 @@ test("TASK_TIMEOUT attributes a later FAILED result as run, not model", () => {
   const fail = collectSignalsFromEvents(events, { episodeId: createEpisodeId() })
     .find((signal) => signal.criterion === "taskSuccess");
   assert.equal(fail?.failureClass, "run");
+});
+
+test("provider FAILURE with UNOBSERVED does not write taskSuccess FAIL", () => {
+  const projectId = createProjectId();
+  const runId = createRunId();
+  const taskId = parseTaskId("tsk_prov1");
+  const events: Event[] = [
+    makeEvent(runId, "PROJECT_DISCOVERED", {
+      project: { id: projectId, rootPath: "E:/proj", discoveredAt: nowIso(), instructionFiles: [], manifests: [], commands: [], facts: [] }
+    }),
+    routedEvent(runId, taskId, "cheap", "cheap-v1"),
+    makeEvent(runId, "CHILD_MESSAGE", {
+      message: taskResult(runId, taskId, "msg_prov", {
+        outcome: "FAILURE",
+        summary: "pi agent failed: 429: rate limited",
+        verification: { kind: "UNOBSERVED", evidenceIds: [] },
+        failure: { category: "PROVIDER_ERROR", detail: "provider rate-limit status=429: rate limited" }
+      })
+    })
+  ];
+  const signals = collectSignalsFromEvents(events, { episodeId: createEpisodeId() });
+  assert.equal(
+    signals.some((signal) => signal.criterion === "taskSuccess"),
+    false,
+    "provider UNOBSERVED must not enter taskSuccess"
+  );
+  assert.ok(signals.some((signal) => /pi agent failed|rate limited/i.test(signal.summary)));
 });
 
 function makeEvent(runId: ReturnType<typeof createRunId>, type: Event["type"], payload: unknown): Event {
@@ -344,7 +371,7 @@ function taskResult(
   body: {
     outcome: "SUCCESS" | "FAILURE";
     summary: string;
-    verification: { kind: "PASSED" | "FAILED"; evidenceIds: string[] };
+    verification: { kind: "PASSED" | "FAILED" | "UNOBSERVED"; evidenceIds: string[] };
     failure?: { category: string; detail?: string };
   }
 ): unknown {

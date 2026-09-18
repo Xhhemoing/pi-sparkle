@@ -321,6 +321,7 @@ test("bandit rewards are model-attributed taskSuccess only", async () => {
       modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "model" }),
       // Non-model failures must not lower the posterior.
       modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "environment" }),
+      modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "provider" }),
       modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "tool" }),
       modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "run" }),
       modelTaskSuccess({ projectId, episodeId, modelId: "cheap", outcomeKind: "FAIL", failureClass: "contract" }),

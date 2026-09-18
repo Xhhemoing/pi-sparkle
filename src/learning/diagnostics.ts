@@ -19,7 +19,7 @@ const ACTIONABLE_SAMPLES = 5;
  * Group taskSuccess observations by (project, model). Other columns stay out
  * of routing quality. Only informative PASS/FAIL rows count, and a FAIL only
  * counts against the model when the failure is attributed to the model —
- * contract/tool/environment/run failures must never feed an avoid proposal.
+ * contract/tool/environment/provider/run failures must never feed an avoid proposal.
  */
 export function diagnoseModelProjectIssues(signals: readonly ObservedSignal[]): ModelProjectIssue[] {
   const groups = new Map<string, ObservedSignal[]>();
