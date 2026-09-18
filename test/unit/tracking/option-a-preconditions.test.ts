@@ -274,6 +274,15 @@ describe("what a criteria-gating design had to move (option (a), landed)", () =>
     // instead of synthesizing UNOBSERVED. The gate therefore has a live
     // producer for the first time — but only when the child calls the tool.
     // Re-derive again when a producer ships or moves; do not delete.
+    // 2026-09-16 provider-fail attribution hotfix: the terminal fallback
+    // became an unconditional literal `UNOBSERVED` (the executor never
+    // synthesizes FAILED; provider failures carry structured `failure`
+    // classification and stay UNOBSERVED), so the census now records that
+    // literal alongside `<runtime>`. Wire/protocol contract unchanged.
+    // 2026-09-17 merge reconciliation with main's `ed9a6e9`: the synthesized
+    // object is assigned to a variable before the yield (comment above), so
+    // the census again sees only the child-tool runtime path (`<runtime>`);
+    // the UNOBSERVED literal is no longer a distinct source-form producer.
     const files = await typeScriptFilesUnder(join(REPO_ROOT, "src"));
     const producers = new Map<string, string[]>();
     let piMessages = 0;

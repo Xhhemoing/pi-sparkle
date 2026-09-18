@@ -11,6 +11,12 @@ export interface ClassifyTaskFailureInput {
   readonly httpStatus?: number | undefined;
   /** Node/transport errno observed by the runtime (ECONNRESET, …). */
   readonly transportCode?: string | undefined;
+  /**
+   * Evidence cited by a FAILED verification. An empty FAILED (no refs) is not
+   * attributable to the model — it is usually a runtime synthesis bug or an
+   * incomplete report, and must not lower a routing posterior.
+   */
+  readonly evidenceIds?: readonly string[] | undefined;
 }
 
 const CONTRACT_HINT =
@@ -61,6 +67,13 @@ export function classifyTaskFailure(input: ClassifyTaskFailureInput): FailureCla
       break;
   }
 
-  if (input.verificationKind === "FAILED") return "model";
+  if (input.verificationKind === "FAILED") {
+    // Unreferenced FAILED is not model evidence (and bypasses the protocol
+    // invariant that FAILED must cite evidence). Keep it out of R1/bandit.
+    if (input.evidenceIds !== undefined && input.evidenceIds.length === 0) {
+      return "environment";
+    }
+    return "model";
+  }
   return undefined;
 }

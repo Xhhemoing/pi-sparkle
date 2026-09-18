@@ -1,6 +1,6 @@
 # Active implementation plan
 
-Process entry point: [AGENTS.md](../AGENTS.md) -> [docs/development-workflow.md](../docs/development-workflow.md) -> [	asks/README.md](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
+Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
 Completed runtime M0–M2.5 and accepted adaptive slices were archived on 2026-08-17:
 
 - [M0–M2.5 plan](archive/m0-m2-plan.md)
@@ -20,26 +20,20 @@ Unplanned code already in the tree (`src/track/`, `src/cluster/`, `src/learning/
 
 Next architecture (not yet a task plan): [Pi intelligent adaptive loop report](../docs/reports/pi-intelligent-adaptive-loop.md) Phases 0–5, gated on ADR-006 (Proposed) and Checkpoint F.
 
-## PR-A harness-efficiency (2026-09-12)
+## SoL-Pi efficiency line (merged) — PR-A / PR-B / PS-HOTFIX / PS-P3 / PS-P4 / P5 (2026-09-12/13)
 
-Offline JSONL aggregator + thin CLI on `grok/sol-efficiency`. Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).
+Merged via PR #36 into remote main. Facts and per-slice scope (from the `grok/sol-efficiency` delivery):
 
-## PR-B observation store + offline projection (2026-09-13)
+- **PR-A harness-efficiency**: offline JSONL aggregator + thin CLI (`scripts/analyze-harness-efficiency.ts`). Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).
+- **PR-B observation store + offline projection**: run-scoped content-addressed observation archive + pure projection/recall. No live Pi executor / CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm.
+- **PS-HOTFIX provider failure attribution** (`ed9a6e9`): provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable. NOTE: this repo's hotfix line (`5256339` on `cursor/ps-hotfix-provider-fail-attribution`) is an independent fix of the same issue; see the merge-commit reconciliation.
+- **PS-P3 real closed loop** (`950b9ef`): isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only).
+- **PS-P4 trusted experiments (F6 hard gate)** (`d84cfc0`): equivalent R0/R1 taskSpec compile, freeze, observation-ledger dedupe, independent oracle, evidence retention keep-raw. No F6 promotion.
+- **PS-P5 efficiency** (`4804d4c`): incremental checkpoint replay, event aggregation, duty splits.
 
-Run-scoped content-addressed observation archive + pure projection/recall on `grok/sol-efficiency`. No live Pi executor / CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm.
+Delivery evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts are not on the GitHub reviews API (see G0 report). Do not reimplement the merged chain. F6 seal/holdout, extension/live-adaptation and Outcome-supported remain separately gated.
 
-## PS-HOTFIX provider failure attribution (2026-09-12)
-
-On tip after PR-A+PR-B (`da38a44`). Provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable.
-
-## PS-P3 real closed loop (2026-09-12 / 2026-09-13)
-
-Isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only). Does not flip `independentEvidence` from child self-report. No P4/P5/Soul; no merge.
 
 ## Grok follow-up — trusted execution (2026-09-13)
 
-`TASK-20260913-grok-trusted-execution`: [next-round plan](../docs/superpowers/plans/2026-09-13-grok-trusted-execution.md). Research base: merged PR #36 / remote main `6ee16a3722fda35d9b6098144602f199fb0a7d0f`. Sequence: G0 reproducible workflow baseline → G1A independent acceptance/content binding → G1B tool/artifact boundaries → G2 real-adapter offline loopback. G3 inventories F6 readiness (report-only). Do not repeat A/B/HOTFIX/P3/P4/P5. Active seat work starts at G0 on branch `grok/trusted-execution-g0`.
-
-## SoL-Pi efficiency delivery (2026-09-13)
-
-`TASK-20260913-sol-pi-efficiency` merged via [PR #36](https://github.com/Xhhemoing/pi-sparkle/pull/36): head `4804d4c625559b58675a4726bbdd43eeecb78e4c`, remote main `6ee16a3722fda35d9b6098144602f199fb0a7d0f`. Evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts / GitHub reviews: see G0 report (unavailable on GitHub reviews API). Do not reimplement the merged chain.
+`TASK-20260913-grok-trusted-execution` / `TASK-20260913-grok-review-repair`: re-review 2026-09-14 returned REQUEST CHANGES on full local candidate `412230a`; all RR residuals (RR1/RR2/RR4) fixed 2026-09-16 and delivered as commit `aeb4993` (fast-forward onto PR #42, [review package](../docs/reports/2026-09-16-rr-fix-review-package.md)). PR #42 head `aeb4993` carries the full candidate; hosted CI green (rerun 2026-09-17). Remaining: independent review PASS + owner authorization, then merge. Author-run same-head evidence (5 old + 3 new regressions, focused 61, gate 2771, probes) completed 2026-09-17 on a fresh checkout; independent review dispatch failed on provider quota (402) and remains with the owner / Grok bot. F6 stays NOT READY; no provider/holdout/seal runs performed on this line.

@@ -181,6 +181,30 @@ test("planning-omission FAIL is contract and does not enter R1", () => {
   assert.deepEqual(observationsForR1(outcomes), []);
 });
 
+test("episode-replayed unreferenced verification failure is environment-attributed", () => {
+  const message = resultMessage({
+    outcome: "FAILURE",
+    summary: "pi agent failed",
+    failure: { category: "UNKNOWN", detail: "executor crashed before reporting" }
+  });
+  message.evidenceIds = [];
+  message.verification.evidenceIds = [];
+  const events = [
+    makeEvent("MODEL_ROUTED", routedPayload(), { taskId: TASK_ID, runId: RUN_ID }),
+    makeEvent(
+      "CHILD_MESSAGE",
+      { message },
+      { taskId: TASK_ID, runId: RUN_ID }
+    )
+  ];
+
+  const outcomes = outcomesFromRoutedRun(events);
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0]?.outcome, "FAIL");
+  assert.notEqual(outcomes[0]?.failureClass, "model");
+  assert.equal(outcomes[0]?.failureClass, "environment");
+});
+
 test("cascade retry binds the second result to the next model", () => {
   const childRunId = createRunId();
   const events = [

@@ -126,3 +126,31 @@ test("PASSED verification is not a failure class", () => {
     undefined
   );
 });
+
+test("FAILED with empty evidenceIds and a provider hint is provider, not model", () => {
+  // Reconciled 2026-09-17 with main's enhanced classifier (ed9a6e9): a 429
+  // summary matches PROVIDER_HINT and classifies as "provider" — more precise
+  // than the original hotfix's "environment". Both keep the failure out of
+  // the model posterior; the assertion's purpose (never model) is unchanged.
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      summary: "pi agent failed: 429 Too Many Requests",
+      evidenceIds: []
+    }),
+    "provider"
+  );
+});
+
+test("FAILED with cited evidence still defaults to model when unlabeled", () => {
+  assert.equal(
+    classifyTaskFailure({
+      outcome: "FAILURE",
+      verificationKind: "FAILED",
+      summary: "output did not match the golden fixture",
+      evidenceIds: ["evd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    }),
+    "model"
+  );
+});

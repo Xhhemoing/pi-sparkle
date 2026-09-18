@@ -1387,7 +1387,10 @@ test("a live run's own writers cannot make a delete report a removal it lost", a
         (result) => result,
         (error: unknown) => error
       );
-      const onDiskAtReturn = existsSync(runDir);
+      // Stop the deliberately unlocked writer before inspecting the outcome.
+      // A write after delete's final verification is a new fact and is explicitly
+      // allowed by the delete contract; observing the directory after awaiting
+      // the result would therefore make this test timing-dependent.
       writing = false;
       await writer;
 
@@ -1397,7 +1400,9 @@ test("a live run's own writers cannot make a delete report a removal it lost", a
           `a lost race must surface as RunRecordsSurvivedError, not ${String(outcome)}`
         );
       } else {
-        assert.equal(onDiskAtReturn, false, "a returned delete must leave nothing on disk");
+        const result = outcome as { target: string; removedPaths: readonly string[] };
+        assert.equal(result.target, `run:${runId}`);
+        assert.ok(result.removedPaths.includes(runDir));
       }
       await rm(runDir, { recursive: true, force: true });
     }

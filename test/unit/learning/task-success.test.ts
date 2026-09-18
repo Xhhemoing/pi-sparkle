@@ -338,3 +338,45 @@ function makeEvent(runId: ReturnType<typeof createRunId>, type: Event["type"], p
     payload
   } as Event;
 }
+
+test("provider-style UNOBSERVED FAILURE with MODEL_ROUTED never writes taskSuccess FAIL", () => {
+  const projectId = createProjectId();
+  const runId = createRunId();
+  const taskId = parseTaskId("tsk_provider_fail");
+  const signals = collectSignalsFromEvents(
+    [
+      projectEvent(runId, projectId),
+      modelRoutedEvent(runId, taskId, {
+        model: "cheap",
+        modelVersion: "cheap-v1",
+        family: "edit",
+        featureVersion: "assign-v2"
+      }),
+      makeEvent(runId, "CHILD_MESSAGE", {
+        message: {
+          protocolVersion: 1,
+          id: "msg_provider_fail",
+          occurredAt: nowIso(),
+          runId,
+          taskId,
+          from: "agt_child",
+          to: "SUPERVISOR",
+          type: "TASK_RESULT",
+          outcome: "FAILURE",
+          summary: "pi agent failed: 429 Too Many Requests",
+          artifactIds: [],
+          evidenceIds: [],
+          verification: { kind: "UNOBSERVED", evidenceIds: [] },
+          failure: { category: "UNKNOWN", detail: "429 Too Many Requests" }
+        }
+      })
+    ],
+    { episodeId: createEpisodeId() }
+  );
+  assert.equal(
+    signals.some((signal) => signal.criterion === "taskSuccess"),
+    false,
+    "provider UNOBSERVED FAILURE must not enter taskSuccess"
+  );
+  assert.ok(signals.some((signal) => /429/.test(signal.summary)));
+});
