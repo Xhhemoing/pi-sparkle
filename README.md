@@ -31,16 +31,33 @@ the security probe and is not an installation or publication path.
 
 ### Install as a local Pi package
 
-The diagnostic skill and `/sparkle` prompt install into Pi. There is **no**
-extension (ADR-006 still Proposed). Local paths are referenced, not copied:
+The local package includes the native delegation extension, diagnostic skill
+and `/sparkle` prompt (ADR-006 Accepted). Local paths are referenced, not copied:
 
 ```bash
 pi install /absolute/path/to/pi-sparkle
 pi list
 ```
 
-In a Pi session, `/skill:pi-sparkle` or `/sparkle` runs the overlay. The CLI
-above is a separate runtime (`pnpm cli`), not a Pi slash command.
+Reload Pi after installing. In a normal session, ask the assistant to use
+`sparkle_delegate` for up to four read-only inspections/reviews. Workers use
+the host model catalogue/auth and actual file reads; `/sparkle-status` shows
+active runs. The default preference is `cursor-grok-4.6-fast`; the tool accepts
+an explicit `provider/model` override and refuses unavailable/ambiguous models.
+The main conversation model is unchanged. Esc and session shutdown cancel
+workers. `SPARKLE_NATIVE=0` disables the extension at load time.
+
+Delegated evidence lives in `.agent_workspace/pi-sparkle/` under the project;
+use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-sparkle`.
+Results are bounded child reports, not independently verified acceptance.
+The initial slice does not write files or execute shell commands in workers.
+Terminal analysis proposes candidates without automatically applying them.
+The loader was checked on Pi 0.84.4 and 0.85.1; live-provider behavior is not
+established by the offline loopback tests.
+
+`/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also
+available independently. See the [native integration plan](docs/superpowers/plans/2026-09-18-native-pi.md)
+for isolated write tasks, quality routing and automatic improvement scope.
 
 ### Run with the built-in fake executor (no API keys)
 

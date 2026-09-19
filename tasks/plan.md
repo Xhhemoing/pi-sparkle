@@ -18,7 +18,7 @@ Phase D: [2026-08-18-phase-d-promotion-cas.md](../docs/superpowers/plans/2026-08
 
 Unplanned code already in the tree (`src/track/`, `src/cluster/`, `src/learning/auto-loop.ts`, `src/graph/compile-children.ts`) is **not** treated as a closed plan. It stays until it has its own accepted spec or is folded into the remaining adaptive work.
 
-Next architecture (not yet a task plan): [Pi intelligent adaptive loop report](../docs/reports/pi-intelligent-adaptive-loop.md) Phases 0–5, gated on ADR-006 (Proposed) and Checkpoint F.
+Native integration: `TASK-20260918-native-pi` is in progress under the [native Pi plan](../docs/superpowers/plans/2026-09-18-native-pi.md). Owner approved quality-first, preferred `cursor-grok-4.6-fast`, and modification scope B (global Pi configuration included; credentials/permissions excluded). ADR-006 was revisited and Accepted for the inbound adapter. Read-only native delegation, the retained isolated-write/independent-acceptance slice, and the candidate-application slice (`NativeApplySession`, 2026-09-19, [report](../docs/reports/2026-09-19-native-apply.md)) are locally verified. Host-facing registration of the apply session, unified quality routing, and live projection remain follow-ups gated on independent review and human authorization. Checkpoint F still gates online adaptive selection and Outcome-supported claims. Background architecture: [Pi intelligent adaptive loop report](../docs/reports/pi-intelligent-adaptive-loop.md).
 
 ## SoL-Pi efficiency line (merged) — PR-A / PR-B / PS-HOTFIX / PS-P3 / PS-P4 / P5 (2026-09-12/13)
 
@@ -33,6 +33,10 @@ Merged via PR #36 into remote main. Facts and per-slice scope (from the `grok/so
 
 Delivery evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts are not on the GitHub reviews API (see G0 report). Do not reimplement the merged chain. F6 seal/holdout, extension/live-adaptation and Outcome-supported remain separately gated.
 
+
+## Delivery gate coordination (2026-09-18)
+
+`TASK-20260918-delivery-gate-unblock`: [plan](../docs/superpowers/plans/2026-09-18-delivery-gate-unblock.md), [evidence and requests](../docs/reports/2026-09-18-delivery-gate-unblock.md). PR #42 `aeb4993` and #43 `13f954e` remain OPEN with green CI; reviewer dispatch failed before review (402). Independent PASS, human conflict review for #43 and owner authorization remain required. SCM/xhh evidence requested on #36. F6 preparation: complete custodian-held 100+15 materials, SM95 key metadata, bind existing ESTIMATE prices, then gated seal. Three dirty temp trees preserved pending PASS and approved disposal manifest.
 
 ## Grok follow-up — trusted execution (2026-09-13)
 
