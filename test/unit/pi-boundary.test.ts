@@ -72,19 +72,25 @@ test("src/pi-adapter imports only whitelisted @earendil-works packages", async (
   assert.deepEqual(offenders, []);
 });
 
-test("package.json declares no pi.extensions and no coding-agent dependency", async () => {
+test("inbound Pi imports stay in the accepted extension directory", async () => {
+  const files = await listSourceFiles(join(REPO_ROOT, "extensions"));
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    if (hasPiPackageImport(content)) {
+      assert.ok(file.replace(/\\/g, "/").includes("/extensions/pi-sparkle/"), file);
+    }
+  }
+});
+
+test("native extension is packaged while coding-agent stays out of runtime dependencies", async () => {
   const raw = await readFile(join(REPO_ROOT, "package.json"), "utf8");
   const pkg = JSON.parse(raw) as {
     pi?: Record<string, unknown>;
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
-  assert.equal(
-    pkg.pi?.extensions,
-    undefined,
-    "package.json must not declare pi.extensions (ADR-006: adapter, not extension host)"
-  );
-  const allDeps = Object.keys({ ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) });
+  assert.deepEqual(pkg.pi?.extensions, ["./extensions/pi-sparkle/index.ts"]);
+  const allDeps = Object.keys(pkg.dependencies ?? {});
   const codingAgent = allDeps.filter((name) => name.includes("pi-coding-agent"));
   assert.deepEqual(codingAgent, [], "pi-coding-agent must not be a dependency");
 });
