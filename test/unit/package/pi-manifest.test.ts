@@ -12,7 +12,7 @@ function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
 
-test("package.json is a Pi package without an inbound extension", () => {
+test("package.json ships the native Pi entry and its runtime sources", () => {
   const pkg = readJson(join(root, "package.json"));
   assert.equal(pkg.name, "pi-sparkle");
   assert.deepEqual(pkg.keywords, ["pi-package"]);
@@ -24,7 +24,9 @@ test("package.json is a Pi package without an inbound extension", () => {
   assert.ok(pi);
   assert.deepEqual(pi.skills, [".agents/skills"]);
   assert.deepEqual(pi.prompts, ["./prompts"]);
-  assert.equal("extensions" in pi, false);
+  assert.deepEqual(pi.extensions, ["./extensions/pi-sparkle/index.ts"]);
+  assert.ok(files.includes("extensions"));
+  assert.ok(files.includes("src"));
 });
 
 test("pi-sparkle skill frontmatter and referenced files are complete", () => {
@@ -57,5 +59,6 @@ test("opt-in skill-route logger exists and is not a Pi extension", () => {
   assert.equal(existsSync(join(skillDir, "scripts", "log-skill-route.mjs")), true);
   const pkg = readJson(join(root, "package.json"));
   const pi = pkg.pi as Record<string, unknown>;
-  assert.equal("extensions" in pi, false);
+  assert.ok(Array.isArray(pi.extensions));
+  assert.equal(pi.extensions.some((path) => String(path).includes("log-skill-route")), false);
 });

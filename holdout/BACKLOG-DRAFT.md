@@ -1,10 +1,11 @@
 # F6 backlog draft — 115 specs (UNSEALED, pre-custody)
 
-**Status: draft.** These specs are authored against `holdout/spec-template.json`
-and the family templates, pass the `holdout-block.mjs` spec preflight (115/115),
-and seal cleanly under `holdout-seal.mjs`. They are **not yet sealed into
-custody** — that happens when the custodian key exists on SM95 and the owner
-(or ADR-007's standing delegation) green-lights Week 1.
+**Status: incomplete public draft; NOT READY.** These 115 specs use
+`holdout/spec-template.json` and the family templates. G3 recorded schema
+validation only (115/115), not runner execution or seal verification. Custody
+requires complete materials, an exposure ruling, SM95 key verification, price
+binding, preregistration and runner readiness. See the
+[current handoff](../docs/reports/2026-09-18-delivery-gate-unblock.md).
 
 ## Census
 
@@ -37,10 +38,10 @@ The `oracle.custodianRef` names it; the plaintext lives off-repo:
 1. **Review diffs are not yet authored.** `spec_review_*` reference
    `.holdout-diff.patch`, which the custodian produces per spec (a real change
    to the named area with 2–4 planted defects). Until those exist, review
-   blocks cannot run — schedule them last.
+   blocks cannot run. Complete and bind these materials before seal.
 2. **Reserve briefs are placeholders** (`reserve_*` objectives name the
    custodian's attached brief). They are structurally valid and sealable, but
-   their content binds when the custodian writes the briefs.
+   the completed briefs must be bound before seal.
 3. **Implementation targets are real CLI gaps as of the seal-candidate commit
    (`7d3bd2b`)** — if main lands any of them before Week 1, that spec is
    voided and a reserve is drawn (pre-registration §10).
@@ -48,22 +49,27 @@ The `oracle.custodianRef` names it; the plaintext lives off-repo:
 
 ## Seal protocol (when green-lit)
 
-```sh
-# on the custodian host (SM95):
-mkdir -p ~/f6-custodian && openssl rand -hex 32 > ~/f6-custodian/key.txt && chmod 600 ~/f6-custodian/key.txt
+1. Custodian completes the 100+15 specs and referenced materials off-repo.
+   Experiment owner records whether exposed drafts are pilot-only or replaced
+   with unexposed confirmatory samples. Deleting working files or encrypting
+   public history cannot restore blinding.
+2. SCM verifies SM95 key custody using metadata only: ownership, mode 0600 and
+   separation from tuning hosts. Preserve any existing key; never overwrite it
+   as a setup step or copy it into this clone. Provisioning belongs on SM95.
+3. Bind the existing ESTIMATE price table digest and model coverage to the
+   approved preregistration; close runner readiness and authorization gates.
+4. Resolve the custody format discrepancy before seal: ADR-007 names
+   `specs.sealed.tar.age`, while `holdout-custody.mjs` implements an AES-256-GCM
+   JSON envelope previously documented as `specs.sealed.json`. Owner/custodian
+   must record the accepted format and corresponding ADR/tool decision. Renaming
+   the JSON envelope does not make it an age archive.
+5. On the custodian host, create commitments and approved ciphertext from the
+   completed private directory. Transfer only those public artifacts and their
+   provenance. Any plaintext disposal needs a preservation/retention decision;
+   do not delete the tracked public draft as an automatic seal step.
 
-# in this repo:
-node scripts/holdout-seal.mjs seal --specs holdout/backlog-draft --out holdout/commitments.json
-node scripts/holdout-custody.mjs seal --specs holdout/backlog-draft \
-  --out holdout/specs.sealed.json --key-file ~/f6-custodian/key.txt
-git add holdout/commitments.json holdout/specs.sealed.json
-# then DELETE the plaintext draft from this machine:
-rm -rf holdout/backlog-draft
-```
-
-After seal, `holdout/backlog-draft/` must not exist in any clone that tunes
-the router. The draft's git history copy is acceptable (commits are
-pre-registration public), but the working tree must be clean.
+No seal, key creation, plaintext deletion or Week-1 execution was performed in
+this 2026-09-18 documentation update.
 
 ## G3 status note (2026-09-13) — evidence only
 

@@ -21,7 +21,7 @@ not.
 > the resumed node runs, while an unvouched logged-empty is detectable as
 > unknown, not the caller's known-none.
 > The `:89-91` counterfactual remains motivation prose bounded by the coda, not
-> a current-state bug. ADR-006 remains Proposed. This census is current at HEAD
+> a current-state bug. ADR-006 was subsequently Accepted on 2026-09-18 for native integration. This historical census was current at its recorded HEAD
 > because no sibling is in flight. Subsequent rounds need a new census note
 > only when a landing changes what these surfaces describe.
 
@@ -482,9 +482,11 @@ claimed before the process-local mailbox disappeared.
 
 ## Pi Adapter
 
-Only `src/pi-adapter/` currently imports Pi packages. ADR-006 stays Proposed,
-so `extensions/pi-sparkle/` remains unimplemented and unregistered; domain,
-learning, adaptation, and CLI modules remain outside the import boundary.
+Pi imports are confined to `src/pi-adapter/` (outbound execution) and
+`extensions/pi-sparkle/` (inbound host types/tool registration), per ADR-006
+Accepted amendment of 2026-09-18. Domain, learning, adaptation and CLI modules
+remain outside the import boundary. The thin extension calls shared native
+services; the first slice supports read-only delegation and terminal analysis.
 The outbound adapter exposes pi-sparkle-owned interfaces:
 
 ```ts

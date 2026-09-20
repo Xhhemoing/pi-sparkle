@@ -162,12 +162,13 @@ pin — re-run the shipped commands.
 
 ## Pi 0.85.x Adaptation (2026-09-05)
 
-Latest published Pi as of this date: agent-core / pi-ai **0.85.1**
-(2026-09-05), pi-coding-agent **0.85.0** (2026-09-04). Pins bumped 0.84.4 →
-0.85.1 and verified live: `scripts/pi-latest-check.mjs`, 0.85.0 changelog
-review, adapter-contract probe (`pnpm pi:probe`), typecheck, and the full
-suite (2561 tests, 0 fail). Do not trust prose for the live pin — re-run the
-shipped commands.
+Pins remain agent-core / pi-ai **0.85.1**. `pi-coding-agent` is **not** a
+dependency of this package; npm `latest` for it is **0.85.1** (verified
+2026-09-18 via `node scripts/pi-latest-check.mjs`). The 2026-09-05 write-up
+recorded coding-agent **0.85.0** — that line is now false. Do not trust this
+prose for the live pin — re-run the shipped commands. Historical verification
+on 2026-09-05: changelog review, adapter-contract probe (`pnpm pi:probe`),
+typecheck, and the then-current suite (2561 tests, 0 fail).
 
 - **Adapter contract holds on 0.85.1:** `ThinkingLevel` unchanged
   (`off|minimal|low|medium|high|xhigh|max`), legacy `GoogleThinkingLevel`

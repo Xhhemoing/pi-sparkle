@@ -83,9 +83,8 @@ test("market-eval JSON pins the Pi overlay posture and ADR-006 status", async ()
   const report = JSON.parse(await runProbe()) as MarketEvalReport;
 
   assert.equal(report.schemaVersion, 1);
-  // The ADR-001 posture the probe exists to keep honest: pi-sparkle ships a
-  // skills/prompts overlay and declares no Pi extension.
-  assert.equal(report.package?.piManifest?.extensions, false);
+  // ADR-006 now permits the native inbound adapter alongside skills/prompts.
+  assert.equal(report.package?.piManifest?.extensions, true);
   assert.equal(report.package?.piManifest?.skills, true);
   assert.equal(report.package?.piManifest?.prompts, true);
   assert.equal(report.package?.private, true, "the developer preview stays unpublishable");
@@ -95,7 +94,7 @@ test("market-eval JSON pins the Pi overlay posture and ADR-006 status", async ()
   assert.ok(adr006, `${adr006Path} must exist in the probe report`);
   assert.ok(Array.isArray(adr006.statusLines), "ADR-006 must have a best-effort status parse");
   assert.ok(
-    adr006.statusLines.some((line) => typeof line === "string" && /\bProposed\b/i.test(line)),
-    "ADR-006 status must contain Proposed"
+    adr006.statusLines.some((line) => typeof line === "string" && /\bAccepted\b/i.test(line)),
+    "ADR-006 status must contain Accepted"
   );
 });

@@ -3,13 +3,44 @@
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-2026-08-17.md).
 
+## Owner decisions (2026-09-20)
+
+Recorded from the owner's session instructions; evidence: [luna review record](../docs/reports/2026-09-20-rr-review-luna.md), [PR #43 conflict packet](../docs/reports/2026-09-20-pr43-conflict-review-packet.md).
+
+- [x] **sota-opt line archived** (owner decision 2026-09-20): keep existing materials (`origin/cursor/sota-persistent-opt-83a1`, Loop 5 round reports under `.agent_workspace/`); a restart requires a named owner and an explicit goal. No further work on that line until then.
+- [x] **Backup dispatch channel designated**: `luna-fast` (`xhh-luna/gpt-5.6-luna-fast`) is the owner-designated backup reviewer/dispatch channel (connectivity probe `mu969yx0-e778d5ab` returned `LUNA_PROBE_OK` same day). Designation is explicit, not a silent fallback; dispatch tasks stay narrow-scope/single-turn where possible (verified effective pattern, 2026-09-20).
+- [ ] **Relay group-config fix item (open)**: the xhh relay's `cursor-grok-4.6-fast` 404 (`model_not_found ... not available for this group`) and 402 budget-pool failures remain unresolved; owner assigned a separate fix track. Until fixed, grok-fast dispatches stay unavailable; do not silently fall back.
+- [x] **F6 stays parked**: waiting on off-repo custodian materials (100+15 specs, SM95 key metadata); nothing to execute in-repo.
+
+## Native Pi integration (2026-09-18)
+
+Plan: [TASK-20260918-native-pi](../docs/superpowers/plans/2026-09-18-native-pi.md). Owner approved option B; ADR-006 revisited (historical keep-Proposed entry below is superseded).
+
+- [x] Native read-only delegation entry, host model/auth reuse, bounded results and cancellation implemented; 2026-09-18 focused 21/21, gate 2761 pass / 0 fail / 18 skip, security 26 PASS, Pi 4 PASS. [Evidence](../docs/reports/2026-09-18-native-pi.md). First slice ready-for-review; independent/live-provider acceptance not claimed.
+- [x] Isolated write session with host-supplied independent acceptance implemented and locally verified 2026-09-19: preflight 7/7, integration 8/8, serialized full suite 2776 pass / 18 skip, build/typecheck/lint/workflow/security/Pi probes pass. Candidates and failure evidence remain retained; no automatic application. [Write report](../docs/reports/2026-09-18-native-write-worker.md). [Plan](../docs/superpowers/plans/2026-09-18-native-write.md).
+- [x] Candidate application slice (`NativeApplySession`) implemented and locally verified 2026-09-19: accepted-only apply, stale-target and non-fast-forward refusal, in-candidate re-verification with the frozen host command, git-native `merge --ff-only` with rollback, explicit managed disposal. Focused native set 32/32; serialized full suite 2786 pass / 0 fail / 18 skip; typecheck/lint/workflow/build/security/Pi probes pass. Library API only; not registered in the extension/CLI; disposal remains explicit. [Apply plan](../docs/superpowers/plans/2026-09-19-native-apply.md). [Apply report](../docs/reports/2026-09-19-native-apply.md). Preferred-model probe at session start returned unavailable (no fallback used). [ ] Pending independent review and human authorization before any host-facing registration.
+- [ ] Automatic candidate application under scope B: later slice requiring stale-target refusal, explicit non-credential/non-permission allowlists, rollback, disposal policy, independent review, and human authorization. Prior provider-attempt history and rejected draft handoff: [main review](../docs/reports/2026-09-18-native-write-review.md). 2026-09-19: the `NativeApplySession` library slice (stale-target refusal, in-candidate re-verification, fast-forward apply with rollback, explicit managed disposal) is locally implemented and verified — [apply report](../docs/reports/2026-09-19-native-apply.md). Host-facing registration, global-config allowlists, and disposal policy remain open and gated.
+- [ ] Quality-first unified routing, live context efficiency and measured optimization; F-PROD remains open.
+
+## Delivery gate coordination (2026-09-18)
+
+Evidence/requests: [delivery gate record](../docs/reports/2026-09-18-delivery-gate-unblock.md); [plan](../docs/superpowers/plans/2026-09-18-delivery-gate-unblock.md).
+
+- [x] Live #42/#43 head/CI checks, PR requests, F6 census and temp-tree inventory recorded (2026-09-18; record above).
+- [ ] Independent PASS on #42 `aeb4993` and #43 `13f954e`; #43 covers `2dc978d` both parents AND `7c908ee` follow-up. Dispatch blocked by 402; no PASS claimed.
+- [ ] Human conflict review + exact-head owner authorization, then merge; recheck remaining PR integration after first merge.
+- [ ] SCM/xhh supplies six original #36 stage PASS artifacts, final independent gate and applicable authorization source.
+- [ ] Custodian completes 100+15 materials off-repo; owner rules on public-draft contamination. Existing 115 drafts do not satisfy this gate.
+- [ ] SCM verifies SM95 key metadata/separation (hostname unresolved here), then bind existing frozen ESTIMATE prices; seal only after preregistration and G3 runner/readiness gates. No experiment run.
+- [ ] After review PASS, preserve dirty/ignored content and approve exact three-temp-tree disposal manifest before cleanup; no deletion yet.
+
 ## Human / policy gates (block claims, not local fake tests)
 
 - [x] ADR-004 accepted and the six adaptive defaults approved, unchanged (2026-08-21). Exit recorded in [status-matrix.md](../docs/status-matrix.md).
 - [x] Close P0: independent review returned **CONDITIONAL** (2026-08-22): Q3/Q4/Q5 pass; Q1 (plane isolation) and Q2 (delete tooling + cascade) were blockers — both remediated same day (see review package §7). Package: [2026-08-22-p0-privacy-review-package.md](../docs/reports/2026-08-22-p0-privacy-review-package.md).
   - 2026-08-22 re-verification: privacy/redaction suites 8/8 green against the remediation (technical check done; §6 command fixed to explicit file args).
   - **Closed 2026-08-26** by [technical re-verification](../docs/reports/2026-08-26-p0-technical-reverification.md): Q1/Q2 tests green. An independent privacy-officer countersign remains welcome but no longer blocks the Developer Preview (authoritative: [status-matrix.md](../docs/status-matrix.md)).
-- [x] ADR-006 decided (2026-08-21): keep Proposed; no `extensions/pi-sparkle/` Pi import until revisited.
+- [x] ADR-006 revisited and Accepted 2026-09-18: thin inbound adapter permitted; credential, permission, trust, and tool-activation boundaries remain excluded. Status and scope are recorded in [ADR-006](../docs/decisions/0006-pi-extension-reverse-adapter.md).
 - [x] Cost-quality target resolved: ADR-005 Accepted (2026-08-19) locks the paired CI gates and six decisions.
 - [ ] Holdout data source remains open as F6 work inside the F-PROD line; do not start F-PROD before P0 + provider smoke. See [gates readiness](../docs/reports/2026-08-21-gates-readiness.md).
   - 2026-09-04: [F6 decision package](../docs/reports/2026-09-04-f6-holdout-decision-package.md) drafted by three-model cross-validation (fable → gpt-5.6-sol challenge → kimi-k3 synthesis, host-adjudicated). Primary: clean-room paired dogfood blocks on this repo. ~~Blocked on 5 owner questions~~ → **answered 2026-09-07 by delegated adjudication** ([ADR-007](../docs/decisions/0007-f6-owner-questions-adjudicated.md), standing owner veto): dogfood closes internal validity with external validity permanently disclaimed; key-separated custodianship (SM95 key, in-repo ciphertext) substitutes for a named human; ESTIMATE price table v1 frozen with a billing reconciliation hook; R0 = frozen live static router at the seal commit; learning arm frozen for the window. Pre-registration filled at [f6-preregistration.md](../docs/specs/f6-preregistration.md); remaining slots (seal commit, parameterHash) bind at seal. Provider smoke re-confirmed on the xhh relay: [dogfood acceptance](../docs/reports/2026-09-04-xhh-dogfood-acceptance.md).

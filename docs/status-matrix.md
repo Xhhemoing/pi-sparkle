@@ -48,13 +48,19 @@ case list) are archived verbatim at
 
 Everything below is developer preview and, like the rest of this matrix, not
 Outcome-supported. Flag spellings match the CLI USAGE in `src/cli/main.ts`.
-No Pi extension is registered (ADR-006 stays Proposed): `package.json#pi`
-declares only `skills` and `prompts`, and `@earendil-works/pi-coding-agent`
-is not a dependency.
+ADR-006 was revisited and Accepted on 2026-09-18. The native extension registers
+`sparkle_delegate` (read-only scout/reviewer tasks) and `/sparkle-status`.
+The host supplies coding-agent; 0.85.1 is a development dependency and the
+optional peer range is 0.84.4–0.85.x. Both 0.84.4 and 0.85.1 loader paths were
+exercised locally; live-provider and full interactive compatibility remain unverified.
+See [native Pi plan](superpowers/plans/2026-09-18-native-pi.md).
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |
 |---|---|---|---|---|---|
-| Pi pin 0.85.1 | yes | `src/pi-adapter/` only (ADR-001) | typecheck + adapter tests + `test/unit/pi-boundary.test.ts` specifier tripwire | no | Exact matching pair `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`, no ranges. `pi-coding-agent` is not a dependency. Bump playbook: [how-to-adapt-to-pi](how-to-adapt-to-pi.md). |
+| Native Pi delegation | yes | `sparkle_delegate` → `NativeSession` → existing parent coordinator / child tracking / terminal auto-loop | fake lifecycle tests + HTTP/SSE read-tool loopback + Pi loader | no | Host model/auth reuse; preferred model must resolve uniquely. No worker writes/shell/spawn; results explicitly lack independent verification. Scope B authorized for future application pipeline; automatic changes not implemented here. [2026-09-18 evidence](reports/2026-09-18-native-pi.md). |
+| Native isolated write session | yes | library API `NativeWriteSession` → retained detached worktree → parent run → host `runClosedLoopCheck`; not registered in the Pi extension or default CLI | real-git integration 8/8; preflight 7/7; serialized full suite 2776 pass / 18 skip; security and Pi probes pass | no | Candidate-scoped read/write tools only; host command/argv are snapshotted and independent acceptance is required. Candidates and failure evidence remain retained; no automatic application/disposal, live-provider acceptance, or independent reviewer PASS is claimed. [2026-09-18 write evidence](reports/2026-09-18-native-write-worker.md). |
+| Native candidate application | yes | library API `NativeApplySession` → accepted-only apply of one retained candidate via in-candidate re-verification + git-native `merge --ff-only` with rollback; explicit `dispose` of managed candidate worktrees; not registered in the Pi extension or default CLI | real-git integration 5/5 + unit refusals 5/5; focused native set 32/32; serialized full suite 2786 pass / 18 skip; typecheck/lint/build/security/Pi probes pass | no | Refuses unaccepted results, dirty/stale sources, and non-fast-forward candidates before any mutation; frozen host command re-verified in the candidate first. Disposal is caller-invoked and managed-path-only. No host-facing registration, disposal policy decision, independent review PASS, or live-provider acceptance claimed. [2026-09-19 apply evidence](reports/2026-09-19-native-apply.md). |
+| Pi pin 0.85.1 | yes | `src/pi-adapter/` only (ADR-001) | typecheck + adapter tests + `test/unit/pi-boundary.test.ts` specifier tripwire | no | Exact matching pair `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`, no ranges. `pi-coding-agent` is a dev/optional peer dependency for the inbound extension only. Bump playbook: [how-to-adapt-to-pi](how-to-adapt-to-pi.md). |
 | `pi-compat` CLI | yes | `pi-sparkle pi-compat [--json] [--offline]`; online opt-in via `pi-sparkle pi-compat --online [--json]`; script alias `pnpm pi-compat` | unit tests (`test/unit/cli/pi-compat.test.ts`, `test/unit/pi-compat/`) + local runs | no | Offline default; online fails closed to `status=unknown`, exit 0. Exit 1 only on adapter-contract breakage. Legacy-identifier probe reads adapter sources only, never docs. Sibling probes: `pnpm pi:probe`, `pnpm pi:latest`. |
 | doctor `pi-packages` / `pi-compat` checks | yes | appended `doctor` checks | unit tests (`test/unit/cli/doctor.test.ts`) + local run | no | `pi-packages` prints the pinned pair; `pi-compat` always uses the offline report (no network). Inherits doctor's unfrozen output contract. |
 | `run --thinking <level>` | yes | all three `run` forms (plain, `--track`, `--flowchart`) | `test/unit/cli/thinking-flag.test.ts`; clamp characterization in `test/unit/pi-adapter/thinking-clamp.test.ts` | no | Levels `off\|minimal\|low\|medium\|high\|xhigh\|max`; flag > `PI_THINKING_LEVEL` > `off`; per-run, never persisted (headless counterpart of Pi's session-scoped TUI `/thinking`). Google models silently clamp `xhigh`/`max` — provider behavior, not rewritten by the CLI. |
@@ -84,12 +90,13 @@ is not a dependency.
 ## Policy gates (human)
 
 Decision packages with per-gate evidence: [2026-08-21 gates readiness](reports/2026-08-21-gates-readiness.md).
+Current F6 prerequisite reconciliation: [2026-09-18 delivery gate record](reports/2026-09-18-delivery-gate-unblock.md). Public drafts and ESTIMATE prices exist; custody completeness, validity ruling, key metadata, runner readiness and seal remain open. No F-PROD closure or live-adaptation permission follows from PR CI/merge.
 
 | Item | Owner | Inputs | Exit | Verify |
 |---|---|---|---|---|
 | ADR-004 | product + privacy | this matrix, adaptive spec | Accepted 2026-08-21 | Status line in `docs/decisions/0004-controlled-adaptation.md` is Accepted |
 | Six adaptive defaults | product | spec § Decision required | Approved 2026-08-21, unchanged | `docs/specs/adaptive-agent-work-loop.md` § Decision required |
-| ADR-006 | product | extension proposal | Decided 2026-08-21: keep Proposed; no `extensions/pi-sparkle/` import until revisited | Status line in `docs/decisions/0006-pi-extension-reverse-adapter.md` |
+| ADR-006 | product | native integration + owner scope B | Revisited and Accepted 2026-09-18: thin native adapter, no credential/permission mutation; live adaptation gates unchanged | Status line in `docs/decisions/0006-pi-extension-reverse-adapter.md` |
 | P0 privacy dictionary | runtime + privacy | `src/privacy/record-classes.ts` (19 classes; plane layout + delete cascade implemented 2026-08-22, see [review package](reports/2026-08-22-p0-privacy-review-package.md) §7; cascade extended 2026-08-24 — `summary` strip, invocation-log rewrite, episode-lock removal, `catalog-observed` invalidation) | **Closed 2026-08-26** by [technical re-verification](reports/2026-08-26-p0-technical-reverification.md): Q1/Q2 tests green. An independent privacy-officer countersign remains welcome but no longer blocks the Developer Preview. | `pnpm test -- test/unit/privacy/ test/integration/cli/delete.test.ts` |
 | Checkpoint D | adaptive | remaining M3 leftovers | Closed 2026-08-21: whole-checkpoint scenarios pass (`test/integration/m3/checkpoint-d.test.ts`), M3 leftovers closed | `tasks/adaptive-todo.md` |
 | Checkpoint F-PROD | routing | sealed holdout, paired utility CI | 95% utility-delta LCB > 0 and cost-delta UCB ≤ 0 | ADR-005; do not start before P0 + Provider smoke |

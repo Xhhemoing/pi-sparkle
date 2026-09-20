@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (revisited 2026-09-18 by owner approval of native integration; scope below)
 
 ## Date
 
@@ -42,6 +42,14 @@ ADR-001 still holds for the **outbound** direction: the CLI runtime drives Pi
 agents through `src/pi-adapter/`. This ADR adds the **inbound** direction: Pi
 sessions may call into pi-sparkle through one thin extension.
 
+## 2026-09-18 amendment
+
+The owner approved proceeding with native Pi integration, quality-first delegation with preferred `cursor-grok-4.6-fast`, and automatic modification scope B (project resources plus global Pi configuration, excluding credentials and permissions). The implementation plan is [native Pi](../superpowers/plans/2026-09-18-native-pi.md).
+
+The inbound adapter may now register tools and commands that invoke shared orchestration, tracking and post-run analysis services, in addition to telemetry. Product decisions remain in `src/`; Pi host types remain confined to the two adapter trees. `package.json#pi.extensions` is permitted. The first slice provides read-only delegation with cancellation; it does not implement automatic application. A package install does not grant option B to other users. Candidate application requires separately persisted owner scope, independent checks and rollback; credentials, permissions and trust/tool activation fields remain excluded. This does not supersede F-PROD or enable live R1/bandit selection.
+
+The original proposed text below records the pre-acceptance gate; its "until Accepted" restrictions are now discharged. The historical 2026-08-21 keep-Proposed decision remains in prior records.
+
 ## Decision
 
 Split Pi integration into three layers. Do not collapse them.
@@ -52,22 +60,29 @@ Split Pi integration into three layers. Do not collapse them.
 2. **Outbound adapter (`src/pi-adapter/`).** The CLI executes Pi agents. Only
    this tree imports `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`
    for execution.
-3. **Inbound adapter (`extensions/pi-sparkle/`, not implemented until this
-   ADR is Accepted).** A future Pi extension may import
+3. **Inbound adapter (`extensions/pi-sparkle/`).** After this ADR was
+   Accepted, the thin Pi extension became permitted to import
    `@earendil-works/pi-coding-agent` **only in that directory**. It translates
-   Pi session/turn/tool events into pi-sparkle-owned telemetry records. It
-   does not compute BKT, risk, routing, or promotion.
+   Pi session/turn/tool events into pi-sparkle-owned telemetry records and
+   invokes shared services through tools/commands under the amendment above.
+   It does not compute BKT, risk, routing, or promotion. The current extension
+   provides bounded read-only delegation; isolated write is a separate library
+   slice and automatic application is not registered here.
 
 **Skills remain an optional diagnostic overlay.** `.agents/skills/pi-sparkle`
 may explain how to audit harness health. It is not the control plane, not a
 session listener, and not a substitute for structured telemetry.
 
-Until this ADR is Accepted:
+Before this ADR was Accepted (historical pre-amendment posture):
 
-- `PI_EXTENSION_IMPORT_ALLOWED` stays `false`.
-- No source file outside the existing `src/pi-adapter/` boundary may import
+- `PI_EXTENSION_IMPORT_ALLOWED` stayed `false`.
+- No source file outside the existing `src/pi-adapter/` boundary could import
   `@earendil-works/pi-coding-agent`.
-- `package.json` must not declare `pi.extensions`.
+- `package.json` could not declare `pi.extensions`.
+
+Those restrictions are discharged by the Accepted 2026-09-18 amendment;
+current import boundaries and the extension's narrower behavior remain governed
+by the decision above.
 
 After acceptance, the architecture spec’s “only `src/pi-adapter/` may import
 Pi packages” clause is replaced by: **only `src/pi-adapter/` and
@@ -112,11 +127,12 @@ telemetry writes without touching live resource pointers.
 
 ## Consequences
 
-- The next durable slice is session/skill-route telemetry owned by pi-sparkle,
-  plus a kill switch, with no coding-agent import.
-- A later Accepted follow-up can add `extensions/pi-sparkle/index.ts`, pin
-  `@earendil-works/pi-coding-agent` as a peer dependency, and declare
-  `pi.extensions`.
+- The current inbound slice owns session/skill-route telemetry and bounded
+  read-only delegation behind the extension, plus its kill switch.
+- Follow-up slices may extend the extension only through explicit host-facing
+  contracts; candidate application still requires independent checks, stale
+  target handling, rollback, and owner scope. `@earendil-works/pi-coding-agent`
+  remains confined to the inbound extension boundary.
 - Users who only install the skill continue to get diagnostic prompts, not
   silent session surveillance.
 - Tests must prove that session shutdown does not close an episode and that

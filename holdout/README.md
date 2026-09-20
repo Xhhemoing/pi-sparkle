@@ -14,9 +14,10 @@ This directory is the **repo-side** half of the F6 seal (decision package
   it is the immutability seal, not the task content.
 
 It must **never** contain plaintext taskSpecs or oracle material. Plaintext
-lives with the independent custodian (decision package §5 question 2 — owner
-appointment pending), revealed to an isolated arm only when its block is
-scheduled.
+lives with the key-separated custodian mechanism (ADR-007 Q2), revealed to an
+isolated arm only when its block is scheduled. Existing public drafts are a
+recorded policy exception/exposure, not unexposed confirmatory samples; see the
+[current readiness record](../docs/reports/2026-09-18-delivery-gate-unblock.md).
 
 Backlog shape (pre-registration §3): 100 specs + 15 reserves =
 implementation ×30, testing ×30, review ×30, research ×10 (exploratory),
@@ -25,14 +26,24 @@ reserves ×15 drawn by the committed random schedule.
 Authoring checklist per spec:
 1. Copy the family template; fill `<…>` slots; keep `task.id` matching
    `^tsk_[A-Za-z0-9_-]{1,64}$` and `role` inside `src/domain/roles.ts`.
-2. Dry-run preflight: `node scripts/holdout-block.mjs --spec <spec>
-   --base-commit HEAD --out /dev/null --seed 0 --executor fake` must not exit
-   2 on `spec preflight failed`.
+2. Validate shape with `validateHoldoutTaskSpec` from `src/experiments/task-spec.ts`.
+   A runner smoke is separate, provisions worktrees and executes fake arms; it
+   is not schema-only preflight. Use only disposable public/fake fixtures:
+   `node scripts/holdout-block.mjs --spec <public-fixture> --base-commit <sha>
+   --out <scratch-block.json> --seed 0 --now-ms <frozen-ms> --executor fake
+   --price-table holdout/price-table-v1.json`. Never omit the executor flag.
 3. Author the custodian-held oracle named by `oracle.custodianRef` (hidden
    acceptance tests / mutants / planted-defect ground truth / rubric) and
    hand it over under the reveal-on-schedule protocol.
-4. At seal: `node scripts/holdout-seal.mjs seal --specs <custodian-dir> --out
-   holdout/commitments.json`, then commit ONLY the commitments file.
+4. Complete specs/materials first, verify SM95 key custody, bind the existing
+   ESTIMATE price table, then seal only after the validity ruling, complete
+   preregistration and runner readiness gates. On the custodian host, create
+   commitments and ciphertext from the approved private directory. Transfer
+   only commitments/ciphertext to this repo; never transfer plaintext or key.
+   See [custody handoff](BACKLOG-DRAFT.md#seal-protocol-when-green-lit).
+
+2026-09-18 correction: the G3 command-hygiene finding below is historical;
+the stale command has now been replaced. No smoke or seal was run in this update.
 
 ## G3 status note (2026-09-13) — evidence only
 
