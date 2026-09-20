@@ -7,6 +7,7 @@ import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import { EventStore, runLockPath } from "../run/event-store.js";
+import type { Event } from "../run/events.js";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const ARTIFACT_SCHEMA = "loop-artifact-v1" as const;
@@ -86,9 +87,18 @@ export async function assertRunPresent(stateRoot: string, runId: RunId): Promise
       `loop artifact refused: run event log identity mismatch for ${runId}`
     );
   }
-  if (!events.some((event) => event.type === "RUN_CREATED")) {
+  const creations = events.filter((event): event is Extract<Event, { type: "RUN_CREATED" }> => event.type === "RUN_CREATED");
+  if (creations.length === 0) {
     throw new DomainValidationError(
       `loop artifact refused: run event log for ${runId} has no RUN_CREATED initialization`
+    );
+  }
+  // Durable identity is the run id inside the creation payload, not merely the
+  // envelope: a log whose envelopes all match but whose RUN_CREATED payload
+  // names a different run must not authorize work for ${runId}.
+  if (creations.some((event) => event.payload.run.id !== runId)) {
+    throw new DomainValidationError(
+      `loop artifact refused: RUN_CREATED payload names a different run than ${runId}`
     );
   }
 }
