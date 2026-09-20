@@ -14,7 +14,6 @@ import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
-import { runLockPath } from "../run/event-store.js";
 
 /** Per-observation object cap (8 MiB). */
 export const OBSERVATION_MAX_OBJECT_BYTES = 8 * 1024 * 1024;
@@ -41,6 +40,16 @@ export interface ObservationPage {
 
 export function observationsDir(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId, "observations");
+}
+
+/**
+ * Dedicated lock for observation archive mutation/recall. Deliberately NOT
+ * `runLockPath`: the coordinator holds the run lifecycle lock for the whole
+ * run, and workers archive observations *during* the run — sharing that lock
+ * would make every live `put` time out (live wiring, 2026-09-20).
+ */
+export function observationLockPath(stateRoot: string, runId: RunId): string {
+  return join(observationsDir(stateRoot, runId), ".lock");
 }
 
 export function observationObjectsDir(stateRoot: string, runId: RunId): string {
@@ -195,7 +204,7 @@ export class ObservationStore {
       );
     }
 
-    return withExclusiveFileLock(runLockPath(this.stateRoot, this.runId), async () => {
+    return withExclusiveFileLock(observationLockPath(this.stateRoot, this.runId), async () => {
       const objectsDir = observationObjectsDir(this.stateRoot, this.runId);
       await ensureOwnerDir(observationsDir(this.stateRoot, this.runId));
       await ensureOwnerDir(objectsDir);
@@ -252,7 +261,7 @@ export class ObservationStore {
       throw new DomainValidationError("observation recall offset must be a non-negative safe integer");
     }
 
-    return withExclusiveFileLock(runLockPath(this.stateRoot, this.runId), async () => {
+    return withExclusiveFileLock(observationLockPath(this.stateRoot, this.runId), async () => {
       const path = observationObjectPath(this.stateRoot, this.runId, ref.sha256);
       const st = await assertRegularOrMissing(path, "observation object");
       if (st === undefined) {

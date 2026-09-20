@@ -13,10 +13,10 @@ import {
   OBSERVATION_MAX_RECALL_LINES,
   OBSERVATION_MAX_RUN_ARCHIVE_BYTES,
   ObservationStore,
+  observationLockPath,
   observationObjectPath,
   observationsDir
 } from "../../../src/context/observation-store.js";
-import { runLockPath } from "../../../src/run/event-store.js";
 import { deleteRunRecords } from "../../../src/privacy/deletion.js";
 
 let uuidCounter = 0;
@@ -191,10 +191,13 @@ test("recall verifies the ref hash against stored bytes", async () => {
   });
 });
 
-test("mutating ops hold the run lock; put waits behind an exclusive holder", async () => {
+test("mutating ops hold the observation lock; put waits behind an exclusive holder", async () => {
   await withStateRoot(async (stateRoot, runId) => {
     const store = new ObservationStore(stateRoot, runId);
-    const lockPath = runLockPath(stateRoot, runId);
+    // Observation archives use their own lock (not the run lifecycle lock):
+    // workers archive observations while the run is executing, so sharing the
+    // run lock would deadlock every live put (live wiring, 2026-09-20).
+    const lockPath = observationLockPath(stateRoot, runId);
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;

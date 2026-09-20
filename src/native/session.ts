@@ -5,6 +5,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import { assignTasks } from "../routing/assign.js";
 import { startParentRun, type RunningRun } from "../run/coordinator.js";
+import type { ObservationProjector } from "../pi-adapter/observation-tools.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
@@ -40,6 +41,12 @@ export interface NativeDelegateInput {
   readonly onProgress?: (text: string) => void;
   /** Quality-first routing: per-task assignment over the host catalog. */
   readonly routing?: NativeRoutingInput | undefined;
+  /**
+   * Opt-in context efficiency. The projector must be unbound; delegate binds
+   * it to the run's own id synchronously after start (before any child work),
+   * so archives always land under this run's subtree.
+   */
+  readonly observationProjector?: ObservationProjector | undefined;
 }
 export interface NativeDelegateResult {
   readonly runId: RunId;
@@ -107,6 +114,11 @@ export class NativeSession {
       }))
     });
     this.active.add(running);
+    // Context-efficiency binding: startParentRun is synchronous, so the run id
+    // is known before any child work executes (single-threaded event loop —
+    // the executor generator cannot have started). Bind the unbound projector
+    // to this run so archives land under this run's own subtree.
+    input.observationProjector?.bind({ runId: running.runId, stateRoot: input.stateRoot });
     const abort = () => running.cancel();
     input.signal?.addEventListener("abort", abort, { once: true });
     if (input.signal?.aborted) abort();

@@ -33,7 +33,8 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         role: Type.String({ enum: ["scout", "reviewer"] }),
         objective: Type.String({ minLength: 1, maxLength: 8000 })
       }), { minItems: 1, maxItems: 4 }),
-      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to cursor-grok-4.6-fast" }))
+      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to cursor-grok-4.6-fast" })),
+      contextEfficiency: Type.Optional(Type.Boolean({ description: "Archive large read results after two full sends and expose sparkle_recall_observation to workers (default off)" }))
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       signal?.throwIfAborted();
@@ -70,9 +71,21 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         const learned = await loadLearnedRouting(stateRoot, ctx.cwd).catch(() => undefined);
         return { catalog, ...(learned !== undefined ? { learned } : {}) };
       })() : undefined;
+      // Opt-in context efficiency (TASK-20260920-native-observation-projection):
+      // the projector is run-scoped. The runId is minted here so the projector
+      // can be bound before the coordinator starts the run; the run then uses
+      // exactly this id (createRunId is injectable through the delegate input).
+      const observation = params.contextEfficiency === true ? await (async () => {
+        const { createObservationProjector } = await import("../../src/pi-adapter/observation-tools.js");
+        // Unbound at creation; NativeSession.delegate binds it to the real
+        // run id synchronously after startParentRun. No id injection — the
+        // coordinator's generator mints every id in the run.
+        return { projector: createObservationProjector({ enabled: true, toolName: "sparkle_read_file" }) };
+      })() : undefined;
       const executor = createNativeExecutor({
         projectRoot: ctx.cwd, model, provider,
-        resolveAuth: () => ctx.modelRegistry.getApiKeyAndHeaders(model)
+        resolveAuth: () => ctx.modelRegistry.getApiKeyAndHeaders(model),
+        ...(observation !== undefined ? { observationProjector: observation.projector } : {})
       });
       const result = await session.delegate({
         projectRoot: ctx.cwd,
@@ -84,7 +97,8 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         }),
         ...(signal !== undefined ? { signal } : {}),
         onProgress: (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }),
-        ...(routing !== undefined ? { routing } : {})
+        ...(routing !== undefined ? { routing } : {}),
+        ...(observation !== undefined ? { observationProjector: observation.projector } : {})
       });
       return { content: [{ type: "text", text: result.text }], details: result };
     }

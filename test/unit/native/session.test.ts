@@ -6,6 +6,8 @@ import { test } from "node:test";
 import * as native from "../../../src/native/session.js";
 import { GatedExecutor, ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { EventStore } from "../../../src/run/event-store.js";
+import type { AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import type { MessageId } from "../../../src/domain/ids.js";
 
 async function roots(body: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "sparkle-native-"));
@@ -104,6 +106,66 @@ test("native delegation persists multiple child results and discloses self-repor
     assert.ok(events.some((e) => e.type === "RUN_COMPLETED"));
     assert.ok(progress.length > 0);
     assert.equal(session.activeCount, 0);
+    await session.shutdown();
+  });
+});
+
+test("delegation with observation projection: reads pack after two full sends, recall tool works", async () => {
+  const { createObservationProjector, createRecallTool } = await import("../../../src/pi-adapter/observation-tools.js");
+  const { nowIso } = await import("../../../src/domain/timestamp.js");
+  const { SUPERVISOR } = await import("../../../src/protocol/v1.js");
+  await roots(async (root) => {
+    const dense = "worker-read-".repeat(1500); // >10KiB
+    const stateRoot = join(root, "state");
+    const projector = createObservationProjector({ enabled: true, toolName: "sparkle_read_file" });
+    const recall = createRecallTool(projector);
+    const sentTexts: string[] = [];
+    const worker: AgentExecutor = {
+      async *execute(request) {
+        for (let send = 0; send < 3; send++) {
+          const projected = await projector.project({ sourceId: `read-${send}`, text: dense });
+          sentTexts.push(projected.text);
+        }
+        const packed = sentTexts[2]!;
+        const idMatch = packed.match(/id: (\S+)/);
+        assert.ok(idMatch, "placeholder carries the observation id");
+        const recalled = await recall.execute("r1", { id: idMatch[1], offset: 0 });
+        const recalledText = recalled.content[0]?.type === "text" ? recalled.content[0].text : "";
+        assert.match(recalledText, /worker-read-/);
+        yield {
+          type: "MESSAGE",
+          message: {
+            protocolVersion: 1,
+            id: `msg_fake-${request.agentInstanceId}` as MessageId,
+            occurredAt: nowIso(),
+            runId: request.runId, taskId: request.taskId,
+            from: request.agentInstanceId, to: SUPERVISOR,
+            type: "TASK_RESULT" as const, outcome: "SUCCESS" as const,
+            summary: "packed read observed", artifactIds: [],
+            evidenceIds: [],
+            verification: { kind: "PASSED" as const, evidenceIds: [] }
+          }
+        } satisfies ExecutionEvent;
+        yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+      }
+    };
+    const session = new native.NativeSession();
+    const result = await session.delegate({
+      projectRoot: root, stateRoot,
+      model: models[0]!,
+      tasks: [{ role: "scout", objective: "Read the big file repeatedly" }],
+      executor: worker,
+      observationProjector: projector
+    });
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(sentTexts[0], dense, "send 1 full");
+    assert.equal(sentTexts[1], dense, "send 2 full");
+    assert.ok(Buffer.byteLength(sentTexts[2]!, "utf8") <= 2048, "send 3 packed");
+    // The archives are in the run's own subtree.
+    const { readdir } = await import("node:fs/promises");
+    const obsDir = join(stateRoot, "runtime", "runs", result.runId, "observations");
+    const entries = await readdir(obsDir);
+    assert.ok(entries.length >= 1, "archive exists under the run");
     await session.shutdown();
   });
 });

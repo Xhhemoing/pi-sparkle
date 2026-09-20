@@ -52,14 +52,36 @@
 
 | Command | Outcome |
 |---|---|
-| `pnpm test test/unit/native` | 27 pass / 0 fail (4 new routing tests) |
-| `pnpm test test/unit/pi-adapter` | 145 pass / 0 fail / 1 skip |
+| `pnpm test test/unit/pi-adapter` | 150 pass / 0 fail / 1 skip (5 new projector/recall tests) |
+| `pnpm test test/unit/context` | 43 pass / 0 fail (lock-path test updated to the observation lock) |
+| `pnpm test test/unit/native` | 28 pass / 0 fail (new delegate-level projection test) |
 | `pnpm test test/unit/routing` | 232 pass / 0 fail (live-isolation unchanged) |
 | `pnpm test test/integration/native` | 15 pass / 0 fail |
-| `pnpm test -- --test-concurrency=1` (full suite) | **2820 pass / 0 fail / 18 skip** |
+| `pnpm test -- --test-concurrency=1` (full suite) | **2826 pass / 0 fail / 18 skip** |
 | `pnpm typecheck` / `pnpm lint` / `pnpm build` | exit 0 ×3 |
 | `pnpm security:probe` | PASS, 0 open / 0 waived |
 | `pnpm pi:probe` | PASS 4/4 |
+
+## Root-cause finding (lock collision)
+
+The first live run exposed a real library defect: `ObservationStore.put/recall`
+used `runLockPath(stateRoot, runId)` — the **run lifecycle lock** the parent
+coordinator holds for the entire run. Any worker-internal archive therefore
+timed out after 5s and degraded silently to `storage-unavailable` (full text
+returned). PR-B never hit this because the store only ran outside an active
+run. Fix: `observationLockPath` (`observations/.lock`) — a dedicated lock for
+the observation archive's own concurrency domain. The old behavior was
+semantically wrong, not just inconvenient: an archive scoped to one run can
+never conflict with the run's own lifecycle lock by construction. The lock
+test was updated to assert exclusion via the new lock; no other store
+dependent observes `runLockPath` anymore (verified by grep).
+
+Also rejected during design: pre-knowing the runId by injecting a fixed id
+generator into the coordinator. The coordinator's generator mints **every**
+id in the run (events, messages, agent instances) — pinning it would collide
+them all. The projector is therefore bound synchronously after
+`startParentRun` returns (single-threaded event loop: no child work can have
+started), via `NativeDelegateInput.observationProjector`.
 
 ## Behavioral Evidence
 
