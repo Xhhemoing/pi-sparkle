@@ -3,6 +3,15 @@
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 Archived: [M0–M2.5](archive/m0-m2-todo.md), [acceptance](archive/ACCEPTANCE-2026-08-17.md).
 
+## Owner decisions (2026-09-20)
+
+Recorded from the owner's session instructions; evidence: [luna review record](../docs/reports/2026-09-20-rr-review-luna.md), [PR #43 conflict packet](../docs/reports/2026-09-20-pr43-conflict-review-packet.md).
+
+- [x] **sota-opt line archived** (owner decision 2026-09-20): keep existing materials (`origin/cursor/sota-persistent-opt-83a1`, Loop 5 round reports under `.agent_workspace/`); a restart requires a named owner and an explicit goal. No further work on that line until then.
+- [x] **Backup dispatch channel designated**: `luna-fast` (`xhh-luna/gpt-5.6-luna-fast`) is the owner-designated backup reviewer/dispatch channel (connectivity probe `mu969yx0-e778d5ab` returned `LUNA_PROBE_OK` same day). Designation is explicit, not a silent fallback; dispatch tasks stay narrow-scope/single-turn where possible (verified effective pattern, 2026-09-20).
+- [ ] **Relay group-config fix item (open)**: the xhh relay's `cursor-grok-4.6-fast` 404 (`model_not_found ... not available for this group`) and 402 budget-pool failures remain unresolved; owner assigned a separate fix track. Until fixed, grok-fast dispatches stay unavailable; do not silently fall back.
+- [x] **F6 stays parked**: waiting on off-repo custodian materials (100+15 specs, SM95 key metadata); nothing to execute in-repo.
+
 ## Native Pi integration (2026-09-18)
 
 Plan: [TASK-20260918-native-pi](../docs/superpowers/plans/2026-09-18-native-pi.md). Owner approved option B; ADR-006 revisited (historical keep-Proposed entry below is superseded).
