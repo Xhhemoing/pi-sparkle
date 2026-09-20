@@ -6,7 +6,8 @@ import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
-import { runLockPath } from "../run/event-store.js";
+import { EventStore, runLockPath } from "../run/event-store.js";
+import type { Event } from "../run/events.js";
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const ARTIFACT_SCHEMA = "loop-artifact-v1" as const;
@@ -25,6 +26,10 @@ export function loopArtifactPath(stateRoot: string, runId: RunId, sha256: string
 
 export function runDirectoryPath(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId);
+}
+
+export function runEventsPath(stateRoot: string, runId: RunId): string {
+  return join(runDirectoryPath(stateRoot, runId), "events.jsonl");
 }
 
 export interface LoopArtifactRef {
@@ -47,12 +52,53 @@ function sha256OfText(text: string): { hex: string; bytes: Buffer } {
   return { hex, bytes };
 }
 
-async function assertRunPresent(stateRoot: string, runId: RunId): Promise<void> {
+/**
+ * Durable run identity is a valid initialized event log, not merely an
+ * existing `events.jsonl` file. Empty, corrupt, mid-corrupt, or
+ * identity-mismatched logs are refused; a torn final line stays tolerated by
+ * the existing EventStore recovery policy. Called under the run lock; the
+ * EventStore read takes no lock (no nested same-lock acquisition).
+ */
+export async function assertRunPresent(stateRoot: string, runId: RunId): Promise<void> {
   try {
-    await access(runDirectoryPath(stateRoot, runId));
+    await access(runEventsPath(stateRoot, runId));
   } catch {
     throw new DomainValidationError(
       `loop artifact refused: run directory missing for ${runId} (deleted or never created)`
+    );
+  }
+  let events;
+  try {
+    ({ events } = await new EventStore(stateRoot, runId).readAll());
+  } catch (err) {
+    throw new DomainValidationError(
+      `loop artifact refused: run event log for ${runId} is not a valid durable run: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+  if (events.length === 0) {
+    throw new DomainValidationError(
+      `loop artifact refused: run event log for ${runId} is empty (never initialized; no RUN_CREATED)`
+    );
+  }
+  if (events.some((event) => event.runId !== runId)) {
+    throw new DomainValidationError(
+      `loop artifact refused: run event log identity mismatch for ${runId}`
+    );
+  }
+  const creations = events.filter((event): event is Extract<Event, { type: "RUN_CREATED" }> => event.type === "RUN_CREATED");
+  if (creations.length === 0) {
+    throw new DomainValidationError(
+      `loop artifact refused: run event log for ${runId} has no RUN_CREATED initialization`
+    );
+  }
+  // Durable identity is the run id inside the creation payload, not merely the
+  // envelope: a log whose envelopes all match but whose RUN_CREATED payload
+  // names a different run must not authorize work for ${runId}.
+  if (creations.some((event) => event.payload.run.id !== runId)) {
+    throw new DomainValidationError(
+      `loop artifact refused: RUN_CREATED payload names a different run than ${runId}`
     );
   }
 }

@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, symlinkSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, symlinkSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { isPathInside, resolveInsideRoot } from "../../../src/execution/paths.js";
+
+function linkParentDir(target: string, link: string): void {
+  if (process.platform === "win32") {
+    symlinkSync(target, link, "junction");
+    return;
+  }
+  symlinkSync(target, link);
+}
 
 test("isPathInside accepts root and nested paths", () => {
   const root = path.resolve("/tmp/wt-root");
@@ -76,5 +84,41 @@ test("resolveInsideRoot refuses parent-dir symlink then nested create path", () 
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("resolveInsideRoot refuses dangling file symlink to outside", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "r3-path-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "r3-out-"));
+  try {
+    const target = path.join(outside, "no-such.txt");
+    symlinkSync(target, path.join(root, "link.txt"));
+    assert.equal(existsSync(target), false);
+    assert.throws(() => resolveInsideRoot(root, "link.txt"), /path escape refused|broken symlink/);
+    assert.equal(existsSync(target), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("resolveInsideRoot refuses parent dir link/junction then nested path", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "r3-path-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "r3-out-"));
+  try {
+    linkParentDir(outside, path.join(root, "ext"));
+    assert.throws(() => resolveInsideRoot(root, "ext/new.txt"), /path escape refused|symlink/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("resolveInsideRoot accepts a normal in-root new file path", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "r3-path-"));
+  try {
+    assert.equal(resolveInsideRoot(root, "src/new.txt"), path.join(root, "src/new.txt"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

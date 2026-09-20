@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { existsSync, symlinkSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
+
+function linkParentDir(target: string, link: string): void {
+  if (process.platform === "win32") {
+    symlinkSync(target, link, "junction");
+    return;
+  }
+  symlinkSync(target, link);
+}
 
 async function toolByName(root: string, name: string, commandPolicy?: Parameters<typeof createWorktreeCodingTools>[0]["commandPolicy"]) {
   const tools = createWorktreeCodingTools({ worktreeRoot: root, ...(commandPolicy ? { commandPolicy } : {}) });
@@ -85,5 +94,53 @@ test("sparkle_run_command refuses unauthorized executable and does not leak host
     assert.equal(payload.stdout, "ABSENT");
   } finally {
     delete process.env.G1B_FIXTURE_SECRET;
+  }
+});
+
+test("sparkle_write_file refuses dangling file symlink and does not create the outside target", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
+  const outside = await mkdtemp(path.join(tmpdir(), "sparkle-out-"));
+  try {
+    const outsideTarget = path.join(outside, "pwned.txt");
+    symlinkSync(outsideTarget, path.join(root, "link.txt"));
+    const write = await toolByName(root, "sparkle_write_file");
+    await assert.rejects(
+      () => write.execute("tc", { path: "link.txt", contents: "ESCAPED\n" }),
+      /path escape refused|broken symlink/
+    );
+    assert.equal(existsSync(outsideTarget), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("sparkle_write_file refuses parent dir link/junction and does not create outside", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
+  const outside = await mkdtemp(path.join(tmpdir(), "sparkle-out-"));
+  try {
+    linkParentDir(outside, path.join(root, "ext"));
+    const write = await toolByName(root, "sparkle_write_file");
+    await assert.rejects(
+      () => write.execute("tc", { path: "ext/new.txt", contents: "ESCAPED\n" }),
+      /path escape refused|symlink/
+    );
+    assert.equal(existsSync(path.join(outside, "new.txt")), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("sparkle_write_file creates a normal in-root new file", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-coding-"));
+  try {
+    const write = await toolByName(root, "sparkle_write_file");
+    const read = await toolByName(root, "sparkle_read_file");
+    await write.execute("tc", { path: "src/new.txt", contents: "fresh\n" });
+    const out = await read.execute("tc2", { path: "src/new.txt" });
+    assert.equal((out.content[0] as { text: string }).text, "fresh\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

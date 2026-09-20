@@ -110,8 +110,12 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
   const compat = fingerprintsCompatible(before, after, manifest);
 
   const exitCode = result.status ?? (result.signal !== null ? 128 : 1);
-  const stdoutHash = sha256Text(result.stdout ?? "");
-  const stderrHash = sha256Text(result.stderr ?? "");
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
+  const stdoutOver = Buffer.byteLength(stdout, "utf8") > authorized.maxStdoutBytes;
+  const stderrOver = Buffer.byteLength(stderr, "utf8") > authorized.maxStderrBytes;
+  const stdoutHash = sha256Text(stdout);
+  const stderrHash = sha256Text(stderr);
   const revision = readWorktreeRevision(cwd);
 
   const artifactHash =
@@ -120,6 +124,8 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
   const ok =
     exitCode === 0 &&
     compat.ok &&
+    !stdoutOver &&
+    !stderrOver &&
     (input.artifactPath === undefined || artifactHash !== undefined);
 
   return {

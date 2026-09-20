@@ -13,6 +13,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   createAgentInstanceId,
+  createProjectId,
   createRunId,
   createTaskId
 } from "../../../src/domain/ids.js";
@@ -30,6 +31,10 @@ import {
 } from "../../../src/execution/loop-artifact.js";
 import { createConfiguredPiExecutor } from "../../../src/pi-adapter/runtime.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
+import { EventStore } from "../../../src/run/event-store.js";
+import { defaultRunLimits } from "../../../src/domain/limits.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { makeEvent } from "../../../test/helpers/event-factory.js";
 import {
   startLoopbackOpenAiProvider,
   type LoopbackOpenAiProvider,
@@ -54,6 +59,31 @@ const NODE_POLICY: CommandPolicy = {
   timeoutMs: 15_000,
   envAllowlist: []
 };
+
+
+async function seedDurableRun(stateRoot: string, runId: ReturnType<typeof createRunId>): Promise<void> {
+  // A durable run is a valid initialized event log (RUN_CREATED), not an
+  // empty file: assertRunPresent validates run identity through the
+  // EventStore, so fixtures must initialize real events.
+  const createdAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
+  await new EventStore(stateRoot, runId).append(
+    makeEvent(
+      "RUN_CREATED",
+      {
+        run: {
+          id: runId,
+          projectId: createProjectId(),
+          rootTaskId: createTaskId(),
+          status: "PLANNING",
+          limits: defaultRunLimits(),
+          createdAt,
+          updatedAt: createdAt
+        }
+      },
+      { runId }
+    )
+  );
+}
 
 function git(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true });
@@ -135,7 +165,8 @@ async function withHarness(
     scriptedResponse
   });
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  try {
+
+    await seedDurableRun(stateRoot, runId);  try {
     await withIsolatedPiEnv(async () => {
       await run({ sourceRepo, sandbox, stateRoot, session, provider, runId });
     });
@@ -525,7 +556,8 @@ test("G2 negative: session cleanup does not wipe sole failure evidence under sta
     scriptedResponse: () => ({ text: "no tools used" })
   });
   const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
-  let artifactSha: string | undefined;
+
+    await seedDurableRun(stateRoot, runId);  let artifactSha: string | undefined;
   try {
     await withIsolatedPiEnv(async () => {
       const tools = createWorktreeCodingTools({
