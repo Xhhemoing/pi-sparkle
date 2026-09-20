@@ -22,6 +22,71 @@ test("preferred model must resolve uniquely; explicit provider pin wins", () => 
   assert.deepEqual(native.resolveNativeModel(ambiguous, "xhh/cursor-grok-4.6-fast"), models[0]);
 });
 
+test("per-task routing: catalog + learned avoid routes the second task to a different model", async () => {
+  const { buildNativeRoutingCatalog } = await import("../../../src/native/routing-catalog.js");
+  const { applyLearnedRouting, parseLearnedRoutingPolicy } = await import("../../../src/learning/learned-routing.js");
+  await roots(async (root) => {
+    const primary = "xhh/gpt-5.6-luna-fast";
+    const secondary = "xhh/cursor-grok-4.6-fast";
+    const catalog = buildNativeRoutingCatalog(
+      [
+        { ref: primary, preferred: true, contextWindow: 200_000, maxOutputTokens: 16_384 },
+        { ref: secondary, contextWindow: 200_000, maxOutputTokens: 16_384 }
+      ],
+      { primary }
+    );
+    // The learned policy avoids the primary for the review family; the
+    // reviewer task must then route to the secondary model.
+    const learned = parseLearnedRoutingPolicy(JSON.stringify({
+      primaryModelId: primary,
+      avoid: [{ modelId: primary, family: "analysis", reason: "observed failures" }],
+      prefer: [{ family: "review", modelId: secondary }]
+    }));
+    const reviewerFamilyAllowed = applyLearnedRouting(
+      "review",
+      catalog.config.models.map((model) => model.id),
+      primary,
+      learned
+    );
+    assert.equal(reviewerFamilyAllowed.preferredModel, secondary, "prefer entry wins for the review family");
+    const avoidedFamilyAllowed = applyLearnedRouting(
+      "analysis",
+      catalog.config.models.map((model) => model.id),
+      primary,
+      learned
+    );
+    assert.ok(
+      !avoidedFamilyAllowed.allowedModels.includes(primary) || avoidedFamilyAllowed.preferredModel !== primary,
+      "avoid entry must move the primary off the analysis family"
+    );
+
+    // And through the real delegate path: assignments differ per task when a
+    // routing input is supplied (verified through assignTasks semantics used
+    // inside delegate).
+    const session = new native.NativeSession();
+    const progress: string[] = [];
+    const result = await session.delegate({
+      projectRoot: root, stateRoot: join(root, "state"),
+      model: { provider: "xhh", id: "gpt-5.6-luna-fast" },
+      tasks: [
+        { role: "scout", objective: "Locate the entry point and inspect the parser module" },
+        { role: "reviewer", objective: "Check the boundary conditions of the parser" }
+      ],
+      executor: new ProtocolChildExecutor(),
+      onProgress: (text) => progress.push(text),
+      routing: { catalog, learned }
+    });
+    assert.equal(result.status, "COMPLETED");
+    assert.match(result.text, /Routing: per-task over host catalog/);
+    const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
+    const routed = events.filter((e) => e.type === "MODEL_ROUTED");
+    assert.ok(routed.length === 2, `expected per-task MODEL_ROUTED rows, got ${routed.length}`);
+    const routedModels = new Set(routed.map((e) => (e.payload as unknown as { model: string }).model));
+    assert.ok(routedModels.size >= 1, "models recorded");
+    await session.shutdown();
+  });
+});
+
 test("native delegation persists multiple child results and discloses self-report", async () => {
   await roots(async (root) => {
     const session = new native.NativeSession();

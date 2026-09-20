@@ -3,10 +3,13 @@ import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/regi
 import { createTaskId, type RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
+import { assignTasks } from "../routing/assign.js";
 import { startParentRun, type RunningRun } from "../run/coordinator.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
+import type { NativeRoutingCatalog } from "./routing-catalog.js";
+import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
 
 export interface NativeModel { readonly provider: string; readonly id: string }
 export function resolveNativeModel<T extends NativeModel>(
@@ -20,6 +23,13 @@ export function resolveNativeModel<T extends NativeModel>(
 }
 
 export interface NativeTask { readonly role: "scout" | "reviewer"; readonly objective: string }
+export interface NativeRoutingInput {
+  /** Host-catalog routing bridge; without it every task uses the single resolved model. */
+  readonly catalog: NativeRoutingCatalog;
+  /** Project learned routing policy (same registry the CLI path loads). */
+  readonly learned?: LearnedRoutingPolicy | undefined;
+}
+
 export interface NativeDelegateInput {
   readonly projectRoot: string;
   readonly stateRoot: string;
@@ -28,6 +38,8 @@ export interface NativeDelegateInput {
   readonly executor: AgentExecutor;
   readonly signal?: AbortSignal;
   readonly onProgress?: (text: string) => void;
+  /** Quality-first routing: per-task assignment over the host catalog. */
+  readonly routing?: NativeRoutingInput | undefined;
 }
 export interface NativeDelegateResult {
   readonly runId: RunId;
@@ -54,6 +66,25 @@ export class NativeSession {
     }
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
     const modelId = `${input.model.provider}/${input.model.id}`;
+    // Quality-first routing (optional): when a host-catalog bridge is
+    // supplied, each task is assigned through the same assignTasks path the
+    // CLI uses (analyzeTask → learned policy → R0-equivalent router). The
+    // static policy stays authoritative; this only widens which catalog
+    // model each child may use, never enables adaptive selection. Task ids
+    // are positional (`tsk_route_<n>`) and map 1:1 onto the children below.
+    const routedModelIds = input.routing === undefined
+      ? undefined
+      : assignTasks({
+          tasks: input.tasks.map((task, index) => ({
+            taskId: createTaskId(() => `route_${index}`),
+            role: task.role,
+            objective: task.objective
+          })),
+          catalog: input.routing.catalog.config,
+          ...(input.routing.learned !== undefined ? { learned: input.routing.learned } : {})
+        });
+    const routedModelId = (index: number): string =>
+      routedModelIds?.find((assignment) => assignment.taskId === createTaskId(() => `route_${index}`))?.decision.model ?? modelId;
     const progress = (text: string) => { try { input.onProgress?.(text); } catch { /* UI cannot fail a run. */ } };
     const executor: AgentExecutor = {
       async *execute(request, signal) {
@@ -67,10 +98,11 @@ export class NativeSession {
     const running = startParentRun({ stateRoot: input.stateRoot, executor }, {
       projectRoot: input.projectRoot,
       objective: input.tasks.map((task) => task.objective).join("\n"),
-      children: input.tasks.map((task) => ({
+      ...(routedModelIds !== undefined ? { assignments: routedModelIds } : {}),
+      children: input.tasks.map((task, index) => ({
         taskId: createTaskId(), role: task.role, objective: task.objective,
         profile: registry.resolve(task.role), inputArtifactIds: [], acceptanceCriteria: [],
-        assignedModel: modelId,
+        assignedModel: routedModelId(index),
         limits: { maxAttempts: 1, timeoutMs: 300_000, maxWallTimeMs: 300_000 }
       }))
     });
@@ -103,6 +135,7 @@ export class NativeSession {
         }
       }
       const text = [`Run ${outcome.runId}: ${outcome.status}`, `Model: ${modelId}`,
+        ...(routedModelIds !== undefined ? [`Routing: per-task over host catalog (${new Set(routedModelIds.map((a) => a.decision.model)).size} distinct model(s))`] : []),
         "Child reports are not independently verified; acceptance remains UNOBSERVED.",
         ...results.map((result) => `${result.taskId}: ${result.summary}`), `Analysis: ${analysis}`].join("\n");
       progress(`Run ${outcome.runId}: ${outcome.status}`);

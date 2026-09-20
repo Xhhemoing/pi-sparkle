@@ -49,6 +49,27 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
       const model = resolveNativeModel(eligible, params.model);
       const provider = ctx.modelRegistry.getProvider(model.provider);
       if (provider === undefined) throw new Error("Pi provider unavailable for delegated model");
+      // Quality-first routing bridge: every eligible host model becomes a
+      // catalog row so per-task assignment (static policy + learned routing)
+      // can spread tasks across models instead of pinning one model.
+      const routing = eligible.length > 1 ? await (async () => {
+        const [{ buildNativeRoutingCatalog }, { loadLearnedRouting }] = await Promise.all([
+          import("../../src/native/routing-catalog.js"),
+          import("../../src/learning/learned-routing.js")
+        ]);
+        const stateRoot = join(ctx.cwd, ".agent_workspace", "pi-sparkle");
+        const catalog = buildNativeRoutingCatalog(
+          eligible.map((candidate) => ({
+            ref: `${candidate.provider}/${candidate.id}`,
+            preferred: candidate.provider === model.provider && candidate.id === model.id,
+            contextWindow: candidate.contextWindow ?? undefined,
+            maxOutputTokens: candidate.maxTokens ?? undefined
+          })),
+          { primary: `${model.provider}/${model.id}` }
+        );
+        const learned = await loadLearnedRouting(stateRoot, ctx.cwd).catch(() => undefined);
+        return { catalog, ...(learned !== undefined ? { learned } : {}) };
+      })() : undefined;
       const executor = createNativeExecutor({
         projectRoot: ctx.cwd, model, provider,
         resolveAuth: () => ctx.modelRegistry.getApiKeyAndHeaders(model)
@@ -62,7 +83,8 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
           return { role: task.role, objective: task.objective };
         }),
         ...(signal !== undefined ? { signal } : {}),
-        onProgress: (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} })
+        onProgress: (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }),
+        ...(routing !== undefined ? { routing } : {})
       });
       return { content: [{ type: "text", text: result.text }], details: result };
     }
