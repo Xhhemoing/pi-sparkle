@@ -254,6 +254,57 @@ test("source file content binding: candidate that did not change the file still 
   });
 });
 
+test("mid-apply HEAD drift by a third party triggers rollback to the prior revision", async () => {
+  await withFixture(async ({ root, repo, stateRoot }) => {
+    const result = await produceAcceptedCandidate(repo, stateRoot);
+    try {
+      assert.equal(result.acceptance.accepted, true, result.reason);
+      const before = git(repo, ["rev-parse", "HEAD"]).trim();
+      // Inject a deterministic third-party drift exactly between the
+      // merge's ref update and the apply's HEAD verification: a
+      // reference-transaction hook commits while the merge --ff-only is
+      // still returning. The hook writes outside the repo so an empty
+      // rollback can never satisfy the marker assertion.
+      const hooks = path.join(root, "drift-hooks");
+      const marker = path.join(root, "drift-marker");
+      await mkdir(hooks, { recursive: true });
+      // Plain forward-slash absolute paths: the \\?\ namespaced form is not
+      // resolved by git's hook lookup (probed 2026-09-20: C:/ form fires,
+      // //?/ form silently finds no hooks).
+      const hooksPathAbs = hooks.replaceAll("\\", "/");
+      const markerAbs = marker.replaceAll("\\", "/");
+      const hookFile = path.join(hooks, "reference-transaction");
+      await writeFile(
+        hookFile,
+        `#!/bin/sh\n[ "$1" = "committed" ] || exit 0\n# Fire exactly once: the first ref update must be the apply's own\n# fast-forward; the drift commit then lands between it and the apply's\n# HEAD verification, and later ref updates (including the rollback's)\n# stay clean — a single third-party intervention, not an active loop.\n[ -f "${markerAbs}" ] && exit 0\necho fired >> "${markerAbs}"\necho drift > drift.txt\ngit add drift.txt && git commit -qm drift\n`,
+        { mode: 0o755 }
+      );
+      spawnSync("chmod", ["+x", hookFile], { encoding: "utf8", windowsHide: true });
+      git(repo, ["config", "core.hooksPath", hooksPathAbs]);
+      const apply = await makeApplySession();
+      await assert.rejects(() => apply.apply(applyInput(repo, result)), /drift|rolled back|fast-forward failed/i);
+      // The hook must have fired at least once; the source must be back at
+      // the exact prior revision (branch AND working tree), with no
+      // candidate content and no drift content left behind.
+      assert.ok(await stat2(marker), "reference-transaction hook must have fired");
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before, "source must be rolled back to the prior revision");
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE, "candidate content must not survive the failed apply");
+      // Candidate remains retained for owner inspection.
+      assert.ok(await stat2(result.candidatePath), "candidate must remain retained after a failed apply");
+    } finally {
+      // Remove the hook before any cleanup git calls so the drift hook
+      // cannot fire on the fixture's own teardown operations.
+      git(repo, ["config", "--unset", "core.hooksPath"]);
+      await disposeIsolatedWorktree({
+        cwd: result.candidatePath,
+        sandboxRoot: path.dirname(result.candidatePath),
+        sourceRepo: repo,
+        ref: result.sourceRevision
+      }).catch(() => undefined);
+    }
+  });
+});
+
 async function stat2(p: string): Promise<boolean> {
   const { stat } = await import("node:fs/promises");
   try {
