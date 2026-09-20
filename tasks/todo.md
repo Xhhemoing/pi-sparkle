@@ -27,9 +27,8 @@ Plan: [TASK-20260918-native-pi](../docs/superpowers/plans/2026-09-18-native-pi.m
 Evidence/requests: [delivery gate record](../docs/reports/2026-09-18-delivery-gate-unblock.md); [plan](../docs/superpowers/plans/2026-09-18-delivery-gate-unblock.md).
 
 - [x] Live #42/#43 head/CI checks, PR requests, F6 census and temp-tree inventory recorded (2026-09-18; record above).
-- [ ] Independent PASS on #42 `aeb4993` and #43 `13f954e`; #43 covers `2dc978d` both parents AND `7c908ee` follow-up. Dispatch blocked by 402; no PASS claimed.
-- [ ] Human conflict review + exact-head owner authorization, then merge; recheck remaining PR integration after first merge.
-- [ ] SCM/xhh supplies six original #36 stage PASS artifacts, final independent gate and applicable authorization source.
+- [x] Independent PASS on #42 `928995d` (delta re-review after the payload-identity fix; full record: [luna review](../docs/reports/2026-09-20-rr-review-luna.md)) and #44 (PASS after hygiene fix; record: [native review](../docs/reports/2026-09-20-native-pi-review-luna.md)); #43 human conflict review completed by owner 2026-09-20 per the packet. All three PRs MERGED: #42 `b1f2ee8`, #43 `7bdc591`, #44 `bb62d792`.
+- [x] Post-merge cleanup (2026-09-20): stale local branches and worktrees removed with merge-base verification; disposal manifest executed (r-fix draft patch archived). Remaining: SCM/xhh supplies six original #36 stage PASS artifacts + owner authorization source (unresolved), remote stale branch deletion (owner call).
 - [ ] Custodian completes 100+15 materials off-repo; owner rules on public-draft contamination. Existing 115 drafts do not satisfy this gate.
 - [ ] SCM verifies SM95 key metadata/separation (hostname unresolved here), then bind existing frozen ESTIMATE prices; seal only after preregistration and G3 runner/readiness gates. No experiment run.
 - [ ] After review PASS, preserve dirty/ignored content and approve exact three-temp-tree disposal manifest before cleanup; no deletion yet.

@@ -34,7 +34,9 @@ Merged via PR #36 into remote main. Facts and per-slice scope (from the `grok/so
 Delivery evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts are not on the GitHub reviews API (see G0 report). Do not reimplement the merged chain. F6 seal/holdout, extension/live-adaptation and Outcome-supported remain separately gated.
 
 
-## Delivery gate coordination (2026-09-18)
+## Delivery gate coordination (2026-09-18) — CLOSED 2026-09-20
+
+**All three delivery PRs merged on 2026-09-20:** #42 (`b1f2ee8`; independent review by luna-fast found the RUN_CREATED payload identity P1, fixed in `928995d`, delta PASS), #43 (`7bdc591`; owner-completed human conflict review per the packet), #44 (`bb62d792`; native Pi integration, independent review PASS after process/hygiene fixes). Post-merge cleanup 2026-09-20: 18 merged local branches deleted (merge-base verified), 19 worktrees removed (r-fix dirty draft archived at `.agent_workspace/archived/r-fix-draft-5357163-2026-09-20.patch`), review worktrees disposed. Remaining open: SCM/xhh #36 evidence request (unresolved), remote stale branch deletion (owner call), F6 prerequisites (parked).
 
 Progress 2026-09-20: PR #42 independent review **executed** (owner-designated luna-fast): full review of `aeb4993` returned REQUEST CHANGES on exactly one P1 (RUN_CREATED payload identity gap in `assertRunPresent`); fix `928995d` implemented RED→GREEN, delta re-review **PASS** (evidence: [review record](../docs/reports/2026-09-20-rr-review-luna.md)). Owner authorized push; remote PR #42 head is now `928995d` (fast-forward `aeb4993..928995d`, verified via ls-remote). Remaining: CI green + owner merge authorization on GitHub.
 
