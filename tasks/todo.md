@@ -38,6 +38,8 @@ Evidence/requests: [delivery gate record](../docs/reports/2026-09-18-delivery-ga
 
 ## Human / policy gates (block claims, not local fake tests)
 
+- [x] Pi pin bump 0.85.1 → 0.86.1 (2026-09-20, `3db30b5` + `3f05b82`): type-surface diff reviewed (transcript-context `SystemMessage.toolsAdded`, `JsonObject` tool args, `JsonValue` details default); adapter product code unchanged; one probe adapted (`report-task-result` reads the leading system message); serialized full suite 2816/0/18; `pi-compat --online` `current`; security/Pi probes green. [Playbook](../docs/how-to-adapt-to-pi.md) updated with 0.86 behavioral notes; status row updated.
+
 - [x] ADR-004 accepted and the six adaptive defaults approved, unchanged (2026-08-21). Exit recorded in [status-matrix.md](../docs/status-matrix.md).
 - [x] Close P0: independent review returned **CONDITIONAL** (2026-08-22): Q3/Q4/Q5 pass; Q1 (plane isolation) and Q2 (delete tooling + cascade) were blockers — both remediated same day (see review package §7). Package: [2026-08-22-p0-privacy-review-package.md](../docs/reports/2026-08-22-p0-privacy-review-package.md).
   - 2026-08-22 re-verification: privacy/redaction suites 8/8 green against the remediation (technical check done; §6 command fixed to explicit file args).
