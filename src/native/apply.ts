@@ -177,7 +177,19 @@ export class NativeApplySession {
     // the update would not be a fast-forward.
     const applied = git(preflight.sourceRepo, ["merge", "--ff-only", candidateCommit]);
     if (!applied.ok) {
-      fail(`source fast-forward failed: ${applied.detail}`);
+      // The ref update may still have landed when the merge reports failure
+      // (e.g. a reference-transaction hook moved HEAD mid-apply). A failed
+      // apply must never leave the source elsewhere: roll back to the prior
+      // revision before refusing. When nothing was touched this is a no-op.
+      const rollback = git(preflight.sourceRepo, ["reset", "--hard", previous]);
+      if (!rollback.ok) {
+        fail(`source fast-forward failed AND rollback failed: merge=${applied.detail} rollback=${rollback.detail}`);
+      }
+      const headAfter = git(preflight.sourceRepo, ["rev-parse", "HEAD"]);
+      if (!headAfter.ok || headAfter.stdout.trim() !== previous) {
+        fail(`source fast-forward failed; rolled back but HEAD verification failed: ${applied.detail}`);
+      }
+      fail(`source fast-forward failed; rolled back to ${previous}: ${applied.detail}`);
     }
     const headNow = git(preflight.sourceRepo, ["rev-parse", "HEAD"]);
     if (!headNow.ok || headNow.stdout.trim() !== candidateCommit) {
