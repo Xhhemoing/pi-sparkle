@@ -66,7 +66,7 @@ As with the write slice, the normal parallel `pnpm gate` test phase is known to 
 ## Risks and Open Gates
 
 - Git worktree isolation is not an OS sandbox. Re-verification executes candidate code inside the candidate; host policy must supply the command and environment boundary.
-- The HEAD-drift rollback path (`merge` succeeds but HEAD verification fails, then `reset --hard`) is implemented and code-reviewed but not exercised by an induced-failure test on this host; the two tested refusal paths (sabotaged candidate, stale source) cover the refuse-before-mutation cases. An induced mid-apply HEAD-drift test is a candidate follow-up.
+Closed 2026-09-20 by PR #45 (merge `abbf4461`): a `reference-transaction` hook induced third-party drift between `merge --ff-only` and HEAD verification; the test exposed that a merge failing after the ref update left the source at the drift commit. `src/native/apply.ts` now `reset --hard <previous>` and verifies HEAD before refusing; luna-fast independent review PASS. [Review record](2026-09-20-apply-rollback-review-luna.md).
 - No independent reviewer PASS or real-provider run is claimed. Local deterministic executors and real-git fixtures establish contract behavior, not model quality.
 - Registering `NativeApplySession` as a host-facing tool, global non-credential/non-permission configuration (option B allowlists), disposal policy for long-lived retained candidates, and unified quality routing remain program follow-ups requiring policy review and human authorization.
 - F-PROD, live routing, holdout, and Outcome-supported claims remain unchanged and open.
