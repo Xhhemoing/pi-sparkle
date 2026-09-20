@@ -67,7 +67,8 @@
 
 ## Closeout
 
-- Verified commit/date: pending.
-- Commands and outcomes: pending.
-- Open risks/follow-ups: write-tool registration (separate plan), global-config allowlists (option B), unified quality routing, live projection/recall.
-- Evidence links: pending.
+- First implementation slice complete on branch `feat/native-apply-registration`, commit `1707c8f` (2026-09-20). RED→GREEN preserved: unit refusals failed on missing module first (`ERR_MODULE_NOT_FOUND`), extension surface pin failed before registration, then all green.
+- Commands and outcomes: focused unit 23/23 (native dir), integration 15/15, **serialized full suite 2816 pass / 0 fail / 18 skip**, typecheck/lint/build/workflow:check/security-probe/pi-probe all pass. Evidence: [verification record](../../reports/2026-09-20-native-apply-registration.md).
+- Tool surface pinned by test: exactly `sparkle_delegate` + `sparkle_apply_candidate`; apply tool parameters exactly `[candidatePath, issue]`.
+- Open: serialized gate recorded; remaining gates — independent review (luna-fast dispatch) and **owner authorization at G3** (first host-mutable registration) before PR merge.
+- Evidence links: [verification record](../../reports/2026-09-20-native-apply-registration.md), [status matrix row](../../status-matrix.md), `tasks/todo.md` native section.
