@@ -40,6 +40,17 @@ Everything the adapter imports, by file — this is the diff surface for step 2:
 
 Behavioral (not just type-level) dependencies to re-verify each bump:
 
+- **Pi ≥ 0.86: transcript-carried prompt/tools.** `StreamFn`/provider
+  `stream*` now receive a branded `TranscriptContext` whose system prompt and
+  tool declarations live in the transcript's system messages
+  (`SystemMessage.toolsAdded`/`toolsRemoved`/`sections`); `context.tools` and
+  writable `agent.systemPrompt` are gone. `ToolCall.arguments` narrowed from
+  `Record<string, any>` to `JsonObject`, and `AgentToolResult.details`
+  defaults to `JsonValue`. The adapter needed no product change for 0.85.1 →
+  0.86.1 (it passes `systemPrompt`/`tools` via `initialState`, which the Agent
+  folds into the leading system message); only the verdict-tool probe
+  (`report-task-result.test.ts`) read `context.tools` and was updated to read
+  the leading system message.
 - `Agent` constructor shape (`initialState`, `streamFn`), `prompt`,
   `waitForIdle`, `abort`, `subscribe`, `state.errorMessage`.
 - `AgentEvent` variants consumed by `translatePiEvent`: `message_update`

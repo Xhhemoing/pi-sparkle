@@ -52,7 +52,7 @@ use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-spar
 Results are bounded child reports, not independently verified acceptance.
 The initial slice does not write files or execute shell commands in workers.
 Terminal analysis proposes candidates without automatically applying them.
-The loader was checked on Pi 0.84.4 and 0.85.1; live-provider behavior is not
+The loader was checked on Pi 0.84.4, 0.85.1, and 0.86.1; live-provider behavior is not
 established by the offline loopback tests.
 
 `/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also
