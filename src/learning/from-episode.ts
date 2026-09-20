@@ -217,6 +217,7 @@ export function outcomesFromRoutedRun(events: readonly Event[]): OutcomeObservat
             outcome: message.outcome,
             verificationKind: message.verification.kind,
             summary: message.summary,
+            evidenceIds: message.verification.evidenceIds,
             ...(message.failure !== undefined ? { failure: message.failure } : {})
           })
         : undefined;
