@@ -33,6 +33,18 @@
 - [x] Projector disabled path returns text unchanged and archives nothing; enabled path: first two sends full, then ≤2KiB placeholder with `[observation packed]` header and stable sha across repeat sends; ineligible (small/error/receipt) never projected; use-before-bind and double-bind refused; recall tool pages, matches archive bytes, refuses unknown ids. Evidence: [verification record](../../docs/reports/2026-09-20-native-observation-projection.md), commands table; focused unit runs 5/5, 28/28. Verified commit: pending merge.
 - [x] Delegate-level: worker reads one >10KiB content three times through the real `NativeSession.delegate`; sends 1–2 full, send 3 placeholder, recall returns archive bytes, archives exist under `runtime/runs/<runId>/observations/`. Evidence: `test/unit/native/session.test.ts` "delegation with observation projection". Verified commit: pending merge.
 
+### Amended by external review 2026-09-21 (hardening — post-implementation)
+
+Source: [2026-09-21 external review disposition](../../docs/reports/2026-09-21-external-review-disposition.md) R1–R7, R13. The base criteria above are met; the items below are hardening/test additions on verified behavior, folded into the same slice before independent review dispatch.
+
+- [ ] Send counter keyed by full content sha256 (replace the length+head+tail key); a file changed at the same path gets a fresh first-two window; a head/tail/length collision does not share a counter. Verification: unit tests (same-path mutation; collision case).
+- [ ] A file whose content contains the evidence-receipt marker is never packed (fail-closed spoof direction). Verification: unit test.
+- [ ] Explicit `isError` forwarded from the wrapped tool result when the result carries it; error-flagged results never packed. Verification: unit test.
+- [ ] Recall returns the archived snapshot after the source file is mutated (not the live file). Verification: unit test.
+- [ ] Recall after `delete --run` fails closed with a clear error; post-resume counters restart (full sends first), documented. Verification: unit test + doc line.
+- [ ] Payload-prefix pinning: two consecutive requests from one projected session share an append-only message prefix (no history rewrite). Verification: adapter stream-capture pinning test.
+- [ ] Closeout includes a real-token measurement plan (mechanism/economic/outcome layers per the review), not only wiring evidence. Verification: report section.
+
 ## Implementation Slice
 
 | File/symbol | Change | Owner | Dependency/risk |
@@ -63,5 +75,5 @@
 - Verified commit/date: 2026-09-20, `feat/native-observation-projection` (see [verification record](../../docs/reports/2026-09-20-native-observation-projection.md)).
 - Commands and outcomes: serialized full suite 2826 pass / 0 fail / 18 skip; typecheck/lint/build/security:probe/pi:probe all pass; live-isolation unchanged (232).
 - Deviations from plan: (1) runId pre-minting via `generateRunId` was rejected — the coordinator generator mints every run id; late binding after `startParentRun` instead. (2) Scope grew by one real library fix: observation store lock moved from the run lifecycle lock to a dedicated `observationLockPath` (live `put` silently timed out under the old lock; caught by the delegate-level test, root-caused by instrumentation).
-- Open risks/follow-ups: CLI-side projection wiring, measured token deltas on real delegations, relay-blocked independent review (batched), global-config allowlists, F-PROD.
-- Evidence links: [verification record](../../docs/reports/2026-09-20-native-observation-projection.md); [routing record](../../docs/reports/2026-09-20-native-delegate-routing.md); [outage record](../../docs/reports/2026-09-20-luna-dispatch-outage.md).
+- Open risks/follow-ups: CLI-side projection wiring, measured token deltas on real delegations (measurement plan required per 2026-09-21 disposition R13), relay-blocked independent review (batched; scope extended with the disposition record), global-config allowlists, F-PROD. Apply-registration review scope extended with acceptance-definition digest binding and crash-reconciliation windows (disposition R10/R11).
+- Evidence links: [verification record](../../docs/reports/2026-09-20-native-observation-projection.md); [routing record](../../docs/reports/2026-09-20-native-delegate-routing.md); [outage record](../../docs/reports/2026-09-20-luna-dispatch-outage.md); [external review disposition](../../docs/reports/2026-09-21-external-review-disposition.md).
