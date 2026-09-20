@@ -69,17 +69,17 @@
     "prepublishOnly": "pnpm prerelease"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1"
+    "@earendil-works/pi-agent-core": "0.86.1",
+    "@earendil-works/pi-ai": "0.86.1"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.84.4 <0.86.0"
+    "@earendil-works/pi-coding-agent": ">=0.84.4 <0.87.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": { "optional": true }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
     "@eslint/js": "10.0.1",
     "@types/node": "26.2.0",
     "@typescript-eslint/eslint-plugin": "8.67.0",

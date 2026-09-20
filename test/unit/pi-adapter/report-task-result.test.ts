@@ -188,7 +188,9 @@ function terminalsOf(events: readonly ExecutionEvent[]): TaskResult[] {
 }
 
 function reportCall(args: Record<string, unknown>): FauxResponseStep {
-  return fauxAssistantMessage(fauxToolCall(REPORT_TASK_RESULT_TOOL, args, { id: "tool_call_1" }));
+  // 0.86.x narrows ToolCall.arguments to JsonObject; the test args are plain
+  // JSON-compatible literals, so the cast is sound.
+  return fauxAssistantMessage(fauxToolCall(REPORT_TASK_RESULT_TOOL, args as never, { id: "tool_call_1" }));
 }
 
 function providerError(status: number, body: string): () => never {
@@ -508,7 +510,13 @@ describe("PiAgentExecutor verdict reporting", () => {
     const seen: string[][] = [];
     const executor = executorFor([
       (context: Context) => {
-        seen.push((context.tools ?? []).map((tool) => tool.name));
+        // Pi ≥ 0.86: prompt/tools live in the transcript's leading system
+        // message (`toolsAdded`); `context.tools` no longer exists.
+        const system = (context.messages ?? []).find((message) => message.role === "system");
+        const declared = system && "toolsAdded" in system
+          ? (system.toolsAdded ?? []).map((tool) => tool.name)
+          : (context as unknown as { tools?: { name: string }[] }).tools?.map((tool) => tool.name) ?? [];
+        seen.push(declared);
         return fauxAssistantMessage("nothing to report");
       }
     ]);
