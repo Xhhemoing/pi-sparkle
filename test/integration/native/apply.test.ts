@@ -263,4 +263,3 @@ async function stat2(p: string): Promise<boolean> {
     return false;
   }
 }
-
