@@ -11,10 +11,13 @@ A research report supplied by the owner was reviewed as a strategic input:
 
 The report contains external market, research, and regulatory claims. Those
 claims have **not** been independently re-verified in this repository and are
-not treated as project facts. Repository facts remain sourced from
-`docs/status-matrix.md`, task plans, verification records, and current code.
-This record captures the plan changes proposed by the report and identifies
-what still requires expert or owner approval.
+not treated as project facts. Its embedded `cite`/`filecite` tokens are not
+repository-resolvable sources; uncited or future-dated claims require an
+independent URL/source, retrieval date, and evidence record before promotion.
+Repository facts remain sourced from `docs/status-matrix.md`, task plans,
+verification records, and current code. This record captures the plan changes
+proposed by the report and identifies what still requires expert or owner
+approval.
 
 ## Strategic synthesis
 
@@ -159,17 +162,20 @@ these components separate:
 - wall time;
 - human correction time.
 
-The primary KPI is:
+The canonical primary platform KPI is:
 
 ```text
-cost per independently accepted task
-= all provider/runtime/human costs for the task,
-  including failed attempts and retries
-  / independently accepted task count
+cost per independently accepted task bundle
+= all provider/runtime costs for the fixed K scheduled runs and retries
+  / distinct tasks with at least one valid independent acceptance
+    without human correction
 ```
 
-No metric may silently treat missing usage as zero or exclude provider/auth /
-quota failures from the task cost.
+Human correction minutes are a separately gated secondary outcome and are also
+reported in an all-in sensitivity analysis with a predeclared valuation. A zero
+accepted-task denominator is undefined and blocks a claim. No metric may
+silently treat missing usage as zero or exclude provider/auth/quota failures
+from task cost.
 
 ### 5. A/B/C pilot is explicitly exploratory
 
@@ -180,16 +186,20 @@ The groups remain:
 - **C:** same as B, projection enabled.
 
 B→C estimates projection's marginal effect; A→B estimates the runtime's
-aggregate effect. The pilot target is approximately 30 distinct tasks with
-2–3 repeats, stratified before execution by language, repository size, task
-class, context size, test duration, and expected repeat-observation mass.
+aggregate effect. The pilot target is approximately 30 distinct tasks with exactly K=2 scheduled
+runs per arm (a third scheduled run requires a new preregistered protocol),
+stratified before execution by language, repository size, task class, context
+size, test duration, and arm-independent expected repeat-observation mass.
+Realized repeat mass is post-treatment and is reported descriptively, not used
+for primary eligibility or favorable subgroup selection.
 Repeated runs are not treated as independent tasks.
 
 The pilot can discover large regressions and cost scale. It **cannot** by
 itself establish strict non-inferiority or a broad Outcome-supported claim.
 A confirmatory phase is required if the pilot passes its advance gate:
-approximately 100–200 distinct tasks, normally two runs per task, with a
-pre-registered task-level paired analysis and repository/task strata.
+a later/untouched task set whose size is recalculated from pilot variance,
+paired discordance, repository clustering, and the pre-registered MDE; a
+100–200 range is only a planning placeholder, not a power guarantee.
 
 The following are proposed thresholds for expert/owner review, not accepted
 project facts:

@@ -1,5 +1,7 @@
 # Task Plan: Native worker observation projection (context efficiency wiring)
 
+> **Removal gate (2026-09-21):** The delivered baseline is historical evidence; remaining SHA-dependent hardening in this plan is blocked by [TASK-20260921-remove-sha256](2026-09-21-remove-sha256.md) and [ADR-008](../../decisions/0008-remove-sha256.md). No further implementation, live collection, or contract freeze starts until the successor identity/integrity design is owner-approved.
+
 ## Identity
 
 - ID: `TASK-20260920-native-observation-projection`

@@ -46,7 +46,7 @@ sessions may call into pi-sparkle through one thin extension.
 
 The owner approved proceeding with native Pi integration, quality-first delegation with preferred `cursor-grok-4.6-fast`, and automatic modification scope B (project resources plus global Pi configuration, excluding credentials and permissions). The implementation plan is [native Pi](../superpowers/plans/2026-09-18-native-pi.md).
 
-The inbound adapter may now register tools and commands that invoke shared orchestration, tracking and post-run analysis services, in addition to telemetry. Product decisions remain in `src/`; Pi host types remain confined to the two adapter trees. `package.json#pi.extensions` is permitted. The first slice provides read-only delegation with cancellation; it does not implement automatic application. A package install does not grant option B to other users. Candidate application requires separately persisted owner scope, independent checks and rollback; credentials, permissions and trust/tool activation fields remain excluded. This does not supersede F-PROD or enable live R1/bandit selection.
+The inbound adapter may now register tools and commands that invoke shared orchestration, tracking and post-run analysis services, in addition to telemetry. Product decisions remain in `src/`; Pi host types remain confined to the two adapter trees. `package.json#pi.extensions` is permitted. The first slice provides read-only delegation with cancellation; it does not implement automatic application. A later separate slice registered the host-facing, handle-only `sparkle_apply_candidate`; that surface is wired but not production-authorized pending the R10/R11 evaluator/environment review and owner approval. A package install does not grant option B to other users. `NativeWriteSession` worker-write registration and automatic write-to-apply chaining remain unregistered. Candidate application requires separately persisted owner scope, independent checks and rollback; credentials, permissions and trust/tool activation fields remain excluded. This does not supersede F-PROD or enable live R1/bandit selection.
 
 The original proposed text below records the pre-acceptance gate; its "until Accepted" restrictions are now discharged. The historical 2026-08-21 keep-Proposed decision remains in prior records.
 
@@ -66,8 +66,13 @@ Split Pi integration into three layers. Do not collapse them.
    Pi session/turn/tool events into pi-sparkle-owned telemetry records and
    invokes shared services through tools/commands under the amendment above.
    It does not compute BKT, risk, routing, or promotion. The current extension
-   provides bounded read-only delegation; isolated write is a separate library
-   slice and automatic application is not registered here.
+   provides bounded read-only delegation and a separate host-facing,
+   handle-only `sparkle_apply_candidate` surface. That apply surface is wired
+   but not production-authorized until the R10/R11 evaluator/environment review
+   and owner approval close. `NativeWriteSession` worker-write registration and
+   automatic write-to-apply chaining remain unregistered. No capability here
+   grants credential mutation, permission mutation, trust mutation, or
+   tool-activation/allowlist edits.
 
 **Skills remain an optional diagnostic overlay.** `.agents/skills/pi-sparkle`
 may explain how to audit harness health. It is not the control plane, not a

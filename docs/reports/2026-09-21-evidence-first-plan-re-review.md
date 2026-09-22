@@ -11,8 +11,15 @@ implementation approval and not a product-positioning approval.
 
 Primary materials:
 
-- [Amended phase plan](../superpowers/plans/2026-09-21-evidence-first-phase.md)
+- [Amended coordination plan](../superpowers/plans/2026-09-21-evidence-first-phase.md)
+- [Projection child plan](../superpowers/plans/2026-09-21-projection-hardening.md)
+- [Read-only evaluator child plan](../superpowers/plans/2026-09-21-readonly-evaluator-freeze.md)
+- [A/B/C child plan](../superpowers/plans/2026-09-21-ab-c-pilot.md)
+- [Evaluator/apply child plan](../superpowers/plans/2026-09-21-evaluator-apply-boundary.md)
 - [Research-plan amendment](2026-09-21-deep-research-plan-amendment.md)
+- [Read-only evaluator spec](../superpowers/specs/2026-09-21-readonly-evaluator-manifest.md)
+- [Projection measurement spec](../superpowers/specs/2026-09-21-projection-measurement.md)
+- [Pilot preregistration draft](2026-09-21-ab-c-pilot-preregistration.md)
 - [Prior external-review disposition](2026-09-21-external-review-disposition.md)
 - [Projection plan](../superpowers/plans/2026-09-20-native-observation-projection.md)
 - [Status matrix](../status-matrix.md)
@@ -40,9 +47,11 @@ claims into status-matrix evidence.
 1. A read-only evaluator manifest/freeze is now proposed **before** any live
    A/B/C pilot, so a mutable acceptance definition cannot contaminate a result.
 2. R10/R11 is split into a pilot-safe read-only evaluator boundary and the
-   later full apply/write boundary. Production apply must bind candidate,
-   evaluator, runtime, policy, result, approval, and idempotency identities;
-   exact signing/snapshot mechanics remain open for review.
+   later full apply/write boundary. The host-facing `sparkle_apply_candidate`
+   registration already exists but is not production-authorized; worker-write
+   registration and automatic chaining remain absent. Production apply must
+   bind candidate, evaluator, runtime, policy, result, approval, and idempotency
+   identities; exact signing/snapshot mechanics remain open for review.
 3. Projection hardening now includes full SHA-256 counter keys, typed or
    fail-closed projectability, cumulative recall budgets, repeat-mass telemetry,
    and separate mechanism/economic/outcome measures. Cross-session counters are
@@ -54,9 +63,13 @@ claims into status-matrix evidence.
    pilot advance near 10% C-vs-B cost improvement; confirmation target near
    15%; proposed quality guardrail near −5 percentage points; critical integrity
    failures zero. They must be frozen or revised before data collection.
-6. `cost per independently accepted task` is the primary platform metric;
-   human correction time is separately reported and also included in an
-   all-in sensitivity view.
+6. `cost per independently accepted task bundle` is the primary platform
+   metric: fixed K scheduled runs plus retries, divided by distinct tasks with
+   at least one valid independent acceptance without human correction. Human
+   correction time is separately reported and included in an all-in sensitivity
+   view; it is not silently mixed into the primary platform KPI. The current
+   draft fixes K=2 and the existing provider retry policy at maxAttempts=3,
+   subject to preregistration approval.
 7. The first possible Outcome-supported status row receives a separate owner
    evidence gate and must be narrowly scoped to task set, revisions, model,
    provider, evaluator, policy, budget, and environment.
@@ -130,15 +143,17 @@ Do not apply edits or run live providers in this review.
 
 ## Dispatch status (2026-09-21)
 
-The first four-way `sparkle_delegate` attempt did not start because the
-preferred `cursor-grok-4.6-fast` model was unavailable. A second attempt with
-an explicit `xhh-api/gpt-5.6-sol` override failed with `no actionable
-model-project issue`. Neither result is an expert verdict, independent
-verification, or approval. No fallback was silently promoted. The owner-
-designated `luna-fast` channel remains subject to the relay outage recorded in
-[the outage report](2026-09-20-luna-dispatch-outage.md). A future dispatch must
-record the exact baseline commit and reviewer provenance before its result is
-used as a gate.
+- Initial four-way dispatch: default `cursor-grok-4.6-fast` unavailable.
+- Explicit `xhh-api/gpt-5.6-sol` retry: failed with `no actionable
+  model-project issue`.
+- Focused `luna-fast` review: three reports returned; the repository-
+  consistency role failed on account concurrency and produced no verdict.
+
+These results are recorded as review evidence, not approval. No fallback was
+silently promoted. The owner-designated `luna-fast` channel remains subject to
+the relay outage recorded in [the outage report](2026-09-20-luna-dispatch-outage.md).
+A fresh focused dispatch must record the exact baseline commit and reviewer
+provenance before its result is used as a gate.
 
 ## Expected review artifact
 

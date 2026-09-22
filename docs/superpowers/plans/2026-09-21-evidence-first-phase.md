@@ -1,267 +1,267 @@
-# Evidence-first phase implementation and evaluation plan
+# Evidence-first phase coordination plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Each task produces a separately reviewable deliverable.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to execute the four child plans separately. Do not implement the pilot and apply-boundary work as one unreviewed change.
 
-**Goal:** Move pi-sparkle from implemented-and-exercised capability to a narrowly bounded, reproducible evidence claim about cost per independently accepted task, without weakening evaluator, privacy, routing, or apply boundaries.
+**Goal:** Move pi-sparkle from implemented-and-exercised capability to a narrowly bounded, reproducible evidence claim about cost per independently accepted task without weakening evaluator, privacy, routing, or apply boundaries.
 
-**Architecture:** The phase has two distinct control planes. A read-only evaluation plane freezes task, runtime, evaluator, policy, and provider identities before the projection pilot. A separate change-control plane binds candidate snapshots, evaluator bundles, approvals, and idempotent apply/reconciliation before any write-tool registration. Projection remains default-off and run-local; real-provider evidence is opt-in and claim-scoped.
+**Architecture:** This is a coordination plan over four independently reviewable
+plans: projection hardening/telemetry, a read-only evaluator manifest, an
+exploratory A/B/C pilot, and the full evaluator/apply boundary. The boundary
+plan has a **Stage 0 design/freeze** that must precede the read-only manifest
+and live pilot, while its **Stage 1 implementation/authorization** remains a
+later change-control gate. Stage 0 does not register or authorize writes.
+Projection remains default-off and run-local; live-provider evidence is opt-in
+and claim-scoped.
 
-**Tech Stack:** TypeScript/Node ≥22.19, pnpm, Pi 0.86.1 adapter, content-addressed SHA-256 observation storage, JSONL event/telemetry records, Git worktrees and revisions, deterministic/fake executors for development, opt-in real Pi providers for acceptance.
+**Tech Stack:** TypeScript/Node ≥22.19, pnpm, Pi 0.86.1 adapter, content-addressed SHA-256 observation storage, JSONL event/telemetry records, Git worktrees/revisions, deterministic fake executors, and opt-in real Pi providers.
+
+## SHA-256 removal prerequisite (2026-09-21)
+
+This plan is blocked by [TASK-20260921-remove-sha256](2026-09-21-remove-sha256.md) and [ADR-008](../../decisions/0008-remove-sha256.md). The plan's current SHA-dependent identity, integrity, projection, evaluator, and apply language is retained as pre-decision evidence only. No child plan may implement or extend those mechanisms until the owner approves a successor contract and legacy fail-closed policy. This notice does not authorize a pilot, provider call, apply, or freeze.
 
 ## Global Constraints
 
-- No code or plan in this phase may claim `Outcome-supported` from local fake, loopback, synthetic lifecycle, or author-only evidence.
-- R1/bandit/topology remain shadow/offline; the live path reads only a versioned, hash-verified promoted routing-policy snapshot.
-- Projection stays disabled by default; no CLI wiring before the B-versus-C evidence gate.
-- The A/B/C pilot is exploratory: it can detect large regressions and estimate cost scale, but cannot by itself establish strict non-inferiority or broad generalization.
-- The write-tool and automatic candidate application remain blocked until the R10/R11 evaluator/apply boundary review and owner authorization close.
-- The authoritative evaluator bundle is not writable by a candidate in the proposed production design; candidate-supplied tests are evidence, not the sole authoritative verdict.
-- Missing provider usage is unknown, never zero. Provider, authentication, quota, retry, timeout, and runtime failures remain visible in task-level cost and failure taxonomy.
-- Cross-session observation-counter persistence is out of scope for this phase. Cross-tenant observation sharing is never allowed.
-- Real-provider, crash, benchmark, and holdout runs are opt-in and require a durable evidence record with the exact command/configuration and evidence class.
-- Existing user changes, ignored worktree content, privacy deletion rules, and frozen additive-only CLI/event/JSON contracts must be preserved.
-
----
+- No local fake, loopback, synthetic lifecycle, or author-only result is `Outcome-supported` evidence.
+- Author-run verification, independent review, human/owner approval, and outcome evidence are four separate evidence classes; one never substitutes for another.
+- `sparkle_apply_candidate` is already registered and wired as a host-facing, handle-only apply surface. It is **not production-authorized** until the R10/R11 independent review and owner approval close.
+- `NativeWriteSession`/worker write registration is a separate library capability and is not registered in the Pi extension or default CLI. Automatic write-to-apply chaining is also not registered.
+- No new worker-write capability, automatic chaining, or production apply authorization claim may proceed before the full evaluator/apply boundary gate closes. The existing host-facing registration is an R10/R11 hardening/authorization subject, not an absent feature.
+- Projection is disabled by default. No CLI projection wiring precedes the B-versus-C evidence gate.
+- R1/bandit/topology remain shadow/offline; live routing reads only a versioned, hash-verified promoted routing-policy snapshot.
+- The A/B/C pilot is exploratory. Approximately 30 distinct tasks cannot establish strict non-inferiority or broad generalization.
+- Arm identity is scoped per arm, not assumed globally identical: A is native Pi
+  with learned sparkle routing disabled; B and C share the same frozen tuple.
+  Common evaluator/task/repository constraints are shared, but runtime identity
+  and tool schemas may differ. C's recall tool is an intentional declared
+  difference, not a claim of complete schema identity. Every ledger row carries
+  `armManifestDigest`.
+- F6/F-PROD is not closed, started, sealed, or substituted by this phase. The pilot cannot enable live adaptive selection or reuse F6 holdout/pricing evidence.
+- M7 training infrastructure is out of scope; only data qualification may be assessed.
+- Missing provider usage is unknown, never zero. Provider, authentication, quota, retry, timeout, and runtime failures remain visible.
+- Cross-session observation-counter persistence and cross-tenant observation sharing are out of scope/prohibited.
+- Real-provider, crash, benchmark, and holdout runs are opt-in and require an exact durable evidence record.
+- Existing privacy deletion rules, user changes, ignored files, and frozen additive-only CLI/event/JSON contracts are preserved.
 
 ## Identity
 
 - ID: `TASK-20260921-evidence-first-phase`
-- Owner: main agent session for documentation/test work; owner approval required at explicit policy, budget, capability, and public-claim gates
-- State: `planned` — amended 2026-09-21 from the deep-research report; submitted for expert re-review
+- Owner: main agent for documentation/test work; owner approval is required at policy, budget, capability, and public-claim gates
+- State: `planned` — amended after the deep-research report and expert review on 2026-09-21
 - Date opened: 2026-09-21
-- Related: [external review disposition](../../reports/2026-09-21-external-review-disposition.md); [deep-research amendment](../../reports/2026-09-21-deep-research-plan-amendment.md); [native Pi plan](2026-09-18-native-pi.md); [status matrix](../../status-matrix.md); [projection plan](2026-09-20-native-observation-projection.md).
+- Related: [expert review record](../../reports/2026-09-21-evidence-first-plan-expert-review.md); [research amendment](../../reports/2026-09-21-deep-research-plan-amendment.md); [native Pi plan](2026-09-18-native-pi.md); [status matrix](../../status-matrix.md); [external disposition](../../reports/2026-09-21-external-review-disposition.md).
+
+## Current capability-state vocabulary
+
+Every plan and status record must use these distinctions:
+
+1. **Host-facing apply registration:** `sparkle_apply_candidate` is present and
+   wired in `extensions/pi-sparkle/index.ts`; it accepts only a host-issued
+   handle and reconstructs trusted bytes from a persisted artifact.
+2. **Worker write registration:** `NativeWriteSession` exists as a library
+   capability, but no worker write tool is registered in the extension/default
+   CLI.
+3. **Authorization:** neither registration nor local tests grants production
+   permission to apply candidates or chain writes automatically. Existing apply
+   use remains pending R10/R11 independent review and owner authorization.
+
+The R10/R11 review is therefore prospective hardening and authorization review
+of an existing apply surface, not a claim that the host-facing tool is absent.
+
+## Mainline sequence and dependencies
+
+| Order | Deliverable | Depends on | Gate |
+|---|---|---|---|
+| 1 | Approved review channel and separate independent verdicts | owner decision / relay health | owner + reviewer provenance |
+| 2 | Stage 0 evaluator/apply boundary design and freeze | 1; no implementation required | owner/reviewer design freeze; no writes |
+| 3 | Projection hardening and telemetry | 1; Stage 0 constraints | engineering gate; no live claim |
+| 4 | Read-only evaluator manifest/freeze | 2 + 3; no write capability | owner/evaluator freeze |
+| 5 | Exploratory A/B/C pilot and preregistration | 3 + 4 | owner budget/data gate |
+| 6 | Pilot decision and confirmatory design | pilot report | owner evidence gate |
+| 7 | CLI projection decision | B-versus-C evidence | evidence gate |
+| 8 | Stage 1 full evaluator/apply implementation, review, and authorization; future worker-write decision | Stage 0 + owner capability decision; pilot evidence may inform scope | independent R10/R11 + owner capability gate |
+
+The four executable child plans are:
+
+- [Projection hardening and telemetry](2026-09-21-projection-hardening.md)
+- [Read-only evaluator manifest/freeze](2026-09-21-readonly-evaluator-freeze.md)
+- [Exploratory A/B/C pilot](2026-09-21-ab-c-pilot.md)
+- [Full evaluator/apply boundary](2026-09-21-evaluator-apply-boundary.md), whose Stage 0
+  design/freeze precedes the pilot and whose Stage 1 implementation is later.
+
+The named draft deliverables used by those plans are:
+
+- [Read-only evaluator manifest spec](../specs/2026-09-21-readonly-evaluator-manifest.md)
+- [Stage 0 evaluator/apply boundary freeze spec](../specs/2026-09-21-evaluator-boundary-freeze.md)
+- [Projection measurement spec](../specs/2026-09-21-projection-measurement.md)
+- [A/B/C pilot preregistration](../../reports/2026-09-21-ab-c-pilot-preregistration.md)
+
+These documents are drafts until their owner/reviewer gates are recorded.
 
 ## Problem and Scope
 
 ### Problem
 
 The runtime and native slices are implemented and locally exercised, but no
-capability is Outcome-supported. The current projection evidence is synthetic,
-real-provider end-to-end acceptance is opt-in, and the apply path's evaluator
-identity is not yet bound strongly enough for a production change-control
-claim. Adding more agent features before measuring a bounded real outcome would
-increase surface area without resolving the central product question:
+capability is Outcome-supported. Projection currently has synthetic evidence,
+real-provider acceptance is opt-in, and the existing apply surface does not yet
+bind evaluator semantics strongly enough for a production change-control claim.
+The central question is:
 
-> Can the system lower the total cost of an independently accepted task while
-> preserving evidence integrity and a reproducible approval/apply chain?
+> Can pi-sparkle lower total provider/runtime cost per independently accepted
+> task while preserving evidence integrity and a reproducible approval/apply
+> chain?
 
-The supplied research report proposes positioning pi-sparkle as a vendor-neutral
-**Evidence & Change Control Runtime** around coding agents. This is a strategic
-hypothesis for review, not an approved README/product claim.
+The proposed product framing — a vendor-neutral Evidence & Change Control
+Runtime around coding agents — remains a strategic hypothesis, not an approved
+README or market claim.
 
-### Mainline sequence
+### In scope
 
-1. **Review-channel decision and independent review dispatch** *(owner gate;
-   no silent fallback)*. Record an approved cross-failure-domain reviewer path,
-   material scope, budget, credential authority, and audit trail. Then dispatch
-   apply-registration, delegate-routing, and projection reviews separately,
-   each bound to its own commit, acceptance criteria, and verdict.
-2. **Read-only evaluator freeze** *(proposed hard prerequisite to the live
-   pilot)*. Freeze the task/evaluator/runtime/policy identity used to judge A/B/C
-   outcomes. The evaluator bundle must be outside candidate write scope and
-   content-addressed. This does not require write-tool registration or a full
-   distributed transaction; it prevents a pilot result from depending on a
-   mutable acceptance definition.
-3. **Projection hardening and measurement instrumentation** *(engineering
-   gate; can proceed while item 1 is blocked)*. Add full SHA-256 counter keys,
-   typed projectability metadata or an explicit fail-closed fallback, cumulative
-   recall budgets, lifecycle/prefix tests, and mechanism/economic/outcome
-   telemetry.
-4. **Pilot preregistration and budget approval** *(owner gate)*. Freeze task
-   strata, groups, provider/model/version, repo revisions, tool permissions,
-   evaluator digest, environment, cost accounting, thresholds, stopping rules,
-   and data handling before live calls.
-5. **Exploratory real-provider A/B/C pilot** *(opt-in)*. Compare native Pi,
-   pi-sparkle projection-off, and the identical pi-sparkle configuration with
-   projection-on. Use approximately 30 distinct tasks and 2–3 repeats per
-   task, with task-level pairing and predeclared strata.
-6. **Pilot decision and confirmatory design** *(owner evidence gate)*. A pilot
-   can authorize a larger 100–200 distinct-task confirmation only if its
-   integrity and quality guardrails pass. It cannot by itself create a broad
-   Outcome-supported claim.
-7. **CLI wiring decision** *(evidence gate)*. Wire projection into CLI paths
-   only if the predeclared B-versus-C result supports a benefit with no
-   unacceptable quality/integrity regression.
-8. **Full evaluator/apply boundary and write-tool registration** *(last)*.
-   Close R10/R11, bind immutable candidate/evaluator/runtime/policy/result
-   identities, implement crash reconciliation/idempotency, obtain independent
-   review and owner authorization, then consider write registration.
+- Four child plans and their reviewable artifacts.
+- A Stage 0 evaluator/apply boundary design freeze and read-only evaluator
+  freeze before live A/B/C collection; neither gate authorizes writes.
+- Projection hardening: full SHA-256 counter identity, fail-closed typed
+  projectability, cumulative recall budgets, lifecycle/prefix tests, and
+  mechanism/economic/outcome telemetry.
+- Exploratory A/B/C only after preregistration and owner budget/data approval.
+- Prospective R10/R11 design for the existing apply surface and future worker
+  write registration.
+- A separate owner evidence gate for any narrow Outcome-supported status row.
 
 ### Out of scope
 
-- F6/F-PROD execution, sealing, or live adaptive selection. F6 remains an
-  independent line with an owner, decision date, restart conditions, budget,
-  and degrade/abandon rule still to be supplied.
-- M7 SFT/preference/RL infrastructure. Only data qualification may be
-  assessed.
-- Cross-session or cross-tenant observation counter persistence.
-- A general coding-agent UI, IDE, model, or provider feature race.
+- F6/F-PROD execution, sealing, or live adaptive selection.
+- M7 training infrastructure.
+- General coding-agent UI/IDE/model/provider feature parity.
+- Cross-session observation persistence.
 - Final product positioning, commercial pricing, staffing, or regulatory
-  conclusions without owner and deployment-specific decisions.
+  conclusions without deployment-specific owner decisions.
+
+## Canonical pilot estimand (draft for preregistration)
+
+The pilot must use one definition consistently in the plan, manifest, and
+preregistration:
+
+- A **distinct task** is one inference cluster. Every task appears in all three
+  arms unless an incomplete-block design is approved before collection.
+- The pilot uses exactly **K = 2 scheduled runs per task per arm**. The
+  `taskAttemptsPerScheduledRun=1` field is frozen as a planned schedule
+  parameter, not an enforcement claim; task/agent retry enforcement is not
+  implemented by this documentation slice. Source scope is kept separate:
+  `NativeSession` currently submits child requests with `limits.maxAttempts=1`,
+  while the native `PiAgentExecutor.runWithRetry()` has the provider retry
+  policy inside one `execute()` call. Its `maxAttempts=3` is an upper bound
+  including the first provider-executor attempt, not exactly three API calls
+  and not a global budget across all children or tool turns. No outcome-driven
+  extra runs are added.
+- Primary platform KPI:
+
+  ```text
+  provider/runtime cost per independently accepted task bundle
+  = total provider + runtime cost across both scheduled runs and all retries
+    / number of distinct tasks with ≥1 valid run independently accepted
+      without human correction
+  ```
+
+- A zero accepted-task denominator makes the primary KPI undefined and blocks
+  any claim; it is not converted to zero or infinity.
+- Secondary metrics report cost per accepted run, independent acceptance rate,
+  human correction minutes, wall time, repeat mass, and an all-in sensitivity
+  that assigns a predeclared value to human time. Human-assisted acceptance is
+  not agent-only independent acceptance.
+- C-versus-B is the projection marginal contrast only under the frozen
+  equivalence manifest. A-versus-B is a system-level contrast, not a pure
+  projection effect.
+- Repeats are never treated as independent tasks. Task is the bootstrap unit;
+  repository is an additional cluster where tasks share a repository.
+
+The exact estimator, interval method, missingness treatment, and thresholds are
+frozen in the pilot preregistration before live calls.
+
+## Evidence ledger requirement
+
+Every gate record must separately identify:
+
+1. author-run command, commit, environment, and result;
+2. independent reviewer identity/channel, provenance, scope, tested commit,
+   commands, and verdict;
+3. human/owner approval identity, date, and exact authorization scope;
+4. outcome evidence class, estimator, task population, and claim scope.
+
+An author verification record cannot be relabeled as independent review or
+Outcome-supported evidence. The supplied deep-research report is an
+owner-supplied hypothesis source, not any of these four classes.
 
 ## Acceptance Criteria
 
-### Evidence and boundary gates
+- [ ] Existing host-facing `sparkle_apply_candidate` registration, unregistered
+  worker write capability, and production authorization are described
+  consistently in the permitted evidence-first documents and their referenced
+  status/ADR records. The existing registration is present/wired but not
+  production-authorized; worker write registration and automatic chaining remain
+  absent.
+- [ ] The four child plans and three named draft deliverables exist, link
+  correctly, state their owner/state/schema/acceptance/verification/refusal
+  rules, and are reviewed independently.
+- [ ] Stage 0 boundary design is frozen before the read-only manifest and any
+  live pilot. The draft specification defines canonicalization/hash procedure,
+  evaluator write exclusion, weak-integrity labeling, crash/replay assumptions,
+  provenance, and non-circular approval binding. `boundaryDesignDigest` hashes
+  the design payload and approval evidence binds that same digest. This slice
+  drafts only; it does not self-approve or freeze the design.
+- [ ] A read-only evaluator manifest is frozen before any live pilot. It is
+  content-addressed, outside candidate write scope, mutation-tested, cannot
+  issue an apply capability, and references the Stage 0 boundary design
+  digest.
+- [ ] Projection hardening and telemetry pass the child-plan gate while the
+  default-off and privacy contracts remain unchanged.
+- [ ] The pilot preregistration freezes K=2, arm/task pairing and randomization,
+  routing snapshot/hash, taskAttemptsPerScheduledRun=1 (a planned fixed
+  scheduled-run field whose enforcement is not implemented by this
+  documentation slice), and the existing provider executor's local
+  maxAttempts=3 upper bound where applicable. The latter includes the first
+  provider-executor attempt, is not exactly three API calls, and is not global
+  across children or tool turns. The arm manifest digest and per-ledger-row
+  `armManifestDigest` are also frozen. Primary/secondary estimands and
+  data-transfer/retention policy are frozen as well. It defines
+  assigned/not-started, provider failure, runtime failure, evaluator failure,
+  valid accepted/rejected, cancelled, and invalid-collection states; no
+  post-outcome exclusion or replacement is allowed.
+- [ ] The exploratory pilot report, if run, includes task-level ledgers and
+  does not claim non-inferiority, F6 closure, live adaptive benefit, or broad
+  Outcome-supported benefit.
+- [ ] Any confirmation sample size is recalculated from pilot variance/
+  discordance and a predeclared MDE; it is not inferred from a fixed 100–200
+  range.
+- [ ] CLI projection wiring is either justified by the predeclared B-versus-C
+  evidence or explicitly declined with a durable reason.
+- [ ] Full R10/R11 closure precedes production authorization of the existing
+  apply surface and any future worker-write registration. ADR-006 limits remain
+  explicit: no credential mutation, permission mutation, trust mutation, or
+  tool-allowlist/activation edits.
 
-- [ ] An approved (or explicitly refused) independent review path is recorded
-  with model, credential authority, budget, material scope, failure domain, and
-  switch audit trail; no silent fallback is used.
-- [ ] The three pending independent reviews are dispatched separately, each
-  with a frozen commit, scope, commands, acceptance criteria, and verdict. A
-  batch may share transport but may not collapse the conclusions into one PASS.
-- [ ] A read-only pilot evaluator manifest is frozen before live calls. It
-  names the task-set version, repo/revision set, evaluator bundle digest,
-  runtime/tool schema, routing-policy version, provider/model/version, budget,
-  environment, and data-retention class. The candidate cannot modify the
-  evaluator bundle used to issue the result.
-- [ ] R10/R11 full apply design records the minimum capability identity:
-  `runId`, tenant/repo identity, base revision, immutable candidate-tree
-  digest, evaluator-bundle digest, evaluator-result digest, runtime identity,
-  tool-schema digest, policy digest, approval identity, issue/expiry times, and
-  idempotency/apply key. Any identity change invalidates the capability and
-  requires a new evaluation/approval. Exact signing and snapshot mechanism
-  remain expert-review decisions, not assumed implementation facts.
-- [ ] Apply recovery design covers `PREPARED → VERIFIED → AUTHORIZED → APPLIED
-  → RECEIPTED`, duplicate/replay requests, candidate/evaluator mutation, base
-  advancement, post-mutation/pre-receipt crash, and disposal/delete races. The
-  design states explicitly which external side effects Git rollback cannot
-  undo.
 
-### Projection hardening and telemetry
+## Verification and handoff
 
-- [ ] The send counter uses the full content SHA-256; same-path mutation and
-  head/tail/length collision cases have tests. Counter state remains run-local.
-- [ ] Projectability is typed where the tool surface permits it:
-  `resultKind=observation`, `!isError`, `!mutatesState`, `!securityCritical`,
-  and `toolPolicy.projectable`; absent metadata fails closed. Error results,
-  evidence/verification receipts, permission results, secret-bearing output,
-  state-mutating results, and write-tool results are not projected.
-- [ ] Existing evidence-marker detection remains fail-closed until typed
-  metadata is available; marker-containing ordinary text is never packed.
-- [ ] Recall retains its per-page byte/line caps and adds cumulative per-run
-  byte/token, page-count, and call-count budgets. Budget exhaustion returns an
-  explicit typed result and never silently truncates evidence/receipt metadata.
-- [ ] Recall-after-source-mutation returns the archived hash-verified snapshot;
-  recall after run deletion fails closed; post-resume counter reset behavior is
-  documented and tested; no cross-run id is accepted.
-- [ ] Two consecutive projected provider requests preserve an append-only
-  message prefix; no prior history or thinking block is rewritten.
-- [ ] Mechanism telemetry records `repeatMass`, projection count, archived
-  bytes, placeholder bytes, recall calls/pages/bytes, budget refusals, and
-  storage-unavailable fallbacks.
-- [ ] Economic telemetry keeps input, cached input, output, retries, failed
-  attempts, runtime/sandbox compute, wall time, and human correction time
-  separate. Missing usage is unknown.
-
-### Pilot and decision gates
-
-- [ ] Before data collection, a preregistration freezes A/B/C, task strata,
-  pairing/randomization, model/provider versions, repo revisions, permissions,
-  evaluator digest, budget, environment, primary/secondary metrics, thresholds,
-  stopping rules, and retention/data-transfer policy.
-- [ ] Groups are exactly: A = native Pi single-agent baseline; B = pi-sparkle
-  with frozen routing and projection off; C = identical B with projection on.
-  B→C is the projection effect; A→B is the aggregate runtime effect.
-- [ ] The pilot contains approximately 30 distinct tasks × 2–3 repeats and
-  reports task-level pairing. Repeats are not counted as independent tasks.
-  Strata are fixed before execution and include task type, language/repository
-  size, context size, test duration, and expected repeat-observation mass.
-- [ ] The primary platform metric is **provider/runtime cost per independently
-  accepted task**, including failed attempts and retries. All-in cost including
-  human correction time is reported separately and never hidden.
-- [ ] The report includes independent acceptance rate, correction time, wall
-  time, repeat mass, failure taxonomy, evidence-integrity incidents, and full
-  environment/provider usage records. Provider/auth/quota/runtime failures are
-  not relabeled as model failures.
-- [ ] Pilot thresholds are frozen before calls. Proposed values for expert/owner
-  review are: advance signal ≥10% C-vs-B cost improvement without material
-  quality/integrity regression; stop signal near −10 percentage points in
-  acceptance; zero critical evidence-integrity failures. Proposed confirmation
-  target is approximately 15% cost improvement with a predeclared non-inferiority
-  margin near −5 percentage points, subject to pilot variance and power analysis.
-  These are hypotheses, not current project facts.
-- [ ] A pilot report explicitly states that non-significance is not proof of
-  non-inferiority. A passed pilot may authorize a 100–200 distinct-task
-  confirmation with paired/hierarchical analysis; it does not by itself add an
-  Outcome-supported status row.
-- [ ] A first narrow Outcome-supported claim, if any, receives a separate owner
-  evidence approval and names task-set/repo revisions, pi-sparkle commit,
-  provider/model/version, tool/routing policy, evaluator digest, budget,
-  environment, cost and acceptance estimates, uncertainty, and limitations.
-- [ ] CLI wiring is either implemented only after the B-vs-C evidence gate or
-  explicitly declined with a durable reason. Write registration is not started
-  before R10/R11 closure.
-- [ ] F6 receives a durable decision node: named owner, next decision date,
-  restart prerequisites, maximum investigation budget, and degrade/abandon rule.
-
-## Implementation Slice
-
-| Task / file or symbol | Deliverable | Gate / risk |
-|---|---|---|
-| `docs/reports/2026-09-21-deep-research-plan-amendment.md` | Research provenance, adopted changes, proposed-vs-fact boundary | Complete; expert review pending |
-| `docs/superpowers/specs/2026-09-21-readonly-evaluator-manifest.md` | Immutable pilot evaluator manifest schema and freeze procedure | Must precede live pilot; no write capability required |
-| `src/pi-adapter/observation-tools.ts`, `src/pi-adapter/native-executor.ts`, `src/context/observation-store.ts`, focused tests | SHA-256 counter, typed/fail-closed projectability, cumulative recall budgets | Default-off; preserve disabled-path bytes and privacy cascade |
-| `src/native/apply-registration.ts`, `src/native/apply.ts`, `src/native/write-session.ts`, boundary tests | R10/R11 capability identity and reconciliation design/implementation | Must precede write registration; candidate cannot define authoritative evaluator |
-| `docs/superpowers/specs/2026-09-21-projection-measurement.md` | Metric schema, repeat-mass, cost attribution, missing-usage policy | Must freeze before pilot |
-| `docs/reports/2026-09-21-ab-c-pilot-preregistration.md` | Task strata, A/B/C assignment, thresholds, stopping rules, budget/data policy | Owner budget/evidence gate |
-| `scripts/` or existing experiment/telemetry surfaces | Live pilot collection and report generation | Opt-in provider and privacy approval |
-| `docs/reports/` + `docs/status-matrix.md` | Pilot report, CLI decision, narrowly scoped claim if earned | Separate owner evidence gate; no overclaim |
-
-## Test-First and Verification Plan
-
-### Local hardening
-
-- Red tests: SHA-256 counter collision; marker-containing content; explicit
-  `isError`; snapshot after source mutation; delete-after recall; resume reset;
-  cumulative recall budget; append-only provider prefix; routing policy mutation
-  does not change live output.
-- Focused command:
-  `pnpm test test/unit/pi-adapter test/unit/context test/unit/native test/unit/routing`
-- Full local gate:
-  `pnpm gate`
-- Preview/security boundary probes:
-  `pnpm security:probe && pnpm pi:probe`
-- Workflow record:
-  `pnpm workflow:check`
-
-### Pilot verification
-
-- No live run starts before the evaluator manifest, preregistration, owner
-  budget approval, and data-transfer/retention decision are recorded.
-- Live acceptance command and exact environment are recorded in the pilot
-  report; loopback tests remain separate evidence class.
-- The report must include raw task-level ledger references or content hashes,
-  not only aggregate percentages. Any excluded task/run requires a recorded
-  reason decided before outcome inspection.
-- If a provider fails, the run is classified and costed; it is not silently
-  retried outside the manifest or dropped from the denominator.
-
-## Gates and Handoff
-
-- **Owner/policy gates:** cross-failure-domain review path; read-only pilot
-  evaluator freeze; provider budget/data-transfer approval; threshold
-  preregistration; CLI wiring decision; full R10/R11 closure; first public
-  Outcome-supported claim; F6 decision node.
-- **Engineering autonomy:** unit tests, typed/fail-closed projection,
-  run-local SHA-256 counter, recall budgets, telemetry schema, and loopback
-  fault injection within the approved scope.
-- **Rollback/abort:** any live-isolation allowlist change; any critical
-  evidence-integrity failure; any unmanifested provider/data path; any pilot
-  quality loss beyond the predeclared stop threshold; any candidate/evaluator/
-  runtime identity drift after verification.
-- **Required durable records:** expert re-review verdicts, evaluator manifest,
-  measurement spec, pilot preregistration, task-level ledger, pilot report,
-  CLI decision, apply boundary review, F6 decision, and status-matrix update.
-- **Next handoff:** after expert review, split accepted work into separate
-  implementation plans for (a) projection hardening and (b) evaluator/apply
-  boundary; do not implement both as one unreviewed broad change.
+- Documentation gate: `pnpm workflow:check` plus link/diff checks.
+- Local projection gate: child-plan focused tests, `pnpm gate`, security and Pi
+  probes; no live-provider claim.
+- Pilot gate: Stage 0 boundary design freeze, manifest + preregistration + owner
+  budget/data approval before collection; exact task-level ledger and report
+  after collection.
+- Apply gate: Stage 1 independent R10/R11 review and owner authorization;
+  existing wired apply tool remains non-production-authorized until then.
+- Abort on critical evidence-integrity incident, unmanifested provider/data
+  path, live-isolation allowlist change, evaluator/policy identity drift, or
+  a predeclared pilot safety stop.
+- After this umbrella plan is approved, execute the four child plans as
+  separate reviewable workstreams. Do not implement pilot and apply-boundary
+  changes in one broad diff.
 
 ## Closeout
 
-- Verified commit/date: pending expert re-review and owner decisions.
-- Commands/outcomes: pending; existing projection baseline is recorded in
-  `docs/reports/2026-09-20-native-observation-projection.md`.
-- Open risks: relay failure domain; evaluator semantic binding; real-provider
-  cost/data handling; sample-size/power uncertainty; F6 external materials;
-  SCM/xhh PR #36 evidence gap.
-- Evidence links: [research amendment](../../reports/2026-09-21-deep-research-plan-amendment.md), [external review disposition](../../reports/2026-09-21-external-review-disposition.md), [projection verification](../../reports/2026-09-20-native-observation-projection.md).
+- Verified commit/date: pending fresh plan review and owner gates.
+- Existing baseline evidence: [projection verification](../../reports/2026-09-20-native-observation-projection.md).
+- Current expert review: [2026-09-21 plan review](../../reports/2026-09-21-evidence-first-plan-expert-review.md).
+- Stage 0 has a draft-only canonical freeze-record specification and remains
+  unapproved/unfrozen pending independent review and owner decision.
