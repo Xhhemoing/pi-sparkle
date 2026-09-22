@@ -14,8 +14,8 @@ pi-sparkle with the frozen common routing tuple and projection off. C shares B's
 common evaluator/task/repository/provider constraints and frozen routing tuple,
 but enables projection and explicitly adds `sparkle_recall_observation`. Runtime
 identity and tool schema are arm-scoped; complete A/B/C schema identity is not
-claimed. Each metric and ledger row carries `armManifestDigest` as well as the
-common manifest digest.
+claimed. Each metric and ledger row carries an opaque `armManifestId` as well as the
+common `manifestId`.
 
 ## Metric layers
 
@@ -35,10 +35,10 @@ mass may be used for pre-treatment strata only from an arm-independent baseline.
 Realized repeat mass is post-treatment and descriptive, never a favorable-task
 selection rule.
 
-Record full-hash observations, projectability reason, source/tool schema, full
-and placeholder bytes, projection count, recall calls/pages/bytes, cumulative
-budget refusals, storage-unavailable fallbacks, repeatMassBytes, and known
-repeatMassTokens. Proposed recall defaults are 262,144 bytes/32 pages/16 calls
+Record exact-byte observation identity references, projectability reason,
+source/tool schema, full and placeholder bytes, projection count, recall
+calls/pages/bytes, cumulative budget refusals, storage-unavailable fallbacks,
+repeatMassBytes, and known repeatMassTokens. Proposed recall defaults are 262,144 bytes/32 pages/16 calls
 per run over the existing 16,384-byte/400-line page cap.
 
 ## Primary platform metric
@@ -74,10 +74,10 @@ write scope; this measurement contract cannot issue apply capabilities.
 ## Data and provenance requirements
 
 Each metric row carries experiment ID, arm, task ID, task-set digest, repository
-revision, common manifest digest, `armManifestDigest`, boundary design digest,
+revision, common `manifestId`, `armManifestId`, boundary design record id,
 runtime/tool/policy identifiers, provider/model version, run state, usage status,
 and evidence class. No aggregate-only report may discard task-level references
-or hashes.
+or opaque references.
 
 ## Analysis rules
 

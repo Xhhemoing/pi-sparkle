@@ -13,11 +13,11 @@ later change-control gate. Stage 0 does not register or authorize writes.
 Projection remains default-off and run-local; live-provider evidence is opt-in
 and claim-scoped.
 
-**Tech Stack:** TypeScript/Node ≥22.19, pnpm, Pi 0.86.1 adapter, content-addressed SHA-256 observation storage, JSONL event/telemetry records, Git worktrees/revisions, deterministic fake executors, and opt-in real Pi providers.
+**Tech Stack:** TypeScript/Node ≥22.19, pnpm, Pi 0.86.1 adapter, opaque-id observation storage with exact-byte comparison, JSONL event/telemetry records, Git worktrees/revisions, deterministic fake executors, and opt-in real Pi providers.
 
 ## SHA-256 removal prerequisite (2026-09-21)
 
-This plan is blocked by [TASK-20260921-remove-sha256](2026-09-21-remove-sha256.md) and [ADR-008](../../decisions/0008-remove-sha256.md). The plan's current SHA-dependent identity, integrity, projection, evaluator, and apply language is retained as pre-decision evidence only. No child plan may implement or extend those mechanisms until the owner approves a successor contract and legacy fail-closed policy. This notice does not authorize a pilot, provider call, apply, or freeze.
+[ADR-008](../../decisions/0008-remove-sha256.md) is now the accepted successor contract for identity surfaces: opaque versioned locators and exact-byte comparison, with no cryptographic tamper guarantee. This coordination plan still does not authorize a pilot, provider call, apply, or freeze; Stage 0 remains draft-only until independent review and owner approval.
 
 ## Global Constraints
 
@@ -27,14 +27,14 @@ This plan is blocked by [TASK-20260921-remove-sha256](2026-09-21-remove-sha256.m
 - `NativeWriteSession`/worker write registration is a separate library capability and is not registered in the Pi extension or default CLI. Automatic write-to-apply chaining is also not registered.
 - No new worker-write capability, automatic chaining, or production apply authorization claim may proceed before the full evaluator/apply boundary gate closes. The existing host-facing registration is an R10/R11 hardening/authorization subject, not an absent feature.
 - Projection is disabled by default. No CLI projection wiring precedes the B-versus-C evidence gate.
-- R1/bandit/topology remain shadow/offline; live routing reads only a versioned, hash-verified promoted routing-policy snapshot.
+- R1/bandit/topology remain shadow/offline; live routing reads only a versioned promoted routing-policy snapshot whose canonical bytes are checked exactly in local-weak mode.
 - The A/B/C pilot is exploratory. Approximately 30 distinct tasks cannot establish strict non-inferiority or broad generalization.
 - Arm identity is scoped per arm, not assumed globally identical: A is native Pi
   with learned sparkle routing disabled; B and C share the same frozen tuple.
   Common evaluator/task/repository constraints are shared, but runtime identity
   and tool schemas may differ. C's recall tool is an intentional declared
   difference, not a claim of complete schema identity. Every ledger row carries
-  `armManifestDigest`.
+  the opaque `armManifestId`.
 - F6/F-PROD is not closed, started, sealed, or substituted by this phase. The pilot cannot enable live adaptive selection or reuse F6 holdout/pricing evidence.
 - M7 training infrastructure is out of scope; only data qualification may be assessed.
 - Missing provider usage is unknown, never zero. Provider, authentication, quota, retry, timeout, and runtime failures remain visible.
@@ -120,9 +120,9 @@ README or market claim.
 - Four child plans and their reviewable artifacts.
 - A Stage 0 evaluator/apply boundary design freeze and read-only evaluator
   freeze before live A/B/C collection; neither gate authorizes writes.
-- Projection hardening: full SHA-256 counter identity, fail-closed typed
-  projectability, cumulative recall budgets, lifecycle/prefix tests, and
-  mechanism/economic/outcome telemetry.
+- Projection hardening: exact-byte observation identity for the send counter,
+  fail-closed typed projectability, cumulative recall budgets, lifecycle/prefix
+  tests, and mechanism/economic/outcome telemetry.
 - Exploratory A/B/C only after preregistration and owner budget/data approval.
 - Prospective R10/R11 design for the existing apply surface and future worker
   write registration.
@@ -204,25 +204,26 @@ owner-supplied hypothesis source, not any of these four classes.
   correctly, state their owner/state/schema/acceptance/verification/refusal
   rules, and are reviewed independently.
 - [ ] Stage 0 boundary design is frozen before the read-only manifest and any
-  live pilot. The draft specification defines canonicalization/hash procedure,
-  evaluator write exclusion, weak-integrity labeling, crash/replay assumptions,
-  provenance, and non-circular approval binding. `boundaryDesignDigest` hashes
-  the design payload and approval evidence binds that same digest. This slice
-  drafts only; it does not self-approve or freeze the design.
-- [ ] A read-only evaluator manifest is frozen before any live pilot. It is
-  content-addressed, outside candidate write scope, mutation-tested, cannot
-  issue an apply capability, and references the Stage 0 boundary design
-  digest.
+  live pilot. The draft specification defines canonicalization and exact-byte
+  comparison, opaque record identity, evaluator write exclusion, local-weak
+  labeling, crash/replay assumptions, provenance, and non-circular approval
+  binding. `designRecordId` is a locator and approval evidence binds the exact
+  canonical payload bytes. This slice drafts only; it does not self-approve or
+  freeze the design.
+- [ ] A read-only evaluator manifest is frozen before any live pilot. Its
+  immutable inputs use opaque references with exact canonical-byte checks, it
+  is outside candidate write scope, mutation-tested, cannot issue an apply
+  capability, and references the Stage 0 boundary design record id.
 - [ ] Projection hardening and telemetry pass the child-plan gate while the
   default-off and privacy contracts remain unchanged.
 - [ ] The pilot preregistration freezes K=2, arm/task pairing and randomization,
-  routing snapshot/hash, taskAttemptsPerScheduledRun=1 (a planned fixed
-  scheduled-run field whose enforcement is not implemented by this
-  documentation slice), and the existing provider executor's local
+  routing snapshot reference and canonical policy bytes, taskAttemptsPerScheduledRun=1
+  (a planned fixed scheduled-run field whose enforcement is not implemented by
+  this documentation slice), and the existing provider executor's local
   maxAttempts=3 upper bound where applicable. The latter includes the first
   provider-executor attempt, is not exactly three API calls, and is not global
-  across children or tool turns. The arm manifest digest and per-ledger-row
-  `armManifestDigest` are also frozen. Primary/secondary estimands and
+  across children or tool turns. The opaque arm manifest id and per-ledger-row
+  `armManifestId` are also frozen. Primary/secondary estimands and
   data-transfer/retention policy are frozen as well. It defines
   assigned/not-started, provider failure, runtime failure, evaluator failure,
   valid accepted/rejected, cancelled, and invalid-collection states; no

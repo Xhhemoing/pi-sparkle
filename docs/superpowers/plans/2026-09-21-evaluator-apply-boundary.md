@@ -1,14 +1,14 @@
 # Full evaluator/apply boundary and future write registration plan
 
-> **Blocked by TASK-20260921-remove-sha256 / ADR-008 (2026-09-21):** evaluator/apply identity and integrity binding cannot be implemented or authorized until the successor contract and legacy fail-closed policy are owner-approved. Existing digest language is pre-decision evidence only.
+> **ADR-008 correction (2026-09-22):** this design uses opaque versioned references and exact-byte comparison in explicitly labeled local-weak mode; it does not use SHA-256 or a replacement cryptographic hash. The design remains unapproved and unfrozen, and cannot authorize implementation, writes, apply, or live runs.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` task-by-task. This plan is independent of the read-only projection pilot and must not be implemented as part of it.
 
 **Goal:** Harden the existing host-facing `sparkle_apply_candidate` surface and decide whether future worker-write registration can be authorized without allowing a candidate to redefine its evaluator or replay an apply side effect.
 
-**Architecture:** The existing host-facing apply registration remains present but non-production-authorized. Stage 0 freezes the invariant needed by the read-only pilot: the authoritative evaluator is outside candidate write scope and is digest-bound. A later host-issued capability binds an immutable candidate snapshot, evaluator bundle/result, runtime/tool/policy identities, approval, expiry, and idempotency key. Apply progresses through a durable reconciliation state machine and checks the source base and exact snapshot before mutation. Worker write registration remains a separate capability gate.
+**Architecture:** The existing host-facing apply registration remains present but non-production-authorized. Stage 0 freezes the invariant needed by the read-only pilot: the authoritative evaluator is outside candidate write scope and is bound to an opaque record reference plus exact canonical bytes in local-weak mode. A later host-issued capability binds immutable candidate/evaluator references, runtime/tool/policy identities, approval, expiry, and an idempotency key. Apply progresses through a durable reconciliation state machine and checks the source base and exact snapshot before mutation. Worker write registration remains a separate capability gate.
 
-**Tech Stack:** `src/native/apply-registration.ts`, `src/native/apply.ts`, `src/native/write-session.ts`, Git worktrees/revisions, loop artifacts, independent checks, content-addressed digests, durable event/receipt records, fault-injection tests.
+**Tech Stack:** `src/native/apply-registration.ts`, `src/native/apply.ts`, `src/native/write-session.ts`, Git worktrees/revisions, loop artifacts, independent checks, opaque references with exact-byte bindings, durable event/receipt records, fault-injection tests.
 
 ## Identity and staged gate
 
@@ -41,12 +41,12 @@ Use one camelCase vocabulary:
 runId
 repoTenantIdentity
 baseRevision
-candidateTreeDigest
-evaluatorBundleDigest
-evaluatorResultDigest
+candidateTreeReference
+evaluatorBundleReference
+evaluatorResultReference
 runtimeIdentity
-toolSchemaDigest
-policyDigest
+toolSchemaReference
+policyReference
 approvalIdentity
 issuedAt
 expiresAt
@@ -55,8 +55,9 @@ idempotencyKey
 
 A mutable `candidatePath` may remain a locator, but never the candidate identity.
 Any field change invalidates the capability and requires fresh evaluation and
-approval. Exact cryptographic signing and immutable snapshot mechanism are
-review decisions; hash-verified content is the minimum.
+approval. References resolve to immutable, run-scoped records whose canonical
+bytes are compared exactly. This is local-weak binding, not cryptographic
+signing or tamper resistance.
 
 ## Reconciliation states
 
@@ -70,13 +71,14 @@ original result; ambiguous state stops automatic progress and requests review.
 
 ## Stage 0 draft record dependency
 
-The draft Stage 0 record is specified at [evaluator boundary freeze](../specs/2026-09-21-evaluator-boundary-freeze.md) and is planned for `.agent_workspace/evidence-first-reconciliation/stage0-freeze-record.json`. It remains unapproved and unfrozen. The design payload digest and approval binding are non-circular; no record produced by this documentation slice is an approval.
+The draft Stage 0 record is specified at [evaluator boundary freeze](../specs/2026-09-21-evaluator-boundary-freeze.md) and is planned for `.agent_workspace/evidence-first-reconciliation/stage0-freeze-record.json`. It remains unapproved and unfrozen. The design record id and exact canonical-byte approval binding are non-circular; no record produced by this documentation slice is an approval.
 
 ## Acceptance Criteria
 
 - [ ] Stage 0 boundary design is frozen before the live pilot: the authoritative
-  evaluator is outside candidate write scope, digest-bound, and cannot issue an
-  apply capability; weak-integrity mode is explicitly labeled.
+  evaluator is outside candidate write scope, bound by an opaque record reference
+  and exact canonical bytes in local-weak mode, and cannot issue an apply
+  capability; the absence of cryptographic tamper resistance is explicitly labeled.
 - [ ] Existing registration, worker-write registration, and authorization are
   represented separately in code/docs/status.
 - [ ] Stage 1 candidate cannot modify the authoritative evaluator bundle;

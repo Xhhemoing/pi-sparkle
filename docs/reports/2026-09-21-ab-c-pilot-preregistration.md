@@ -34,8 +34,8 @@ runtime identities are arm-scoped and may differ. A's source-bound native
 configuration is a separate `PiAgentExecutor` using host-resolved auth, only
 `sparkle_read_file` from the native coding-tool set, and no recall tool unless
 projection is supplied; this must be frozen independently. Every arm has its
-own `armManifestDigest`; every ledger/result row records that digest and the
-common manifest digest. A mismatch is declared and blocks the affected
+own `armManifestId`; every ledger/result row records that opaque locator and
+the common `manifestId`. A mismatch is declared and blocks the affected
 collection; it is not repaired or falsely reported as complete schema identity.
 
 ## Population and fixed schedule
@@ -124,7 +124,8 @@ retry/failed-attempt counts, wall time, and evidence class. Raw ledgers remain
 under the approved privacy class.
 
 - [ ] Stage 0 design independently reviewed and owner-approved; record binds
-  `boundaryDesignDigest` without circular digest inputs.
+  `boundaryDesignRecordId` and exact canonical payload bytes without circular
+  inputs.
 - [ ] Read-only evaluator manifest frozen and mutation-tested.
 - [ ] Projection/measurement implementation gate passed.
 - [ ] Task and confirmation set digests frozen.
