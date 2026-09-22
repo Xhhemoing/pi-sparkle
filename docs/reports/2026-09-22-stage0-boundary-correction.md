@@ -35,6 +35,15 @@ No product tests were required because this was documentation-only. No provider,
 - No read-only manifest freeze, pilot authorization, production apply, worker-write registration, or F6 authorization follows from this correction.
 - The exact-byte/local-weak design intentionally provides no cryptographic tamper guarantee. Any stronger integrity mechanism requires a separate owner-approved decision; no replacement cryptographic hash was selected.
 
+## Independent-review dispatch update (2026-09-22)
+
+Two low-concurrency read-only review dispatches were attempted after this correction:
+
+- `run_e026c9af-8ae8-41d2-b7f9-c0f1d0a42aa4`, requested `cursor-grok-4.6-fast`, routed `xhh-grok/grok-4.7`, **FAILED** (`no actionable model-project issue`), acceptance `UNOBSERVED`.
+- `run_da43ef03-b41a-4538-aa08-4c764f03da2a`, requested `xhh-luna/gpt-5.6-luna-fast`, routed `xhh-grok/grok-4.7`, **FAILED** (`no actionable model-project issue`), acceptance `UNOBSERVED`.
+
+No independent verdict was obtained. These failures are not treated as relay recovery, review PASS, or Stage 0 approval. Durable dispatch notes are retained under `.agent_workspace/`.
+
 ## Handoff
 
-Next action: obtain fresh independent review, including the previously unrun repository-consistency role. Only after review and explicit owner approval may the Stage 0 record be frozen; then projection hardening and read-only manifest work may proceed as separate reviewable slices.
+Next action: obtain a successful fresh independent review through an explicitly approved channel, including the previously unrun repository-consistency role. Only after review and explicit owner approval may the Stage 0 record be frozen; then projection hardening and read-only manifest work may proceed as separate reviewable slices.
