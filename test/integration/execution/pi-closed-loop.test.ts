@@ -276,9 +276,9 @@ test("G2 happy path: Pi loopback tools fix fixture → host check → artifact �
 
       assert.equal(result.check.ok, true, `check exit=${result.check.exitCode}`);
       assert.equal(result.acceptance.accepted, true, result.acceptance.reason);
-      assert.equal(result.artifact.sha256.length, 64);
-      await access(loopArtifactPath(stateRoot, runId, result.artifact.sha256));
-      const body = await readLoopArtifact(stateRoot, runId, result.artifact.sha256);
+      assert.match(result.artifact.id, /^art_v2_[0-9a-f-]{36}$/);
+      await access(loopArtifactPath(stateRoot, runId, result.artifact.id));
+      const body = await readLoopArtifact(stateRoot, runId, result.artifact.id);
       assert.ok(body !== null && typeof body === "object");
     }
   );
@@ -329,7 +329,7 @@ test("G2 negative: provider HTTP failure does not independent PASS", async () =>
       });
       assert.equal(result.check.ok, false);
       assert.equal(result.acceptance.accepted, false);
-      assert.ok(result.artifact.sha256.length === 64, "failure evidence artifact retained");
+      assert.match(result.artifact.id, /^art_v2_/, "failure evidence artifact retained");
     }
   );
 });
@@ -528,20 +528,20 @@ test("G2 negative: artifact tamper is refused; must not independent PASS on tamp
       });
       assert.equal(result.acceptance.accepted, true, result.acceptance.reason);
 
-      const artifactFile = loopArtifactPath(stateRoot, runId, result.artifact.sha256);
+      const artifactFile = loopArtifactPath(stateRoot, runId, result.artifact.id);
       const original = await readFile(artifactFile, "utf8");
       const tampered = original.replace(/"note": "g2 before tamper"/, '"note": "tampered"');
       assert.notEqual(tampered, original);
       await writeFile(artifactFile, tampered, "utf8");
 
       await assert.rejects(
-        () => readLoopArtifact(stateRoot, runId, result.artifact.sha256),
-        /hash mismatch|tamper/i
+        () => readLoopArtifact(stateRoot, runId, result.artifact.id),
+        /byteLength mismatch|refused/i
       );
       // Independent PASS was recorded against the pre-tamper hash; a tampered
       // read must not be treated as valid evidence for a new PASS.
       assert.equal(result.acceptance.accepted, true);
-      assert.equal(result.acceptance.artifactHash, result.artifact.sha256);
+      assert.equal(result.acceptance.artifactId, result.artifact.id);
     }
   );
 });
@@ -589,7 +589,7 @@ test("G2 negative: session cleanup does not wipe sole failure evidence under sta
         note: "g2 failure evidence keep"
       });
       assert.equal(result.acceptance.accepted, false);
-      artifactSha = result.artifact.sha256;
+      artifactSha = result.artifact.id;
     });
   } finally {
     // Cleanup session/provider/source — deliberately keep stateRoot for assert.

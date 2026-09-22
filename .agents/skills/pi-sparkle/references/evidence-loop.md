@@ -42,7 +42,7 @@ Path: `<project>/.pi/logs/skill-routes.jsonl` (append-only).
   "schemaVersion": 1,
   "ts": "2026-08-20T05:06:34.493Z",
   "source": "scenario-skill-router",
-  "taskHash": "a1b2c3d4e5f67890",
+  "taskId": "task_v2_881c653e-df03-4311-bb27-7495b49a7bc9",
   "candidates": ["systematic-debugging", "verification-before-completion"],
   "activated": ["systematic-debugging"],
   "skipped": ["verification-before-completion"],
@@ -51,8 +51,10 @@ Path: `<project>/.pi/logs/skill-routes.jsonl` (append-only).
 }
 ```
 
-- `taskHash` is the first 16 hex chars of SHA-256 over trimmed/collapsed task
-  text. Never store the raw task, prompt, or user identifier.
+- `taskId` is an opaque random `task_v2_<uuid>` locator (ADR-008). It is not a
+  digest of the task and carries no tamper guarantee; rows cannot be
+  correlated by task content. Never store the raw task, prompt, or user
+  identifier.
 - `result`: `routed` | `none` | `skipped-trivial` | `already-loaded`
 - `skipped` is the negative-case slot (table match that was not loaded, including cap-2)
 - Forbidden keys: `used`, `USED`, `task`, `prompt`, `user`, `text`

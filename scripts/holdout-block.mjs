@@ -25,12 +25,38 @@
  * Fake-arm blocks are simulation class and must never enter the F-PROD sample.
  */
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { classifyHoldoutBlockEvidenceClass } from "./lib/holdout-block-evidence.mjs";
+
+/**
+ * FNV-1a 32-bit over UTF-8 text. Deterministic arm-order bit only.
+ * Not an integrity commitment and not a cryptographic hash.
+ */
+export function fnv1a32(text) {
+  let hash = 0x811c9dc5;
+  for (const byte of Buffer.from(text, "utf8")) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/** True when R0 runs first. Bit 0 of FNV-1a(seed|byteLength). Not integrity. */
+export function r0RunsFirst(seedText, specByteLength) {
+  return (fnv1a32(`${seedText}|${specByteLength}`) & 1) === 0;
+}
+
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  await main();
+}
+
+async function main() {
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -63,7 +89,7 @@ if (nowMsFlag !== undefined && !Number.isFinite(frozenNowMs)) {
   process.exit(2);
 }
 const specBody = await readFile(specPath);
-const specHash = createHash("sha256").update(specBody).digest("hex");
+const specBytes = specBody.byteLength;
 const spec = JSON.parse(specBody.toString("utf8"));
 
 // Pre-flight the spec against the same vocabulary the CLI will enforce, so a
@@ -103,10 +129,9 @@ if (specProblems.length > 0) {
   }
 }
 
-// Committed-seed arm order: hash(seed || specHash) bit 0 decides which arm runs
-// first. Deterministic, reproducible, and pre-registerable.
-const orderSeed = createHash("sha256").update(`${seedText}|${specHash}`).digest();
-const r0First = (orderSeed[0] & 1) === 0;
+// Arm order is a non-crypto shuffle of the seed text plus spec byte length.
+// FNV-1a 32-bit is NOT an integrity commitment and must not be treated as one.
+const r0First = r0RunsFirst(seedText, specBytes);
 
 const cli = join(repoRoot, "dist", "cli", "main.js");
 
@@ -245,7 +270,8 @@ try {
   const block = {
     version: 1,
     blockId: `blk_${randomUUID()}`,
-    specHash,
+    specBytes,
+    order: "fnv1a32-not-integrity",
     baseCommit,
     seed: seedText,
     armOrder: arms,
@@ -280,4 +306,5 @@ try {
     } catch { /* state roots are not worktrees */ }
     await rm(path, { recursive: true, force: true });
   }
+}
 }

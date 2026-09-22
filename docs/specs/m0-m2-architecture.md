@@ -1,5 +1,7 @@
 # Architecture Specification: M0-M2 Runtime
 
+> **Removal gate (updated 2026-09-22):** This accepted runtime architecture records superseded behavior: the optional `Artifact.sha256` field and other legacy SHA-dependent artifact fields are removed from the runtime under [ADR-008](../decisions/0008-remove-sha256.md) (opaque versioned locators + exact-byte comparison; see [removal report](../reports/2026-09-21-remove-sha256.md), Session 5). The interface excerpt below is retained as historical design evidence and is not the current wire schema. It is not a migration authorization.
+
 ## Status
 
 Implemented as the **runtime spine** under Developer Preview. This document is

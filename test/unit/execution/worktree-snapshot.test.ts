@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -45,18 +44,24 @@ test("fingerprint is stable for clean tree and changes when dirty content change
   try {
     const a = captureWorktreeFingerprint(dir);
     const b = captureWorktreeFingerprint(dir);
-    assert.equal(a.digest, b.digest);
+    assert.equal(a.snapshotId, b.snapshotId);
     assert.equal(a.schemaVersion, "g1a-v1");
+    assert.equal("sha256" in a, false);
 
     writeFileSync(path.join(dir, "tracked.txt"), "v2\n", "utf8");
     const dirty = captureWorktreeFingerprint(dir);
-    assert.notEqual(dirty.digest, a.digest);
-    assert.ok(dirty.entries.some((e) => e.path === "tracked.txt"));
+    assert.notEqual(dirty.snapshotId, a.snapshotId);
+    const tracked = dirty.entries.find((e) => e.path === "tracked.txt");
+    assert.ok(tracked);
+    assert.equal(tracked.byteLength, Buffer.byteLength("v2\n", "utf8"));
+    assert.equal("sha256" in tracked, false);
 
     writeFileSync(path.join(dir, "untracked.bin"), Buffer.from([0, 1, 2, 255]));
     const withUntracked = captureWorktreeFingerprint(dir);
-    assert.notEqual(withUntracked.digest, dirty.digest);
-    assert.ok(withUntracked.entries.some((e) => e.path === "untracked.bin" && e.kind === "untracked"));
+    assert.notEqual(withUntracked.snapshotId, dirty.snapshotId);
+    const untrackedBin = withUntracked.entries.find((e) => e.path === "untracked.bin" && e.kind === "untracked");
+    assert.ok(untrackedBin);
+    assert.equal(untrackedBin.byteLength, 4);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -90,22 +95,24 @@ test("deleted tracked file is represented in fingerprint", () => {
     const before = captureWorktreeFingerprint(dir);
     rmSync(path.join(dir, "tracked.txt"));
     const after = captureWorktreeFingerprint(dir);
-    assert.notEqual(after.digest, before.digest);
-    assert.ok(after.entries.some((e) => e.path === "tracked.txt" && e.kind === "deleted"));
+    assert.notEqual(after.snapshotId, before.snapshotId);
+    const deleted = after.entries.find((e) => e.path === "tracked.txt" && e.kind === "deleted");
+    assert.ok(deleted);
+    assert.equal(deleted.byteLength, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("quotePath Chinese path content change is hashed and independent check is not ok", () => {
+test("quotePath Chinese path content change records byte length and same-length rewrite is not a digest check", () => {
   const dir = initQuotedChineseRepo();
   try {
     writeFileSync(path.join(dir, "中文.txt"), "v2\n", "utf8");
     const before = captureWorktreeFingerprint(dir);
     const zh = before.entries.find((e) => e.path === "中文.txt");
     assert.ok(zh, `expected 中文.txt entry, got ${JSON.stringify(before.entries)}`);
-    assert.ok(zh.sha256, "non-delete Chinese path must not be a null hash");
-    assert.equal(zh.sha256, createHash("sha256").update("v2\n", "utf8").digest("hex"));
+    assert.equal(zh.byteLength, Buffer.byteLength("v2\n", "utf8"));
+    assert.equal("sha256" in zh, false);
 
     const check = runIndependentCheck({
       cwd: dir,
@@ -113,10 +120,12 @@ test("quotePath Chinese path content change is hashed and independent check is n
       args: ["-e", "require('fs').writeFileSync('中文.txt','v3\\n')"]
     });
     assert.equal(check.exitCode, 0);
-    assert.equal(check.ok, false);
+    assert.equal(check.ok, true, "same-length rewrite is not detected without a content digest");
     const afterZh = check.contentFingerprintAfter.entries.find((e) => e.path === "中文.txt");
-    assert.ok(afterZh?.sha256);
-    assert.notEqual(afterZh?.sha256, zh.sha256);
+    assert.equal(afterZh?.byteLength, Buffer.byteLength("v3\n", "utf8"));
+    assert.equal(afterZh?.byteLength, zh.byteLength);
+    assert.equal("sha256" in check, false);
+    assert.match(check.checkId, /^check_v2_/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -146,18 +155,17 @@ test("fingerprint tracks space, rename, binary, and platform special names", () 
     assert.ok(paths.includes("sub dir/nested file.txt"), JSON.stringify(paths));
 
     const spaced = fp.entries.find((e) => e.path === "has space.txt");
-    assert.ok(spaced?.sha256);
-    assert.equal(spaced?.sha256, createHash("sha256").update("space-v2\n", "utf8").digest("hex"));
+    assert.equal(spaced?.byteLength, Buffer.byteLength("space-v2\n", "utf8"));
+    assert.equal("sha256" in (spaced ?? {}), false);
 
     const bin = fp.entries.find((e) => e.path === "bin.dat");
-    assert.ok(bin?.sha256);
-    assert.equal(bin?.sha256, createHash("sha256").update(Buffer.from([0, 1, 2, 255])).digest("hex"));
+    assert.equal(bin?.byteLength, 4);
 
     const renamed = fp.entries.find((e) => e.path === "renamed #file.txt");
     assert.ok(renamed, JSON.stringify(paths));
-    assert.ok(renamed.sha256);
+    assert.equal(typeof renamed.byteLength, "number");
 
-    writeFileSync(path.join(dir, "has space.txt"), "space-v3\n", "utf8");
+    writeFileSync(path.join(dir, "has space.txt"), "space-v3-longer\n", "utf8");
     const after = captureWorktreeFingerprint(dir);
     assert.equal(fingerprintsCompatible(fp, after).ok, false);
   } finally {
@@ -174,8 +182,8 @@ test("staged delete plus same-name untracked keeps both entries and detects cont
     const untracked = fp.entries.filter((e) => e.path === "tracked.txt" && e.kind === "untracked");
     assert.equal(deleted.length, 1);
     assert.equal(untracked.length, 1);
-    assert.equal(deleted[0]?.sha256, null);
-    assert.ok(untracked[0]?.sha256);
+    assert.equal(deleted[0]?.byteLength, null);
+    assert.equal(untracked[0]?.byteLength, Buffer.byteLength("v1\n", "utf8"));
 
     writeFileSync(path.join(dir, "tracked.txt"), "replaced\n", "utf8");
     const after = captureWorktreeFingerprint(dir);
@@ -201,13 +209,13 @@ test("rename source identity changes the fingerprint even when file contents mat
     const check = runIndependentCheck({ cwd: dir, command: "node", args: ["-e", command] });
     assert.equal(check.exitCode, 0);
     assert.equal(check.ok, false, "swapping identical rename sources changes the file set");
-    assert.notEqual(check.contentFingerprintAfter.digest, before.digest);
+    assert.notEqual(check.contentFingerprintAfter.snapshotId, before.snapshotId);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("non-delete unreadable path fails closed instead of a silent null hash", () => {
+test("non-delete unreadable path fails closed instead of a silent null length", () => {
   const dir = initRepo();
   try {
     symlinkSync(path.join(dir, "no-such-target"), path.join(dir, "dangle.txt"));
@@ -218,4 +226,28 @@ test("non-delete unreadable path fails closed instead of a silent null hash", ()
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("same-length content change keeps a non-hash snapshot label and does not claim content verification", () => {
+  const dir = initRepo();
+  try {
+    writeFileSync(path.join(dir, "tracked.txt"), "v2\n", "utf8");
+    const first = captureWorktreeFingerprint(dir);
+    writeFileSync(path.join(dir, "tracked.txt"), "v3\n", "utf8");
+    const second = captureWorktreeFingerprint(dir);
+    assert.equal(first.entries[0]?.byteLength, second.entries[0]?.byteLength);
+    assert.equal(first.snapshotId, second.snapshotId);
+    assert.equal(fingerprintsCompatible(first, second).ok, true);
+    assert.match(first.snapshotId, /^snap_v2_/);
+    assert.doesNotMatch(first.snapshotId, /^[0-9a-f]{64}$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("snapshot module does not import a cryptographic hash", () => {
+  const source = readFileSync(new URL("../../../src/execution/worktree-snapshot.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /createHash|sha256/i);
+  const check = readFileSync(new URL("../../../src/execution/independent-check.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(check, /createHash|sha256/i);
 });

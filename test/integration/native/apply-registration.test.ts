@@ -97,7 +97,7 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     await assert.rejects(
       () => applyTool.execute(
         "call-1",
-        { issue: { runId: result.runId, artifactSha256: result.artifact.sha256, candidatePath: result.candidatePath }, candidatePath: result.candidatePath },
+        { issue: { runId: result.runId, artifactId: result.artifact.id, candidatePath: result.candidatePath }, candidatePath: result.candidatePath },
         undefined,
         undefined,
         { cwd: fixture.root } as never
@@ -114,7 +114,7 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     // The registration record path reconstructs the trusted result from
     // hash-verified bytes; confirm before the tool call.
     const viaLoopArtifact = await regMod.findAcceptedLoopArtifact(
-      stateRoot, result.runId, result.artifact.sha256, result.candidatePath
+      stateRoot, result.runId, result.artifact.id, result.candidatePath
     );
     assert.equal(viaLoopArtifact.acceptance.accepted, true);
     assert.equal(viaLoopArtifact.sourceRevision, result.sourceRevision);
@@ -122,12 +122,12 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     // command path (the slash command cannot be invoked by the model).
     const issueCommand = extension.commands.get("sparkle-issue-candidate")!;
     await issueCommand.handler(
-      `${handle.runId} ${handle.artifactSha256} ${handle.candidatePath} ${fixture.repo} ${stateRoot}`,
+      `${handle.runId} ${handle.artifactId} ${handle.candidatePath} ${fixture.repo} ${stateRoot}`,
       { cwd: fixture.root, hasUI: false } as never
     );
     const applied = await applyTool.execute(
       "call-2",
-      { issue: { runId: handle.runId, artifactSha256: handle.artifactSha256, candidatePath: handle.candidatePath }, candidatePath: handle.candidatePath },
+      { issue: { runId: handle.runId, artifactId: handle.artifactId, candidatePath: handle.candidatePath }, candidatePath: handle.candidatePath },
       undefined,
       undefined,
       { cwd: fixture.root } as never

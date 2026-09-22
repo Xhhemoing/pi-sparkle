@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,10 +20,8 @@ async function withProject(run: (root: string) => Promise<void>): Promise<void> 
   }
 }
 
-function hashTask(task: string): string {
-  const normalized = task.trim().replace(/\s+/g, " ");
-  return createHash("sha256").update(normalized, "utf8").digest("hex").slice(0, 16);
-}
+/** ADR-008: the locator is an opaque random id; it must never contain the task text. */
+const TASK_V2 = /^task_v2_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function runCli(
   args: string[],
@@ -81,7 +78,7 @@ test("enabled helper appends one JSONL line without raw task or USED", async () 
       { PI_SKILL_ROUTE_LOG: "1" }
     );
     assert.equal(result.status, 0, result.stderr);
-    const payload = JSON.parse(result.stdout) as { status: string; path: string; taskHash: string };
+    const payload = JSON.parse(result.stdout) as { status: string; path: string; taskId: string };
     assert.equal(payload.status, "appended");
     const text = await readFile(payload.path, "utf8");
     assert.equal(text.includes(task), false);
@@ -92,7 +89,7 @@ test("enabled helper appends one JSONL line without raw task or USED", async () 
       activated: string[];
       skipped: string[];
       result: string;
-      taskHash: string;
+      taskId: string;
       source: string;
     };
     assert.equal(row.schemaVersion, 1);
@@ -100,7 +97,24 @@ test("enabled helper appends one JSONL line without raw task or USED", async () 
     assert.deepEqual(row.activated, ["systematic-debugging"]);
     assert.deepEqual(row.skipped, ["verification-before-completion"]);
     assert.equal(row.result, "routed");
-    assert.equal(row.taskHash, hashTask(task));
+    assert.match(row.taskId, TASK_V2);
+    assert.equal(row.taskId, payload.taskId);
+  });
+});
+
+test("taskId is an opaque random locator and never a digest or task text", async () => {
+  await withProject(async (root) => {
+    const task = "fix the flaky router test";
+    const result = runCli(
+      ["--project", root, "--task", task, "--result", "none"],
+      { PI_SKILL_ROUTE_LOG: "1" }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout) as { status: string; taskId: string };
+    assert.match(payload.taskId, TASK_V2);
+    assert.doesNotMatch(payload.taskId, /^[0-9a-f]{16}$/);
+    assert.equal((result.stdout as string).includes(task), false);
+    assert.equal((result.stdout as string).includes("sha256"), false);
   });
 });
 

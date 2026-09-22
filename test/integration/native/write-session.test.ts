@@ -146,7 +146,7 @@ test("successful write keeps source clean and returns retained accepted candidat
       assert.equal(result.acceptance.accepted, true, result.acceptance.reason);
       assert.ok(result.runId);
       assert.ok(result.candidatePath);
-      assert.ok(result.artifact.sha256.length === 64);
+      assert.ok(/^art_v2_/.test(result.artifact.id));
       assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
       assert.equal(await readFile(path.join(result.candidatePath, "value.ts"), "utf8"), AFTER);
       assert.equal(calls.requests[0]?.workingDirectory, result.candidatePath);
@@ -169,7 +169,7 @@ test("failed host verification retains candidate evidence without acceptance", a
     await withRetainedCandidate(repo, result, async () => {
       assert.equal(result.acceptance.accepted, false);
       assert.equal(result.status, "FAILED");
-      assert.ok(result.artifact.sha256.length === 64);
+      assert.ok(/^art_v2_/.test(result.artifact.id));
       assert.ok(result.candidatePath);
     });
   });

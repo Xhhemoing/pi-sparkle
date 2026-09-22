@@ -7,14 +7,14 @@ import type { NativeSession } from "../../src/native/session.js";
  * Session-scoped issued-candidate handles. The apply tool never accepts a
  * `NativeWriteSessionResult` from the caller: command/argv inside that object
  * are executed inside the candidate, so they must come from the persisted,
- * content-addressed artifact the host created at write/issue time — never
+ * opaque-id-addressed artifact the host created at write/issue time — never
  * from model-controlled tool parameters.
  */
 interface IssuedCandidateHandle {
   readonly stateRoot: string;
   readonly sourceRepo: string;
   readonly runId: string;
-  readonly artifactSha256: string;
+  readonly artifactId: string;
   readonly candidatePath: string;
 }
 
@@ -33,7 +33,7 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         role: Type.String({ enum: ["scout", "reviewer"] }),
         objective: Type.String({ minLength: 1, maxLength: 8000 })
       }), { minItems: 1, maxItems: 4 }),
-      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to cursor-grok-4.6-fast" })),
+      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to grok-4.7" })),
       contextEfficiency: Type.Optional(Type.Boolean({ description: "Archive large read results after two full sends and expose sparkle_recall_observation to workers (default off)" }))
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
@@ -106,12 +106,12 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "sparkle_apply_candidate",
     label: "Sparkle Apply Candidate",
-    description: "Apply one previously issued accepted candidate to its source repository. Takes only the issued handle (runId, artifactSha256, candidatePath) returned when the candidate was registered; the trusted verification command is reconstructed from the persisted artifact, never from this call. The source must be clean and at the candidate's base revision; on failure the source is rolled back. Disposal of the retained candidate is a separate explicit call.",
+    description: "Apply one previously issued accepted candidate to its source repository. Takes only the issued handle (runId, artifactId, candidatePath) returned when the candidate was registered; the trusted verification command is reconstructed from the persisted artifact, never from this call. The source must be clean and at the candidate's base revision; on failure the source is rolled back. Disposal of the retained candidate is a separate explicit call.",
     promptSnippet: "Apply a retained, independently accepted candidate to the source repository via its issued handle",
     parameters: Type.Object({
       issue: Type.Object({
         runId: Type.String({ description: "Run id returned at issue time" }),
-        artifactSha256: Type.String({ description: "Artifact sha256 returned at issue time" }),
+        artifactId: Type.String({ description: "Opaque artifact id returned at issue time" }),
         candidatePath: Type.String({ description: "Candidate worktree path returned at issue time" })
       }),
       candidatePath: Type.String({ description: "Must equal issue.candidatePath; refusal on mismatch" })
@@ -125,7 +125,7 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
           `candidate ${params.issue.runId} was not issued in this session; obtain an issued handle from the host before applying`
         );
       }
-      if (params.issue.artifactSha256 !== handle.artifactSha256 || params.issue.candidatePath !== handle.candidatePath) {
+      if (params.issue.artifactId !== handle.artifactId || params.issue.candidatePath !== handle.candidatePath) {
         throw new Error("issued handle does not match the registered candidate; refused");
       }
       if (params.candidatePath !== handle.candidatePath) {
@@ -138,7 +138,7 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         stateRoot: handle.stateRoot,
         sourceRepo: handle.sourceRepo,
         runId: handle.runId,
-        artifactSha256: handle.artifactSha256,
+        artifactId: handle.artifactId,
         candidatePath: handle.candidatePath,
         ...(signal !== undefined ? { signal } : {})
       });
@@ -154,15 +154,15 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
   pi.registerCommand("sparkle-issue-candidate", {
     description: "Issue an apply handle for one accepted native-write candidate (host/user action; the model cannot call this)",
     handler: async (args, ctx) => {
-      // Format: <runId> <artifactSha256> <candidatePath> <sourceRepo> <stateRoot>
+      // Format: <runId> <artifactId> <candidatePath> <sourceRepo> <stateRoot>
       // All values come from the host-held write result, typed by the user.
       const parts = args.trim().split(/\s+/).filter(Boolean);
       if (parts.length !== 5) {
-        if (ctx.hasUI) ctx.ui.notify("usage: /sparkle-issue-candidate <runId> <artifactSha256> <candidatePath> <sourceRepo> <stateRoot>", "error");
+        if (ctx.hasUI) ctx.ui.notify("usage: /sparkle-issue-candidate <runId> <artifactId> <candidatePath> <sourceRepo> <stateRoot>", "error");
         return;
       }
-      const [runId, artifactSha256, candidatePath, sourceRepo, stateRoot] = parts as [string, string, string, string, string];
-      issuedCandidates.set(runId, { stateRoot, sourceRepo, runId, artifactSha256, candidatePath });
+      const [runId, artifactId, candidatePath, sourceRepo, stateRoot] = parts as [string, string, string, string, string];
+      issuedCandidates.set(runId, { stateRoot, sourceRepo, runId, artifactId, candidatePath });
       if (ctx.hasUI) ctx.ui.notify(`Issued apply handle for ${runId}. The model may now call sparkle_apply_candidate with this handle.`, "info");
     }
   });

@@ -18,14 +18,14 @@ export interface SelfReportClaim {
 
 /**
  * Closed-loop acceptance record. Acceptance requires a successful independent
- * command check bound to revision / artifactHash / cwd / command / argv and
+ * command check bound to revision / artifactId / cwd / command / argv and
  * g1a-v1 content fingerprints. A self-report with PASSED and empty evidenceIds
  * fails closed.
  */
 export interface ClosedLoopAcceptance {
   readonly selfReport?: SelfReportClaim;
   readonly independentCheck?: IndependentCheckRecord;
-  readonly artifactHash?: string;
+  readonly artifactId?: string;
   readonly revision: string;
   readonly cwd: string;
   readonly command: string;
@@ -37,8 +37,9 @@ export interface ClosedLoopAcceptance {
 export interface EvaluateAcceptanceInput {
   readonly selfReport?: SelfReportClaim;
   readonly independentCheck?: IndependentCheckRecord;
-  /** Required artifact content hash for binding. */
-  readonly artifactHash?: string;
+  /** Opaque artifact locator. Not an integrity digest. */
+  readonly artifactId?: string;
+  readonly artifactBytes?: number;
   readonly revision: string;
   readonly cwd: string;
   /** Host-declared check command (must match independentCheck.command). */
@@ -56,7 +57,7 @@ function argsEqual(a: readonly string[], b: readonly string[]): boolean {
 }
 
 function fingerprintUsable(fp: WorktreeFingerprint | undefined): boolean {
-  return fp !== undefined && fp.schemaVersion === WORKTREE_FINGERPRINT_SCHEMA && fp.digest.length === 64;
+  return fp !== undefined && fp.schemaVersion === WORKTREE_FINGERPRINT_SCHEMA && Array.isArray(fp.entries);
 }
 
 /**
@@ -73,7 +74,7 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
   const base = {
     ...(input.selfReport !== undefined ? { selfReport: input.selfReport } : {}),
     ...(input.independentCheck !== undefined ? { independentCheck: input.independentCheck } : {}),
-    ...(input.artifactHash !== undefined ? { artifactHash: input.artifactHash } : {}),
+    ...(input.artifactId !== undefined ? { artifactId: input.artifactId } : {}),
     revision: input.revision,
     cwd: input.cwd,
     command: input.command,
@@ -98,11 +99,11 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  if (input.artifactHash === undefined || input.artifactHash.trim() === "") {
+  if (input.artifactId === undefined || input.artifactId.trim() === "") {
     return {
       ...base,
       accepted: false,
-      reason: "artifactHash binding required for independent acceptance"
+      reason: "artifactId binding required for independent acceptance"
     };
   }
 
@@ -159,11 +160,11 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     };
   }
 
-  if (check.artifactHash !== undefined && check.artifactHash !== input.artifactHash) {
+  if (check.artifactBytes !== undefined && input.artifactBytes !== undefined && check.artifactBytes !== input.artifactBytes) {
     return {
       ...base,
       accepted: false,
-      reason: "artifactHash does not match independent check artifact binding"
+      reason: "artifactId does not match independent check artifact binding"
     };
   }
 

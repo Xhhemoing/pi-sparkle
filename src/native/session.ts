@@ -14,7 +14,7 @@ import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
 
 export interface NativeModel { readonly provider: string; readonly id: string }
 export function resolveNativeModel<T extends NativeModel>(
-  available: readonly T[], preferred = "cursor-grok-4.6-fast"
+  available: readonly T[], preferred = "grok-4.7"
 ): T {
   const matches = available.filter((m) => preferred === `${m.provider}/${m.id}` || preferred === m.id);
   if (matches.length !== 1) {

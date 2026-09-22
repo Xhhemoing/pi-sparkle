@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
@@ -36,21 +36,29 @@ export interface IndependentCheckInput {
 
 /**
  * Evidence produced by executing a declared command in the worktree — not a
- * child's self-report. This is the only kind of check that can satisfy
- * independent acceptance.
+ * child's self-report. Stream text is bounded storage, not a digest. This is
+ * not cryptographic verification.
  */
 export interface IndependentCheckRecord {
   readonly kind: "command-check";
   readonly schemaVersion: typeof WORKTREE_FINGERPRINT_SCHEMA;
+  /** Opaque check id. Not an integrity digest. */
+  readonly checkId: string;
   readonly cwd: string;
   readonly command: string;
   readonly args: readonly string[];
   readonly exitCode: number;
-  readonly stdoutHash: string;
-  readonly stderrHash: string;
+  readonly stdoutText: string;
+  readonly stderrText: string;
+  readonly stdoutByteLength: number;
+  readonly stderrByteLength: number;
   readonly revision: string;
   readonly artifactPath?: string;
-  readonly artifactHash?: string;
+  /**
+   * Byte length of a readable artifact path, decimal string. Kept under the
+   * historical name so acceptance.ts still compiles. Not an integrity digest.
+   */
+  readonly artifactBytes?: number;
   readonly contentFingerprintBefore: WorktreeFingerprint;
   readonly contentFingerprintAfter: WorktreeFingerprint;
   /** Host manifest used for before/after compatibility (must match accept). */
@@ -58,22 +66,29 @@ export interface IndependentCheckRecord {
   readonly ok: boolean;
 }
 
-export function sha256Text(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
+const STORED_STREAM_MAX_BYTES = 4096;
+
+function boundedText(text: string): string {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= STORED_STREAM_MAX_BYTES) return text;
+  return bytes.subarray(0, STORED_STREAM_MAX_BYTES).toString("utf8");
 }
 
-function sha256File(filePath: string): string | undefined {
+function artifactByteLength(filePath: string): number | undefined {
   try {
-    return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+    const st = statSync(filePath);
+    if (!st.isFile()) return undefined;
+    return st.size;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Run a declared command inside the worktree and bind exit code, stdout/stderr
- * hashes, cwd, git revision, and g1a-v1 content fingerprints before/after.
- * Does not trust any agent-authored verdict.
+ * Run a declared command inside the worktree and bind exit code, bounded
+ * stdout/stderr text, byte lengths, cwd, git revision, and g1a-v1 content
+ * fingerprints before/after. Does not hash output and does not trust any
+ * agent-authored verdict.
  */
 export function runIndependentCheck(input: IndependentCheckInput): IndependentCheckRecord {
   const cwd = path.resolve(input.cwd);
@@ -112,34 +127,37 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
   const exitCode = result.status ?? (result.signal !== null ? 128 : 1);
   const stdout = result.stdout ?? "";
   const stderr = result.stderr ?? "";
-  const stdoutOver = Buffer.byteLength(stdout, "utf8") > authorized.maxStdoutBytes;
-  const stderrOver = Buffer.byteLength(stderr, "utf8") > authorized.maxStderrBytes;
-  const stdoutHash = sha256Text(stdout);
-  const stderrHash = sha256Text(stderr);
+  const stdoutByteLength = Buffer.byteLength(stdout, "utf8");
+  const stderrByteLength = Buffer.byteLength(stderr, "utf8");
+  const stdoutOver = stdoutByteLength > authorized.maxStdoutBytes;
+  const stderrOver = stderrByteLength > authorized.maxStderrBytes;
   const revision = readWorktreeRevision(cwd);
 
-  const artifactHash =
-    input.artifactPath !== undefined ? sha256File(input.artifactPath) : undefined;
+  const storedArtifactByteLength =
+    input.artifactPath !== undefined ? artifactByteLength(input.artifactPath) : undefined;
 
   const ok =
     exitCode === 0 &&
     compat.ok &&
     !stdoutOver &&
     !stderrOver &&
-    (input.artifactPath === undefined || artifactHash !== undefined);
+    (input.artifactPath === undefined || storedArtifactByteLength !== undefined);
 
   return {
     kind: "command-check",
     schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
+    checkId: `check_v2_${randomUUID()}`,
     cwd,
     command: input.command,
     args,
     exitCode,
-    stdoutHash,
-    stderrHash,
+    stdoutText: boundedText(stdout),
+    stderrText: boundedText(stderr),
+    stdoutByteLength,
+    stderrByteLength,
     revision,
     ...(input.artifactPath !== undefined ? { artifactPath: input.artifactPath } : {}),
-    ...(artifactHash !== undefined ? { artifactHash } : {}),
+    ...(storedArtifactByteLength !== undefined ? { artifactBytes: storedArtifactByteLength } : {}),
     contentFingerprintBefore: before,
     contentFingerprintAfter: after,
     snapshotManifest: manifest,

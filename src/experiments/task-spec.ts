@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { DomainValidationError } from "../domain/errors.js";
 import {
   type Flowchart,
@@ -313,8 +312,9 @@ export function modelDescriptorsFromPriceTable(
   return entries;
 }
 
-export function holdoutSpecHash(spec: HoldoutTaskSpec): string {
-  return createHash("sha256").update(stableStringify(spec), "utf8").digest("hex");
+/** Full canonical JSON identity for a holdout task spec. Not a digest. */
+export function holdoutSpecCanonicalKey(spec: HoldoutTaskSpec): string {
+  return stableStringify(spec);
 }
 
 function toCompilableChildren(
@@ -416,7 +416,7 @@ export function compileEquivalentArms(input: CompileEquivalentArmsInput): Compil
 
   const shared: CompiledArmShared = {
     specId: input.spec.id,
-    specHash: holdoutSpecHash(input.spec),
+    specHash: holdoutSpecCanonicalKey(input.spec),
     taskFamily: input.spec.family,
     tasks: input.spec.tasks,
     models,

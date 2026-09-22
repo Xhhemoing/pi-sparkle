@@ -42,11 +42,8 @@ export interface Artifact {
   id: ArtifactId;
   kind: ArtifactKind;
   contentPath?: string;
-  sha256?: string;
   createdByEventId: EventId;
 }
-
-const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
@@ -73,9 +70,6 @@ function artifactError(value: unknown): string | undefined {
   if (!isOneOf(ARTIFACT_KINDS, artifact.kind)) return "kind must be a known ArtifactKind";
   if (artifact.contentPath !== undefined && (typeof artifact.contentPath !== "string" || artifact.contentPath.trim() === "")) {
     return "contentPath must be a non-empty string";
-  }
-  if (artifact.sha256 !== undefined && (typeof artifact.sha256 !== "string" || !SHA256_PATTERN.test(artifact.sha256))) {
-    return "sha256 must be a 64-character hex string";
   }
   if (!isEventId(artifact.createdByEventId)) return "createdByEventId must be a valid EventId";
   return undefined;

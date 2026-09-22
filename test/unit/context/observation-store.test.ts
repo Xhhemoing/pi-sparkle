@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,20 +31,15 @@ async function withStateRoot(run: (stateRoot: string, runId: RunId) => Promise<v
   }
 }
 
-function sha256Hex(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
-}
-
-test("put stores content-addressed object under observations/objects and returns obs_ id", async () => {
+test("put stores an opaque v2 object under observations/objects and returns a digest-free ref", async () => {
   await withStateRoot(async (stateRoot, runId) => {
     const store = new ObservationStore(stateRoot, runId);
     const text = "hello observation archive\n";
     const ref = await store.put(text);
-    const expected = sha256Hex(text);
-    assert.equal(ref.sha256, expected);
-    assert.equal(ref.id, `obs_${expected}`);
+    assert.match(ref.id, /^obs_v2_[0-9a-f-]{36}$/);
+    assert.equal("sha256" in ref, false);
     assert.equal(ref.byteLength, Buffer.byteLength(text, "utf8"));
-    const path = observationObjectPath(stateRoot, runId, expected);
+    const path = observationObjectPath(stateRoot, runId, ref.id);
     const st = await lstat(path);
     assert.ok(st.isFile());
     assert.ok(!st.isSymbolicLink());
@@ -69,19 +63,33 @@ test("put is idempotent: EEXIST with matching bytes reuses the object", async ()
   });
 });
 
-test("put refuses when an existing object hash mismatches bytes", async () => {
+test("put deduplicates only exact bytes and does not reuse a legacy object", async () => {
   await withStateRoot(async (stateRoot, runId) => {
     const store = new ObservationStore(stateRoot, runId);
     const text = "canonical payload for mismatch\n";
-    const hash = sha256Hex(text);
-    const path = observationObjectPath(stateRoot, runId, hash);
-    await mkdir(join(path, ".."), { recursive: true, mode: 0o700 });
-    await writeFile(path, "tampered different bytes\n", { mode: 0o600 });
-    await assert.rejects(() => store.put(text), (err: unknown) => {
-      assert.ok(err instanceof DomainValidationError);
-      assert.match(err.message, /hash mismatch|byte-for-byte|content mismatch/i);
-      return true;
-    });
+    const legacyPath = join(observationsDir(stateRoot, runId), "objects", `obs_${"0".repeat(64)}.txt`);
+    await mkdir(join(legacyPath, ".."), { recursive: true, mode: 0o700 });
+    await writeFile(legacyPath, text, { mode: 0o600 });
+    const ref = await store.put(text);
+    assert.match(ref.id, /^obs_v2_[0-9a-f-]{36}$/);
+    assert.notEqual(observationObjectPath(stateRoot, runId, ref.id), legacyPath);
+    assert.equal(await readFile(legacyPath, "utf8"), text);
+  });
+});
+
+test("legacy refs and unsafe ids are refused before filesystem mutation", async () => {
+  await withStateRoot(async (stateRoot, runId) => {
+    const store = new ObservationStore(stateRoot, runId);
+    const objects = join(observationsDir(stateRoot, runId), "objects");
+    await assert.rejects(
+      () => store.recall({ id: `obs_${"0".repeat(64)}`, byteLength: 1 } as never),
+      /v2|legacy|id/i
+    );
+    await assert.rejects(
+      () => store.recall({ id: "obs_v2_../../unsafe", byteLength: 1 } as never),
+      /v2|safe|id/i
+    );
+    await assert.rejects(() => lstat(objects), (err: NodeJS.ErrnoException) => err.code === "ENOENT");
   });
 });
 
@@ -89,12 +97,11 @@ test("put refuses symlinks at the object path", async () => {
   await withStateRoot(async (stateRoot, runId) => {
     const store = new ObservationStore(stateRoot, runId);
     const text = "symlink refusal payload\n";
-    const hash = sha256Hex(text);
     const objectsDir = join(observationsDir(stateRoot, runId), "objects");
     await mkdir(objectsDir, { recursive: true, mode: 0o700 });
     const target = join(objectsDir, "outside.txt");
     await writeFile(target, text, { mode: 0o600 });
-    const objectPath = observationObjectPath(stateRoot, runId, hash);
+    const objectPath = observationObjectPath(stateRoot, runId, "obs_v2_abcdef01-2345-6789-abcd-000000000001");
     await symlink(target, objectPath);
     await assert.rejects(() => store.put(text), (err: unknown) => {
       assert.ok(err instanceof DomainValidationError);
@@ -181,13 +188,18 @@ test("recall respects max bytes and max lines and never takes a negative offset"
   });
 });
 
-test("recall verifies the ref hash against stored bytes", async () => {
+test("recall validates the ref byte length but intentionally does not detect equal-length tampering", async () => {
   await withStateRoot(async (stateRoot, runId) => {
     const store = new ObservationStore(stateRoot, runId);
-    const text = "verify-hash-on-recall\n";
+    const text = "verify-length-only\n";
     const ref = await store.put(text);
-    const bad = { ...ref, sha256: "0".repeat(64), id: `obs_${"0".repeat(64)}` };
-    await assert.rejects(() => store.recall(bad, 0), DomainValidationError);
+    const replacement = "x".repeat(Buffer.byteLength(text, "utf8"));
+    await writeFile(observationObjectPath(stateRoot, runId, ref.id), replacement, { mode: 0o600 });
+    const page = await store.recall(ref, 0);
+    assert.equal(page.text, replacement);
+    assert.equal(page.eof, true);
+    await writeFile(observationObjectPath(stateRoot, runId, ref.id), "short", { mode: 0o600 });
+    await assert.rejects(() => store.recall(ref, 0), /byteLength|length/i);
   });
 });
 

@@ -260,24 +260,24 @@ export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
     id: "run-observation",
     owner: "runtime",
-    path: "runtime/runs/<runId>/observations/objects/<sha256>.txt",
+    path: "runtime/runs/<runId>/observations/objects/<opaque-id>.txt",
     retention: "run-scoped",
     sensitiveFields: ["observation body text", "tool output excerpts in placeholders"],
-    redaction: "content-addressed archive for offline projection/recall; never copied into optimization datasets; placeholders carry id/hash/excerpts only",
+    redaction: "opaque-id archive for projection/recall; never copied into optimization datasets; placeholders carry id/excerpts only",
     deletion: "delete-files",
     // Removed with the whole runtime/runs/<runId>/ subtree by deleteRunRecords
     // (same cascade as checkpoint/pause/track-questions). No separate unlink.
     deletionPropagatesTo: [],
-    migrationVersion: 1,
-    recovery: "missing object fails recall closed; hash mismatch refuses reuse; over-quota puts are rejected"
+    migrationVersion: 2,
+    recovery: "missing object or byteLength mismatch fails recall closed; ids are locators, not integrity proofs; over-quota puts are rejected"
   },
   {
     id: "run-loop-artifact",
     owner: "runtime",
-    path: "runtime/runs/<runId>/loop-artifacts/<sha256>.json",
+    path: "runtime/runs/<runId>/loop-artifacts/<opaque-id>.json",
     retention: "run-scoped",
-    sensitiveFields: ["diff/body text", "command stdout/stderr hashes bound in acceptance"],
-    redaction: "PS-P3/G1B closed-loop artifacts (envelope loop-artifact-v1; content-addressed body; hash verified on read); not copied into optimization datasets",
+    sensitiveFields: ["diff/body text", "command stdout/stderr text bound in acceptance"],
+    redaction: "PS-P3/G1B closed-loop artifacts (envelope loop-artifact-v2; opaque-id locator, byte length recorded, not hash verified); not copied into optimization datasets",
     deletion: "delete-files",
     // Removed with the whole runtime/runs/<runId>/ subtree by deleteRunRecords
     // (same cascade as observations). No separate unlink.

@@ -1,5 +1,7 @@
 # ADR-007: F6 owner questions — adjudicated by delegation (2026-09-07)
 
+> **Addendum (2026-09-21):** ADR-007 remains historical governance evidence and F6 remains parked. Its SHA-dependent commitment design is not an authorization to seal or execute after [ADR-008](0008-remove-sha256.md); any future F6 run requires a new versioned seal decision and owner approval under the removal plan.
+
 Status: Accepted (delegated). The owner declined to answer the five questions in
 `docs/reports/2026-09-04-f6-holdout-decision-package.md` §5 individually and
 authorized adjudication with a standing veto: any ruling here can be reversed

@@ -1,5 +1,7 @@
 # Durable record dictionary
 
+> **Removal gate (updated 2026-09-22):** SHA-dependent paths and identity fields in this dictionary are legacy/historical evidence superseded by [ADR-008](decisions/0008-remove-sha256.md). Runtime identity now uses opaque versioned locators (`obs_v2_`, `art_v2_`) with exact-byte comparisons; legacy SHA-bound records are quarantined historical/read-only and are never rehashed, upgraded, or reclassified. The dictionary remains descriptive; this notice is not a runtime migration.
+
 Source of truth: `src/privacy/record-classes.ts` (`DURABLE_RECORD_CLASSES`).
 Tests: `test/unit/privacy/record-classes.test.ts` (schema, required ids,
 **path-completeness**, sensitivity-class consistency, **plane layout**),
@@ -62,7 +64,7 @@ allowlist entry with a justification.
 | run-checkpoint | runtime | `runtime/runs/<runId>/checkpoint.json` | run-scoped | delete-files | 1 |
 | run-pause | runtime | `runtime/runs/<runId>/pause.json` | run-scoped | delete-files | 1 |
 | track-questions | runtime | `runtime/runs/<runId>/track-questions.json` | run-scoped | delete-files | 1 |
-| run-observation | runtime | `runtime/runs/<runId>/observations/objects/<sha256>.txt` | run-scoped | delete-files | 1 |
+| run-observation | runtime | `runtime/runs/<runId>/observations/objects/<opaque-id>.txt` | run-scoped | delete-files | 1 |
 | episode | runtime | `runtime/episodes/<episodeId>.jsonl` (+ `<episodeId>.events.jsonl`) | episode-scoped | delete-files | 1 |
 | artifact-ref | runtime | TASK_RESULT ids only | run-scoped | exclude-from-export | 1 |
 | feedback | adaptation | `adaptation/feedback/records.jsonl` (+ `tombstones.json`) | until-deleted | tombstone-ids | 1 |
@@ -621,7 +623,7 @@ of them lives in the completeness audit above.
 
 ## PS-P4 trusted experiment records (2026-09-13)
 
-- `adaptation/learning/projects/<stableProjectKey>/observation-ledger.json` — applied observation identity hashes; prevents double bandit reward apply. Class `observation-ledger`.
+- `adaptation/learning/projects/<stableProjectKey>/observation-ledger.json` — applied observation identity keys (`obs_v2_<canonical JSON>`, not digests, per ADR-008); prevents double bandit reward apply. Class `observation-ledger`.
 - `adaptation/experiments/holdout/<blockId>/freeze.json` — frozen config/catalog/dirs/provenance/clock for a block. Class `experiment` (path extended).
 - `adaptation/experiments/holdout/<blockId>/arms/<arm>/evidence.jsonl` — de-sensitized per-invocation evidence. Default retention **keep-raw** (`DEFAULT_HOLDOUT_EVIDENCE_RETENTION`); `assertHoldoutEvidenceDeletionAllowed` refuses raw delete under keep-raw. Class `holdout-arm-evidence`.
 - Harness UNKNOWN / 0 invocations is `harness-failure`, not `production-candidate`.

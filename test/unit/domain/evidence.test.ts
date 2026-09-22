@@ -83,7 +83,6 @@ test("artifacts validate and reject malformed entries", () => {
     id: createArtifactId(UUID),
     kind: "COMMAND_OUTPUT",
     contentPath: "/tmp/x/out.txt",
-    sha256: "a".repeat(64),
     createdByEventId: createEventId(UUID)
   };
   assert.deepEqual(validateArtifact(artifact), artifact);
@@ -91,6 +90,5 @@ test("artifacts validate and reject malformed entries", () => {
   assert.deepEqual(validateArtifact(minimal), minimal);
   assert.throws(() => validateArtifact({ ...artifact, kind: "VIDEO" }), /kind/);
   assert.throws(() => validateArtifact({ ...artifact, contentPath: "" }), /contentPath/);
-  assert.throws(() => validateArtifact({ ...artifact, sha256: "xyz" }), /sha256/);
   assert.throws(() => validateArtifact({ ...artifact, createdByEventId: "nope" }), /createdByEventId/);
 });

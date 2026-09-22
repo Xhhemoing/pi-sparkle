@@ -10,7 +10,7 @@
  *   node log-skill-route.mjs --task "<verbatim user task>" --candidates "a,b" \
  *     --activated "a" --skipped "b" --reason "cap-2" --result routed
  */
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,13 +103,17 @@ export function isEnabled(projectRoot, envValue) {
   return existsSync(join(projectRoot, ".pi", "logs", "skill-route-log.enabled"));
 }
 
-export function hashTask(task) {
-  const normalized = task.trim().replace(/\s+/g, " ");
-  if (normalized === "") throw new Error("--task is required");
-  return createHash("sha256").update(normalized, "utf8").digest("hex").slice(0, 16);
+/**
+ * ADR-008: opaque random versioned locator. No digest, no content derivation,
+ * no cross-row correlation and no tamper guarantee; the raw task text never
+ * leaves this function and is never persisted.
+ */
+export function taskId() {
+  return `task_v2_${randomUUID()}`;
 }
 
 export function buildRecord(input, ts = new Date().toISOString()) {
+  if (input.task.trim() === "") throw new Error("--task is required");
   if (!RESULTS.has(input.result)) {
     throw new Error(`--result must be one of ${[...RESULTS].join("|")}`);
   }
@@ -123,7 +127,7 @@ export function buildRecord(input, ts = new Date().toISOString()) {
     schemaVersion: 1,
     ts,
     source: input.source,
-    taskHash: hashTask(input.task),
+    taskId: taskId(),
     candidates: input.candidates,
     activated: input.activated,
     skipped: input.skipped,
@@ -170,7 +174,7 @@ function run(argv) {
   }
   const record = buildRecord(input);
   const path = appendRecord(input.project, record);
-  printJson({ status: "appended", path, taskHash: record.taskHash });
+  printJson({ status: "appended", path, taskId: record.taskId });
   return 0;
 }
 

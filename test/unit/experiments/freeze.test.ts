@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   createExperimentFreeze,
+  freezeCanonicalKey,
   parseExperimentFreeze,
   validateExperimentFreeze
 } from "../../../src/experiments/freeze.js";
@@ -34,9 +35,26 @@ describe("PS-P4 experiment freeze", () => {
       hasDefaultConfig: true
     });
     assert.equal(freeze.clockInstantMs, 12345);
-    assert.ok(freeze.configHash.length > 10);
-    assert.ok(freeze.catalogHash.length > 10);
+    assert.equal(
+      freeze.configHash,
+      freezeCanonicalKey({ provider: "x", defaultModel: "cheap" })
+    );
+    assert.equal(freeze.catalogHash, freezeCanonicalKey([model]));
+    assert.equal(
+      freeze.configHash,
+      freezeCanonicalKey({ defaultModel: "cheap", provider: "x" })
+    );
+    assert.doesNotMatch(freeze.configHash, /^[0-9a-f]{64}$/);
+    assert.doesNotMatch(freeze.catalogHash, /^[0-9a-f]{64}$/);
     assert.equal(freeze.catalogSnapshot.length, 1);
+  });
+
+  it("identifies the same payload by canonical string, not a digest", () => {
+    const left = freezeCanonicalKey({ b: 1, a: { z: 2, y: [3, 1] } });
+    const right = freezeCanonicalKey({ a: { y: [3, 1], z: 2 }, b: 1 });
+    assert.equal(left, right);
+    assert.equal(left, '{"a":{"y":[3,1],"z":2},"b":1}');
+    assert.notEqual(left, freezeCanonicalKey({ a: 1 }));
   });
 
   it("fails closed without provider/default config", () => {

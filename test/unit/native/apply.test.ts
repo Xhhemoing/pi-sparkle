@@ -35,17 +35,16 @@ async function makeRepo(): Promise<{ root: string; repo: string }> {
 
 function artifactRef(): LoopArtifactRef {
   return {
-    id: "artifact-1",
-    sha256: "a".repeat(64),
+    id: "art_v2_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     byteLength: 100,
     path: "/unused/artifact.json",
-    schemaVersion: "loop-artifact-v1"
+    schemaVersion: "loop-artifact-v2"
   };
 }
 
 function acceptance(accepted: boolean): ClosedLoopAcceptance {
   return {
-    artifactHash: "b".repeat(64),
+    artifactId: "b".repeat(64),
     revision: "x".repeat(40),
     cwd: "/unused/candidate",
     command: process.execPath,

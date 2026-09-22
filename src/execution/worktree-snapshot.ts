@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { DomainValidationError } from "../domain/errors.js";
@@ -23,8 +22,8 @@ export type FingerprintEntryKind = "modified" | "deleted" | "untracked" | "added
 export interface FingerprintEntry {
   readonly path: string;
   readonly kind: FingerprintEntryKind;
-  /** Content sha256; null for deleted paths. */
-  readonly sha256: string | null;
+  /** File byte length; null for deleted paths. Not an integrity digest. */
+  readonly byteLength: number | null;
 }
 
 export const WORKTREE_FINGERPRINT_SCHEMA = "g1a-v1" as const;
@@ -33,7 +32,15 @@ export interface WorktreeFingerprint {
   readonly schemaVersion: typeof WORKTREE_FINGERPRINT_SCHEMA;
   readonly headRevision: string;
   readonly entries: readonly FingerprintEntry[];
-  /** sha256 of canonical entry serialization (stable order). */
+  /**
+   * Opaque snapshot identity. Deterministic non-cryptographic concatenation of
+   * path, kind, and byte length. Not an integrity digest.
+   */
+  readonly snapshotId: string;
+  /**
+   * Temporary alias of snapshotId so acceptance.ts can keep compiling without
+   * an edit. Not an integrity digest.
+   */
   readonly digest: string;
 }
 
@@ -65,10 +72,6 @@ function isAllowedOutput(rel: string, manifest: SnapshotManifest): boolean {
     const p = d.endsWith("/") ? d : `${d}/`;
     return n === d.replace(/\/$/, "") || n.startsWith(p);
   });
-}
-
-function sha256Bytes(buf: Buffer): string {
-  return createHash("sha256").update(buf).digest("hex");
 }
 
 function gitPorcelainZ(cwd: string): string {
@@ -112,7 +115,7 @@ function parsePorcelainZ(stdout: string): Array<{ xy: string; rel: string; sourc
       if (n2 < 0) {
         throw new DomainValidationError("worktree fingerprint: missing rename/copy path NUL");
       }
-      // git status -z emits "R  NEW\\0OLD\\0" (destination first). The source
+      // git status -z emits "R  NEW\0OLD\0" (destination first). The source
       // path is part of the file-set identity: swapping which identical file
       // was renamed must change the fingerprint, so it is preserved.
       const source = stdout.slice(i, n2);
@@ -129,14 +132,14 @@ function entryKey(e: FingerprintEntry): string {
   return `${e.path}\0${e.kind}`;
 }
 
-function hashExistingFile(root: string, rel: string): string {
+function byteLengthOfFile(root: string, rel: string): number {
   const abs = path.join(root, rel);
   try {
     const st = statSync(abs);
     if (!st.isFile()) {
       throw new Error("not a regular file");
     }
-    return sha256Bytes(readFileSync(abs));
+    return st.size;
   } catch (err) {
     if (err instanceof DomainValidationError) throw err;
     throw new DomainValidationError(`worktree fingerprint: unreadable non-delete path: ${rel}`);
@@ -144,8 +147,21 @@ function hashExistingFile(root: string, rel: string): string {
 }
 
 /**
- * Capture a deterministic fingerprint of HEAD + dirty/untracked candidate
- * content without mutating the index (`git add` is never used).
+ * Non-cryptographic snapshot label. Deterministic concatenation of path, kind,
+ * and byte length, padded so existing acceptance still sees a fixed-width
+ * identity string. Not an integrity digest: same-length rewrites do not change
+ * this label; callers must compare entries.
+ */
+function snapshotLabel(headRevision: string, entries: readonly FingerprintEntry[]): string {
+  const body = entries.map((e) => `${e.path}\0${e.kind}\0${e.byteLength ?? ""}`).join("\n");
+  const raw = `snap_v2_${headRevision}_${body}`;
+  return raw.length >= 64 ? raw : `${raw}${"_".repeat(64 - raw.length)}`;
+}
+
+/**
+ * Capture a fingerprint of HEAD + dirty/untracked candidate paths and byte
+ * lengths without mutating the index (`git add` is never used). Byte length
+ * is not a content digest.
  */
 export function captureWorktreeFingerprint(
   cwd: string,
@@ -168,39 +184,38 @@ export function captureWorktreeFingerprint(
     // Rename/copy semantics: the source path is part of the candidate's
     // file-set identity. A rename removes the source from the worktree
     // (recorded as deleted); a copy leaves the source in place (recorded
-    // with its actual content, never as a deletion). Both paths honor the
-    // same include/exclude scope filter.
+    // with its actual byte length, never as a deletion). Both paths honor
+    // the same include/exclude scope filter.
     if (source !== undefined && xy.includes("R") && !isExcluded(source, manifest)) {
-      entries.push({ path: source, kind: "deleted", sha256: null });
+      entries.push({ path: source, kind: "deleted", byteLength: null });
     }
     if (source !== undefined && xy.includes("C") && !isExcluded(source, manifest)) {
-      entries.push({ path: source, kind: "modified", sha256: hashExistingFile(root, source) });
+      entries.push({ path: source, kind: "modified", byteLength: byteLengthOfFile(root, source) });
     }
 
     if (kind === "deleted") {
-      entries.push({ path: rel, kind, sha256: null });
+      entries.push({ path: rel, kind, byteLength: null });
       continue;
     }
-    entries.push({ path: rel, kind, sha256: hashExistingFile(root, rel) });
+    entries.push({ path: rel, kind, byteLength: byteLengthOfFile(root, rel) });
   }
 
-  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const canonical = entries
-    .map((e) => `${e.path}\0${e.kind}\0${e.sha256 ?? ""}`)
-    .join("\n");
-  const digest = createHash("sha256").update(canonical, "utf8").digest("hex");
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+  const snapshotId = snapshotLabel(headRevision, entries);
 
   return {
     schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
     headRevision,
     entries,
-    digest
+    snapshotId,
+    digest: snapshotId
   };
 }
 
 /**
- * Compare before/after fingerprints. Entries under allowedOutputDirs that
- * appear only after the check are ignored; any other drift fails.
+ * Compare before/after fingerprints by path, kind, and byte length. Entries
+ * under allowedOutputDirs that appear only after the check are ignored; any
+ * other drift fails. This is not cryptographic verification.
  */
 export function fingerprintsCompatible(
   before: WorktreeFingerprint,
@@ -213,7 +228,7 @@ export function fingerprintsCompatible(
   if (before.headRevision !== after.headRevision) {
     return { ok: false, reason: "HEAD revision changed during independent check" };
   }
-  if (before.digest === after.digest) {
+  if (before.snapshotId === after.snapshotId) {
     return { ok: true, reason: "fingerprints identical" };
   }
 
@@ -226,7 +241,7 @@ export function fingerprintsCompatible(
     const a = afterMap.get(key);
     const p = (b ?? a)?.path ?? key;
     if (b && a) {
-      if (b.kind !== a.kind || b.sha256 !== a.sha256) {
+      if (b.kind !== a.kind || b.byteLength !== a.byteLength) {
         return { ok: false, reason: `candidate content changed: ${p}` };
       }
       continue;

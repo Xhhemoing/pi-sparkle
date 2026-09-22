@@ -87,11 +87,11 @@ function resultStatus(status: string): "COMPLETED" | "FAILED" | "CANCELLED" {
 function failedAcceptance(
   preflight: NativeWritePreflight,
   candidatePath: string,
-  artifactHash: string,
+  artifactId: string,
   reason: string
 ): ClosedLoopAcceptance {
   return {
-    artifactHash,
+    artifactId,
     revision: preflight.revision,
     cwd: candidatePath,
     command: preflight.verification.command,
@@ -375,7 +375,7 @@ export class NativeWriteSession {
       candidatePath: session.worktree.cwd,
       sourceRevision: preflight.revision,
       artifact,
-      acceptance: failedAcceptance(preflight, session.worktree.cwd, artifact.sha256, reason),
+      acceptance: failedAcceptance(preflight, session.worktree.cwd, artifact.id, reason),
       reason,
       executionEvents: outcome.events.length
     };

@@ -9,7 +9,6 @@ export {
 } from "./worktree.js";
 export {
   runIndependentCheck,
-  sha256Text,
   type IndependentCheckInput,
   type IndependentCheckRecord
 } from "./independent-check.js";

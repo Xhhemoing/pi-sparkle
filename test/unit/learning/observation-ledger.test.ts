@@ -36,8 +36,23 @@ function signal(modelId: string, outcome: "PASS" | "FAIL"): ObservedSignal {
 describe("PS-P4 observation ledger dedupe", () => {
   it("same signal identity is stable", () => {
     const a = signal("cheap", "PASS");
-    const b = { ...a };
+    const b = { ...a, evidenceIds: ["evd_1"] };
     assert.equal(observationIdentity(a), observationIdentity(b));
+    assert.match(observationIdentity(a), /^obs_v2_/);
+    assert.doesNotMatch(observationIdentity(a), /^obs_[0-9a-f]{64}$/);
+  });
+
+  it("uses the full canonical signal key and ignores evidence order", () => {
+    const a = signal("cheap", "PASS");
+    const reordered = { ...a, evidenceIds: ["evd_1", "evd_0"] };
+    const same = { ...a, evidenceIds: ["evd_0", "evd_1"] };
+    assert.equal(observationIdentity(reordered), observationIdentity(same));
+    assert.notEqual(observationIdentity(a), observationIdentity(reordered));
+    const id = observationIdentity(reordered);
+    assert.match(id, /^obs_v2_/);
+    assert.match(id, /"evidenceIds":"evd_0,evd_1"/);
+    assert.match(id, /"modelId":"cheap"/);
+    assert.doesNotMatch(id.slice("obs_v2_".length), /^[0-9a-f]{64}$/);
   });
 
   it("partitionNovelSignals drops duplicates in-batch and against ledger", () => {

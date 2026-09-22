@@ -47,7 +47,7 @@ async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise
   }
 }
 
-async function writeFileAt(path: string, body: string): Promise<void> {
+async function writeFileAt(path: string, body: string | Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, body, "utf8");
 }
@@ -329,6 +329,32 @@ describe("migrate-legacy apply", () => {
 });
 
 describe("migrate-legacy fails closed", () => {
+  it("refuses equal-length binary destinations with different bytes", async () => {
+    await withStateRoot(async (stateRoot) => {
+      const source = Buffer.from([0x00, 0x01, 0xfe, 0xff]);
+      const destination = join(adaptationRoot(stateRoot), "feedback", "blob.bin");
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFileAt(join(stateRoot, "feedback", "blob.bin"), source);
+      await writeFile(destination, Buffer.from([0x00, 0x01, 0xfd, 0xff]));
+
+      const plan = await planLegacyMigration(stateRoot);
+      assert.deepEqual(
+        plan.items.map((item) => [item.relativePath, item.status]),
+        [["feedback/blob.bin", "conflict"]],
+        "same-length files with different bytes are not already migrated"
+      );
+
+      const captured = capture();
+      assert.equal(await migrateLegacyCommand(["--state-root", stateRoot, "--apply"], captured.io), 1);
+      assert.deepEqual(await readFile(destination), Buffer.from([0x00, 0x01, 0xfd, 0xff]));
+    });
+  });
+
+  it("does not use cryptographic hashing for migration equality", async () => {
+    const implementation = await readFile(new URL("../../../src/cli/migrate-legacy.ts", import.meta.url), "utf8");
+    assert.doesNotMatch(implementation, /createHash|sha256/i);
+  });
+
   it("refuses a JSONL file with a corrupt line in the middle", async () => {
     await withStateRoot(async (stateRoot) => {
       await writeFileAt(

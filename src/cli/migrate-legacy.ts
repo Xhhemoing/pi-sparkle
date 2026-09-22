@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile, link, mkdir, open, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -265,8 +265,8 @@ function tempName(destination: string, uniqueSuffix: () => string): string {
  * and fails EEXIST rather than clobbering, so the never-overwrite contract is
  * enforced by the kernel at the instant of publish instead of by the earlier
  * stat in destinationStatus. The caller's EEXIST branch handles that failure
- * exactly as it handled the old copyFile(COPYFILE_EXCL) race: digest the two
- * files and call it already-migrated only when they match.
+ * exactly as it handled the old copyFile(COPYFILE_EXCL) race: compare the two
+ * files byte-for-byte and call it already-migrated only when they match.
  *
  * The point of the temp is recovery. A crash anywhere before the link leaves
  * the destination absent and one `<destination>.<pid>.<uuid>.tmp` file next to
@@ -383,12 +383,8 @@ async function destinationStatus(source: string, destination: string): Promise<I
 }
 
 async function sameContent(left: string, right: string): Promise<boolean> {
-  const [a, b] = await Promise.all([digest(left), digest(right)]);
-  return a === b;
-}
-
-async function digest(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  const [a, b] = await Promise.all([readFile(left), readFile(right)]);
+  return a.equals(b);
 }
 
 /**

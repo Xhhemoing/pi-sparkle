@@ -18,7 +18,6 @@ import {
 test("after deleteRunRecords, save/read refuse and do not revive the run", async () => {
   const stateRoot = await mkdtemp(path.join(tmpdir(), "g1b-life-"));
   const runId = createRunId();
-  // Real durable initialization: assertRunPresent validates the event log.
   const createdAt = parseIsoTimestamp("2026-08-12T09:00:00.000Z");
   await new EventStore(stateRoot, runId).append(
     makeEvent(
@@ -39,8 +38,10 @@ test("after deleteRunRecords, save/read refuse and do not revive the run", async
   );
   try {
     const ref = await saveLoopArtifact({ stateRoot, runId, body: { n: 1 } });
+    assert.equal("sha256" in ref, false);
+    assert.match(ref.id, /^art_v2_/);
     await deleteRunRecords(stateRoot, runId);
-    await assert.rejects(() => readLoopArtifact(stateRoot, runId, ref.sha256), /missing|refused/);
+    await assert.rejects(() => readLoopArtifact(stateRoot, runId, ref.id), /missing|refused/);
     await assert.rejects(() => saveLoopArtifact({ stateRoot, runId, body: { n: 2 } }), /missing|refused/);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });

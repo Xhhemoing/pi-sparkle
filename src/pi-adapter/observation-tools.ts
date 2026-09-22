@@ -82,7 +82,7 @@ export function createObservationProjector(input: {
       // counter; distinct contents each get their own first-two window. This
       // is what makes repeat reads of one large file pack while distinct
       // files still pass through in full.
-      const key = `${observable.text.length}:${hashablePrefix(observable.text)}`;
+      const key = `${observable.text.length}:${sendKey(observable.text)}`;
       const priorFullSends = sendCounts.get(key) ?? 0;
       sendCounts.set(key, priorFullSends + 1);
       const result = await projectObservation(
@@ -106,10 +106,9 @@ export function createObservationProjector(input: {
   };
 }
 
-function hashablePrefix(text: string): string {
-  // Cheap content key: prefix + suffix + length. Exact identity is the
-  // store's sha256; this key only routes the send counter.
-  return `${text.slice(0, 256)}|${text.slice(-256)}`;
+function sendKey(text: string): string {
+  // Routes the send counter only. It is not an integrity or identity proof.
+  return `${text.length}|${text.slice(0, 256)}|${text.slice(-256)}`;
 }
 
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- AgentTool<any> is the factory surface used across this adapter */
@@ -118,7 +117,7 @@ export function createRecallTool(projector: ObservationProjector): AgentTool<any
     name: "sparkle_recall_observation",
     label: "Sparkle Recall Observation",
     description:
-      "Page through a previously archived (packed) observation from this run. Use the id from an [observation packed] placeholder. Offsets page forward; content is hash-verified.",
+      "Page through a previously archived (packed) observation from this run. Use the id from an [observation packed] placeholder. Offsets page forward; byte length is checked, but content integrity is not cryptographically verified.",
     parameters: Type.Object({
       id: Type.String({ description: "Observation id from the packed placeholder" }),
       offset: Type.Optional(Type.Number({ description: "Byte offset to page from (default 0)" }))

@@ -19,14 +19,15 @@ import type { NativeWriteSessionResult } from "./write-session.js";
  * model-controlled command. Instead:
  *
  * 1. The host issues a registration from a result it already holds. The
- *    exact accepted result is persisted as a content-addressed loop
- *    artifact under the run subtree (`native-apply-registration` record).
+ *    exact accepted result is persisted as an opaque-id loop artifact under
+ *    the run subtree (`native-apply-registration` record).
  * 2. The apply step accepts only the issued handle (runId +
- *    artifactSha256 + candidatePath) and reconstructs the trusted result
- *    from the persisted, hash-verified bytes — never from tool parameters.
- *    Registration records also accept the write path's own final
- *    `ps-p3-closed-loop` artifact when it is uniquely located by content
- *    conditions (accepted === true, artifactHash === issued address).
+ *    artifactId + candidatePath) and reconstructs the trusted result from
+ *    the persisted artifact bytes (schema + recorded byte length checked on
+ *    read; an equal-length replacement is not detected) — never from tool
+ *    parameters. Registration records also accept the write path's own final
+ *    `ps-p3-closed-loop` artifact when it is uniquely located by recorded
+ *    conditions (accepted === true, artifactId === issued address).
  * 3. Disposal is caller-invoked through the apply session's managed-path
  *    check; registration never deletes anything.
  */
@@ -69,15 +70,15 @@ function isLoopArtifactRef(value: unknown): value is LoopArtifactRef {
   return (
     value !== null &&
     typeof value === "object" &&
-    typeof (value as LoopArtifactRef).sha256 === "string" &&
-    /^[0-9a-f]{64}$/.test((value as LoopArtifactRef).sha256) &&
-    (value as LoopArtifactRef).schemaVersion === "loop-artifact-v1"
+    typeof (value as LoopArtifactRef).id === "string" &&
+    /^art_v2_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test((value as LoopArtifactRef).id) &&
+    (value as LoopArtifactRef).schemaVersion === "loop-artifact-v2"
   );
 }
 
 export interface IssuedApplyCandidate {
   readonly runId: NativeWriteSessionResult["runId"];
-  readonly artifactSha256: string;
+  readonly artifactId: string;
   readonly candidatePath: string;
   readonly sourceRevision: string;
   readonly accepted: true;
@@ -94,7 +95,7 @@ export interface ApplyIssuedCandidateInput {
   readonly stateRoot: string;
   readonly sourceRepo: string;
   readonly runId: string;
-  readonly artifactSha256: string;
+  readonly artifactId: string;
   readonly candidatePath: string;
   readonly signal?: AbortSignal;
 }
@@ -127,7 +128,7 @@ export async function issueApplyRegistration(
   });
   return {
     runId: input.result.runId,
-    artifactSha256: artifact.sha256,
+    artifactId: artifact.id,
     candidatePath: input.result.candidatePath,
     sourceRevision: input.result.sourceRevision,
     accepted: true
@@ -136,8 +137,9 @@ export async function issueApplyRegistration(
 
 /**
  * Apply one issued candidate. The trusted result is reconstructed from
- * persisted, hash-verified artifact bytes — never from the caller's
- * arguments — and then handed to the verified apply path.
+ * persisted artifact bytes (schema + recorded byte length checked on read)
+ * — never from the caller's arguments — and then handed to the verified
+ * apply path.
  */
 export async function applyIssuedCandidate(
   input: ApplyIssuedCandidateInput
@@ -164,18 +166,18 @@ function validateHandleShape(input: ApplyIssuedCandidateInput): void {
   if (typeof input.runId !== "string" || !input.runId.startsWith("run_")) {
     fail("run id must be a durable run id");
   }
-  if (typeof input.artifactSha256 !== "string" || !/^[0-9a-f]{64}$/.test(input.artifactSha256)) {
-    fail("artifact sha256 must be 64 hex chars");
+  if (typeof input.artifactId !== "string" || !/^art_v2_[0-9a-f-]{36}$/.test(input.artifactId)) {
+    fail("artifact id must be an opaque art_v2 id");
   }
 }
 
 async function readIssuedArtifact(
   stateRoot: string,
   runId: string,
-  sha256: string
+  id: string
 ): Promise<unknown> {
   try {
-    return await readLoopArtifact(stateRoot, runId as Parameters<typeof readLoopArtifact>[1], sha256);
+    return await readLoopArtifact(stateRoot, runId as Parameters<typeof readLoopArtifact>[1], id);
   } catch (error) {
     fail(
       `candidate result is not issued through this host session (artifact unreadable for ${runId}): ${
@@ -187,7 +189,7 @@ async function readIssuedArtifact(
 
 async function reconstructIssuedResult(input: ApplyIssuedCandidateInput): Promise<NativeWriteSessionResult> {
   validateHandleShape(input);
-  const body = await readIssuedArtifact(input.stateRoot, input.runId, input.artifactSha256);
+  const body = await readIssuedArtifact(input.stateRoot, input.runId, input.artifactId);
   if (
     body !== null &&
     typeof body === "object" &&
@@ -208,24 +210,24 @@ async function reconstructIssuedResult(input: ApplyIssuedCandidateInput): Promis
 /**
  * Locate the write path's own accepted loop artifact for this run: the
  * unique `ps-p3-closed-loop` record whose `acceptance.accepted === true`
- * and whose `acceptance.artifactHash` equals the issued (provisional)
- * artifact address. Both conditions are content conditions on
- * hash-verified bytes, so a wrong record is never selected.
+ * and whose `acceptance.artifactId` equals the issued (provisional)
+ * artifact address. Both conditions are conditions on read-verified
+ * artifact bytes, so a wrong record is never selected.
  */
 export async function findAcceptedLoopArtifact(
   stateRoot: string,
   runId: string,
-  provisionalSha256: string,
+  provisionalId: string,
   candidatePath: string
 ): Promise<NativeWriteSessionResult> {
-  validateHandleShape({ ...emptyHandle(), runId, artifactSha256: provisionalSha256 });
+  validateHandleShape({ ...emptyHandle(), runId, artifactId: provisionalId });
   const dir = loopArtifactsDir(stateRoot, runId as Parameters<typeof loopArtifactsDir>[1]);
   const entries = await readdir(dir).catch(() => [] as string[]);
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const sha = entry.slice(0, -".json".length);
-    if (!/^[0-9a-f]{64}$/.test(sha) || sha === provisionalSha256) continue;
-    const body = await readIssuedArtifact(stateRoot, runId, sha);
+    const id = entry.slice(0, -".json".length);
+    if (!/^art_v2_[0-9a-f-]{36}$/.test(id) || id === provisionalId) continue;
+    const body = await readIssuedArtifact(stateRoot, runId, id);
     if (
       body === null ||
       typeof body !== "object" ||
@@ -235,7 +237,7 @@ export async function findAcceptedLoopArtifact(
     }
     const loop = body as unknown as PsP3LoopArtifact;
     if (loop.acceptance?.accepted !== true) continue;
-    if (loop.acceptance.artifactHash !== provisionalSha256) continue;
+    if (loop.acceptance.artifactId !== provisionalId) continue;
     if (loop.cwd !== candidatePath) fail("candidate path does not match the accepted artifact");
     return {
       runId: runId as NativeWriteSessionResult["runId"],
@@ -243,11 +245,10 @@ export async function findAcceptedLoopArtifact(
       candidatePath: loop.cwd,
       sourceRevision: loop.revision,
       artifact: {
-        id: `loop_${sha}`,
-        sha256: sha,
+        id,
         byteLength: 0,
         path: "",
-        schemaVersion: "loop-artifact-v1"
+        schemaVersion: "loop-artifact-v2"
       },
       acceptance: loop.acceptance,
       reason: "accepted",
@@ -258,7 +259,7 @@ export async function findAcceptedLoopArtifact(
 }
 
 function emptyHandle(): ApplyIssuedCandidateInput {
-  return { stateRoot: "", sourceRepo: "", runId: "", artifactSha256: "", candidatePath: "" };
+  return { stateRoot: "", sourceRepo: "", runId: "", artifactId: "", candidatePath: "" };
 }
 
 export interface DisposeIssuedCandidateInput {

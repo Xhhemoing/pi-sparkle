@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
@@ -34,8 +33,9 @@ export function observationLedgerPath(stateRoot: string, projectRoot: string): s
 
 /**
  * Stable identity for a learning signal. Prefer explicit evidence + run/task
- * binding; fall back to a content hash over the reward-relevant fields so a
- * repeated ingest of the same observation cannot re-apply.
+ * binding; the id is the full canonical JSON of the reward-relevant fields
+ * (evidence ids sorted), so a repeated ingest of the same observation cannot
+ * re-apply. This is exact string identity, not a digest.
  */
 export function observationIdentity(signal: ObservedSignal): string {
   const evidenceKey = [...signal.evidenceIds].sort().join(",");
@@ -56,7 +56,7 @@ export function observationIdentity(signal: ObservedSignal): string {
     summary: signal.summary,
     score: signal.score
   };
-  return `obs_${createHash("sha256").update(stableStringify(payload), "utf8").digest("hex")}`;
+  return `obs_v2_${stableStringify(payload)}`;
 }
 
 async function readLedger(path: string): Promise<ObservationLedgerDocument> {

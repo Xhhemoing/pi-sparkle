@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { ModelDescriptor } from "../../../src/routing/capability-registry.js";
 import {
   compileEquivalentArms,
+  holdoutSpecCanonicalKey,
   modelDescriptorsFromPriceTable,
   validateHoldoutTaskSpec
 } from "../../../src/experiments/task-spec.js";
@@ -133,5 +134,19 @@ describe("PS-P4 holdout taskSpec compile", () => {
       compiled.r1.flowchart.nodes.map((n) => n.taskId)
     );
     assert.equal(compiled.shared.taskFamily, spec.family);
+  });
+
+  it("stores the full canonical spec string as spec identity, not a digest", () => {
+    const spec = validateHoldoutTaskSpec(multiTaskSpec);
+    const compiled = compileEquivalentArms({
+      spec,
+      catalog: catalog(),
+      nowMs: 99
+    });
+    assert.equal(compiled.shared.specHash, holdoutSpecCanonicalKey(spec));
+    assert.equal(holdoutSpecCanonicalKey(spec), holdoutSpecCanonicalKey({ ...spec }));
+    assert.doesNotMatch(compiled.shared.specHash, /^[0-9a-f]{64}$/);
+    assert.match(compiled.shared.specHash, /"id":"spec_impl_001"/);
+    assert.match(compiled.shared.specHash, /"family":"implementation"/);
   });
 });

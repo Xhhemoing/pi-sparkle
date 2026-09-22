@@ -174,8 +174,8 @@ test("completeness: every known durable state-root path is covered by a class", 
     "runtime/runs/<runId>/checkpoint.json", // run-checkpoint
     "runtime/runs/<runId>/pause.json", // run-pause
     "runtime/runs/<runId>/track-questions.json", // track-questions
-    "runtime/runs/<runId>/observations/objects/<sha256>.txt", // run-observation
-    "runtime/runs/<runId>/loop-artifacts/<sha256>.json", // run-loop-artifact
+    "runtime/runs/<runId>/observations/objects/<opaque-id>.txt", // run-observation
+    "runtime/runs/<runId>/loop-artifacts/<opaque-id>.json", // run-loop-artifact
     "runtime/episodes/<episodeId>.jsonl", // episode (project-episode log)
     "adaptation/feedback/records.jsonl", // feedback
     "adaptation/feedback/tombstones.json", // feedback tombstones

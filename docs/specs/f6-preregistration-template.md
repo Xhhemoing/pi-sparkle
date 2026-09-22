@@ -1,5 +1,7 @@
 # F6 Pre-Registration — Holdout Collection (TEMPLATE, freeze before Week 1)
 
+> **Removal gate (2026-09-21):** F6 remains parked. The commitment and arm-order fields below are historical/pre-decision SHA-dependent design and cannot be sealed, executed, or migrated under this task. Any future F6 run requires owner acceptance of [ADR-008](../decisions/0008-remove-sha256.md), a new versioned seal, and the existing F6 gates.
+
 > Fill every field; then commit this file's SHA-256 into the seal manifest.
 > Anything marked ASSUMPTION is a number chosen without a pilot — it binds
 > anyway. Changing any field after Week 1 starts voids episodes collected

@@ -14,14 +14,14 @@ async function roots(body: (root: string) => Promise<void>) {
   try { await body(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
-const models = [{ provider: "xhh", id: "cursor-grok-4.6-fast" }];
+const models = [{ provider: "xhh-grok", id: "grok-4.7" }];
 
 test("preferred model must resolve uniquely; explicit provider pin wins", () => {
   assert.deepEqual(native.resolveNativeModel(models), models[0]);
   assert.throws(() => native.resolveNativeModel([]), /unavailable/);
   const ambiguous = [...models, { provider: "other", id: models[0]!.id }];
   assert.throws(() => native.resolveNativeModel(ambiguous), /ambiguous/);
-  assert.deepEqual(native.resolveNativeModel(ambiguous, "xhh/cursor-grok-4.6-fast"), models[0]);
+  assert.deepEqual(native.resolveNativeModel(ambiguous, "xhh-grok/grok-4.7"), models[0]);
 });
 
 test("per-task routing: catalog + learned avoid routes the second task to a different model", async () => {

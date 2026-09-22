@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { access, chmod, mkdir, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, chmod, lstat, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -9,19 +9,22 @@ import { runtimeRoot } from "../privacy/state-layout.js";
 import { EventStore, runLockPath } from "../run/event-store.js";
 import type { Event } from "../run/events.js";
 
-const SHA256_HEX = /^[0-9a-f]{64}$/;
-const ARTIFACT_SCHEMA = "loop-artifact-v1" as const;
+const ARTIFACT_SCHEMA = "loop-artifact-v2" as const;
+const OPAQUE_ID = /^art_v2_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const LEGACY_HEX_ID = /^[0-9a-f]{64}$/;
 
 /**
  * Run-scoped closed-loop artifacts. Covered by `deleteRunRecords` via the
  * whole `runtime/runs/<runId>/` subtree removal (same cascade as observations).
+ * The filename is an opaque locator, not a content digest.
  */
 export function loopArtifactsDir(stateRoot: string, runId: RunId): string {
   return join(runtimeRoot(stateRoot), "runs", runId, "loop-artifacts");
 }
 
-export function loopArtifactPath(stateRoot: string, runId: RunId, sha256: string): string {
-  return join(loopArtifactsDir(stateRoot, runId), `${sha256}.json`);
+export function loopArtifactPath(stateRoot: string, runId: RunId, id: string): string {
+  assertOpaqueArtifactId(id);
+  return join(loopArtifactsDir(stateRoot, runId), `${id}.json`);
 }
 
 export function runDirectoryPath(stateRoot: string, runId: RunId): string {
@@ -34,7 +37,6 @@ export function runEventsPath(stateRoot: string, runId: RunId): string {
 
 export interface LoopArtifactRef {
   readonly id: string;
-  readonly sha256: string;
   readonly byteLength: number;
   readonly path: string;
   readonly schemaVersion: typeof ARTIFACT_SCHEMA;
@@ -44,12 +46,39 @@ export interface SaveLoopArtifactInput {
   readonly stateRoot: string;
   readonly runId: RunId;
   readonly body: unknown;
+  /** Test/injection seam. Production callers omit it and receive a random id. */
+  readonly id?: string;
 }
 
-function sha256OfText(text: string): { hex: string; bytes: Buffer } {
-  const bytes = Buffer.from(text, "utf8");
-  const hex = createHash("sha256").update(bytes).digest("hex");
-  return { hex, bytes };
+function assertOpaqueArtifactId(id: string): void {
+  if (LEGACY_HEX_ID.test(id)) {
+    throw new DomainValidationError(
+      "loop artifact legacy 64-hex id refused; lookup requires an opaque art_v2 id"
+    );
+  }
+  if (!OPAQUE_ID.test(id)) {
+    throw new DomainValidationError("loop artifact id must be an opaque art_v2 id");
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error !== null && typeof error === "object" && "code" in error
+    ? String((error as { code: unknown }).code)
+    : undefined;
+}
+
+/** Refuse a symlink at `path` before any write. Missing paths are allowed. */
+async function assertNotSymlink(path: string): Promise<void> {
+  try {
+    const st = await lstat(path);
+    if (st.isSymbolicLink()) {
+      throw new DomainValidationError(`loop artifact refuses symlinks: ${path}`);
+    }
+  } catch (error: unknown) {
+    if (error instanceof DomainValidationError) throw error;
+    if (errorCode(error) === "ENOENT") return;
+    throw error;
+  }
 }
 
 /**
@@ -106,31 +135,42 @@ export async function assertRunPresent(stateRoot: string, runId: RunId): Promise
 /**
  * Persist a closed-loop artifact under the run subtree while holding the run
  * lock (same cooperative lock as ObservationStore / deleteRunRecords).
+ * The id is an opaque locator. Nothing here hashes the payload.
  */
 export async function saveLoopArtifact(input: SaveLoopArtifactInput): Promise<LoopArtifactRef> {
+  const id = input.id ?? `art_v2_${randomUUID()}`;
+  assertOpaqueArtifactId(id);
+  const path = loopArtifactPath(input.stateRoot, input.runId, id);
   return withExclusiveFileLock(runLockPath(input.stateRoot, input.runId), async () => {
     await assertRunPresent(input.stateRoot, input.runId);
-    const envelope = {
-      schemaVersion: ARTIFACT_SCHEMA,
-      runId: input.runId,
-      body: input.body
-    };
-    const text = `${JSON.stringify(envelope, null, 2)}\n`;
-    const { hex, bytes } = sha256OfText(text);
-    if (!SHA256_HEX.test(hex)) {
-      throw new DomainValidationError("loop artifact hash must be 64 lowercase hex chars");
-    }
+    await assertNotSymlink(loopArtifactsDir(input.stateRoot, input.runId));
+    await assertNotSymlink(path);
     const dir = loopArtifactsDir(input.stateRoot, input.runId);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") {
       await chmod(dir, 0o700).catch(() => undefined);
     }
-    const path = loopArtifactPath(input.stateRoot, input.runId, hex);
+    await assertNotSymlink(path);
+    const envelope = {
+      schemaVersion: ARTIFACT_SCHEMA,
+      runId: input.runId,
+      id,
+      body: input.body
+    };
+    const bare = Buffer.byteLength(`${JSON.stringify({ ...envelope, byteLength: 0 }, null, 2)}\n`, "utf8");
+    const width = String(bare).length;
+    const byteLength = bare + width - 1;
+    if (String(byteLength).length !== width) {
+      throw new DomainValidationError("loop artifact byteLength could not be recorded stably");
+    }
+    const text = `${JSON.stringify({ ...envelope, byteLength }, null, 2)}\n`;
+    if (Buffer.byteLength(text, "utf8") !== byteLength) {
+      throw new DomainValidationError("loop artifact byteLength could not be recorded stably");
+    }
     await writeFileAtomic(path, text, { mode: 0o600 });
     return {
-      id: `loop_${hex}`,
-      sha256: hex,
-      byteLength: bytes.byteLength,
+      id,
+      byteLength,
       path,
       schemaVersion: ARTIFACT_SCHEMA
     };
@@ -138,27 +178,20 @@ export async function saveLoopArtifact(input: SaveLoopArtifactInput): Promise<Lo
 }
 
 /**
- * Read a loop artifact and verify on-disk bytes still match the content
- * address and schema. Tampered JSON that still parses is rejected.
+ * Read a loop artifact by opaque id. Schema and a recorded byte length are
+ * checked; the bytes are not cryptographically verified, so an equal-length
+ * replacement is not detected.
  */
 export async function readLoopArtifact(
   stateRoot: string,
   runId: RunId,
-  sha256: string
+  id: string
 ): Promise<unknown> {
-  if (!SHA256_HEX.test(sha256)) {
-    throw new DomainValidationError("loop artifact sha256 must be 64 lowercase hex chars");
-  }
+  assertOpaqueArtifactId(id);
   return withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
     await assertRunPresent(stateRoot, runId);
-    const path = loopArtifactPath(stateRoot, runId, sha256);
+    const path = loopArtifactPath(stateRoot, runId, id);
     const bytes = await readFile(path);
-    const hex = createHash("sha256").update(bytes).digest("hex");
-    if (hex !== sha256) {
-      throw new DomainValidationError(
-        "loop artifact content hash mismatch (tamper or wrong id)"
-      );
-    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(bytes.toString("utf8")) as unknown;
@@ -172,9 +205,22 @@ export async function readLoopArtifact(
       (parsed as { schemaVersion?: unknown }).schemaVersion !== ARTIFACT_SCHEMA ||
       !("body" in parsed) ||
       !("runId" in parsed) ||
-      (parsed as { runId?: unknown }).runId !== runId
+      (parsed as { runId?: unknown }).runId !== runId ||
+      !("id" in parsed) ||
+      (parsed as { id?: unknown }).id !== id
     ) {
       throw new DomainValidationError("loop artifact schema/ref invalid");
+    }
+    const recorded = (parsed as { byteLength?: unknown }).byteLength;
+    if (recorded !== undefined) {
+      if (typeof recorded !== "number" || !Number.isSafeInteger(recorded) || recorded < 0) {
+        throw new DomainValidationError("loop artifact byteLength is invalid");
+      }
+      if (recorded !== bytes.byteLength) {
+        throw new DomainValidationError(
+          `loop artifact byteLength mismatch: stored ${bytes.byteLength}, recorded ${recorded}`
+        );
+      }
     }
     return (parsed as { body: unknown }).body;
   });

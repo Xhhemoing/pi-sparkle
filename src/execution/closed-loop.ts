@@ -96,7 +96,8 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
   const acceptance = evaluateIndependentAcceptance({
     ...(input.selfReport !== undefined ? { selfReport: input.selfReport } : {}),
     independentCheck: check,
-    artifactHash: artifact.sha256,
+    artifactId: artifact.id,
+    artifactBytes: artifact.byteLength,
     revision,
     cwd,
     command: input.command,
@@ -106,7 +107,7 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
   await saveLoopArtifact({
     stateRoot: input.stateRoot,
     runId: input.runId,
-    body: { ...provisional, acceptance, artifactHash: artifact.sha256 }
+    body: { ...provisional, acceptance, artifactId: artifact.id }
   });
 
   return { check, artifact, acceptance };

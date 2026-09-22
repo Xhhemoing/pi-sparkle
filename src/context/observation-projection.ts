@@ -70,7 +70,7 @@ function excerptTail(text: string, maxChars: number): string {
 }
 
 /**
- * Build a placeholder ≤2048 UTF-8 bytes with id/hash/byteLength/lines and
+ * Build a placeholder ≤2048 UTF-8 bytes with id/byteLength/lines and
  * head/tail excerpts. No hidden chain-of-thought.
  */
 export function buildObservationPlaceholder(
@@ -81,7 +81,6 @@ export function buildObservationPlaceholder(
   const header =
     `[observation packed]\n` +
     `id: ${ref.id}\n` +
-    `sha256: ${ref.sha256}\n` +
     `byteLength: ${ref.byteLength}\n` +
     `lines: ${lines}\n` +
     `toolName: ${input.toolName}\n` +
@@ -105,7 +104,7 @@ export function buildObservationPlaceholder(
     `head:\n(truncated)\n` +
     `tail:\n(truncated)\n`;
   if (utf8Bytes(minimal) <= OBSERVATION_PLACEHOLDER_MAX_BYTES) return minimal;
-  return `[observation packed]\nid: ${ref.id}\nsha256: ${ref.sha256}\nbyteLength: ${ref.byteLength}\n`;
+  return `[observation packed]\nid: ${ref.id}\nbyteLength: ${ref.byteLength}\n`;
 }
 
 /**

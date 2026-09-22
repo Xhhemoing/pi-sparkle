@@ -41,17 +41,16 @@ async function makeRepo(): Promise<{ root: string; repo: string }> {
 
 function artifactRef(): LoopArtifactRef {
   return {
-    id: "artifact-1",
-    sha256: "a".repeat(64),
+    id: "art_v2_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     byteLength: 100,
     path: "/unused/artifact.json",
-    schemaVersion: "loop-artifact-v1"
+    schemaVersion: "loop-artifact-v2"
   };
 }
 
 function acceptance(accepted: boolean): ClosedLoopAcceptance {
   return {
-    artifactHash: "b".repeat(64),
+    artifactId: "b".repeat(64),
     revision: "x".repeat(40),
     cwd: "/unused/candidate",
     command: process.execPath,
@@ -151,7 +150,7 @@ test("foreign runs and mutated artifacts are refused at apply time", async () =>
     // Foreign run id: no artifact exists under the state root.
     const foreignRun = "run_" + "f".repeat(64);
     await assert.rejects(
-      () => applyIssuedCandidate({ stateRoot, sourceRepo: repo, runId: foreignRun, artifactSha256: "a".repeat(64), candidatePath: "/unused/candidate" }),
+      () => applyIssuedCandidate({ stateRoot, sourceRepo: repo, runId: foreignRun, artifactId: "a".repeat(64), candidatePath: "/unused/candidate" }),
       /issued|artifact|foreign|missing/i
     );
 
@@ -159,7 +158,7 @@ test("foreign runs and mutated artifacts are refused at apply time", async () =>
     await assert.rejects(
       () => applyIssuedCandidate({
         stateRoot, sourceRepo: repo, runId: accepted.runId,
-        artifactSha256: "c".repeat(64), candidatePath: "/unused/candidate"
+        artifactId: "c".repeat(64), candidatePath: "/unused/candidate"
       }),
       /issued|artifact|hash/i
     );
@@ -174,7 +173,7 @@ test("foreign runs and mutated artifacts are refused at apply time", async () =>
     const mutatedIssue = await issueApplyRegistration({
       stateRoot, sourceRepo: repo, result: { ...mutated, runId: accepted.runId }
     });
-    assert.notEqual(mutatedIssue.artifactSha256, issued.artifactSha256);
+    assert.notEqual(mutatedIssue.artifactId, issued.artifactId);
     // The mutated address reconstructs the mutated body — the address is
     // content-bound, not a session-wide lookup. Applying it would run a
     // different command than the host accepted, so candidatePath/source
@@ -198,7 +197,7 @@ test("registration surface is stable and binds the issued artifact address", asy
     const issued = await issueFromTrustedResult(stateRoot, repo, accepted);
     assert.equal(issued.accepted, true);
     assert.ok(issued.runId.startsWith("run_"));
-    assert.match(issued.artifactSha256, /^[0-9a-f]{64}$/);
+    assert.match(issued.artifactId, /^art_v2_[0-9a-f-]{36}$/);
     assert.equal(issued.sourceRevision, accepted.sourceRevision);
   });
 });

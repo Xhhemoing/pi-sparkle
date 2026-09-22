@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   lstat,
@@ -24,11 +24,10 @@ export const OBSERVATION_MAX_RECALL_BYTES = 16_384;
 /** Recall page line cap. */
 export const OBSERVATION_MAX_RECALL_LINES = 400;
 
-const SHA256_HEX = /^[0-9a-f]{64}$/;
+const V2_ID = /^obs_v2_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface ObservationRef {
   readonly id: string;
-  readonly sha256: string;
   readonly byteLength: number;
 }
 
@@ -56,14 +55,9 @@ export function observationObjectsDir(stateRoot: string, runId: RunId): string {
   return join(observationsDir(stateRoot, runId), "objects");
 }
 
-export function observationObjectPath(stateRoot: string, runId: RunId, sha256: string): string {
-  return join(observationObjectsDir(stateRoot, runId), `${sha256}.txt`);
-}
-
-function sha256OfText(text: string): { hex: string; bytes: Buffer } {
-  const bytes = Buffer.from(text, "utf8");
-  const hex = createHash("sha256").update(bytes).digest("hex");
-  return { hex, bytes };
+export function observationObjectPath(stateRoot: string, runId: RunId, id: string): string {
+  if (!V2_ID.test(id)) throw new DomainValidationError("observation object id must be a v2 opaque id");
+  return join(observationObjectsDir(stateRoot, runId), `${id}.txt`);
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -136,7 +130,7 @@ async function writeObjectAtomic(path: string, bytes: Buffer): Promise<"created"
     return "exists";
   }
 
-  const tempPath = `${path}.${process.pid}.${createHash("sha256").update(String(Date.now())).digest("hex").slice(0, 12)}.tmp`;
+  const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let published = false;
   try {
     const handle = await open(tempPath, "wx", 0o600);
@@ -178,11 +172,7 @@ function alignUtf8Offset(buf: Buffer, offset: number): number {
 }
 
 /**
- * Run-scoped, content-addressed observation archive.
- *
- * Inspired by SoL-Pi ObservationPack storage shape (path + hash + recall
- * paging); reimplemented natively for pi-sparkle under MIT — no NVIDIA SPDX
- * blocks copied.
+ * Run-scoped observation archive. Object ids are opaque locators, not integrity proofs.
  */
 export class ObservationStore {
   readonly stateRoot: string;
@@ -197,7 +187,7 @@ export class ObservationStore {
     if (typeof text !== "string") {
       throw new DomainValidationError("observation put requires a UTF-8 string");
     }
-    const { hex, bytes } = sha256OfText(text);
+    const bytes = Buffer.from(text, "utf8");
     if (bytes.byteLength > OBSERVATION_MAX_OBJECT_BYTES) {
       throw new DomainValidationError(
         `observation object exceeds the 8 MiB per-observation cap (${bytes.byteLength} bytes)`
@@ -222,36 +212,23 @@ export class ObservationStore {
         throw new DomainValidationError("observation objects path is not a directory");
       }
 
-      const path = observationObjectPath(this.stateRoot, this.runId, hex);
-      // Preflight quota for a *new* object. Idempotent reuse of an existing
-      // hash must not re-count toward the per-run archive cap.
-      const already = await assertRegularOrMissing(path, "observation object");
-      if (already === undefined) {
+      const existingId = await this.findExact(objectsDir, bytes);
+      const id = existingId ?? `obs_v2_${randomUUID()}`;
+      const path = observationObjectPath(this.stateRoot, this.runId, id);
+      // Preflight quota for a *new* object. Exact-byte reuse must not re-count.
+      if (existingId === undefined) {
         const used = await archiveByteSize(objectsDir);
         if (used + bytes.byteLength > OBSERVATION_MAX_RUN_ARCHIVE_BYTES) {
           throw new DomainValidationError(
             `observation archive would exceed the 64 MiB per-run quota (used ${used} + ${bytes.byteLength} bytes)`
           );
         }
-      } else if (!already.isFile()) {
-        throw new DomainValidationError(`observation object is not a regular file: ${path}`);
       }
 
       const outcome = await writeObjectAtomic(path, bytes);
-      if (outcome === "exists") {
-        await this.assertExistingMatches(path, hex, bytes);
-      }
-
-      // Re-check mode on the published file.
-      if (process.platform !== "win32") {
-        await chmod(path, 0o600).catch(() => undefined);
-      }
-
-      return {
-        id: `obs_${hex}`,
-        sha256: hex,
-        byteLength: bytes.byteLength
-      };
+      if (outcome === "exists") await this.assertExistingMatches(path, bytes);
+      if (process.platform !== "win32") await chmod(path, 0o600).catch(() => undefined);
+      return { id, byteLength: bytes.byteLength };
     });
   }
 
@@ -262,7 +239,7 @@ export class ObservationStore {
     }
 
     return withExclusiveFileLock(observationLockPath(this.stateRoot, this.runId), async () => {
-      const path = observationObjectPath(this.stateRoot, this.runId, ref.sha256);
+      const path = observationObjectPath(this.stateRoot, this.runId, ref.id);
       const st = await assertRegularOrMissing(path, "observation object");
       if (st === undefined) {
         throw new DomainValidationError(`observation object not found for ${ref.id}`);
@@ -271,10 +248,9 @@ export class ObservationStore {
         throw new DomainValidationError(`observation object is not a regular file: ${path}`);
       }
       const bytes = await readFile(path);
-      const actual = createHash("sha256").update(bytes).digest("hex");
-      if (actual !== ref.sha256 || bytes.byteLength !== ref.byteLength) {
+      if (bytes.byteLength !== ref.byteLength) {
         throw new DomainValidationError(
-          `observation recall hash mismatch for ${ref.id}: stored ${actual}/${bytes.byteLength}, ref ${ref.sha256}/${ref.byteLength}`
+          `observation byteLength mismatch for ${ref.id}: stored ${bytes.byteLength}, ref ${ref.byteLength}`
         );
       }
 
@@ -303,28 +279,40 @@ export class ObservationStore {
     if (typeof ref !== "object" || ref === null) {
       throw new DomainValidationError("observation ref is required");
     }
-    if (typeof ref.sha256 !== "string" || !SHA256_HEX.test(ref.sha256)) {
-      throw new DomainValidationError("observation ref sha256 must be 64 lowercase hex chars");
-    }
-    if (ref.id !== `obs_${ref.sha256}`) {
-      throw new DomainValidationError("observation ref id must be obs_ + sha256");
+    if (typeof ref.id !== "string" || !V2_ID.test(ref.id)) {
+      throw new DomainValidationError("observation ref id must be a v2 opaque id; legacy ids are refused");
     }
     if (!isSafeNonNegInt(ref.byteLength)) {
       throw new DomainValidationError("observation ref byteLength must be a non-negative safe integer");
     }
   }
 
-  private async assertExistingMatches(path: string, hex: string, bytes: Buffer): Promise<void> {
+  private async findExact(objectsDir: string, bytes: Buffer): Promise<string | undefined> {
+    let names: string[];
+    try { names = await readdir(objectsDir); } catch (error: unknown) {
+      if (errorCode(error) === "ENOENT") return undefined;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".txt")) continue;
+      const id = name.slice(0, -4);
+      if (!V2_ID.test(id)) continue;
+      const path = join(objectsDir, name);
+      const st = await assertRegularOrMissing(path, "observation object");
+      if (st === undefined || !st.isFile() || st.size !== bytes.byteLength) continue;
+      if ((await readFile(path)).equals(bytes)) return id;
+    }
+    return undefined;
+  }
+
+  private async assertExistingMatches(path: string, bytes: Buffer): Promise<void> {
     const st = await assertRegularOrMissing(path, "observation object");
     if (st === undefined || !st.isFile()) {
       throw new DomainValidationError(`observation object missing after EEXIST: ${path}`);
     }
     const existing = await readFile(path);
-    const existingHash = createHash("sha256").update(existing).digest("hex");
-    if (existingHash !== hex || existing.byteLength !== bytes.byteLength || !existing.equals(bytes)) {
-      throw new DomainValidationError(
-        `observation object hash mismatch / content mismatch at ${path}: refuse to reuse`
-      );
+    if (!existing.equals(bytes)) {
+      throw new DomainValidationError(`observation object content mismatch at ${path}: refuse to reuse`);
     }
   }
 }

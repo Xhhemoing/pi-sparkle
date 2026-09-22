@@ -123,7 +123,7 @@ test("priorFullSends 0 and 1 keep full text, archive for recall, reason first-tw
   });
 });
 
-test("priorFullSends >=2 packs to a placeholder <=2048 bytes with id/hash/excerpts", async () => {
+test("priorFullSends >=2 packs to a placeholder <=2048 bytes with id/excerpts", async () => {
   await withStore(async (store) => {
     const input = baseInput({ id: "call-pack" });
     const result = await projectObservation(input, {
@@ -137,7 +137,7 @@ test("priorFullSends >=2 packs to a placeholder <=2048 bytes with id/hash/excerp
     assert.notEqual(result.text, input.text);
     assert.ok(Buffer.byteLength(result.text, "utf8") <= OBSERVATION_PLACEHOLDER_MAX_BYTES);
     assert.match(result.text, new RegExp(result.ref.id));
-    assert.match(result.text, new RegExp(result.ref.sha256));
+    assert.equal(result.text.includes("sha256"), false);
     assert.match(result.text, /byteLength/i);
     assert.match(result.text, /lines/i);
     assert.doesNotMatch(result.text, /hidden.?cot|chain.of.thought/i);

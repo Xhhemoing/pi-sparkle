@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import type { ModelDescriptor } from "../routing/capability-registry.js";
@@ -39,7 +38,7 @@ export interface ExperimentFreeze {
   readonly catalogSnapshot: readonly ModelDescriptor[];
   readonly dirs: ExperimentFreezeDirs;
   readonly buildProvenance: BuildProvenance;
-  /** Provider/default config blob that was hashed into configHash. */
+  /** Provider/default config blob stored as the canonical config key. */
   readonly hasProviderConfig: boolean;
   readonly hasDefaultConfig: boolean;
 }
@@ -54,8 +53,9 @@ export interface CreateExperimentFreezeInput {
   readonly hasDefaultConfig: boolean;
 }
 
-export function hashFreezePayload(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value), "utf8").digest("hex");
+/** Full canonical JSON identity for a freeze payload. Not a digest. */
+export function freezeCanonicalKey(value: unknown): string {
+  return stableStringify(value);
 }
 
 export function createExperimentFreeze(input: CreateExperimentFreezeInput): ExperimentFreeze {
@@ -73,8 +73,8 @@ export function createExperimentFreeze(input: CreateExperimentFreezeInput): Expe
   const freeze: ExperimentFreeze = {
     version: 1,
     clockInstantMs: input.nowMs,
-    configHash: hashFreezePayload(input.config),
-    catalogHash: hashFreezePayload(input.catalog),
+    configHash: freezeCanonicalKey(input.config),
+    catalogHash: freezeCanonicalKey(input.catalog),
     catalogSnapshot: input.catalog,
     dirs: input.dirs,
     buildProvenance: input.buildProvenance,

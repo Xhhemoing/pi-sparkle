@@ -1,5 +1,7 @@
 # F6 Pre-Registration — Holdout Collection (TEMPLATE, freeze before Week 1)
 
+> **Removal gate (2026-09-21):** F6 remains parked and this draft is not sealed or executable. Its SHA-dependent commitment/arm-order fields are retained as historical/pre-decision evidence only. A future run requires owner acceptance of [ADR-008](../decisions/0008-remove-sha256.md), a new versioned seal, and all existing F6 gates.
+
 > Fill every field; then commit this file's SHA-256 into the seal manifest.
 > Anything marked ASSUMPTION is a number chosen without a pilot — it binds
 > anyway. Changing any field after Week 1 starts voids episodes collected

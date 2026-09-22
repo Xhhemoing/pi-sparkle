@@ -42,7 +42,7 @@ pi list
 Reload Pi after installing. In a normal session, ask the assistant to use
 `sparkle_delegate` for up to four read-only inspections/reviews. Workers use
 the host model catalogue/auth and actual file reads; `/sparkle-status` shows
-active runs. The default preference is `cursor-grok-4.6-fast`; the tool accepts
+active runs. The default preference is `grok-4.7`; the tool accepts
 an explicit `provider/model` override and refuses unavailable/ambiguous models.
 The main conversation model is unchanged. Esc and session shutdown cancel
 workers. `SPARKLE_NATIVE=0` disables the extension at load time.

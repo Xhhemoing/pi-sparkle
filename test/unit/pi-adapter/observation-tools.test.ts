@@ -27,11 +27,11 @@ test("enabled projector: first two sends full, then placeholder, same content id
     assert.equal(third.packed, true, "third send is packed");
     assert.ok(Buffer.byteLength(third.text, "utf8") <= 2048);
     assert.match(third.text, /\[observation packed\]/);
-    assert.ok(third.ref !== undefined && third.ref.sha256.length === 64);
-    // Same content again: idempotent archive, still packed, same sha.
+    assert.ok(third.ref !== undefined && third.ref.id.startsWith("obs_v2_"));
+    // Same content again: exact-byte reuse, still packed, same opaque id.
     const fourth = await projector.project({ sourceId: "s4", text: DENSE });
     assert.equal(fourth.packed, true);
-    assert.equal(fourth.ref?.sha256, third.ref?.sha256);
+    assert.equal(fourth.ref?.id, third.ref?.id);
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
