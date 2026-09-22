@@ -1,22 +1,24 @@
 # Projection hardening and telemetry implementation plan
 
-> **Blocked by TASK-20260921-remove-sha256 / ADR-008 (2026-09-21):** this plan's SHA-dependent identity and integrity language is retained as pre-decision evidence. Do not implement or extend it until the owner approves a successor contract, versioned schemas, and legacy fail-closed handling.
+> **ADR-008 correction (2026-09-22):** the successor identity contract is opaque versioned locators plus exact-byte comparison; no SHA-256 or replacement cryptographic hash is selected. This child plan is still blocked on Stage 0 independent review and owner/evaluator freeze. Do not modify product code or collect live evidence before that gate.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` task-by-task. This plan is independent of the apply-boundary plan.
 
 **Goal:** Make native observation projection identity-safe, fail-closed for non-projectable results, cumulatively budgeted, and measurable without changing the default-off contract.
 
-**Architecture:** Keep `ObservationStore` run-scoped and content-addressed. Compute the full SHA-256 once per eligible result and use it for the in-memory run-local send counter. Pass explicit projectability metadata from tool adapters; absent or unsafe metadata remains unprojected. Add a run-local recall budget above the existing per-page cap. Emit mechanism and cost-observation records without changing live routing or historical event contracts.
+**Architecture:** Keep `ObservationStore` run-scoped with opaque versioned locators and exact-byte dedupe. Use an observation-store-backed exact-byte identity for the in-memory run-local send counter: identical bytes reuse the same opaque observation reference, while different bytes are never grouped by a prefix collision. Pass explicit projectability metadata from tool adapters; absent or unsafe metadata remains unprojected. Add a run-local recall budget above the existing per-page cap. Emit mechanism and cost-observation records without changing live routing or historical event contracts.
 
-**Tech Stack:** TypeScript, Node crypto/fs, existing `ObservationStore`, `projectObservation`, Pi `AgentTool` adapter, JSONL telemetry, Vitest-style project test runner.
+**Tech Stack:** TypeScript, Node fs, existing opaque-id `ObservationStore`, `projectObservation`, Pi `AgentTool` adapter, JSONL telemetry, Vitest-style project test runner.
 
 ## Identity and gate
 
 - Owner: native adapter maintainer; owner/evaluator approval is required before
   any live-provider collection.
-- State: `planned — engineering-only, default-off`.
-- Dependency: the pre-pilot evaluator/apply boundary design freeze must record
-  that this work cannot issue apply capabilities or authorize writes.
+- State: `planned — engineering-only, default-off; blocked until Stage 0 is independently reviewed and owner/evaluator-frozen`.
+- Dependency: the pre-pilot evaluator/apply boundary design must be independently
+  reviewed and owner/evaluator-frozen, recording that this work cannot issue
+  apply capabilities or authorize writes. The current Stage 0 correction is
+  author-verified only; two review dispatches failed with `UNOBSERVED`.
 - Refusal rule: missing or unsafe projectability metadata, unknown run binding,
   cross-run refs, and exhausted recall budgets fail closed; they never become a
   smaller or silently truncated observation.
@@ -69,7 +71,7 @@ limit, and requested offset; it never silently truncates a receipt.
 
 ## Files
 
-- Modify `src/pi-adapter/observation-tools.ts`: metadata, full-hash counter, recall budget.
+- Modify `src/pi-adapter/observation-tools.ts`: typed metadata, exact-byte observation identity counter, recall budget — only after Stage 0 freeze.
 - Modify `src/pi-adapter/native-executor.ts`: explicit metadata from read-tool result and budget-aware recall tool.
 - Modify `src/context/observation-projection.ts`: accept typed projectability policy without weakening marker fallback.
 - Modify `src/context/observation-store.ts`: expose existing page caps; do not change run archive limits unless separately justified.
@@ -78,7 +80,7 @@ limit, and requested offset; it never silently truncates a receipt.
 
 ## Acceptance Criteria
 
-- [ ] Full SHA-256 is the send-counter key; a same-path middle-content mutation does not inherit a previous count.
+- [ ] An observation-store-backed exact-byte identity is the send-counter key; a same-path middle-content mutation receives a fresh first-two window and distinct contents cannot collide through head/tail/length prefixing.
 - [ ] A large result with missing metadata, `isError`, `mutatesState`,
   `securityCritical`, `secretBearing`, non-observation `resultKind`, a write or
   verification `toolKind`, or false tool policy is never packed.
@@ -101,7 +103,7 @@ limit, and requested offset; it never silently truncates a receipt.
 
 ## Test-first steps
 
-1. Add RED tests for SHA collision, typed unsafe metadata, missing metadata, recall cumulative budget, source mutation, delete, resume, and prefix capture.
+1. After Stage 0 freeze, add RED tests for exact-byte middle-content collision, typed unsafe metadata, missing metadata, recall cumulative budget, source mutation, delete, resume, and prefix capture.
 2. Run focused tests and record expected failures.
 3. Implement the smallest metadata and budget interfaces.
 4. Run focused tests, then `pnpm gate`, `pnpm security:probe`, and `pnpm pi:probe`.
@@ -111,4 +113,4 @@ limit, and requested offset; it never silently truncates a receipt.
 
 - Engineering-only until a real provider is involved.
 - Abort on default-path byte changes, cross-run access, silent budget truncation, or live-isolation changes.
-- Handoff artifact: verification report plus measurement spec link.
+- Handoff artifact: verification report plus measurement spec link. Current handoff remains blocked; this documentation correction does not authorize implementation.

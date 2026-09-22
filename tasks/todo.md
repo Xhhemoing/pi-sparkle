@@ -50,7 +50,7 @@ Owner-provided external review of the 2026-09-21 project status brief processed 
 The checklist follows the umbrella dependency order after an approved review-channel decision:
 
 - [ ] **Stage 0 evaluator/apply boundary design and owner/reviewer freeze** — [boundary plan](../docs/superpowers/plans/2026-09-21-evaluator-apply-boundary.md); design-only, no writes or apply authorization.
-- [ ] **Projection hardening and mechanism/economic telemetry** — [projection plan](../docs/superpowers/plans/2026-09-21-projection-hardening.md); default-off and no live claim.
+- [ ] **Projection hardening and mechanism/economic telemetry** — [projection plan](../docs/superpowers/plans/2026-09-21-projection-hardening.md); ADR-008-compatible exact-byte identity preflight recorded in [report](../docs/reports/2026-09-22-projection-hardening-preflight.md), but implementation remains blocked until Stage 0 independent review and owner/evaluator freeze; default-off and no live claim.
 - [ ] **Read-only evaluator manifest freeze** — [freeze plan](../docs/superpowers/plans/2026-09-21-readonly-evaluator-freeze.md); requires Stage 0 and projection prerequisites, no apply capability.
 - [ ] **Exploratory A/B/C pilot** — [pilot preregistration](../docs/reports/2026-09-21-ab-c-pilot-preregistration.md); requires the prior freezes plus owner budget/data approval, and cannot establish recovery, non-inferiority, F6 closure, or broad Outcome-supported benefit.
 
