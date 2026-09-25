@@ -6,7 +6,7 @@
 - Date/environment: 2026-09-25; Windows worktree `E:\Project\pi-sparkle`; branch `codex/controlled-improvement-20260925`
 - Candidate state: `ready-for-review`
 - Review state: a later integrated independent review returned **REQUEST CHANGES**. Its bridge findings are corrected and author-verified; fresh re-review of the corrected bytes is pending.
-- Open gates: fresh independent re-review, `pnpm prerelease`, live-provider execution, Stage 0 freeze, pilot/data approval, production apply, F-PROD, and Outcome-supported evidence.
+- Open gates: `pnpm prerelease`, live-provider execution, Stage 0 freeze, pilot/data approval, production apply, F-PROD, and Outcome-supported evidence. The corrected current slice received independent PASS at `7d7cd59b`.
 
 ## Scope and behavior
 

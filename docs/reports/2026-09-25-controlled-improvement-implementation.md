@@ -31,12 +31,12 @@
 
 ## Review and open gates
 
-- An independent integrated review of `9b9fbeec` returned **REQUEST CHANGES** on credential-bearing model snapshots, canonical sensitive-path handling, empty D1 evidence references, actual-model attribution, learned-routing error swallowing, and contradictory status records. The code findings are corrected in the current candidate and the author-run focused/full gates are green; fresh independent re-review is still pending.
-- Projection, the read-only evaluator-manifest candidate, and D1 have author-run command evidence. B0 and D1 acceptance remain open; no earlier bridge-only PASS is treated as acceptance of these corrected bytes.
+- An independent integrated review of `9b9fbeec` returned **REQUEST CHANGES** on credential-bearing model snapshots, canonical sensitive-path handling, empty D1 evidence references, actual-model attribution, learned-routing error swallowing, and contradictory status records. Corrected revision `7d7cd59b` received a fresh independent **PASS** with 90 focused tests, typecheck, workflow and contract deltas green and no findings.
+- Projection, the read-only evaluator-manifest candidate, and D1 have command evidence. B0 and D1 task acceptance remain open; the current-slice PASS is recorded separately and does not impersonate the post-L2 final review.
 - The read-only evaluator manifest is pre-S0 evidence, not the S0-min freeze. S0-min must still freeze the host-owned terminal outcome DTO, trusted source/binding rules, failure attribution, and the single canonicalizer. The D1 host-outcome resolver remains intentionally unconnected until S0-min/L1 supplies that frozen neutral host outcome.
 - No live-provider run, exploratory pilot, production apply authorization, F6/F-PROD closure, or Outcome-supported claim follows from this gate.
 
 ## Handoff
 
-- Controlling sequence: accept B0, review D1 in isolation while obtaining the owner/reviewer S0-min freeze, then connect L1 to the frozen neutral host-outcome contract and build the candidate-only L2 historical view.
+- Controlling sequence: accept B0 and D1 under their task criteria, obtain the owner/reviewer S0-min decision using the [owner freeze package](2026-09-25-stage0-owner-freeze-package.md), then connect L1 to the frozen neutral host-outcome contract and build the candidate-only L2 historical view.
 - Related records: [native bridge](2026-09-25-native-multimodel-bridge.md), [projection boundary](2026-09-25-projection-secret-boundary.md), [read-only evaluator](2026-09-25-readonly-evaluator-candidate.md), and [D1 evidence gap](2026-09-25-native-evidence-gap-d1.md).

@@ -6,7 +6,7 @@ ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: c
 
 ## 2026-09-25 REQUEST CHANGES correction (current checklist)
 
-本轮独立审查结论是 **REQUEST CHANGES**。代码问题已由作者修复并通过完整门禁，fresh independent re-review 尚未返回；以下仍是唯一可派工顺序：
+原独立审查结论是 **REQUEST CHANGES**；修复后的 current slice 已在 `7d7cd59b` 获得独立 **PASS**。这不是 post-L2 final review，也不批准或冻结 Stage 0；以下仍是唯一可派工顺序：
 
 `B0 → (D1 || S0-min) → L1 → L2 → final review`
 
@@ -14,7 +14,7 @@ ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: c
 |---|---|---|---|---|
 | B0 | coordinator | none | ready-for-review | preserve reproducible dirty baseline; freeze leases; document current lock graph; name the exact Stage 0 canonicalizer |
 | D1 | diagnosis builder | B0 | author-candidate-unreviewed | reuse existing `EventStore` + `src/run/inspection.ts` for on-demand evidence-gap; no N1/N3 storage or control action |
-| S0-min | boundary owner + reviewer | B0 | planned | freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer; hard dependency of L1 |
+| S0-min | boundary owner + reviewer | B0 | ready-for-owner-review | decision package freezes no bytes by itself; owner must choose canonicalizer direction and later approve reviewed implementation |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
 | L2 | evidence builder | D1, L1 | planned | merged former E2/E3 `historical-candidate-view`, candidate-only and read-only with respect to active policy |
 | final review | coordinator + fresh reviewer | L2 | planned | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict; the current integrated re-review is not this post-L2 final review |
@@ -25,6 +25,8 @@ Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance,
 
 - [x] B0 author candidate records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity; acceptance review remains open.
 - [x] D1 author candidate produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged; independent acceptance remains open.
+- [x] Corrected current slice received independent PASS at `7d7cd59b`; this is not the post-L2 final review and does not accept/freeze S0-min.
+- [ ] S0-min owner/reviewer records one decision from the [owner freeze package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md); package state is ready-for-owner-review, not approved/frozen.
 - [ ] S0-min is frozen by the responsible owner/reviewer before L1 acceptance; fixtures do not substitute for the freeze.
 - [ ] L1 stores/reads the host outcome only through neutral evaluation/feedback schema and fails closed on missing/deleted/mismatched evidence.
 - [ ] L2 combines compatibility-window selection and historical candidate diagnosis into one candidate-only view; it cannot approve, promote, activate or route.

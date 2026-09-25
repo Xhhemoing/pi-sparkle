@@ -43,5 +43,5 @@ retry/resume action, model blame, active-policy write, or Stage 0 conclusion.
 - The resolver is an injection seam only; no S0-min/L1 resolver is wired here.
 - Bounded inspection refuses oversized history rather than returning a partial
   diagnosis. This is deliberate because incomplete history cannot be positive evidence.
-- Full gate is green at 2879 pass / 0 fail / 18 skip; fresh independent re-review remains open.
+- Full gate is green at 2879 pass / 0 fail / 18 skip; the corrected current slice received independent PASS at `7d7cd59b`. D1 task-level acceptance remains open.
 - Stage 0, live-provider evidence, R10/R11, F6 and outcome support remain open.
