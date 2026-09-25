@@ -9,7 +9,7 @@
 - Primary implementation revision: `8e7de99b3d3b196e3b23807d52e4f6b8b59d57dc`.
 - Baseline under correction: `9b9fbeec`.
 - Draft status/review bundle revision: `09bbee48b1d1c6be1ad60c5e09d001129f916d8d`.
-- Provenance-bearing review record revision: `PENDING_BINDING_COMMIT`.
+- Provenance-bearing review record revision: `edc766b3a1176afab254f7bed9ad75a4ae62fe3c`.
 - Date/environment: 2026-09-25, Windows, `E:\Project\pi-sparkle`.
 - Verdict: **PASS** for the corrected current slice; no Critical, Important, or Minor findings.
 
