@@ -150,6 +150,8 @@ const HOST_TERMINAL_OUTCOME_FIELDS = [
 ] as const;
 
 const HOST_BINDING_FIELDS = [
+  "outcomeRef",
+  "bindingRef",
   "projectId",
   "projectVersion",
   "episodeId",

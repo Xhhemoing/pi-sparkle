@@ -111,7 +111,10 @@ const terminalOutcome: HostTerminalOutcome = {
   evidenceRefs: ["evidence-001"]
 };
 
-const terminalBinding: HostTerminalOutcomeBinding = {
+const terminalBinding: HostTerminalOutcomeBinding &
+  Pick<HostTerminalOutcome, "outcomeRef" | "bindingRef"> = {
+  outcomeRef: terminalOutcome.outcomeRef,
+  bindingRef: terminalOutcome.bindingRef,
   projectId: terminalOutcome.projectId,
   projectVersion: terminalOutcome.projectVersion,
   episodeId: terminalOutcome.episodeId,
@@ -196,6 +199,28 @@ test("identity or canonical evaluator-definition drift stays UNOBSERVED", () => 
     assert.equal(assessed.eligible, false);
     assert.equal(assessed.outcome, "UNOBSERVED");
   }
+});
+
+test("outcomeRef mismatch stays UNOBSERVED and ineligible", () => {
+  const assessed = assessHostTerminalOutcome({
+    recordBytes: terminalBytes(terminalOutcome),
+    sourceState: "available",
+    expected: { ...terminalBinding, outcomeRef: "outcome-other" }
+  });
+  assert.equal(assessed.eligible, false);
+  assert.equal(assessed.outcome, "UNOBSERVED");
+  assert.equal(assessed.reason, "binding mismatch: outcomeRef");
+});
+
+test("bindingRef mismatch stays UNOBSERVED and ineligible", () => {
+  const assessed = assessHostTerminalOutcome({
+    recordBytes: terminalBytes(terminalOutcome),
+    sourceState: "available",
+    expected: { ...terminalBinding, bindingRef: "binding-other" }
+  });
+  assert.equal(assessed.eligible, false);
+  assert.equal(assessed.outcome, "UNOBSERVED");
+  assert.equal(assessed.reason, "binding mismatch: bindingRef");
 });
 
 test("FAILED requires host model-evaluated attribution; operational failures cannot become FAILED", () => {

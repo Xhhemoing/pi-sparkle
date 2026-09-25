@@ -94,6 +94,8 @@ export interface HostTerminalOutcome {
 
 export type HostTerminalOutcomeBinding = Pick<
   HostTerminalOutcome,
+  | "outcomeRef"
+  | "bindingRef"
   | "projectId"
   | "projectVersion"
   | "episodeId"
