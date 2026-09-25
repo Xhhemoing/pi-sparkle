@@ -1,6 +1,9 @@
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
 import { nowIso } from "../domain/timestamp.js";
+import { stableStringify } from "../domain/canonical-json.js";
+
+export { stableStringify } from "../domain/canonical-json.js";
 
 export interface DatasetManifest {
   readonly manifestVersion: 1;
@@ -27,20 +30,6 @@ export interface DatasetManifest {
   readonly environment: Record<string, string>;
   readonly seed: number;
   readonly createdAt: string;
-}
-
-/** Deterministic canonical serialization: keys sorted recursively. */
-export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  const parts = keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
-  return `{${parts.join(",")}}`;
 }
 
 export function manifestHash(manifest: DatasetManifest): string {

@@ -37,6 +37,24 @@ classified as a model-attributable `FAILED` result. The authoritative evaluator
 bundle and terminal outcome DTO remain host-owned and outside candidate/worker
 write scope.
 
+### 2026-09-25 implementation candidate (controlling status update)
+
+The S0-min implementation candidate is now `ready-for-review`, not `FROZEN`.
+`src/domain/canonical-json.ts::canonicalizeStableJson/parseStableJsonBytes`
+implement the only versioned `pi-sparkle-stable-json-v1` contract. New boundary
+records must use those strict entry points. The existing
+`src/experiments/manifest.ts::stableStringify` export remains as a compatibility
+surface for pre-contract experiment identities: valid JSON values produce the
+same bytes as the strict contract, while any historical non-JSON compatibility
+output is not canonical, cannot pass `parseStableJsonBytes`, and cannot bind an
+S0-min record. This compatibility surface is not a second canonicalizer.
+
+The candidate also adds a neutral `host-terminal-outcome-v1` DTO and strict
+parser/binding assessment in `src/evaluation/`. It adds no persistence, provider,
+pilot, apply, routing, promotion, worker-write, native, tool, or CLI surface.
+Independent specification and quality review, exact approval binding, and the
+later owner freeze decision remain open.
+
 ## Status and scope
 
 - State: `draft — REQUEST CHANGES; not approved, not frozen`

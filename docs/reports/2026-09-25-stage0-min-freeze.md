@@ -84,5 +84,50 @@ routing activation, registry activation, promotion, production writes, or F6.
 - [Controlled-improvement roadmap](../superpowers/plans/2026-09-25-controlled-improvement-roadmap.md)
 - [B0 verification record](2026-09-25-controlled-improvement-b0-verification.md)
 
-This record captures the owner decision only. It is not implementation evidence,
-an independent review verdict, or a Stage 0 freeze record.
+## Implementation candidate and verification
+
+- Candidate state: `ready-for-review`; **not accepted and not FROZEN**.
+- Implementation base: `f648a739bcf035e662c769228b69268f65fe81e6`.
+- Lease: the two S0-min documents, `src/domain/canonical-json.ts`,
+  `src/evaluation/types.ts`, `src/evaluation/evaluator.ts`,
+  `src/experiments/manifest.ts`, and the four leased unit-test files only.
+- Canonical contract: `pi-sparkle-stable-json-v1`, explicitly non-RFC8785/JCS
+  and `local-weak-exact-bytes`; no dependency was added.
+- Strict entry points: `canonicalizeStableJson` and `parseStableJsonBytes`.
+  They reject duplicate keys before ordinary parsing, unknown/missing outcome
+  fields, non-JSON JS values, sparse/cyclic/non-plain/accessor values, invalid
+  UTF-8 or Unicode, BOM, whitespace/trailing data, and non-canonical bytes.
+- Compatibility: the existing experiment `stableStringify` export and all
+  valid-value bytes remain stable. Historical non-JSON compatibility output is
+  outside the versioned contract and cannot pass its parser.
+- Outcome boundary: `host-terminal-outcome-v1` is host-owned and binds every
+  required identity plus canonical evaluator-definition bytes. Missing,
+  deleted, foreign, stale, legacy, incomplete, self-reported-only, mismatched,
+  or operational-failure sources resolve to `UNOBSERVED` and are ineligible.
+
+Verification evidence is under
+`.agent_workspace/controlled-improvement-s0-min-20260925/`:
+
+| Phase | Exact command | Result | Raw log |
+|---|---|---|---|
+| RED | `pnpm test -- --test-concurrency=1 test/unit/domain/canonical-json.test.ts test/unit/evaluation/evaluation-identity.test.ts test/unit/experiments/freeze.test.ts test/unit/experiments/task-spec.test.ts` | expected failure: 0 pass, 4 fail because the new APIs did not exist | `red-focused.log` |
+| focused GREEN | `pnpm test -- --test-concurrency=1 test/unit/domain/canonical-json.test.ts test/unit/evaluation/evaluation-identity.test.ts test/unit/evaluation/evaluator-precedence.test.ts test/unit/experiments/freeze.test.ts test/unit/experiments/task-spec.test.ts test/unit/experiments/readonly-evaluator-manifest.test.ts test/integration/experiments/readonly-evaluator-freeze.test.ts` | PASS: 47 pass, 0 fail, 0 skip | `green-focused-final.log` |
+| typecheck | `pnpm typecheck` | PASS | command output captured in session |
+| targeted lint | `pnpm exec eslint src/domain/canonical-json.ts src/evaluation/types.ts src/evaluation/evaluator.ts src/experiments/manifest.ts test/unit/domain/canonical-json.test.ts test/unit/evaluation/evaluation-identity.test.ts test/unit/experiments/freeze.test.ts test/unit/experiments/task-spec.test.ts` | PASS | command output captured in session |
+| full gate | `pnpm gate` | PASS after building the clean worktree: 2889 pass, 0 fail, 18 skip; typecheck, lint and build PASS | `gate-final.log` |
+| security | `$env:npm_config_cache = '<evidence-root>/npm-cache'; pnpm security:probe` | PASS: 26 probes, 0 open findings | `security-probe-final.log` |
+
+The first full-gate attempt is retained in `gate.log`: it correctly exposed two
+legacy experiment callers that pass optional `undefined` through the historical
+compatibility API, plus one clean-worktree missing-`dist` prerequisite. The
+candidate kept strict refusal on the versioned contract, preserved the legacy
+API only outside that contract, ran `pnpm build`, and then obtained the passing
+gate above. The first security run is retained in `security-probe.log`; its sole
+packaging check was blocked by the default npm cache location. The rerun used the
+evidence-local cache and passed all probes.
+
+This record now captures the owner decision and author verification. It is not
+an independent review verdict or a Stage 0 freeze record. Independent exact-SHA
+specification review must PASS before exact-SHA quality review; a later owner
+must separately bind and record `FROZEN`. L1, provider/pilot/apply, routing,
+registry activation, promotion, production writes, and F6 remain closed.
