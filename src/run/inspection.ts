@@ -48,6 +48,55 @@ export interface RunInspection {
    * never derived from anything but those payloads.
    */
   requiredEvidence: readonly string[];
+  readonly evidenceGap: EvidenceGapView;
+}
+
+export const INSPECTION_EVENT_READ_LIMITS = { maxBytes: 4 * 1024 * 1024, maxRecords: 20_000 } as const;
+
+export type HostOutcomeResolution =
+  | { readonly status: "UNOBSERVED"; readonly reason: string }
+  | { readonly status: "OBSERVED"; readonly outcome: "PASSED" | "FAILED"; readonly evidenceRefs: readonly string[] };
+
+export interface EvidenceGapItem {
+  readonly taskId: TaskId;
+  readonly childRunId: RunId;
+  readonly code: "missing-independent-verification" | "acceptance-unobserved";
+  readonly hostOutcome: "UNOBSERVED";
+  readonly requiredCriteria: readonly string[];
+}
+
+export interface EvidenceGapView {
+  readonly status: "OBSERVED" | "UNOBSERVED";
+  readonly items: readonly EvidenceGapItem[];
+}
+
+export interface EvidenceGapOptions {
+  readonly frozenRequirements?: ReadonlyMap<TaskId, readonly string[]>;
+  readonly resolveHostOutcome?: (taskId: TaskId) => HostOutcomeResolution;
+}
+
+export function buildEvidenceGapView(
+  children: readonly ChildInspection[],
+  options: EvidenceGapOptions = {}
+): EvidenceGapView {
+  const items: EvidenceGapItem[] = [];
+  let claimedComplete = 0;
+  for (const child of children) {
+    const claimed = child.terminalResult?.outcome === "SUCCESS" || child.terminalResult?.verification.kind === "PASSED";
+    if (!claimed) continue;
+    claimedComplete += 1;
+    const resolution = options.resolveHostOutcome?.(child.taskId) ?? { status: "UNOBSERVED", reason: "missing" };
+    if (resolution.status === "OBSERVED") continue;
+    const requiredCriteria = options.frozenRequirements?.get(child.taskId) ?? [];
+    items.push({
+      taskId: child.taskId,
+      childRunId: child.childRunId,
+      code: requiredCriteria.length > 0 ? "missing-independent-verification" : "acceptance-unobserved",
+      hostOutcome: "UNOBSERVED",
+      requiredCriteria: [...requiredCriteria]
+    });
+  }
+  return { status: claimedComplete > 0 && items.length === 0 ? "OBSERVED" : "UNOBSERVED", items };
 }
 
 /**
@@ -206,9 +255,13 @@ function outcomeOf(child: ChildAccumulator): ChildInspection["outcome"] {
 }
 
 /** Reconstructs M1 parent-child state from a parent run's persisted events. */
-export async function inspectRun(stateRoot: string, runId: RunId): Promise<RunInspection> {
+export async function inspectRun(
+  stateRoot: string,
+  runId: RunId,
+  evidenceOptions: EvidenceGapOptions = {}
+): Promise<RunInspection> {
   const store = new EventStore(stateRoot, runId);
-  const read = await store.readAll();
+  const read = await store.readAll(INSPECTION_EVENT_READ_LIMITS);
   const events = read.events;
   const replayed = replayRun(events);
 
@@ -285,22 +338,24 @@ export async function inspectRun(stateRoot: string, runId: RunId): Promise<RunIn
     }
   }
 
+  const inspectedChildren: ChildInspection[] = Array.from(children.values()).map((child) => ({
+    childRunId: child.childRunId,
+    taskId: child.taskId,
+    outcome: outcomeOf(child),
+    attempts: Math.max(1, child.attempts),
+    messages: child.messages,
+    ...(child.terminalResult !== undefined ? { terminalResult: child.terminalResult } : {}),
+    timedOut: child.timedOut
+  }));
   return {
     runId,
     status: replayed.status,
-    children: Array.from(children.values()).map((child) => ({
-      childRunId: child.childRunId,
-      taskId: child.taskId,
-      outcome: outcomeOf(child),
-      attempts: Math.max(1, child.attempts),
-      messages: child.messages,
-      ...(child.terminalResult !== undefined ? { terminalResult: child.terminalResult } : {}),
-      timedOut: child.timedOut
-    })),
+    children: inspectedChildren,
     pendingQuestions,
     answers,
     agentInstanceIds: Array.from(agentInstanceIds),
-    requiredEvidence
+    requiredEvidence,
+    evidenceGap: buildEvidenceGapView(inspectedChildren, evidenceOptions)
   };
 }
 

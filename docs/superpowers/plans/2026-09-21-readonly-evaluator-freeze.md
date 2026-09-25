@@ -1,6 +1,6 @@
 # Read-only evaluator manifest and freeze implementation plan
 
-> **ADR-008 correction (2026-09-22):** manifest references use opaque versioned locators and exact-byte comparison in explicitly labeled local-weak mode; no SHA-256 or replacement cryptographic hash is selected. This plan remains draft-only and cannot freeze a manifest or authorize a pilot until independent review and owner approval.
+> **ADR-008 correction (2026-09-22):** manifest references use opaque versioned locators and exact-byte comparison in explicitly labeled local-weak mode; no SHA-256 or replacement cryptographic hash is selected. A candidate implementation was completed on 2026-09-25, but this plan remains unapproved and cannot authorize a pilot until independent review and owner approval.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` task-by-task. This plan does not register write tools or issue apply capabilities.
 
@@ -12,7 +12,7 @@
 
 ## Identity and gate
 
-- Owner: experiment owner/evaluator; state `planned — read-only, not frozen`.
+- Owner: experiment owner/evaluator; state `candidate implemented — read-only, not owner-frozen`.
 - Dependency: the pre-pilot evaluator/apply boundary design freeze must be
   recorded first; this plan still cannot authorize apply or worker writes.
 - The manifest must carry a `boundaryDesignRecordId` matching that Stage 0
@@ -33,9 +33,7 @@
   `resolveAuth`, and adds `sparkle_recall_observation` only when projection is
   enabled. These facts describe the current source; they are not claims that A,
   B, and C have identical schemas.
-- Refusal rule: missing/mismatched digests, mutable evaluator scope, routing
-  drift, or data-policy mismatch yields `INVALID_COLLECTION`/`UNOBSERVED` and
-  stops the affected arm.
+- Refusal rule: missing/mismatched opaque references or canonical bytes, mutable evaluator scope, routing drift, or data-policy mismatch yields `INVALID_COLLECTION`/`UNOBSERVED` and stops the affected arm.
 
 ## Global Constraints
 
@@ -114,22 +112,27 @@ interface ReadonlyEvaluatorManifest {
 
 ## Acceptance Criteria
 
-- [ ] Schema validates required fields and rejects unknown/invalid opaque references or canonical-byte bindings.
-- [ ] Evaluator bundle is immutable and referenced by an opaque run-scoped
+- [x] Schema validates required fields and rejects unknown/invalid opaque references or canonical-byte bindings.
+- [x] Evaluator bundle is immutable and referenced by an opaque run-scoped
   locator; it cannot be modified by the worker/candidate; mutation attempt is
   a tested refusal.
-- [ ] `manifestId` and `armManifestId` are recorded in every pilot result and task ledger row.
-- [ ] A manifest mismatch, routing mutation, missing evaluator, or data-policy
+- [x] `manifestId` and `armManifestId` are recorded in every pilot result and task ledger row.
+- [x] A manifest mismatch, routing mutation, missing evaluator, or data-policy
   violation yields invalid/UNOBSERVED collection, never a model FAIL.
-- [ ] The manifest explicitly states it cannot issue apply capabilities and
+- [x] The manifest explicitly states it cannot issue apply capabilities and
   records the fixed task/provider retry policy (`1`/`3`) without treating the
   retry budget as an outcome-dependent control.
-- [ ] Freeze output is reproducible from the same inputs and exact command.
+- [x] Freeze output is reproducible from the same inputs and exact command.
+
+Implementation evidence is recorded in
+[2026-09-25 read-only evaluator candidate](../../reports/2026-09-25-readonly-evaluator-candidate.md).
+These checked engineering criteria do not represent the independent review,
+owner freeze, budget/data approval, or pilot authorization.
 
 ## Verification
 
-- RED tests for candidate mutation, routing hash mismatch, missing fields,
-  duplicate task IDs, and manifest/result digest mismatch.
+- RED tests for candidate mutation, routing canonical-byte mismatch, missing fields,
+  duplicate task IDs, and manifest/result opaque-reference or canonical-byte mismatch.
 - Focused: `pnpm test test/unit/experiments test/integration/experiments`.
 - Gate: `pnpm workflow:check && pnpm typecheck && pnpm lint && pnpm build`.
 - No live provider is required for this child plan.

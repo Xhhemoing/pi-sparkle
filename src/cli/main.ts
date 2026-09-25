@@ -51,6 +51,7 @@ import {
   followRunEvents,
   gateBlockCause,
   inspectRun,
+  INSPECTION_EVENT_READ_LIMITS,
   FOLLOW_STOP_STATUSES,
   type GateBlockCause
 } from "../run/inspection.js";
@@ -1615,7 +1616,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   }
   const runId = parseRunId(values.run);
   const store = new EventStore(stateRoot, runId);
-  const read = await store.readAll();
+  const read = await store.readAll(INSPECTION_EVENT_READ_LIMITS);
   if (read.events.length === 0) {
     return missingRun(io, "inspect", runId, stateRoot);
   }
@@ -1668,6 +1669,12 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     }
   }
   const inspection = await inspectRun(stateRoot, runId);
+  if (inspection.evidenceGap.items.length > 0) {
+    io.stdout(`  evidence-gap: ${inspection.evidenceGap.status}\n`);
+    for (const gap of inspection.evidenceGap.items) {
+      io.stdout(`    ${gap.taskId}: ${gap.code} (host outcome ${gap.hostOutcome})\n`);
+    }
+  }
   if (inspection.requiredEvidence.length > 0) {
     io.stdout(`  required evidence (${inspection.requiredEvidence.length}):\n`);
     for (const item of inspection.requiredEvidence) {

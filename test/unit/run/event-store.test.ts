@@ -59,6 +59,15 @@ test("reading a missing log yields no events and no recovery entry", async () =>
   });
 });
 
+test("bounded readAll refuses byte and record overflow before returning a partial history", async () => {
+  await withStore(async (store) => {
+    await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));
+    await store.append(makeEvent("RUN_STARTED", {}));
+    await assert.rejects(() => store.readAll({ maxBytes: 8, maxRecords: 10 }), /maxBytes/);
+    await assert.rejects(() => store.readAll({ maxBytes: 1_000_000, maxRecords: 1 }), /maxRecords/);
+  });
+});
+
 test("a crash-truncated final line is reported as recovery evidence", async () => {
   await withStore(async (store, stateRoot, runId) => {
     await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));

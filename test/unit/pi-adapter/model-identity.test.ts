@@ -43,6 +43,15 @@ async function collectOutcome(
 }
 
 describe("model identity resolution with slashed model ids", () => {
+  it("does not claim a singleton capability for the general Pi executor", () => {
+    const executor = new PiAgentExecutor({
+      providerId: "xhh-luna",
+      modelId: "gpt-5.6-luna-fast"
+    });
+
+    assert.equal("supportedModelIds" in executor, false);
+  });
+
   it("keeps a slashed model id whole when the executor pins its provider", async () => {
     const { models, calls } = recordingModels();
     const executor = new PiAgentExecutor({

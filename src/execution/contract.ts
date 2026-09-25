@@ -43,6 +43,8 @@ export type ExecutionEvent =
   | { type: "EXECUTION_FINISHED"; outcome: "SUCCESS" | "FAILURE" | "CANCELLED" };
 
 export interface AgentExecutor {
+  /** Concrete model refs this executor can resolve; absent means legacy/unconstrained. */
+  supportedModelIds?: readonly string[];
   execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent>;
   /**
    * Inject a user turn into the run that is in flight right now, to be picked

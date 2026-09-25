@@ -48,8 +48,6 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
       const eligible = scoped.length === 0 ? available : available.filter((model) =>
         scoped.some((entry) => entry.model.id === model.id && entry.model.provider === model.provider));
       const model = resolveNativeModel(eligible, params.model);
-      const provider = ctx.modelRegistry.getProvider(model.provider);
-      if (provider === undefined) throw new Error("Pi provider unavailable for delegated model");
       // Quality-first routing bridge: every eligible host model becomes a
       // catalog row so per-task assignment (static policy + learned routing)
       // can spread tasks across models instead of pinning one model.
@@ -83,8 +81,11 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         return { projector: createObservationProjector({ enabled: true, toolName: "sparkle_read_file" }) };
       })() : undefined;
       const executor = createNativeExecutor({
-        projectRoot: ctx.cwd, model, provider,
-        resolveAuth: () => ctx.modelRegistry.getApiKeyAndHeaders(model),
+        projectRoot: ctx.cwd,
+        defaultModel: model,
+        models: eligible,
+        streamSimple: (selected, context, options) =>
+          ctx.modelRegistry.streamSimple(selected, context, options),
         ...(observation !== undefined ? { observationProjector: observation.projector } : {})
       });
       const result = await session.delegate({

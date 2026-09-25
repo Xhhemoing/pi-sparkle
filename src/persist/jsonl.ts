@@ -15,6 +15,17 @@ export interface ReadJsonlOptions {
    * when a caller must repair without appending.
    */
   readonly repair?: boolean;
+  /** Refuse before allocating/reading when the remaining file exceeds this bound. */
+  readonly maxBytes?: number;
+  /** Refuse once this many complete non-empty records would be exceeded. */
+  readonly maxRecords?: number;
+}
+
+export class JsonlReadLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JsonlReadLimitError";
+  }
 }
 
 /**
@@ -109,10 +120,14 @@ export async function readJsonlObjectsFromOffset(
     throw new RangeError(`JSONL byte offset must be a non-negative integer, got ${byteOffset}`);
   }
   const repair = options.repair === true;
-  const buf = await readFile(filePath).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return Buffer.alloc(0);
-    throw error;
-  });
+  const maxBytes = validateReadLimit("maxBytes", options.maxBytes);
+  const maxRecords = validateReadLimit("maxRecords", options.maxRecords);
+  const buf = maxBytes === undefined
+    ? await readFile(filePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return Buffer.alloc(0);
+      throw error;
+    })
+    : await readFileBounded(filePath, byteOffset, maxBytes);
   if (byteOffset > buf.length) {
     return {
       values: [],
@@ -166,10 +181,15 @@ export async function readJsonlObjectsFromOffset(
     }
 
     try {
-      values.push(JSON.parse(parseLine) as unknown);
+      const parsed = JSON.parse(parseLine) as unknown;
+      if (maxRecords !== undefined && values.length >= maxRecords) {
+        throw new JsonlReadLimitError(`JSONL read exceeded maxRecords ${maxRecords}`);
+      }
+      values.push(parsed);
       keepBytes = segmentEnd;
       cursor = segmentEnd;
-    } catch {
+    } catch (error) {
+      if (error instanceof JsonlReadLimitError) throw error;
       if (isLast) {
         recovery.incompleteLine = parseLine;
         recovery.lineNumber = lineNumberBase + index;
@@ -190,6 +210,39 @@ export async function readJsonlObjectsFromOffset(
     fromByteOffset: byteOffset,
     completeByteLength: byteOffset + keepBytes
   };
+}
+
+function validateReadLimit(name: string, value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`JSONL ${name} must be a positive safe integer, got ${value}`);
+  }
+  return value;
+}
+
+async function readFileBounded(filePath: string, byteOffset: number, maxBytes: number): Promise<Buffer> {
+  const handle = await open(filePath, "r").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (handle === undefined) return Buffer.alloc(0);
+  try {
+    const size = (await handle.stat()).size;
+    const remaining = Math.max(0, size - byteOffset);
+    if (remaining > maxBytes) {
+      throw new JsonlReadLimitError(`JSONL read exceeded maxBytes ${maxBytes}: ${remaining}`);
+    }
+    const buffer = Buffer.alloc(remaining);
+    let read = 0;
+    while (read < remaining) {
+      const result = await handle.read(buffer, read, remaining - read, byteOffset + read);
+      if (result.bytesRead === 0) break;
+      read += result.bytesRead;
+    }
+    return buffer.subarray(0, read);
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function readJsonlObjects(

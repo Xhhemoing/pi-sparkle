@@ -9,12 +9,11 @@ test("host models become catalog rows with declared versions and unpriced defaul
   ];
   const catalog = buildNativeRoutingCatalog(models, { primary: "xhh/gpt-5.6-luna-fast", fast: "xhh/cursor-grok-4.6-fast" });
   const ids = catalog.config.models.map((model) => model.id);
-  // Host refs plus the cheap/premium aliases buildLiveCatalogConfig emits so
-  // policies referencing the aliases resolve against host models too.
-  assert.deepEqual(
-    [...ids].sort(),
-    ["cheap", "premium", "xhh/cursor-grok-4.6-fast", "xhh/gpt-5.6-luna-fast"]
-  );
+  assert.deepEqual([...ids].sort(), ["xhh/cursor-grok-4.6-fast", "xhh/gpt-5.6-luna-fast"]);
+  assert.deepEqual(catalog.aliases, {
+    cheap: "xhh/cursor-grok-4.6-fast",
+    premium: "xhh/gpt-5.6-luna-fast"
+  });
   for (const model of catalog.config.models) {
     assert.ok(typeof model.version === "string" && model.version.length > 0, "catalog version is mandatory");
     assert.ok(Number.isFinite(model.estimatedCostUsd));
@@ -27,6 +26,7 @@ test("host models become catalog rows with declared versions and unpriced defaul
   assert.equal(fast?.maxComplexity, "MEDIUM");
   assert.deepEqual(catalog.primary, "xhh/gpt-5.6-luna-fast");
   assert.deepEqual(catalog.fast, "xhh/cursor-grok-4.6-fast");
+  assert.equal(catalog.config.models[0]?.id, "xhh/gpt-5.6-luna-fast");
 });
 
 test("duplicate refs and malformed refs are refused", () => {
@@ -48,6 +48,40 @@ test("duplicate refs and malformed refs are refused", () => {
     () => buildNativeRoutingCatalog([{ ref: "xhh/m" }], {}),
     /primary/i,
     "no explicit primary and no preferred flag must fail closed"
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([
+      { ref: "xhh/a", preferred: true },
+      { ref: "xhh/b", preferred: true }
+    ], {}),
+    /multiple preferred/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([{ ref: " xhh/a ", preferred: true }], {}),
+    /canonical|whitespace/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([{ ref: "provider /model", preferred: true }], {}),
+    /canonical|whitespace/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([{ ref: "provider/ model", preferred: true }], {}),
+    /canonical|whitespace/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([{ ref: "xhh/a" }], { primary: "xhh/missing" }),
+    /primary.*eligible/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([{ ref: "xhh/a", preferred: true }], { primary: "xhh/a", fast: "xhh/missing" }),
+    /fast.*eligible/i
+  );
+  assert.throws(
+    () => buildNativeRoutingCatalog([
+      { ref: "xhh/a", preferred: true },
+      { ref: "xhh/b" }
+    ], { primary: "xhh/b" }),
+    /conflict/i
   );
 });
 

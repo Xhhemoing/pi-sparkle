@@ -30,6 +30,20 @@
 
 Exact files and focused commands are frozen by B0 after checking the existing inspection ownership; likely changes remain localized to `src/run/inspection.ts` and its existing unit/integration/CLI tests. Final acceptance needs a fresh independent review and does not close Stage 0, R10/R11, or F6.
 
+### 2026-09-25 D1 implementation note
+
+The existing JSONL/EventStore read path now accepts fail-closed `maxBytes` and
+`maxRecords` limits. A bounded byte read stats and reads through an open file
+handle only after confirming the remaining file fits; it does not load the
+whole file and then truncate the result. Inspection uses a 4 MiB / 20,000-event
+bound. `RunInspection` adds a read-only `evidenceGap` projection whose default
+host outcome is `UNOBSERVED`; an injected read-only resolver can remove a gap
+only with an observed frozen host outcome. It does not read
+`PrescoreInput.independentEvidence`, add events/storage, or mutate policies.
+`inspect --json` remains event-only NDJSON and `--summary-json` remains the
+frozen four-key object. Author-run evidence is recorded in
+[the D1 verification record](../../reports/2026-09-25-native-evidence-gap-d1.md).
+
 ## Superseded pre-review draft retained for provenance
 
 The N1/N2/N3 module, fixture, artifact and integration instructions below are historical draft material. N2's read-only intent is represented by D1; N1 and N3 are deferred outside the MVP.

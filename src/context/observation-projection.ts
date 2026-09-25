@@ -30,6 +30,8 @@ export interface ProjectObservationOptions {
   readonly enabled: boolean;
   readonly priorFullSends: number;
   readonly store: ObservationStore;
+  /** Reuse a ref already obtained for the exact-byte send counter. */
+  readonly observationRef?: ObservationRef | undefined;
 }
 
 function utf8Bytes(text: string): number {
@@ -41,7 +43,7 @@ function looksLikeEvidenceReceipt(input: ObservationInput): boolean {
   return input.text.includes(EVIDENCE_RECEIPT_MARKER);
 }
 
-function isEligible(input: ObservationInput): boolean {
+export function isObservationEligible(input: ObservationInput): boolean {
   if (!input.pureText) return false;
   if (input.isError) return false;
   if (looksLikeEvidenceReceipt(input)) return false;
@@ -122,7 +124,7 @@ export async function projectObservation(
   if (!options.enabled) {
     return { text: input.text, packed: false, reason: "disabled" };
   }
-  if (!isEligible(input)) {
+  if (!isObservationEligible(input)) {
     return { text: input.text, packed: false, reason: "ineligible" };
   }
 
@@ -134,7 +136,7 @@ export async function projectObservation(
 
   let ref: ObservationRef;
   try {
-    ref = await options.store.put(input.text);
+    ref = options.observationRef ?? await options.store.put(input.text);
   } catch {
     return { text: input.text, packed: false, reason: "storage-unavailable" };
   }

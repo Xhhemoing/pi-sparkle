@@ -46,6 +46,11 @@ export interface EventLogRead {
   completeByteLength: number;
 }
 
+export interface EventLogReadLimits {
+  readonly maxBytes: number;
+  readonly maxRecords: number;
+}
+
 export type EventLogReadMode = "incremental" | "full-fallback";
 
 export interface EventLogReadFromOffset extends EventLogRead {
@@ -139,11 +144,12 @@ export class EventStore {
     return run;
   }
 
-  async readAll(): Promise<EventLogRead> {
+  async readAll(limits?: EventLogReadLimits): Promise<EventLogRead> {
     const { values, recovery, completeByteLength } = await readJsonlObjectsFromOffset(
       this.eventsPath,
       0,
-      (lineNumber) => new DomainValidationError(`Corrupt event log line ${lineNumber}`)
+      (lineNumber) => new DomainValidationError(`Corrupt event log line ${lineNumber}`),
+      limits
     );
     return {
       events: values.map((value) => validateEvent(value)),

@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../../../src/agents/registry.js";
 import {
   createEventId,
+  createAgentInstanceId,
   createMessageId,
   createProjectId,
   createRunId,
@@ -32,6 +33,7 @@ import { EVENT_TYPES, validateEvent, type Event } from "../../../src/run/events.
 import { applyTrackingGate } from "../../../src/run/gate-apply.js";
 import {
   followRunEvents,
+  buildEvidenceGapView,
   gateBlockCause,
   inspectRun,
   isFollowStopStatus,
@@ -49,6 +51,39 @@ const UUID = () => "01234567-89ab-cdef-0123-456789abcdef";
  * CONTRACT_KEYS does keeps a reshuffle a deliberate edit rather than a drift.
  */
 const SUMMARY_CONTRACT_KEYS = ["type", "runId", "status", "requiredEvidence"];
+
+test("evidence-gap keeps child PASSED as UNOBSERVED until a host resolver observes it", () => {
+  const taskId = createTaskId(UUID);
+  const childRunId = createRunId(() => "11111111-2222-3333-4444-555555555555");
+  const terminalResult = resultMessage({
+    runId: childRunId,
+    taskId,
+    agentInstanceId: createAgentInstanceId(UUID),
+    prompt: "fixture",
+    workingDirectory: "."
+  }, "SUCCESS");
+  const children = [{
+    childRunId,
+    taskId,
+    outcome: "SUCCESS" as const,
+    attempts: 1,
+    messages: [terminalResult],
+    terminalResult,
+    timedOut: false
+  }];
+  const unresolved = buildEvidenceGapView(children, {
+    frozenRequirements: new Map([[taskId, ["criterion-review"]]])
+  });
+  assert.equal(unresolved.status, "UNOBSERVED");
+  assert.equal(unresolved.items[0]?.code, "missing-independent-verification");
+  assert.equal(unresolved.items[0]?.hostOutcome, "UNOBSERVED");
+  const resolved = buildEvidenceGapView(children, {
+    frozenRequirements: new Map([[taskId, ["criterion-review"]]]),
+    resolveHostOutcome: () => ({ status: "OBSERVED", outcome: "PASSED", evidenceRefs: ["evd_host"] })
+  });
+  assert.deepEqual(resolved.items, []);
+  assert.equal(resolved.status, "OBSERVED");
+});
 
 function sequenceGenerator(): () => string {
   let n = 0;

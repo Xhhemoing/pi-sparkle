@@ -3,10 +3,14 @@
 > **ADR-008 correction (2026-09-22):** the successor identity contract is opaque versioned locators plus exact-byte comparison; no SHA-256 or replacement cryptographic hash is selected. This child plan is still blocked on Stage 0 independent review and owner/evaluator freeze. Do not modify product code or collect live evidence before that gate.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` task-by-task. This plan is independent of the apply-boundary plan.
+>
+> **Implementation reconciliation (2026-09-22):** the author-run engineering slice was implemented on the dirty worktree under the existing owner instruction to continue bounded native hardening. The independent-review and owner/evaluator-freeze gates remain open; no live-provider collection or pilot authorization follows. Subsequent fail-closed corrections are recorded in [the verification report](../../reports/2026-09-22-projection-and-readonly-manifest.md).
+>
+> **Security-boundary correction (2026-09-25):** `secretBearing` is no longer a caller assertion. The projector derives sensitivity from the original read parameters/path and the returned text before any observation-store write. Missing or malformed read parameters fail closed. The author-run record is [2026-09-25 projection secret boundary](../../reports/2026-09-25-projection-secret-boundary.md); this still does not freeze Stage 0 or authorize a pilot.
 
 **Goal:** Make native observation projection identity-safe, fail-closed for non-projectable results, cumulatively budgeted, and measurable without changing the default-off contract.
 
-**Architecture:** Keep `ObservationStore` run-scoped with opaque versioned locators and exact-byte dedupe. Use an observation-store-backed exact-byte identity for the in-memory run-local send counter: identical bytes reuse the same opaque observation reference, while different bytes are never grouped by a prefix collision. Pass explicit projectability metadata from tool adapters; absent or unsafe metadata remains unprojected. Add a run-local recall budget above the existing per-page cap. Emit mechanism and cost-observation records without changing live routing or historical event contracts.
+**Architecture:** Keep `ObservationStore` run-scoped with opaque versioned locators and exact-byte dedupe. Use an observation-store-backed exact-byte identity for the in-memory run-local send counter: identical bytes reuse the same opaque observation reference, while different bytes are never grouped by a prefix collision. Pass explicit structural projectability metadata from tool adapters; derive secret sensitivity inside the projector from the original read parameters/path and returned text. Absent, malformed, or unsafe input remains unprojected. Add a run-local recall budget above the existing per-page cap. Emit mechanism and cost-observation records without changing live routing or historical event contracts.
 
 **Tech Stack:** TypeScript, Node fs, existing opaque-id `ObservationStore`, `projectObservation`, Pi `AgentTool` adapter, JSONL telemetry, Vitest-style project test runner.
 
@@ -34,14 +38,17 @@ interface ProjectabilityMetadata {
   isError: boolean;
   mutatesState: boolean;
   securityCritical: boolean;
-  secretBearing: boolean;
   toolKind: "read" | "write" | "permission" | "verification" | "other";
   toolPolicyProjectable: boolean;
 }
 ```
 
-Only `resultKind: "observation"` from a read tool with all safety booleans
-false and `toolPolicyProjectable: true` is projectable. Missing metadata fails
+Only `resultKind: "observation"` from a read tool with the structural safety
+booleans false and `toolPolicyProjectable: true` can be projectable. The
+projector then requires a valid read `path`, rejects credential-like paths
+(`.env*`, credential/auth files, private-key files and secret directories), and
+uses the shared secret detector on the result text. Callers cannot declare
+`secretBearing: false`. Missing metadata or unverifiable read parameters fail
 closed. The existing evidence-receipt marker remains a compatibility fallback
 and also forces ineligibility; it is not an authorization signal.
 
@@ -82,8 +89,10 @@ limit, and requested offset; it never silently truncates a receipt.
 
 - [ ] An observation-store-backed exact-byte identity is the send-counter key; a same-path middle-content mutation receives a fresh first-two window and distinct contents cannot collide through head/tail/length prefixing.
 - [ ] A large result with missing metadata, `isError`, `mutatesState`,
-  `securityCritical`, `secretBearing`, non-observation `resultKind`, a write or
-  verification `toolKind`, or false tool policy is never packed.
+  `securityCritical`, a credential-like or unverifiable read path, detected
+  secret content, non-observation `resultKind`, a write or verification
+  `toolKind`, or false tool policy is never packed. Secret-bearing status is
+  derived by the projector, not asserted by the caller.
 - [ ] Missing metadata fails closed; the existing receipt marker remains
   fail-closed.
 - [ ] Recall enforces the existing per-page caps plus the frozen run-local byte,

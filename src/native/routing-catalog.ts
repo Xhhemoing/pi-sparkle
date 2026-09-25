@@ -2,7 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { catalogModel, type CatalogModel } from "../routing/catalog-model.js";
 import type { ModelRouterConfig } from "../supervisor/model-router.js";
 import { defaultCliModelRouterConfig } from "../cli/model-catalog.js";
-import { tryParseModelRef } from "../config/model-ref.js";
+import { formatModelRef, tryParseModelRef } from "../config/model-ref.js";
 
 /**
  * Bridge the host Pi session's model registry onto the same live-catalog
@@ -38,10 +38,32 @@ export interface NativeRoutingCatalog {
   readonly primary: string;
   /** The fast/secondary id when a second model is eligible. */
   readonly fast: string;
+  /** Policy aliases resolved before assignment; never catalog rows or events. */
+  readonly aliases: Readonly<Record<string, string>>;
 }
 
 function fail(message: string): never {
   throw new DomainValidationError(message);
+}
+
+function requireCanonicalRef(value: string, label: string): void {
+  const parsed = tryParseModelRef(value);
+  if (parsed === undefined) {
+    fail(`${label} must be canonical provider/model: ${value}`);
+  }
+  let formatted: string;
+  try {
+    formatted = formatModelRef(parsed.providerId, parsed.modelId);
+  } catch {
+    fail(`${label} must be canonical provider/model: ${value}`);
+  }
+  if (
+    parsed.providerId !== parsed.providerId.trim() ||
+    parsed.modelId !== parsed.modelId.trim() ||
+    formatted !== value
+  ) {
+    fail(`${label} must be canonical provider/model without component whitespace: ${value}`);
+  }
 }
 
 export function buildNativeRoutingCatalog(
@@ -51,19 +73,25 @@ export function buildNativeRoutingCatalog(
   if (!Array.isArray(models) || models.length === 0) {
     fail("native routing catalog requires at least one eligible host model");
   }
-  const preferredRef = config.primary ?? models.find((model) => model.preferred)?.ref;
+  const preferredEntries = models.filter((model) => model.preferred === true);
+  if (preferredEntries.length > 1) fail("native routing catalog has multiple preferred models");
+  const declaredPreferred = preferredEntries[0]?.ref;
+  if (config.primary !== undefined && declaredPreferred !== undefined && config.primary !== declaredPreferred) {
+    fail(`native routing catalog primary conflicts with preferred model: ${config.primary} != ${declaredPreferred}`);
+  }
+  const preferredRef = config.primary ?? declaredPreferred;
   if (preferredRef === undefined) {
     fail("native routing catalog requires a primary (preferred) model ref");
   }
-  if (tryParseModelRef(preferredRef) === undefined) {
-    fail(`native routing catalog model refs must be provider/model: ${preferredRef}`);
-  }
+  requireCanonicalRef(preferredRef, "native routing catalog primary");
 
   const seen = new Set<string>();
-  const rows: CatalogModel[] = models.map((entry) => {
-    if (tryParseModelRef(entry.ref) === undefined) {
-      fail(`native routing catalog model refs must be provider/model: ${entry.ref}`);
-    }
+  // Equal estimated costs otherwise break the preferred-model tie by catalog
+  // order. Put the explicit primary first so a tied assignment stays on the
+  // model the single-model native executor can resolve.
+  const ordered = [...models].sort((left, right) => Number(right.ref === preferredRef) - Number(left.ref === preferredRef));
+  const rows: CatalogModel[] = ordered.map((entry) => {
+    requireCanonicalRef(entry.ref, "native routing catalog model ref");
     if (seen.has(entry.ref)) fail(`duplicate native catalog model ref: ${entry.ref}`);
     seen.add(entry.ref);
     const primary = entry.ref === preferredRef;
@@ -83,29 +111,25 @@ export function buildNativeRoutingCatalog(
       approvedForHighRisk: primary
     });
   });
+  if (!seen.has(preferredRef)) {
+    fail(`native routing catalog primary must be an eligible model: ${preferredRef}`);
+  }
 
   const fastRef = config.fast ?? models.find((model) => !model.preferred && model.ref !== preferredRef)?.ref ?? preferredRef;
+  requireCanonicalRef(fastRef, "native routing catalog fast model");
+  if (!seen.has(fastRef)) {
+    fail(`native routing catalog fast model must be an eligible model: ${fastRef}`);
+  }
 
   const base = defaultCliModelRouterConfig();
-  // Mirrors `buildLiveCatalogConfig`: the primary is aliased as `premium`
-  // (and the secondary as `cheap`) so flowchart/assignment policies that
-  // reference the aliases can resolve against the host models too.
-  const rowsWithAliases = [...rows];
-  const primaryRow = rows.find((row) => row.id === preferredRef);
-  if (primaryRow !== undefined && !rowsWithAliases.some((row) => row.id === "premium")) {
-    rowsWithAliases.push({ ...primaryRow, id: "premium" });
-  }
-  const fastRow = rows.find((row) => row.id === fastRef);
-  if (fastRow !== undefined && fastRef !== preferredRef && !rowsWithAliases.some((row) => row.id === "cheap")) {
-    rowsWithAliases.push({ ...fastRow, id: "cheap" });
-  }
   return {
     config: {
       ...base,
-      models: rowsWithAliases,
+      models: rows,
       policyVersion: "router-v1-native"
     },
     primary: preferredRef,
-    fast: fastRef
+    fast: fastRef,
+    aliases: { cheap: fastRef, premium: preferredRef }
   };
 }

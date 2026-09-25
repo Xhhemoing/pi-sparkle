@@ -3,7 +3,7 @@ import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/regi
 import { createTaskId, type RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
-import { assignTasks } from "../routing/assign.js";
+import { assignTasks, type TaskAssignment } from "../routing/assign.js";
 import { startParentRun, type RunningRun } from "../run/coordinator.js";
 import type { ObservationProjector } from "../pi-adapter/observation-tools.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
@@ -57,6 +57,38 @@ export interface NativeDelegateResult {
   readonly text: string;
 }
 
+function canonicalModel(catalog: NativeRoutingCatalog, modelId: string): string {
+  return catalog.aliases[modelId] ?? modelId;
+}
+
+function canonicalLearnedPolicy(
+  catalog: NativeRoutingCatalog,
+  learned: LearnedRoutingPolicy | undefined
+): LearnedRoutingPolicy | undefined {
+  if (learned === undefined) return undefined;
+  return {
+    primaryModelId: canonicalModel(catalog, learned.primaryModelId),
+    avoid: learned.avoid.map((entry) => ({ ...entry, modelId: canonicalModel(catalog, entry.modelId) })),
+    prefer: learned.prefer.map((entry) => ({ ...entry, modelId: canonicalModel(catalog, entry.modelId) })),
+    ...(learned.assignments !== undefined ? {
+      assignments: learned.assignments.map((entry) => ({ ...entry, model: canonicalModel(catalog, entry.model) }))
+    } : {})
+  };
+}
+
+function canonicalAssignment(catalog: NativeRoutingCatalog, assignment: TaskAssignment): TaskAssignment {
+  return {
+    ...assignment,
+    allowedModels: assignment.allowedModels.map((model) => canonicalModel(catalog, model)),
+    preferredModel: canonicalModel(catalog, assignment.preferredModel),
+    decision: {
+      ...assignment.decision,
+      model: canonicalModel(catalog, assignment.decision.model),
+      eligibleModels: assignment.decision.eligibleModels.map((model) => canonicalModel(catalog, model))
+    }
+  };
+}
+
 /** Owns only explicit delegated runs, never the ambient Pi transcript. */
 export class NativeSession {
   private readonly active = new Set<RunningRun>();
@@ -88,14 +120,35 @@ export class NativeSession {
             objective: task.objective
           })),
           catalog: input.routing.catalog.config,
-          ...(input.routing.learned !== undefined ? { learned: input.routing.learned } : {})
-        });
+          ...(input.routing.learned !== undefined ? {
+            learned: canonicalLearnedPolicy(input.routing.catalog, input.routing.learned)
+          } : {})
+        }).map((assignment) => canonicalAssignment(input.routing!.catalog, assignment));
     const routedModelId = (index: number): string =>
       routedModelIds?.find((assignment) => assignment.taskId === createTaskId(() => `route_${index}`))?.decision.model ?? modelId;
+    if (input.routing !== undefined) {
+      if (input.executor.supportedModelIds === undefined) {
+        throw new DomainValidationError(
+          "native routing executor must declare supportedModelIds capability before persistence"
+        );
+      }
+      const capability = new Set(input.executor.supportedModelIds);
+      const uncovered = input.routing.catalog.config.models
+        .map((entry) => entry.id)
+        .find((catalogModel) => !capability.has(catalogModel));
+      if (uncovered !== undefined) {
+        throw new DomainValidationError(
+          `executor capability does not cover native routing catalog model ${uncovered}; refusing to persist`
+        );
+      }
+    }
     const progress = (text: string) => { try { input.onProgress?.(text); } catch { /* UI cannot fail a run. */ } };
     const executor: AgentExecutor = {
       async *execute(request, signal) {
-        progress(`Running ${request.taskId} with ${modelId}`);
+        const requestModel = request.providerId !== undefined && request.modelId !== undefined
+          ? `${request.providerId}/${request.modelId}`
+          : request.modelId ?? modelId;
+        progress(`Running ${request.taskId} with ${requestModel}`);
         for await (const event of input.executor.execute(request, signal)) {
           if (event.type === "TOOL_STARTED") progress(`${request.taskId}: ${event.toolName}`);
           yield event;

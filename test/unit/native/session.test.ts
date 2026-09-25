@@ -6,7 +6,7 @@ import { test } from "node:test";
 import * as native from "../../../src/native/session.js";
 import { GatedExecutor, ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { EventStore } from "../../../src/run/event-store.js";
-import type { AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
+import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import type { MessageId } from "../../../src/domain/ids.js";
 
 async function roots(body: (root: string) => Promise<void>) {
@@ -67,6 +67,7 @@ test("per-task routing: catalog + learned avoid routes the second task to a diff
     // inside delegate).
     const session = new native.NativeSession();
     const progress: string[] = [];
+    const protocol = new ProtocolChildExecutor();
     const result = await session.delegate({
       projectRoot: root, stateRoot: join(root, "state"),
       model: { provider: "xhh", id: "gpt-5.6-luna-fast" },
@@ -74,7 +75,10 @@ test("per-task routing: catalog + learned avoid routes the second task to a diff
         { role: "scout", objective: "Locate the entry point and inspect the parser module" },
         { role: "reviewer", objective: "Check the boundary conditions of the parser" }
       ],
-      executor: new ProtocolChildExecutor(),
+      executor: {
+        supportedModelIds: [primary, secondary],
+        execute: (request, signal) => protocol.execute(request, signal)
+      },
       onProgress: (text) => progress.push(text),
       routing: { catalog, learned }
     });
@@ -85,6 +89,164 @@ test("per-task routing: catalog + learned avoid routes the second task to a diff
     assert.ok(routed.length === 2, `expected per-task MODEL_ROUTED rows, got ${routed.length}`);
     const routedModels = new Set(routed.map((e) => (e.payload as unknown as { model: string }).model));
     assert.ok(routedModels.size >= 1, "models recorded");
+    await session.shutdown();
+  });
+});
+
+test("native routing canonicalizes cheap policy aliases before and after assignment", async () => {
+  const { buildNativeRoutingCatalog } = await import("../../../src/native/routing-catalog.js");
+  const { parseLearnedRoutingPolicy } = await import("../../../src/learning/learned-routing.js");
+  await roots(async (root) => {
+    const primary = "provider-a/primary";
+    const secondary = "provider-b/secondary";
+    const catalog = buildNativeRoutingCatalog(
+      [{ ref: primary, preferred: true }, { ref: secondary }],
+      { primary, fast: secondary }
+    );
+    const learned = parseLearnedRoutingPolicy(JSON.stringify({
+      primaryModelId: "premium",
+      avoid: [],
+      prefer: [{ family: "review", modelId: "cheap" }],
+      assignments: [{ role: "reviewer", family: "review", model: "cheap" }]
+    }));
+    const seen: string[] = [];
+    const executor: AgentExecutor = {
+      supportedModelIds: [primary, secondary],
+      async *execute(request) {
+        seen.push(`${request.providerId}/${request.modelId}`);
+        yield* new ProtocolChildExecutor().execute(request, new AbortController().signal);
+      }
+    };
+    const session = new native.NativeSession();
+    const progress: string[] = [];
+    const result = await session.delegate({
+      projectRoot: root,
+      stateRoot: join(root, "state"),
+      model: { provider: "provider-a", id: "primary" },
+      tasks: [{ role: "reviewer", objective: "Review this boundary" }],
+      executor,
+      routing: { catalog, learned },
+      onProgress: (message) => progress.push(message)
+    });
+    assert.equal(result.status, "COMPLETED");
+    assert.deepEqual(seen, [secondary]);
+    assert.ok(progress.some((message) => message.includes(secondary)));
+    assert.ok(progress.every((message) => !/\bcheap\b|\bpremium\b/.test(message)));
+    const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
+    const routed = events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.deepEqual(routed.map((event) => (event.payload as { model: string }).model), [secondary]);
+    assert.deepEqual(routed.map((event) => (event.payload as { eligibleModels: readonly string[] }).eligibleModels), [[primary, secondary]]);
+    await session.shutdown();
+  });
+});
+
+test("routing refuses an executor whose capability omits any catalog model before persistence", async () => {
+  const { buildNativeRoutingCatalog } = await import("../../../src/native/routing-catalog.js");
+  await roots(async (root) => {
+    const primary = "provider-a/primary";
+    const secondary = "provider-b/secondary";
+    const catalog = buildNativeRoutingCatalog(
+      [{ ref: primary, preferred: true }, { ref: secondary }],
+      { primary, fast: secondary }
+    );
+    const executor: AgentExecutor = {
+      supportedModelIds: [primary],
+      execute() { throw new Error("executor must not start"); }
+    };
+    const session = new native.NativeSession();
+    await assert.rejects(() => session.delegate({
+      projectRoot: root,
+      stateRoot: join(root, "state"),
+      model: { provider: "provider-a", id: "primary" },
+      tasks: [{ role: "scout", objective: "Inspect" }],
+      executor,
+      routing: { catalog }
+    }), /capability.*catalog|catalog.*capability/i);
+    await assert.rejects(() => session.delegate({
+      projectRoot: root,
+      stateRoot: join(root, "state"),
+      model: { provider: "provider-a", id: "primary" },
+      tasks: [{ role: "scout", objective: "Inspect" }],
+      executor: { execute() { throw new Error("executor must not start"); } },
+      routing: { catalog }
+    }), /must declare.*capability|capability.*required/i);
+    assert.equal(await readdir(join(root, "state")).then(() => true, () => false), false);
+    await session.shutdown();
+  });
+});
+
+test("single-model native executors refuse learned reassignment before starting a run", async () => {
+  const { buildNativeRoutingCatalog } = await import("../../../src/native/routing-catalog.js");
+  const { parseLearnedRoutingPolicy } = await import("../../../src/learning/learned-routing.js");
+  await roots(async (root) => {
+    const primary = "xhh-luna/gpt-5.6-luna-fast";
+    const secondary = "agentrouter/gpt-6-astra";
+    const catalog = buildNativeRoutingCatalog(
+      [{ ref: primary, preferred: true }, { ref: secondary }],
+      { primary }
+    );
+    const learned = parseLearnedRoutingPolicy(JSON.stringify({
+      primaryModelId: primary,
+      avoid: [],
+      prefer: [{ family: "review", modelId: secondary }]
+    }));
+    const executor: AgentExecutor = {
+      supportedModelIds: [primary],
+      execute() {
+        throw new Error("executor must not start");
+      }
+    };
+    const session = new native.NativeSession();
+    await assert.rejects(
+      () => session.delegate({
+        projectRoot: root,
+        stateRoot: join(root, "state"),
+        model: { provider: "xhh-luna", id: "gpt-5.6-luna-fast" },
+        tasks: [{ role: "reviewer", objective: "Review the boundary" }],
+        executor,
+        routing: { catalog, learned }
+      }),
+      /capability.*catalog|catalog.*capability/i
+    );
+    assert.equal(await readdir(join(root, "state")).then(() => true, () => false), false);
+    await session.shutdown();
+  });
+});
+
+test("explicit delegate model is not reassigned when catalog costs are tied", async () => {
+  const { buildNativeRoutingCatalog } = await import("../../../src/native/routing-catalog.js");
+  await roots(async (root) => {
+    const preferred = "xhh-luna/gpt-5.6-luna-fast";
+    const other = "agentrouter/gpt-6-astra";
+    const catalog = buildNativeRoutingCatalog(
+      [
+        { ref: other },
+        { ref: preferred, preferred: true }
+      ],
+      { primary: preferred }
+    );
+    const seen: string[] = [];
+    const executor: AgentExecutor = {
+      supportedModelIds: [preferred, other],
+      async *execute(request: AgentExecutionRequest) {
+        seen.push(`${request.providerId ?? ""}/${request.modelId ?? ""}`);
+        yield* new ProtocolChildExecutor().execute(request, new AbortController().signal);
+      }
+    };
+    const session = new native.NativeSession();
+    const result = await session.delegate({
+      projectRoot: root,
+      stateRoot: join(root, "state"),
+      model: { provider: "xhh-luna", id: "gpt-5.6-luna-fast" },
+      tasks: [{ role: "reviewer", objective: "Read-only review of the draft boundary. Do not edit files." }],
+      executor,
+      routing: { catalog }
+    });
+    assert.equal(result.status, "COMPLETED");
+    assert.deepEqual(seen, [preferred]);
+    const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
+    const routed = events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.deepEqual(routed.map((event) => (event.payload as { model: string }).model), [preferred]);
     await session.shutdown();
   });
 });
@@ -123,7 +285,14 @@ test("delegation with observation projection: reads pack after two full sends, r
     const worker: AgentExecutor = {
       async *execute(request) {
         for (let send = 0; send < 3; send++) {
-          const projected = await projector.project({ sourceId: `read-${send}`, text: dense });
+          const projected = await projector.project({ sourceId: `read-${send}`, text: dense, toolParams: { path: "src/safe-observation.txt" }, projectability: {
+            resultKind: "observation",
+            isError: false,
+            mutatesState: false,
+            securityCritical: false,
+            toolKind: "read",
+            toolPolicyProjectable: true
+          } });
           sentTexts.push(projected.text);
         }
         const packed = sentTexts[2]!;
