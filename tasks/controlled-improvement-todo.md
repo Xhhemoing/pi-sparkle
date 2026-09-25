@@ -17,7 +17,7 @@ ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: c
 | S0-min | boundary owner + reviewer | B0 | planned | freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer; hard dependency of L1 |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
 | L2 | evidence builder | D1, L1 | planned | merged former E2/E3 `historical-candidate-view`, candidate-only and read-only with respect to active policy |
-| final review | coordinator + fresh reviewer | L2 | in-progress-for-current-slice | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict |
+| final review | coordinator + fresh reviewer | L2 | planned | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict; the current integrated re-review is not this post-L2 final review |
 
 Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance, registry activation and formal promotion. No global lifecycle long lock may be added before B0's lock graph and a separately reviewed transaction design. R10/R11 and F6 remain independent open/parked gates and are not completion criteria for this read-only MVP.
 
@@ -28,7 +28,7 @@ Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance,
 - [ ] S0-min is frozen by the responsible owner/reviewer before L1 acceptance; fixtures do not substitute for the freeze.
 - [ ] L1 stores/reads the host outcome only through neutral evaluation/feedback schema and fails closed on missing/deleted/mismatched evidence.
 - [ ] L2 combines compatibility-window selection and historical candidate diagnosis into one candidate-only view; it cannot approve, promote, activate or route.
-- [ ] Final review records commands and actual verdict; until then review status remains REQUEST CHANGES and every item remains planned.
+- [ ] Final review records commands and actual verdict; until then review status remains REQUEST CHANGES and no item is accepted.
 
 ## Superseded same-day pre-review checklist retained for provenance
 

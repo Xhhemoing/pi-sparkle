@@ -3,6 +3,7 @@
 ## Identity
 
 - Branch: `codex/controlled-improvement-20260925`.
+- Corrected integrated candidate: `8e7de99b3d3b196e3b23807d52e4f6b8b59d57dc`.
 - Date/environment: 2026-09-25, Windows, `E:\Project\pi-sparkle`.
 - Scope: reconcile the workspace around the corrected critical path and finish the current native bridge, projection safety, pre-S0 read-only evaluator-manifest candidate, and D1 bounded diagnosis author candidate.
 
