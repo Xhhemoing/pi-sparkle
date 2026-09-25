@@ -10,7 +10,7 @@
 
 ## 2026-09-25 independent review correction (controlling)
 
-本节记录同日后续独立审查的 **REQUEST CHANGES** 及修订结果。它取代本文件后续保留的 pre-review CI/E/N DAG 与 MVP 范围；后续旧段落仅用于说明草案如何形成，不能作为派工依据。所有实现项仍为 `planned`，本次修订没有得到新的独立 PASS。
+本节记录同日后续独立审查的 **REQUEST CHANGES** 及修订结果。它取代本文件后续保留的 pre-review CI/E/N DAG 与 MVP 范围；后续旧段落仅用于说明草案如何形成，不能作为派工依据。B0 与 D1 已形成作者候选并通过作者门禁，但尚未获得独立接受；S0-min、L1、L2 仍为 `planned`，Stage 0 未批准、未冻结。
 
 ### Corrected MVP and critical path
 
@@ -43,12 +43,12 @@ flowchart TD
 
 | Task | Depends on | Deliverable | State |
 |---|---|---|---|
-| B0 | none | reproducible baseline, ownership leases, current lock graph, Stage 0 canonicalizer location | planned |
-| D1 | B0 | on-demand `EventStore`/inspection evidence-gap, read-only and non-persistent | planned |
+| B0 | none | reproducible baseline, ownership leases, current lock graph, Stage 0 canonicalizer location | ready-for-review |
+| D1 | B0 | on-demand `EventStore`/inspection evidence-gap, read-only and non-persistent | author-candidate-unreviewed |
 | S0-min | B0 | frozen neutral host outcome DTO/source/failure/canonicalization contract | planned |
 | L1 | S0-min | neutral evaluation/feedback persistence and bounded eligible-history reader | planned |
 | L2 | D1, L1 | candidate-only historical view; no activation or promotion | planned |
-| final review | L2 | focused/gate evidence plus fresh independent verdict | planned |
+| final review | L2 | focused/gate evidence plus fresh independent verdict | in-progress-for-current-slice |
 
 ## Superseded pre-review draft retained for provenance
 
