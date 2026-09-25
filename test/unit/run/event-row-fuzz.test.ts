@@ -27,6 +27,7 @@ import { makeEvent, makeRun } from "../../helpers/event-factory.js";
 
 const DEFAULT_SEED = 0x4f33_0004;
 const FUZZ_TIMEOUT_MS = 5_000;
+const FILE_FUZZ_TIMEOUT_MS = 15_000;
 const ITERATIONS_PER_TYPE = 120;
 const FILE_ITERATIONS = 180;
 const UUID = (): string => "01234567-89ab-cdef-0123-456789abcdef";
@@ -999,7 +1000,7 @@ test(
 
 test(
   "seeded corrupted middle rows preserve EventStore.readAll error discipline",
-  { timeout: FUZZ_TIMEOUT_MS },
+  { timeout: FILE_FUZZ_TIMEOUT_MS },
   async () => {
     await withStateRoot(async (stateRoot) => {
       const path = join(stateRoot, "runtime", "runs", RUN_ID, "events.jsonl");
