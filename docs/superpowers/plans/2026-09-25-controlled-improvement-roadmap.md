@@ -48,7 +48,7 @@ flowchart TD
 | S0-min | B0 | frozen neutral host outcome DTO/source/failure/canonicalization contract | planned |
 | L1 | S0-min | neutral evaluation/feedback persistence and bounded eligible-history reader | planned |
 | L2 | D1, L1 | candidate-only historical view; no activation or promotion | planned |
-| final review | L2 | focused/gate evidence plus fresh independent verdict | in-progress-for-current-slice |
+| final review | L2 | focused/gate evidence plus fresh independent verdict | planned |
 
 ## Superseded pre-review draft retained for provenance
 
