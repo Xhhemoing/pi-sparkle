@@ -4,7 +4,7 @@
 
 - Branch: `codex/controlled-improvement-20260925`.
 - Date/environment: 2026-09-25, Windows, `E:\Project\pi-sparkle`.
-- Scope: reconcile the workspace around the corrected critical path and finish the current native bridge, projection safety, S0-min manifest candidate, and D1 bounded diagnosis slices.
+- Scope: reconcile the workspace around the corrected critical path and finish the current native bridge, projection safety, pre-S0 read-only evaluator-manifest candidate, and D1 bounded diagnosis author candidate.
 
 ## Delivered behavior
 
@@ -31,11 +31,11 @@
 ## Review and open gates
 
 - The corrected native multi-model bridge received fresh independent specification and quality PASS reviews. The final capability-freeze and scope-exclusion minors are covered by the combined focused set and full gate.
-- Projection, S0-min, and D1 have author-run command evidence. A fresh independent integrated review remains required before treating the combined workspace as independently accepted.
-- S0-min remains a candidate, not an owner-frozen manifest. The D1 host-outcome resolver remains intentionally unconnected until S0-min/L1 supplies a frozen neutral host outcome.
+- Projection, the read-only evaluator-manifest candidate, and D1 have author-run command evidence. B0 and D1 acceptance remain open, and a fresh independent integrated review remains required before treating the combined workspace as independently accepted.
+- The read-only evaluator manifest is pre-S0 evidence, not the S0-min freeze. S0-min must still freeze the host-owned terminal outcome DTO, trusted source/binding rules, failure attribution, and the single canonicalizer. The D1 host-outcome resolver remains intentionally unconnected until S0-min/L1 supplies that frozen neutral host outcome.
 - No live-provider run, exploratory pilot, production apply authorization, F6/F-PROD closure, or Outcome-supported claim follows from this gate.
 
 ## Handoff
 
-- Next implementation dependency: obtain the owner/reviewer Stage 0 freeze, then connect L1 to the frozen neutral host-outcome contract and build the candidate-only L2 historical view.
+- Controlling sequence: accept B0, review D1 in isolation while obtaining the owner/reviewer S0-min freeze, then connect L1 to the frozen neutral host-outcome contract and build the candidate-only L2 historical view.
 - Related records: [native bridge](2026-09-25-native-multimodel-bridge.md), [projection boundary](2026-09-25-projection-secret-boundary.md), [read-only evaluator](2026-09-25-readonly-evaluator-candidate.md), and [D1 evidence gap](2026-09-25-native-evidence-gap-d1.md).
