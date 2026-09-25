@@ -2,9 +2,14 @@
 
 ## Identity
 
+- Reviewer: independent read-only reviewer task `/root/integrated_slice_verify`.
+- Record owner: coordinator.
+- Review channel/method: multi-agent independent read-only review against the exact repository revision.
 - Reviewed revision: `7d7cd59bb313f53c605d6e9988be910bfe5e3ec8`.
 - Primary implementation revision: `8e7de99b3d3b196e3b23807d52e4f6b8b59d57dc`.
 - Baseline under correction: `9b9fbeec`.
+- Draft status/review bundle revision: `09bbee48b1d1c6be1ad60c5e09d001129f916d8d`.
+- Provenance-bearing review record revision: `PENDING_BINDING_COMMIT`.
 - Date/environment: 2026-09-25, Windows, `E:\Project\pi-sparkle`.
 - Verdict: **PASS** for the corrected current slice; no Critical, Important, or Minor findings.
 
@@ -32,13 +37,18 @@ or freeze Stage 0.
 
 | Command/evidence | Result |
 |---|---|
-| Independent seven-file focused command | 90 passed, 0 failed |
+| `pnpm test -- --test-concurrency=1 test/unit/native/session.test.ts test/unit/persist/jsonl-offset.test.ts test/unit/pi-adapter/native-executor.test.ts test/unit/pi-adapter/observation-tools.test.ts test/unit/pi-adapter/worktree-coding-tools.test.ts test/unit/run/event-store.test.ts test/unit/run/inspection.test.ts` | Independent reviewer: 90 passed, 0 failed, 0 skipped |
 | Independent `pnpm typecheck` | PASS |
-| Independent `pnpm workflow:check` | PASS |
-| Author `pnpm gate` on the implementation candidate | 2879 passed, 0 failed, 18 skipped; build PASS |
-| Author `pnpm security:probe` | 26 passed, 0 open findings, 0 refused waivers |
-| Author `pnpm pi:probe` | 4 PASS checks |
-| Final contract-only delta `git diff --check` | PASS |
+| Independent `pnpm workflow:check` | PASS (`10 required files, 16 required headings`) |
+| Independent `git diff --check` and `git diff --check 7d7cd59b..09bbee48` | PASS |
+| Author `pnpm gate` on the implementation candidate | 2879 passed, 0 failed, 18 skipped; build PASS; cited from the author verification record and not independently rerun here |
+| Author `pnpm security:probe` | 26 passed, 0 open findings, 0 refused waivers; cited from the author verification record and not independently rerun here |
+| Author `pnpm pi:probe` | 4 PASS checks; cited from the author verification record and not independently rerun here |
+
+The reviewer first attempted `pnpm exec vitest`, which is not this repository's
+test runner and failed because Vitest is not installed. That non-applicable
+attempt is excluded from product evidence; the repository's declared test
+command above was then run successfully.
 
 ## Remaining gates
 
