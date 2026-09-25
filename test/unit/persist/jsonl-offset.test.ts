@@ -88,3 +88,15 @@ test("truncated tail after an offset is recovery, and repair keeps the prefix by
     assert.equal(read.completeByteLength, offset);
   });
 });
+
+test("bounded reads with a non-zero offset fail closed instead of misreading a tail buffer", async () => {
+  await withTempFile(async (path) => {
+    const first = `${JSON.stringify({ n: 1 })}\n`;
+    await writeFile(path, `${first}${JSON.stringify({ n: 2 })}\n`);
+    const offset = Buffer.byteLength(first, "utf8");
+    await assert.rejects(
+      () => readJsonlObjectsFromOffset(path, offset, (line) => new Error(`corrupt ${line}`), { maxBytes: 1024 }),
+      /bounded JSONL reads require byteOffset 0/
+    );
+  });
+});

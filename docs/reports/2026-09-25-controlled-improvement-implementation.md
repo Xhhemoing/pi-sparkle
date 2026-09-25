@@ -8,30 +8,30 @@
 
 ## Delivered behavior
 
-- Native routing uses one eligible host-model snapshot for catalog, capability, and dispatch; aliases canonicalize before persistence; credentials remain host-owned; model snapshots and the capability array are runtime-frozen.
-- Observation projection derives sensitivity from the read request and content before storage, refuses credential-like paths/content, and returns a structured recall-budget refusal.
+- Native routing uses one eligible host-model snapshot for catalog and capability; dispatch resolves back to the unchanged host model after an identity-drift check. Capability snapshots omit `Model.headers`, so request credentials are neither read nor copied into the bridge.
+- Observation projection derives sensitivity from both the requested path and the read tool's canonical root-relative target before storage, refuses credential-like paths/content (including auth YAML, singular `secret/`, `.ppk`, and in-root aliases into sensitive directories), and returns a structured recall-budget refusal.
 - The read-only evaluator manifest candidate is detached and recursively frozen, validates opaque identities and B/C routing parity, rejects duplicate ledger tasks, and binds results without authorizing a pilot.
-- EventStore/JSONL now supports real fail-closed byte/record limits. Inspection reads at 4 MiB/20,000 events and exposes a read-only evidence-gap view in prose while preserving pure event NDJSON and the four-key summary JSON contract.
+- EventStore/JSONL now supports real fail-closed byte/record limits, rejects bounded non-zero-offset reads until that contract is implemented, and rejects valid foreign-run events read from another run path. Inspection reads at 4 MiB/20,000 events and requires a non-empty host evidence reference before closing a read-only evidence gap.
+- Native result text attributes the canonical model ids actually assigned to tasks. Corrupt learned-routing registry state fails closed before provider calls or run persistence; an absent registry still means no learned policy.
 - Local root artifacts were moved under `.agent_workspace/archived/`; the local pnpm store is ignored.
 
 ## Verification
 
 | Command | Result |
 |---|---|
-| Combined focused native/projection/evaluator set | 56 passed, 0 failed |
-| D1 EventStore/inspection set | 43 passed, 0 failed |
+| Corrected focused native/projection/D1 set | 71 passed, 0 failed |
 | `pnpm typecheck` | PASS |
 | `pnpm lint` | PASS |
 | `pnpm workflow:check` | PASS |
 | `pnpm security:probe` | 26 passed, 0 open findings, 0 refused waivers |
 | `pnpm pi:probe` | 4 PASS checks on Pi 0.86.1 pins/import boundary |
-| `pnpm gate` | 2874 passed, 0 failed, 18 skipped; build PASS |
+| `pnpm gate` | 2879 passed, 0 failed, 18 skipped; build PASS |
 | `git diff --check` | PASS; only existing CRLF normalization warnings |
 
 ## Review and open gates
 
-- The corrected native multi-model bridge received fresh independent specification and quality PASS reviews. The final capability-freeze and scope-exclusion minors are covered by the combined focused set and full gate.
-- Projection, the read-only evaluator-manifest candidate, and D1 have author-run command evidence. B0 and D1 acceptance remain open, and a fresh independent integrated review remains required before treating the combined workspace as independently accepted.
+- An independent integrated review of `9b9fbeec` returned **REQUEST CHANGES** on credential-bearing model snapshots, canonical sensitive-path handling, empty D1 evidence references, actual-model attribution, learned-routing error swallowing, and contradictory status records. The code findings are corrected in the current candidate and the author-run focused/full gates are green; fresh independent re-review is still pending.
+- Projection, the read-only evaluator-manifest candidate, and D1 have author-run command evidence. B0 and D1 acceptance remain open; no earlier bridge-only PASS is treated as acceptance of these corrected bytes.
 - The read-only evaluator manifest is pre-S0 evidence, not the S0-min freeze. S0-min must still freeze the host-owned terminal outcome DTO, trusted source/binding rules, failure attribution, and the single canonicalizer. The D1 host-outcome resolver remains intentionally unconnected until S0-min/L1 supplies that frozen neutral host outcome.
 - No live-provider run, exploratory pilot, production apply authorization, F6/F-PROD closure, or Outcome-supported claim follows from this gate.
 

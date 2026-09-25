@@ -66,7 +66,7 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
           })),
           { primary: `${model.provider}/${model.id}` }
         );
-        const learned = await loadLearnedRouting(stateRoot, ctx.cwd).catch(() => undefined);
+        const learned = await loadLearnedRouting(stateRoot, ctx.cwd);
         return { catalog, ...(learned !== undefined ? { learned } : {}) };
       })() : undefined;
       // Opt-in context efficiency (TASK-20260920-native-observation-projection):

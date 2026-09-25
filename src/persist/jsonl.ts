@@ -122,6 +122,9 @@ export async function readJsonlObjectsFromOffset(
   const repair = options.repair === true;
   const maxBytes = validateReadLimit("maxBytes", options.maxBytes);
   const maxRecords = validateReadLimit("maxRecords", options.maxRecords);
+  if (maxBytes !== undefined && byteOffset !== 0) {
+    throw new RangeError("bounded JSONL reads require byteOffset 0");
+  }
   const buf = maxBytes === undefined
     ? await readFile(filePath).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return Buffer.alloc(0);

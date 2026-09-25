@@ -30,6 +30,9 @@ test("coding tools actually read and write inside the worktree", async () => {
   const readOut = await read.execute("tc1", { path: "src/hello.txt" });
   assert.equal(readOut.content[0]?.type, "text");
   assert.equal((readOut.content[0] as { text: string }).text, "hi\n");
+  assert.deepEqual(readOut.details, {
+    resolvedPath: "src/hello.txt"
+  });
 
   const write = await toolByName(root, "sparkle_write_file");
   await write.execute("tc2", { path: "src/hello.txt", contents: "edited\n" });

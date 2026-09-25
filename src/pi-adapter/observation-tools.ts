@@ -43,6 +43,8 @@ export interface ProjectInput {
   readonly evidenceReceipt?: boolean | undefined;
   /** Original tool arguments. Read projection derives path sensitivity here. */
   readonly toolParams?: unknown;
+  /** Tool-resolved canonical path; callers cannot supply this trust signal. */
+  readonly resolvedReadPath?: string | undefined;
   /** Absent metadata fails closed and is never projected. */
   readonly projectability?: ProjectabilityMetadata | undefined;
 }
@@ -209,10 +211,11 @@ function isSensitiveReadPath(params: unknown): boolean {
   const basename = segments.at(-1);
   if (basename === undefined) return true;
   if (SENSITIVE_EXACT_NAMES.has(basename)) return true;
+  if (/^auth(?:[._-].*)?$/.test(basename)) return true;
   if (basename.startsWith(".env.")) return true;
   if (/^(?:credential|credentials|secret|secrets)(?:[._-].*)?$/.test(basename)) return true;
-  if (/\.(?:key|pem|p12|pfx)$/.test(basename)) return true;
-  return segments.some((segment) => segment === ".ssh" || segment === ".aws" || segment === "secrets");
+  if (/\.(?:key|pem|p12|pfx|ppk)$/.test(basename)) return true;
+  return segments.some((segment) => segment === ".ssh" || segment === ".aws" || segment === "secret" || segment === "secrets");
 }
 
 function containsSecretContent(text: string): boolean {
@@ -229,6 +232,7 @@ function isProjectable(input: ProjectInput): boolean {
     && metadata.toolKind === "read"
     && metadata.toolPolicyProjectable === true
     && !isSensitiveReadPath(input.toolParams)
+    && (input.resolvedReadPath === undefined || !isSensitiveReadPath({ path: input.resolvedReadPath }))
     && !containsSecretContent(input.text);
 }
 

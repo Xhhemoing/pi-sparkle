@@ -83,6 +83,15 @@ test("evidence-gap keeps child PASSED as UNOBSERVED until a host resolver observ
   });
   assert.deepEqual(resolved.items, []);
   assert.equal(resolved.status, "OBSERVED");
+
+  for (const evidenceRefs of [[], [""], ["   "]]) {
+    const invalid = buildEvidenceGapView(children, {
+      frozenRequirements: new Map([[taskId, ["criterion-review"]]]),
+      resolveHostOutcome: () => ({ status: "OBSERVED", outcome: "PASSED", evidenceRefs })
+    });
+    assert.equal(invalid.status, "UNOBSERVED");
+    assert.equal(invalid.items[0]?.code, "missing-independent-verification");
+  }
 });
 
 function sequenceGenerator(): () => string {

@@ -7,6 +7,16 @@ import { validateEvent, type Event } from "./events.js";
 
 const TERMINAL_EVENT_TYPES = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL_REQUESTED"]);
 
+function validateStoredEvent(value: unknown, runId: RunId): Event {
+  const event = validateEvent(value);
+  if (event.runId !== runId) {
+    throw new DomainValidationError(
+      `Invalid Event: runId ${event.runId} does not match store run ${runId}`
+    );
+  }
+  return event;
+}
+
 /**
  * The cooperative lock guarding one run's records under `runtime/runs/<runId>/`.
  *
@@ -152,7 +162,7 @@ export class EventStore {
       limits
     );
     return {
-      events: values.map((value) => validateEvent(value)),
+      events: values.map((value) => validateStoredEvent(value, this.runId)),
       recovery,
       completeByteLength
     };
@@ -185,7 +195,7 @@ export class EventStore {
       };
     }
     return {
-      events: read.values.map((value) => validateEvent(value)),
+      events: read.values.map((value) => validateStoredEvent(value, this.runId)),
       recovery: read.recovery,
       completeByteLength: read.completeByteLength,
       mode: "incremental",

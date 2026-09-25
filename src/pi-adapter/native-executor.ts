@@ -31,7 +31,13 @@ function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
 
 function immutableModelSnapshot(model: Model<Api>): Model<Api> {
   try {
-    return deepFreeze(structuredClone(model));
+    const credentialFree: Record<PropertyKey, unknown> = {};
+    for (const key of Reflect.ownKeys(model)) {
+      if (key === "headers") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(model, key);
+      if (descriptor?.enumerable === true) credentialFree[key] = Reflect.get(model, key);
+    }
+    return deepFreeze(structuredClone(credentialFree)) as unknown as Model<Api>;
   } catch {
     throw new DomainValidationError(
       `native executor model must be structured-cloneable: ${model.provider}/${model.id}`
@@ -45,6 +51,7 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
     throw new DomainValidationError("native executor requires at least one eligible host model");
   }
   const byRef = new Map<string, Model<Api>>();
+  const hostByRef = new Map<string, Model<Api>>();
   for (const model of input.models) {
     let ref: string;
     try {
@@ -59,6 +66,7 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
     }
     if (byRef.has(ref)) throw new DomainValidationError(`duplicate native executor model ref: ${ref}`);
     byRef.set(ref, immutableModelSnapshot(model));
+    hostByRef.set(ref, model);
   }
   if (
     input.defaultModel.provider !== input.defaultModel.provider.trim() ||
@@ -80,7 +88,17 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
   }
   const models = {
     getModel: (providerId: string, modelId: string) => byRef.get(`${providerId}/${modelId}`),
-    streamSimple: input.streamSimple
+    streamSimple: (selected: Model<Api>, context: Parameters<MutableModels["streamSimple"]>[1], options: Parameters<MutableModels["streamSimple"]>[2]) => {
+      const ref = `${selected.provider}/${selected.id}`;
+      const hostModel = hostByRef.get(ref);
+      if (hostModel === undefined) {
+        throw new DomainValidationError(`native executor dispatch model is outside the host snapshot: ${ref}`);
+      }
+      if (`${hostModel.provider}/${hostModel.id}` !== ref) {
+        throw new DomainValidationError(`native executor host model identity drifted after snapshot: ${ref}`);
+      }
+      return input.streamSimple(hostModel, context, options);
+    }
   } as MutableModels;
   const readTools = createWorktreeCodingTools({ worktreeRoot: input.projectRoot, maxReadBytes: 32_000 })
     .filter((tool) => tool.name === "sparkle_read_file");
@@ -93,10 +111,15 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
         const result = await tool.execute(toolCallId, params);
         const text = result.content.find((block) => block.type === "text")?.text;
         if (text === undefined) return result;
+        const resolvedReadPath = typeof result.details === "object" && result.details !== null
+          && "resolvedPath" in result.details && typeof result.details.resolvedPath === "string"
+          ? result.details.resolvedPath
+          : undefined;
         const projected = await projector.project({
           sourceId: toolCallId,
           text,
           toolParams: params,
+          ...(resolvedReadPath !== undefined ? { resolvedReadPath } : {}),
           projectability: {
             resultKind: "observation",
             isError: false,

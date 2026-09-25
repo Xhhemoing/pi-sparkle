@@ -199,8 +199,12 @@ export class NativeSession {
           analysis = "post-run analysis failed; execution evidence retained";
         }
       }
-      const text = [`Run ${outcome.runId}: ${outcome.status}`, `Model: ${modelId}`,
-        ...(routedModelIds !== undefined ? [`Routing: per-task over host catalog (${new Set(routedModelIds.map((a) => a.decision.model)).size} distinct model(s))`] : []),
+      const actualModels = routedModelIds === undefined
+        ? [modelId]
+        : [...new Set(routedModelIds.map((assignment) => assignment.decision.model))];
+      const text = [`Run ${outcome.runId}: ${outcome.status}`,
+        routedModelIds === undefined ? `Model: ${modelId}` : `Models: ${actualModels.join(", ")}`,
+        ...(routedModelIds !== undefined ? [`Routing: per-task over host catalog (${actualModels.length} distinct model(s))`] : []),
         "Child reports are not independently verified; acceptance remains UNOBSERVED.",
         ...results.map((result) => `${result.taskId}: ${result.summary}`), `Analysis: ${analysis}`].join("\n");
       progress(`Run ${outcome.runId}: ${outcome.status}`);

@@ -193,8 +193,17 @@ test("read projection derives secret-bearing status from path, params, and conte
     const cases = [
       { name: "missing params", params: undefined, text: DENSE },
       { name: ".env path", params: { path: ".env.production" }, text: DENSE },
+      { name: "auth yaml", params: { path: "config/auth.yaml" }, text: DENSE },
       { name: "credential path", params: { path: "config/credentials.json" }, text: DENSE },
+      { name: "singular secret directory", params: { path: "config/secret/service.txt" }, text: DENSE },
       { name: "private-key path", params: { path: "keys/service.pem" }, text: DENSE },
+      { name: "putty private-key path", params: { path: "keys/service.ppk" }, text: DENSE },
+      {
+        name: "trusted resolved secret alias",
+        params: { path: "public-cache/vault.dat" },
+        resolvedReadPath: path.join(stateRoot, "project", "secrets", "vault.dat"),
+        text: DENSE
+      },
       { name: "secret content", params: SAFE_READ, text: secretContent }
     ];
     for (const entry of cases) {
@@ -203,6 +212,7 @@ test("read projection derives secret-bearing status from path, params, and conte
           sourceId: `${entry.name}-${send}`,
           text: entry.text,
           ...(entry.params === undefined ? {} : { toolParams: entry.params }),
+          ...("resolvedReadPath" in entry ? { resolvedReadPath: entry.resolvedReadPath } : {}),
           projectability: SAFE
         });
         assert.equal(result.packed, false, entry.name);

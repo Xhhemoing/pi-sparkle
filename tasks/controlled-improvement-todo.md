@@ -1,30 +1,30 @@
 # Controlled improvement execution checklist
 
-ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `planned`（产品实施）；本轮仅交付规划。
+ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`；B0/D1 作者候选已形成，S0-min 仍待负责人冻结。
 
 [Master plan](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md) · [E package](../docs/superpowers/plans/2026-09-25-evidence-learning-foundation.md) · [N package](../docs/superpowers/plans/2026-09-25-native-observation-diagnosis.md) · [planning evidence](../docs/reports/2026-09-25-controlled-improvement-planning.md)
 
 ## 2026-09-25 REQUEST CHANGES correction (current checklist)
 
-本轮独立审查结论是 **REQUEST CHANGES**。以下是修订后的唯一可派工顺序；全部仍为 `planned`，尚无实现或修订后独立 PASS：
+本轮独立审查结论是 **REQUEST CHANGES**。代码问题已由作者修复并通过完整门禁，fresh independent re-review 尚未返回；以下仍是唯一可派工顺序：
 
 `B0 → (D1 || S0-min) → L1 → L2 → final review`
 
 | Task | Role | Depends on | State | Exclusive scope / acceptance |
 |---|---|---|---|---|
-| B0 | coordinator | none | planned | preserve reproducible dirty baseline; freeze leases; document current lock graph; name the exact Stage 0 canonicalizer |
-| D1 | diagnosis builder | B0 | planned | reuse existing `EventStore` + `src/run/inspection.ts` for on-demand evidence-gap; no N1/N3 storage or control action |
+| B0 | coordinator | none | ready-for-review | preserve reproducible dirty baseline; freeze leases; document current lock graph; name the exact Stage 0 canonicalizer |
+| D1 | diagnosis builder | B0 | author-candidate-unreviewed | reuse existing `EventStore` + `src/run/inspection.ts` for on-demand evidence-gap; no N1/N3 storage or control action |
 | S0-min | boundary owner + reviewer | B0 | planned | freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer; hard dependency of L1 |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
 | L2 | evidence builder | D1, L1 | planned | merged former E2/E3 `historical-candidate-view`, candidate-only and read-only with respect to active policy |
-| final review | coordinator + fresh reviewer | L2 | planned | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict |
+| final review | coordinator + fresh reviewer | L2 | in-progress-for-current-slice | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict |
 
 Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance, registry activation and formal promotion. No global lifecycle long lock may be added before B0's lock graph and a separately reviewed transaction design. R10/R11 and F6 remain independent open/parked gates and are not completion criteria for this read-only MVP.
 
 ### Current acceptance checklist
 
-- [ ] B0 records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity.
-- [ ] D1 produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged.
+- [x] B0 author candidate records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity; acceptance review remains open.
+- [x] D1 author candidate produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged; independent acceptance remains open.
 - [ ] S0-min is frozen by the responsible owner/reviewer before L1 acceptance; fixtures do not substitute for the freeze.
 - [ ] L1 stores/reads the host outcome only through neutral evaluation/feedback schema and fails closed on missing/deleted/mismatched evidence.
 - [ ] L2 combines compatibility-window selection and historical candidate diagnosis into one candidate-only view; it cannot approve, promote, activate or route.

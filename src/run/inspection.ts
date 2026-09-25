@@ -75,6 +75,13 @@ export interface EvidenceGapOptions {
   readonly resolveHostOutcome?: (taskId: TaskId) => HostOutcomeResolution;
 }
 
+function hasUsableObservedEvidence(resolution: HostOutcomeResolution): boolean {
+  return resolution.status === "OBSERVED"
+    && (resolution.outcome === "PASSED" || resolution.outcome === "FAILED")
+    && resolution.evidenceRefs.length > 0
+    && resolution.evidenceRefs.every((ref) => typeof ref === "string" && ref.trim() !== "");
+}
+
 export function buildEvidenceGapView(
   children: readonly ChildInspection[],
   options: EvidenceGapOptions = {}
@@ -86,7 +93,7 @@ export function buildEvidenceGapView(
     if (!claimed) continue;
     claimedComplete += 1;
     const resolution = options.resolveHostOutcome?.(child.taskId) ?? { status: "UNOBSERVED", reason: "missing" };
-    if (resolution.status === "OBSERVED") continue;
+    if (hasUsableObservedEvidence(resolution)) continue;
     const requiredCriteria = options.frozenRequirements?.get(child.taskId) ?? [];
     items.push({
       taskId: child.taskId,

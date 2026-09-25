@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -98,6 +98,17 @@ test("appending an event for another run is rejected and writes nothing", async 
     await assert.rejects(() => store.append(foreign), /runId/);
     const read = await store.readAll();
     assert.deepEqual(read.events, []);
+  });
+});
+
+test("reading a valid foreign-run event from this run path fails closed", async () => {
+  await withStore(async (store, stateRoot, runId) => {
+    await store.append(makeEvent("RUN_CREATED", { run: makeRun() }));
+    const foreignRunId = createRunId(() => "11111111-2222-3333-4444-555555555555");
+    const foreign = makeEvent("RUN_STARTED", {}, { runId: foreignRunId });
+    const eventsPath = join(stateRoot, "runtime", "runs", runId, "events.jsonl");
+    await writeFile(eventsPath, `${JSON.stringify(foreign)}\n`, "utf8");
+    await assert.rejects(() => store.readAll(), /does not match store run/);
   });
 });
 

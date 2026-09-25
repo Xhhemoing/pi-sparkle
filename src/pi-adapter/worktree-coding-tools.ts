@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any --
  * Pi tool schemas are generic; this file is inside the adapter/execution boundary. */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { dirname, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
@@ -53,13 +53,20 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
           throw new DomainValidationError("path must be a non-empty string");
         }
         const abs = resolveInsideRoot(root, record.path);
+        const canonicalRoot = await realpath(root);
+        const canonicalFile = await realpath(abs);
+        resolveInsideRoot(canonicalRoot, canonicalFile);
+        const resolvedPath = relative(canonicalRoot, canonicalFile).replaceAll("\\", "/");
         const buf = await readFile(abs);
         if (buf.byteLength > maxReadBytes) {
           throw new DomainValidationError(
             `file exceeds maxReadBytes (${buf.byteLength} > ${maxReadBytes}): ${record.path}`
           );
         }
-        return textResult(buf.toString("utf8"));
+        return {
+          content: [{ type: "text" as const, text: buf.toString("utf8") }],
+          details: { resolvedPath }
+        };
       }
     },
     {

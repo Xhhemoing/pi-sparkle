@@ -9,7 +9,7 @@
 ## Scope and acceptance
 
 - Remove caller authority to assert `secretBearing: false`.
-- Derive read sensitivity from original tool parameters/path and returned text before any archive write.
+- Derive read sensitivity from original tool parameters, the read tool's canonical root-relative target, and returned text before any archive write.
 - Refuse missing/malformed paths, `.env*`, credential/auth files, private-key files, secret directories, and text matching the shared secret detector.
 - Return a machine-readable recall-budget refusal without including archived content.
 - Preserve default-off behavior, existing opaque observation identity, and human-readable refusal text.
@@ -22,7 +22,7 @@ Non-goals: no live provider, no pilot, no policy promotion, no persistent teleme
 |---|---|---|
 | `pnpm exec tsx --test test/unit/pi-adapter/observation-tools.test.ts` (RED) | `FAIL` | Module did not yet export `RecallBudgetExceededError`; established the pre-implementation failure. |
 | `pnpm exec tsx --test test/unit/pi-adapter/observation-tools.test.ts` | `PASS` | 11 pass / 0 fail, including sensitive path/content no-archive and structured refusal. |
-| `pnpm exec tsx --test test/unit/pi-adapter/native-executor.test.ts` | `PASS` | 6 pass / 0 fail; loopback repeats `.env.production` three times and confirms no observation archive. |
+| Corrected integrated focused set | `PASS` | 71 pass / 0 fail; includes `.env.production`, auth YAML, singular `secret/`, `.ppk`, and a real in-root junction alias into `secrets/`. |
 | `pnpm exec tsx --test test/unit/native/session.test.ts test/unit/context/observation-projection.test.ts` | `PASS` | 18 pass / 0 fail; existing session projection and low-level eligibility remain green. |
 | `pnpm exec eslint src/pi-adapter/observation-tools.ts src/pi-adapter/native-executor.ts test/unit/pi-adapter/observation-tools.test.ts test/unit/pi-adapter/native-executor.test.ts test/unit/native/session.test.ts` | `PASS` | Focused lint. |
 | `pnpm typecheck` | `PASS` | TypeScript no-emit check. |
@@ -31,8 +31,8 @@ Non-goals: no live provider, no pilot, no policy promotion, no persistent teleme
 
 ## Behavioral Evidence
 
-- Changed behavior: projectability requires verifiable read parameters and an internally clean path/content decision; the native wrapper only forwards the actual parameters.
-- Regression covered by: projector unit cases for absent params, `.env.production`, `credentials.json`, `.pem`, and Bearer content; native Pi loopback repeats a credential-like read and checks that no archive directory exists.
+- Changed behavior: the read tool returns its canonical root-relative target in trusted result details; the native wrapper forwards that value to the projector, which checks both requested and resolved paths plus content.
+- Regression covered by: projector unit cases for absent params, `.env.production`, `auth.yaml`, `credentials.json`, singular `secret/`, `.pem`, `.ppk`, and Bearer content; native Pi loopback follows a real `public-cache -> secrets` junction three times and confirms no archive directory exists.
 - Structured refusal: `RecallBudgetExceededError.code` is `RECALL_BUDGET_EXHAUSTED`; `receipt` carries run/ref/dimension/observed/limit/offset.
 - Independent verification source: none. These are current author-run command results, not Stage 0 acceptance.
 - Artifact/revision/hash: not assigned; candidate remains in the shared dirty worktree.

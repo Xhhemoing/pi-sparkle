@@ -83,12 +83,13 @@ test("per-task routing: catalog + learned avoid routes the second task to a diff
       routing: { catalog, learned }
     });
     assert.equal(result.status, "COMPLETED");
+    assert.match(result.text, new RegExp(`Models: ${primary.replace("/", "\\/")}, ${secondary.replace("/", "\\/")}`));
     assert.match(result.text, /Routing: per-task over host catalog/);
     const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
     const routed = events.filter((e) => e.type === "MODEL_ROUTED");
     assert.ok(routed.length === 2, `expected per-task MODEL_ROUTED rows, got ${routed.length}`);
     const routedModels = new Set(routed.map((e) => (e.payload as unknown as { model: string }).model));
-    assert.ok(routedModels.size >= 1, "models recorded");
+    assert.deepEqual(routedModels, new Set([primary, secondary]));
     await session.shutdown();
   });
 });
