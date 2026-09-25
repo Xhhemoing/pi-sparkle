@@ -24,6 +24,16 @@ Next-phase authority: [TASK-20260921-evidence-first-phase](../docs/superpowers/p
 
 Proposed execution order after an approved review-channel decision: **Stage 0 evaluator/apply boundary design and freeze → projection hardening and mechanism/economic telemetry → read-only evaluator manifest freeze → exploratory A/B/C pilot**. Stage 0 and all later human, independent-review, budget/data, F6, and apply-authorization gates remain open.
 
+## Controlled improvement roadmap (2026-09-25)
+
+User delegated autonomous analysis and a concrete multi-agent plan. The planning baseline remains **Pi-first controlled continuous improvement**, with trustworthy evidence/change control as its foundation. A later independent review on 2026-09-25 returned **REQUEST CHANGES**; the [master roadmap](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md), [dedicated checklist](controlled-improvement-todo.md), and [dated planning/reconciliation record](../docs/reports/2026-09-25-controlled-improvement-planning.md) now carry the controlling correction. No revised-plan PASS is claimed.
+
+All new implementation tasks remain planned. The corrected critical path is **B0 → parallel D1 / S0-min → L1 → L2 → final review**. D1 reuses existing EventStore/inspection data on demand and creates no N1/N3 storage. S0-min is a hard dependency of L1 and freezes the neutral host outcome DTO plus the canonicalizer that L1/L2 must reuse. L2 merges the former E2/E3 work into a candidate-only historical view. CI-1c, E4 activation and formal promotion are deferred. No global lifecycle long lock is authorized before B0 records the real lock graph. R10/R11 and F6 remain independent gates; this plan closes neither.
+
+### Superseded same-day draft note
+
+The earlier sequence CI-0 → E1/N1 → CI-1a → E2/N2 → E3/N3 → CI-1b → CI-1c → E4/CI-2 is retained in the linked plans as pre-review provenance only and is not the current dispatch order.
+
 ## SHA-256 removal gate (2026-09-21, corrected)
 
 `TASK-20260921-remove-sha256` is in progress under accepted [ADR-008](../docs/decisions/0008-remove-sha256.md). The user instructed removal of all first-party SHA-256 mechanisms and runtime integrity checks and delegated implementation to Luna. No replacement cryptographic hash is selected: opaque random versioned locators are used when an ID is needed; exact bytes are compared for equality/dedupe when needed, with no cryptographic tamper guarantee. Legacy records are never silently reclassified.
