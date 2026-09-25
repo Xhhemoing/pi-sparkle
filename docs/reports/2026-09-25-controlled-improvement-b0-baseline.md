@@ -5,7 +5,7 @@
 - Task: `B0` under `TASK-20260925-controlled-improvement-roadmap`
 - Date: 2026-09-25
 - Owner: coordinator
-- State: ready-for-review
+- State: accepted; exact reviewed candidate `dd8f13f7863a2f7e44e309a2ca568d1b70002576`
 - Historical pre-capture Git base: `8b0a495de8e3203f64a7ca7f9d9693d6c71e23c3`
 - Historical superseded combined author-run candidate: `9b9fbeecdddae85e0454c9d99a13b2f3617a3a51` on `codex/controlled-improvement-20260925`
 - Corrected integrated implementation candidate: `8e7de99b3d3b196e3b23807d52e4f6b8b59d57dc`
@@ -125,8 +125,8 @@ Any privacy deletion or record-class change requires a coordinator lease amendme
 - Integrated current-slice review: independent reviewer `/root/integrated_slice_verify` returned PASS for reviewed revision `7d7cd59bb313f53c605d6e9988be910bfe5e3ec8`, with 90 focused tests, typecheck, workflow check, and diff checks; see [the integrated review](2026-09-25-integrated-review.md). That verdict covers the corrected current slice only; B0 and D1 task acceptance remain open, and it is not the post-L2 final review.
 - Stage 0 owner package: `ready-for-owner-review`, not approved and not frozen; it does not unblock L1.
 - Product tests: not run for this documentation-only B0 slice.
-- Required checks before acceptance: `pnpm workflow:check`, `git diff --check`, independent specification review followed by independent quality review.
+- Acceptance checks: `pnpm workflow:check` and `git diff --check` PASS; independent specification review PASS followed by independent quality review PASS on exact candidate `dd8f13f7`. See [the B0 verification record](2026-09-25-controlled-improvement-b0-verification.md).
 
 ## Open gates and handoff
 
-Stage 0, the trusted host outcome producer, D1 acceptance, L1, L2, real provider/host execution, R10/R11, F6, benefit claims, promotion, apply, migration, release, and production actions remain open. After B0 independent acceptance, the exact D1 subset from `8e7de99b` may enter isolated review while S0-min begins in parallel. The nine lease-external files stay outside D1 ownership. L1 remains blocked on S0-min; L2 remains blocked on accepted D1 and L1.
+Stage 0, the trusted host outcome producer, D1 acceptance, L1, L2, real provider/host execution, R10/R11, F6, benefit claims, promotion, apply, migration, release, and production actions remain open. B0 acceptance is recorded in [the verification record](2026-09-25-controlled-improvement-b0-verification.md). The exact D1 subset from `8e7de99b` may now enter isolated review while S0-min proceeds in its disjoint lease after an explicit owner decision. The nine lease-external files stay outside D1 ownership. L1 remains blocked on S0-min; L2 remains blocked on accepted D1 and L1.

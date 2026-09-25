@@ -1,18 +1,18 @@
 # Controlled improvement execution checklist
 
-ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`（B0 candidate ready for exact-SHA independent review；D1 author candidate exists but is unreviewed；S0-min owner package is ready for owner review but the boundary is not approved or frozen）。
+ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`（B0 accepted at exact reviewed candidate `dd8f13f7`；D1 author candidate exists but is unreviewed；S0-min owner package is ready for owner review but the boundary is not approved or frozen）。
 
 [Master plan](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md) · [E package](../docs/superpowers/plans/2026-09-25-evidence-learning-foundation.md) · [N package](../docs/superpowers/plans/2026-09-25-native-observation-diagnosis.md) · [planning evidence](../docs/reports/2026-09-25-controlled-improvement-planning.md)
 
 ## 2026-09-25 controlling correction and current review status
 
-后续 controlling 修订保留以下唯一可派工顺序。Corrected current slice 的 reviewed revision `7d7cd59b` 已获得[独立 PASS](../docs/reports/2026-09-25-integrated-review.md)，但该 verdict 不等于 B0/D1 task acceptance，也不是 post-L2 final review；当前仍无任务获 accepted，D1 仅有未审 author candidate，S0-min owner package 也仅为 `ready-for-owner-review`：
+后续 controlling 修订保留以下唯一可派工顺序。Corrected current slice 的 reviewed revision `7d7cd59b` 已获得[独立 PASS](../docs/reports/2026-09-25-integrated-review.md)，但该 verdict 不等于 D1 task acceptance，也不是 post-L2 final review。B0 exact candidate `dd8f13f7` 已另行通过 spec→quality review 并由 [verification record](../docs/reports/2026-09-25-controlled-improvement-b0-verification.md) 接受；D1 仍为未审 author candidate，S0-min owner package 也仅为 `ready-for-owner-review`：
 
 `B0 → (D1 || S0-min) → L1 → L2 → final review`
 
 | Task | Role | Depends on | State | Exclusive scope / acceptance |
 |---|---|---|---|---|
-| B0 | coordinator | none | ready-for-review | baseline/leases/lock graph/canonicalizer identity recorded in [B0 report](../docs/reports/2026-09-25-controlled-improvement-b0-baseline.md) |
+| B0 | coordinator | none | accepted | exact candidate `dd8f13f7` received independent spec PASS then quality PASS; see [verification record](../docs/reports/2026-09-25-controlled-improvement-b0-verification.md) |
 | D1 | diagnosis builder | B0 | author-candidate-unreviewed | [author evidence](../docs/reports/2026-09-25-native-evidence-gap-d1.md) exists; review the exact D1 subset from clean implementation commit `8e7de99b`, exclude the nine lease-external files, and use an isolated D1 worktree after B0 acceptance |
 | S0-min | boundary owner + reviewer | B0 | ready-for-owner-review (not approved/frozen) | [owner package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md) recommends Option A for implementation review; freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer before L1 |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
@@ -23,7 +23,7 @@ Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance,
 
 ### Current acceptance checklist
 
-- [x] B0 author candidate records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity; see [B0 report](../docs/reports/2026-09-25-controlled-improvement-b0-baseline.md). Task acceptance waits for exact-SHA spec then quality review.
+- [x] B0 accepted at exact candidate `dd8f13f7` after independent spec PASS then quality PASS; see [verification record](../docs/reports/2026-09-25-controlled-improvement-b0-verification.md).
 - [x] D1 author candidate produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged; see [D1 author evidence](../docs/reports/2026-09-25-native-evidence-gap-d1.md). Independent task acceptance remains open.
 - [x] Corrected current slice received independent PASS for reviewed revision `7d7cd59b`; see [integrated review](../docs/reports/2026-09-25-integrated-review.md). This is not B0/D1 task acceptance, the post-L2 final review, or S0-min approval/freeze.
 - [ ] S0-min owner/reviewer records one decision from the [owner freeze package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md); package state is ready-for-owner-review, not approved/frozen.
