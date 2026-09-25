@@ -10,7 +10,7 @@
 
 ## 2026-09-25 independent review correction (controlling)
 
-本节记录同日独立审查的 **REQUEST CHANGES**、修复和 current-slice 独立 **PASS**。它取代本文件后续保留的 pre-review CI/E/N DAG 与 MVP 范围；后续旧段落仅用于说明草案如何形成，不能作为派工依据。B0 与 D1 已形成作者候选，但其任务级接受仍开放；S0-min 决策包为 `ready-for-owner-review`，L1/L2 仍为 `planned`，Stage 0 未批准、未冻结。
+本节记录同日后续独立审查的 **REQUEST CHANGES** 及其 controlling 修订。它取代本文件后续保留的 pre-review CI/E/N DAG 与 MVP 范围；后续旧段落仅用于说明草案如何形成，不能作为派工依据。修订后的 corrected current slice 已获得独立 PASS，但该 verdict 不等于 B0 或 D1 task acceptance，也不是 post-L2 final review。当前没有任何任务获 accepted；B0 为 `ready-for-review`，D1 为 `author-candidate-unreviewed`，S0-min owner package 为 `ready-for-owner-review` 且边界仍 not approved/not frozen，L1/L2/final review 仍为 `planned`。
 
 ### Corrected MVP and critical path
 
@@ -29,7 +29,7 @@ flowchart TD
 - **S0-min** is the minimum Stage 0 freeze needed by evidence learning: a host-owned terminal outcome DTO, trusted binding/source rules, failure attribution, and the one canonicalizer used for exact canonical JSON. It is a hard dependency of E1's successor **L1**; fixtures may shape tests before the freeze, but L1 cannot be accepted or wired without it.
 - **L1** persists/reads the host outcome through a neutral evaluation/feedback schema owned outside `src/learning/`. Learning code consumes that schema and does not define the persisted host DTO. Existing bounded store and deletion semantics are reused; any required change follows the B0 lock graph and uses short existing lock scopes.
 - **L2** merges the former E2 history-window and E3 historical-diagnosis work into one `historical-candidate-view` that reconstructs eligible compatible history and emits candidate-only inspection output. It cannot alter active policy, registry promotion state, leases, routing, or current execution.
-- **Final review** is the future post-L2 review. The corrected current slice already has an independent PASS, but that verdict does not satisfy the post-L2 review or any owner freeze.
+- **Final review** runs focused tests and the applicable gates after L2, then obtains a fresh independent verdict on those exact bytes. The earlier corrected-current-slice PASS is not this post-L2 verdict and cannot be reused as final acceptance.
 
 ### MVP removals and deferrals
 
@@ -45,10 +45,16 @@ flowchart TD
 |---|---|---|---|
 | B0 | none | reproducible baseline, ownership leases, current lock graph, Stage 0 canonicalizer location | ready-for-review |
 | D1 | B0 | on-demand `EventStore`/inspection evidence-gap, read-only and non-persistent | author-candidate-unreviewed |
-| S0-min | B0 | owner decision package for neutral host outcome DTO/source/failure/canonicalization contract; package itself freezes nothing | ready-for-owner-review |
+| S0-min | B0 | owner decision package for neutral host outcome DTO/source/failure/canonicalization contract; package itself freezes nothing | ready-for-owner-review (not approved/frozen) |
 | L1 | S0-min | neutral evaluation/feedback persistence and bounded eligible-history reader | planned |
 | L2 | D1, L1 | candidate-only historical view; no activation or promotion | planned |
 | final review | L2 | focused/gate evidence plus fresh independent verdict | planned |
+
+### B0 execution candidate — 2026-09-25
+
+B0 is recorded in [the baseline and lock-graph report](../../reports/2026-09-25-controlled-improvement-b0-baseline.md). Historical `baseline-v3` preserves the 34-file pre-commit dirty capture, and `baseline-v4` records combined author-run commit `9b9fbeec`. Status correction `1b5e1d8d` removed false completion claims. Corrected implementation commit `8e7de99b` contains the 15 code/test changes. Later coordination-only commits recorded state reconciliation, independent current-slice review provenance, and the Stage 0 owner package; clean coordination head `07c98869` pins those records. `baseline-v9` records the exact 25-path delta from `1b5e1d8d` to `07c98869` path-exact and byte-exact. None of these author or coordination bytes is B0/D1/S0-min acceptance evidence by itself.
+
+The report freezes exact, pairwise-disjoint D1/S0-min/L1/L2 leases and records only two proven nested lock edges: `RUN → EPISODE` and `LEDGER → BANDIT`. It names `src/experiments/manifest.ts::stableStringify` as the sole current canonical JSON symbol while preserving the unresolved S0-min conflict with the draft RFC 8785 dependency requirement. The exact D1 subset from `8e7de99b` must be reviewed in isolation; the nine lease-external files require separate ownership. The independent [current-slice review](../../reports/2026-09-25-integrated-review.md) is PASS but does not accept B0/D1 or replace the post-L2 final review. The [Stage 0 owner package](../../reports/2026-09-25-stage0-owner-freeze-package.md) is ready for owner review but not approved or frozen. B0 remains `ready-for-review` until exact-SHA specification and quality verdicts return.
 
 ## Superseded pre-review draft retained for provenance
 

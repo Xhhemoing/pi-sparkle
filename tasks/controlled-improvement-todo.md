@@ -1,20 +1,20 @@
 # Controlled improvement execution checklist
 
-ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`；B0/D1 作者候选已形成，S0-min 仍待负责人冻结。
+ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`（B0 candidate ready for exact-SHA independent review；D1 author candidate exists but is unreviewed；S0-min owner package is ready for owner review but the boundary is not approved or frozen）。
 
 [Master plan](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md) · [E package](../docs/superpowers/plans/2026-09-25-evidence-learning-foundation.md) · [N package](../docs/superpowers/plans/2026-09-25-native-observation-diagnosis.md) · [planning evidence](../docs/reports/2026-09-25-controlled-improvement-planning.md)
 
-## 2026-09-25 REQUEST CHANGES correction (current checklist)
+## 2026-09-25 controlling correction and current review status
 
-原独立审查结论是 **REQUEST CHANGES**；修复后的 current slice 已在 `7d7cd59b` 获得独立 **PASS**。这不是 post-L2 final review，也不批准或冻结 Stage 0；以下仍是唯一可派工顺序：
+后续 controlling 修订保留以下唯一可派工顺序。Corrected current slice 的 reviewed revision `7d7cd59b` 已获得[独立 PASS](../docs/reports/2026-09-25-integrated-review.md)，但该 verdict 不等于 B0/D1 task acceptance，也不是 post-L2 final review；当前仍无任务获 accepted，D1 仅有未审 author candidate，S0-min owner package 也仅为 `ready-for-owner-review`：
 
 `B0 → (D1 || S0-min) → L1 → L2 → final review`
 
 | Task | Role | Depends on | State | Exclusive scope / acceptance |
 |---|---|---|---|---|
-| B0 | coordinator | none | ready-for-review | preserve reproducible dirty baseline; freeze leases; document current lock graph; name the exact Stage 0 canonicalizer |
-| D1 | diagnosis builder | B0 | author-candidate-unreviewed | reuse existing `EventStore` + `src/run/inspection.ts` for on-demand evidence-gap; no N1/N3 storage or control action |
-| S0-min | boundary owner + reviewer | B0 | ready-for-owner-review | decision package freezes no bytes by itself; owner must choose canonicalizer direction and later approve reviewed implementation |
+| B0 | coordinator | none | ready-for-review | baseline/leases/lock graph/canonicalizer identity recorded in [B0 report](../docs/reports/2026-09-25-controlled-improvement-b0-baseline.md) |
+| D1 | diagnosis builder | B0 | author-candidate-unreviewed | [author evidence](../docs/reports/2026-09-25-native-evidence-gap-d1.md) exists; review the exact D1 subset from clean implementation commit `8e7de99b`, exclude the nine lease-external files, and use an isolated D1 worktree after B0 acceptance |
+| S0-min | boundary owner + reviewer | B0 | ready-for-owner-review (not approved/frozen) | [owner package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md) recommends Option A for implementation review; freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer before L1 |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
 | L2 | evidence builder | D1, L1 | planned | merged former E2/E3 `historical-candidate-view`, candidate-only and read-only with respect to active policy |
 | final review | coordinator + fresh reviewer | L2 | planned | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict; the current integrated re-review is not this post-L2 final review |
@@ -23,14 +23,14 @@ Current deferrals: N1/N3, CI-1c, E4 activation, approval fixtures as acceptance,
 
 ### Current acceptance checklist
 
-- [x] B0 author candidate records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity; acceptance review remains open.
-- [x] D1 author candidate produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged; independent acceptance remains open.
-- [x] Corrected current slice received independent PASS at `7d7cd59b`; this is not the post-L2 final review and does not accept/freeze S0-min.
+- [x] B0 author candidate records a reproducible baseline, disjoint leases, exact lock graph and canonicalizer identity; see [B0 report](../docs/reports/2026-09-25-controlled-improvement-b0-baseline.md). Task acceptance waits for exact-SHA spec then quality review.
+- [x] D1 author candidate produces bounded on-demand evidence-gap from existing data and leaves stores/control state unchanged; see [D1 author evidence](../docs/reports/2026-09-25-native-evidence-gap-d1.md). Independent task acceptance remains open.
+- [x] Corrected current slice received independent PASS for reviewed revision `7d7cd59b`; see [integrated review](../docs/reports/2026-09-25-integrated-review.md). This is not B0/D1 task acceptance, the post-L2 final review, or S0-min approval/freeze.
 - [ ] S0-min owner/reviewer records one decision from the [owner freeze package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md); package state is ready-for-owner-review, not approved/frozen.
 - [ ] S0-min is frozen by the responsible owner/reviewer before L1 acceptance; fixtures do not substitute for the freeze.
 - [ ] L1 stores/reads the host outcome only through neutral evaluation/feedback schema and fails closed on missing/deleted/mismatched evidence.
 - [ ] L2 combines compatibility-window selection and historical candidate diagnosis into one candidate-only view; it cannot approve, promote, activate or route.
-- [ ] Final review records commands and actual verdict; until then review status remains REQUEST CHANGES and no item is accepted.
+- [ ] Post-L2 final review records commands and a fresh verdict for the exact final bytes; the earlier corrected-current-slice PASS cannot substitute for this gate, and no item is accepted yet.
 
 ## Superseded same-day pre-review checklist retained for provenance
 
