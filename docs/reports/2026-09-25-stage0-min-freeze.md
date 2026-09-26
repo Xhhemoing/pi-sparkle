@@ -88,6 +88,7 @@ routing activation, registry activation, promotion, production writes, or F6.
 
 - Candidate state: `ready-for-review`; **not accepted and not FROZEN**.
 - Implementation base: `f648a739bcf035e662c769228b69268f65fe81e6`.
+- Corrected implementation revision: `9120de679e2bb61764dd78a7ff2fc06fd3900ce6`.
 - Lease: the two S0-min documents, `src/domain/canonical-json.ts`,
   `src/evaluation/types.ts`, `src/evaluation/evaluator.ts`,
   `src/experiments/manifest.ts`, and the four leased unit-test files only.
@@ -101,7 +102,8 @@ routing activation, registry activation, promotion, production writes, or F6.
   valid-value bytes remain stable. Historical non-JSON compatibility output is
   outside the versioned contract and cannot pass its parser.
 - Outcome boundary: `host-terminal-outcome-v1` is host-owned and binds every
-  required identity plus canonical evaluator-definition bytes. Missing,
+  required identity, the opaque `outcomeRef` and `bindingRef`, plus
+  canonical evaluator-definition bytes. Missing,
   deleted, foreign, stale, legacy, incomplete, self-reported-only, mismatched,
   or operational-failure sources resolve to `UNOBSERVED` and are ineligible.
 
@@ -116,6 +118,36 @@ Verification evidence is under
 | targeted lint | `pnpm exec eslint src/domain/canonical-json.ts src/evaluation/types.ts src/evaluation/evaluator.ts src/experiments/manifest.ts test/unit/domain/canonical-json.test.ts test/unit/evaluation/evaluation-identity.test.ts test/unit/experiments/freeze.test.ts test/unit/experiments/task-spec.test.ts` | PASS | command output captured in session |
 | full gate | `pnpm gate` | PASS after building the clean worktree: 2889 pass, 0 fail, 18 skip; typecheck, lint and build PASS | `gate-final.log` |
 | security | `$env:npm_config_cache = '<evidence-root>/npm-cache'; pnpm security:probe` | PASS: 26 probes, 0 open findings | `security-probe-final.log` |
+| binding-ref RED | `pnpm test -- --test-concurrency=1 test/unit/evaluation/evaluation-identity.test.ts` | expected failure: 47 pass, 2 fail; separate `outcomeRef` and `bindingRef` mismatches were incorrectly eligible | `binding-ref-red.log` |
+| binding-ref focused GREEN | `pnpm test -- --test-concurrency=1 test/unit/evaluation/evaluation-identity.test.ts` | PASS: 49 pass, 0 fail, 0 skip | `binding-ref-green.log` |
+| corrected typecheck | `pnpm typecheck` | PASS | command output captured in session |
+| corrected targeted lint | `pnpm exec eslint src/evaluation/types.ts src/evaluation/evaluator.ts test/unit/evaluation/evaluation-identity.test.ts` | PASS | command output captured in session |
+| corrected workflow | `pnpm workflow:check` | PASS: 10 required files, 16 required headings | command output captured in session |
+| corrected full gate | `pnpm gate` | PASS: 2891 pass, 0 fail, 18 skip; typecheck, lint and build PASS | `binding-ref-gate.log` |
+| corrected security | `pnpm security:probe` | PASS: 26 probes, 0 open findings | `binding-ref-security.log` |
+
+## Independent review finding and correction
+
+Independent specification review of exact revision
+`a7677aa56ced7ffbcbfdd00cfa6cfd26120a90cb` returned **REQUEST CHANGES**.
+`HostTerminalOutcomeBinding` and the runtime `HOST_BINDING_FIELDS` comparison
+omitted the opaque `outcomeRef` and `bindingRef`. A caller could therefore
+supply mismatched references while the outcome remained eligible, contrary to
+the authorized exact source/binding identity contract.
+
+The correction followed RED-to-GREEN discipline. Two separate regression tests
+first reproduced the missing `outcomeRef` and `bindingRef` comparisons (47 pass,
+2 expected failures). Revision
+`9120de679e2bb61764dd78a7ff2fc06fd3900ce6` then adds both fields to the binding
+type and runtime comparison; the focused suite passes 49/49. The corrected
+candidate also passes typecheck, targeted lint, workflow validation, the full
+gate (2891 pass, 0 fail, 18 skip), and security probes (26 pass, 0 open
+findings).
+
+The earlier **REQUEST CHANGES** remains part of the review history and is not
+rewritten as a pass. The corrected revision is `ready-for-review`; it requires
+fresh exact-revision specification review before exact-revision quality review.
+No independent PASS or owner freeze is recorded here.
 
 The first full-gate attempt is retained in `gate.log`: it correctly exposed two
 legacy experiment callers that pass optional `undefined` through the historical
@@ -126,8 +158,10 @@ gate above. The first security run is retained in `security-probe.log`; its sole
 packaging check was blocked by the default npm cache location. The rerun used the
 evidence-local cache and passed all probes.
 
-This record now captures the owner decision and author verification. It is not
-an independent review verdict or a Stage 0 freeze record. Independent exact-SHA
-specification review must PASS before exact-SHA quality review; a later owner
-must separately bind and record `FROZEN`. L1, provider/pilot/apply, routing,
-registry activation, promotion, production writes, and F6 remain closed.
+This record captures the owner decision, the original exact-revision
+**REQUEST CHANGES**, and author verification of the corrected candidate. The
+candidate remains `ready-for-review`; it is **not accepted and not FROZEN**.
+Independent exact-revision specification review must PASS before exact-revision
+quality review, and a later owner must separately bind and record `FROZEN`.
+L1, provider and pilot runs, apply, routing activation, registry activation,
+promotion, production writes, and F6 remain closed.
