@@ -5,6 +5,7 @@ import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
 import type { NativeWriteSessionResult } from "./write-session.js";
+import { physicalDirectoryWithoutLinks } from "./physical-directory.js";
 import {
   prepareNativeWrite,
   type NativeWritePreflight,
@@ -97,8 +98,7 @@ interface RepositoryIdentity {
 }
 
 function repositoryIdentity(repo: string): RepositoryIdentity {
-  const root = realPath(repo);
-  if (pathKey(repo) !== pathKey(root)) fail("worktree path aliases are refused");
+  const root = physicalDirectoryWithoutLinks(repo);
   const top = realPath(gitOrThrow(root, ["rev-parse", "--show-toplevel"]));
   if (pathKey(root) !== pathKey(top)) fail("worktree path must be the Git toplevel");
   const commonDir = realPath(path.resolve(root, gitOrThrow(root, ["rev-parse", "--git-common-dir"])));
