@@ -34,6 +34,8 @@ Use [`docs/templates/task-plan.md`](../docs/templates/task-plan.md) for detailed
 - `accepted` means the stated acceptance criteria passed; it does not imply production readiness or outcome support.
 - Do not rewrite historical records to make old claims look current; add a dated correction.
 
-## Report-driven slice (2026-09-27)
+## Report-driven slices (2026-09-27)
 
-`TASK-20260927-report-improvements`: [plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md), [dedicated checklist](report-improvement-todo.md), and [verification/handoff](../docs/reports/2026-09-27-report-improvements.md). A1/A2 implementation is present with earlier 59 focused passes; supported-runtime re-verification/full gate and native-loader checks remain open. This slice does not supersede the active reliability or controlled-improvement plans, and does not mark all Stage A or any later stage accepted.
+`TASK-20260927-report-improvements`: [original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md), [dedicated checklist](report-improvement-todo.md), and [historical A1/A2 verification](../docs/reports/2026-09-27-report-improvements.md).
+
+`TASK-20260927-report-continuation`: [staged A0-root/B1 plan](../docs/superpowers/plans/2026-09-27-report-continuation.md), [current verification and handoff](../docs/reports/2026-09-27-report-continuation.md), and [native contract usage](../docs/native-task-contract.md). Runtime head `a1c32daa` passed the full hosted quality job and both Windows/Linux smoke and focused root/contract jobs. The earlier no-hosted-verification/Windows-blocked snapshot is superseded by this dated evidence, not retroactively rewritten. New independent review, main merge, remaining reliability ownership, host-outcome/production gates and the rest of the A-E roadmap remain open. This is not acceptance of all Stage A or Stage B.

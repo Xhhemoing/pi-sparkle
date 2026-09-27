@@ -1,26 +1,30 @@
 # Report-driven improvement checklist
 
-Task: `TASK-20260927-report-improvements`  
+Tasks: `TASK-20260927-report-improvements`, `TASK-20260927-report-continuation`  
 Date: 2026-09-27  
-Owner: implementation agent for A1/A2; repository maintainer for review/gates and later dispatch.  
-State: `blocked` for merge acceptance; bounded implementation and subset checks are present.
+Owner: implementation agent for bounded A0-root/A1/A2/B1; repository maintainer for independent review, merge and policy gates.  
+State: bounded implementation `ready-for-review`; overall roadmap and merge acceptance remain open.
 
-[Concrete plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md) | [Verification and handoff](../docs/reports/2026-09-27-report-improvements.md)
+[Original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md) | [Continuation plan](../docs/superpowers/plans/2026-09-27-report-continuation.md) | [Current verification](../docs/reports/2026-09-27-report-continuation.md)
 
-## Stage A: current delivery
+## Verified implementation slices
 
 - [x] Plan committed first: `76caf7306e4a9547b1036029a464d72e06951f19`, 2026-09-27.
-- [x] A1 implementation and subset verification: Chinese/English intent, report-only no-write contract, restrictive planning and localized answers. Pre-fix RED 18 failures; earlier focused set 59/0/0. [Evidence and workspace limitation](../docs/reports/2026-09-27-report-improvements.md).
-- [x] A2 parser implementation and pure-parser checks: quoted paths, literal Windows separators, invalid-input rejection and handler wiring. Its 20 cases are included in 59/0/0, not additional. [Evidence](../docs/reports/2026-09-27-report-improvements.md).
-- [ ] Actual Pi-loader cases and existing extension/apply-registration regressions: NOT RUN locally; complete checkout and Pi dependencies required.
-- [ ] Re-establish focused results at the published head under supported Node/pnpm; earlier execution workspace is no longer mounted and raw logs are not delivered.
-- [ ] Full gate, build and security/Pi probes: BLOCKED by unavailable checkout/dependencies/pnpm; local Node is below the repository minimum. Attach exact commands/head revision.
-- [ ] Independent review and A1/A2 merge acceptance: no independent verdict obtained; draft until required evidence exists.
-- [ ] A0 integrated reliability baseline: preserve current O02 and other ownership. Whole Stage A remains open.
+- [x] A1 Chinese/English intent and readonly planning implemented; A2 quoted-path parsing implemented. Earlier subset counts and limitations remain [historical evidence](../docs/reports/2026-09-27-report-improvements.md); the supported full CI at `a1c32daa` now verifies the integrated source (2026-09-27; current verification).
+- [x] A0-root Windows failure reproduced against original main and current code in one runner/fixture; physical directory normalization and alias refusal implemented in preflight and candidate identity. Linux/Windows root and apply tests passed at `db8aff4f` and the combined `a1c32daa` head (2026-09-27; current verification).
+- [x] B1 bounded optional native task contract reaches existing requests, criteria, events and returned task-id-bound input summaries. Invalid contracts fail before persistence; old calls remain supported; independent verification stays UNOBSERVED. RED 13 cases plus legacy PASS; integrated CI PASS at `a1c32daa` (2026-09-27; current verification).
+- [x] Supported-runtime workflow/typecheck/lint/full-test/build plus security/Pi/kernel/CLI probe steps passed in CI `36307011572`; Windows and Linux smoke passed. Separate cross-platform root/contract workflow `36307011584` passed (2026-09-27; current verification).
+- [x] New loader/normalization/propagation, all-or-nothing admission, sibling isolation and caller-mutation regressions included in supported CI. Continuation adds 33 tests, not a claimed full-suite count (2026-09-27; current verification).
+
+## Acceptance still open
+
+- [ ] Independent review of the new path-identity and native contract boundaries; no reviewer verdict obtained. Keep PR #46 Draft until accepted; CI is not human approval.
+- [ ] Main-branch merge and production authorization: not performed. Final documentation-only commit's CI must be checked independently of the pinned runtime result.
+- [ ] Broader A0/reliability completion: O02/O03 and other existing packages keep their current ownership and gates. This root correction does not close all Stage A.
+- [ ] B1 independent acceptance and any interactive/real-provider validation. Input requirements are not a B2 completion receipt or a new filesystem read allowlist.
 
 ## Remaining dispatch packages
 
-- [ ] B1 optional bounded native read-only contract and task card; old calls/worker limits preserved. Depends on A1 acceptance and input-seam review.
 - [ ] B2 host outcomes and completion receipt; approved S0-min/L1/L2/final review required. COMPLETED without host evidence stays UNOBSERVED.
 - [ ] B3 event-derived status/candidate views and resume summary; D1 review required; no new terminal-state authority.
 - [ ] B4 root budget admission/exactly-once settlement; unknown prices stay unknown.
@@ -31,4 +35,4 @@ State: `blocked` for merge acceptance; bounded implementation and subset checks 
 - [ ] D3-learning authorized baseline/candidate comparison, independent outcomes and isolated data.
 - [ ] E approved version-pinned activation and policy rollback; F-PROD/R10/R11/F6 remain independent.
 
-Remaining packages inherit the plan's files, observable acceptance, non-goals and abort conditions. None is marked implemented or accepted. Assign one active owner per shared file before parallel work. Do not substitute this checklist for existing reliability/controlled-improvement acceptance.
+Remaining packages inherit the plans' files, observable acceptance, non-goals and abort conditions. One active owner per shared file; no replacement of the existing reliability/controlled-improvement acceptance process.
