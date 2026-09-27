@@ -3,14 +3,12 @@ import { betaQuantileLcb } from "./posterior.js";
 import { solveSymmetric } from "./lin-alg.js";
 
 /**
- * Phase C Task 3: logit-additive attribution via IRLS (offline only).
- *
- *   logit Pr(y=1) = alpha(scenario) + u(modelVersion) + v(project) + w(modelVersion, project)
- *
- * One dummy dropped per factor (first seen id). Interaction columns only for
- * (model, project) pairs with n >= 3. Singular or non-finite fits fail closed
- * to `uncertain` / INVALID_ESTIMATE. Intervals: seeded bootstrap refits,
- * reporting the 2.5 / 97.5 percentiles. Never touches the active pointer.
+ * Offline logit-standardized-v2 attribution via IRLS. Canonical treatment
+ * references identify the fitted coefficients; reported effects center full
+ * grid predictions, including every reference level, on the probability scale.
+ * Rank-deficient designs fail closed before ridge stabilization. Seeded
+ * bootstrap refits share the original prediction grid and scenario weights.
+ * Never touches the active pointer.
  */
 
 const MAX_ITER_DEFAULT = 50;
@@ -21,16 +19,25 @@ const INTERACTION_MIN_N = 3;
 const MIN_SUCCESSFUL_DRAWS = 20;
 const ATTRIBUTION_EFFECT = 0.1;
 const QUALITY_FLOOR = 0.55;
+const PROTOCOL = "logit-standardized-v2";
+
+type EffectTerm =
+  | { readonly factor: "a"; readonly name: string; readonly scenario: number }
+  | { readonly factor: "u"; readonly name: string; readonly model: number }
+  | { readonly factor: "v"; readonly name: string; readonly project: number }
+  | { readonly factor: "w"; readonly name: string; readonly model: number; readonly project: number };
 
 interface Design {
-  /** Column names, aligned with column indices. */
+  /** Fitted column names, in canonical factor and tuple order. */
   readonly names: readonly string[];
-  /** name -> column index. Names are unique, so this equals `names.indexOf`. */
-  readonly columnIndex: ReadonlyMap<string, number>;
-  /** Build one row's design vector; `skip` excludes one dummy column (for contrasts). */
-  build(row: Row, skip?: string): number[];
-  /** Reference levels dropped from the design; they report zero effects. */
-  readonly referenceLevels: ReadonlyArray<{ factor: "a" | "u" | "v"; name: string }>;
+  readonly scenarios: readonly string[];
+  readonly models: readonly string[];
+  readonly projects: readonly string[];
+  readonly scenarioWeights: readonly number[];
+  readonly effects: readonly EffectTerm[];
+  build(row: Row): number[];
+  /** Stream a grid prediction without allocating a dense design vector. */
+  predict(scenario: string, model: string, project: string, coefficients: readonly number[]): number;
 }
 
 interface Row {
@@ -38,6 +45,10 @@ interface Row {
   readonly modelVersion: string;
   readonly projectId: string;
   readonly y: 0 | 1;
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function sigmoid(z: number): number {
@@ -59,66 +70,123 @@ function rng(seed: number): () => number {
 }
 
 function buildDesign(rows: readonly Row[]): Design {
-  const scenarios = [...new Set(rows.map((r) => r.scenarioId))];
-  const models = [...new Set(rows.map((r) => r.modelVersion))];
-  const projects = [...new Set(rows.map((r) => r.projectId))];
-  // Drop one dummy per factor: the LAST seen id becomes the reference, so a
-  // uniformly failing first model keeps a real (negative) column.
-  const dropLast = (levels: readonly string[]): string[] =>
-    levels.slice(0, Math.max(0, levels.length - 1));
-  const scenarioLevels = dropLast(scenarios);
-  const modelLevels = dropLast(models);
-  const projectLevels = dropLast(projects);
-
-  const pairCounts = new Map<string, number>();
+  const scenarios = [...new Set(rows.map((r) => r.scenarioId))].sort(compareText);
+  const models = [...new Set(rows.map((r) => r.modelVersion))].sort(compareText);
+  const projects = [...new Set(rows.map((r) => r.projectId))].sort(compareText);
+  const names = ["intercept"];
+  const factorColumns = (levels: readonly string[], prefix: string): ReadonlyMap<string, number> => {
+    const columns = new Map<string, number>();
+    // The exact code-unit last level is the treatment reference.
+    for (const level of levels.slice(0, -1)) {
+      columns.set(level, names.length);
+      names.push(`${prefix}:${level}`);
+    }
+    return columns;
+  };
+  const scenarioColumns = factorColumns(scenarios, "a");
+  const modelColumns = factorColumns(models, "u");
+  const projectColumns = factorColumns(projects, "v");
+  const pairCounts = new Map<string, Map<string, number>>();
+  const scenarioCounts = new Map<string, number>();
   for (const row of rows) {
-    const key = `${row.modelVersion}|${row.projectId}`;
-    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+    let counts = pairCounts.get(row.modelVersion);
+    if (counts === undefined) {
+      counts = new Map();
+      pairCounts.set(row.modelVersion, counts);
+    }
+    counts.set(row.projectId, (counts.get(row.projectId) ?? 0) + 1);
+    scenarioCounts.set(row.scenarioId, (scenarioCounts.get(row.scenarioId) ?? 0) + 1);
   }
-  const interactionPairs = [...pairCounts.entries()]
-    .filter(([, n]) => n >= INTERACTION_MIN_N)
-    .map(([key]) => key);
-
-  const names = [
-    "intercept",
-    ...scenarioLevels.map((s) => `a:${s}`),
-    ...modelLevels.map((m) => `u:${m}`),
-    ...projectLevels.map((p) => `v:${p}`),
-    ...interactionPairs.map((key) => `w:${key}`)
+  const interactionColumns = new Map<string, Map<string, number>>();
+  for (const model of modelColumns.keys()) {
+    const columns = new Map<string, number>();
+    for (const project of projectColumns.keys()) {
+      if ((pairCounts.get(model)?.get(project) ?? 0) < INTERACTION_MIN_N) continue;
+      columns.set(project, names.length);
+      names.push(`w:${JSON.stringify([model, project])}`);
+    }
+    interactionColumns.set(model, columns);
+  }
+  const effects: EffectTerm[] = [
+    ...scenarios.map((name, scenario) => ({ factor: "a" as const, name: `a:${name}`, scenario })),
+    ...models.map((name, model) => ({ factor: "u" as const, name: `u:${name}`, model })),
+    ...projects.map((name, project) => ({ factor: "v" as const, name: `v:${name}`, project }))
   ];
-  // All names are unique (deduped levels behind distinct prefixes), so a map
-  // lookup returns exactly what `names.indexOf` did.
-  const columnIndex = new Map(names.map((name, index) => [name, index] as const));
-  const interactionPairSet = new Set(interactionPairs);
-
-  const referenceLevels: Array<{ factor: "a" | "u" | "v"; name: string }> = [];
-  const lastModel = models[models.length - 1];
-  const lastProject = projects[projects.length - 1];
-  if (lastModel !== undefined) referenceLevels.push({ factor: "u", name: lastModel });
-  if (lastProject !== undefined) referenceLevels.push({ factor: "v", name: lastProject });
-
+  for (let model = 0; model < models.length; model++) {
+    for (let project = 0; project < projects.length; project++) {
+      effects.push({ factor: "w", name: `w:${JSON.stringify([models[model], projects[project]])}`, model, project });
+    }
+  }
   return {
     names,
-    columnIndex,
-    referenceLevels,
-    build(row: Row, skip?: string): number[] {
+    scenarios,
+    models,
+    projects,
+    scenarioWeights: scenarios.map((scenario) => scenarioCounts.get(scenario)! / rows.length),
+    effects,
+    build(row: Row): number[] {
       const vec = new Array<number>(names.length).fill(0);
       vec[0] = 1;
-      const set = (name: string): void => {
-        if (name === skip) return;
-        const index = columnIndex.get(name);
-        if (index !== undefined && index > 0) vec[index] = 1;
-      };
-      if (row.scenarioId !== scenarios[scenarios.length - 1]) set(`a:${row.scenarioId}`);
-      if (row.modelVersion !== models[models.length - 1]) set(`u:${row.modelVersion}`);
-      if (row.projectId !== projects[projects.length - 1]) set(`v:${row.projectId}`);
-      const pairKey = `${row.modelVersion}|${row.projectId}`;
-      if (interactionPairSet.has(pairKey)) set(`w:${pairKey}`);
+      for (const column of [
+        scenarioColumns.get(row.scenarioId),
+        modelColumns.get(row.modelVersion),
+        projectColumns.get(row.projectId),
+        interactionColumns.get(row.modelVersion)?.get(row.projectId)
+      ]) {
+        if (column !== undefined) vec[column] = 1;
+      }
       return vec;
+    },
+    predict(scenario, model, project, coefficients): number {
+      let value = coefficients[0]!;
+      const a = scenarioColumns.get(scenario);
+      const u = modelColumns.get(model);
+      const v = projectColumns.get(project);
+      const w = interactionColumns.get(model)?.get(project);
+      if (a !== undefined) value += coefficients[a]!;
+      if (u !== undefined) value += coefficients[u]!;
+      if (v !== undefined) value += coefficients[v]!;
+      if (w !== undefined) value += coefficients[w]!;
+      return sigmoid(value);
     }
   };
 }
 
+/**
+ * Rank of the unregularized 0/1 rows, independent of duplicate counts.
+ * Work directly in row space rather than squaring conditioning in X'X.
+ * Reorthogonalize twice and reject residuals at scaled roundoff precision;
+ * ridge may stabilize identified coefficients, never supply missing rank.
+ */
+function hasFullColumnRank(supports: readonly (readonly number[])[], columns: number): boolean {
+  // Supports contain sorted integer column indices, so this exact encoding
+  // cannot confuse identifiers containing punctuation or distinct rows.
+  const unique = new Map<string, readonly number[]>();
+  for (const active of supports) unique.set(active.join(","), active);
+  if (unique.size < columns) return false;
+  const basis: number[][] = [];
+  const tolerance = 64 * Number.EPSILON * Math.max(unique.size, columns);
+  for (const active of unique.values()) {
+    const residual = new Array<number>(columns).fill(0);
+    for (const column of active) residual[column] = 1;
+    for (let pass = 0; pass < 2; pass++) {
+      for (const direction of basis) {
+        let projection = 0;
+        for (let column = 0; column < columns; column++) projection += residual[column]! * direction[column]!;
+        for (let column = 0; column < columns; column++) residual[column] = residual[column]! - projection * direction[column]!;
+      }
+    }
+    let squaredNorm = 0;
+    for (const value of residual) squaredNorm += value * value;
+    const norm = Math.sqrt(squaredNorm);
+    if (!Number.isFinite(norm)) return false;
+    if (norm <= tolerance * Math.sqrt(active.length)) continue;
+    for (let column = 0; column < columns; column++) residual[column] = residual[column]! / norm;
+    basis.push(residual);
+    if (basis.length === columns) return true;
+  }
+  return false;
+}
 interface FitResult {
   readonly coefficients: readonly number[] | null;
 }
@@ -342,56 +410,47 @@ function irls(
   return { coefficients: beta };
 }
 
-function dot(a: readonly number[], b: readonly number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += a[i]! * b[i]!;
-  return sum;
-}
-
-/** onProbabilities[i] = sigmoid(dot(coefficients, vectors[i])), shared across columns. */
-function onProbabilitiesFor(
-  vectors: readonly number[][],
-  coefficients: readonly number[]
-): number[] {
-  return vectors.map((vector) => sigmoid(dot(coefficients, vector)));
-}
-
 /**
- * Average predictive comparison on the probability scale: mean over training
- * rows of sigma(x*beta with dummy on) minus sigma(x*beta with dummy off).
- *
- * A row without the dummy has an off vector equal to its on vector, so its
- * contribution is exactly +0.0 (IEEE x - x); skipping those rows and the
- * columnless reference levels leaves every partial sum bitwise unchanged.
- *
- * An active row's off vector is its on vector with the contrast column
- * zeroed — copying the already-built on vector yields contents identical to
- * `design.build(row, column)` without repaying the O(p) rebuild per
- * (row, column). The intercept guard keeps the (unreachable) intercept
- * contrast at the build-path value: build() never skips the intercept, so
- * its off vector equals the on vector and the mean stays +0.0 either way.
+ * Fixed full-grid standardization. Only M×P pair means and factor marginals
+ * are retained; no S×M×P dense vectors are materialized. Predictions for
+ * missing cells extrapolate under the selected logit design. Probability
+ * interactions also include link nonlinearity, not only logit interactions.
  */
-function averagePredictiveComparison(
-  design: Design,
-  rows: readonly Row[],
-  vectors: readonly number[][],
-  coefficients: readonly number[],
-  onProbabilities: readonly number[],
-  column: string
-): number {
+function standardizedEffects(design: Design, coefficients: readonly number[]): number[] {
+  const { scenarios, models, projects, scenarioWeights } = design;
+  const pairMeans = Array.from({ length: models.length }, () => new Array<number>(projects.length).fill(0));
+  const scenarioMeans = new Array<number>(scenarios.length).fill(0);
+  for (let s = 0; s < scenarios.length; s++) {
+    let sum = 0;
+    for (let m = 0; m < models.length; m++) {
+      for (let p = 0; p < projects.length; p++) {
+        const probability = design.predict(scenarios[s]!, models[m]!, projects[p]!, coefficients);
+        pairMeans[m]![p] = pairMeans[m]![p]! + scenarioWeights[s]! * probability;
+        sum += probability;
+      }
+    }
+    scenarioMeans[s] = sum / (models.length * projects.length);
+  }
+  const modelMeans = new Array<number>(models.length).fill(0);
+  const projectMeans = new Array<number>(projects.length).fill(0);
   let sum = 0;
-  const columnIdx = design.columnIndex.get(column);
-  if (columnIdx !== undefined && columnIdx !== 0) {
-    for (let i = 0; i < rows.length; i++) {
-      if (vectors[i]![columnIdx] === 0) continue;
-      const on = onProbabilities[i]!;
-      const offVector = vectors[i]!.slice();
-      offVector[columnIdx] = 0;
-      const off = sigmoid(dot(coefficients, offVector));
-      sum += on - off;
+  for (let m = 0; m < models.length; m++) {
+    for (let p = 0; p < projects.length; p++) {
+      const probability = pairMeans[m]![p]!;
+      modelMeans[m] = modelMeans[m]! + probability / projects.length;
+      projectMeans[p] = projectMeans[p]! + probability / models.length;
+      sum += probability;
     }
   }
-  return rows.length === 0 ? 0 : sum / rows.length;
+  const grandMean = sum / (models.length * projects.length);
+  return design.effects.map((term) => {
+    switch (term.factor) {
+      case "a": return scenarioMeans[term.scenario]! - grandMean;
+      case "u": return modelMeans[term.model]! - grandMean;
+      case "v": return projectMeans[term.project]! - grandMean;
+      case "w": return pairMeans[term.model]![term.project]! - modelMeans[term.model]! - projectMeans[term.project]! + grandMean;
+    }
+  });
 }
 
 function percentile(sortedValues: readonly number[], q: number): number {
@@ -422,7 +481,10 @@ export function fitLogitAdditive(
     modelVersion: r.modelVersion,
     projectId: r.projectId,
     y: r.y
-  }));
+  })).sort((a, b) => compareText(a.scenarioId, b.scenarioId)
+    || compareText(a.modelVersion, b.modelVersion)
+    || compareText(a.projectId, b.projectId)
+    || a.y - b.y);
   const effects: AttributionEffect[] = [];
 
   if (baseRows.length === 0 || baseRows.every((r) => r.y === 0) || baseRows.every((r) => r.y === 1)) {
@@ -434,38 +496,24 @@ export function fitLogitAdditive(
   const vectors = baseRows.map((r) => design.build(r));
   const supports = computeSupports(vectors);
   const keys = canonicalRowKeys(baseRows);
+  if (!hasFullColumnRank(supports, design.names.length)) {
+    return uncertainReport(baseRows.length, "INVALID_ESTIMATE: rank-deficient design");
+  }
   const fit = irls(design, baseRows, vectors, supports, keys, baseRows.length, maxIter);
   if (fit.coefficients === null) {
     return uncertainReport(baseRows.length, "INVALID_ESTIMATE: singular or non-finite Hessian");
   }
-
-  // Point effects via average predictive comparison.
-  const onProbabilities = onProbabilitiesFor(vectors, fit.coefficients);
-  const pointEffects = new Map<string, number>();
-  for (const name of design.names) {
-    if (name === "intercept") continue;
-    pointEffects.set(
-      name,
-      averagePredictiveComparison(design, baseRows, vectors, fit.coefficients, onProbabilities, name)
-    );
-  }
-  // Reference levels have no column; their contrast is identically zero.
-  for (const ref of design.referenceLevels) {
-    if (!pointEffects.has(`${ref.factor}:${ref.name}`)) {
-      pointEffects.set(`${ref.factor}:${ref.name}`, 0);
-    }
+  const pointEffects = standardizedEffects(design, fit.coefficients);
+  if (!pointEffects.every(Number.isFinite)) {
+    return uncertainReport(baseRows.length, "INVALID_ESTIMATE: non-finite standardized prediction");
   }
 
-  // Seeded bootstrap refits for intervals.
+  // Seeded bootstrap refits on the original design, prediction grid and q_s.
   const random = rng(seed);
-  const draws = new Map<string, number[]>();
+  const draws = pointEffects.map(() => [] as number[]);
   let successful = 0;
   for (let draw = 0; draw < bootstrapDraws; draw++) {
-    // A resampled row is a base row, so its design vector, support, and
-    // canonical key are exactly the ones computed once for the base fit;
-    // reusing them by index removes the per-draw O(rows × p) rebuild without
-    // touching any float. Consumers only read the vectors, so the aliasing
-    // is unobservable.
+    // Samples reuse the original observed rows' vectors, supports and keys.
     const sample: Row[] = [];
     const sampleVectors: number[][] = [];
     const sampleSupports: number[][] = [];
@@ -477,34 +525,25 @@ export function fitLogitAdditive(
       sampleSupports.push(supports[index]!);
       sampleKeys.push(keys[index]!);
     }
-    // A resample can collapse to a single class; that draw is skipped.
     if (sample.every((r) => r.y === 0) || sample.every((r) => r.y === 1)) continue;
+    if (!hasFullColumnRank(sampleSupports, design.names.length)) continue;
     const bootFit = irls(design, sample, sampleVectors, sampleSupports, sampleKeys, baseRows.length, maxIter);
     if (bootFit.coefficients === null) continue;
+    const sampleEffects = standardizedEffects(design, bootFit.coefficients);
+    if (!sampleEffects.every(Number.isFinite)) continue;
     successful += 1;
-    const sampleOnProbabilities = onProbabilitiesFor(sampleVectors, bootFit.coefficients);
-    for (const [name] of pointEffects.entries()) {
-      const value = averagePredictiveComparison(
-        design,
-        sample,
-        sampleVectors,
-        bootFit.coefficients,
-        sampleOnProbabilities,
-        name
-      );
-      pushValue(draws, name, value);
-    }
+    for (let i = 0; i < sampleEffects.length; i++) draws[i]!.push(sampleEffects[i]!);
   }
 
-  for (const [name, point] of pointEffects.entries()) {
-    const values = draws.get(name) ?? [];
-    if (successful < MIN_SUCCESSFUL_DRAWS || values.length < MIN_SUCCESSFUL_DRAWS) {
-      return uncertainReport(baseRows.length, "INVALID_ESTIMATE: fewer than 20 successful bootstrap draws");
-    }
+  if (successful < MIN_SUCCESSFUL_DRAWS) {
+    return uncertainReport(baseRows.length, "INVALID_ESTIMATE: fewer than 20 successful bootstrap draws");
+  }
+  for (let i = 0; i < pointEffects.length; i++) {
+    const values = draws[i]!;
     values.sort((a, b) => a - b);
     effects.push({
-      name,
-      point,
+      name: design.effects[i]!.name,
+      point: pointEffects[i]!,
       lcb: percentile(values, 0.025),
       ucb: percentile(values, 0.975)
     });
@@ -515,39 +554,32 @@ export function fitLogitAdditive(
   const mean = baseRows.reduce((acc, r) => acc + r.y, 0) / n;
   const muPosterior = { alpha: 1 + n * mean, beta: 1 + n * (1 - mean) };
   const muLcb = betaQuantileLcb(muPosterior, 0.05);
-  const models = new Set(baseRows.map((r) => r.modelVersion)).size;
-  const projects = new Set(baseRows.map((r) => r.projectId)).size;
+  const models = design.models.length;
+  const projects = design.projects.length;
   // Bootstrap noise means an "uninformative" interval can sit a hair off zero;
   // treat CIs within a small epsilon of zero as containing it.
   const ZERO_EPS = 0.005 * ATTRIBUTION_EFFECT;
   const containsZero = (e: AttributionEffect): boolean =>
     e.lcb <= ZERO_EPS && e.ucb >= -ZERO_EPS;
-  const interactionsFor = (prefix: string): AttributionEffect[] =>
-    effects.filter((e) => e.name.startsWith(`w:${prefix}`));
+  const interactionEffects = design.effects.flatMap((term, i) =>
+    term.factor === "w" ? [{ model: term.model, project: term.project, effect: effects[i]! }] : []);
 
-  // Order note: additive effects are checked before the scenario-level flag.
-  // A separable scenario (some models fail, some pass) must surface as a
-  // model/project problem, not be masked by a low scenario mean.
+  // Additive effects retain precedence over the scenario-level flag.
   let diagnosis: AttributionLabel = "uncertain";
   const scenarioHard = muLcb < QUALITY_FLOOR && models >= 2 && projects >= 3;
   if (
-    effects.some(
-      (e) => e.name.startsWith("u:") && e.lcb < -ATTRIBUTION_EFFECT && interactionsFor(modelOf(e.name)).every(containsZero)
-    )
+    design.effects.some((term, i) => term.factor === "u"
+      && effects[i]!.lcb < -ATTRIBUTION_EFFECT
+      && interactionEffects.filter((w) => w.model === term.model).every((w) => containsZero(w.effect)))
   ) {
     diagnosis = "model-problem";
   } else if (
-    effects.some(
-      (e) =>
-        e.name.startsWith("v:") &&
-        e.lcb < -ATTRIBUTION_EFFECT &&
-        effects
-          .filter((w) => w.name.startsWith("w:") && w.name.endsWith(`|${e.name.slice("v:".length)}`))
-          .every(containsZero)
-    )
+    design.effects.some((term, i) => term.factor === "v"
+      && effects[i]!.lcb < -ATTRIBUTION_EFFECT
+      && interactionEffects.filter((w) => w.project === term.project).every((w) => containsZero(w.effect)))
   ) {
     diagnosis = "project-problem";
-  } else if (effects.some((e) => e.name.startsWith("w:") && e.lcb < -ATTRIBUTION_EFFECT)) {
+  } else if (interactionEffects.some((w) => w.effect.lcb < -ATTRIBUTION_EFFECT)) {
     diagnosis = "interaction-only";
   } else if (scenarioHard) {
     diagnosis = "scenario-hard";
@@ -558,19 +590,9 @@ export function fitLogitAdditive(
     rowsUsed: baseRows.length,
     effects,
     diagnosis,
-    reason: diagnosis === "uncertain" ? "no effect beyond threshold or intervals too wide" : `${diagnosis} beyond the ${ATTRIBUTION_EFFECT} effect threshold`,
+    reason: `${PROTOCOL}: ${diagnosis === "uncertain" ? "no effect beyond threshold or intervals too wide" : `${diagnosis} beyond the ${ATTRIBUTION_EFFECT} effect threshold`}`,
     writesActivePointer: false
   };
-}
-
-function modelOf(effectName: string): string {
-  return effectName.slice("u:".length);
-}
-
-function pushValue(map: Map<string, number[]>, key: string, value: number): void {
-  const list = map.get(key);
-  if (list === undefined) map.set(key, [value]);
-  else list.push(value);
 }
 
 function uncertainReport(rowsUsed: number, reason: string): AttributionReport {
@@ -579,7 +601,7 @@ function uncertainReport(rowsUsed: number, reason: string): AttributionReport {
     rowsUsed,
     effects: [],
     diagnosis: "uncertain",
-    reason,
+    reason: `${PROTOCOL}: ${reason}`,
     writesActivePointer: false
   };
 }
