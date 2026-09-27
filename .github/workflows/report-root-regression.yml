@@ -1,0 +1,46 @@
+name: Report root regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/native/**'
+      - 'test/unit/native/**'
+      - 'test/integration/native/**'
+      - 'scripts/native-root-baseline-probe.mjs'
+      - '.github/workflows/report-root-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: report-root-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  root-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 1b04aa9d9e70206cfb41a2963189dfb5bcab3a5d
+          path: .agent_workspace/root-baseline
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Same-runner baseline and current root identity
+        run: node --import tsx scripts/native-root-baseline-probe.mjs .agent_workspace/root-baseline
+      - name: Root, preflight and apply safety regressions
+        if: ${{ !cancelled() }}
+        run: pnpm test -- --test-concurrency=1 test/unit/native/repository-root.test.ts test/unit/native/write-preflight.test.ts test/unit/native/apply.test.ts test/integration/native/apply.test.ts
