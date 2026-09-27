@@ -133,8 +133,11 @@ async function statExists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // A malformed parent (ENOTDIR) and permission/device failures do not prove
+    // that privacy records are absent. Preserve the error for every caller.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 
@@ -907,13 +910,13 @@ interface InvocationRewrite {
 async function dropRunFromInvocationLog(
   stateRoot: string,
   runId: RunId,
-  options: FileLockOptions = {}
+  options: RunDeletionOptions = {}
 ): Promise<InvocationRewrite> {
   const path = invocationsLogPath(stateRoot);
   // No log, nothing to rewrite — and no reason to create the runtime directory
   // just to take a lock over a file that does not exist.
   if (!(await statExists(path))) return { path, droppedRows: 0, staleAggregate: undefined };
-  const droppedRows = await withInvocationLogLock(
+  return withInvocationLogLock(
     stateRoot,
     async () => {
       const { values } = await readInvocationRecords(
@@ -922,15 +925,24 @@ async function dropRunFromInvocationLog(
       );
       const kept = values.filter((row) => !rowNamesRun(row, runId));
       const dropped = values.length - kept.length;
-      if (dropped === 0) return 0;
-      await writeInvocationRecords(stateRoot, kept);
-      return dropped;
+      if (dropped === 0) return { path, droppedRows: 0, staleAggregate: undefined };
+      // Invalidate before erasing the rows that identify this run. Otherwise
+      // a failed invalidation loses its retry trigger once the rewrite commits.
+      const staleAggregate = await invalidateCatalogObserved(stateRoot);
+      try {
+        await writeInvocationRecords(stateRoot, kept);
+      } catch (error) {
+        if (staleAggregate !== undefined) {
+          try {
+            options.disclosePartial?.(`run:${runId}: the derived ${staleAggregate} snapshot was invalidated, but rewriting ${path} failed and may have partially completed; inspect the log and retry the delete. The original error is preserved.`);
+          } catch { /* A broken reporter must not replace the write failure. */ }
+        }
+        throw error;
+      }
+      return { path, droppedRows: dropped, staleAggregate };
     },
     options
   );
-  const staleAggregate =
-    droppedRows > 0 ? await invalidateCatalogObserved(stateRoot) : undefined;
-  return { path, droppedRows, staleAggregate };
 }
 
 function rowNamesRun(row: unknown, runId: RunId): boolean {

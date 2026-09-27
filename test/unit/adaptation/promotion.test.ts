@@ -13,13 +13,14 @@ import type { RoutingEvalReport } from "../../../src/adaptation/eval-routing.js"
 import {
   adaptationRegistryPath,
   loadAdaptationRegistry,
+  parseRegistrySnapshot,
   parsePromotionReview,
   promoteWithRegistry,
   PromotionService,
   reconstructPromotion,
   saveAdaptationRegistry
 } from "../../../src/adaptation/promotion.js";
-import type { ChangeNote, PromoteInput } from "../../../src/adaptation/promotion.js";
+import type { ChangeNote, PromoteInput, ResourceRegistrySnapshot } from "../../../src/adaptation/promotion.js";
 import { ResourceRegistry } from "../../../src/adaptation/registry.js";
 import type { AuthorIdentity, ResourceIdentity } from "../../../src/adaptation/resource.js";
 import { NON_AUTO_PROMOTABLE_KINDS } from "../../../src/adaptation/resource.js";
@@ -111,6 +112,93 @@ function lowRiskProfile(overrides: Partial<ApprovalProfile> = {}): ApprovalProfi
     ...overrides
   };
 }
+
+function pendingSnapshot(): ResourceRegistrySnapshot {
+  const reg = registry();
+  const baseline = reg.registerBaseline({ identity: identity(), content: "v1", author: AUTHOR });
+  const candidate = reg.createCandidate({
+    identity: identity(), content: "v2", parentVersionId: baseline.versionId,
+    author: AUTHOR, evaluationPlan: PLAN
+  });
+  reg.beginPromotion(promoteInput(candidate.candidateId, baseline.versionId, "v2"));
+  return reg.snapshot();
+}
+
+describe("registry snapshot validation", () => {
+  const missingVersion = "rsv_missing1" as ResourceRegistrySnapshot["versions"][number]["versionId"];
+  const missingCandidate = "cnd_missing1" as ResourceRegistrySnapshot["candidates"][number]["candidateId"];
+  const corruptions: readonly [string, (snapshot: ResourceRegistrySnapshot) => ResourceRegistrySnapshot, RegExp][] = [
+    ["identical version ID", (s) => ({ ...s, versions: [...s.versions, s.versions[0]!] }), /duplicate.*version/i],
+    ["conflicting version ID", (s) => ({ ...s, versions: [...s.versions, { ...s.versions[0]!, contentHash: s.versions[1]!.contentHash }] }), /duplicate.*version/i],
+    ["identical candidate ID", (s) => ({ ...s, candidates: [...s.candidates, s.candidates[0]!] }), /duplicate.*candidate/i],
+    ["conflicting candidate ID", (s) => ({ ...s, candidates: [...s.candidates, { ...s.candidates[0]!, status: "rejected" }] }), /duplicate.*candidate/i],
+    ["identical intent ID", (s) => ({ ...s, pending: [...s.pending, s.pending[0]!] }), /duplicate.*intent/i],
+    ["conflicting intent ID", (s) => ({ ...s, pending: [...s.pending, { ...s.pending[0]!, usedAutoPromote: true }] }), /duplicate.*intent/i],
+    ["repeated active ID", (s) => ({ ...s, activeVersionIds: [...s.activeVersionIds, s.activeVersionIds[0]!] }), /duplicate.*active/i],
+    ["two active versions for one identity", (s) => ({ ...s, activeVersionIds: s.versions.map((v) => v.versionId) }), /duplicate.*active/i],
+    ["missing active version", (s) => ({ ...s, activeVersionIds: [missingVersion] }), /active.*unknown/i],
+    ["missing version parent", (s) => ({ ...s, versions: [{ ...s.versions[0]!, parentVersionId: missingVersion }, s.versions[1]!] }), /parent.*unknown/i],
+    ["missing candidate parent", (s) => ({ ...s, candidates: [{ ...s.candidates[0]!, parentVersionId: missingVersion }] }), /parent.*unknown/i],
+    ["missing version content", (s) => ({ ...s, contents: s.contents!.slice(1) }), /content.*unknown/i],
+    ["missing candidate content", (s) => ({ ...s, candidates: [{ ...s.candidates[0]!, contentHash: "deadbeef" }] }), /content.*unknown/i],
+    ["missing pending candidate", (s) => ({ ...s, pending: [{ ...s.pending[0]!, candidateId: missingCandidate }] }), /candidate.*unknown/i],
+    ["missing pending expected version", (s) => ({ ...s, pending: [{ ...s.pending[0]!, expectedCurrentVersionId: missingVersion }] }), /expected.*unknown/i],
+    ["missing pending version", (s) => ({ ...s, pending: [{ ...s.pending[0]!, pendingVersionId: missingVersion }] }), /pending version.*unknown/i],
+    ["missing ledger candidate", (s) => ({ ...s, ledger: [{ ...s.ledger[0]!, candidateId: missingCandidate }] }), /candidate.*unknown/i],
+    ["missing retired version", (s) => ({ ...s, retiredVersionIds: [missingVersion] }), /retired.*unknown/i],
+    ["parent from another identity", (s) => ({ ...s, versions: [{ ...s.versions[0]!, identity: { ...s.versions[0]!.identity, name: "other" } }, s.versions[1]!] }), /identity/i],
+    ["cyclic lineage", (s) => ({ ...s, versions: [{ ...s.versions[0]!, parentVersionId: s.versions[1]!.versionId }, s.versions[1]!] }), /cyclic/i],
+    ["pending content differs from candidate", (s) => ({ ...s, versions: [s.versions[0]!, { ...s.versions[1]!, contentHash: s.versions[0]!.contentHash }] }), /pending.*candidate/i]
+  ];
+  for (const [name, corrupt, error] of corruptions) {
+    it(`rejects ${name} at the parser and direct restore boundaries`, () => {
+      const snapshot = corrupt(pendingSnapshot());
+      assert.throws(() => parseRegistrySnapshot(snapshot), error);
+      assert.throws(() => ResourceRegistry.fromSnapshot(snapshot), error);
+    });
+  }
+
+  it("restores a valid pending snapshot and legacy metadata without content blobs", () => {
+    const snapshot = pendingSnapshot();
+    assert.deepEqual(ResourceRegistry.fromSnapshot(parseRegistrySnapshot(snapshot)).snapshot(), snapshot);
+    const { contents: _contents, ...legacy } = snapshot;
+    assert.equal(ResourceRegistry.fromSnapshot(parseRegistrySnapshot(legacy)).snapshot().pending.length, 1);
+  });
+
+  it("keeps a legacy metadata-only snapshot readable after serialization", () => {
+    const { contents: _contents, ...legacy } = pendingSnapshot();
+    const restored = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(legacy));
+    const persisted = JSON.parse(JSON.stringify(restored.snapshot())) as unknown;
+    const reloaded = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(persisted));
+    assert.deepEqual(reloaded.snapshot().versions, legacy.versions);
+    assert.deepEqual(reloaded.snapshot().activeVersionIds, legacy.activeVersionIds);
+    assert.deepEqual(reloaded.snapshot().pending, legacy.pending);
+  });
+
+  it("refuses content-adding legacy mutations until a complete snapshot is explicitly restored", () => {
+    const complete = pendingSnapshot();
+    const { contents: _contents, ...legacy } = complete;
+    const restored = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(legacy));
+    const before = restored.snapshot();
+    assert.throws(() => restored.registerBaseline({
+      identity: { ...identity(), name: "another-resource" }, content: "new baseline", author: AUTHOR
+    }), /metadata.only.*content|content.*metadata.only/i);
+    assert.deepEqual(restored.snapshot(), before);
+    assert.throws(() => restored.createCandidate({
+      identity: identity(), content: "new candidate", parentVersionId: complete.versions[0]!.versionId,
+      author: AUTHOR, evaluationPlan: PLAN
+    }), /metadata.only.*content|content.*metadata.only/i);
+    assert.deepEqual(restored.snapshot(), before);
+    assert.throws(() => restored.putContent("orphan blob"), /metadata.only.*content|content.*metadata.only/i);
+    const reloaded = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(JSON.parse(JSON.stringify(restored.snapshot()))));
+    assert.deepEqual(reloaded.snapshot(), before);
+
+    restored.restore(complete);
+    restored.registerBaseline({ identity: { ...identity(), name: "another-resource" }, content: "new baseline", author: AUTHOR });
+    assert.equal(ResourceRegistry.fromSnapshot(parseRegistrySnapshot(restored.snapshot())).snapshot().versions.length,
+      complete.versions.length + 1);
+  });
+});
 
 describe("M6-T5: compare-and-swap promotion", () => {
   it("initial policy requires explicit approval for every promotion", () => {

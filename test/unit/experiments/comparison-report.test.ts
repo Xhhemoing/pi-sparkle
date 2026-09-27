@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   computeComparisonReport,
   validateComparisonReport,
+  validateComparisonReportEvidence,
   DEFAULT_COMPARISON_REPORT_CONFIG,
 } from "../../../src/experiments/comparison-report.js";
 import type {
@@ -45,6 +46,68 @@ function card(overrides: Partial<EvaluationCard> = {}): EvaluationCard {
 }
 
 describe("Checkpoint F-2: paired comparison report", () => {
+  it("rejects a single episode repeated five times instead of counting five independent pairs", () => {
+    const row = { ...improvingRecords()[0]!, candidateUtility: 0.6 };
+    assert.throws(
+      () => computeComparisonReport(Array.from({ length: 5 }, () => ({ ...row })), card(), []),
+      /duplicate.*episode/i
+    );
+  });
+
+  for (const [name, patch, candidateUtility] of [
+    ["conflicting measurements", { candidateUtility: 0.9 }, 0.65],
+    ["a different task family", { taskFamily: "other" }, 0.4]
+  ] as const) {
+    it(`rejects repeated episode identity with ${name} before aggregate checks`, () => {
+      const row = improvingRecords()[0]!;
+      const matchingCard = card({ candidate: { utility: candidateUtility, costUsd: 0.1, uncertainty: 0.03 } });
+      assert.throws(() => computeComparisonReport([row, { ...row, ...patch }], matchingCard, []), /duplicate.*episode/i);
+    });
+  }
+
+  it("requires raw unique records before validating report evidence", () => {
+    const records = improvingRecords();
+    const report = computeComparisonReport(records, card(), ["candidate improves quality"]);
+    assert.deepEqual(validateComparisonReportEvidence(report, records), { valid: true, reasons: [] });
+    assert.equal(validateComparisonReportEvidence(report, []).valid, false, "missing evidence cannot pass");
+    const repeated = records.map((row) => ({ ...row, episodeHash: records[0]!.episodeHash }));
+    const duplicate = validateComparisonReportEvidence(report, repeated);
+    assert.equal(duplicate.valid, false);
+    assert.ok(duplicate.reasons.some((reason) => /duplicate.*episode/i.test(reason)));
+  });
+
+  it("rejects fabricated derived statistics even when structural checks pass", () => {
+    const records = improvingRecords();
+    const report = computeComparisonReport(records, card(), []);
+    const corruptions: readonly ComparisonReport[] = [
+      { ...report, utilityDelta: { ...report.utilityDelta, mean: 0.9 } },
+      { ...report, costDelta: { ...report.costDelta, standardError: 0.1 } },
+      { ...report, utilityDelta: { ...report.utilityDelta, provisional: true } },
+      { ...report, utilityDelta: { ...report.utilityDelta, confidenceInterval: { lower: 0.8, upper: 0.9, level: 0.95 } } },
+      { ...report, familyBreakdown: report.familyBreakdown.map((family) => ({ ...family, utilityDeltaMean: 0.9 })) },
+      { ...report, canCloseProductionCheckpointF: false },
+      { ...report, evidenceClass: "simulation", canCloseProductionCheckpointF: false }
+    ];
+    for (const corrupted of corruptions) {
+      assert.equal(validateComparisonReport(corrupted).valid, true, "legacy report-only check is structural");
+      const validation = validateComparisonReportEvidence(corrupted, records);
+      assert.equal(validation.valid, false);
+      assert.ok(validation.reasons.some((reason) => /recomputed|records/i.test(reason)), validation.reasons.join("; "));
+    }
+  });
+
+  it("validates serialized unique provisional simulation records without closing production F", () => {
+    const records = [improvingRecords()[0]!];
+    const config = { ...DEFAULT_COMPARISON_REPORT_CONFIG, evidenceClass: "simulation" as const };
+    const report = computeComparisonReport(records, card({
+      candidate: { utility: 0.4, costUsd: 0.1, uncertainty: 0.03 }
+    }), [], config);
+    const serialized = JSON.parse(JSON.stringify(report)) as ComparisonReport;
+    assert.deepEqual(validateComparisonReportEvidence(serialized, records, config), { valid: true, reasons: [] });
+    assert.equal(serialized.utilityDelta.provisional, true);
+    assert.equal(serialized.canCloseProductionCheckpointF, false);
+  });
+
   it("computes a normal-approximation CI on the paired utility delta", () => {
     const report = computeComparisonReport(improvingRecords(), card(), []);
     assert.equal(report.utilityDelta.count, 5);

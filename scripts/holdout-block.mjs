@@ -31,7 +31,6 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { classifyHoldoutBlockEvidenceClass } from "./lib/holdout-block-evidence.mjs";
 
 /**
  * FNV-1a 32-bit over UTF-8 text. Deterministic arm-order bit only.
@@ -57,6 +56,10 @@ if (invokedDirectly) {
 }
 
 async function main() {
+
+// Pure ordering helpers are importable before build. Only an actual runner
+// invocation needs the built classification library (and the other dist code).
+const { classifyHoldoutBlockEvidenceClass } = await import("./lib/holdout-block-evidence.mjs");
 
 const args = process.argv.slice(2);
 const flag = (name) => {

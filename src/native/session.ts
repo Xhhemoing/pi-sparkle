@@ -143,8 +143,13 @@ export class NativeSession {
       }
     }
     const progress = (text: string) => { try { input.onProgress?.(text); } catch { /* UI cannot fail a run. */ } };
+    let setupFailed = false;
     const executor: AgentExecutor = {
       async *execute(request, signal) {
+        if (setupFailed || signal.aborted) {
+          yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
+          return;
+        }
         const requestModel = request.providerId !== undefined && request.modelId !== undefined
           ? `${request.providerId}/${request.modelId}`
           : request.modelId ?? modelId;
@@ -167,16 +172,14 @@ export class NativeSession {
       }))
     });
     this.active.add(running);
-    // Context-efficiency binding: startParentRun is synchronous, so the run id
-    // is known before any child work executes (single-threaded event loop —
-    // the executor generator cannot have started). Bind the unbound projector
-    // to this run so archives land under this run's own subtree.
-    input.observationProjector?.bind({ runId: running.runId, stateRoot: input.stateRoot });
     const abort = () => running.cancel();
-    input.signal?.addEventListener("abort", abort, { once: true });
-    if (input.signal?.aborted) abort();
-    progress(`Run ${running.runId} started`);
     try {
+      // Cover setup as soon as the run exists: binding or listener setup may
+      // throw before the normal done-await path can assume ownership.
+      input.observationProjector?.bind({ runId: running.runId, stateRoot: input.stateRoot });
+      input.signal?.addEventListener("abort", abort, { once: true });
+      if (input.signal?.aborted) abort();
+      progress(`Run ${running.runId} started`);
       const outcome = await running.done;
       const results = outcome.events.flatMap((event) => {
         if (event.type !== "CHILD_MESSAGE" || event.payload.message.type !== "TASK_RESULT") return [];
@@ -209,6 +212,11 @@ export class NativeSession {
         ...results.map((result) => `${result.taskId}: ${result.summary}`), `Analysis: ${analysis}`].join("\n");
       progress(`Run ${outcome.runId}: ${outcome.status}`);
       return { runId: outcome.runId, status: outcome.status, results, independentVerification: "UNOBSERVED", analysis, text };
+    } catch (error) {
+      setupFailed = true;
+      running.cancel();
+      await Promise.allSettled([running.done]);
+      throw error;
     } finally {
       input.signal?.removeEventListener("abort", abort);
       this.active.delete(running);

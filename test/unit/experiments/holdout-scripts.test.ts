@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -39,6 +40,24 @@ describe("holdout scripts have no SHA-256", () => {
     assert.equal(fnv1a32("a"), 0xe40c292c);
     assert.equal(typeof r0RunsFirst("42", 8), "boolean");
     assert.equal(r0RunsFirst("42", 8), r0RunsFirst("42", 8));
+  });
+
+  it("imports pure block-order helpers without a built dist tree", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "sparkle-holdout-import-"));
+    try {
+      const scripts = join(fixture, "scripts");
+      await mkdir(join(scripts, "lib"), { recursive: true });
+      await copyFile(join(root, "scripts", "holdout-block.mjs"), join(scripts, "holdout-block.mjs"));
+      await copyFile(
+        join(root, "scripts", "lib", "holdout-block-evidence.mjs"),
+        join(scripts, "lib", "holdout-block-evidence.mjs")
+      );
+      const { fnv1a32, r0RunsFirst } = await import(pathToFileURL(join(scripts, "holdout-block.mjs")).href);
+      assert.equal(fnv1a32("a"), 0xe40c292c);
+      assert.equal(typeof r0RunsFirst("42", 8), "boolean");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
   });
 
   it("seal inventory records id and byte length and refuses a digest", async () => {

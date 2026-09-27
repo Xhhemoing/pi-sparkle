@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -27,6 +27,7 @@ async function makeRepo(): Promise<{ root: string; repo: string }> {
   git(repo, ["init"]);
   git(repo, ["config", "user.email", "test@example.com"]);
   git(repo, ["config", "user.name", "Native Apply Test"]);
+  git(repo, ["config", "core.autocrlf", "false"]);
   await writeFile(path.join(repo, "value.ts"), BEFORE);
   git(repo, ["add", "value.ts"]);
   git(repo, ["commit", "-m", "fixture"]);
@@ -144,6 +145,79 @@ test("pre-aborted apply performs no work", async () => {
       /abort|cancel/i
     );
     assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before);
+  });
+});
+
+for (const identity of ["source", "source junction", "foreign repository", "unregistered worktree", "replaced path", "wrong base"] as const) {
+  test(`${identity} is refused before candidate verification executes`, async () => {
+    await withRepo(async ({ root, repo }) => {
+      const before = git(repo, ["rev-parse", "HEAD"]).trim();
+      const marker = path.join(root, "verification-ran");
+      let candidatePath = repo;
+      if (identity === "source junction") {
+        candidatePath = path.join(root, "source-alias");
+        await symlink(repo, candidatePath, process.platform === "win32" ? "junction" : "dir");
+      } else if (identity === "foreign repository") {
+        candidatePath = path.join(root, "foreign");
+        git(root, ["clone", repo, candidatePath]);
+        assert.equal(git(candidatePath, ["rev-parse", "HEAD"]).trim(), before, "foreign fixture must share the source commit");
+      } else if (identity === "unregistered worktree" || identity === "replaced path" || identity === "wrong base") {
+        candidatePath = path.join(root, "candidate");
+        git(repo, ["worktree", "add", "--detach", candidatePath, before]);
+        if (identity === "unregistered worktree") {
+          const moved = path.join(root, "moved-candidate");
+          await rename(candidatePath, moved);
+          candidatePath = moved;
+          assert.equal(git(candidatePath, ["rev-parse", "HEAD"]).trim(), before, "unregistered fixture must still answer Git commands");
+        } else if (identity === "replaced path") {
+          const moved = path.join(root, "original-candidate");
+          await rename(candidatePath, moved);
+          await symlink(repo, candidatePath, process.platform === "win32" ? "junction" : "dir");
+        } else {
+          git(candidatePath, ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "different base"]);
+        }
+      }
+      const result = writeResult(repo);
+      const session = await makeSession();
+      await assert.rejects(() => session.apply(applyInput(repo, {
+        ...result,
+        candidatePath,
+        acceptance: {
+          ...result.acceptance,
+          cwd: candidatePath,
+          revision: before,
+          args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran', 'utf8')`]
+        }
+      })), /candidate|source|worktree|base|path/i);
+      await assert.rejects(() => access(marker), { code: "ENOENT" }, "verification must not run for an invalid candidate identity");
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before);
+      assert.equal(git(repo, ["status", "--porcelain"]), "");
+    });
+  });
+}
+
+test("detached source is refused before verification because a named source branch is required", async () => {
+  await withRepo(async ({ root, repo }) => {
+    const before = git(repo, ["rev-parse", "HEAD"]).trim();
+    const candidatePath = path.join(root, "candidate");
+    const marker = path.join(root, "verification-ran");
+    git(repo, ["worktree", "add", "--detach", candidatePath, before]);
+    await writeFile(path.join(candidatePath, "value.ts"), AFTER, "utf8");
+    git(repo, ["checkout", "--detach", before]);
+    const result = writeResult(repo);
+    const session = await makeSession();
+    await assert.rejects(() => session.apply(applyInput(repo, {
+      ...result,
+      candidatePath,
+      acceptance: {
+        ...result.acceptance,
+        args: ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran', 'utf8')`]
+      }
+    })), /named source branch/i);
+    await assert.rejects(() => access(marker), { code: "ENOENT" });
+    assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before);
+    assert.equal(git(repo, ["rev-parse", "--symbolic-full-name", "HEAD"]).trim(), "HEAD");
+    assert.equal(git(repo, ["status", "--porcelain"]), "");
   });
 });
 

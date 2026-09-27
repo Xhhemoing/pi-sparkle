@@ -3,9 +3,9 @@
  * security-probe — RELEASE GATE (run against the built dist/, not src).
  *
  * Fails the prerelease flow while any security finding below is open.
- * A finding may be time-boxed waived via SECURITY_WAIVER="id1,id2"
- * (see docs/specs/release-gate.md for the waiver register) — except for the
- * probes in UNWAIVABLE, which no environment variable can silence.
+ * SECURITY_WAIVER is a request, never an authorization. The existing register
+ * in docs/specs/release-gate.md is empty, so every nonempty request is refused.
+ * Packaged secrets remain unwaivable even if a future register grants waivers.
  *
  * Probes:
  *   pii-redaction   PII must be REMOVED from feedback bodies, not just labeled
@@ -229,10 +229,17 @@ try {
 }
 
 // --- waiver accounting ------------------------------------------------------
-const waivable = (finding) => waivers.has(finding.probe) && !UNWAIVABLE.has(finding.probe);
-const effective = failures.filter((finding) => !waivable(finding));
-const waived = failures.filter((finding) => waivable(finding));
-const refusedWaivers = [...waivers].filter((probe) => UNWAIVABLE.has(probe)).toSorted();
+// No waiver is currently registered. Do not invent an approval from an env
+// var, expiry, or release label. A future nonempty register must be the single
+// machine-readable authority and validate its release/expiry before use.
+const refusedWaivers = [...waivers].toSorted();
+const effective = [...failures, ...refusedWaivers.map((probe) => ({
+  probe: "security-waiver",
+  sample: probe,
+  detail: UNWAIVABLE.has(probe)
+    ? "This finding is never waivable"
+    : "No approved waiver is registered for this finding and release"
+}))];
 
 process.stdout.write(
   `${JSON.stringify(
@@ -240,7 +247,7 @@ process.stdout.write(
       status: effective.length === 0 ? "ok" : "BLOCKED",
       passed: passed.length,
       openFindings: effective,
-      waivedFindings: waived.map((f) => ({ ...f, waivedBy: "SECURITY_WAIVER" })),
+      waivedFindings: [],
       // Named in SECURITY_WAIVER and ignored on purpose: the operator asked for
       // a waiver the gate does not grant, and silence would look like consent.
       refusedWaivers

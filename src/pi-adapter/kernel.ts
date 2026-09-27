@@ -80,7 +80,8 @@ export interface SparkleKernelOptions {
  * very run it is reporting on.
  */
 export class AsyncEventQueue<T> implements AsyncIterable<T> {
-  private readonly buffered: T[] = [];
+  private buffered: Array<T | undefined> = [];
+  private head = 0;
   private waiting: ((result: IteratorResult<T>) => void) | undefined;
   private closed = false;
 
@@ -112,8 +113,18 @@ export class AsyncEventQueue<T> implements AsyncIterable<T> {
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     for (;;) {
-      if (this.buffered.length > 0) {
-        yield this.buffered.shift() as T;
+      if (this.head < this.buffered.length) {
+        const value = this.buffered[this.head] as T;
+        this.buffered[this.head++] = undefined;
+        if (this.head === this.buffered.length) {
+          this.buffered = [];
+          this.head = 0;
+        } else if (this.head >= 1024 && this.head * 2 >= this.buffered.length) {
+          // Amortized constant dequeue cost without retaining consumed events.
+          this.buffered = this.buffered.slice(this.head);
+          this.head = 0;
+        }
+        yield value;
         continue;
       }
       if (this.closed) return;

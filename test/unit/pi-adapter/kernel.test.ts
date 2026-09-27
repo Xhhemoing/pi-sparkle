@@ -123,6 +123,46 @@ describe("SparkleKernel", () => {
 });
 
 describe("AsyncEventQueue", () => {
+  it("drains a 100000-event burst in order without moving the remaining backlog on each read", async (t) => {
+    const queue = new AsyncEventQueue<number>();
+    // Count actual array slot writes, not elapsed time (machine load varies).
+    // Instrument storage only; assertions still consume the public iterator.
+    const storage = queue as unknown as { buffered: Array<number | undefined> };
+    let slotWrites = 0;
+    storage.buffered = new Proxy(storage.buffered, {
+      set(target, property, value, receiver) {
+        if (/^\d+$/.test(String(property))) slotWrites += 1;
+        return Reflect.set(target, property, value, receiver);
+      }
+    });
+    const count = 100_000;
+    for (let index = 0; index < count; index += 1) queue.push(index);
+    queue.close();
+    slotWrites = 0;
+    const iterator = queue[Symbol.asyncIterator]();
+    assert.deepEqual(await iterator.next(), { value: 0, done: false });
+    assert.ok(slotWrites <= 2, `one dequeue moved ${slotWrites} backlog entries`);
+    let seen = 1;
+    for await (const value of { [Symbol.asyncIterator]: () => iterator }) {
+      assert.equal(value, seen++);
+      if (seen % 1000 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.equal(seen, count);
+    assert.equal(storage.buffered.length, 0, "draining releases consumed references");
+    t.diagnostic(`peak backlog=${count}; delivered=${seen}; initial-array slot writes=${slotWrites}`);
+  });
+
+  it("close wakes a waiting consumer and undefined values are still delivered", async () => {
+    const queue = new AsyncEventQueue<undefined>();
+    queue.push(undefined);
+    const iterator = queue[Symbol.asyncIterator]();
+    assert.deepEqual(await iterator.next(), { value: undefined, done: false });
+    const waiting = iterator.next();
+    queue.close();
+    queue.close();
+    assert.deepEqual(await waiting, { value: undefined, done: true });
+  });
+
   it("delivers live and buffered values before closing", async () => {
     const queue = new AsyncEventQueue<number>();
     const iterator = queue[Symbol.asyncIterator]();

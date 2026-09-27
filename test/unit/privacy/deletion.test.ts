@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,6 +83,89 @@ import { createModelRouter, type ModelRouter } from "../../../src/supervisor/mod
 
 let uuidCounter = 0;
 const UUID = (): string => `abcdef01-2345-6789-abcd-${String(uuidCounter++).padStart(12, "0")}`;
+
+for (const code of ["EACCES", "EBUSY", "EIO", "ENOTDIR"]) {
+  test(`run deletion preserves stat ${code} instead of treating records as absent`, async (t) => {
+    await withStateRoot(async (stateRoot) => {
+      const runId = createRunId(UUID);
+      const runDir = join(runtimeRoot(stateRoot), "runs", runId);
+      await mkdir(runDir, { recursive: true });
+      const record = join(runDir, "private.txt");
+      await writeFile(record, "retained user data", "utf8");
+      const failure = Object.assign(new Error(`stat failed: ${code}`), { code });
+      const original = fsPromises.stat;
+      const mocked = t.mock.method(fsPromises, "stat", (...args: Parameters<typeof original>) => {
+        if (args[0] === runDir) return Promise.reject(failure);
+        return original(...args);
+      });
+      syncBuiltinESMExports();
+      try {
+        await assert.rejects(deleteRunRecords(stateRoot, runId), (error) => error === failure);
+        assert.equal(await readFile(record, "utf8"), "retained user data");
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+    });
+  });
+}
+
+test("a post-rewrite stat error discloses dropped telemetry and preserves the original cause", async (t) => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [`${JSON.stringify(invocationRow(runId, "inv_stat"))}\n`]);
+    const runDir = join(runtimeRoot(stateRoot), "runs", runId);
+    const failure = Object.assign(new Error("run stat unavailable"), { code: "EACCES" });
+    const original = fsPromises.stat;
+    const mocked = t.mock.method(fsPromises, "stat", (...args: Parameters<typeof original>) => {
+      if (args[0] === runDir) return Promise.reject(failure);
+      return original(...args);
+    });
+    syncBuiltinESMExports();
+    const disclosures: string[] = [];
+    try {
+      await assert.rejects(deleteRunRecords(stateRoot, runId, {
+        disclosePartial: (line) => disclosures.push(line)
+      }), (error) => error === failure);
+      assert.equal((await readFile(path, "utf8")).trim(), "");
+      assert.equal(disclosures.length, 1);
+      assert.match(disclosures[0]!, /1 invocation row\(s\) were dropped/);
+      assert.ok(disclosures[0]!.includes(path));
+    } finally {
+      mocked.mock.restore();
+      syncBuiltinESMExports();
+    }
+  });
+});
+
+test("aggregate invalidation failure preserves invocation identities so a retry completes deletion", async (t) => {
+  await withStateRoot(async (stateRoot) => {
+    const runId = createRunId(UUID);
+    const path = await writeInvocationLog(stateRoot, [`${JSON.stringify(invocationRow(runId, "inv_retry"))}\n`]);
+    const before = await readFile(path, "utf8");
+    const observed = catalogObservedPath(stateRoot);
+    await mkdir(join(runtimeRoot(stateRoot), "routing"), { recursive: true });
+    await writeFile(observed, '{"derived":"private aggregate"}', "utf8");
+    const failure = Object.assign(new Error("catalog stat unavailable"), { code: "EACCES" });
+    const original = fsPromises.stat;
+    const mocked = t.mock.method(fsPromises, "stat", (...args: Parameters<typeof original>) => {
+      if (args[0] === observed) return Promise.reject(failure);
+      return original(...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(deleteRunRecords(stateRoot, runId), (error) => error === failure);
+      assert.equal(await readFile(path, "utf8"), before, "do not erase retry identities before invalidation succeeds");
+    } finally {
+      mocked.mock.restore();
+      syncBuiltinESMExports();
+    }
+    const retry = await deleteRunRecords(stateRoot, runId);
+    assert.equal(retry.droppedInvocations, 1);
+    assert.equal(existsSync(observed), false, "successful retry must remove the stale derived aggregate");
+    assert.equal((await readFile(path, "utf8")).trim(), "");
+  });
+});
 
 async function withStateRoot(run: (stateRoot: string) => Promise<void>): Promise<void> {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-deletion-"));

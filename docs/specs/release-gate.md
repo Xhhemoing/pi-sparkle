@@ -28,11 +28,15 @@ validly waived under the rules below.
 
 ## Waivers
 
-A finding may be time-boxed waived for a specific release:
+A finding may only be time-boxed waived for a specific release after approval
+in the register. The register is currently empty: every nonempty
+`SECURITY_WAIVER` request is refused and blocks the existing security probe,
+even if no finding is present. Environment-provided release or expiry labels
+do not grant approval. Leave the variable unset for ordinary checks.
 
-```bash
-SECURITY_WAIVER="pii-redaction,secret-bodies" pnpm prerelease
-```
+Before the first real waiver is granted, the register must become a single
+machine-readable authority with reason, exact release and expiry validation;
+that future mechanism is not implemented or authorized by the current repair.
 
 Rules:
 

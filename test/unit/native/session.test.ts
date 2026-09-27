@@ -8,6 +8,8 @@ import { GatedExecutor, ProtocolChildExecutor } from "../../../src/testing/fake-
 import { EventStore } from "../../../src/run/event-store.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import type { MessageId } from "../../../src/domain/ids.js";
+import { createRunId } from "../../../src/domain/ids.js";
+import { createObservationProjector } from "../../../src/pi-adapter/observation-tools.js";
 
 async function roots(body: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "sparkle-native-"));
@@ -15,6 +17,32 @@ async function roots(body: (root: string) => Promise<void>) {
 }
 
 const models = [{ provider: "xhh-grok", id: "grok-4.7" }];
+
+test("projector setup failure settles the run before rejecting and removes active tracking", async () => {
+  await roots(async (root) => {
+    const session = new native.NativeSession();
+    const stateRoot = join(root, "state");
+    const projector = createObservationProjector({ enabled: true, toolName: "sparkle_read_file" });
+    projector.bind({ runId: createRunId(), stateRoot });
+    let executed = false;
+    try {
+      await assert.rejects(session.delegate({
+        projectRoot: root, stateRoot, model: models[0]!,
+        tasks: [{ role: "scout", objective: "Inspect the setup boundary" }],
+        executor: { execute(request, signal) {
+          executed = true;
+          return new ProtocolChildExecutor().execute(request, signal);
+        } },
+        observationProjector: projector
+      }), /already bound/);
+      assert.equal(session.activeCount, 0, "a rejected setup must not leave an active run");
+      assert.equal(executed, false, "cancel setup before starting child work");
+      await assert.rejects(readdir(join(stateRoot, "adaptation")), { code: "ENOENT" });
+    } finally {
+      await session.shutdown();
+    }
+  });
+});
 
 test("preferred model must resolve uniquely; explicit provider pin wins", () => {
   assert.deepEqual(native.resolveNativeModel(models), models[0]);

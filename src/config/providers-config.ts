@@ -4,6 +4,7 @@ import { runtimeRoot } from "../privacy/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
+import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { parseModelRef } from "./model-ref.js";
 
 export const PROVIDERS_CONFIG_VERSION = 1 as const;
@@ -66,6 +67,11 @@ export async function loadProvidersConfig(stateRoot: string): Promise<ProvidersC
 }
 
 export async function saveProvidersConfig(stateRoot: string, config: ProvidersConfig): Promise<ProvidersConfig> {
+  // Whole-config saves replace the previous value; they do not merge a caller's stale snapshot.
+  return withExclusiveFileLock(`${providersConfigPath(stateRoot)}.lock`, () => saveProvidersConfigLockHeld(stateRoot, config));
+}
+
+async function saveProvidersConfigLockHeld(stateRoot: string, config: ProvidersConfig): Promise<ProvidersConfig> {
   const validated = parseProvidersConfig(config);
   await writeFileAtomic(
     providersConfigPath(stateRoot),
@@ -74,27 +80,36 @@ export async function saveProvidersConfig(stateRoot: string, config: ProvidersCo
   return validated;
 }
 
+async function updateProvidersConfig(
+  stateRoot: string,
+  transform: (current: ProvidersConfig) => ProvidersConfig
+): Promise<ProvidersConfig> {
+  return withExclusiveFileLock(`${providersConfigPath(stateRoot)}.lock`, async () => {
+    const current = await loadProvidersConfig(stateRoot);
+    const next = transform(current);
+    return next === current ? current : saveProvidersConfigLockHeld(stateRoot, next);
+  });
+}
+
 export async function enableModel(stateRoot: string, catalogId: string): Promise<ProvidersConfig> {
   const id = parseModelRef(catalogId);
   const formatted = `${id.providerId}/${id.modelId}`;
-  const current = await loadProvidersConfig(stateRoot);
-  if (current.enabled.includes(formatted)) return current;
-  return saveProvidersConfig(stateRoot, { ...current, enabled: [...current.enabled, formatted] });
+  return updateProvidersConfig(stateRoot, (current) => {
+    if (current.enabled.includes(formatted)) return current;
+    return { ...current, enabled: [...current.enabled, formatted] };
+  });
 }
 
 export async function disableModel(stateRoot: string, catalogId: string): Promise<ProvidersConfig> {
   const id = parseModelRef(catalogId);
   const formatted = `${id.providerId}/${id.modelId}`;
-  const current = await loadProvidersConfig(stateRoot);
-  const enabled = current.enabled.filter((item) => item !== formatted);
-  const next: ProvidersConfig = {
+  return updateProvidersConfig(stateRoot, (current) => ({
     version: current.version,
-    enabled,
+    enabled: current.enabled.filter((item) => item !== formatted),
     customProviders: current.customProviders,
     ...(current.primary !== undefined && current.primary !== formatted ? { primary: current.primary } : {}),
     ...(current.fast !== undefined && current.fast !== formatted ? { fast: current.fast } : {})
-  };
-  return saveProvidersConfig(stateRoot, next);
+  }));
 }
 
 export async function setDefaultModels(
@@ -106,16 +121,17 @@ export async function setDefaultModels(
     input.fast === undefined
       ? undefined
       : `${parseModelRef(input.fast).providerId}/${parseModelRef(input.fast).modelId}`;
-  const current = await loadProvidersConfig(stateRoot);
-  const enabled = [...current.enabled];
-  for (const id of [primary, ...(fast !== undefined ? [fast] : [])]) {
-    if (!enabled.includes(id)) enabled.push(id);
-  }
-  return saveProvidersConfig(stateRoot, {
-    ...current,
-    enabled,
-    primary,
-    ...(fast !== undefined ? { fast } : current.fast !== undefined ? { fast: current.fast } : {})
+  return updateProvidersConfig(stateRoot, (current) => {
+    const enabled = [...current.enabled];
+    for (const id of [primary, ...(fast !== undefined ? [fast] : [])]) {
+      if (!enabled.includes(id)) enabled.push(id);
+    }
+    return {
+      ...current,
+      enabled,
+      primary,
+      ...(fast !== undefined ? { fast } : current.fast !== undefined ? { fast: current.fast } : {})
+    };
   });
 }
 
@@ -134,10 +150,8 @@ export function parseProvidersConfig(value: unknown): ProvidersConfig {
     return `${ref.providerId}/${ref.modelId}`;
   });
   const customProviders = parseCustomProviders(value.customProviders);
-  const primary =
-    value.primary === undefined ? undefined : `${parseModelRef(String(value.primary)).providerId}/${parseModelRef(String(value.primary)).modelId}`;
-  const fast =
-    value.fast === undefined ? undefined : `${parseModelRef(String(value.fast)).providerId}/${parseModelRef(String(value.fast)).modelId}`;
+  const primary = parseOptionalModelRef(value.primary, "primary");
+  const fast = parseOptionalModelRef(value.fast, "fast");
   return {
     version: PROVIDERS_CONFIG_VERSION,
     enabled,
@@ -147,11 +161,21 @@ export function parseProvidersConfig(value: unknown): ProvidersConfig {
   };
 }
 
+function parseOptionalModelRef(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new DomainValidationError(`providers.json ${field} must be a catalog id string`);
+  }
+  const ref = parseModelRef(value);
+  return `${ref.providerId}/${ref.modelId}`;
+}
+
 function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     throw new DomainValidationError("providers.json customProviders must be an array");
   }
+  const providerIds = new Set<string>();
   return value.map((entry, index) => {
     if (!isRecord(entry) || typeof entry.id !== "string" || entry.id.trim() === "") {
       throw new DomainValidationError(`customProviders[${index}].id must be a non-empty string`);
@@ -159,29 +183,67 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
     if (entry.id.includes("/")) {
       throw new DomainValidationError(`customProviders[${index}].id must not contain '/'`);
     }
+    const providerId = entry.id.trim();
+    if (providerIds.has(providerId)) {
+      throw new DomainValidationError(`duplicate provider id at customProviders[${index}]: ${providerId}`);
+    }
+    providerIds.add(providerId);
+    for (const field of ["name", "envVar"]) {
+      if (entry[field] !== undefined && typeof entry[field] !== "string") {
+        throw new DomainValidationError(`customProviders[${index}].${field} must be a string`);
+      }
+    }
     if (typeof entry.baseUrl !== "string" || entry.baseUrl.trim() === "") {
       throw new DomainValidationError(`customProviders[${index}].baseUrl must be a non-empty string`);
     }
     if (!Array.isArray(entry.models) || entry.models.length === 0) {
       throw new DomainValidationError(`customProviders[${index}].models must be a non-empty array`);
     }
+    const modelIds = new Set<string>();
     const models = entry.models.map((model, modelIndex) => {
+      const path = `customProviders[${index}].models[${modelIndex}]`;
       if (!isRecord(model) || typeof model.id !== "string" || model.id.trim() === "") {
-        throw new DomainValidationError(`customProviders[${index}].models[${modelIndex}].id must be a non-empty string`);
+        throw new DomainValidationError(`${path}.id must be a non-empty string`);
+      }
+      const modelId = model.id.trim();
+      if (modelIds.has(modelId)) {
+        throw new DomainValidationError(`duplicate model id at ${path}: ${modelId}`);
+      }
+      modelIds.add(modelId);
+      if (model.name !== undefined && typeof model.name !== "string") {
+        throw new DomainValidationError(`${path}.name must be a string`);
+      }
+      for (const field of ["contextWindow", "maxTokens"]) {
+        const limit = model[field];
+        if (limit !== undefined && (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0)) {
+          throw new DomainValidationError(`${path}.${field} must be a positive safe integer`);
+        }
+      }
+      for (const field of ["inputCostPerMTok", "outputCostPerMTok"]) {
+        const cost = model[field];
+        if (cost !== undefined && (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0)) {
+          throw new DomainValidationError(`${path}.${field} must be a finite non-negative number`);
+        }
+      }
+      if (model.reasoning !== undefined && typeof model.reasoning !== "boolean") {
+        throw new DomainValidationError(`${path}.reasoning must be a boolean`);
+      }
+      if (model.compat !== undefined && !isRecord(model.compat)) {
+        throw new DomainValidationError(`${path}.compat must be an object`);
       }
       return {
-        id: model.id.trim(),
+        id: modelId,
         ...(typeof model.name === "string" ? { name: model.name } : {}),
         ...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
         ...(typeof model.maxTokens === "number" ? { maxTokens: model.maxTokens } : {}),
         ...(typeof model.inputCostPerMTok === "number" ? { inputCostPerMTok: model.inputCostPerMTok } : {}),
         ...(typeof model.outputCostPerMTok === "number" ? { outputCostPerMTok: model.outputCostPerMTok } : {}),
-        ...(model.reasoning === true ? { reasoning: true } : {}),
+        ...(typeof model.reasoning === "boolean" ? { reasoning: model.reasoning } : {}),
         ...(isRecord(model.compat) ? { compat: model.compat } : {})
       };
     });
     return {
-      id: entry.id.trim(),
+      id: providerId,
       baseUrl: entry.baseUrl.trim(),
       models,
       ...(typeof entry.name === "string" ? { name: entry.name } : {}),

@@ -264,7 +264,7 @@ export function parseRegistrySnapshot(value: unknown): ResourceRegistrySnapshot 
         });
   const contents =
     record.contents === undefined
-      ? []
+      ? undefined
       : asArray(record.contents, "contents").map((entry, index) => {
           const blob = asRecord(entry, `contents[${index}]`);
           if (typeof blob.hash !== "string" || blob.hash.trim() === "") {
@@ -275,7 +275,7 @@ export function parseRegistrySnapshot(value: unknown): ResourceRegistrySnapshot 
           }
           return { hash: blob.hash, content: blob.content };
         });
-  return {
+  const snapshot: ResourceRegistrySnapshot = {
     versions,
     activeVersionIds,
     candidates,
@@ -286,6 +286,9 @@ export function parseRegistrySnapshot(value: unknown): ResourceRegistrySnapshot 
     retiredVersionIds,
     contents
   };
+  // Parsing and direct in-memory restore enforce the same reference rules.
+  ResourceRegistry.fromSnapshot(snapshot);
+  return snapshot;
 }
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {

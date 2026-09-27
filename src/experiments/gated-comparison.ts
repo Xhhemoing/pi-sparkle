@@ -2,7 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { createEvaluationCard, type EvaluationCard } from "./evaluation-card.js";
 import {
   computeComparisonReport,
-  validateComparisonReport,
+  validateComparisonReportEvidence,
   type ComparisonReport,
   type ComparisonReportConfig,
   type PairedEvaluationRecord
@@ -61,13 +61,13 @@ export function gatedComparisonReport(input: {
 }): ComparisonReport {
   const card = pairedEvaluationCard(input.records, input.difficultyTier);
   const report = computeComparisonReport(input.records, card, input.claims, input.config);
-  const validation = validateComparisonReport(report, input.config);
+  const validation = validateComparisonReportEvidence(report, input.records, input.config);
   if (validation.valid) {
     return report;
   }
   const stripped = stripImprovementClaims(report.claims);
   const retry = computeComparisonReport(input.records, card, stripped, input.config);
-  const retryValidation = validateComparisonReport(retry, input.config);
+  const retryValidation = validateComparisonReportEvidence(retry, input.records, input.config);
   if (!retryValidation.valid) {
     throw new DomainValidationError(
       `comparison report invalid: ${retryValidation.reasons.join("; ")}`

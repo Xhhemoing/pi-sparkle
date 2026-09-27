@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { appendJsonlLine, readJsonlObjects } from "../../../src/persist/jsonl.js";
+import { appendJsonlLine, readJsonlObjects, readJsonlObjectsFromOffset } from "../../../src/persist/jsonl.js";
 
 async function withTempFile(run: (path: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "pi-sparkle-jsonl-"));
@@ -31,6 +31,38 @@ test("readJsonlObjects treats missing and empty files as empty logs", async () =
 
     await writeFile(path, "", "utf8");
     assert.deepEqual(await readJsonlObjects(path, corrupt), { values: [], recovery: {} });
+  });
+});
+
+for (const mode of ["full", "bounded", "offset-zero", "offset-beyond-eof"] as const) {
+  test(`JSONL ${mode} reading rejects a real directory instead of an empty log`, async (t) => {
+    await withTempFile(async (path) => {
+      await mkdir(path);
+      const details = await stat(path);
+      t.diagnostic(`directorySize=${details.size}; mode=${mode}`);
+      const corrupt = (line: number): Error => new Error(`corrupt ${line}`);
+      await assert.rejects(async () => {
+        if (mode === "full") return readJsonlObjects(path, corrupt);
+        if (mode === "bounded") return readJsonlObjects(path, corrupt, { maxBytes: 1 });
+        return readJsonlObjectsFromOffset(path, mode === "offset-zero" ? 0 : details.size + 1, corrupt);
+      }, { code: "EISDIR" });
+      assert.equal((await stat(path)).isDirectory(), true);
+      assert.deepEqual(await readdir(path), []);
+    });
+  });
+}
+
+test("append refuses a directory and leaves its contents unchanged", async () => {
+  await withTempFile(async (path) => {
+    await mkdir(path);
+    const marker = join(path, "preserve.txt");
+    await writeFile(marker, "user-owned bytes 中文🙂", "utf8");
+    for (const fsync of [false, true]) {
+      await assert.rejects(() => appendJsonlLine(path, '{"n":1}', fsync));
+      assert.equal((await stat(path)).isDirectory(), true);
+      assert.deepEqual(await readdir(path), ["preserve.txt"]);
+      assert.equal(await readFile(marker, "utf8"), "user-owned bytes 中文🙂");
+    }
   });
 });
 

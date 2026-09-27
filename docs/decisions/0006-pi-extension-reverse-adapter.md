@@ -50,6 +50,12 @@ The inbound adapter may now register tools and commands that invoke shared orche
 
 The original proposed text below records the pre-acceptance gate; its "until Accepted" restrictions are now discharged. The historical 2026-08-21 keep-Proposed decision remains in prior records.
 
+## 2026-09-27 reliability correction — preserve source changes
+
+The owner-authorized [reliability plan](../superpowers/plans/2026-09-27-reliability-optimization.md) narrows the historical rollback requirement above and below: failure recovery must preserve concurrent user bytes, index entries and refs, not restore a guessed pre-operation state with `reset --hard`. Real Git reference-transaction tests demonstrated that `merge --ff-only` could overwrite a hook's newly staged data before failing its ref update. The implementation now uses two-tree checkout followed by guarded reference updates, with no index/worktree writes after reference hooks. It rechecks candidate ownership and source state before mutation. Source HEAD must name a branch; detached source apply is refused because an OID-only HEAD update cannot safely distinguish a concurrent symbolic-ref change.
+
+This is not a crash-atomic apply protocol. An interrupted or raced operation can leave a partial checkout/ref state: retain the source, candidate and run evidence, report not-applied/applied/partial-or-ambiguous accurately, and require explicit reconciliation instead of automatic rollback. The earlier rollback wording remains historical context and is superseded by this correction. Separate owner scope, independent checks, R10/R11 evaluator/environment and crash-reconciliation review, disposal policy and production authorization remain required and open. Local tests and this correction do not grant production apply. [Implementation and verification](../reports/2026-09-27-reliability-implementation.md).
+
 ## Decision
 
 Split Pi integration into three layers. Do not collapse them.

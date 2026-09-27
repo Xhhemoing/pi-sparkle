@@ -7,6 +7,7 @@ import type { EvaluationCard } from "./evaluation-card.js";
  * is the adaptive policy under test.
  */
 export interface PairedEvaluationRecord {
+  /** Historical field name; used only as an opaque episode identity. */
   readonly episodeHash: string;
   readonly taskFamily: string;
   readonly baselineUtility: number;
@@ -150,10 +151,15 @@ export function computeComparisonReport(
   if (records.length === 0) {
     throw new DomainValidationError("comparison report requires at least one paired record");
   }
+  const episodeIds = new Set<string>();
   for (const record of records) {
     if (record.episodeHash.trim() === "" || record.taskFamily.trim() === "") {
       throw new DomainValidationError("paired record requires episodeHash and taskFamily");
     }
+    if (episodeIds.has(record.episodeHash)) {
+      throw new DomainValidationError(`duplicate paired episode identity: ${record.episodeHash}`);
+    }
+    episodeIds.add(record.episodeHash);
     assertFiniteRange(record.baselineUtility, "baselineUtility", -1, 1);
     assertFiniteRange(record.candidateUtility, "candidateUtility", -1, 1);
     assertFiniteRange(record.baselineCostUsd, "baselineCostUsd", 0, Number.MAX_VALUE);
@@ -256,7 +262,11 @@ function productionCheckpointFOpen(
 }
 
 /**
- * Gate the report's claims. Improvement-flavored claims (improved /
+ * Legacy structural and claim-consistency check only. A report does not carry
+ * episode identities, so this cannot establish unique or independent evidence
+ * and must not independently authorize production acceptance. Use
+ * validateComparisonReportEvidence where the raw records are available.
+ * Improvement-flavored claims (improved /
  * outperforms / better / regret) are only valid when the paired samples are
  * non-provisional, the utility delta confidence interval excludes zero on the
  * positive side, and the cost delta stays within the approved tolerance.
@@ -318,4 +328,50 @@ export function validateComparisonReport(
   }
 
   return { valid: reasons.length === 0, reasons };
+}
+
+/**
+ * Validate derived report values against the caller's raw paired evidence.
+ * Unique identities and recomputation do not establish evidence provenance,
+ * independent trials, holdout eligibility, or production authorization.
+ */
+export function validateComparisonReportEvidence(
+  report: ComparisonReport,
+  records: readonly PairedEvaluationRecord[],
+  config: ComparisonReportConfig = DEFAULT_COMPARISON_REPORT_CONFIG
+): ComparisonReportValidation {
+  let recomputed: ComparisonReport;
+  try {
+    recomputed = computeComparisonReport(records, report.evaluationCard, report.claims, config);
+  } catch (error: unknown) {
+    if (!(error instanceof DomainValidationError)) throw error;
+    return { valid: false, reasons: [error.message] };
+  }
+  const reasons = [...validateComparisonReport(report, config).reasons];
+  const sameCounts = report.rawCounts.episodes === recomputed.rawCounts.episodes &&
+    report.rawCounts.baseline === recomputed.rawCounts.baseline &&
+    report.rawCounts.candidate === recomputed.rawCounts.candidate;
+  const sameFamilies = report.familyBreakdown.length === recomputed.familyBreakdown.length &&
+    report.familyBreakdown.every((family, index) => {
+      const expected = recomputed.familyBreakdown[index]!;
+      return family.taskFamily === expected.taskFamily && family.count === expected.count &&
+        family.utilityDeltaMean === expected.utilityDeltaMean && family.costDeltaMean === expected.costDeltaMean;
+    });
+  if (!sameCounts || !sameDeltaSummary(report.utilityDelta, recomputed.utilityDelta) ||
+      !sameDeltaSummary(report.costDelta, recomputed.costDelta) || !sameFamilies ||
+      report.evidenceClass !== recomputed.evidenceClass ||
+      report.canCloseProductionCheckpointF !== recomputed.canCloseProductionCheckpointF) {
+    reasons.push("comparison report disagrees with values recomputed from raw paired records");
+  }
+  return { valid: reasons.length === 0, reasons };
+}
+
+function sameDeltaSummary(actual: PairedDeltaSummary, expected: PairedDeltaSummary): boolean {
+  const actualCi = actual.confidenceInterval;
+  const expectedCi = expected.confidenceInterval;
+  const sameCi = actualCi === undefined ? expectedCi === undefined :
+    expectedCi !== undefined && actualCi.lower === expectedCi.lower &&
+    actualCi.upper === expectedCi.upper && actualCi.level === expectedCi.level;
+  return actual.count === expected.count && actual.mean === expected.mean &&
+    actual.standardError === expected.standardError && actual.provisional === expected.provisional && sameCi;
 }

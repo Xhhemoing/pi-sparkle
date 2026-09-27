@@ -40,6 +40,25 @@ function registry(): ResourceRegistry {
 }
 
 describe("M6-T1: resource registry", () => {
+  it("preserves the readable registry when a late restore validation fails", () => {
+    const reg = registry();
+    const baseline = reg.registerBaseline({ identity: identity(), content: "original", author: AUTHOR });
+    const candidate = reg.createCandidate({
+      identity: identity(), content: "candidate", parentVersionId: baseline.versionId,
+      author: AUTHOR, evaluationPlan: PLAN
+    });
+    const before = reg.snapshot();
+    const incoming = new ResourceRegistry({ now: () => NOW, generateId: () => "incoming1" });
+    incoming.registerBaseline({ identity: identity(), content: "replacement", author: AUTHOR });
+    assert.throws(() => reg.restore({
+      ...incoming.snapshot(), autoPromotionsUsed: 7,
+      retiredVersionIds: ["rsv_missing1" as never]
+    }), /retired.*unknown/i);
+    assert.deepEqual(reg.snapshot(), before);
+    assert.deepEqual(reg.getActiveVersion(identity()), baseline);
+    assert.deepEqual(reg.getCandidate(candidate.candidateId), candidate);
+  });
+
   it("registers a baseline version and points the active version at it", () => {
     const reg = registry();
     const version = reg.registerBaseline({

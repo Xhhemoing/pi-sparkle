@@ -63,15 +63,16 @@ export interface BaselineInput {
 export class ResourceRegistry {
   private readonly now: () => IsoTimestamp;
   private readonly generateId: IdGenerator;
-  private readonly versionsById = new Map<ResourceVersionId, ResourceVersion>();
-  private readonly versionsByKey = new Map<string, readonly ResourceVersion[]>();
-  private readonly activeByKey = new Map<string, ResourceVersionId>();
-  private readonly candidates = new Map<CandidateId, ImprovementCandidate>();
-  private readonly ledgerEntries: PromotionLedgerEntry[] = [];
-  private readonly pendingByIntent = new Map<string, PendingPromotion>();
-  private readonly rollbackLog = new RollbackLog();
-  private readonly retiredIds = new Set<ResourceVersionId>();
-  private readonly contentsByHash = new Map<string, string>();
+  private versionsById = new Map<ResourceVersionId, ResourceVersion>();
+  private versionsByKey = new Map<string, readonly ResourceVersion[]>();
+  private activeByKey = new Map<string, ResourceVersionId>();
+  private candidates = new Map<CandidateId, ImprovementCandidate>();
+  private ledgerEntries: PromotionLedgerEntry[] = [];
+  private pendingByIntent = new Map<string, PendingPromotion>();
+  private rollbackLog = new RollbackLog();
+  private retiredIds = new Set<ResourceVersionId>();
+  private contentsByHash = new Map<string, string>();
+  private metadataOnly = false;
   private autoPromoteCount = 0;
 
   constructor(options: RegistryOptions = {}) {
@@ -153,6 +154,11 @@ export class ResourceRegistry {
 
   /** Persist content by hash. Identical content is stored once. */
   putContent(content: string): string {
+    if (this.metadataOnly) {
+      throw new DomainValidationError(
+        "legacy metadata-only registry has missing content; restore a complete snapshot before adding content"
+      );
+    }
     const contentHash = hashCandidateContent(content);
     this.contentsByHash.set(contentHash, content);
     return contentHash;
@@ -478,22 +484,42 @@ export class ResourceRegistry {
       autoPromotionsUsed: this.autoPromoteCount,
       rollbackLedger: this.rollbackLog.list(),
       retiredVersionIds: Array.from(this.retiredIds),
-      contents: Array.from(this.contentsByHash.entries()).map(([hash, content]) => ({ hash, content }))
+      // A legacy metadata-only registry must not acquire a present-but-empty
+      // content list on serialization: that would assert missing references.
+      contents: this.metadataOnly
+        ? undefined
+        : Array.from(this.contentsByHash.entries()).map(([hash, content]) => ({ hash, content }))
     };
   }
 
   restore(snapshot: ResourceRegistrySnapshot): void {
-    this.versionsById.clear();
-    this.versionsByKey.clear();
-    this.activeByKey.clear();
-    this.candidates.clear();
-    this.ledgerEntries.length = 0;
-    this.pendingByIntent.clear();
-    this.rollbackLog.restore([]);
-    this.retiredIds.clear();
-    this.contentsByHash.clear();
+    // All validation and potentially throwing copies operate on fresh maps.
+    // A rejected snapshot must not destroy the last readable registry.
+    const next = new ResourceRegistry({ now: this.now, generateId: this.generateId });
+    next.restoreIntoEmpty(snapshot);
+    this.versionsById = next.versionsById;
+    this.versionsByKey = next.versionsByKey;
+    this.activeByKey = next.activeByKey;
+    this.candidates = next.candidates;
+    this.ledgerEntries = next.ledgerEntries;
+    this.pendingByIntent = next.pendingByIntent;
+    this.rollbackLog = next.rollbackLog;
+    this.retiredIds = next.retiredIds;
+    this.contentsByHash = next.contentsByHash;
+    this.metadataOnly = next.metadataOnly;
+    this.autoPromoteCount = next.autoPromoteCount;
+  }
+
+  private restoreIntoEmpty(snapshot: ResourceRegistrySnapshot): void {
+    this.metadataOnly = snapshot.contents === undefined && snapshot.versions.length > 0;
+    if (!Number.isInteger(snapshot.autoPromotionsUsed) || snapshot.autoPromotionsUsed < 0) {
+      throw new DomainValidationError("autoPromotionsUsed must be an integer >= 0");
+    }
     this.autoPromoteCount = snapshot.autoPromotionsUsed;
     for (const blob of snapshot.contents ?? []) {
+      if (this.contentsByHash.has(blob.hash)) {
+        throw new DomainValidationError(`duplicate snapshot content: ${blob.hash}`);
+      }
       if (hashCandidateContent(blob.content) !== blob.hash) {
         throw new DomainValidationError(`snapshot content hash mismatch: ${blob.hash}`);
       }
@@ -504,29 +530,100 @@ export class ResourceRegistry {
       if (!isResourceVersionId(version.versionId)) {
         throw new DomainValidationError(`invalid version id in snapshot: ${String(version.versionId)}`);
       }
+      if (this.versionsById.has(version.versionId)) {
+        throw new DomainValidationError(`duplicate snapshot version id: ${version.versionId}`);
+      }
       this.addVersion(version);
     }
-    for (const versionId of snapshot.activeVersionIds) {
-      const version = this.versionsById.get(versionId);
+    const requireVersion = (id: ResourceVersionId, label: string): ResourceVersion => {
+      const version = this.versionsById.get(id);
       if (version === undefined) {
-        throw new DomainValidationError(`snapshot active version is unknown: ${String(versionId)}`);
+        throw new DomainValidationError(`snapshot ${label} is unknown: ${String(id)}`);
       }
-      this.activeByKey.set(resourceIdentityKey(version.identity), version.versionId);
+      return version;
+    };
+    const requireContent = (contentHash: string): void => {
+      // Absence is the explicit pre-content-field metadata-only format.
+      if (snapshot.contents !== undefined && !this.contentsByHash.has(contentHash)) {
+        throw new DomainValidationError(`snapshot content is unknown: ${contentHash}`);
+      }
+    };
+    const requireIdentity = (left: ResourceIdentity, right: ResourceIdentity, label: string): void => {
+      if (!identityEquals(left, right)) {
+        throw new DomainValidationError(`snapshot ${label} identity mismatch`);
+      }
+    };
+    for (const version of snapshot.versions) {
+      requireContent(version.contentHash);
+      if (version.parentVersionId !== undefined) {
+        const parent = requireVersion(version.parentVersionId, "version parent");
+        requireIdentity(version.identity, parent.identity, "version parent");
+      }
+      assertAcyclicLineage(version.versionId, (id) =>
+        this.versionsById.get(id as ResourceVersionId)?.parentVersionId
+      );
+    }
+    for (const versionId of snapshot.activeVersionIds) {
+      const version = requireVersion(versionId, "active version");
+      const key = resourceIdentityKey(version.identity);
+      if (this.activeByKey.has(key)) {
+        throw new DomainValidationError(`duplicate snapshot active identity: ${key}`);
+      }
+      this.activeByKey.set(key, version.versionId);
     }
     for (const candidate of snapshot.candidates) {
       if (!isCandidateId(candidate.candidateId)) {
         throw new DomainValidationError(`invalid candidate id in snapshot: ${String(candidate.candidateId)}`);
       }
+      if (this.candidates.has(candidate.candidateId)) {
+        throw new DomainValidationError(`duplicate snapshot candidate id: ${candidate.candidateId}`);
+      }
+      validateCandidate(candidate);
+      requireContent(candidate.contentHash);
+      const parent = requireVersion(candidate.parentVersionId, "candidate parent");
+      requireIdentity(candidate.identity, parent.identity, "candidate parent");
       this.candidates.set(candidate.candidateId, candidate);
+    }
+    const requireCandidate = (id: CandidateId): ImprovementCandidate => {
+      const candidate = this.candidates.get(id);
+      if (candidate === undefined) {
+        throw new DomainValidationError(`snapshot candidate is unknown: ${String(id)}`);
+      }
+      return candidate;
+    };
+    for (const entry of snapshot.ledger) {
+      const candidate = requireCandidate(entry.candidateId);
+      for (const id of [entry.fromVersionId, entry.expectedCurrentVersionId, entry.changeNote.rollbackVersionId]) {
+        requireIdentity(candidate.identity, requireVersion(id, "ledger version").identity, "ledger");
+      }
+      if (entry.toVersionId !== undefined) {
+        requireIdentity(candidate.identity, requireVersion(entry.toVersionId, "ledger version").identity, "ledger");
+      }
     }
     this.ledgerEntries.push(...snapshot.ledger);
     for (const pending of snapshot.pending) {
-      if (!this.versionsById.has(pending.pendingVersionId)) {
-        throw new DomainValidationError(
-          `snapshot pending version is unknown: ${String(pending.pendingVersionId)}`
-        );
+      if (!isIntentId(pending.intentId)) {
+        throw new DomainValidationError(`invalid snapshot intent id: ${pending.intentId}`);
+      }
+      if (this.pendingByIntent.has(pending.intentId)) {
+        throw new DomainValidationError(`duplicate snapshot intent id: ${pending.intentId}`);
+      }
+      const candidate = requireCandidate(pending.candidateId);
+      const expected = requireVersion(pending.expectedCurrentVersionId, "pending expected version");
+      const version = requireVersion(pending.pendingVersionId, "pending version");
+      const rollback = requireVersion(pending.changeNote.rollbackVersionId, "pending rollback version");
+      requireIdentity(candidate.identity, expected.identity, "pending expected");
+      requireIdentity(candidate.identity, version.identity, "pending candidate");
+      requireIdentity(candidate.identity, rollback.identity, "pending rollback");
+      if (version.contentHash !== candidate.contentHash || version.parentVersionId !== expected.versionId) {
+        throw new DomainValidationError("snapshot pending version does not match candidate content and expected parent");
       }
       this.pendingByIntent.set(pending.intentId, pending);
+    }
+    for (const entry of snapshot.rollbackLedger ?? []) {
+      const from = requireVersion(entry.fromVersionId, "rollback version");
+      const to = requireVersion(entry.toVersionId, "rollback version");
+      requireIdentity(from.identity, to.identity, "rollback");
     }
     this.rollbackLog.restore(snapshot.rollbackLedger ?? []);
     for (const versionId of snapshot.retiredVersionIds ?? []) {

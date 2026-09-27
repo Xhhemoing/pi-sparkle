@@ -182,6 +182,65 @@ test("non-fast-forward candidate is refused without touching the source", async 
   });
 });
 
+for (const change of ["unstaged", "staged", "branch", "head"] as const) {
+  test(`source ${change} changes made during re-verification survive apply refusal`, async () => {
+    await withFixture(async ({ root, repo, stateRoot }) => {
+      const result = await produceAcceptedCandidate(repo, stateRoot);
+      const snapshotPath = path.join(root, "user-state.json");
+      const script = `
+        const fs = require('node:fs');
+        const cp = require('node:child_process');
+        const path = require('node:path');
+        const repo = ${JSON.stringify(repo)};
+        const git = (...args) => cp.execFileSync('git', args, { cwd: repo, encoding: 'utf8', windowsHide: true });
+        const file = path.join(repo, 'value.ts');
+        const change = ${JSON.stringify(change)};
+        if (change === 'unstaged' || change === 'staged') {
+          fs.writeFileSync(file, 'user staged bytes\\n', 'utf8');
+          if (change === 'staged') git('add', 'value.ts');
+          fs.writeFileSync(file, 'user working bytes\\n', 'utf8');
+        } else if (change === 'branch') {
+          git('switch', '-c', 'user-branch');
+        } else {
+          fs.writeFileSync(path.join(repo, 'user.txt'), 'user commit\\n', 'utf8');
+          git('add', 'user.txt');
+          git('commit', '-m', 'user commit');
+        }
+        fs.writeFileSync(${JSON.stringify(snapshotPath)}, JSON.stringify({
+          bytes: fs.readFileSync(file, 'utf8'),
+          head: git('rev-parse', 'HEAD'),
+          branch: git('symbolic-ref', 'HEAD'),
+          index: git('diff', '--cached', '--binary'),
+          status: git('status', '--porcelain=v1', '--untracked-files=all')
+        }), 'utf8');
+      `;
+      try {
+        const apply = await makeApplySession();
+        await assert.rejects(() => apply.apply(applyInput(repo, {
+          ...result,
+          acceptance: { ...result.acceptance, command: process.execPath, args: ["-e", script] }
+        })), /source|changed|stale/i);
+        const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as {
+          bytes: string; head: string; branch: string; index: string; status: string;
+        };
+        assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), snapshot.bytes, "user working bytes must survive refusal");
+        assert.equal(git(repo, ["rev-parse", "HEAD"]), snapshot.head, "user HEAD must survive refusal");
+        assert.equal(git(repo, ["symbolic-ref", "HEAD"]), snapshot.branch, "user branch must survive refusal");
+        assert.equal(git(repo, ["diff", "--cached", "--binary"]), snapshot.index, "user index must survive refusal");
+        assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), snapshot.status);
+        assert.ok(await stat2(result.candidatePath), "candidate must remain retained");
+      } finally {
+        await disposeIsolatedWorktree({
+          cwd: result.candidatePath,
+          sandboxRoot: path.dirname(result.candidatePath),
+          sourceRepo: repo,
+          ref: result.sourceRevision
+        });
+      }
+    });
+  });
+}
+
 test("explicit dispose removes only the managed candidate", async () => {
   await withFixture(async ({ repo, stateRoot }) => {
     const result = await produceAcceptedCandidate(repo, stateRoot);
@@ -254,41 +313,55 @@ test("source file content binding: candidate that did not change the file still 
   });
 });
 
-test("mid-apply HEAD drift by a third party triggers rollback to the prior revision", async () => {
+test("mid-apply HEAD drift preserves third-party commits and bytes and discloses ambiguity", async (t) => {
   await withFixture(async ({ root, repo, stateRoot }) => {
     const result = await produceAcceptedCandidate(repo, stateRoot);
     try {
       assert.equal(result.acceptance.accepted, true, result.reason);
       const before = git(repo, ["rev-parse", "HEAD"]).trim();
-      // Inject a deterministic third-party drift exactly between the
-      // merge's ref update and the apply's HEAD verification: a
-      // reference-transaction hook commits while the merge --ff-only is
-      // still returning. The hook writes outside the repo so an empty
-      // rollback can never satisfy the marker assertion.
+      // Inject third-party changes during ref publication. The external
+      // marker and index snapshot prove the hook ran and successfully staged
+      // its user bytes before apply continued.
       const hooks = path.join(root, "drift-hooks");
       const marker = path.join(root, "drift-marker");
+      const userHeadPath = path.join(root, "user-head");
+      const userIndexPath = path.join(root, "user-index");
+      const transactionPath = path.join(root, "hook-transaction");
       await mkdir(hooks, { recursive: true });
       // Plain forward-slash absolute paths: the \\?\ namespaced form is not
       // resolved by git's hook lookup (probed 2026-09-20: C:/ form fires,
       // //?/ form silently finds no hooks).
       const hooksPathAbs = hooks.replaceAll("\\", "/");
       const markerAbs = marker.replaceAll("\\", "/");
+      const userHeadAbs = userHeadPath.replaceAll("\\", "/");
+      const userIndexAbs = userIndexPath.replaceAll("\\", "/");
+      const transactionAbs = transactionPath.replaceAll("\\", "/");
       const hookFile = path.join(hooks, "reference-transaction");
       await writeFile(
         hookFile,
-        `#!/bin/sh\n[ "$1" = "committed" ] || exit 0\n# Fire exactly once: the first ref update must be the apply's own\n# fast-forward; the drift commit then lands between it and the apply's\n# HEAD verification, and later ref updates (including the rollback's)\n# stay clean — a single third-party intervention, not an active loop.\n[ -f "${markerAbs}" ] && exit 0\necho fired >> "${markerAbs}"\necho drift > drift.txt\ngit add drift.txt && git commit -qm drift\n`,
+        `#!/bin/sh\n[ "$1" = "committed" ] || exit 0\n# Fire once during the apply ref update.\n[ -f "${markerAbs}" ] && exit 0\necho fired >> "${markerAbs}"\ncat > "${transactionAbs}"\necho drift > drift.txt\ngit add drift.txt && git commit -qm drift\ngit rev-parse HEAD > "${userHeadAbs}"\necho staged > user.txt\ngit add user.txt\ngit show :user.txt > "${userIndexAbs}"\necho unstaged > user.txt\n`,
         { mode: 0o755 }
       );
       spawnSync("chmod", ["+x", hookFile], { encoding: "utf8", windowsHide: true });
       git(repo, ["config", "core.hooksPath", hooksPathAbs]);
       const apply = await makeApplySession();
-      await assert.rejects(() => apply.apply(applyInput(repo, result)), /drift|rolled back|fast-forward failed/i);
-      // The hook must have fired at least once; the source must be back at
-      // the exact prior revision (branch AND working tree), with no
-      // candidate content and no drift content left behind.
+      await assert.rejects(() => apply.apply(applyInput(repo, result)), /ambiguous|cannot automatically determine/i);
       assert.ok(await stat2(marker), "reference-transaction hook must have fired");
-      assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before, "source must be rolled back to the prior revision");
-      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE, "candidate content must not survive the failed apply");
+      const userHead = (await readFile(userHeadPath, "utf8")).trim();
+      assert.notEqual(userHead, before, "the hook must create a third-party commit");
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), userHead, "third-party HEAD must survive the failed apply");
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), AFTER);
+      assert.equal(await readFile(path.join(repo, "drift.txt"), "utf8"), "drift\n");
+      const hookIndex = await readFile(userIndexPath, "utf8");
+      t.diagnostic(JSON.stringify({
+        transaction: (await readFile(transactionPath, "utf8")).trim(),
+        hookIndex,
+        afterStatus: git(repo, ["status", "--porcelain=v1"]),
+        afterIndex: git(repo, ["ls-files", "--stage"])
+      }));
+      assert.equal(hookIndex, "staged\n", "the hook must successfully stage the user bytes before apply resumes");
+      assert.equal(git(repo, ["show", ":user.txt"]), "staged\n", "third-party index must survive");
+      assert.equal(await readFile(path.join(repo, "user.txt"), "utf8"), "unstaged\n", "third-party working bytes must survive");
       // Candidate remains retained for owner inspection.
       assert.ok(await stat2(result.candidatePath), "candidate must remain retained after a failed apply");
     } finally {
@@ -301,6 +374,41 @@ test("mid-apply HEAD drift by a third party triggers rollback to the prior revis
         sourceRepo: repo,
         ref: result.sourceRevision
       }).catch(() => undefined);
+    }
+  });
+});
+
+test("ref publication failure after checkout retains candidate bytes and reports partial ambiguity", async () => {
+  await withFixture(async ({ root, repo, stateRoot }) => {
+    const result = await produceAcceptedCandidate(repo, stateRoot);
+    const before = git(repo, ["rev-parse", "HEAD"]).trim();
+    const hooks = path.join(root, "refusal-hooks");
+    const marker = path.join(root, "refusal-marker");
+    await mkdir(hooks);
+    const hookFile = path.join(hooks, "reference-transaction");
+    await writeFile(hookFile,
+      `#!/bin/sh\n[ "$1" = "prepared" ] || exit 0\nwhile read old new ref; do\n  [ "$ref" = "ORIG_HEAD" ] || continue\n  echo refused > "${marker.replaceAll("\\", "/")}"\n  exit 1\ndone\nexit 0\n`,
+      { encoding: "utf8", mode: 0o755 }
+    );
+    spawnSync("chmod", ["+x", hookFile], { encoding: "utf8", windowsHide: true });
+    git(repo, ["config", "core.hooksPath", hooks.replaceAll("\\", "/")]);
+    try {
+      const apply = await makeApplySession();
+      await assert.rejects(() => apply.apply(applyInput(repo, result)), /ambiguous|partial/i);
+      assert.ok(await stat2(marker), "the ref publication hook must refuse");
+      assert.equal(git(repo, ["rev-parse", "HEAD"]).trim(), before, "source ref must stay at its prior value");
+      assert.equal(git(repo, ["show", ":value.ts"]), AFTER, "checked-out candidate index must remain available");
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), AFTER, "checked-out candidate bytes must remain available");
+      assert.ok(await stat2(result.candidatePath), "candidate must remain retained");
+      assert.ok(await stat2(result.artifact.path), "run evidence must remain retained");
+    } finally {
+      git(repo, ["config", "--unset", "core.hooksPath"]);
+      await disposeIsolatedWorktree({
+        cwd: result.candidatePath,
+        sandboxRoot: path.dirname(result.candidatePath),
+        sourceRepo: repo,
+        ref: result.sourceRevision
+      });
     }
   });
 });

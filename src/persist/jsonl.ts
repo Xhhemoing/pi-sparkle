@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, readFile, truncate } from "node:fs/promises";
+import { appendFile, mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export interface JsonlRecovery {
@@ -38,8 +38,8 @@ export class JsonlReadLimitError extends Error {
  * {@link appendJsonlLine} repairs a crash-truncated tail before appending.
  */
 export async function appendJsonlLine(filePath: string, line: string, fsync: boolean): Promise<void> {
-  await repairCrashTruncatedTail(filePath);
-  const contents = `${line}\n`;
+  const needsNewline = await repairCrashTruncatedTail(filePath);
+  const contents = `${needsNewline ? "\n" : ""}${line}\n`;
   const append = async (): Promise<void> => {
     if (!fsync) {
       await appendFile(filePath, contents, "utf8");
@@ -71,25 +71,46 @@ function lineForParse(segment: string): string {
 /**
  * If the file ends mid-line (no trailing newline and the final segment is not
  * valid JSON), truncate to the real byte offset after the previous newline.
- * Leaves a final complete line that lacks a newline untouched.
+ * Returns true when a complete final line needs a separator before append.
+ * Healthy logs need only their last byte; a torn line is scanned backwards.
  */
-async function repairCrashTruncatedTail(filePath: string): Promise<void> {
-  const raw = await readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "";
-    throw error;
-  });
-  if (raw === "" || raw.endsWith("\n")) return;
-
-  const lastNl = raw.lastIndexOf("\n");
-  const tail = lastNl === -1 ? raw : raw.slice(lastNl + 1);
-  const parseTail = lineForParse(tail);
-  if (parseTail === "") return;
+async function repairCrashTruncatedTail(filePath: string): Promise<boolean> {
+  const handle = await openExisting(filePath, "r+");
+  if (handle === undefined) return false;
   try {
-    JSON.parse(parseTail);
-    return;
-  } catch {
-    const keepBytes = lastNl === -1 ? 0 : Buffer.byteLength(raw.slice(0, lastNl + 1), "utf8");
-    await truncate(filePath, keepBytes);
+    const size = await regularFileSize(handle, filePath);
+    if (size === 0) return false;
+    const lastByte = await readRange(handle, size - 1, 1);
+    if (lastByte.length !== 1) throw new Error("JSONL file changed while reading its tail");
+    if (lastByte[0] === 0x0a) return false;
+
+    const chunks = [lastByte];
+    let position = size - 1;
+    let keepBytes = 0;
+    while (position > 0) {
+      const length = Math.min(position, 4096);
+      position -= length;
+      const chunk = await readRange(handle, position, length);
+      if (chunk.length !== length) throw new Error("JSONL file changed while reading its tail");
+      const newline = chunk.lastIndexOf(0x0a);
+      chunks.push(chunk.subarray(newline + 1));
+      if (newline !== -1) {
+        keepBytes = position + newline + 1;
+        break;
+      }
+    }
+    const parseTail = lineForParse(Buffer.concat(chunks.reverse()).toString("utf8"));
+    await assertUnchangedSize(handle, size);
+    if (parseTail === "") return true;
+    try {
+      JSON.parse(parseTail);
+      return true;
+    } catch {
+      await handle.truncate(keepBytes);
+      return false;
+    }
+  } finally {
+    await handle.close();
   }
 }
 
@@ -109,6 +130,8 @@ export interface ReadJsonlFromOffset {
  * record boundary (0, or immediately after a newline). Offsets that are not
  * on a boundary, or that sit past EOF after a repair/truncate, are reported
  * via `unsafe` rather than parsed — callers decide whether to fall back.
+ * The opened file's initial size bounds the read; this is not an immutable
+ * snapshot. Callers still serialize writers when requesting tail repair.
  */
 export async function readJsonlObjectsFromOffset(
   filePath: string,
@@ -119,69 +142,63 @@ export async function readJsonlObjectsFromOffset(
   if (!Number.isInteger(byteOffset) || byteOffset < 0) {
     throw new RangeError(`JSONL byte offset must be a non-negative integer, got ${byteOffset}`);
   }
-  const repair = options.repair === true;
   const maxBytes = validateReadLimit("maxBytes", options.maxBytes);
   const maxRecords = validateReadLimit("maxRecords", options.maxRecords);
   if (maxBytes !== undefined && byteOffset !== 0) {
     throw new RangeError("bounded JSONL reads require byteOffset 0");
   }
-  const buf = maxBytes === undefined
-    ? await readFile(filePath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return Buffer.alloc(0);
-      throw error;
-    })
-    : await readFileBounded(filePath, byteOffset, maxBytes);
-  if (byteOffset > buf.length) {
-    return {
-      values: [],
-      recovery: {},
-      fromByteOffset: byteOffset,
-      completeByteLength: buf.length,
-      unsafe: "offset-beyond-eof"
-    };
+  const handle = await openExisting(filePath, options.repair === true ? "r+" : "r");
+  if (handle === undefined) {
+    return emptyRead(byteOffset, 0, byteOffset > 0 ? "offset-beyond-eof" : undefined);
   }
-  if (byteOffset > 0 && buf[byteOffset - 1] !== 0x0a) {
-    return {
-      values: [],
-      recovery: {},
-      fromByteOffset: byteOffset,
-      completeByteLength: byteOffset,
-      unsafe: "offset-not-on-boundary"
-    };
-  }
-  const raw = buf.subarray(byteOffset).toString("utf8");
-  if (raw === "") {
-    return { values: [], recovery: {}, fromByteOffset: byteOffset, completeByteLength: byteOffset };
-  }
-
-  let lineNumberBase = 1;
-  if (byteOffset > 0) {
-    let newlines = 0;
-    for (let i = 0; i < byteOffset; i += 1) {
-      if (buf[i] === 0x0a) newlines += 1;
+  try {
+    const size = await regularFileSize(handle, filePath);
+    if (byteOffset > size) return emptyRead(byteOffset, size, "offset-beyond-eof");
+    const remaining = size - byteOffset;
+    if (maxBytes !== undefined && remaining > maxBytes) {
+      throw new JsonlReadLimitError(`JSONL read exceeded maxBytes ${maxBytes}: ${remaining}`);
     }
-    lineNumberBase = 1 + newlines;
+    if (byteOffset > 0) {
+      const boundary = await readRange(handle, byteOffset - 1, 1);
+      if (boundary.length === 0) {
+        return emptyRead(byteOffset, (await handle.stat()).size, "offset-beyond-eof");
+      }
+      if (boundary[0] !== 0x0a) return emptyRead(byteOffset, byteOffset, "offset-not-on-boundary");
+    }
+    // Capture one EOF: concurrent growth is left for the next incremental read.
+    const buffer = await readRange(handle, byteOffset, remaining);
+    if (buffer.length < remaining) {
+      const currentSize = (await handle.stat()).size;
+      if (byteOffset > currentSize) return emptyRead(byteOffset, currentSize, "offset-beyond-eof");
+    }
+    return await parseJsonlRange(handle, buffer, byteOffset, size, corrupt, options.repair === true, maxRecords);
+  } finally {
+    await handle.close();
   }
+}
 
-  const segments = raw.split("\n");
+async function parseJsonlRange(
+  handle: FileHandle,
+  buffer: Buffer,
+  byteOffset: number,
+  size: number,
+  corrupt: (lineNumber: number) => Error,
+  repair: boolean,
+  maxRecords: number | undefined
+): Promise<ReadJsonlFromOffset> {
   const values: unknown[] = [];
   const recovery: JsonlRecovery = {};
   let cursor = 0;
   let keepBytes = 0;
 
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (segment === undefined) continue;
-    const isLast = index === segments.length - 1;
-    const segmentBytes = Buffer.byteLength(segment, "utf8");
-    const newlineBytes = isLast ? 0 : 1;
-    const segmentEnd = cursor + segmentBytes + newlineBytes;
-    const parseLine = lineForParse(segment);
+  for (let index = 0; cursor < buffer.length; index += 1) {
+    const newline = buffer.indexOf(0x0a, cursor);
+    const isLast = newline === -1;
+    const segmentEnd = isLast ? buffer.length : newline + 1;
+    const parseLine = lineForParse(buffer.subarray(cursor, isLast ? buffer.length : newline).toString("utf8"));
+    cursor = segmentEnd;
 
-    if (parseLine === "") {
-      cursor = segmentEnd;
-      continue;
-    }
+    if (parseLine === "") continue;
 
     try {
       const parsed = JSON.parse(parseLine) as unknown;
@@ -190,21 +207,21 @@ export async function readJsonlObjectsFromOffset(
       }
       values.push(parsed);
       keepBytes = segmentEnd;
-      cursor = segmentEnd;
     } catch (error) {
       if (error instanceof JsonlReadLimitError) throw error;
+      // Successful incremental reads never need the prefix. Only diagnostics
+      // pay for its newline count to retain absolute corruption/recovery lines.
+      const lineNumber = 1 + await countPrefixNewlines(handle, byteOffset) + index;
       if (isLast) {
         recovery.incompleteLine = parseLine;
-        recovery.lineNumber = lineNumberBase + index;
+        recovery.lineNumber = lineNumber;
         if (repair) {
-          const rawBytes = Buffer.byteLength(raw, "utf8");
-          if (keepBytes < rawBytes) {
-            await truncate(filePath, byteOffset + keepBytes);
-          }
+          await assertUnchangedSize(handle, size);
+          await handle.truncate(byteOffset + keepBytes);
         }
         continue;
       }
-      throw corrupt(lineNumberBase + index);
+      throw corrupt(lineNumber);
     }
   }
   return {
@@ -215,6 +232,10 @@ export async function readJsonlObjectsFromOffset(
   };
 }
 
+function emptyRead(byteOffset: number, completeByteLength: number, unsafe?: JsonlOffsetUnsafe): ReadJsonlFromOffset {
+  return { values: [], recovery: {}, fromByteOffset: byteOffset, completeByteLength, ...(unsafe === undefined ? {} : { unsafe }) };
+}
+
 function validateReadLimit(name: string, value: number | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -223,28 +244,53 @@ function validateReadLimit(name: string, value: number | undefined): number | un
   return value;
 }
 
-async function readFileBounded(filePath: string, byteOffset: number, maxBytes: number): Promise<Buffer> {
-  const handle = await open(filePath, "r").catch((error: NodeJS.ErrnoException) => {
+async function openExisting(filePath: string, flags: "r" | "r+"): Promise<FileHandle | undefined> {
+  return open(filePath, flags).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return undefined;
     throw error;
   });
-  if (handle === undefined) return Buffer.alloc(0);
-  try {
-    const size = (await handle.stat()).size;
-    const remaining = Math.max(0, size - byteOffset);
-    if (remaining > maxBytes) {
-      throw new JsonlReadLimitError(`JSONL read exceeded maxBytes ${maxBytes}: ${remaining}`);
+}
+
+async function regularFileSize(handle: FileHandle, filePath: string): Promise<number> {
+  const details = await handle.stat();
+  if (!details.isFile()) {
+    const code = details.isDirectory() ? "EISDIR" : "EINVAL";
+    throw Object.assign(new Error(`${code}: JSONL path is not a regular file, '${filePath}'`), {
+      code,
+      path: filePath
+    });
+  }
+  return details.size;
+}
+
+async function readRange(handle: FileHandle, position: number, length: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(length);
+  let read = 0;
+  while (read < length) {
+    const result = await handle.read(buffer, read, length - read, position + read);
+    if (result.bytesRead === 0) break;
+    read += result.bytesRead;
+  }
+  return buffer.subarray(0, read);
+}
+
+async function countPrefixNewlines(handle: FileHandle, length: number): Promise<number> {
+  let newlines = 0;
+  for (let position = 0; position < length;) {
+    const requested = Math.min(length - position, 64 * 1024);
+    const buffer = await readRange(handle, position, requested);
+    if (buffer.length !== requested) throw new Error("JSONL file changed while counting prefix lines");
+    for (const byte of buffer) {
+      if (byte === 0x0a) newlines += 1;
     }
-    const buffer = Buffer.alloc(remaining);
-    let read = 0;
-    while (read < remaining) {
-      const result = await handle.read(buffer, read, remaining - read, byteOffset + read);
-      if (result.bytesRead === 0) break;
-      read += result.bytesRead;
-    }
-    return buffer.subarray(0, read);
-  } finally {
-    await handle.close();
+    position += buffer.length;
+  }
+  return newlines;
+}
+
+async function assertUnchangedSize(handle: FileHandle, size: number): Promise<void> {
+  if ((await handle.stat()).size !== size) {
+    throw new Error("JSONL file changed before tail repair");
   }
 }
 

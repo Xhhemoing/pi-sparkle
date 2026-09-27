@@ -107,7 +107,7 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "sparkle_apply_candidate",
     label: "Sparkle Apply Candidate",
-    description: "Apply one previously issued accepted candidate to its source repository. Takes only the issued handle (runId, artifactId, candidatePath) returned when the candidate was registered; the trusted verification command is reconstructed from the persisted artifact, never from this call. The source must be clean and at the candidate's base revision; on failure the source is rolled back. Disposal of the retained candidate is a separate explicit call.",
+    description: "Apply one previously issued accepted candidate to its source repository. Takes only the issued handle (runId, artifactId, candidatePath) returned when the candidate was registered; the trusted verification command is reconstructed from the persisted artifact, never from this call. The source must remain clean on a named branch at the candidate's base revision. On failure, source changes and the candidate are retained; an ambiguous or partial apply outcome requires inspection. Disposal of the retained candidate is a separate explicit call.",
     promptSnippet: "Apply a retained, independently accepted candidate to the source repository via its issued handle",
     parameters: Type.Object({
       issue: Type.Object({

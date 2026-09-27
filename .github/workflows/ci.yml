@@ -107,3 +107,22 @@ jobs:
 
       - name: Fake children and doctor
         run: pnpm test -- test/integration/m1/cli-children.test.ts test/unit/cli/doctor.test.ts
+
+      - name: Native reliability and bounded persistence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $focusedTests = @(
+            'test/unit/native/apply.test.ts',
+            'test/integration/native/apply.test.ts',
+            'test/unit/native/write-preflight.test.ts',
+            'test/unit/native/session.test.ts',
+            'test/unit/config/providers-config.test.ts',
+            'test/unit/execution/paths.test.ts',
+            'test/unit/pi-adapter/worktree-coding-tools.test.ts',
+            'test/unit/pi-adapter/native-executor.test.ts',
+            'test/unit/persist/jsonl.test.ts',
+            'test/unit/persist/jsonl-offset.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @focusedTests
+          exit $LASTEXITCODE

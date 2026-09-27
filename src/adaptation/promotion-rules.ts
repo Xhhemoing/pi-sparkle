@@ -138,6 +138,11 @@ export function assertRoutingPolicyEvalReport(
       );
     }
   }
+  // Legacy reports retain aggregates and changed-route diffs, not every raw
+  // pair. This check is structural only; it does not verify unique evidence.
+  // Requiring raw-source recomputation here needs a compatible evaluator/CLI
+  // evidence path. Explicit approval and the existing replay-only boundary
+  // remain required; this is not independent production acceptance evidence.
   const validation = validateComparisonReport(report.comparison);
   if (!validation.valid) {
     throw new DomainValidationError(

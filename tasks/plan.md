@@ -1,6 +1,21 @@
 # Active implementation plan
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
+
+## Reliability optimization execution (2026-09-27)
+
+User authorized implementation with multiple subagents on 2026-09-27. Execution is isolated on `codex/reliability-optimization-20260927`; the original checkout and its planning changes are preserved. O01/O04, O02 setup, the bounded O05 evidence slice, O07 I/O, O08a queue and O11 empty-waiver repair have source/focused-test review; whole-plan acceptance remains open pending remaining work and integration verification. O09a/b is exclusively delegated to the coordinated `offline-determinism-o09` worktree, not implemented twice. [Execution record](../docs/reports/2026-09-27-reliability-implementation.md) records ownership, RED/GREEN commands, review and unresolved work. The paragraph below records the earlier planning result, not the current authorization state.
+
+`TASK-20260927-reliability-optimization`: [consolidated plan](../docs/superpowers/plans/2026-09-27-reliability-optimization.md) and [review reconciliation](../docs/reports/2026-09-27-review-reconciliation.md), planning `ready-for-review`; implementation remains `planned`. Current-source review confirms apply rollback/identity/cancellation/disposal and bounded-read gaps; the supplied 2026-09-20 singleton-model and approximate observation-key findings are superseded by later code and fresh focused tests. First implementation priority is preserving concurrent user changes during apply, followed by cancellation/lifecycle and independent privacy/state/evidence corrections. No runtime code, new hash/baseline/gate, live run or production authorization is introduced by this planning slice.
+
+The dated [controlled-improvement roadmap](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md) remains authoritative over older summaries below: B0 accepted; D1 author candidate unreviewed; S0-min not approved/frozen; L1/L2/final review planned. R10/R11 and F6 remain separate.
+
+## Earlier active-plan context
+
+Delivery authorization update (2026-09-27): finish the implementable O01–O11 phase and required verification/review, then root alone coordinates local integration/merge, recoverable archival of delivered inactive worktrees, and a reviewed non-sensitive project-data commit/push to GitHub. O09a/b and O08b are delegated exclusively to the coordinated offline-determinism worktree; it remains in use and must not be archived. O12 and original human/experiment boundaries remain excluded. Preserve unrelated changes and unshipped work; inventory tracked/untracked/ignored data before publishing, never upload credentials or raw private sessions, and leave global user directories untouched. [Detailed delivery sequence](../docs/superpowers/plans/2026-09-27-reliability-optimization.md#2026-09-27-delivery-authorization-and-coordinated-ownership).
+
+Urgent delivery-order correction (2026-09-27): publish the independently reviewed, full-gate-verified first batch promptly, then deliver the rest of O01–O11 in later commits. This supersedes waiting for every package before the first local merge/push; it does not narrow the whole phase or approve O09a's open P1. [First-batch gate and interim scope](../docs/reports/2026-09-27-reliability-implementation.md#corrected-first-batch-gate-and-probes).
+
 Completed runtime M0–M2.5 and accepted adaptive slices were archived on 2026-08-17:
 
 - [M0–M2.5 plan](archive/m0-m2-plan.md)

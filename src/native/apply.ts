@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
@@ -52,7 +52,7 @@ interface GitErr { ok: false; detail: string }
 type GitResult = GitOk | GitErr;
 
 function git(cwd: string, args: readonly string[]): GitResult {
-  const result = spawnSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true });
+  const result = spawnSync("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", windowsHide: true });
   if (result.error !== undefined) return { ok: false, detail: result.error.message };
   if (result.status !== 0) {
     return {
@@ -67,6 +67,129 @@ function gitOrThrow(cwd: string, args: readonly string[]): string {
   const result = git(cwd, args);
   if (!result.ok) fail(`git ${args[0]} failed: ${result.detail}`);
   return result.stdout.trim();
+}
+
+function pathKey(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function realPath(value: string): string {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    fail(`worktree path is missing or inaccessible: ${value}`);
+  }
+}
+
+function directoryIdentity(value: string): string {
+  const info = statSync(value, { bigint: true });
+  if (!info.isDirectory()) fail(`worktree path is not a directory: ${value}`);
+  return `${info.dev}:${info.ino}`;
+}
+
+interface RepositoryIdentity {
+  readonly root: string;
+  readonly commonDir: string;
+  readonly gitDir: string;
+  readonly directoryId: string;
+  readonly gitDirectoryId: string;
+}
+
+function repositoryIdentity(repo: string): RepositoryIdentity {
+  const root = realPath(repo);
+  if (pathKey(repo) !== pathKey(root)) fail("worktree path aliases are refused");
+  const top = realPath(gitOrThrow(root, ["rev-parse", "--show-toplevel"]));
+  if (pathKey(root) !== pathKey(top)) fail("worktree path must be the Git toplevel");
+  const commonDir = realPath(path.resolve(root, gitOrThrow(root, ["rev-parse", "--git-common-dir"])));
+  const gitDir = realPath(path.resolve(root, gitOrThrow(root, ["rev-parse", "--git-dir"])));
+  return { root, commonDir, gitDir, directoryId: directoryIdentity(root), gitDirectoryId: directoryIdentity(gitDir) };
+}
+
+function sameRepository(left: RepositoryIdentity, right: RepositoryIdentity): boolean {
+  return pathKey(left.root) === pathKey(right.root)
+    && pathKey(left.commonDir) === pathKey(right.commonDir)
+    && pathKey(left.gitDir) === pathKey(right.gitDir)
+    && left.directoryId === right.directoryId
+    && left.gitDirectoryId === right.gitDirectoryId;
+}
+
+function candidateIdentity(candidate: string, source: RepositoryIdentity, revision: string): RepositoryIdentity {
+  const identity = repositoryIdentity(candidate);
+  if (pathKey(identity.root) === pathKey(source.root)) fail("candidate must not be the source repository");
+  if (pathKey(identity.commonDir) !== pathKey(source.commonDir)) fail("candidate belongs to a foreign repository");
+  if (pathKey(identity.gitDir) === pathKey(identity.commonDir)) fail("candidate must be a linked worktree");
+
+  // Use NUL-delimited porcelain so spaces, quotes and newlines in paths are
+  // not mistaken for Git's display quoting or record separators.
+  const listing = git(source.root, ["worktree", "list", "--porcelain", "-z"]);
+  if (!listing.ok) fail(`cannot read candidate worktree registration: ${listing.detail}`);
+  const entries = listing.stdout.split("\0\0").map((record) => record.split("\0"));
+  const entry = entries.find((fields) => fields.some((field) =>
+    field.startsWith("worktree ") && pathKey(field.slice("worktree ".length)) === pathKey(identity.root)
+  ));
+  if (entry === undefined || !entry.includes("detached") || entry.some((field) => field.startsWith("prunable"))) {
+    fail("candidate is not a registered detached worktree");
+  }
+  const backlink = readFileSync(path.join(identity.gitDir, "gitdir"), "utf8").trim();
+  if (pathKey(realPath(backlink)) !== pathKey(realPath(path.join(identity.root, ".git")))) {
+    fail("candidate worktree registration points to a different path");
+  }
+  if (!entry.includes(`HEAD ${revision}`) || gitOrThrow(candidate, ["rev-parse", "HEAD"]) !== revision) {
+    fail("candidate worktree is no longer at its accepted base revision");
+  }
+  return identity;
+}
+
+interface SourceState { readonly revision: string; readonly branch: string; readonly status: string }
+
+function sourceState(repo: string): SourceState {
+  return {
+    revision: gitOrThrow(repo, ["rev-parse", "HEAD"]),
+    branch: gitOrThrow(repo, ["rev-parse", "--symbolic-full-name", "HEAD"]),
+    status: gitOrThrow(repo, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored"])
+  };
+}
+
+function assertUnchangedSource(identity: RepositoryIdentity, expected: SourceState): void {
+  if (!sameRepository(identity, repositoryIdentity(identity.root))) fail("source repository identity changed before apply; candidate not applied");
+  const current = sourceState(identity.root);
+  if (current.revision !== expected.revision || current.branch !== expected.branch || current.status !== "") {
+    fail("source branch, HEAD, index or working tree changed before apply; candidate not applied; source changes preserved");
+  }
+}
+
+function assertCandidateCheckout(identity: RepositoryIdentity, before: SourceState, candidateCommit: string): void {
+  if (!sameRepository(identity, repositoryIdentity(identity.root))) fail("source repository identity changed during checkout");
+  const current = sourceState(identity.root);
+  if (current.revision !== before.revision || current.branch !== before.branch) {
+    fail("source branch or HEAD changed during checkout or ref publication");
+  }
+  const index = git(identity.root, ["diff", "--cached", "--quiet", candidateCommit, "--"]);
+  const working = git(identity.root, ["diff", "--quiet", "--"]);
+  const untracked = gitOrThrow(identity.root, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  const ignored = gitOrThrow(identity.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]);
+  if (!index.ok || !working.ok || untracked !== "" || ignored !== "") {
+    fail("source index or working tree changed during checkout or ref publication");
+  }
+}
+
+function refuseAfterMutation(identity: RepositoryIdentity, before: SourceState, candidateCommit: string, detail: string): never {
+  // A Git failure can follow a ref update or another writer's changes. Read
+  // the result, but never reset, clean, or otherwise try to undo unowned work.
+  let outcome = "ambiguous or partial update; cannot automatically determine whether the candidate was applied";
+  try {
+    if (sameRepository(identity, repositoryIdentity(identity.root))) {
+      const current = sourceState(identity.root);
+      if (current.branch === before.branch && current.status === "") {
+        if (current.revision === candidateCommit) outcome = `candidate is applied at ${candidateCommit}, but Git reported a failure`;
+        else if (current.revision === before.revision) outcome = "candidate not applied";
+      }
+    }
+  } catch {
+    // Unreadable state is also ambiguous and must remain available to inspect.
+  }
+  fail(`source update failed: ${outcome}; source state preserved without rollback and candidate retained: ${detail}`);
 }
 
 function isAcceptedWriteResult(result: NativeWriteSessionResult): boolean {
@@ -117,9 +240,9 @@ export class NativeApplySession {
   /**
    * Apply one retained accepted candidate to its source repository. The source
    * must be clean and exactly at the candidate's source revision; the candidate
-   * is re-verified in place before any source mutation. On refusal nothing is
-   * changed; on mid-apply failure the source is rolled back to its prior
-   * revision and the candidate is retained.
+   * is re-verified in place before any source mutation. Concurrent changes
+   * cause refusal. A mid-apply failure preserves the observed source state
+   * and retained candidate; an ambiguous outcome needs caller inspection.
    */
   async apply(input: NativeApplyInput): Promise<NativeApplyResult> {
     if (this.closed) fail("native apply session is shut down");
@@ -144,17 +267,21 @@ export class NativeApplySession {
       fail(`stale target: source is at ${preflight.revision}, candidate was built from ${result.sourceRevision}`);
     }
 
+    const sourceIdentity = repositoryIdentity(preflight.sourceRepo);
+    const before = sourceState(preflight.sourceRepo);
+    if (before.revision !== preflight.revision || before.status !== "") fail("source changed during apply preflight; candidate not applied");
+    if (!before.branch.startsWith("refs/heads/")) fail("apply requires a named source branch; detached source HEAD is refused before verification");
     const candidate = path.resolve(result.candidatePath);
-    const candidateStat = await stat(candidate).catch(() => undefined);
-    if (candidateStat === undefined) fail("candidate worktree is missing; cannot apply");
-
-    // The candidate must be a git worktree linked to this source repo.
-    const candidateHead = git(candidate, ["rev-parse", "HEAD"]);
-    if (!candidateHead.ok) fail(`candidate is not a usable git worktree: ${candidateHead.detail}`);
+    const identity = candidateIdentity(candidate, sourceIdentity, preflight.revision);
 
     // Re-verify inside the candidate with the frozen host command before the
     // source is mutated. This executes candidate code; host policy applies.
     reverifyCandidate(preflight.verification, candidate);
+
+    if (!sameRepository(identity, candidateIdentity(candidate, sourceIdentity, preflight.revision))) {
+      fail("candidate worktree identity changed during verification; candidate not applied");
+    }
+    assertUnchangedSource(sourceIdentity, before);
 
     // Bind the candidate's exact working-tree content: stage everything inside
     // the candidate worktree (never the source), then write its tree object.
@@ -172,32 +299,42 @@ export class NativeApplySession {
     }
 
     const previous = preflight.revision;
-    // `merge --ff-only` moves the branch/HEAD and updates the working tree in
-    // one git-native fast-forward; it refuses without touching anything when
-    // the update would not be a fast-forward.
-    const applied = git(preflight.sourceRepo, ["merge", "--ff-only", candidateCommit]);
-    if (!applied.ok) {
-      // The ref update may still have landed when the merge reports failure
-      // (e.g. a reference-transaction hook moved HEAD mid-apply). A failed
-      // apply must never leave the source elsewhere: roll back to the prior
-      // revision before refusing. When nothing was touched this is a no-op.
-      const rollback = git(preflight.sourceRepo, ["reset", "--hard", previous]);
-      if (!rollback.ok) {
-        fail(`source fast-forward failed AND rollback failed: merge=${applied.detail} rollback=${rollback.detail}`);
-      }
-      const headAfter = git(preflight.sourceRepo, ["rev-parse", "HEAD"]);
-      if (!headAfter.ok || headAfter.stdout.trim() !== previous) {
-        fail(`source fast-forward failed; rolled back but HEAD verification failed: ${applied.detail}`);
-      }
-      fail(`source fast-forward failed; rolled back to ${previous}: ${applied.detail}`);
+    assertUnchangedSource(sourceIdentity, before);
+    // Checkout before any ref hooks run. `merge --ff-only` may invoke an
+    // ORIG_HEAD hook and then overwrite index edits made by that hook from a
+    // stale index view. Two-tree read-tree uses Git's index lock and refuses
+    // dirty-path conflicts; subsequent ref operations never write file bytes
+    // or the index. This is not an atomic checkout/ref or crash protocol.
+    const checkout = git(preflight.sourceRepo, ["read-tree", "-m", "-u", previous, candidateCommit]);
+    if (!checkout.ok) {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, checkout.detail);
     }
-    const headNow = git(preflight.sourceRepo, ["rev-parse", "HEAD"]);
-    if (!headNow.ok || headNow.stdout.trim() !== candidateCommit) {
-      const rollback = git(preflight.sourceRepo, ["reset", "--hard", previous]);
-      if (!rollback.ok) {
-        fail(`source did not reach the candidate commit AND rollback failed: ${rollback.detail}`);
-      }
-      fail(`source did not reach the candidate commit; rolled back to ${previous}`);
+    try {
+      assertCandidateCheckout(sourceIdentity, before, candidateCommit);
+    } catch (error) {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, String(error));
+    }
+
+    const original = git(preflight.sourceRepo, ["update-ref", "ORIG_HEAD", previous]);
+    if (!original.ok) {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, original.detail);
+    }
+    try {
+      assertCandidateCheckout(sourceIdentity, before, candidateCommit);
+    } catch (error) {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, String(error));
+    }
+
+    // Publish the originally observed branch with Git's expected-old-value
+    // check, rather than resolving a possibly switched HEAD at update time.
+    const applied = git(preflight.sourceRepo, ["update-ref", before.branch, candidateCommit, previous]);
+    if (!applied.ok) {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, applied.detail);
+    }
+    try {
+      assertUnchangedSource(sourceIdentity, { ...before, revision: candidateCommit });
+    } catch {
+      refuseAfterMutation(sourceIdentity, before, candidateCommit, "source did not retain the expected candidate revision and clean checkout");
     }
 
     this.managed.add(candidate);
@@ -266,6 +403,3 @@ export class NativeApplySession {
     // Retained candidates are caller-owned evidence; shutdown never deletes.
   }
 }
-
-void tmpdir;
-void mkdir;
