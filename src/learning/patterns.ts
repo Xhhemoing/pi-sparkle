@@ -47,7 +47,8 @@ export function detectRepeatedPatterns(
 
   const patterns: Pattern[] = [];
 
-  byKind.forEach((sigs, kind) => {
+  [...byKind.keys()].sort(compareText).forEach((kind) => {
+    const sigs = byKind.get(kind)!;
     // Kinds below the recurrence floor are skipped unless they carry an
     // explicit severe safety event, which must surface as a one-off finding.
     if (sigs.length < minCount && !sigs.some(isSevereSafetySignature)) return;
@@ -92,10 +93,30 @@ export function detectRepeatedPatterns(
   return patterns;
 }
 
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function canonicalSignatureContent(sig: EpisodeSignature): string {
+  const features = Object.keys(sig.features).sort(compareText).map((key) => {
+    const value = sig.features[key]!;
+    // Type tags and numeric strings preserve primitive distinctions, including
+    // non-finite numbers that JSON.stringify would otherwise turn into null.
+    return [key, typeof value, Object.is(value, -0) ? "-0" : String(value)];
+  });
+  return JSON.stringify([features, sig.createdAt, sig.hash]);
+}
+
 function clusterSignatures(
-  sigs: EpisodeSignature[],
+  signatures: readonly EpisodeSignature[],
   threshold: number
 ): EpisodeSignature[][] {
+  // Stable exact content breaks episode-id ties; the existing hash is only a
+  // final field tie-break, never a substitute for comparing feature content.
+  const sigs = [...signatures].sort((a, b) =>
+    compareText(a.episodeId, b.episodeId) ||
+    compareText(canonicalSignatureContent(a), canonicalSignatureContent(b))
+  );
   const clusters: EpisodeSignature[][] = [];
   const used = new Set<number>();
 
@@ -106,9 +127,11 @@ function clusterSignatures(
 
     for (let j = i + 1; j < sigs.length; j++) {
       if (used.has(j)) continue;
-      const sim = computeFeatureSim(sigs[i]!, sigs[j]!);
-      if (sim >= threshold) {
-        cluster.push(sigs[j]!);
+      const candidate = sigs[j]!;
+      // Complete-link admission prevents an intermediate signature from
+      // bridging endpoints whose similarity is below the threshold.
+      if (cluster.every((member) => computeFeatureSim(member, candidate) >= threshold)) {
+        cluster.push(candidate);
         used.add(j);
       }
     }

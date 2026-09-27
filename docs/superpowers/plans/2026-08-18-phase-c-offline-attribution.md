@@ -189,6 +189,9 @@ it("returns uncertain when intervals are wide", () => {
 
 ### Task 3: Logit-additive IRLS (offline only)
 
+> **2026-09-27 O09a correction:** New logit reports are being revised to `logit-standardized-v2`: canonical factors/rows and bootstrap ordering, nonredundant treatment interactions with unregularized rank checks, and centered model-based predictive contrasts for all levels including references. See the [dated protocol decision](2026-09-27-o09-offline-determinism.md#o09a-protocol-correction-decided-before-implementation) for exact estimands, extrapolation, retained thresholds and uncertainty rules. The original first-seen/dummy-off recipe below is historical and does not describe v2. No live-routing, active-pointer or experiment approval follows.
+
+
 **Files:**
 - Create: `src/routing/offline-logit.ts`, `src/routing/lin-alg.ts`
 - Test: Create `test/unit/routing/offline-logit.test.ts`
