@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { physicalDirectoryWithoutLinks } from "./physical-directory.js";
 import { DomainValidationError } from "../domain/errors.js";
 
 export interface NativeWriteVerificationInput { readonly command: string; readonly args?: readonly string[]; }
@@ -23,8 +24,9 @@ export function prepareNativeWrite(input: NativeWritePreflightInput): NativeWrit
   const args = verification.args === undefined ? [] : verification.args;
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) fail("verification args must be strings");
   const requested = path.resolve(input.sourceRepo);
-  const root = path.resolve(git(requested, ["rev-parse", "--show-toplevel"]));
-  if (requested !== root) fail("source repository must be the Git toplevel");
+  const physical = physicalDirectoryWithoutLinks(requested);
+  const root = physicalDirectoryWithoutLinks(git(physical, ["rev-parse", "--show-toplevel"]));
+  if (physical !== root) fail("source repository must be the Git toplevel");
   const status = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored"]);
   if (status !== "") fail("source repository must be clean");
   const revision = git(root, ["rev-parse", "HEAD"]);

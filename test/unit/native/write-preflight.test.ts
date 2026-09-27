@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,7 +45,7 @@ test("clean preflight pins HEAD and freezes a copied host verification snapshot"
     const args = ["-e", "process.exit(0)"];
     const request = { sourceRepo: repo, objective: "  change value  ", verification: { command: process.execPath, args } };
     const result = prepareNativeWrite(request);
-    assert.equal(result.sourceRepo, path.resolve(repo));
+    assert.equal(result.sourceRepo, realpathSync.native(repo));
     assert.equal(result.objective, "change value");
     assert.equal(result.revision, git(repo, ["rev-parse", "HEAD"]).trim());
     assert.deepEqual(result.verification.args, ["-e", "process.exit(0)"]);
@@ -59,7 +60,7 @@ test("clean preflight pins HEAD and freezes a copied host verification snapshot"
 
 test("equivalent root syntax is accepted while subdirectories and nonrepositories are refused", async () => {
   await withFixture(async ({ root, repo }) => {
-    assert.equal(prepareNativeWrite(input(`${repo}${path.sep}.`)).sourceRepo, path.resolve(repo));
+    assert.equal(prepareNativeWrite(input(`${repo}${path.sep}.`)).sourceRepo, realpathSync.native(repo));
     const subdirectory = path.join(repo, "src");
     await mkdir(subdirectory);
     assertRefusal(() => prepareNativeWrite(input(subdirectory)), /toplevel|repository|root/i);
