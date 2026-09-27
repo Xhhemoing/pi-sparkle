@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { parseCandidateCommandArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { NativeSession } from "../../src/native/session.js";
@@ -157,12 +158,14 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       // Format: <runId> <artifactId> <candidatePath> <sourceRepo> <stateRoot>
       // All values come from the host-held write result, typed by the user.
-      const parts = args.trim().split(/\s+/).filter(Boolean);
-      if (parts.length !== 5) {
-        if (ctx.hasUI) ctx.ui.notify("usage: /sparkle-issue-candidate <runId> <artifactId> <candidatePath> <sourceRepo> <stateRoot>", "error");
+      let parts: ReturnType<typeof parseCandidateCommandArgs>;
+      try {
+        parts = parseCandidateCommandArgs(args);
+      } catch {
+        if (ctx.hasUI) ctx.ui.notify("usage: /sparkle-issue-candidate <runId> <artifactId> <candidatePath> <sourceRepo> <stateRoot>. Quote each entire path containing spaces; supply exactly five nonempty arguments on one line.", "error");
         return;
       }
-      const [runId, artifactId, candidatePath, sourceRepo, stateRoot] = parts as [string, string, string, string, string];
+      const [runId, artifactId, candidatePath, sourceRepo, stateRoot] = parts;
       issuedCandidates.set(runId, { stateRoot, sourceRepo, runId, artifactId, candidatePath });
       if (ctx.hasUI) ctx.ui.notify(`Issued apply handle for ${runId}. The model may now call sparkle_apply_candidate with this handle.`, "info");
     }
