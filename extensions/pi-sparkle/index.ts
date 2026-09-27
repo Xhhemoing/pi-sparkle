@@ -24,15 +24,32 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
   let session: NativeSession | undefined;
   let closed = false;
   const issuedCandidates = new Map<string, IssuedCandidateHandle>();
+  const contractText = Type.String({ minLength: 1, maxLength: 512 });
+  const taskContract = Type.Object({
+    scope: Type.Optional(Type.Array(contractText, { maxItems: 8 })),
+    prohibitions: Type.Optional(Type.Array(contractText, { maxItems: 8 })),
+    deliverables: Type.Optional(Type.Array(contractText, { maxItems: 8 })),
+    acceptanceCriteria: Type.Optional(Type.Array(Type.Object({
+      id: Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]+$" }),
+      description: contractText,
+      observableCheck: contractText
+    }, { additionalProperties: false }), { maxItems: 8 })),
+    sourceRefs: Type.Optional(Type.Array(Type.Object({
+      kind: Type.Union([Type.Literal("message"), Type.Literal("file"), Type.Literal("git"), Type.Literal("spec")]),
+      ref: contractText,
+      excerpt: Type.Optional(contractText)
+    }, { additionalProperties: false }), { maxItems: 8 }))
+  }, { additionalProperties: false, description: "Optional read-only requirements and source claims; no authority or independent verification. Combined objective and normalized contract must fit 8000 characters." });
   pi.registerTool({
     name: "sparkle_delegate",
     label: "Sparkle Delegate",
-    description: "Delegate 1–4 read-only project inspections or reviews. Workers can read files; no writing or shell. Returns bounded child reports (not independent verification) and a durable run ID. Preferred model must be available in the Pi session catalogue.",
+    description: "Delegate 1–4 read-only project inspections or reviews, optionally with scoped task requirements. Workers can read files; no writing or shell. Returns bounded child reports (not independent verification) and a durable run ID. Preferred model must be available in the Pi session catalogue.",
     promptSnippet: "Delegate parallel read-only project inspections with progress and durable evidence",
     parameters: Type.Object({
       tasks: Type.Array(Type.Object({
         role: Type.String({ enum: ["scout", "reviewer"] }),
-        objective: Type.String({ minLength: 1, maxLength: 8000 })
+        objective: Type.String({ minLength: 1, maxLength: 8000 }),
+        contract: Type.Optional(taskContract)
       }), { minItems: 1, maxItems: 4 }),
       model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to grok-4.7" })),
       contextEfficiency: Type.Optional(Type.Boolean({ description: "Archive large read results after two full sends and expose sparkle_recall_observation to workers (default off)" }))
@@ -95,7 +112,8 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
         model, executor,
         tasks: params.tasks.map((task) => {
           if (task.role !== "scout" && task.role !== "reviewer") throw new Error("Unsupported native role");
-          return { role: task.role, objective: task.objective };
+          return { role: task.role, objective: task.objective,
+            ...(task.contract !== undefined ? { contract: task.contract } : {}) };
         }),
         ...(signal !== undefined ? { signal } : {}),
         onProgress: (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }),

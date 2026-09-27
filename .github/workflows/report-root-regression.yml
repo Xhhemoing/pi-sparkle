@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'src/native/**'
+      - 'extensions/pi-sparkle/**'
       - 'test/unit/native/**'
       - 'test/integration/native/**'
       - 'scripts/native-root-baseline-probe.mjs'
@@ -43,4 +44,7 @@ jobs:
         run: node --import tsx scripts/native-root-baseline-probe.mjs .agent_workspace/root-baseline
       - name: Root, preflight and apply safety regressions
         if: ${{ !cancelled() }}
-        run: pnpm test -- --test-concurrency=1 test/unit/native/repository-root.test.ts test/unit/native/write-preflight.test.ts test/unit/native/apply.test.ts test/integration/native/apply.test.ts
+        run: pnpm test -- --test-concurrency=1 test/unit/native/physical-directory.test.ts test/unit/native/repository-root.test.ts test/unit/native/write-preflight.test.ts test/unit/native/apply.test.ts test/integration/native/apply.test.ts
+      - name: Native task contracts and compatibility
+        if: ${{ !cancelled() }}
+        run: pnpm test -- --test-concurrency=1 test/unit/native/task-contract.test.ts test/unit/native/task-contract-normalization.test.ts test/unit/native/task-contract-extension.test.ts test/unit/native/session.test.ts test/unit/native/extension.test.ts test/unit/native/candidate-command-extension.test.ts

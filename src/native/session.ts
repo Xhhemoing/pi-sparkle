@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { createTaskId, type RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
+import type { RequirementContract } from "../domain/contract.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import { assignTasks, type TaskAssignment } from "../routing/assign.js";
 import { startParentRun, type RunningRun } from "../run/coordinator.js";
@@ -11,6 +12,7 @@ import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
 import type { NativeRoutingCatalog } from "./routing-catalog.js";
 import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import { prepareNativeTaskContract, type NativeTaskContractInput } from "./task-contract.js";
 
 export interface NativeModel { readonly provider: string; readonly id: string }
 export function resolveNativeModel<T extends NativeModel>(
@@ -23,7 +25,11 @@ export function resolveNativeModel<T extends NativeModel>(
   return matches[0]!;
 }
 
-export interface NativeTask { readonly role: "scout" | "reviewer"; readonly objective: string }
+export interface NativeTask {
+  readonly role: "scout" | "reviewer";
+  readonly objective: string;
+  readonly contract?: NativeTaskContractInput;
+}
 export interface NativeRoutingInput {
   /** Host-catalog routing bridge; without it every task uses the single resolved model. */
   readonly catalog: NativeRoutingCatalog;
@@ -53,6 +59,8 @@ export interface NativeDelegateResult {
   readonly status: string;
   readonly results: readonly { taskId: string; summary: string; evidenceIds: readonly string[] }[];
   readonly independentVerification: "UNOBSERVED";
+  /** Input snapshots bound to the actual child ids, not independent acceptance. */
+  readonly taskContracts?: readonly { taskId: string; contract: RequirementContract }[];
   readonly analysis: string;
   readonly text: string;
 }
@@ -103,6 +111,14 @@ export class NativeSession {
       if (!["scout", "reviewer"].includes(task.role)) throw new DomainValidationError("native tasks must be scout or reviewer");
       if (!task.objective.trim() || task.objective.length > 8000) throw new DomainValidationError("objective must contain 1..8000 characters");
     }
+    // Validate and copy every contract before starting any run. Each child
+    // receives only its own requirements, never a union of sibling scopes.
+    const prepared = input.tasks.map((task, index) => ({
+      taskId: createTaskId(), role: task.role,
+      ...prepareNativeTaskContract(task.objective, task.contract, index)
+    }));
+    const taskContracts = prepared.flatMap((task) => task.contract === undefined
+      ? [] : [{ taskId: task.taskId, contract: task.contract }]);
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
     const modelId = `${input.model.provider}/${input.model.id}`;
     // Quality-first routing (optional): when a host-catalog bridge is
@@ -162,11 +178,11 @@ export class NativeSession {
     };
     const running = startParentRun({ stateRoot: input.stateRoot, executor }, {
       projectRoot: input.projectRoot,
-      objective: input.tasks.map((task) => task.objective).join("\n"),
+      objective: prepared.map((task) => task.objective).join("\n"),
       ...(routedModelIds !== undefined ? { assignments: routedModelIds } : {}),
-      children: input.tasks.map((task, index) => ({
-        taskId: createTaskId(), role: task.role, objective: task.objective,
-        profile: registry.resolve(task.role), inputArtifactIds: [], acceptanceCriteria: [],
+      children: prepared.map((task, index) => ({
+        taskId: task.taskId, role: task.role, objective: task.objective,
+        profile: registry.resolve(task.role), inputArtifactIds: [], acceptanceCriteria: task.acceptanceCriteria,
         assignedModel: routedModelId(index),
         limits: { maxAttempts: 1, timeoutMs: 300_000, maxWallTimeMs: 300_000 }
       }))
@@ -208,10 +224,12 @@ export class NativeSession {
       const text = [`Run ${outcome.runId}: ${outcome.status}`,
         routedModelIds === undefined ? `Model: ${modelId}` : `Models: ${actualModels.join(", ")}`,
         ...(routedModelIds !== undefined ? [`Routing: per-task over host catalog (${actualModels.length} distinct model(s))`] : []),
+        ...taskContracts.map((card) => `Task contract ${card.taskId}: read-only; ${card.contract.deliverables.length} report deliverable(s), ${card.contract.acceptanceCriteria.length} criterion/criteria; independent verification UNOBSERVED.`),
         "Child reports are not independently verified; acceptance remains UNOBSERVED.",
         ...results.map((result) => `${result.taskId}: ${result.summary}`), `Analysis: ${analysis}`].join("\n");
       progress(`Run ${outcome.runId}: ${outcome.status}`);
-      return { runId: outcome.runId, status: outcome.status, results, independentVerification: "UNOBSERVED", analysis, text };
+      return { runId: outcome.runId, status: outcome.status, results, independentVerification: "UNOBSERVED", analysis, text,
+        ...(taskContracts.length > 0 ? { taskContracts } : {}) };
     } catch (error) {
       setupFailed = true;
       running.cancel();
