@@ -33,3 +33,7 @@ Use [`docs/templates/task-plan.md`](../docs/templates/task-plan.md) for detailed
 - `blocked` requires a reason and the condition that removes it.
 - `accepted` means the stated acceptance criteria passed; it does not imply production readiness or outcome support.
 - Do not rewrite historical records to make old claims look current; add a dated correction.
+
+## Report-driven slice (2026-09-27)
+
+`TASK-20260927-report-improvements`: [plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md), [dedicated checklist](report-improvement-todo.md), and [verification/handoff](../docs/reports/2026-09-27-report-improvements.md). A1/A2 implementation is present with earlier 59 focused passes; supported-runtime re-verification/full gate and native-loader checks remain open. This slice does not supersede the active reliability or controlled-improvement plans, and does not mark all Stage A or any later stage accepted.
