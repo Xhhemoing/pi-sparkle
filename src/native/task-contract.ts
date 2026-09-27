@@ -17,7 +17,8 @@ export interface NativeTaskContractInput {
 export interface PreparedNativeTask {
   readonly objective: string;
   readonly contract?: RequirementContract;
-  readonly acceptanceCriteria: readonly { id: string; description: string }[];
+  /** Fresh child-owned array, matching the existing ChildTaskInput contract. */
+  readonly acceptanceCriteria: { id: string; description: string }[];
 }
 
 function fail(detail: string): never {
