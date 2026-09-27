@@ -122,6 +122,116 @@ test("control plane submit assigns requestId and ack round-trips", async () => {
   });
 });
 
+test("control plane orders a completed inject submission before a later pause despite reverse UUIDs", async () => {
+  await withTempState(async (stateRoot) => {
+    const runId = "run_01234567-89ab-cdef-0123-456789abcdef" as RunId;
+    const injectPlane = createFileRunControlPlane(
+      stateRoot,
+      runId,
+      () => parseIsoTimestamp("2026-08-15T06:00:00.000Z"),
+      () => "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    );
+    const pausePlane = createFileRunControlPlane(
+      stateRoot,
+      runId,
+      () => parseIsoTimestamp("2026-08-15T06:00:00.001Z"),
+      () => "00000000-0000-4000-8000-000000000000"
+    );
+    await injectPlane.submit({ kind: "inject", request: { kind: "fact", key: "k", value: "v" } });
+    await pausePlane.submit({ kind: "pause", reason: "after injection" });
+
+    assert.deepEqual(
+      (await injectPlane.listPending()).map((message) => [message.requestId, message.kind]),
+      [
+        ["ffffffff-ffff-4fff-8fff-ffffffffffff", "inject"],
+        ["00000000-0000-4000-8000-000000000000", "pause"]
+      ]
+    );
+  });
+});
+
+for (const { name, messages, expected } of [
+  {
+    name: "same-millisecond submissions use code-unit request ID order, not submission order",
+    messages: [
+      { requestId: "req-a", submittedAt: "2026-08-15T06:00:00.000Z" },
+      { requestId: "req-_", submittedAt: "2026-08-15T06:00:00.000Z" },
+      { requestId: "req-Z", submittedAt: "2026-08-15T06:00:00.000Z" }
+    ],
+    expected: ["req-Z", "req-_", "req-a"]
+  },
+  {
+    name: "submillisecond differences tie at millisecond precision",
+    messages: [
+      { requestId: "req-z", submittedAt: "2026-08-15T06:00:00.123000001Z" },
+      { requestId: "req-a", submittedAt: "2026-08-15T06:00:00.123999999Z" }
+    ],
+    expected: ["req-a", "req-z"]
+  },
+  {
+    name: "different timezone offsets sort by instant rather than ISO text",
+    messages: [
+      { requestId: "req-z", submittedAt: "2026-08-15T08:00:00.000+02:00" },
+      { requestId: "req-a", submittedAt: "2026-08-15T05:30:00.000-01:00" }
+    ],
+    expected: ["req-z", "req-a"]
+  },
+  {
+    name: "equivalent timezone offsets tie by request ID",
+    messages: [
+      { requestId: "req-a", submittedAt: "2026-08-15T08:00:00.000+02:00" },
+      { requestId: "req-z", submittedAt: "2026-08-15T01:00:00.000-05:00" }
+    ],
+    expected: ["req-a", "req-z"]
+  },
+  {
+    name: "clock rollback orders the later completed submission first",
+    messages: [
+      { requestId: "req-a", submittedAt: "2026-08-15T06:00:00.002Z" },
+      { requestId: "req-z", submittedAt: "2026-08-15T06:00:00.001Z" }
+    ],
+    expected: ["req-z", "req-a"]
+  }
+]) {
+  test(`control plane ${name}`, async () => {
+    await withTempState(async (stateRoot) => {
+      const runId = "run_01234567-89ab-cdef-0123-456789abcdef" as RunId;
+      for (const message of messages) {
+        const submitter = createFileRunControlPlane(
+          stateRoot,
+          runId,
+          () => parseIsoTimestamp(message.submittedAt),
+          () => message.requestId
+        );
+        await submitter.submit({ kind: "pause" });
+      }
+      const reader = createFileRunControlPlane(stateRoot, runId, () => NOW);
+      assert.deepEqual((await reader.listPending()).map((message) => message.requestId), expected);
+    });
+  });
+}
+
+test("control plane orders concurrent submissions by declared time", async () => {
+  await withTempState(async (stateRoot) => {
+    const runId = "run_01234567-89ab-cdef-0123-456789abcdef" as RunId;
+    const laterPlane = createFileRunControlPlane(
+      stateRoot,
+      runId,
+      () => parseIsoTimestamp("2026-08-15T06:00:00.001Z"),
+      () => "req-a"
+    );
+    const earlierPlane = createFileRunControlPlane(stateRoot, runId, () => NOW, () => "req-z");
+    await Promise.all([
+      laterPlane.submit({ kind: "pause" }),
+      earlierPlane.submit({ kind: "pause" })
+    ]);
+    assert.deepEqual(
+      (await laterPlane.listPending()).map((message) => message.requestId),
+      ["req-z", "req-a"]
+    );
+  });
+});
+
 test("pauseFlowchartRun after terminal rejects without writing PAUSE_REQUESTED", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
     const deps = {

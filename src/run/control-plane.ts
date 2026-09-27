@@ -159,7 +159,13 @@ export function createFileRunControlPlane(
         const raw = await readFile(join(dir, entry), "utf8");
         messages.push(parseControlMessage(raw));
       }
-      return messages;
+      // Declared instants order this snapshot at millisecond precision. Equal
+      // milliseconds use exact request IDs, without a submission FIFO promise.
+      return messages.sort((left, right) => {
+        const timeDifference = Date.parse(left.submittedAt) - Date.parse(right.submittedAt);
+        if (timeDifference !== 0) return timeDifference;
+        return left.requestId < right.requestId ? -1 : left.requestId > right.requestId ? 1 : 0;
+      });
     },
     async acknowledge(partial) {
       const ack: ControlAck = { ...partial, acknowledgedAt: now() };

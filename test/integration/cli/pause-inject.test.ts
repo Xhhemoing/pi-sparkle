@@ -7,6 +7,10 @@ import { main, type CliIo } from "../../../src/cli/main.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import { INJECT_USAGE } from "../../../src/cli/inject.js";
 import { PAUSE_USAGE } from "../../../src/cli/pause.js";
+import { parseId } from "../../../src/domain/ids.js";
+import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
+import { createFileRunControlPlane } from "../../../src/run/control-plane.js";
+import { EventStore } from "../../../src/run/event-store.js";
 import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
@@ -150,6 +154,52 @@ test("pause records PAUSE_REQUESTED and inspect/replay show PAUSED", async () =>
       status: string;
     };
     assert.equal(checkpoint.status, "PAUSED");
+  });
+});
+
+test("CLI resume drains an earlier queued inject before pause with reverse UUIDs", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const runId = parseId("RunId", await startWaiting(stateRoot, projectRoot));
+    const injectPlane = createFileRunControlPlane(
+      stateRoot,
+      runId,
+      () => parseIsoTimestamp("2026-08-15T06:00:00.000Z"),
+      () => "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    );
+    const pausePlane = createFileRunControlPlane(
+      stateRoot,
+      runId,
+      () => parseIsoTimestamp("2026-08-15T06:00:00.001Z"),
+      () => "00000000-0000-4000-8000-000000000000"
+    );
+    const injection = await injectPlane.submit({
+      kind: "inject",
+      request: { kind: "fact", key: "queued", value: "preserved", actor: "user", confidence: 1 }
+    });
+    const pause = await pausePlane.submit({ kind: "pause", reason: "after queued fact" });
+
+    // Resume uses the real loop drain; idle inject commands deliberately finish
+    // after one applied injection and cannot exercise both queued messages.
+    const resumed = capture();
+    assert.equal(await main(["resume", "--run", runId, "--state-root", stateRoot], resumed.io), 0);
+    assert.deepEqual(resumed.err, []);
+    assert.match(resumed.out.join(""), /PAUSED/);
+    const events = (await new EventStore(stateRoot, runId).readAll()).events;
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "INJECTION_REQUESTED" || event.type === "PAUSE_REQUESTED")
+        .map((event) => event.type),
+      ["INJECTION_REQUESTED", "PAUSE_REQUESTED"]
+    );
+    assert.equal((await injectPlane.readAck(injection.requestId))?.status, "applied");
+    assert.equal((await pausePlane.readAck(pause.requestId))?.status, "applied");
+    assert.deepEqual(await injectPlane.listPending(), []);
+    const checkpoint = JSON.parse(await readFile(join(stateRoot, "runtime", "runs", runId, "checkpoint.json"), "utf8")) as {
+      status: string;
+      flowchart: { snapshot: { facts: Record<string, unknown> } };
+    };
+    assert.equal(checkpoint.status, "PAUSED");
+    assert.equal(checkpoint.flowchart.snapshot.facts.queued, "preserved");
   });
 });
 
