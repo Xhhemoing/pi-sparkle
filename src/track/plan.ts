@@ -3,6 +3,7 @@ import { createTaskId, type IdGenerator, type TaskId } from "../domain/ids.js";
 import type { AgentRole } from "../domain/roles.js";
 import type { RequirementContract } from "../domain/contract.js";
 import { namedTargets, shouldScout, type HeuristicHabits } from "../requirement/heuristic.js";
+import { answerRequestsTests, isInvestigationAnswer, isReadOnlyObjective, testIntent } from "../requirement/objective-intent.js";
 
 export interface PlannedChild {
   readonly taskId: TaskId;
@@ -31,17 +32,20 @@ export function planFromContract(input: PlanFromContractInput): readonly Planned
     throw new DomainValidationError("cannot plan an empty objective");
   }
   const answers = input.answers ?? {};
-  const testsAnswer = answers["q-tests"]?.toLowerCase();
-  const doneAnswer = answers["q-done"]?.toLowerCase() ?? "";
-  const writeAnswer = answers["q-write"]?.toLowerCase() ?? "";
   const scope = readScopeAnswer(answers["q-scope"], objective);
-  const investigationOnly = doneAnswer.includes("investigation") || writeAnswer.includes("investigation");
+  // A default or an affirmative answer must not lift an explicit restriction.
+  const investigationOnly = isReadOnlyObjective(objective)
+    || input.contract.constraints.some((constraint) => constraint.id === "c-read-only")
+    || isInvestigationAnswer(answers["q-done"])
+    || isInvestigationAnswer(answers["q-write"]);
+  const tests = testIntent(objective);
   const includeTests =
-    !investigationOnly &&
+    !investigationOnly && tests !== "forbidden" &&
     (input.habits?.requireTests === true ||
       input.contract.constraints.some((constraint) => constraint.id === "c-tests") ||
-      testsAnswer === "yes" ||
-      /\b(tests?|coverage)\b/i.test(objective));
+      answerRequestsTests(answers["q-tests"]) ||
+      answerRequestsTests(answers["q-done"]) ||
+      tests === "required");
   const includeScout = investigationOnly || scope.deferToScout || shouldScout(objective);
   const includeReviewer = !investigationOnly && input.habits?.preferReview !== false;
   const scoped = (text: string): string =>

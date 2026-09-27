@@ -7,6 +7,7 @@ import {
   type RequirementExtractor
 } from "./extractor.js";
 import { critiqueContract } from "./critic.js";
+import { isObjectiveVague, isReadOnlyObjective, testIntent } from "./objective-intent.js";
 
 export const HEURISTIC_EXTRACTOR_ROLE = "heuristic-extractor-v1";
 export const HEURISTIC_CRITIC_ROLE = "heuristic-critic-v1";
@@ -45,7 +46,9 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
     async extract(input) {
       const objective = input.objective.trim();
       const vague = isVague(objective);
-      const wantsTests = habits.requireTests === true || /\b(tests?|coverage|qa)\b/i.test(objective);
+      const readOnly = isReadOnlyObjective(objective);
+      const tests = testIntent(objective);
+      const wantsTests = !readOnly && (tests === "required" || (tests === "unspecified" && habits.requireTests === true));
       const wantsReview = habits.preferReview !== false;
       const questions = vague
         ? [
@@ -53,45 +56,42 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
               id: "q-done",
               question: "What does done look like for this work?",
               options: ["ship a code change", "investigation only", "tests and a code change"]
-            },
-            {
-              id: "q-tests",
-              question: "Should the plan include running or adding tests?",
-              options: ["yes", "no", "only if existing tests fail"]
             }
           ]
         : [];
-      if (!vague && habits.requireTests === undefined && !/\b(tests?|coverage)\b/i.test(objective)) {
+      if (!readOnly && habits.requireTests === undefined && tests === "unspecified") {
         questions.push({
           id: "q-tests",
           question: "Should the plan include running or adding tests?",
           options: ["yes", "no", "only if existing tests fail"]
         });
       }
-      if (shouldAskScope(objective) && !questions.some((question) => question.id === "q-scope")) {
+      if (!readOnly && shouldAskScope(objective) && !questions.some((question) => question.id === "q-scope")) {
         questions.push({
           id: "q-scope",
           question: "Which files or modules should this change touch?",
           options: ["the files named in the objective", "let scout discover them", "I will paste paths"]
         });
       }
-      if (habits.askBeforeWrite === true && !questions.some((question) => question.id === "q-write")) {
+      if (!readOnly && habits.askBeforeWrite === true && !questions.some((question) => question.id === "q-write")) {
         questions.push({
           id: "q-write",
           question: "May the agent write files, or is this investigation only?",
           options: ["write files", "investigation only"]
         });
       }
-      const targets = namedTargets(objective);
+      const targets = readOnly ? [] : namedTargets(objective);
       const objectiveRefs = input.sources.map((source) => source.ref);
       const contract = validateRequirementContract({
         schemaVersion: 1,
         objective,
         deliverables: [
           {
-            id: "d-change",
-            description: vague ? "Change set matching the clarified objective" : `Deliver ${objective}`,
-            artifactKind: "diff",
+            id: readOnly ? "d-report" : "d-change",
+            description: readOnly
+              ? `Report findings and evidence for: ${objective}`
+              : vague ? "Change set matching the clarified objective" : `Deliver ${objective}`,
+            artifactKind: readOnly ? "report" : "diff",
             sourceRefs: objectiveRefs
           },
           ...targets.map((path, index) => ({
@@ -103,6 +103,9 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
         ],
         constraints: [
           { ...SMALLEST_CHANGE, assumptionIds: ["a-defaults"] },
+          ...(readOnly
+            ? [{ id: "c-read-only", description: "Do not modify workspace files; use read-only planning profiles", enforceable: true, sourceRefs: objectiveRefs }]
+            : []),
           ...(wantsTests
             ? [{ id: "c-tests", description: "Tests must stay green", enforceable: true, sourceRefs: objectiveRefs }]
             : [])
@@ -112,7 +115,9 @@ export function heuristicExtractor(habits: HeuristicHabits = {}): RequirementExt
           {
             id: "ac-objective",
             description: "The stated objective is addressed",
-            observableCheck: "run.status is COMPLETED and child TASK_RESULT summaries cover the objective",
+            observableCheck: readOnly
+              ? "Report identifies observed paths, evidence references, and explicitly unverified findings"
+              : "run.status is COMPLETED and child TASK_RESULT summaries cover the objective",
             sourceRefs: objectiveRefs
           },
           ...(wantsTests
@@ -191,13 +196,7 @@ export async function extractHeuristicContract(input: {
 }
 
 export function isVague(objective: string): boolean {
-  const text = objective.trim();
-  if (text.length < 12) return true;
-  const words = text.split(/\s+/).filter((word) => word.length > 0);
-  if (words.length < 4) return true;
-  return !/\b(implement|fix|add|refactor|test|review|migrate|integrate|document|investigate|plan|change|update|rename)\b/i.test(
-    text
-  );
+  return isObjectiveVague(objective, namedTargets(objective));
 }
 
 const PATH_RE =
