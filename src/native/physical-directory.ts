@@ -11,7 +11,7 @@ export function physicalDirectoryWithoutLinks(value: string): string {
       cursor = path.join(cursor, component);
       const entry = lstatSync(cursor);
       if (entry.isSymbolicLink()) {
-        throw new DomainValidationError("directory link aliases are refused");
+        throw new DomainValidationError("repository path: directory link aliases are refused");
       }
       if (!entry.isDirectory()) {
         throw new DomainValidationError("repository path must be a directory");
