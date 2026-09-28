@@ -2,6 +2,10 @@
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 
+## Merged branch cleanup (2026-09-28)
+
+- [x] Deleted five verified-merged local pointers and merged PR #46's remote branch (2026-09-28). Remote refs, all 12 worktree paths/HEADs, nine retained feature refs, dirty statuses, ignored entries and both stashes verified; `pnpm workflow:check` and `git diff --check` PASS. Runtime source unchanged. [Plan](../docs/superpowers/plans/2026-09-28-branch-cleanup.md) · [evidence](../docs/reports/2026-09-28-branch-cleanup.md).
+
 ## GitHub/local integration (2026-09-28)
 
 - [x] Fetch and inventory initial 14 local branches, both remote branches, all worktrees and the existing O02 stash; preserve eight conflict-bearing branches (2026-09-28; [branch decisions](../docs/reports/2026-09-28-sync-merge.md#inventory-and-branch-decisions)).

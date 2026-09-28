@@ -2,6 +2,10 @@
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
 
+## Merged branch cleanup (2026-09-28)
+
+`TASK-20260928-branch-cleanup` is accepted for the scoped cleanup (2026-09-28): five local pointers and merged PR #46's remote pointer were deleted and preservation checks passed. [Plan](../docs/superpowers/plans/2026-09-28-branch-cleanup.md) and [verification record](../docs/reports/2026-09-28-branch-cleanup.md): local branches 15 -> 10, remote branches 2 -> 1; all 12 worktree directories, nine feature branches with unresolved/dirty work and both stashes remain available. This changes branch bookkeeping only and does not accept open runtime/owner gates.
+
 ## GitHub/local integration (2026-09-28)
 
 `TASK-20260928-sync-merge`: [plan](../docs/superpowers/plans/2026-09-28-sync-merge.md) and [verification/review record](../docs/reports/2026-09-28-sync-merge.md). The user authorized synchronization and compatible branch merges. PR #46, S0-min implementation and patch-equivalent O09 ancestry are integrated in candidate `3f5711ba`; the PR correction and S0-min specification/quality reviews independently PASS at that exact source revision. Final full gate/probes PASS at `14a50358` (3152 pass / 0 fail / 18 skip); merged main was published and verified at `bb6d59c8`, and the original checkout was refreshed to main with drafts retained in a named stash. Original drafts, O02 stash and eight conflicting branches are retained.
