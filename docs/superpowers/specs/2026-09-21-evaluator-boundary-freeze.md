@@ -2,6 +2,63 @@
 
 > **ADR-008 correction (2026-09-22):** This draft does not use SHA-256 or any replacement cryptographic hash. It uses an opaque random record locator and exact canonical-byte comparison in explicitly labeled local-weak mode. The draft remains unapproved and unfrozen; it does not authorize writes, apply, provider calls, or live runs.
 
+## Controlling owner decision (2026-09-25)
+
+Owner `coordinator` recorded `APPROVE_OPTION_A_FOR_IMPLEMENTATION_REVIEW` at
+`2026-09-25 (applicable session date; no wall-clock minute asserted)`, reviewing base
+`e1ce19c0f93d8e34e7ca25512c5d32d2743ba669`. This decision authorizes only
+implementation and independent review of Option A. Stage 0 remains **not
+frozen**; this decision does not approve L1, a provider or pilot run, apply,
+routing activation, promotion, or worker writes.
+
+This dated decision is the controlling correction wherever the historical draft
+below requires an external RFC 8785/JCS dependency. S0-min instead uses the one
+project-versioned deterministic JSON contract
+`pi-sparkle-stable-json-v1`, backed by the existing
+`src/experiments/manifest.ts::stableStringify` byte behavior. It is explicitly
+**not RFC 8785/JCS** and provides only `local-weak-exact-bytes` binding. No
+second canonicalizer, external JCS dependency, or compatibility-changing byte
+contract may be introduced under this decision. The older JCS wording remains
+below solely as historical provenance and is superseded by this correction.
+The legacy `REQUEST CHANGES` state and statement that an owner decision remains
+required also predate this decision: the owner gate is now closed only for
+Option A implementation review, while independent implementation review and the
+later freeze decision remain open.
+
+Before any later `FROZEN` decision, the implementation must fail closed on
+unknown or missing allowlisted fields, duplicate object keys detected before
+ordinary parsing loses them, non-finite numbers, `undefined` or other non-JSON
+values, invalid UTF-8, unpaired Unicode surrogates, trailing bytes or newlines,
+and any parse/serialize or exact-byte mismatch. It must also refuse missing,
+deleted, foreign, stale, incomplete, legacy, self-reported-only, or
+identity/binding-mismatched outcome evidence; evaluator unavailability,
+provider/tool/run failure, timeout, or ambiguous crash/replay state cannot be
+classified as a model-attributable `FAILED` result. The authoritative evaluator
+bundle and terminal outcome DTO remain host-owned and outside candidate/worker
+write scope.
+
+### 2026-09-25 implementation candidate (controlling status update)
+
+The S0-min implementation candidate is now `ready-for-review`, not `FROZEN`.
+`src/domain/canonical-json.ts::canonicalizeStableJson/parseStableJsonBytes`
+implement the only versioned `pi-sparkle-stable-json-v1` contract. New boundary
+records must use those strict entry points. The existing
+`src/experiments/manifest.ts::stableStringify` export remains as a compatibility
+surface for pre-contract experiment identities: valid JSON values produce the
+same bytes as the strict contract. Correction (2026-09-28): historical non-JSON
+inputs can also collapse to valid canonical JSON bytes, such as NaN becoming
+`null`. `parseStableJsonBytes` validates received bytes, not the original JS
+value or producer provenance. New boundary records must use
+`canonicalizeStableJson` before serialization and the host source/binding
+checks; parser success alone does not establish trusted provenance. The legacy
+compatibility surface is not a second canonicalizer.
+
+The candidate also adds a neutral `host-terminal-outcome-v1` DTO and strict
+parser/binding assessment in `src/evaluation/`. It adds no persistence, provider,
+pilot, apply, routing, promotion, worker-write, native, tool, or CLI surface.
+Independent specification and quality review, exact approval binding, and the
+later owner freeze decision remain open.
+
 ## Status and scope
 
 - State: `draft — REQUEST CHANGES; not approved, not frozen`

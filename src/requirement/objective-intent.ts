@@ -37,11 +37,18 @@ export function isReadOnlyObjective(objective: string): boolean {
 export function testIntent(objective: string): TestIntent {
   // 'Do not skip tests' requires tests, unlike 'skip tests'.
   const text = objective.replace(/\b(?:do not|don't|never)\s+skip\s+(?:the\s+)?tests?\b/gi, "require tests");
+  // A ban on creating tests does not cancel an explicit run of existing tests.
+  const executionScope = text
+    .replace(/(?:不要|无需|不需要|不必|禁止|不得|不)\s*(?:再)?(?:添加|新增|增加|补充|编写)(?:任何|相关|额外的?|新的?|单元|集成|回归|自动化|\s)*测试/gu, "")
+    .replace(/\b(?:do not|don't|never)\s+(?:add|write)\s+(?:(?:any|new|additional|unit|integration|regression)\s+)*tests?\b/gi, "")
+    .replace(/\b(?:no|without)\s+(?:new|additional)\s+tests?\b/gi, "");
+  const existingExecution = /\b(?:run|execute)\s+(?:the\s+)?existing\s+(?:(?:unit|integration|regression)\s+)*tests?\b|(?:运行|执行|跑)\s*(?:现有|已有|既有)(?:的|单元|集成|回归|\s)*测试/iu.test(executionScope);
+  const scopedText = existingExecution ? executionScope : text;
   const forbidden = [
-    /(?:不要|无需|不需要|不必|禁止|不得|不)(?:再)?(?:添加|增加|补充|编写|运行|执行|跑)?(?:任何|相关|额外的?|新的?|单元|集成|回归|自动化|\s)*测试/u,
-    /\b(?:no|without|skip|omit)\s+(?:(?:any|new|additional|unit|integration|regression)\s+)*(?:tests?|testing)\b(?!\s+(?:failures?|errors?|regressions?))/i,
-    /\b(?:do not|don't|never)\s+(?:(?:add|write|run|execute)\s+)?(?:(?:any|new|additional|unit|integration|regression)\s+)*(?:tests?|testing)\b/i
-  ].some((pattern) => pattern.test(text));
+    /(?:不要|无需|不需要|不必|禁止|不得|不)(?:再)?(?:添加|增加|补充|编写|运行|执行|跑)?(?:任何|相关|额外的?|新的?|现有|已有|既有|的|单元|集成|回归|自动化|\s)*测试/u,
+    /\b(?:no|without|skip|omit)\s+(?:(?:any|new|additional|existing|unit|integration|regression)\s+)*(?:tests?|testing)\b(?!\s+(?:failures?|errors?|regressions?))/i,
+    /\b(?:do not|don't|never)\s+(?:(?:add|write|run|execute)\s+)?(?:the\s+)?(?:(?:any|new|additional|existing|unit|integration|regression)\s+)*(?:tests?|testing)\b/i
+  ].some((pattern) => pattern.test(scopedText));
   if (forbidden) return "forbidden";
   return /\b(tests?|testing|coverage|qa)\b|测试|覆盖率/iu.test(text) ? "required" : "unspecified";
 }

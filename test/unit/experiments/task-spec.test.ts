@@ -7,6 +7,8 @@ import {
   modelDescriptorsFromPriceTable,
   validateHoldoutTaskSpec
 } from "../../../src/experiments/task-spec.js";
+import { stableStringify as manifestStableStringify } from "../../../src/experiments/manifest.js";
+import { canonicalizeStableJson } from "../../../src/domain/canonical-json.js";
 
 function catalog(): ModelDescriptor[] {
   return [
@@ -148,5 +150,6 @@ describe("PS-P4 holdout taskSpec compile", () => {
     assert.doesNotMatch(compiled.shared.specHash, /^[0-9a-f]{64}$/);
     assert.match(compiled.shared.specHash, /"id":"spec_impl_001"/);
     assert.match(compiled.shared.specHash, /"family":"implementation"/);
+    assert.equal(manifestStableStringify(spec), canonicalizeStableJson(spec));
   });
 });

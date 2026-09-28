@@ -123,3 +123,33 @@ for (const objective of [
     assert.ok(planFromContract({ contract }).some((item) => item.role === "tester"));
   });
 }
+
+for (const objective of [
+  "Fix src/auth/login.ts; run existing tests, but do not add tests",
+  "修复src/auth/login.ts并运行现有测试，不添加新测试",
+  "Fix src/auth/login.ts; no new tests, run the existing tests",
+  "修复src/auth/login.ts，不需要新增测试，但执行已有测试"
+]) {
+  test(`no new tests preserves explicit existing-test execution: ${objective}`, async () => {
+    const habits = { requireTests: true };
+    const { contract } = await extractHeuristicContract({ objective, habits });
+    assert.ok(contract.acceptanceCriteria.some((item) => item.id === "ac-tests"));
+    const tester = planFromContract({ contract, habits }).find((item) => item.role === "tester");
+    assert.ok(tester);
+    assert.ok(tester.objective.includes(objective));
+  });
+}
+
+for (const objective of [
+  "Fix src/auth/login.ts; do not add tests and do not run existing tests",
+  "修复src/auth/login.ts，不添加新测试，也不要运行现有测试",
+  "Fix src/auth/login.ts; no new tests and do not run the existing tests",
+  "修复src/auth/login.ts，不添加新测试，也不要运行已有的测试"
+]) {
+  test(`an existing-test execution prohibition still overrides defaults: ${objective}`, async () => {
+    const habits = { requireTests: true };
+    const { contract } = await extractHeuristicContract({ objective, habits });
+    assert.equal(contract.acceptanceCriteria.some((item) => item.id === "ac-tests"), false);
+    assert.equal(planFromContract({ contract, habits }).some((item) => item.role === "tester"), false);
+  });
+}

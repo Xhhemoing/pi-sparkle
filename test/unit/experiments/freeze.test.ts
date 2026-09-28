@@ -7,6 +7,7 @@ import {
   validateExperimentFreeze
 } from "../../../src/experiments/freeze.js";
 import type { ModelDescriptor } from "../../../src/routing/capability-registry.js";
+import { STABLE_JSON_CONTRACT } from "../../../src/domain/canonical-json.js";
 
 const model: ModelDescriptor = {
   modelId: "cheap",
@@ -50,6 +51,7 @@ describe("PS-P4 experiment freeze", () => {
   });
 
   it("identifies the same payload by canonical string, not a digest", () => {
+    assert.equal(STABLE_JSON_CONTRACT, "pi-sparkle-stable-json-v1");
     const left = freezeCanonicalKey({ b: 1, a: { z: 2, y: [3, 1] } });
     const right = freezeCanonicalKey({ a: { y: [3, 1], z: 2 }, b: 1 });
     assert.equal(left, right);
