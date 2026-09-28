@@ -7,7 +7,7 @@
 - Owner: Codex coordinator; explicit user request to synchronize latest GitHub/local source and merge compatible branches.
 - Initial main: `1b04aa9d9e70206cfb41a2963189dfb5bcab3a5d`.
 - Integration branch: `codex/sync-merge-20260928` in the existing clean reliability worktree.
-- State: in progress; no final full-gate or publication claim yet.
+- State: source verification complete; publication and original-checkout refresh pending.
 - Plan: [sync/merge plan](../superpowers/plans/2026-09-28-sync-merge.md).
 
 ## Inventory and branch decisions
@@ -64,7 +64,7 @@ logs are in the same relative directory of the integration checkout.
 | `pnpm test -- --test-concurrency=1 test/unit/requirement/ test/unit/track/` | PASS | `test-intent-green.log`: 78 pass / 0 fail / 0 skip |
 | `pnpm exec tsx .agent_workspace/sync-20260928/legacy-provenance-probe.ts` | PASS | `legacy-provenance-probe.log`: five original-value refusals and corresponding accepted legacy byte forms |
 | `pnpm gate` (initial integration run) | PASS, superseded for final delivery | `gate.log`: 3145 pass / 0 fail / 18 skip; source was subsequently corrected, so a stable-source rerun is required |
-| `pnpm security:probe`; `pnpm pi:probe` | NOT RUN YET | Existing checks, not new gates |
+| `pnpm security:probe`; `pnpm pi:probe` (final delivery run) | PASS | 26 security probes, zero findings/waivers; all 4 Pi pin/import checks passed |
 
 Probe setup mistakes are not product failures: a multiline pnpm `--eval`
 attempt emitted no output and was not evidence; a first file-based attempt
@@ -88,7 +88,7 @@ existing required review.
 
 ## Publication and handoff
 
-Independent reviews now PASS at `3f5711ba`; final checks remain pending. Publish using normal
+Independent source reviews PASS at `3f5711ba`; the test-only delta at `14a50358` and final full gate/probes also PASS. Publish using normal
 fast-forward Git push only; refetch first and stop/reconcile if main advanced.
 Then verify remote main, local main and the original checkout, retain drafts
 recoverably and record exact final commits/status here and in active tasks.
@@ -135,3 +135,24 @@ records together, preserving its partial-line phase and every existing
 assertion. No production behavior or test expectation is relaxed. The focused
 rerun, independent fixture review and subsequent full gate are recorded below;
 the failed attempt is not counted as passing evidence.
+
+## Final pre-publication verification
+
+Verified source/test revision: `14a5035848073f706a166f5e6148a36487d9402c`.
+Runtime source is byte-identical to independently reviewed `3f5711ba`.
+The test-only delta received independent PASS; AST comparison confirmed all
+54 assert calls in the file are unchanged. No production behavior was altered
+by that fixture repair.
+
+| Exact command | Result | Retained output |
+|---|---|---|
+| `pnpm test -- --test-concurrency=1 test/integration/cli/inspect-follow.test.ts` | PASS: 12 / 0 / 0 | `inspect-follow-fixed.log` |
+| `pnpm gate` | PASS: workflow, typecheck, lint, 3152 pass / 0 fail / 18 skip, build | `gate-delivery.log`, 3170 total tests, 146 suites |
+| `pnpm security:probe` (evidence-local npm cache) | PASS: 26, no open/waived/refused findings | `security-probe.log` |
+| `pnpm pi:probe` | PASS: 4 pin/import checks | `pi-probe.log` |
+| `git diff --check origin/main..HEAD`; conflict-marker scan | PASS | No unresolved markers or trailing-space defects |
+| `git merge-base --is-ancestor <included-ref> HEAD` | PASS for all 6 named included refs | PR46/S0-min/O09 plus previously integrated controlled-improvement/B0/reliability tips |
+
+The 18 skips remain skips. No provider/crash/benchmark/holdout/release result is
+claimed. The initial gate, interrupted provisional run, failed race-exposing
+gate, RED regressions and final passing run remain separately recorded.

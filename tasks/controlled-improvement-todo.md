@@ -6,7 +6,7 @@ ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: c
 
 ## 2026-09-28 implementation review update
 
-S0-min source at `3f5711ba` received exact-revision independent SPEC PASS then QUALITY PASS after the documented corrections. Final integration checks/publication are tracked in the [sync report](../docs/reports/2026-09-28-sync-merge.md). This does not record owner acceptance or FROZEN; L1 remains blocked on that separate decision. The older review-status paragraph below is dated history, not the current implementation review state.
+S0-min source at `3f5711ba` received exact-revision independent SPEC PASS then QUALITY PASS after the documented corrections. Final integration checks PASS (3152/0/18); publication is tracked in the [sync report](../docs/reports/2026-09-28-sync-merge.md). This does not record owner acceptance or FROZEN; L1 remains blocked on that separate decision. The older review-status paragraph below is dated history, not the current implementation review state.
 
 ## 2026-09-25 controlling correction and historical review status
 
