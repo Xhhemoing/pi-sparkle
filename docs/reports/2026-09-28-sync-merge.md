@@ -7,7 +7,7 @@
 - Owner: Codex coordinator; explicit user request to synchronize latest GitHub/local source and merge compatible branches.
 - Initial main: `1b04aa9d9e70206cfb41a2963189dfb5bcab3a5d`.
 - Integration branch: `codex/sync-merge-20260928` in the existing clean reliability worktree.
-- State: source verification complete; publication and original-checkout refresh pending.
+- State: accepted for scoped synchronization; compatible branches published and original checkout refreshed. Eight conflict-bearing branches remain explicitly deferred.
 - Plan: [sync/merge plan](../superpowers/plans/2026-09-28-sync-merge.md).
 
 ## Inventory and branch decisions
@@ -19,7 +19,7 @@ initial main, not assertions that all old branch changes are absent from it.
 
 | Branch | Initial tip | Decision/evidence |
 |---|---|---|
-| main | `1b04aa9d` | Publication target after checks |
+| main | `1b04aa9d` | Published and remote-verified at `bb6d59c8`; subsequent closeout commits are documentation only |
 | codex/controlled-improvement-20260925 | `e1ce19c0` | Already ancestor of main; original dirty checkout preserved |
 | codex/controlled-improvement-b0-20260925 | `e1ce19c0` | Already ancestor of main |
 | codex/reliability-optimization-20260927 | `8ccdc1f9` | Already ancestor of main |
@@ -33,7 +33,7 @@ initial main, not assertions that all old branch changes are absent from it.
 | codex/ci-n3-20260925 | `3b422174` | Deferred: 19 conflicts |
 | codex/offline-fixes-20260925 | `00af6bed` | Deferred: 20 conflicts; older storage design is not reactivated |
 | codex/stage0-review-20260924 | `246dbd90` | Deferred: 13 conflicts plus uncommitted work |
-| origin/codex/report-plan-phase-a-20260927 | `ce529a4d` | PR #46, 12 commits ahead of main; hosted quality/Linux/Windows checks successful; fresh review/checks required |
+| origin/codex/report-plan-phase-a-20260927 | `ce529a4d` | PR #46: initial 12-commit candidate passed hosted checks; source corrected/reviewed locally, integrated and marked MERGED by GitHub |
 
 All branch pointers are retained; no `ours` merge is used to hide conflicts.
 Per the existing workflow, any later agent-resolved conflict hunks need human
@@ -156,3 +156,20 @@ by that fixture repair.
 The 18 skips remain skips. No provider/crash/benchmark/holdout/release result is
 claimed. The initial gate, interrupted provisional run, failed race-exposing
 gate, RED regressions and final passing run remain separately recorded.
+
+## Verified publication and local refresh
+
+- Normal push succeeded: `1b04aa9d..bb6d59c8 main -> main`. `git ls-remote origin refs/heads/main` exactly matched local main `bb6d59c82467954c77a414f7bfe939623cb4b51a` immediately afterward.
+- GitHub PR #46 reports **MERGED**, merge commit `1d0978fefb1b12a42cd64ec3a0d24976792985a6`, merged at `2026-09-28T05:49:06Z`.
+- Original `E:\Project\pi-sparkle` checkout is now on `main`, fast-forwarded to the integrated source and clean. No reset, clean, forced push, branch deletion or worktree disposal was used.
+- All four original planning/report drafts are preserved in `c967dcf3391d9c0dd5b7e530e9669752cc9c0e3e`, currently `stash@{0}` (`sync-20260928: preserve original planning drafts`). Its exact four paths were checked against the pre-sync inventory. They were not reapplied over newer main documents.
+- Original O02 stash `b484c3e2c0af33577316d10f518e31002300f6f1` remains listed, currently `stash@{1}`. The other three dirty worktrees and all original non-main branch tips are retained.
+- Test/probe logs were copied into the original checkout's `.agent_workspace/sync-20260928/` alongside branch previews, preservation inventory and `publication.json`. Local recovery: inspect the named stash and selectively restore drafts in a separate working context if needed; do not blindly pop older plan files over current main.
+- Subsequent closeout commits update only records/checklists. They do not change the tested/reviewed runtime source or tests. Remote/local equality is rechecked after the final evidence push; hosted CI remains a separately observed result, not inferred from local tests.
+
+Handoff: eight incompatible old branches remain local, with exact conflict
+counts above. Maintainer/original slice owners should reconcile those histories
+and obtain the existing required human review of conflict hunks before later
+merges. S0-min owner freeze, D1/L1/L2, O02/O03, production/live/provider/holdout
+and policy gates remain open as documented. This sync task is complete within
+that scope.

@@ -4,7 +4,7 @@
 
 - ID: `TASK-20260928-sync-merge`
 - Owner: Codex coordinator, user-authorized synchronization and compatible branch merges.
-- State: `in-progress`.
+- State: `accepted` for compatible-branch synchronization; conflicting branches remain deferred.
 - Opened: 2026-09-28 (Asia/Shanghai).
 - Authority: `AGENTS.md`, `docs/development-workflow.md`, active task files, ADR-006/008 and existing Stage 0 boundaries.
 
@@ -18,12 +18,12 @@ Out of scope: implementing unfinished O02/O03, rewriting history, force pushing,
 
 ## Acceptance Criteria
 
-- [ ] Fetch latest remote refs and inventory every local branch with exact starting revisions and merge previews.
-- [ ] Merge only reviewed compatible candidates; record conflict-bearing or unfinished branches explicitly.
-- [ ] Focused regression tests, existing `pnpm gate`, `pnpm security:probe`, and `pnpm pi:probe` pass on the integrated source; skips remain skips.
-- [ ] Preserve the original four dirty paths, existing O02 stash, and other dirty worktrees; no reset/clean or destructive recovery.
-- [ ] Published main and usable local source are synchronized and verified using `git ls-remote` plus local refs/status.
-- [ ] Update the active plan/checklist and a dated verification report with exact commands, outcomes, review findings and remaining work.
+- [x] Fetch latest remote refs and inventory every local branch with exact starting revisions and merge previews.
+- [x] Merge only reviewed compatible candidates; record conflict-bearing or unfinished branches explicitly.
+- [x] Focused regression tests, existing `pnpm gate`, `pnpm security:probe`, and `pnpm pi:probe` pass on the integrated source; skips remain skips.
+- [x] Preserve the original four dirty paths, existing O02 stash, and other dirty worktrees; no reset/clean or destructive recovery.
+- [x] Published main and usable local source are synchronized and verified using `git ls-remote` plus local refs/status.
+- [x] Update the active plan/checklist and a dated verification report with exact commands, outcomes, review findings and remaining work.
 
 ## Implementation Slice
 
@@ -52,7 +52,7 @@ No new runtime behavior is authored in this integration task. Existing candidate
 
 ## Closeout
 
-Pending exact verification, independent review, publication, local refresh and preservation audit. Next action: stage the clean S0-min merge, run focused checks and the existing gate, then act on independent findings.
+Verified 2026-09-28: independent source/test reviews PASS; final gate 3152/0/18, security26/0, Pi checks PASS. Normal main publication and original-checkout refresh verified at `bb6d59c8`; four drafts and prior O02 stash preserved. [Closeout evidence](../../reports/2026-09-28-sync-merge.md). Eight conflict-bearing branches remain for maintainer/original-owner reconciliation and required human conflict review; policy/task acceptance gates are not closed.
 
 ## Integration review amendment — 2026-09-28
 

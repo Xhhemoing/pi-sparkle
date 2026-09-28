@@ -6,7 +6,7 @@ Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.
 
 - [x] Fetch and inventory initial 14 local branches, both remote branches, all worktrees and the existing O02 stash; preserve eight conflict-bearing branches (2026-09-28; [branch decisions](../docs/reports/2026-09-28-sync-merge.md#inventory-and-branch-decisions)).
 - [x] Independently review candidate `3f5711ba`: PR #46 correction PASS, S0-min SPEC PASS then QUALITY PASS; targeted author tests and independent assertions are recorded separately (2026-09-28; [review record](../docs/reports/2026-09-28-sync-merge.md)).
-- [ ] Complete the final stable-source gate/probes, publish a normal fast-forward main update and refresh the original checkout while retaining its drafts; verify exact remote/local state in the dated sync record.
+- [x] Final gate/probes PASS (3152/0/18; security 26/0; Pi PASS); normal main push verified at `bb6d59c8`, original checkout switched/refreshed to main, and all four drafts plus prior O02 stash preserved (2026-09-28; [publication evidence](../docs/reports/2026-09-28-sync-merge.md#verified-publication-and-local-refresh)).
 - [ ] Deferred branches need conflict reconciliation and existing human conflict review; S0-min owner freeze, D1/L1/L2, O02/O03, R10/R11 and F6 remain separate.
 ## Reliability optimization execution (2026-09-27)
 
