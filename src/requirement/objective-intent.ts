@@ -36,7 +36,7 @@ export function isReadOnlyObjective(objective: string): boolean {
 
 export function testIntent(objective: string): TestIntent {
   // 'Do not skip tests' requires tests, unlike 'skip tests'.
-  const text = objective.replace(/\b(?:do not|don't|never)\s+skip\s+(?:the\s+)?tests?\b/gi, "require tests");
+  const text = objective.replace(/\b(?:do not|don't|never)\s+skip\s+(?:the\s+)?(?:(?:any|new|additional|existing|unit|integration|regression)\s+)*tests?\b/gi, "require tests");
   // A ban on creating tests does not cancel an explicit run of existing tests.
   const executionScope = text
     .replace(/(?:不要|无需|不需要|不必|禁止|不得|不)\s*(?:再)?(?:添加|新增|增加|补充|编写)(?:任何|相关|额外的?|新的?|单元|集成|回归|自动化|\s)*测试/gu, "")

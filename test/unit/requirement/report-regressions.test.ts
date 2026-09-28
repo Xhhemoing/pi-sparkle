@@ -80,7 +80,8 @@ for (const objective of [
   "修复src/auth/login.ts中的超时问题，无需补充单元测试",
   "Fix the timeout in src/auth/login.ts without tests",
   "Fix the timeout in src/auth/login.ts; do not run tests",
-  "Fix the timeout in src/auth/login.ts; skip tests"
+  "Fix the timeout in src/auth/login.ts; skip tests",
+  "Fix src/auth/login.ts; skip existing tests"
 ]) {
   test(`explicit no-tests overrides a preference default: ${objective}`, async () => {
     const habits = { requireTests: true };
@@ -115,6 +116,8 @@ for (const objective of ["src/fix.ts", "src/test.ts documentation", "src/plan.ts
 
 for (const objective of [
   "Fix the timeout in src/auth/login.ts; do not skip tests",
+  "Fix src/auth/login.ts; do not skip existing tests",
+  "Fix src/auth/login.ts; never skip the existing regression tests",
   "Fix the timeout in src/auth/login.ts with no test failures"
 ]) {
   test(`negative wording does not cancel required tests: ${objective}`, async () => {

@@ -70,3 +70,11 @@ forbidden; direct execution prohibitions still remove both. Test first with
 `pnpm test -- --test-concurrency=1 test/unit/requirement/report-regressions.test.ts`,
 then the neighboring requirement/track suites and a fresh full gate. Obtain
 independent delta review before main publication.
+
+S0-min quality review identified a concrete strict-serialization bypass: array
+subclasses can override `map` or `join`, suppress value validation and silently
+change canonical bytes. Extend the existing plain-value refusal to array
+prototypes, with RED/GREEN adversarial array tests. This enforces the already
+specified strict JSON boundary; it adds no authority, store, hash or gate and
+keeps the legacy compatibility wrapper unchanged. Re-review the exact revised
+source and its tests before publication.

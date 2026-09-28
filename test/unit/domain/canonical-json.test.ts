@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { stableStringify } from "../../../src/experiments/manifest.js";
 import {
   STABLE_JSON_CONTRACT,
   STABLE_JSON_INTEGRITY_MODE,
@@ -43,6 +44,23 @@ describe("pi-sparkle-stable-json-v1", () => {
     }
   });
 
+  it("refuses an array subclass that hides invalid values through map", () => {
+    class InvalidArray extends Array<number> {}
+    Object.defineProperty(InvalidArray.prototype, "map", { value: () => ["null"] });
+    const value = new InvalidArray();
+    value.push(Number.NaN);
+    assert.throws(() => canonicalizeStableJson(value), /plain array/i);
+    assert.equal(stableStringify(value), "[null]");
+  });
+
+  it("refuses an array subclass that rewrites serialized values through join", () => {
+    class RewritingArray extends Array<number> {
+      override join(): string { return "999"; }
+    }
+    const value = new RewritingArray(1, 2);
+    assert.throws(() => canonicalizeStableJson(value), /plain array/i);
+    assert.equal(stableStringify(value), "[999]");
+  });
   it("parses only exact canonical UTF-8 bytes", () => {
     assert.deepEqual(parseStableJsonBytes(bytes('{"a":[true,null,2],"b":"ok"}')), {
       a: [true, null, 2],

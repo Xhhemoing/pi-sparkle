@@ -189,3 +189,14 @@ under the generic canonical JSON APIs. Precisely, `canonicalizeStableJson`
 validates JS values, `parseStableJsonBytes` validates encoded canonical JSON,
 and `parseHostTerminalOutcome` enforces the outcome field allowlist and DTO
 shape. This clarification changes no runtime behavior.
+
+## 2026-09-28 quality correction — strict array prototypes
+
+Independent quality review of integration candidate `a8058948` found that array
+subclasses could override `map` or `join`, bypass strict element validation or
+rewrite canonical bytes. Two regression tests failed before the correction.
+The strict serializer now rejects custom array prototypes before dispatch,
+extending its existing plain-value requirement to arrays; the compatibility
+wrapper retains its historical output. The 77-test S0/evaluation/experiment
+suite passed after the correction. Exact revised review and full-gate outcomes
+are in the dated sync report. This source fix does not freeze the boundary.

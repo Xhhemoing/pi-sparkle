@@ -40,6 +40,7 @@ function serialize(value: unknown, ancestors: Set<object>, path: string): string
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) fail(`${path} must be a plain array`);
       const ownKeys = Reflect.ownKeys(value);
       for (let index = 0; index < value.length; index += 1) {
         if (!Object.hasOwn(value, index)) fail(`${path} contains a sparse array slot`);

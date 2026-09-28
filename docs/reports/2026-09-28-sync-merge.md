@@ -92,3 +92,11 @@ Pending final checks and independent delta review. Publish using normal
 fast-forward Git push only; refetch first and stop/reconcile if main advanced.
 Then verify remote main, local main and the original checkout, retain drafts
 recoverably and record exact final commits/status here and in active tasks.
+
+## Independent delta findings and final correction candidate
+
+- S0-min SPEC at `a8058948`: PASS for the corrected provenance wording; no owner freeze.
+- PR delta at `a8058948`: REQUEST CHANGES for one qualified double negative (`do not skip existing tests`). A new regression failed as intended (43 pass / 1 fail); qualifier-aware normalization restored the requirement and preserved unnegated skip. Final requirement/track result: 83 pass / 0 fail / 0 skip (`test-intent-green-reviewed.log`).
+- S0-min QUALITY at `a8058948`: REQUEST CHANGES for one strict-array prototype bypass. Independent fixed-ref code/test execution: 28 pass / 0 fail / 0 skip, plus separate concrete map/join override reproducers. Coordinator RED: 5 pass / 2 fail; existing strict plain-value validation now refuses custom array prototypes before method dispatch. S0/evaluation/experiment follow-up: 77 pass / 0 fail / 0 skip (`s0-green-reviewed.log`). Tests also pin the unchanged legacy-wrapper bytes for both subclass cases.
+- The provisional `gate-final.log` run was explicitly stopped after the new review finding; it is INTERRUPTED, not passed. Only the final stable-source run will establish delivery evidence. The earlier initial integration gate remains historical 3145/0/18.
+- Final correction typecheck and targeted ESLint both passed (`reviewed-typecheck.log`, `reviewed-lint.log`). Fresh exact-revision spec/quality/PR delta verdicts are still required before publication.
