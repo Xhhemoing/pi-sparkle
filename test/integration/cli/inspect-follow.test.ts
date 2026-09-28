@@ -160,8 +160,9 @@ test("follow picks up events appended after it started, including a torn line", 
       await appendFile(path, tail[0]!.slice(0, split), "utf8");
       await sleep(400);
       assert.ok(!out.join("").includes("RUN_COMPLETED"), "a half-written event is never printed");
-      await appendFile(path, `${tail[0]!.slice(split)}\n`, "utf8");
-      for (const line of tail.slice(1)) await appendFile(path, `${line}\n`, "utf8");
+      // Publish the completed terminal event and remaining fixture records
+      // together: the reader stops as soon as it observes a terminal snapshot.
+      await appendFile(path, `${[tail[0]!.slice(split), ...tail.slice(1)].join("\n")}\n`, "utf8");
 
       assert.equal(await followed, 0, err.join(""));
       const text = out.join("");

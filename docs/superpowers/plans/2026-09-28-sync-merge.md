@@ -78,3 +78,11 @@ prototypes, with RED/GREEN adversarial array tests. This enforces the already
 specified strict JSON boundary; it adds no authority, store, hash or gate and
 keeps the legacy compatibility wrapper unchanged. Re-review the exact revised
 source and its tests before publication.
+
+The final integration gate exposed an unchanged CLI follow-test fixture race:
+it completed the terminal event in one append, then appended post-terminal
+records separately, while the existing reader correctly stops on a terminal
+snapshot. Preserve all current assertions and torn-line coverage, but publish
+the remaining fixture tail in one append. No follow/runtime behavior changes.
+The failed full gate is RED evidence; rerun the exact file and full gate after
+independent fixture-delta review.

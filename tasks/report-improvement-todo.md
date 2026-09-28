@@ -1,9 +1,9 @@
 # Report-driven improvement checklist
 
-Tasks: `TASK-20260927-report-improvements`, `TASK-20260927-report-continuation`  
-Date: 2026-09-27  
-Owner: implementation agent for bounded A0-root/A1/A2/B1; repository maintainer for independent review, merge and policy gates.  
-State: bounded implementation `ready-for-review`; overall roadmap and merge acceptance remain open.
+Tasks: `TASK-20260927-report-improvements`, `TASK-20260927-report-continuation`\
+Date: 2026-09-27\
+Owner: implementation agent for bounded A0-root/A1/A2/B1; repository maintainer for independent review, merge and policy gates.\
+State: bounded source independently reviewed at `3f5711ba` on 2026-09-28; final integration checks/publication pending, broader roadmap and production acceptance remain open.
 
 [Original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md) | [Continuation plan](../docs/superpowers/plans/2026-09-27-report-continuation.md) | [Current verification](../docs/reports/2026-09-27-report-continuation.md)
 
@@ -18,8 +18,9 @@ State: bounded implementation `ready-for-review`; overall roadmap and merge acce
 
 ## Acceptance still open
 
-- [ ] Independent review of the new path-identity and native contract boundaries; no reviewer verdict obtained. Keep PR #46 Draft until accepted; CI is not human approval.
-- [ ] Main-branch merge and production authorization: not performed. Final documentation-only commit's CI must be checked independently of the pinned runtime result.
+- [x] Independent review of path identity, native contracts and intent/parser changes: initial P2 findings corrected; exact-source delta PASS at `3f5711ba` (2026-09-28; [sync review record](../docs/reports/2026-09-28-sync-merge.md)).
+- [ ] Main publication and local refresh pending the final integration checks; current user synchronization request authorizes the merge, not production operation.
+- [ ] Production authorization and real-provider validation remain separate; source review/merge does not close them.
 - [ ] Broader A0/reliability completion: O02/O03 and other existing packages keep their current ownership and gates. This root correction does not close all Stage A.
 - [ ] B1 independent acceptance and any interactive/real-provider validation. Input requirements are not a B2 completion receipt or a new filesystem read allowlist.
 

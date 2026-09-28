@@ -2,6 +2,11 @@
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
 
+## GitHub/local integration (2026-09-28)
+
+`TASK-20260928-sync-merge`: [plan](../docs/superpowers/plans/2026-09-28-sync-merge.md) and [verification/review record](../docs/reports/2026-09-28-sync-merge.md). The user authorized synchronization and compatible branch merges. PR #46, S0-min implementation and patch-equivalent O09 ancestry are integrated in candidate `3f5711ba`; the PR correction and S0-min specification/quality reviews independently PASS at that exact source revision. Final full gate/probes and publication are pending. Original drafts, O02 stash and eight conflicting branches are retained.
+
+This dated update supersedes older planning-only statements about S0-min implementation authorization/review: Option A implementation is authorized and source-reviewed, but the boundary remains **not FROZEN** and owner acceptance is separate. D1/L1/L2, R10/R11, F6, broad reliability completion, live-provider work and production authorization remain open or deferred. Source merge does not close those gates.
 ## Reliability optimization execution (2026-09-27)
 
 User authorized implementation with multiple subagents on 2026-09-27. Execution is isolated on `codex/reliability-optimization-20260927`; the original checkout and its planning changes are preserved. O01/O04, O02 setup, the bounded O05 evidence slice, O07 I/O, O08a queue and O11 empty-waiver repair have source/focused-test review; whole-plan acceptance remains open pending remaining work and integration verification. O09a/b is exclusively delegated to the coordinated `offline-determinism-o09` worktree, not implemented twice. [Execution record](../docs/reports/2026-09-27-reliability-implementation.md) records ownership, RED/GREEN commands, review and unresolved work. The paragraph below records the earlier planning result, not the current authorization state.

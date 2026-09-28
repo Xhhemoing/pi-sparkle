@@ -1,9 +1,9 @@
 # Report-driven implementation plan
 
-Task: TASK-20260927-report-improvements  
-State: in-progress (A1/A2 only; later packages planned)  
-Owner: implementation agent; repository maintainer owns independent acceptance and policy gates  
-Source baseline: `1b04aa9d9e70206cfb41a2963189dfb5bcab3a5d`  
+Task: TASK-20260927-report-improvements\
+State: in-progress (A1/A2 only; later packages planned)\
+Owner: implementation agent; repository maintainer owns independent acceptance and policy gates\
+Source baseline: `1b04aa9d9e70206cfb41a2963189dfb5bcab3a5d`\
 Branch: `codex/report-plan-phase-a-20260927`
 
 ## Request and evidence boundary

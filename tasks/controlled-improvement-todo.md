@@ -1,10 +1,14 @@
 # Controlled improvement execution checklist
 
-ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`（B0 accepted at exact reviewed candidate `dd8f13f7`；D1 author candidate exists but is unreviewed；S0-min owner package is ready for owner review but the boundary is not approved or frozen）。
+ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: coordinator。State: `in-progress`（B0 accepted at exact reviewed candidate `dd8f13f7`；D1 author candidate exists but is unreviewed；S0-min Option A implementation is independently reviewed at `3f5711ba`, while owner freeze remains pending）。
 
 [Master plan](../docs/superpowers/plans/2026-09-25-controlled-improvement-roadmap.md) · [E package](../docs/superpowers/plans/2026-09-25-evidence-learning-foundation.md) · [N package](../docs/superpowers/plans/2026-09-25-native-observation-diagnosis.md) · [planning evidence](../docs/reports/2026-09-25-controlled-improvement-planning.md)
 
-## 2026-09-25 controlling correction and current review status
+## 2026-09-28 implementation review update
+
+S0-min source at `3f5711ba` received exact-revision independent SPEC PASS then QUALITY PASS after the documented corrections. Final integration checks/publication are tracked in the [sync report](../docs/reports/2026-09-28-sync-merge.md). This does not record owner acceptance or FROZEN; L1 remains blocked on that separate decision. The older review-status paragraph below is dated history, not the current implementation review state.
+
+## 2026-09-25 controlling correction and historical review status
 
 后续 controlling 修订保留以下唯一可派工顺序。Corrected current slice 的 reviewed revision `7d7cd59b` 已获得[独立 PASS](../docs/reports/2026-09-25-integrated-review.md)，但该 verdict 不等于 D1 task acceptance，也不是 post-L2 final review。B0 exact candidate `dd8f13f7` 已另行通过 spec→quality review 并由 [verification record](../docs/reports/2026-09-25-controlled-improvement-b0-verification.md) 接受；D1 仍为未审 author candidate，S0-min owner package 也仅为 `ready-for-owner-review`：
 
@@ -14,7 +18,7 @@ ID: `TASK-20260925-controlled-improvement-roadmap`。Date: 2026-09-25。Owner: c
 |---|---|---|---|---|
 | B0 | coordinator | none | accepted | exact candidate `dd8f13f7` received independent spec PASS then quality PASS; see [verification record](../docs/reports/2026-09-25-controlled-improvement-b0-verification.md) |
 | D1 | diagnosis builder | B0 | author-candidate-unreviewed | [author evidence](../docs/reports/2026-09-25-native-evidence-gap-d1.md) exists; review the exact D1 subset from clean implementation commit `8e7de99b`, exclude the nine lease-external files, and use an isolated D1 worktree after B0 acceptance |
-| S0-min | boundary owner + reviewer | B0 | ready-for-owner-review (not approved/frozen) | [owner package](../docs/reports/2026-09-25-stage0-owner-freeze-package.md) recommends Option A for implementation review; freeze host-owned outcome DTO, source/binding/failure rules and canonicalizer before L1 |
+| S0-min | boundary owner + reviewer | B0 | implementation-reviewed; owner freeze pending | SPEC and QUALITY PASS at `3f5711ba` ([record](../docs/reports/2026-09-28-sync-merge.md)); owner must separately freeze the DTO, source/binding/failure rules and canonicalizer before L1 |
 | L1 | evidence builder | S0-min | planned | neutral evaluation/feedback persistence and bounded eligible-history reading; no learning-owned persisted outcome DTO |
 | L2 | evidence builder | D1, L1 | planned | merged former E2/E3 `historical-candidate-view`, candidate-only and read-only with respect to active policy |
 | final review | coordinator + fresh reviewer | L2 | planned | focused checks, applicable gates, exact remaining-gate statement and an actual independent verdict; the current integrated re-review is not this post-L2 final review |

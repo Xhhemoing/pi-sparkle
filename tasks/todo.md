@@ -2,6 +2,12 @@
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 
+## GitHub/local integration (2026-09-28)
+
+- [x] Fetch and inventory initial 14 local branches, both remote branches, all worktrees and the existing O02 stash; preserve eight conflict-bearing branches (2026-09-28; [branch decisions](../docs/reports/2026-09-28-sync-merge.md#inventory-and-branch-decisions)).
+- [x] Independently review candidate `3f5711ba`: PR #46 correction PASS, S0-min SPEC PASS then QUALITY PASS; targeted author tests and independent assertions are recorded separately (2026-09-28; [review record](../docs/reports/2026-09-28-sync-merge.md)).
+- [ ] Complete the final stable-source gate/probes, publish a normal fast-forward main update and refresh the original checkout while retaining its drafts; verify exact remote/local state in the dated sync record.
+- [ ] Deferred branches need conflict reconciliation and existing human conflict review; S0-min owner freeze, D1/L1/L2, O02/O03, R10/R11 and F6 remain separate.
 ## Reliability optimization execution (2026-09-27)
 
 - [ ] User authorized implementation and multi-subagent execution on 2026-09-27. O01/O04, O02 setup, bounded O05, O07, O08a and O11 empty-waiver slices have focused verification and independent source review; O08b/O09 have now been integrated and pushed. The post-integration full gate was interrupted at the user's request, not passed; remaining acceptance work stays open. O07 heap/latency measurement is NOT RUN. [Execution and verification](../docs/reports/2026-09-27-reliability-implementation.md).
