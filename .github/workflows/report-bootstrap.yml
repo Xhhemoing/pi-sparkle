@@ -33,6 +33,12 @@ jobs:
           git rev-parse HEAD > /tmp/report-bootstrap/SOURCE_REVISION.txt
           git archive --format=tar.gz -o /tmp/report-bootstrap/source.tar.gz HEAD
           tar -czf /tmp/report-bootstrap/dependencies.tar.gz node_modules
+          mkdir -p /tmp/report-bootstrap/toolchain
+          cp "$(command -v node)" /tmp/report-bootstrap/toolchain/node
+          pnpm_script="$(readlink -f "$(command -v pnpm)")"
+          cp -a "$(dirname "$(dirname "$pnpm_script")")" /tmp/report-bootstrap/toolchain/pnpm
+          tar -czf /tmp/report-bootstrap/toolchain.tar.gz -C /tmp/report-bootstrap toolchain
+          rm -rf /tmp/report-bootstrap/toolchain
       - uses: actions/upload-artifact@v4
         with:
           name: report-offline-bootstrap
