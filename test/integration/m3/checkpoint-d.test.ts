@@ -247,7 +247,10 @@ test("checkpoint D: packet preserves critical facts, records omissions, forwards
     commands: [{ name: "test", command: "pnpm test" }],
     facts: []
   };
-  const index: ProjectContextIndex = buildProjectContextIndex(snapshot, { now: NOW });
+  const index: ProjectContextIndex = {
+    ...buildProjectContextIndex(snapshot, { now: NOW }),
+    risks: ["optional diagnostic context ".repeat(100)]
+  };
   const contract: RequirementContract = {
     schemaVersion: 1,
     objective: "Ship refund endpoint",
@@ -267,16 +270,15 @@ test("checkpoint D: packet preserves critical facts, records omissions, forwards
     authority: [],
     sourceRefs: []
   };
-  const packet = compileContextPacket({
-    taskId: createTaskId(UUID),
-    contract,
-    index,
-    tokenBudget: 100,
-    selectorVersion: 1
-  });
-  // Critical fact survives; bounded omission is recorded.
+  const request = { taskId: createTaskId(UUID), contract, index, selectorVersion: 1 as const };
+  assert.throws(() => compileContextPacket({ ...request, tokenBudget: 100 }), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
+  // Even a non-mechanically-enforceable contract constraint must survive.
+  // 125 is the exact payload estimate for both constraints and the test route.
+  const packet = compileContextPacket({ ...request, tokenBudget: 125 });
   assert.ok(packet.requiredFacts.includes("never log card numbers"));
-  assert.ok(packet.omissions.some((o) => o.key === "constraint:c-long" && o.reason === "token-budget"));
+  assert.ok(packet.requiredFacts.some((fact) => fact.startsWith("secondary guidance")));
+  assert.ok(!packet.omissions.some((o) => o.key.startsWith("constraint:")));
+  assert.ok(packet.omissions.some((o) => o.key.startsWith("risk:") && o.reason === "token-budget"));
   // No raw parent transcript is forwarded anywhere in the prompt block.
   const prompt = formatPacketForPrompt(packet);
   assert.ok(!prompt.includes("marker-transcript-omega"));

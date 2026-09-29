@@ -804,8 +804,6 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
         launchChild(child);
       }
     };
-    startReady();
-
     let status: RunStatus = "RUNNING";
     let trackingBlocked = false;
 
@@ -828,6 +826,9 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
     );
 
     try {
+      // Grounding/admission may refuse the first launch; record and clean it up
+      // through the same terminal path as a refusal of a later child.
+      startReady();
       let waiting = false;
       while (!waiting && !trackingBlocked) {
         const active = handles.filter((handle) => !finished.has(handle.taskId));
