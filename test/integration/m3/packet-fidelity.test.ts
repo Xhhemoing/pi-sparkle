@@ -76,12 +76,8 @@ test("every mandatory category survives compilation under an adequate budget", (
   assert.deepEqual(mandatoryOmitted, []);
 });
 
-test("an inadequate budget still records mandatory omissions inspectably instead of truncating", () => {
-  const packet = buildPacket(5, ["payments/refund-types.d.ts"]);
-  assert.ok(!packet.requiredFacts.some((fact) => fact.includes("never log card numbers")));
-  assert.ok(
-    packet.omissions.some((omission) => omission.key === "constraint:c-privacy" && omission.reason === "token-budget")
-  );
+test("an inadequate budget refuses mandatory omission before downstream use", () => {
+  assert.throws(() => buildPacket(5, ["payments/refund-types.d.ts"]), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
 });
 
 test("downstream fixture questions are answerable without the parent transcript", () => {

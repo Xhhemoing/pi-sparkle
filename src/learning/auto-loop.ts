@@ -172,9 +172,16 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
   if (banditUpdated) {
     await updateProjectBanditDeduped(input.stateRoot, input.projectRoot, signals);
   }
-  const failing = issues.filter(
+  const actionable = issues.filter(
     (issue) => issue.actionable && issue.modelId !== input.primaryModelId
   );
+  // Existing avoid rules can encode family/model only. Never broaden evidence
+  // from a role/version stratum into an unqualified policy candidate.
+  const failing = actionable.filter((issue) =>
+    issue.family !== undefined && issue.role === undefined &&
+    issue.modelVersion === undefined && issue.featureVersion === undefined
+  );
+  const scopeBlocked = failing.length !== actionable.length;
 
   if (failing.length > 0) {
     const policy = optimizedPolicy(input.primaryModelId, failing);
@@ -189,7 +196,9 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
       created: proposed.created,
       promoted: proposed.promoted,
       banditUpdated,
-      reason: discloseDrops(proposed.reason, persist),
+      reason: discloseDrops(scopeBlocked
+        ? `${proposed.reason}; other scoped diagnostics require a scope-preserving candidate policy`
+        : proposed.reason, persist),
       ...(proposed.candidateId !== undefined ? { candidateId: proposed.candidateId } : {}),
       ...(proposed.promotedVersionId !== undefined
         ? { promotedVersionId: proposed.promotedVersionId }
@@ -205,7 +214,8 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
     promoted: false,
     banditUpdated,
     reason: discloseDrops(
-      signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue",
+      scopeBlocked ? "scoped diagnostics require a scope-preserving candidate policy; no avoid candidate created"
+        : signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue",
       persist
     ),
     ...disclosure

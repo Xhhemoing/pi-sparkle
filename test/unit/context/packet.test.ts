@@ -72,21 +72,16 @@ test("conflicting facts remain separate after collapse", () => {
   assert.ok(languageFacts.some((fact) => fact.includes("python")));
 });
 
-test("token overflow produces omission records instead of silent drops", () => {
-  const mandatory = "This privacy constraint must never be silently truncated from the packet";
-  const packet = compileContextPacket({
+test("mandatory token overflow refuses the packet instead of returning an unsafe omission", () => {
+  assert.throws(() => compileContextPacket({
     taskId: createTaskId(UUID),
     contract: contract({
-      constraints: [{ id: "c-long", description: mandatory, enforceable: true }]
+      constraints: [{ id: "c-long", description: "Privacy constraints must survive", enforceable: true }]
     }),
     index: index(),
     tokenBudget: 2,
     selectorVersion: 1
-  });
-  assert.ok(!packet.requiredFacts.includes(mandatory));
-  assert.ok(!packet.requiredFacts.some((fact) => mandatory.startsWith(fact) && fact.length < mandatory.length && fact.length > 0));
-  assert.ok(packet.omissions.some((omission) => omission.reason === "token-budget" && omission.key === "constraint:c-long"));
-  assert.ok(packet.omittedSummary.some((row) => row.reason === "token-budget" && row.count >= 1));
+  }), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
 });
 
 test("secret evidence refs are not expanded into packet text", () => {

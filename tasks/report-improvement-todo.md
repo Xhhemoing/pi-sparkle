@@ -7,6 +7,10 @@ State: bounded source independently reviewed at `3f5711ba` on 2026-09-28; final 
 
 [Original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md) | [Continuation plan](../docs/superpowers/plans/2026-09-27-report-continuation.md) | [Current verification](../docs/reports/2026-09-27-report-continuation.md)
 
+## Dated continuation (2026-09-29)
+
+The [reconciled execution plan](../docs/superpowers/plans/2026-09-29-report-execution.md) and [current checklist](report-execution-todo.md) retain all remaining A-E packages. PR #47 implements the bounded C2-context and D1-learning source slices; independent review is not yet accepted. C2 version-to-evidence invalidation is a different, still-open slice. [Exact verification/handoff](../docs/reports/2026-09-29-report-execution.md) distinguishes source, commands, independent acceptance and external gates. Do not close the combined remaining rows below merely because these bounded candidates exist.
+
 ## Verified implementation slices
 
 - [x] Plan committed first: `76caf7306e4a9547b1036029a464d72e06951f19`, 2026-09-27.

@@ -17,15 +17,13 @@ import { adaptationRoot } from "../../../src/privacy/state-layout.js";
 import { assignTasks } from "../../../src/routing/assign.js";
 import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
 import { loadLearnedRouting, stableProjectKey } from "../../../src/learning/learned-routing.js";
-import { loadAdaptationRegistry } from "../../../src/adaptation/promotion.js";
 import type { Event } from "../../../src/run/events.js";
 import {
   createEpisodeId,
   createEventId,
   createProjectId,
   createRunId,
-  parseTaskId,
-  type CandidateId
+  parseTaskId
 } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 
@@ -55,7 +53,7 @@ test("n=2 taskSuccess failures are diagnostic only and do not write avoid", asyn
   }
 });
 
-test("five deterministic taskSuccess failures propose avoid without promoting", async () => {
+test("scoped taskSuccess failures stay diagnostic until policy can preserve their scope", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-five-"));
   const previous = process.env.SPARKLE_AUTO_ADAPT;
   process.env.SPARKLE_AUTO_ADAPT = "1";
@@ -72,15 +70,12 @@ test("five deterministic taskSuccess failures propose avoid without promoting", 
       autoPromote: true
     });
     assert.equal(result.promoted, false);
-    assert.equal(result.created, true);
-    assert.ok(result.candidateId);
+    assert.equal(result.created, false);
+    assert.equal(result.candidateId, undefined);
     assert.ok(result.issues.some((issue) => issue.modelId === "cheap" && issue.actionable));
-    const registry = await loadAdaptationRegistry(stateRoot);
-    const candidate = registry.getCandidate(result.candidateId as CandidateId);
-    assert.equal(candidate?.status, "proposed");
-    assert.equal(registry.getActiveVersion(candidate!.identity)?.versionId, candidate!.parentVersionId);
+    assert.match(result.reason, /scope-preserving candidate policy/);
     const learned = await loadLearnedRouting(stateRoot, "/tmp/proj-five");
-    assert.deepEqual(learned?.avoid, []);
+    assert.equal(learned, undefined);
   } finally {
     restoreEnv("SPARKLE_AUTO_ADAPT", previous);
     await rm(stateRoot, { recursive: true, force: true });
@@ -718,3 +713,43 @@ function restoreEnv(name: string, previous: string | undefined): void {
   }
   process.env[name] = previous;
 }
+
+
+test("primary-model failures remain visible without an automatic replacement", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-primary-diagnosis-"));
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const result = await runAutoAdaptLoop({
+      stateRoot, projectRoot: "/tmp/primary-diagnosis", projectId: createProjectId(),
+      primaryModelId: "primary", events: failingEvents("primary", 5)
+    });
+    assert.ok(result.issues.some((issue) => issue.modelId === "primary" && issue.actionable));
+    assert.equal(result.created, false);
+    assert.equal(result.promoted, false);
+    assert.equal(await loadLearnedRouting(stateRoot, "/tmp/primary-diagnosis"), undefined);
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
+
+test("duplicate event ingestion does not inflate diagnostic sample counts", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-diagnostic-replay-"));
+  const previous = process.env.SPARKLE_AUTO_ADAPT;
+  process.env.SPARKLE_AUTO_ADAPT = "1";
+  try {
+    const events = failingEvents("cheap", 2);
+    const result = await runAutoAdaptLoop({
+      stateRoot, projectRoot: "/tmp/diagnostic-replay", projectId: createProjectId(),
+      primaryModelId: "primary", events: [...events, ...events, ...events]
+    });
+    assert.equal(result.issues[0]?.samples, 2);
+    assert.equal(result.issues[0]?.actionable, false);
+    assert.equal(result.created, false);
+    assert.equal(result.promoted, false);
+  } finally {
+    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});

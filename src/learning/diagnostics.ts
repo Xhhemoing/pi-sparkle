@@ -1,4 +1,5 @@
 import type { ProjectId } from "../domain/ids.js";
+import { observationIdentity } from "./observation-ledger.js";
 import type { ObservedSignal } from "./signals.js";
 
 export interface ModelProjectIssue {
@@ -8,6 +9,9 @@ export interface ModelProjectIssue {
   readonly meanScore: number;
   readonly failures: number;
   readonly family?: string | undefined;
+  readonly role?: string | undefined;
+  readonly modelVersion?: string | undefined;
+  readonly featureVersion?: string | undefined;
   readonly actionable: boolean;
   readonly kinds: readonly string[];
 }
@@ -15,71 +19,86 @@ export interface ModelProjectIssue {
 const ACTIONABLE_MEAN = 0.45;
 const ACTIONABLE_SAMPLES = 5;
 
+type Binding = Pick<ObservedSignal, "projectId" | "modelId" | "family" | "role" | "modelVersion" | "featureVersion">;
+
 /**
- * Group taskSuccess observations by (project, model). Other columns stay out
- * of routing quality. Only informative PASS/FAIL rows count, and a FAIL only
- * counts against the model when the failure is attributed to the model —
- * contract/tool/environment/provider/run failures must never feed an avoid proposal.
+ * Task-bound, stratified taskSuccess diagnostics. Deterministic protocol
+ * observations are not independent host acceptance. Non-model failures stay
+ * out of model-quality statistics; proposals/activation have separate gates.
  */
 export function diagnoseModelProjectIssues(signals: readonly ObservedSignal[]): ModelProjectIssue[] {
-  const groups = new Map<string, ObservedSignal[]>();
+  const observations = new Map<string, { signal: ObservedSignal; signature: string; conflict: boolean }>();
   for (const signal of signals) {
-    if (signal.criterion !== "taskSuccess") continue;
-    if (signal.source === "user" || signal.kind === "human") continue;
-    if (signal.kind !== "deterministic") continue;
+    if (signal.criterion !== "taskSuccess" || signal.source === "user" || signal.kind !== "deterministic") continue;
     if (signal.outcomeKind !== "PASS" && signal.outcomeKind !== "FAIL") continue;
-    if (signal.outcomeKind === "FAIL" && signal.failureClass !== "model") continue;
-    if (signal.modelId === undefined || signal.modelId.trim() === "") continue;
-    const key = `${signal.projectId}::${signal.modelId}`;
-    const list = groups.get(key) ?? [];
-    list.push(signal);
-    groups.set(key, list);
+    if (!Number.isFinite(signal.score) || signal.score < 0 || signal.score > 100) continue;
+    if (!present(signal.modelId)) continue;
+    const stratum = bindingKey(signal);
+    const key = taskBound(signal)
+      ? JSON.stringify(["task", signal.projectId, signal.runId, signal.taskId, signal.criterion])
+      : JSON.stringify(["unbound", stratum, observationIdentity(signal)]);
+    const signature = JSON.stringify([stratum, signal.outcomeKind, signal.failureClass ?? null, signal.score]);
+    const prior = observations.get(key);
+    if (prior === undefined) observations.set(key, { signal, signature, conflict: false });
+    else if (prior.signature !== signature) prior.conflict = true;
   }
+
+  const groups = new Map<string, ObservedSignal[]>();
+  for (const { signal, conflict } of observations.values()) {
+    if (conflict) continue;
+    // Apply attribution after conflict detection: a provider/model disagreement
+    // must not become a model-negative sample simply by dropping the provider row.
+    if (signal.outcomeKind === "FAIL" && signal.failureClass !== "model") continue;
+    const key = bindingKey(signal);
+    const group = groups.get(key) ?? [];
+    group.push(signal);
+    groups.set(key, group);
+  }
+
   const issues: ModelProjectIssue[] = [];
   for (const group of groups.values()) {
     const first = group[0];
     if (first === undefined || first.modelId === undefined) continue;
     const samples = group.length;
     const meanScore = group.reduce((sum, item) => sum + item.score, 0) / samples / 100;
-    const failures = group.filter((item) => item.score < 40).length;
-    const kinds = unique(group.map((item) => item.kind));
-    const family = mode(group.map((item) => item.family).filter((item): item is string => item !== undefined));
-    const independent = kinds.includes("deterministic") && !kinds.includes("human");
-    const actionable = samples >= ACTIONABLE_SAMPLES && meanScore < ACTIONABLE_MEAN && independent;
+    const failures = group.filter((item) => item.outcomeKind === "FAIL").length;
     issues.push({
       projectId: first.projectId,
       modelId: first.modelId,
       samples,
       meanScore,
       failures,
-      kinds,
-      actionable,
-      ...(family !== undefined ? { family } : {})
+      kinds: [...new Set(group.map((item) => item.kind))].sort(),
+      actionable: samples >= ACTIONABLE_SAMPLES && meanScore < ACTIONABLE_MEAN && failures > 0 && group.every(taskBound),
+      ...(present(first.family) ? { family: first.family } : {}),
+      ...(present(first.role) ? { role: first.role } : {}),
+      ...(present(first.modelVersion) ? { modelVersion: first.modelVersion } : {}),
+      ...(present(first.featureVersion) ? { featureVersion: first.featureVersion } : {})
     });
   }
-  return issues.sort((left, right) => left.meanScore - right.meanScore);
+  return issues.sort((left, right) => {
+    const score = left.meanScore - right.meanScore;
+    if (score !== 0) return score;
+    const a = bindingKey(left);
+    const b = bindingKey(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
 }
 
-function unique(values: readonly string[]): string[] {
-  const seen: string[] = [];
-  for (const value of values) {
-    if (!seen.includes(value)) seen.push(value);
-  }
-  return seen;
+function bindingKey(signal: Binding): string {
+  // JSON tuples cannot collide through delimiters in a project/model name;
+  // null is deliberately distinct from literal "unknown" (and from a wildcard).
+  return JSON.stringify([signal.projectId, signal.modelId,
+    present(signal.family) ? signal.family : null,
+    present(signal.role) ? signal.role : null,
+    present(signal.modelVersion) ? signal.modelVersion : null,
+    present(signal.featureVersion) ? signal.featureVersion : null]);
 }
 
-function mode(values: readonly string[]): string | undefined {
-  if (values.length === 0) return undefined;
-  const counts = new Map<string, number>();
-  let best = values[0]!;
-  let bestCount = 0;
-  for (const value of values) {
-    const next = (counts.get(value) ?? 0) + 1;
-    counts.set(value, next);
-    if (next > bestCount) {
-      best = value;
-      bestCount = next;
-    }
-  }
-  return best;
+function taskBound(signal: ObservedSignal): boolean {
+  return present(signal.runId) && present(signal.taskId);
+}
+
+function present(value: string | undefined): value is string {
+  return value !== undefined && value.trim() !== "";
 }

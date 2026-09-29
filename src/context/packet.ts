@@ -1,5 +1,6 @@
 import type { TaskId } from "../domain/ids.js";
 import { hash32 } from "../domain/hash.js";
+import { DomainValidationError } from "../domain/errors.js";
 import type { RequirementContract } from "../domain/contract.js";
 import type { CodeMapEntry, CodeMapOmission, ContextFact, ProjectContextIndex } from "./index.js";
 
@@ -76,8 +77,15 @@ interface PacketCandidate {
   readonly preOmit: OmissionRecord["reason"] | undefined;
 }
 
+/** Deterministic payload estimate, not a tokenizer or a whole-prompt bound. */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  let ascii = 0;
+  let nonAscii = 0;
+  for (const point of text) {
+    if (point.codePointAt(0)! <= 0x7f) ascii += 1;
+    else nonAscii += 1;
+  }
+  return Math.ceil(ascii / 4) + nonAscii * 2;
 }
 
 /**
@@ -99,7 +107,18 @@ export function compilePacket(
 }
 
 export function compileContextPacket(request: ContextRequest): ContextPacket {
+  if (!Number.isSafeInteger(request.tokenBudget) || request.tokenBudget < 0) {
+    throw new DomainValidationError("CONTEXT_INVALID_BUDGET: expected a nonnegative safe integer");
+  }
   const candidates = collectCandidates(request);
+  const mandatory = candidates.filter((candidate) => isMandatory(candidate) && candidate.preOmit === undefined);
+  const required = mandatory.reduce((sum, candidate) => sum + estimateTokens(candidate.text), 0);
+  if (required > request.tokenBudget) {
+    // Never echo caller-controlled constraints, paths or evidence into an error.
+    throw new DomainValidationError(
+      `CONTEXT_MANDATORY_BUDGET_EXCEEDED: required=${required}; budget=${request.tokenBudget}; items=${mandatory.length}`
+    );
+  }
   const selected: PacketCandidate[] = [];
   const omissions: OmissionRecord[] = [];
   const codeMapSelection = selectCodeMap(request.index);
@@ -197,7 +216,7 @@ function selectCodeMap(index: ProjectContextIndex): {
 
 function estimateCodeMapEntry(entry: CodeMapEntry): number {
   const compact = `${entry.path}:${entry.symbol}(${entry.kind})${entry.public ? " public" : ""} calls=${entry.calls.join(",")}`;
-  return Math.max(1, Math.ceil(compact.length / 4));
+  return Math.max(1, estimateTokens(compact));
 }
 
 function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmission): number {
@@ -209,11 +228,18 @@ function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmiss
 
 function collectCandidates(request: ContextRequest): PacketCandidate[] {
   const candidates: PacketCandidate[] = [];
-  const occupiedKeys = new Set<string>();
+  const occupiedKeys = new Map<string, PacketCandidate>();
 
   const take = (candidate: PacketCandidate): void => {
-    if (occupiedKeys.has(candidate.key)) return;
-    occupiedKeys.add(candidate.key);
+    const existing = occupiedKeys.get(candidate.key);
+    if (existing !== undefined) {
+      if ((isMandatory(existing) || isMandatory(candidate)) &&
+          (existing.text !== candidate.text || existing.preOmit !== candidate.preOmit)) {
+        throw new DomainValidationError("CONTEXT_MANDATORY_CONFLICT: reconcile duplicate input keys");
+      }
+      return;
+    }
+    occupiedKeys.set(candidate.key, candidate);
     candidates.push(candidate);
   };
 
@@ -221,6 +247,16 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
     take({
       key: `constraint:${constraint.id}`,
       text: constraint.description,
+      destination: "requiredFacts",
+      rank: RANK_MANDATORY,
+      preOmit: undefined
+    });
+  }
+
+  for (const [index, nonGoal] of request.contract.nonGoals.entries()) {
+    take({
+      key: `non-goal:${index}`,
+      text: `non-goal: ${nonGoal}`,
       destination: "requiredFacts",
       rank: RANK_MANDATORY,
       preOmit: undefined
@@ -441,6 +477,10 @@ function summarizeOmissions(omissions: readonly OmissionRecord[]): { reason: str
   return [...counts.entries()]
     .sort((a, b) => compareStrings(a[0], b[0]))
     .map(([reason, count]) => ({ reason, count }));
+}
+
+function isMandatory(candidate: PacketCandidate): boolean {
+  return candidate.rank <= RANK_INSTRUCTION;
 }
 
 function compareCandidates(a: PacketCandidate, b: PacketCandidate): number {

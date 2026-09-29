@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { diagnoseModelProjectIssues } from "../../../src/learning/diagnostics.js";
 import type { ObservedSignal } from "../../../src/learning/signals.js";
-import { createEpisodeId, createProjectId } from "../../../src/domain/ids.js";
+import { createEpisodeId, createProjectId, createRunId, createTaskId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 
 test("diagnostics group taskSuccess failures by model and project", () => {
@@ -60,6 +60,8 @@ test("a FAIL without failure attribution is not evidence against the model", () 
   assert.equal(issues.length, 0);
 });
 
+let nextFixtureTask = 0;
+
 function signal(input: {
   projectId: ReturnType<typeof createProjectId>;
   episodeId: ReturnType<typeof createEpisodeId>;
@@ -91,6 +93,8 @@ function signal(input: {
     boundary: input.source === "user" ? "review" : "execution",
     summary: `${input.source} ${input.score}`,
     episodeId: input.episodeId,
+    runId: createRunId(() => "diagnostics-fixture"),
+    taskId: createTaskId(() => `diagnostics-fixture-${nextFixtureTask++}`),
     evidenceIds: [],
     createdAt: nowIso()
   };
