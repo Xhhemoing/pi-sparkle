@@ -1,0 +1,41 @@
+name: Report execution offline bootstrap
+
+# Temporary, branch-scoped reproducibility artifact. Remove after bootstrap.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/report-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.head_ref == 'codex/report-execution-20260929'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Export tracked source and locked dependencies only
+        run: |
+          mkdir -p /tmp/report-bootstrap
+          git rev-parse HEAD > /tmp/report-bootstrap/SOURCE_REVISION.txt
+          git archive --format=tar.gz -o /tmp/report-bootstrap/source.tar.gz HEAD
+          tar -czf /tmp/report-bootstrap/dependencies.tar.gz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report-offline-bootstrap
+          path: /tmp/report-bootstrap
+          retention-days: 1
+          if-no-files-found: error
