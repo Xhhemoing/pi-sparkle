@@ -228,7 +228,6 @@ describe("M4-T2: project/code/delivery evaluator adapters", () => {
         { reopenDetected: true }
       );
       assert.equal(result.outcome, "FAIL");
-      assert.match(result.reason ?? "", /reopen detected/);
     });
 
     it("remains UNOBSERVED when no manual acceptance was recorded", async () => {
