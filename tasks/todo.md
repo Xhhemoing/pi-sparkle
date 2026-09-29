@@ -1,5 +1,11 @@
 # Active checklist
 
+## GitHub/local sync and branch cleanup (2026-09-29)
+
+- [x] Source synchronization, two remote deletions, local tracking-ref pruning and retained-work inventory checks verified on 2026-09-29; `pnpm workflow:check` and `git diff --check` PASS. [Exact evidence](../docs/reports/2026-09-29-sync-cleanup.md).
+
+`TASK-20260929-sync-cleanup`: local main fast-forwarded by 15 commits to `b114255b`; fresh GitHub metadata confirms both PR #47 and #48 are merged. Their redundant remote branches were deleted and local tracking refs pruned. All nine local feature branches remain: eight have unmerged ancestry, and merged O09 owns dirty drafts. All 12 worktree paths and both stashes were preserved. [Plan](../docs/superpowers/plans/2026-09-29-sync-cleanup.md) · [verification and recovery](../docs/reports/2026-09-29-sync-cleanup.md). This dated source-integration fact supersedes earlier merge-pending snapshots below; independent acceptance and owner/experiment/production gates remain separate.
+
 ## Report execution (2026-09-29)
 
 `TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
