@@ -34,7 +34,7 @@ jobs:
         run: |
           cat .github/report-execution.patch > "$RUNNER_TEMP/report.patch"
           if test -f .github/report-regression.patch; then
-            cat .github/report-regression.patch >> "$RUNNER_TEMP/report.patch"
+            sed 's/^ diff --git /diff --git /' .github/report-regression.patch >> "$RUNNER_TEMP/report.patch"
           fi
           if git apply --reverse --check "$RUNNER_TEMP/report.patch" 2>/dev/null; then
             echo 'Patch already present; no write or new verification claim.'
@@ -46,9 +46,10 @@ jobs:
           python3 - <<'PY'
           import subprocess
           allowed = {
-              'src/context/packet.ts', 'src/run/coordinator.ts',
-              'test/unit/context/packet.test.ts', 'test/integration/m3/packet-fidelity.test.ts',
-              'test/integration/m3/checkpoint-d.test.ts'
+              'src/learning/diagnostics.ts', 'src/learning/auto-loop.ts',
+              'test/unit/learning/diagnostics.test.ts', 'test/unit/learning/auto-loop.test.ts',
+              'tasks/README.md', 'tasks/plan.md', 'tasks/todo.md',
+              'tasks/report-improvement-todo.md', 'docs/status-matrix.md'
           }
           paths = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().rstrip('\0').split('\0'))
           if not paths or not paths <= allowed:
@@ -72,5 +73,5 @@ jobs:
           git write-tree
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(context): enforce mandatory packet admission with complete regressions'
+          git commit -m 'fix(learning): stratify task diagnostics and prevent scope-widened avoids'
           git push origin HEAD:refs/heads/codex/report-execution-20260929

@@ -1,178 +1,317 @@
-diff --git a/src/context/packet.ts b/src/context/packet.ts
-index 3ef578d..abda8bf 100644
---- a/src/context/packet.ts
-+++ b/src/context/packet.ts
-@@ -1,5 +1,6 @@
- import type { TaskId } from "../domain/ids.js";
- import { hash32 } from "../domain/hash.js";
-+import { DomainValidationError } from "../domain/errors.js";
- import type { RequirementContract } from "../domain/contract.js";
- import type { CodeMapEntry, CodeMapOmission, ContextFact, ProjectContextIndex } from "./index.js";
+diff --git a/src/learning/auto-loop.ts b/src/learning/auto-loop.ts
+index 4f6eb6e..92ccfe1 100644
+--- a/src/learning/auto-loop.ts
++++ b/src/learning/auto-loop.ts
+@@ -172,9 +172,16 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
+   if (banditUpdated) {
+     await updateProjectBanditDeduped(input.stateRoot, input.projectRoot, signals);
+   }
+-  const failing = issues.filter(
++  const actionable = issues.filter(
+     (issue) => issue.actionable && issue.modelId !== input.primaryModelId
+   );
++  // Existing avoid rules can encode family/model only. Never broaden evidence
++  // from a role/version stratum into an unqualified policy candidate.
++  const failing = actionable.filter((issue) =>
++    issue.family !== undefined && issue.role === undefined &&
++    issue.modelVersion === undefined && issue.featureVersion === undefined
++  );
++  const scopeBlocked = failing.length !== actionable.length;
  
-@@ -76,8 +77,15 @@ interface PacketCandidate {
-   readonly preOmit: OmissionRecord["reason"] | undefined;
+   if (failing.length > 0) {
+     const policy = optimizedPolicy(input.primaryModelId, failing);
+@@ -189,7 +196,9 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
+       created: proposed.created,
+       promoted: proposed.promoted,
+       banditUpdated,
+-      reason: discloseDrops(proposed.reason, persist),
++      reason: discloseDrops(scopeBlocked
++        ? `${proposed.reason}; other scoped diagnostics require a scope-preserving candidate policy`
++        : proposed.reason, persist),
+       ...(proposed.candidateId !== undefined ? { candidateId: proposed.candidateId } : {}),
+       ...(proposed.promotedVersionId !== undefined
+         ? { promotedVersionId: proposed.promotedVersionId }
+@@ -205,7 +214,8 @@ export async function runAutoAdaptLoop(input: AutoAdaptInput): Promise<AutoAdapt
+     promoted: false,
+     banditUpdated,
+     reason: discloseDrops(
+-      signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue",
++      scopeBlocked ? "scoped diagnostics require a scope-preserving candidate policy; no avoid candidate created"
++        : signals.length === 0 ? "no feedback to learn from" : "no actionable model-project issue",
+       persist
+     ),
+     ...disclosure
+diff --git a/src/learning/diagnostics.ts b/src/learning/diagnostics.ts
+index de39f76..dca2123 100644
+--- a/src/learning/diagnostics.ts
++++ b/src/learning/diagnostics.ts
+@@ -1,4 +1,5 @@
+ import type { ProjectId } from "../domain/ids.js";
++import { observationIdentity } from "./observation-ledger.js";
+ import type { ObservedSignal } from "./signals.js";
+ 
+ export interface ModelProjectIssue {
+@@ -8,6 +9,9 @@ export interface ModelProjectIssue {
+   readonly meanScore: number;
+   readonly failures: number;
+   readonly family?: string | undefined;
++  readonly role?: string | undefined;
++  readonly modelVersion?: string | undefined;
++  readonly featureVersion?: string | undefined;
+   readonly actionable: boolean;
+   readonly kinds: readonly string[];
  }
+@@ -15,71 +19,86 @@ export interface ModelProjectIssue {
+ const ACTIONABLE_MEAN = 0.45;
+ const ACTIONABLE_SAMPLES = 5;
  
-+/** Deterministic payload estimate, not a tokenizer or a whole-prompt bound. */
- export function estimateTokens(text: string): number {
--  return Math.ceil(text.length / 4);
-+  let ascii = 0;
-+  let nonAscii = 0;
-+  for (const point of text) {
-+    if (point.codePointAt(0)! <= 0x7f) ascii += 1;
-+    else nonAscii += 1;
-+  }
-+  return Math.ceil(ascii / 4) + nonAscii * 2;
- }
- 
++type Binding = Pick<ObservedSignal, "projectId" | "modelId" | "family" | "role" | "modelVersion" | "featureVersion">;
++
  /**
-@@ -99,7 +107,18 @@ export function compilePacket(
- }
- 
- export function compileContextPacket(request: ContextRequest): ContextPacket {
-+  if (!Number.isSafeInteger(request.tokenBudget) || request.tokenBudget < 0) {
-+    throw new DomainValidationError("CONTEXT_INVALID_BUDGET: expected a nonnegative safe integer");
+- * Group taskSuccess observations by (project, model). Other columns stay out
+- * of routing quality. Only informative PASS/FAIL rows count, and a FAIL only
+- * counts against the model when the failure is attributed to the model —
+- * contract/tool/environment/provider/run failures must never feed an avoid proposal.
++ * Task-bound, stratified taskSuccess diagnostics. Deterministic protocol
++ * observations are not independent host acceptance. Non-model failures stay
++ * out of model-quality statistics; proposals/activation have separate gates.
+  */
+ export function diagnoseModelProjectIssues(signals: readonly ObservedSignal[]): ModelProjectIssue[] {
+-  const groups = new Map<string, ObservedSignal[]>();
++  const observations = new Map<string, { signal: ObservedSignal; signature: string; conflict: boolean }>();
+   for (const signal of signals) {
+-    if (signal.criterion !== "taskSuccess") continue;
+-    if (signal.source === "user" || signal.kind === "human") continue;
+-    if (signal.kind !== "deterministic") continue;
++    if (signal.criterion !== "taskSuccess" || signal.source === "user" || signal.kind !== "deterministic") continue;
+     if (signal.outcomeKind !== "PASS" && signal.outcomeKind !== "FAIL") continue;
++    if (!Number.isFinite(signal.score) || signal.score < 0 || signal.score > 100) continue;
++    if (!present(signal.modelId)) continue;
++    const stratum = bindingKey(signal);
++    const key = taskBound(signal)
++      ? JSON.stringify(["task", signal.projectId, signal.runId, signal.taskId, signal.criterion])
++      : JSON.stringify(["unbound", stratum, observationIdentity(signal)]);
++    const signature = JSON.stringify([stratum, signal.outcomeKind, signal.failureClass ?? null, signal.score]);
++    const prior = observations.get(key);
++    if (prior === undefined) observations.set(key, { signal, signature, conflict: false });
++    else if (prior.signature !== signature) prior.conflict = true;
 +  }
-   const candidates = collectCandidates(request);
-+  const mandatory = candidates.filter((candidate) => isMandatory(candidate) && candidate.preOmit === undefined);
-+  const required = mandatory.reduce((sum, candidate) => sum + estimateTokens(candidate.text), 0);
-+  if (required > request.tokenBudget) {
-+    // Never echo caller-controlled constraints, paths or evidence into an error.
-+    throw new DomainValidationError(
-+      `CONTEXT_MANDATORY_BUDGET_EXCEEDED: required=${required}; budget=${request.tokenBudget}; items=${mandatory.length}`
-+    );
-+  }
-   const selected: PacketCandidate[] = [];
-   const omissions: OmissionRecord[] = [];
-   const codeMapSelection = selectCodeMap(request.index);
-@@ -197,7 +216,7 @@ function selectCodeMap(index: ProjectContextIndex): {
- 
- function estimateCodeMapEntry(entry: CodeMapEntry): number {
-   const compact = `${entry.path}:${entry.symbol}(${entry.kind})${entry.public ? " public" : ""} calls=${entry.calls.join(",")}`;
--  return Math.max(1, Math.ceil(compact.length / 4));
-+  return Math.max(1, estimateTokens(compact));
- }
- 
- function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmission): number {
-@@ -209,11 +228,18 @@ function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmiss
- 
- function collectCandidates(request: ContextRequest): PacketCandidate[] {
-   const candidates: PacketCandidate[] = [];
--  const occupiedKeys = new Set<string>();
-+  const occupiedKeys = new Map<string, PacketCandidate>();
- 
-   const take = (candidate: PacketCandidate): void => {
--    if (occupiedKeys.has(candidate.key)) return;
--    occupiedKeys.add(candidate.key);
-+    const existing = occupiedKeys.get(candidate.key);
-+    if (existing !== undefined) {
-+      if ((isMandatory(existing) || isMandatory(candidate)) &&
-+          (existing.text !== candidate.text || existing.preOmit !== candidate.preOmit)) {
-+        throw new DomainValidationError("CONTEXT_MANDATORY_CONFLICT: reconcile duplicate input keys");
-+      }
-+      return;
-+    }
-+    occupiedKeys.set(candidate.key, candidate);
-     candidates.push(candidate);
-   };
- 
-@@ -227,6 +253,16 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
++
++  const groups = new Map<string, ObservedSignal[]>();
++  for (const { signal, conflict } of observations.values()) {
++    if (conflict) continue;
++    // Apply attribution after conflict detection: a provider/model disagreement
++    // must not become a model-negative sample simply by dropping the provider row.
+     if (signal.outcomeKind === "FAIL" && signal.failureClass !== "model") continue;
+-    if (signal.modelId === undefined || signal.modelId.trim() === "") continue;
+-    const key = `${signal.projectId}::${signal.modelId}`;
+-    const list = groups.get(key) ?? [];
+-    list.push(signal);
+-    groups.set(key, list);
++    const key = bindingKey(signal);
++    const group = groups.get(key) ?? [];
++    group.push(signal);
++    groups.set(key, group);
+   }
++
+   const issues: ModelProjectIssue[] = [];
+   for (const group of groups.values()) {
+     const first = group[0];
+     if (first === undefined || first.modelId === undefined) continue;
+     const samples = group.length;
+     const meanScore = group.reduce((sum, item) => sum + item.score, 0) / samples / 100;
+-    const failures = group.filter((item) => item.score < 40).length;
+-    const kinds = unique(group.map((item) => item.kind));
+-    const family = mode(group.map((item) => item.family).filter((item): item is string => item !== undefined));
+-    const independent = kinds.includes("deterministic") && !kinds.includes("human");
+-    const actionable = samples >= ACTIONABLE_SAMPLES && meanScore < ACTIONABLE_MEAN && independent;
++    const failures = group.filter((item) => item.outcomeKind === "FAIL").length;
+     issues.push({
+       projectId: first.projectId,
+       modelId: first.modelId,
+       samples,
+       meanScore,
+       failures,
+-      kinds,
+-      actionable,
+-      ...(family !== undefined ? { family } : {})
++      kinds: [...new Set(group.map((item) => item.kind))].sort(),
++      actionable: samples >= ACTIONABLE_SAMPLES && meanScore < ACTIONABLE_MEAN && failures > 0 && group.every(taskBound),
++      ...(present(first.family) ? { family: first.family } : {}),
++      ...(present(first.role) ? { role: first.role } : {}),
++      ...(present(first.modelVersion) ? { modelVersion: first.modelVersion } : {}),
++      ...(present(first.featureVersion) ? { featureVersion: first.featureVersion } : {})
      });
    }
- 
-+  for (const [index, nonGoal] of request.contract.nonGoals.entries()) {
-+    take({
-+      key: `non-goal:${index}`,
-+      text: `non-goal: ${nonGoal}`,
-+      destination: "requiredFacts",
-+      rank: RANK_MANDATORY,
-+      preOmit: undefined
-+    });
-+  }
-+
-   for (const grant of request.contract.authority) {
-     const actions = grant.actions.length > 0 ? grant.actions.join(", ") : "no actions";
-     const expires = grant.expiresAt !== undefined ? ` (expires ${grant.expiresAt})` : "";
-@@ -443,6 +479,10 @@ function summarizeOmissions(omissions: readonly OmissionRecord[]): { reason: str
-     .map(([reason, count]) => ({ reason, count }));
+-  return issues.sort((left, right) => left.meanScore - right.meanScore);
++  return issues.sort((left, right) => {
++    const score = left.meanScore - right.meanScore;
++    if (score !== 0) return score;
++    const a = bindingKey(left);
++    const b = bindingKey(right);
++    return a < b ? -1 : a > b ? 1 : 0;
++  });
  }
  
-+function isMandatory(candidate: PacketCandidate): boolean {
-+  return candidate.rank <= RANK_INSTRUCTION;
+-function unique(values: readonly string[]): string[] {
+-  const seen: string[] = [];
+-  for (const value of values) {
+-    if (!seen.includes(value)) seen.push(value);
+-  }
+-  return seen;
++function bindingKey(signal: Binding): string {
++  // JSON tuples cannot collide through delimiters in a project/model name;
++  // null is deliberately distinct from literal "unknown" (and from a wildcard).
++  return JSON.stringify([signal.projectId, signal.modelId,
++    present(signal.family) ? signal.family : null,
++    present(signal.role) ? signal.role : null,
++    present(signal.modelVersion) ? signal.modelVersion : null,
++    present(signal.featureVersion) ? signal.featureVersion : null]);
+ }
+ 
+-function mode(values: readonly string[]): string | undefined {
+-  if (values.length === 0) return undefined;
+-  const counts = new Map<string, number>();
+-  let best = values[0]!;
+-  let bestCount = 0;
+-  for (const value of values) {
+-    const next = (counts.get(value) ?? 0) + 1;
+-    counts.set(value, next);
+-    if (next > bestCount) {
+-      best = value;
+-      bestCount = next;
+-    }
+-  }
+-  return best;
++function taskBound(signal: ObservedSignal): boolean {
++  return present(signal.runId) && present(signal.taskId);
 +}
 +
- function compareCandidates(a: PacketCandidate, b: PacketCandidate): number {
-   if (a.rank !== b.rank) return a.rank - b.rank;
-   return compareStrings(a.key, b.key);
-diff --git a/src/run/coordinator.ts b/src/run/coordinator.ts
-index 44dc868..e3c9c8b 100644
---- a/src/run/coordinator.ts
-+++ b/src/run/coordinator.ts
-@@ -804,8 +804,6 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
-         launchChild(child);
-       }
-     };
--    startReady();
--
-     let status: RunStatus = "RUNNING";
-     let trackingBlocked = false;
++function present(value: string | undefined): value is string {
++  return value !== undefined && value.trim() !== "";
+ }
+diff --git a/test/unit/learning/auto-loop.test.ts b/test/unit/learning/auto-loop.test.ts
+index 1f71863..48ba49a 100644
+--- a/test/unit/learning/auto-loop.test.ts
++++ b/test/unit/learning/auto-loop.test.ts
+@@ -17,15 +17,13 @@ import { adaptationRoot } from "../../../src/privacy/state-layout.js";
+ import { assignTasks } from "../../../src/routing/assign.js";
+ import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
+ import { loadLearnedRouting, stableProjectKey } from "../../../src/learning/learned-routing.js";
+-import { loadAdaptationRegistry } from "../../../src/adaptation/promotion.js";
+ import type { Event } from "../../../src/run/events.js";
+ import {
+   createEpisodeId,
+   createEventId,
+   createProjectId,
+   createRunId,
+-  parseTaskId,
+-  type CandidateId
++  parseTaskId
+ } from "../../../src/domain/ids.js";
+ import { nowIso } from "../../../src/domain/timestamp.js";
  
-@@ -828,6 +826,9 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
-     );
- 
-     try {
-+      // Grounding/admission may refuse the first launch; record and clean it up
-+      // through the same terminal path as a refusal of a later child.
-+      startReady();
-       let waiting = false;
-       while (!waiting && !trackingBlocked) {
-         const active = handles.filter((handle) => !finished.has(handle.taskId));
-diff --git a/test/integration/m3/packet-fidelity.test.ts b/test/integration/m3/packet-fidelity.test.ts
-index 30a47ea..994c65b 100644
---- a/test/integration/m3/packet-fidelity.test.ts
-+++ b/test/integration/m3/packet-fidelity.test.ts
-@@ -76,12 +76,8 @@ test("every mandatory category survives compilation under an adequate budget", (
-   assert.deepEqual(mandatoryOmitted, []);
+@@ -55,7 +53,7 @@ test("n=2 taskSuccess failures are diagnostic only and do not write avoid", asyn
+   }
  });
  
--test("an inadequate budget still records mandatory omissions inspectably instead of truncating", () => {
--  const packet = buildPacket(5, ["payments/refund-types.d.ts"]);
--  assert.ok(!packet.requiredFacts.some((fact) => fact.includes("never log card numbers")));
--  assert.ok(
--    packet.omissions.some((omission) => omission.key === "constraint:c-privacy" && omission.reason === "token-budget")
--  );
-+test("an inadequate budget refuses mandatory omission before downstream use", () => {
-+  assert.throws(() => buildPacket(5, ["payments/refund-types.d.ts"]), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
+-test("five deterministic taskSuccess failures propose avoid without promoting", async () => {
++test("scoped taskSuccess failures stay diagnostic until policy can preserve their scope", async () => {
+   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-auto-five-"));
+   const previous = process.env.SPARKLE_AUTO_ADAPT;
+   process.env.SPARKLE_AUTO_ADAPT = "1";
+@@ -72,15 +70,12 @@ test("five deterministic taskSuccess failures propose avoid without promoting",
+       autoPromote: true
+     });
+     assert.equal(result.promoted, false);
+-    assert.equal(result.created, true);
+-    assert.ok(result.candidateId);
++    assert.equal(result.created, false);
++    assert.equal(result.candidateId, undefined);
+     assert.ok(result.issues.some((issue) => issue.modelId === "cheap" && issue.actionable));
+-    const registry = await loadAdaptationRegistry(stateRoot);
+-    const candidate = registry.getCandidate(result.candidateId as CandidateId);
+-    assert.equal(candidate?.status, "proposed");
+-    assert.equal(registry.getActiveVersion(candidate!.identity)?.versionId, candidate!.parentVersionId);
++    assert.match(result.reason, /scope-preserving candidate policy/);
+     const learned = await loadLearnedRouting(stateRoot, "/tmp/proj-five");
+-    assert.deepEqual(learned?.avoid, []);
++    assert.equal(learned, undefined);
+   } finally {
+     restoreEnv("SPARKLE_AUTO_ADAPT", previous);
+     await rm(stateRoot, { recursive: true, force: true });
+@@ -718,3 +713,43 @@ function restoreEnv(name: string, previous: string | undefined): void {
+   }
+   process.env[name] = previous;
+ }
++
++
++test("primary-model failures remain visible without an automatic replacement", async () => {
++  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-primary-diagnosis-"));
++  const previous = process.env.SPARKLE_AUTO_ADAPT;
++  process.env.SPARKLE_AUTO_ADAPT = "1";
++  try {
++    const result = await runAutoAdaptLoop({
++      stateRoot, projectRoot: "/tmp/primary-diagnosis", projectId: createProjectId(),
++      primaryModelId: "primary", events: failingEvents("primary", 5)
++    });
++    assert.ok(result.issues.some((issue) => issue.modelId === "primary" && issue.actionable));
++    assert.equal(result.created, false);
++    assert.equal(result.promoted, false);
++    assert.equal(await loadLearnedRouting(stateRoot, "/tmp/primary-diagnosis"), undefined);
++  } finally {
++    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
++    await rm(stateRoot, { recursive: true, force: true });
++  }
++});
++
++test("duplicate event ingestion does not inflate diagnostic sample counts", async () => {
++  const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-diagnostic-replay-"));
++  const previous = process.env.SPARKLE_AUTO_ADAPT;
++  process.env.SPARKLE_AUTO_ADAPT = "1";
++  try {
++    const events = failingEvents("cheap", 2);
++    const result = await runAutoAdaptLoop({
++      stateRoot, projectRoot: "/tmp/diagnostic-replay", projectId: createProjectId(),
++      primaryModelId: "primary", events: [...events, ...events, ...events]
++    });
++    assert.equal(result.issues[0]?.samples, 2);
++    assert.equal(result.issues[0]?.actionable, false);
++    assert.equal(result.created, false);
++    assert.equal(result.promoted, false);
++  } finally {
++    restoreEnv("SPARKLE_AUTO_ADAPT", previous);
++    await rm(stateRoot, { recursive: true, force: true });
++  }
++});
+diff --git a/test/unit/learning/diagnostics.test.ts b/test/unit/learning/diagnostics.test.ts
+index 1c97b9b..919bc16 100644
+--- a/test/unit/learning/diagnostics.test.ts
++++ b/test/unit/learning/diagnostics.test.ts
+@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
+ import { test } from "node:test";
+ import { diagnoseModelProjectIssues } from "../../../src/learning/diagnostics.js";
+ import type { ObservedSignal } from "../../../src/learning/signals.js";
+-import { createEpisodeId, createProjectId } from "../../../src/domain/ids.js";
++import { createEpisodeId, createProjectId, createRunId, createTaskId } from "../../../src/domain/ids.js";
+ import { nowIso } from "../../../src/domain/timestamp.js";
+ 
+ test("diagnostics group taskSuccess failures by model and project", () => {
+@@ -60,6 +60,8 @@ test("a FAIL without failure attribution is not evidence against the model", ()
+   assert.equal(issues.length, 0);
  });
  
- test("downstream fixture questions are answerable without the parent transcript", () => {
-diff --git a/test/unit/context/packet.test.ts b/test/unit/context/packet.test.ts
-index 153cbab..aba7bf5 100644
---- a/test/unit/context/packet.test.ts
-+++ b/test/unit/context/packet.test.ts
-@@ -72,21 +72,16 @@ test("conflicting facts remain separate after collapse", () => {
-   assert.ok(languageFacts.some((fact) => fact.includes("python")));
- });
- 
--test("token overflow produces omission records instead of silent drops", () => {
--  const mandatory = "This privacy constraint must never be silently truncated from the packet";
--  const packet = compileContextPacket({
-+test("mandatory token overflow refuses the packet instead of returning an unsafe omission", () => {
-+  assert.throws(() => compileContextPacket({
-     taskId: createTaskId(UUID),
-     contract: contract({
--      constraints: [{ id: "c-long", description: mandatory, enforceable: true }]
-+      constraints: [{ id: "c-long", description: "Privacy constraints must survive", enforceable: true }]
-     }),
-     index: index(),
-     tokenBudget: 2,
-     selectorVersion: 1
--  });
--  assert.ok(!packet.requiredFacts.includes(mandatory));
--  assert.ok(!packet.requiredFacts.some((fact) => mandatory.startsWith(fact) && fact.length < mandatory.length && fact.length > 0));
--  assert.ok(packet.omissions.some((omission) => omission.reason === "token-budget" && omission.key === "constraint:c-long"));
--  assert.ok(packet.omittedSummary.some((row) => row.reason === "token-budget" && row.count >= 1));
-+  }), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
- });
- 
- test("secret evidence refs are not expanded into packet text", () => {
++let nextFixtureTask = 0;
++
+ function signal(input: {
+   projectId: ReturnType<typeof createProjectId>;
+   episodeId: ReturnType<typeof createEpisodeId>;
+@@ -91,6 +93,8 @@ function signal(input: {
+     boundary: input.source === "user" ? "review" : "execution",
+     summary: `${input.source} ${input.score}`,
+     episodeId: input.episodeId,
++    runId: createRunId(() => "diagnostics-fixture"),
++    taskId: createTaskId(() => `diagnostics-fixture-${nextFixtureTask++}`),
+     evidenceIds: [],
+     createdAt: nowIso()
+   };

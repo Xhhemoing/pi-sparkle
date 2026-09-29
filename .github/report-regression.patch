@@ -1,41 +1,74 @@
-diff --git a/test/integration/m3/checkpoint-d.test.ts b/test/integration/m3/checkpoint-d.test.ts
-index f221d39..5f933a5 100644
---- a/test/integration/m3/checkpoint-d.test.ts
-+++ b/test/integration/m3/checkpoint-d.test.ts
-@@ -247,7 +247,10 @@ test("checkpoint D: packet preserves critical facts, records omissions, forwards
-     commands: [{ name: "test", command: "pnpm test" }],
-     facts: []
-   };
--  const index: ProjectContextIndex = buildProjectContextIndex(snapshot, { now: NOW });
-+  const index: ProjectContextIndex = {
-+    ...buildProjectContextIndex(snapshot, { now: NOW }),
-+    risks: ["optional diagnostic context ".repeat(100)]
-+  };
-   const contract: RequirementContract = {
-     schemaVersion: 1,
-     objective: "Ship refund endpoint",
-@@ -267,16 +270,15 @@ test("checkpoint D: packet preserves critical facts, records omissions, forwards
-     authority: [],
-     sourceRefs: []
-   };
--  const packet = compileContextPacket({
--    taskId: createTaskId(UUID),
--    contract,
--    index,
--    tokenBudget: 100,
--    selectorVersion: 1
--  });
--  // Critical fact survives; bounded omission is recorded.
-+  const request = { taskId: createTaskId(UUID), contract, index, selectorVersion: 1 as const };
-+  assert.throws(() => compileContextPacket({ ...request, tokenBudget: 100 }), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
-+  // Even a non-mechanically-enforceable contract constraint must survive.
-+  // 125 is the exact payload estimate for both constraints and the test route.
-+  const packet = compileContextPacket({ ...request, tokenBudget: 125 });
-   assert.ok(packet.requiredFacts.includes("never log card numbers"));
--  assert.ok(packet.omissions.some((o) => o.key === "constraint:c-long" && o.reason === "token-budget"));
-+  assert.ok(packet.requiredFacts.some((fact) => fact.startsWith("secondary guidance")));
-+  assert.ok(!packet.omissions.some((o) => o.key.startsWith("constraint:")));
-+  assert.ok(packet.omissions.some((o) => o.key.startsWith("risk:") && o.reason === "token-budget"));
-   // No raw parent transcript is forwarded anywhere in the prompt block.
-   const prompt = formatPacketForPrompt(packet);
-   assert.ok(!prompt.includes("marker-transcript-omega"));
+diff --git a/tasks/README.md b/tasks/README.md
+--- a/tasks/README.md
++++ b/tasks/README.md
+@@ -39,3 +39,9 @@
+ `TASK-20260927-report-improvements`: [original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md), [dedicated checklist](report-improvement-todo.md), and [historical A1/A2 verification](../docs/reports/2026-09-27-report-improvements.md).
+ 
+ `TASK-20260927-report-continuation`: [staged A0-root/B1 plan](../docs/superpowers/plans/2026-09-27-report-continuation.md), [current verification and handoff](../docs/reports/2026-09-27-report-continuation.md), and [native contract usage](../docs/native-task-contract.md). Runtime head `a1c32daa` passed the full hosted quality job and both Windows/Linux smoke and focused root/contract jobs. The earlier no-hosted-verification/Windows-blocked snapshot is superseded by this dated evidence, not retroactively rewritten. New independent review, main merge, remaining reliability ownership, host-outcome/production gates and the rest of the A-E roadmap remain open. This is not acceptance of all Stage A or Stage B.
++
++## Report execution (2026-09-29)
++
++`TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
++
++The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-learning. S0-min is implemented/source-reviewed but not owner-FROZEN; B2/L1/L2, retained O02/O03 ownership, root budgets, scoped decision memory, evidence invalidation, typed method candidates, authorized experiments and production/outcome gates retain their explicit dependencies. See the current checklist rather than interpreting an older unchecked or checked snapshot as new authority.
+diff --git a/tasks/plan.md b/tasks/plan.md
+--- a/tasks/plan.md
++++ b/tasks/plan.md
+@@ -1,4 +1,10 @@
+ # Active implementation plan
++
++## Report execution (2026-09-29)
++
++`TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
++
++The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-learning. S0-min is implemented/source-reviewed but not owner-FROZEN; B2/L1/L2, retained O02/O03 ownership, root budgets, scoped decision memory, evidence invalidation, typed method candidates, authorized experiments and production/outcome gates retain their explicit dependencies. See the current checklist rather than interpreting an older unchecked or checked snapshot as new authority.
+ 
+ Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Keep this file for active scope and links; record dated evidence in the checklist or a report.
+ 
+ diff --git a/tasks/todo.md b/tasks/todo.md
+--- a/tasks/todo.md
++++ b/tasks/todo.md
+@@ -1,4 +1,10 @@
+ # Active checklist
++
++## Report execution (2026-09-29)
++
++`TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
++
++The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-learning. S0-min is implemented/source-reviewed but not owner-FROZEN; B2/L1/L2, retained O02/O03 ownership, root budgets, scoped decision memory, evidence invalidation, typed method candidates, authorized experiments and production/outcome gates retain their explicit dependencies. See the current checklist rather than interpreting an older unchecked or checked snapshot as new authority.
+ 
+ Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
+ 
+ diff --git a/tasks/report-improvement-todo.md b/tasks/report-improvement-todo.md
+--- a/tasks/report-improvement-todo.md
++++ b/tasks/report-improvement-todo.md
+@@ -6,6 +6,10 @@
+ State: bounded source independently reviewed at `3f5711ba` on 2026-09-28; final integration checks PASS (3152/0/18); PR #46 merged and source published on 2026-09-28, broader roadmap and production acceptance remain open.
+ 
+ [Original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md) | [Continuation plan](../docs/superpowers/plans/2026-09-27-report-continuation.md) | [Current verification](../docs/reports/2026-09-27-report-continuation.md)
++
++## Dated continuation (2026-09-29)
++
++The [reconciled execution plan](../docs/superpowers/plans/2026-09-29-report-execution.md) and [current checklist](report-execution-todo.md) retain all remaining A-E packages. PR #47 implements the bounded C2-context and D1-learning source slices; independent review is not yet accepted. C2 version-to-evidence invalidation is a different, still-open slice. [Exact verification/handoff](../docs/reports/2026-09-29-report-execution.md) distinguishes source, commands, independent acceptance and external gates. Do not close the combined remaining rows below merely because these bounded candidates exist.
+ 
+ ## Verified implementation slices
+ 
+ diff --git a/docs/status-matrix.md b/docs/status-matrix.md
+--- a/docs/status-matrix.md
++++ b/docs/status-matrix.md
+@@ -19,6 +19,15 @@
+ round-by-round census notes, and contract wording live in the
+ [verbose notes archive](reports/2026-08-27-status-matrix-notes-archive.md)
+ (linked per row as `archive §N`).
++
++## Report execution candidates (2026-09-29)
++
++Branch-scoped source in PR #47, not an assertion of main merge or independent acceptance. [Plan](superpowers/plans/2026-09-29-report-execution.md) and [exact verification/handoff](reports/2026-09-29-report-execution.md). All owner, experiment and outcome gates below remain in force.
++
++| Capability | Present | Wired | Exercised | Outcome-supported | Notes |
++|---|---|---|---|---|---|
++| Mandatory context admission | PR #47 | existing packet/child-grounding paths | unit, parent-dispatch integration and recorded gate | no | Invalid budgets and over-budget mandatory payloads refuse; non-goals/instruction references retained; conflicting mandatory keys refuse. Estimates cover packet payload, not the full prompt or a calibrated tokenizer. First parent launch now shares terminal recording. C2 evidence invalidation remains separate. |
++| Stratified task diagnostics | PR #47 | existing auto-loop diagnostics | learning regressions and recorded gate | no | Project/family/role/available versions stay separate; task replay dedupes and conflicting bindings/outcomes exclude that task; unbound groups cannot become actionable. Primary diagnostics remain visible. Role/version-qualified evidence is not widened into legacy avoid rules. Persisted observation keys and live selection are unchanged; a typed candidate bridge remains open. |
+ 
+ ## Runtime line (M0–M2.5)
+ 
