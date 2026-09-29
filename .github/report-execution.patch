@@ -1,0 +1,178 @@
+diff --git a/src/context/packet.ts b/src/context/packet.ts
+index 3ef578d..abda8bf 100644
+--- a/src/context/packet.ts
++++ b/src/context/packet.ts
+@@ -1,5 +1,6 @@
+ import type { TaskId } from "../domain/ids.js";
+ import { hash32 } from "../domain/hash.js";
++import { DomainValidationError } from "../domain/errors.js";
+ import type { RequirementContract } from "../domain/contract.js";
+ import type { CodeMapEntry, CodeMapOmission, ContextFact, ProjectContextIndex } from "./index.js";
+ 
+@@ -76,8 +77,15 @@ interface PacketCandidate {
+   readonly preOmit: OmissionRecord["reason"] | undefined;
+ }
+ 
++/** Deterministic payload estimate, not a tokenizer or a whole-prompt bound. */
+ export function estimateTokens(text: string): number {
+-  return Math.ceil(text.length / 4);
++  let ascii = 0;
++  let nonAscii = 0;
++  for (const point of text) {
++    if (point.codePointAt(0)! <= 0x7f) ascii += 1;
++    else nonAscii += 1;
++  }
++  return Math.ceil(ascii / 4) + nonAscii * 2;
+ }
+ 
+ /**
+@@ -99,7 +107,18 @@ export function compilePacket(
+ }
+ 
+ export function compileContextPacket(request: ContextRequest): ContextPacket {
++  if (!Number.isSafeInteger(request.tokenBudget) || request.tokenBudget < 0) {
++    throw new DomainValidationError("CONTEXT_INVALID_BUDGET: expected a nonnegative safe integer");
++  }
+   const candidates = collectCandidates(request);
++  const mandatory = candidates.filter((candidate) => isMandatory(candidate) && candidate.preOmit === undefined);
++  const required = mandatory.reduce((sum, candidate) => sum + estimateTokens(candidate.text), 0);
++  if (required > request.tokenBudget) {
++    // Never echo caller-controlled constraints, paths or evidence into an error.
++    throw new DomainValidationError(
++      `CONTEXT_MANDATORY_BUDGET_EXCEEDED: required=${required}; budget=${request.tokenBudget}; items=${mandatory.length}`
++    );
++  }
+   const selected: PacketCandidate[] = [];
+   const omissions: OmissionRecord[] = [];
+   const codeMapSelection = selectCodeMap(request.index);
+@@ -197,7 +216,7 @@ function selectCodeMap(index: ProjectContextIndex): {
+ 
+ function estimateCodeMapEntry(entry: CodeMapEntry): number {
+   const compact = `${entry.path}:${entry.symbol}(${entry.kind})${entry.public ? " public" : ""} calls=${entry.calls.join(",")}`;
+-  return Math.max(1, Math.ceil(compact.length / 4));
++  return Math.max(1, estimateTokens(compact));
+ }
+ 
+ function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmission): number {
+@@ -209,11 +228,18 @@ function compareCodeMapOmissions(a: PacketCodeMapOmission, b: PacketCodeMapOmiss
+ 
+ function collectCandidates(request: ContextRequest): PacketCandidate[] {
+   const candidates: PacketCandidate[] = [];
+-  const occupiedKeys = new Set<string>();
++  const occupiedKeys = new Map<string, PacketCandidate>();
+ 
+   const take = (candidate: PacketCandidate): void => {
+-    if (occupiedKeys.has(candidate.key)) return;
+-    occupiedKeys.add(candidate.key);
++    const existing = occupiedKeys.get(candidate.key);
++    if (existing !== undefined) {
++      if ((isMandatory(existing) || isMandatory(candidate)) &&
++          (existing.text !== candidate.text || existing.preOmit !== candidate.preOmit)) {
++        throw new DomainValidationError("CONTEXT_MANDATORY_CONFLICT: reconcile duplicate input keys");
++      }
++      return;
++    }
++    occupiedKeys.set(candidate.key, candidate);
+     candidates.push(candidate);
+   };
+ 
+@@ -227,6 +253,16 @@ function collectCandidates(request: ContextRequest): PacketCandidate[] {
+     });
+   }
+ 
++  for (const [index, nonGoal] of request.contract.nonGoals.entries()) {
++    take({
++      key: `non-goal:${index}`,
++      text: `non-goal: ${nonGoal}`,
++      destination: "requiredFacts",
++      rank: RANK_MANDATORY,
++      preOmit: undefined
++    });
++  }
++
+   for (const grant of request.contract.authority) {
+     const actions = grant.actions.length > 0 ? grant.actions.join(", ") : "no actions";
+     const expires = grant.expiresAt !== undefined ? ` (expires ${grant.expiresAt})` : "";
+@@ -443,6 +479,10 @@ function summarizeOmissions(omissions: readonly OmissionRecord[]): { reason: str
+     .map(([reason, count]) => ({ reason, count }));
+ }
+ 
++function isMandatory(candidate: PacketCandidate): boolean {
++  return candidate.rank <= RANK_INSTRUCTION;
++}
++
+ function compareCandidates(a: PacketCandidate, b: PacketCandidate): number {
+   if (a.rank !== b.rank) return a.rank - b.rank;
+   return compareStrings(a.key, b.key);
+diff --git a/src/run/coordinator.ts b/src/run/coordinator.ts
+index 44dc868..e3c9c8b 100644
+--- a/src/run/coordinator.ts
++++ b/src/run/coordinator.ts
+@@ -804,8 +804,6 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
+         launchChild(child);
+       }
+     };
+-    startReady();
+-
+     let status: RunStatus = "RUNNING";
+     let trackingBlocked = false;
+ 
+@@ -828,6 +826,9 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
+     );
+ 
+     try {
++      // Grounding/admission may refuse the first launch; record and clean it up
++      // through the same terminal path as a refusal of a later child.
++      startReady();
+       let waiting = false;
+       while (!waiting && !trackingBlocked) {
+         const active = handles.filter((handle) => !finished.has(handle.taskId));
+diff --git a/test/integration/m3/packet-fidelity.test.ts b/test/integration/m3/packet-fidelity.test.ts
+index 30a47ea..994c65b 100644
+--- a/test/integration/m3/packet-fidelity.test.ts
++++ b/test/integration/m3/packet-fidelity.test.ts
+@@ -76,12 +76,8 @@ test("every mandatory category survives compilation under an adequate budget", (
+   assert.deepEqual(mandatoryOmitted, []);
+ });
+ 
+-test("an inadequate budget still records mandatory omissions inspectably instead of truncating", () => {
+-  const packet = buildPacket(5, ["payments/refund-types.d.ts"]);
+-  assert.ok(!packet.requiredFacts.some((fact) => fact.includes("never log card numbers")));
+-  assert.ok(
+-    packet.omissions.some((omission) => omission.key === "constraint:c-privacy" && omission.reason === "token-budget")
+-  );
++test("an inadequate budget refuses mandatory omission before downstream use", () => {
++  assert.throws(() => buildPacket(5, ["payments/refund-types.d.ts"]), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
+ });
+ 
+ test("downstream fixture questions are answerable without the parent transcript", () => {
+diff --git a/test/unit/context/packet.test.ts b/test/unit/context/packet.test.ts
+index 153cbab..aba7bf5 100644
+--- a/test/unit/context/packet.test.ts
++++ b/test/unit/context/packet.test.ts
+@@ -72,21 +72,16 @@ test("conflicting facts remain separate after collapse", () => {
+   assert.ok(languageFacts.some((fact) => fact.includes("python")));
+ });
+ 
+-test("token overflow produces omission records instead of silent drops", () => {
+-  const mandatory = "This privacy constraint must never be silently truncated from the packet";
+-  const packet = compileContextPacket({
++test("mandatory token overflow refuses the packet instead of returning an unsafe omission", () => {
++  assert.throws(() => compileContextPacket({
+     taskId: createTaskId(UUID),
+     contract: contract({
+-      constraints: [{ id: "c-long", description: mandatory, enforceable: true }]
++      constraints: [{ id: "c-long", description: "Privacy constraints must survive", enforceable: true }]
+     }),
+     index: index(),
+     tokenBudget: 2,
+     selectorVersion: 1
+-  });
+-  assert.ok(!packet.requiredFacts.includes(mandatory));
+-  assert.ok(!packet.requiredFacts.some((fact) => mandatory.startsWith(fact) && fact.length < mandatory.length && fact.length > 0));
+-  assert.ok(packet.omissions.some((omission) => omission.reason === "token-budget" && omission.key === "constraint:c-long"));
+-  assert.ok(packet.omittedSummary.some((row) => row.reason === "token-budget" && row.count >= 1));
++  }), /CONTEXT_MANDATORY_BUDGET_EXCEEDED/);
+ });
+ 
+ test("secret evidence refs are not expanded into packet text", () => {

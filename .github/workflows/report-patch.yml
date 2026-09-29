@@ -1,0 +1,71 @@
+name: Report execution bounded patch
+
+# Temporary transport for the network-isolated author environment. Never main.
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/report-execution.patch', '.github/workflows/report-patch.yml']
+permissions:
+  contents: read
+concurrency:
+  group: report-execution-bounded-patch
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.head_ref == 'codex/report-execution-20260929' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.x
+          cache: pnpm
+      - name: Apply only the bounded source patch
+        id: patch
+        shell: bash
+        run: |
+          if git apply --reverse --check .github/report-execution.patch 2>/dev/null; then
+            echo 'Patch already present; no write or new verification claim.'
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git apply --check .github/report-execution.patch
+          git apply --index .github/report-execution.patch
+          python3 - <<'PY'
+          import subprocess
+          allowed = {
+              'src/context/packet.ts', 'src/run/coordinator.ts',
+              'test/unit/context/packet.test.ts', 'test/integration/m3/packet-fidelity.test.ts'
+          }
+          paths = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().rstrip('\0').split('\0'))
+          if not paths or not paths <= allowed:
+              raise SystemExit('Refusing out-of-scope patch paths')
+          PY
+          git diff --cached --check
+          git diff --cached --stat
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - if: steps.patch.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Supported gate on staged source
+        if: steps.patch.outputs.changed == 'true'
+        run: pnpm gate
+      - name: Built probes
+        if: steps.patch.outputs.changed == 'true'
+        run: pnpm security:probe && pnpm pi:probe && pnpm kernel-reuse:probe
+      - name: Publish only to the isolated feature branch
+        if: steps.patch.outputs.changed == 'true'
+        run: |
+          git diff --exit-code
+          git write-tree
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(context): refuse incomplete mandatory packets and record launch refusal'
+          git push origin HEAD:refs/heads/codex/report-execution-20260929
