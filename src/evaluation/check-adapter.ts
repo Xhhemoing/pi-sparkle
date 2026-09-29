@@ -30,8 +30,26 @@ export class CheckAdapter implements ProjectAdapter {
       };
     }
 
+    if (!hasContextBinding(context)) {
+      return {
+        outcome: "UNOBSERVED",
+        reason: "invalid context: expected working directory, revision and change set",
+      };
+    }
+
     const result = input;
     const metadata = attributionMetadata(result, context);
+    if (result.revision === undefined || result.changeSet === undefined) {
+      const missing = [
+        ...(result.revision === undefined ? ["revision"] : []),
+        ...(result.changeSet === undefined ? ["change set"] : []),
+      ];
+      return {
+        outcome: "UNOBSERVED",
+        reason: `command evidence missing recorded ${missing.join(" and ")}; rerun with explicit attribution`,
+        metadata,
+      };
+    }
 
     if (result.cwd !== context.workingDirectory) {
       return {
@@ -45,7 +63,7 @@ export class CheckAdapter implements ProjectAdapter {
       };
     }
 
-    if (result.revision !== undefined && result.revision !== context.revision) {
+    if (result.revision !== context.revision) {
       return {
         outcome: "FAIL",
         evidenceRef: `stale:${result.revision}`,
@@ -54,10 +72,7 @@ export class CheckAdapter implements ProjectAdapter {
       };
     }
 
-    if (
-      result.changeSet !== undefined &&
-      !changeSetsEqual(result.changeSet, context.changeSet)
-    ) {
+    if (!changeSetsEqual(result.changeSet, context.changeSet)) {
       return {
         outcome: "FAIL",
         evidenceRef: `stale-changeset:${result.changeSet.join(",")}`,
@@ -83,31 +98,44 @@ export class CheckAdapter implements ProjectAdapter {
   }
 
   private isCommandResult(v: unknown): v is CommandResult {
-    if (typeof v !== "object" || v === null) return false;
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
     const r = v as Record<string, unknown>;
     if (
-      typeof r.exitCode !== "number" ||
+      !Number.isSafeInteger(r.exitCode) ||
       typeof r.stdout !== "string" ||
       typeof r.stderr !== "string" ||
-      typeof r.command !== "string" ||
-      typeof r.cwd !== "string"
+      typeof r.durationMs !== "number" || !Number.isFinite(r.durationMs) || r.durationMs < 0 ||
+      !isNonBlank(r.command) ||
+      !isNonBlank(r.cwd)
     ) {
       return false;
     }
     if (r.environmentPolicy !== undefined && typeof r.environmentPolicy !== "string") {
       return false;
     }
-    if (r.changeSet !== undefined) {
-      if (!Array.isArray(r.changeSet) || !r.changeSet.every((p) => typeof p === "string")) {
-        return false;
-      }
-    }
+    if (r.revision !== undefined && !isNonBlank(r.revision)) return false;
+    if (r.changeSet !== undefined && !isChangeSet(r.changeSet)) return false;
     return true;
   }
 }
 
 export function createCheckAdapter(): ProjectAdapter {
   return new CheckAdapter();
+}
+
+function isNonBlank(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isChangeSet(value: unknown): value is readonly string[] {
+  // Array.from also exposes sparse entries instead of silently skipping them.
+  return Array.isArray(value) && Array.from(value).every(isNonBlank);
+}
+
+function hasContextBinding(context: AdapterContext): boolean {
+  return typeof context === "object" && context !== null && !Array.isArray(context) &&
+    isNonBlank(context.workingDirectory) && isNonBlank(context.revision) &&
+    isChangeSet(context.changeSet);
 }
 
 /** Deterministic artifact fingerprint so a specific stdout/stderr combination is attributable. */
@@ -126,8 +154,9 @@ function changeSetsEqual(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * Attribution required on every PASS/FAIL. Missing environmentPolicy is
- * recorded as `"unavailable"` — never invented.
+ * Keep actual attribution separate from expected context. Missing provenance
+ * remains unavailable, and arrays are copied so later caller edits cannot
+ * rewrite this assessment. The fingerprint is not a cryptographic guarantee.
  */
 function attributionMetadata(
   result: CommandResult,
@@ -140,8 +169,10 @@ function attributionMetadata(
     cwd: result.cwd,
     workingDirectory: context.workingDirectory,
     environmentPolicy: result.environmentPolicy ?? "unavailable",
-    revision: result.revision ?? context.revision,
-    changeSet: result.changeSet ?? context.changeSet,
+    revision: result.revision ?? "unavailable",
+    changeSet: result.changeSet === undefined ? null : [...result.changeSet],
+    expectedRevision: context.revision,
+    expectedChangeSet: [...context.changeSet],
     durationMs: result.durationMs,
   };
 }
