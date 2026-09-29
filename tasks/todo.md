@@ -1,5 +1,11 @@
 # Active checklist
 
+## Report execution (2026-09-29)
+
+`TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
+
+The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-learning. S0-min is implemented/source-reviewed but not owner-FROZEN; B2/L1/L2, retained O02/O03 ownership, root budgets, scoped decision memory, evidence invalidation, typed method candidates, authorized experiments and production/outcome gates retain their explicit dependencies. See the current checklist rather than interpreting an older unchecked or checked snapshot as new authority.
+
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 
 ## Merged branch cleanup (2026-09-28)

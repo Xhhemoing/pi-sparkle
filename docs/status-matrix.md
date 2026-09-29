@@ -20,6 +20,15 @@ round-by-round census notes, and contract wording live in the
 [verbose notes archive](reports/2026-08-27-status-matrix-notes-archive.md)
 (linked per row as `archive §N`).
 
+## Report execution candidates (2026-09-29)
+
+Branch-scoped source in PR #47, not an assertion of main merge or independent acceptance. [Plan](superpowers/plans/2026-09-29-report-execution.md) and [exact verification/handoff](reports/2026-09-29-report-execution.md). All owner, experiment and outcome gates below remain in force.
+
+| Capability | Present | Wired | Exercised | Outcome-supported | Notes |
+|---|---|---|---|---|---|
+| Mandatory context admission | PR #47 | existing packet/child-grounding paths | unit, parent-dispatch integration and recorded gate | no | Invalid budgets and over-budget mandatory payloads refuse; non-goals/instruction references retained; conflicting mandatory keys refuse. Estimates cover packet payload, not the full prompt or a calibrated tokenizer. First parent launch now shares terminal recording. C2 evidence invalidation remains separate. |
+| Stratified task diagnostics | PR #47 | existing auto-loop diagnostics | learning regressions and recorded gate | no | Project/family/role/available versions stay separate; task replay dedupes and conflicting bindings/outcomes exclude that task; unbound groups cannot become actionable. Primary diagnostics remain visible. Role/version-qualified evidence is not widened into legacy avoid rules. Persisted observation keys and live selection are unchanged; a typed candidate bridge remains open. |
+
 ## Runtime line (M0–M2.5)
 
 | Capability | Present | Wired | Exercised | Outcome-supported | Notes |
