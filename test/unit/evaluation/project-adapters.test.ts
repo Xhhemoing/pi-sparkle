@@ -24,6 +24,8 @@ function commandResult(overrides: Partial<CommandResult> = {}): CommandResult {
     durationMs: 100,
     command: "pnpm test",
     cwd: "/work/proj",
+    revision: "rev-1",
+    changeSet: ["src/feature.ts"],
     ...overrides,
   };
 }
@@ -121,11 +123,12 @@ describe("M4-T2: project/code/delivery evaluator adapters", () => {
       assert.equal(typeof failed.metadata?.artifactHash, "string");
     });
 
-    it("attributes the affected change set from the result or the episode context", async () => {
+    it("attributes recorded change sets without inventing missing provenance", async () => {
       const adapter = createCheckAdapter();
-      const fromContext = await adapter.evaluate(context, commandResult());
-      assert.equal(fromContext.outcome, "PASS");
-      assert.deepEqual(fromContext.metadata?.changeSet, ["src/feature.ts"]);
+      const missing = await adapter.evaluate(context, commandResult({ changeSet: undefined }));
+      assert.equal(missing.outcome, "UNOBSERVED");
+      assert.equal(missing.metadata?.changeSet, null);
+      assert.deepEqual(missing.metadata?.expectedChangeSet, ["src/feature.ts"]);
 
       const fromResult = await adapter.evaluate(
         context,
@@ -225,6 +228,7 @@ describe("M4-T2: project/code/delivery evaluator adapters", () => {
         { reopenDetected: true }
       );
       assert.equal(result.outcome, "FAIL");
+      assert.match(result.reason ?? "", /reopen detected/);
     });
 
     it("remains UNOBSERVED when no manual acceptance was recorded", async () => {
