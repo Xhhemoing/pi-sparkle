@@ -1,25 +1,47 @@
 # Report execution evidence and handoff
 
-Task: `TASK-20260929-report-execution`. Date: 2026-09-29. Branch: `codex/report-execution-20260929`, draft PR #47. This is author/automated evidence, not independent acceptance.
+Task: `TASK-20260929-report-execution`. Date: 2026-09-29.
+Branch: `codex/report-execution-20260929`. Draft PR #47.
+State: bounded implementations and automated verification; independent acceptance and main merge remain open.
 
-## Plan and source
+## Saved plan and staged source
 
-The plan was saved before implementation at `cee4527c993a1257fa38048d4b497640ce6492f5`: [execution plan](../superpowers/plans/2026-09-29-report-execution.md). [Slice contracts](../superpowers/plans/2026-09-29-report-slice-contracts.md) define C2-context and D1-learning separately from the remaining A-E roadmap. Starting main was `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`; merged A1/A2/A0-root/B1 were preserved, not reimplemented.
+Starting main: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. The user's report evaluated an older baseline. The [reconciled execution plan](../superpowers/plans/2026-09-29-report-execution.md) was saved before runtime edits at `cee4527c993a1257fa38048d4b497640ce6492f5`; [slice contracts](../superpowers/plans/2026-09-29-report-slice-contracts.md) preceded the bounded changes. Merged A1/A2/A0-root/B1 were preserved rather than reimplemented. The [remaining dependency queue](../superpowers/plans/2026-09-29-report-next-steps.md) refines the next packages without checking them off.
 
-C2 source is published at `f3a232057975ba5b4607074424a738ffdc43d463` (tree `33e756bdb38118db59e02e44dca61aeb640f876d`). The bounded workflow run `36522164929`, job `109257195394`, applied the staged source, verified it, and made a non-force feature-branch-only commit. Supported Node 22.19.0 / pnpm 10.17.1: `pnpm gate` PASS, 3178 PASS / 0 FAIL / 1 SKIP (3179 total), including build. Security probe 8/8, Pi compatibility 7/7 (pinned Pi 0.70.1), kernel reuse 11/11 PASS. The single skip is the explicitly opt-in real-provider slow-iteration timing probe. No live-provider authorization was assumed.
+C2 source: `f3a232057975ba5b4607074424a738ffdc43d463`; hosted run `36522164929`, job `109257195394`.
+D1 RED tests/staged patch: `b2784940070ad1729bc2a19f09b01a28c51bc370`. D1 source: `e0a95dc4d7e23d8bf978aac4ce33d572191ac896`; hosted run `36523035846`, job `109259892389`. Final ordinary CI at the docs/cleanup tip must be read separately from earlier RED-head runs.
 
-C2 retains available mandatory constraints, authority, questions, validation routes, predecessor output, instruction references and non-goals or refuses the whole packet. Invalid budgets and conflicting mandatory keys refuse with sanitized errors. Initial parent admission now enters the existing terminal-recording/cleanup path before any child executor call. Non-ASCII estimation is a deterministic packet-payload heuristic, NOT a calibrated tokenizer or a whole-prompt bound. Unavailable validator evidence stays explicit. C2 version/evidence invalidation is not implemented by this slice.
+## Implemented behavior
 
-## D1 staged verification (remote source publication pending at this record)
+**C2-context:** nonnegative safe-integer budgets; available mandatory constraints, grants, unresolved questions, validation routes, predecessor output, instruction references and non-goals retained whole or the packet refused. Conflicting mandatory keys refuse rather than silently first-wins. Errors report counts, not private constraint text. Initial parent launch enters existing failure/cleanup handling. No child executor is invoked for the oversized mandatory fixture. Optional omissions and unavailable validators remain explicit. The non-ASCII estimator covers packet payload only; it is neither tokenizer calibration nor a whole-prompt bound. C2 version/evidence invalidation remains a separate unfinished slice.
 
-D1 is implemented and verified in the author's supported offline worktree. New 13-case stratification tests are published before the source patch. The temporary bounded workflow will apply only the four specified learning source/test files and the five dated documentation pointers, run the supported gate and probes, then non-force push the feature branch. No main write, deployment or new schema authority is involved. The workflow/patch transport remains temporary and must be removed before delivery.
+**D1-learning:** taskSuccess diagnostics grouped by project/model/family/role/available model and feature version. Semantic task replay counts once despite changed import time, prose or evidence ordering. Conflicting binding, score, outcome or attribution excludes that task. Non-model failures and invalid scores do not produce model-negative diagnostics. Unbound groups cannot become actionable. Primary issues remain visible without automatic replacement. A role/version-qualified issue does not generate a broader family/model-only avoid candidate; existing unqualified proposal behavior remains where representable. The typed scope-preserving candidate bridge remains unfinished. Persisted ledger identity, posterior logic, live selection and promotion gates are unchanged.
 
-Verified local RED against original learning source: 33 total / 21 PASS / 12 FAIL / 0 SKIP. Corrected fixture IDs respect repository validation. GREEN: all 135 learning tests PASS / 0 FAIL / 0 SKIP. Full supported local `pnpm gate`: 3194 total / 3193 PASS / 0 FAIL / 1 SKIP; workflow check, typecheck, lint, tests and build PASS. Security 8/8, Pi compatibility 7/7 and kernel reuse 11/11 PASS. Built CLI version is 0.8.0. These are local author-command results, not yet the remote D1 result or independent review.
+## Actual verification
 
-D1 groups taskSuccess by project/model/family/role/available model and feature version. Reimported task identity counts once despite changed timestamp/prose/evidence order; contradictory binding, outcome, score or attribution excludes that task. Invalid scores and non-model failures do not create model negatives. Unbound observations remain diagnostic, not actionable. Primary-model issues remain visible without automatic replacement. Known role/version qualifiers are never discarded to create broader legacy avoid rules; a scope-preserving typed candidate bridge remains open. Persisted observation identity, posterior behavior, live selection and activation gates are unchanged.
+Supported runtime: Node 22.19.0 / pnpm 10.17.1. Offline verification used the exported public pinned toolchain and locked dependencies, superseding the initial local Node 22.16 limitation. No dependency upgrade was made.
 
-## Acceptance and remaining work
+| Check | Result |
+|---|---|
+| C2 focused context/grounding/parent/checkpoint regression command | 71 PASS / 0 FAIL / 0 SKIP |
+| D1 RED on original learning source | 33 total; 21 PASS / 12 FAIL / 0 SKIP |
+| D1 learning tests | 135 PASS / 0 FAIL / 0 SKIP |
+| Final combined context/learning regression command | 206 PASS / 0 FAIL / 0 SKIP |
+| Full local combined-source `pnpm gate` | workflow/typecheck/lint/test/build PASS; 3194 total, 3193 PASS / 0 FAIL / 1 SKIP |
+| Hosted combined-source `pnpm gate` | workflow/typecheck/lint/test/build PASS; 3194 total, 3193 PASS / 0 FAIL / 1 SKIP |
+| `pnpm security:probe` | status ok; 26 passed; no open, waived or refused-waiver findings |
+| `pnpm pi:probe` | PASS; core/AI pinned to 0.86.1; legacy GoogleThinkingLevel absent; ThinkingLevel uses core import |
+| `pnpm kernel-reuse:probe` | PASS: live-stream, kernel-facade and executor-steer checks |
+| Built CLI `--version` | 0.1.0 |
 
-Independent review and main merge of these new slices are NOT complete. Source/commands do not imply Outcome-supported status. S0-min is implemented/source-reviewed but NOT owner-FROZEN; B2/L1/L2 depend on that freeze. O02/O03 retained-worktree ownership, existing D1 evidence-gap review, R10/R11, F6/F-PROD and production/live-provider/outcome gates remain as recorded. Shared root budgets, scoped decision memory, C2 evidence invalidation, typed method candidates, authorized independent/holdout comparisons and controlled activation outcomes remain unimplemented or gated, not checked off as complete. See [execution checklist](../../tasks/report-execution-todo.md).
+The one skip is `PiAgentExecutor completes a run against a real provider`: it requires PI_SMOKE=1 and explicit PI_PROVIDER/PI_MODEL plus configured credentials. It is not a completed real-provider experiment. No live provider or holdout run, production application, independent source review or long-term outcome measurement is claimed. C2's earlier checkpoint failure and stricter correction are preserved in [follow-up evidence](2026-09-29-context-gate-followup.md).
 
-The first C2 full-gate failure and its stricter checkpoint correction are retained in [follow-up evidence](2026-09-29-context-gate-followup.md); earlier RED commits are not green acceptance artifacts. The source transfer mechanism and its limits are recorded in [transport note](2026-09-29-report-transport.md).
+Correction to the intermediate staging version of this report: its Pi/CLI versions, probe cardinalities and skipped-test label were transcribed incorrectly. The values above were checked against actual command output; they supersede that staging prose. This correction does not change source, test expectations or any approval gate.
+
+## Delivery and remaining work
+
+Active plan/checklist pointers, the report checklist and status matrix contain dated PR #47 entries. Temporary source bootstrap and bounded publication workflows/patches are removed at the delivery tip; no additional write-capable workflow is retained. The source was published only to the isolated feature branch via additive, non-force commits. Main and other branches were not overwritten.
+
+The [execution checklist](../../tasks/report-execution-todo.md) splits implementation/commands from acceptance. Independent review and main merge of these new slices remain outstanding. S0-min is implemented/source-reviewed but not owner-FROZEN; L1/L2 and B2 host outcomes remain behind that boundary. Retained O02/O03 work and ownership, the separately named evidence-gap D1 review, R10/R11, F6/F-PROD and experiment/provider approvals remain unchanged.
+
+Shared root budget accounting, scoped decision memory, version-bound evidence invalidation, typed method candidates, independent comparisons and controlled activation/subsequent outcomes are still unfinished or gated. The project as a whole is NOT complete and no module is newly Outcome-supported by these commits. Review the exact source and then use the remaining dependency queue; do not infer authority from historical checkboxes.
