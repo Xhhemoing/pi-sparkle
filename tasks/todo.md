@@ -14,6 +14,13 @@ The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-
 
 Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.md`](../docs/development-workflow.md) -> [`tasks/README.md`](README.md). Every `[x]` below requires dated evidence; unresolved contradictions must be recorded and corrected, not silently checked off.
 
+## Developer Preview 0.1.0-preview.2 (2026-10-01)
+
+- [x] Review and release preparation implemented on PR #52: version metadata,
+  binding-snapshot regression/fix, preview declaration, changelog, and status
+  provenance. Focused tests: 72 pass / 0 fail / 0 skip at ecddcca; component
+  probes pass. Hosted CI run 36876319406 is green (quality and Ubuntu/Windows
+  smoke). A preview tag or publication claim still requires the release owner.
 ## Merged branch cleanup (2026-09-28)
 
 - [x] Deleted five verified-merged local pointers and merged PR #46's remote branch (2026-09-28). Remote refs, all 12 worktree paths/HEADs, nine retained feature refs, dirty statuses, ignored entries and both stashes verified; `pnpm workflow:check` and `git diff --check` PASS. Runtime source unchanged. [Plan](../docs/superpowers/plans/2026-09-28-branch-cleanup.md) · [evidence](../docs/reports/2026-09-28-branch-cleanup.md).

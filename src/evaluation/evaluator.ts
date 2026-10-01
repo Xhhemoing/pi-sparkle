@@ -87,21 +87,37 @@ export function createEvaluationRecord(input: EvaluationInput): EvaluationRecord
     overall = "ABSTAIN";
   }
 
+  // Evaluation records are historical evidence. Copy caller-owned binding
+  // objects at creation so later mutation cannot rewrite what the record was
+  // evaluated against and make stale evidence appear current.
+  const evaluatorSnapshot: EvaluatorIdentity = { ...input.evaluator };
+  const targetSnapshot: EvaluationTarget | undefined =
+    input.target === undefined
+      ? undefined
+      : {
+          artifactId: input.target.artifactId,
+          ...(input.target.artifactVersion !== undefined
+            ? { artifactVersion: input.target.artifactVersion }
+            : {})
+        };
+  const dependencySnapshot =
+    input.dependencyVersions === undefined ? undefined : { ...input.dependencyVersions };
+
   return {
     id: createEventId(),
     episodeId: input.episodeId,
     taskId: input.taskId,
     runId: input.runId,
-    evaluator: input.evaluator,
+    evaluator: evaluatorSnapshot,
     rubricId: input.rubric.id,
     rubricVersion: input.rubric.version,
     scores,
     findings: input.findings ?? [],
     overall,
     createdAt: nowIso(),
-    target: input.target,
+    target: targetSnapshot,
     independenceClass: input.independenceClass,
-    dependencyVersions: input.dependencyVersions,
+    dependencyVersions: dependencySnapshot,
   };
 }
 
