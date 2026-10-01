@@ -3,7 +3,7 @@
 Task: `TASK-20260929-report-execution`; continuation `TASK-20260929-evidence-provenance`.
 Owner: implementation agent for source/commands; maintainer/independent reviewer for independent acceptance and owner/experiment gates.
 State: bounded implementations and automated verification; full A-E roadmap remains open.
-Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as `4df5baff7f2ed3cec1dbc5fe8db3562b4eb61cf7`. Current bounded C2-evidence-1 source is tracked in PR #48.
+Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as `4df5baff7f2ed3cec1dbc5fe8db3562b4eb61cf7`. PR #48 merged as `b114255bd815617068b3b46bfb3848eac0b8e6e5` (exact head `f856b2973548aced684671654a50ec98e1403dba`, final-head CI `36525786135`). Status reconciliation 2026-10-01: [plan](../docs/superpowers/plans/2026-10-01-ps01-status-reconciliation.md).
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
@@ -18,7 +18,7 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 - [x] PR #47 source integration on explicit user request: exact-head, non-force merge `4df5baff7f2ed3cec1dbc5fe8db3562b4eb61cf7`; final diff inspected without conflict hunks. This is not independent acceptance, owner freeze or production authorization.
 - [x] Temporary bootstrap/patch workflows and transport removed in PR #47; no new workflow is introduced by PR #48.
 - [x] C2-evidence-1 plan saved before code at `1adfce2f27b703524fc4ae7e3f8bea287c00d98c`; RED regression commit `7db057ef6ea87080852466110fa7b55146d6a83e` with 29 expected failures.
-- [x] C2-evidence-1 implemented: unbound output stays UNOBSERVED; actual/expected provenance remains distinct; malformed evidence refuses and metadata arrays are snapshots. Source and test blob identities are in the current evidence record.
+- [x] C2-evidence-1 implemented: unbound output stays UNOBSERVED; actual/expected provenance remains distinct; malformed evidence refuses and metadata arrays are snapshots. Merged into main via PR #48 `b114255b` (head `f856b29`, CI `36525786135`); source and test blob identities are in the current evidence record.
 - [x] C2-evidence-1 local author commands: 80 focused evaluation/delivery PASS, supported typecheck and focused lint PASS. These are not relabeled as a full-tree gate. Canonical full-tree CI and source integration evidence are recorded against [PR #48](https://github.com/Xhhemoing/pi-sparkle/pull/48)'s exact head and merge commit.
 - [ ] Independent acceptance of C2-context on exact source; automated PASS is not this acceptance.
 - [ ] Independent acceptance of D1-learning and its scoped-policy behavior on exact source.
