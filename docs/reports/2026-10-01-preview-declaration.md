@@ -29,3 +29,27 @@ pnpm install
 pnpm prerelease
 pnpm cli version
 ```
+
+## Review and verification record
+
+The review found and fixed a historical-binding issue in
+`createEvaluationRecord`: caller-owned target, evaluator, and dependency
+objects are now copied at record creation, so later mutation cannot rebind
+stored evidence. Regression coverage is in
+`test/unit/evaluation/evidence-invalidation.test.ts`.
+
+At commit `ecddcca82afc30115fe9683236be712f71170ae2`, the focused command
+
+```
+node --import tsx --test test/unit/evaluation/evidence-invalidation.test.ts test/unit/learning/project-key-case.test.ts test/unit/cli/adapt.test.ts test/integration/cli/cli.test.ts
+```
+
+passed 72 tests with 0 failures and 0 skips. Local workflow-check, typecheck,
+lint, build, preview-release probe, security probe (26 findings passed), and Pi
+compatibility probe also passed. The repository `pnpm test` wrapper could not
+be used in this sandbox because tsx's IPC pipe is denied; hosted CI remains the
+authoritative full gate and is pending on PR #52.
+
+This is author verification only. No independent acceptance, live-provider
+verification, npm publication, production apply, adaptive activation, or
+Outcome-supported claim is made.
