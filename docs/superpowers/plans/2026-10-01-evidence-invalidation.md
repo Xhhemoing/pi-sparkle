@@ -60,7 +60,7 @@ Baseline: main `f5db35f4c76e214c1d450606b505ef40eac2ae1c` (PR #50 merged; includ
 
 ## Closeout
 
-- Verified commit/date: pending.
-- Commands and outcomes: pending.
-- Open risks/follow-ups: verdicts are advisory until a host-dependent consumer is authorized; dependency-name vocabulary is caller-defined in this slice.
-- Evidence links: filled at closeout.
+- Verified commit/date: `1fbfd87`, 2026-10-01 (RED at `03b8820`).
+- Commands and outcomes: RED module-not-found as designed; focused 7/0, evaluation 83/0, adjacent 339/0/1; `pnpm gate` 3222 pass / 0 fail / 19 skip + build PASS. Full counts and commands in the evidence record.
+- Open risks/follow-ups: verdicts are advisory until a host-dependent consumer is authorized; dependency-name vocabulary is caller-defined in this slice; independent review open.
+- Evidence links: [2026-10-01-evidence-invalidation](../../reports/2026-10-01-evidence-invalidation.md).

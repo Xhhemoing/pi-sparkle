@@ -7,6 +7,12 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
+## Evidence invalidation — C2-evidence-2 (2026-10-01)
+
+- [x] PS-05 host-independent remainder, first slice (`TASK-20261001-evidence-invalidation`): plan `c2160aa`, RED `03b8820`, GREEN `1fbfd87`; focused evaluation 83/0, adjacent 339/0/1, `pnpm gate` 3222/0/19 + build PASS. Valid/invalidated/foreign classification with fail-closed unbound/snapshot handling; advisory only, host wiring waits for B2. [Plan](../docs/superpowers/plans/2026-10-01-evidence-invalidation.md) · [Evidence](../docs/reports/2026-10-01-evidence-invalidation.md).
+- [ ] Independent review of the evidence-invalidation slice on the exact merged head.
+- [ ] Host-dependent invalidation wiring (delivery/verifier consumption) waits for B2/S0-min.
+
 ## Project learning-key isolation (2026-10-01)
 
 - [x] PS-02 (`TASK-20261001-ps02-project-key-isolation`): RED regression at `eff6c00` (4 expected failures), minimal volume-prefix-only fix at `004d59d`; focused 7/0/1, adjacent suites 651/0/4, `pnpm gate` 3215/0/19 + build PASS. Legacy keys not migrated; independent review open. [Plan](../docs/superpowers/plans/2026-10-01-ps02-project-key-isolation.md) · [Evidence](../docs/reports/2026-10-01-project-key-isolation.md).
