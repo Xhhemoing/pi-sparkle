@@ -64,7 +64,11 @@ test("case below the Windows volume prefix stays distinct", () => {
 test("case-differing roots do not share a routing-policy identity", () => {
   const upper = routingPolicyIdentity("/tmp/pi-sparkle-key-case/ProjectA");
   const lower = routingPolicyIdentity("/tmp/pi-sparkle-key-case/projecta");
-  assert.notEqual(upper.scope.projectId, lower.scope.projectId);
+  assert.equal(upper.scope.kind, "project");
+  assert.equal(lower.scope.kind, "project");
+  if (upper.scope.kind === "project" && lower.scope.kind === "project") {
+    assert.notEqual(upper.scope.projectId, lower.scope.projectId);
+  }
 });
 
 test("case-differing roots write and read isolated bandit state on a shared state root", async () => {
