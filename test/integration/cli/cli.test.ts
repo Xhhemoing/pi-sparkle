@@ -359,7 +359,7 @@ test("the CLI entrypoint prints the package version", () => {
     cwd: REPO_ROOT,
     encoding: "utf8"
   });
-  assert.equal(output, "0.1.0\n");
+  assert.equal(output, "0.1.0-preview.2\n");
 });
 
 test("the CLI entrypoint spawns end-to-end", () => {
