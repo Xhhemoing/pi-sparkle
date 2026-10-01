@@ -348,7 +348,7 @@ test("main prints the package version", async () => {
     const code = await main([flag], io);
     assert.equal(code, 0, flag);
     assert.deepEqual(err, []);
-    assert.match(out.join(""), /^0\\.1\\.0-preview\\.2\\n$/);
+    assert.match(out.join(""), /^0\.1\.0-preview\.2\n$/);
   }
 });
 
