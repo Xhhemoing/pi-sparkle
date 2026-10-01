@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here.
 
+## [0.1.0-preview.2] - 2026-10-01
+
+Developer Preview only. The package remains private and is intended for clone + pnpm use.
+
+### Added
+
+- Evidence validity classification for stored evaluation records, including valid, invalidated, and foreign partitions with fail-closed dependency snapshot handling.
+- Project learning-key isolation for case-differing paths while preserving existing drive-letter, UNC, separator, and trailing-slash normalization.
+
+### Changed
+
+- Reconciled the status matrix with the merged PR #47/#48 provenance and documented the C2-evidence-2 host-independent boundary.
+- Kept host acceptance, live-provider verification, adaptive activation, and Outcome-supported claims outside this preview.
+
 ## [Unreleased] - 2026-09-04
 
 ### Added
