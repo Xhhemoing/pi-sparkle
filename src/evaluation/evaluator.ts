@@ -30,6 +30,8 @@ export interface EvaluationInput {
   readonly findings?: Finding[];
   readonly target?: EvaluationTarget;
   readonly independenceClass?: IndependenceClass;
+  /** Dependency snapshot carried onto the record; see `EvaluationRecord.dependencyVersions`. */
+  readonly dependencyVersions?: Readonly<Record<string, string>>;
 }
 
 export interface EvaluationResult {
@@ -99,6 +101,7 @@ export function createEvaluationRecord(input: EvaluationInput): EvaluationRecord
     createdAt: nowIso(),
     target: input.target,
     independenceClass: input.independenceClass,
+    dependencyVersions: input.dependencyVersions,
   };
 }
 

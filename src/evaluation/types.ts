@@ -60,6 +60,13 @@ export interface EvaluationRecord {
   readonly target?: EvaluationTarget | undefined;
   /** Relationship to other evaluations of the same work. */
   readonly independenceClass?: IndependenceClass | undefined;
+  /**
+   * Caller-defined dependency name → version snapshot the evidence was
+   * produced against. Optional for legacy records; absence means "snapshot
+   * unverifiable" to invalidation (TASK-20261001-evidence-invalidation),
+   * never "current".
+   */
+  readonly dependencyVersions?: Readonly<Record<string, string>> | undefined;
 }
 
 export const HOST_TERMINAL_OUTCOME_SCHEMA = "host-terminal-outcome-v1" as const;

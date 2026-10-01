@@ -57,36 +57,40 @@ test("evidence bound to the current references is valid", () => {
 });
 
 test("each changed reference invalidates with a reason naming it", () => {
-  const cases: readonly { readonly name: string; readonly mutate: (r: EvidenceReference) => EvidenceReference }[] = [
+  // Note: mutating the reference's artifactId is not an invalidation case —
+  // by definition the old artifact's records become `foreign` (see the
+  // retention test below); equality on artifactId IS the scope boundary.
+  const cases: readonly { readonly name: string; readonly reasonPattern: RegExp; readonly mutate: (r: EvidenceReference) => EvidenceReference }[] = [
     {
       name: "artifact version",
+      reasonPattern: /artifact version/i,
       mutate: (r) => ({ ...r, artifactVersion: "v4" })
     },
     {
-      name: "artifact id",
-      mutate: (r) => ({ ...r, artifactId: "artifact-src-pay-parser-v2" })
-    },
-    {
       name: "rubric id",
+      reasonPattern: /rubric id/i,
       mutate: (r) => ({ ...r, rubricId: "rubric-core-alt" })
     },
     {
       name: "rubric version",
+      reasonPattern: /rubric version/i,
       mutate: (r) => ({ ...r, rubricVersion: 2 })
     },
     {
       name: "evaluator version",
+      reasonPattern: /evaluator version/i,
       mutate: (r) => ({ ...r, evaluatorVersion: "eval-v2" })
     },
     {
       name: "dependency version",
+      reasonPattern: /dependency tool-node version changed/i,
       mutate: (r) => ({ ...r, dependencyVersions: { ...r.dependencyVersions, "tool-node": "24.18.0" } })
     }
   ];
-  for (const { name, mutate } of cases) {
+  for (const { name, reasonPattern, mutate } of cases) {
     const verdict = assessEvidenceValidity(record(), mutate(reference));
     assert.equal(verdict.state, "invalidated", `${name} change must invalidate`);
-    assert.match(verdict.reason ?? "", new RegExp(name, "i"), `${name} reason must name the change`);
+    assert.match(verdict.reason ?? "", reasonPattern, `${name} reason must name the change`);
   }
 });
 

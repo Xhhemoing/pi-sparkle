@@ -31,7 +31,7 @@ Baseline: main `f5db35f4c76e214c1d450606b505ef40eac2ae1c` (PR #50 merged; includ
 
 - [ ] Evidence bound to the current artifact/rubric/evaluator/dependency references assesses `valid`; each single reference change (artifact version, artifact id, rubric id, rubric version, evaluator version, any dependency version) assesses `invalidated` with a reason naming the changed reference.
 - [ ] A record without a target, and a record whose dependency snapshot does not exactly cover the current dependency names (missing, extra, or value-different), fail closed to `invalidated` — never valid.
-- [ ] Unaffected records (different artifactId) remain `valid` while the target artifact's records invalidate; batch partitioning never mutates inputs.
+- [ ] Unaffected records (bound to a different artifactId) are retained as `foreign` — never `invalidated`, never mixed into `valid` — while the target artifact's stale records invalidate; batch partitioning never mutates inputs.
 - [ ] `createEvaluationRecord` carries the optional snapshot; existing construction tests stay green unchanged.
 - [ ] Focused evaluation suites, typecheck, lint, full `pnpm gate` green; no existing test weakened.
 
