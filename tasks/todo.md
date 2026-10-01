@@ -19,8 +19,8 @@ Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.
 - [x] Review and release preparation implemented on PR #52: version metadata,
   binding-snapshot regression/fix, preview declaration, changelog, and status
   provenance. Focused tests: 72 pass / 0 fail / 0 skip at ecddcca; component
-  probes pass. Hosted pnpm prerelease remains pending and must pass before a
-  preview tag or publication claim.
+  probes pass. Hosted CI run 36875581897 is green (quality and Ubuntu/Windows
+  smoke). A preview tag or publication claim still requires the release owner.
 ## Merged branch cleanup (2026-09-28)
 
 - [x] Deleted five verified-merged local pointers and merged PR #46's remote branch (2026-09-28). Remote refs, all 12 worktree paths/HEADs, nine retained feature refs, dirty statuses, ignored entries and both stashes verified; `pnpm workflow:check` and `git diff --check` PASS. Runtime source unchanged. [Plan](../docs/superpowers/plans/2026-09-28-branch-cleanup.md) · [evidence](../docs/reports/2026-09-28-branch-cleanup.md).
