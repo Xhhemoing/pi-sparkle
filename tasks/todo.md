@@ -19,7 +19,7 @@ Process entry point: [`AGENTS.md`](../AGENTS.md) -> [`docs/development-workflow.
 - [x] Review and release preparation implemented on PR #52: version metadata,
   binding-snapshot regression/fix, preview declaration, changelog, and status
   provenance. Focused tests: 72 pass / 0 fail / 0 skip at ecddcca; component
-  probes pass. Hosted CI run 36875581897 is green (quality and Ubuntu/Windows
+  probes pass. Hosted CI run 36876319406 is green (quality and Ubuntu/Windows
   smoke). A preview tag or publication claim still requires the release owner.
 ## Merged branch cleanup (2026-09-28)
 
