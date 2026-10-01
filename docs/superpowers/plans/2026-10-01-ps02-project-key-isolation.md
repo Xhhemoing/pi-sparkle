@@ -60,12 +60,12 @@ This silently shares learned state and policy identity across distinct projects,
 
 - Human/policy gate: none closed; independent review of the fix remains open; no owner gate is touched.
 - Rollback or abort condition: source drift on `src/learning/learned-routing.ts` callers, an unexpected regression outside the changed normalization, or a frozen-schema conflict — stop and reconcile.
-- Required durable records: this plan, the RED commit, the GREEN commit, and the dated evidence report with exact counts and the documented win32 skip.
+- Required durable records: this plan, the RED commit `eff6c00`, the GREEN commit `004d59d`, and the dated evidence report with exact counts and the documented win32 skip.
 - Next command after handoff: `pnpm gate` on the combined head, then evidence-record commit; PS-03 stays with its owner.
 
 ## Closeout
 
-- Verified commit/date: pending.
-- Commands and outcomes: pending.
-- Open risks/follow-ups: legacy lowercase-key directories remain on disk (doctor-visible, not migrated); registry identities for previously-keyed projects change, so a fresh promotion baseline is expected by design, never silent reuse; symlink-case interaction is noted, not layer-bypassed.
-- Evidence links: filled at closeout.
+- Verified commit/date: `004d59d`, 2026-10-01 (RED at `eff6c00`).
+- Commands and outcomes: RED 8 tests — 3 pass / 4 fail / 1 skip at `eff6c00`; GREEN focused 7 pass / 0 fail / 1 skip; adjacent suites 651 pass / 0 fail / 4 skip; `pnpm gate` 3215 pass / 0 fail / 19 skip + build PASS. Full counts and commands in the evidence record.
+- Open risks/follow-ups: legacy lowercase-key directories remain on disk (doctor-visible, not migrated); registry identities for previously-keyed projects change, so a fresh promotion baseline is expected by design, never silent reuse; symlink-case interaction is noted, not layer-bypassed; independent review open.
+- Evidence links: [2026-10-01-project-key-isolation](../../reports/2026-10-01-project-key-isolation.md).
