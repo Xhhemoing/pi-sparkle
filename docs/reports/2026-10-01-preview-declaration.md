@@ -47,9 +47,14 @@ node --import tsx --test test/unit/evaluation/evidence-invalidation.test.ts test
 passed 72 tests with 0 failures and 0 skips. Local workflow-check, typecheck,
 lint, build, preview-release probe, security probe (26 findings passed), and Pi
 compatibility probe also passed. The repository `pnpm test` wrapper could not
-be used in this sandbox because tsx's IPC pipe is denied; hosted CI remains the
-authoritative full gate and is pending on PR #52.
+be used in this sandbox because tsx's IPC pipe is denied; hosted CI remains the authoritative full gate. PR #52 CI run `36875581897`
+passed quality (`110414386604`), Ubuntu smoke (`110414386841`), and Windows
+smoke (`110414387073`).
 
 This is author verification only. No independent acceptance, live-provider
 verification, npm publication, production apply, adaptive activation, or
 Outcome-supported claim is made.
+
+The hosted quality job ran the full workflow contract, typecheck, lint, test,
+build, security, Pi compatibility, kernel reuse, and built CLI version steps.
+The preview probe itself also passed locally with all five findings clear.
