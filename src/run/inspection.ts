@@ -269,7 +269,15 @@ export async function inspectRun(
 ): Promise<RunInspection> {
   const store = new EventStore(stateRoot, runId);
   const read = await store.readAll(INSPECTION_EVENT_READ_LIMITS);
-  const events = read.events;
+  return inspectRunEvents(runId, read.events, evidenceOptions);
+}
+
+/** The same reducer for callers that already hold one validated event snapshot. */
+export function inspectRunEvents(
+  runId: RunId,
+  events: readonly Event[],
+  evidenceOptions: EvidenceGapOptions = {}
+): RunInspection {
   const replayed = replayRun(events);
 
   const children = new Map<RunId, ChildAccumulator>();

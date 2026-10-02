@@ -234,13 +234,15 @@ export interface InvocationLogRead {
  */
 export async function readInvocationRecords(
   stateRoot: string,
-  refusal = "refusing to use it"
+  refusal = "refusing to use it",
+  limits?: { readonly maxBytes?: number; readonly maxRecords?: number }
 ): Promise<InvocationLogRead> {
   const path = invocationsLogPath(stateRoot);
   const { values, recovery } = await readJsonlObjects(
     path,
     (line) =>
-      new DomainValidationError(`corrupt invocation jsonl at line ${line} of ${path}; ${refusal}`)
+      new DomainValidationError(`corrupt invocation jsonl at line ${line} of ${path}; ${refusal}`),
+    limits
   );
   return { path, values, recovery };
 }
