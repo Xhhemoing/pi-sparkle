@@ -66,10 +66,13 @@ export function writeResult(repo: string, overrides?: {
 }): NativeWriteSessionResult {
   const revision = git(repo, ["rev-parse", "HEAD"]).trim();
   const accepted = overrides?.accepted ?? true;
+  const runId = createRunId();
+  const candidatePath = path.join(path.dirname(repo), `candidate-${runId}`);
+  git(repo, ["worktree", "add", "--detach", candidatePath, revision]);
   return {
-    runId: createRunId(),
+    runId,
     status: overrides?.status ?? (accepted ? "COMPLETED" : "FAILED"),
-    candidatePath: "/unused/candidate",
+    candidatePath,
     sourceRevision: revision,
     artifact: artifactRef(),
     acceptance: acceptance(accepted),

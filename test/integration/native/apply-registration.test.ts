@@ -232,3 +232,50 @@ test("issued disposal refuses a replaced candidate path without recursive fallba
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+for (const scenario of ["tracked edit", "untracked file", "ignored file", "locked worktree", "registered replacement", "disposed replacement"] as const) {
+  test(`issued disposal preserves ${scenario}`, async () => {
+    const fixture = await makeRepo();
+    const stateRoot = path.join(fixture.root, "state");
+    try {
+      const writeSession = new NativeWriteSession({ stateRoot, executorFactory: writeExecutorFactory(), sandboxRoot: path.join(stateRoot, "sandbox") });
+      const result = await writeSession.execute({ sourceRepo: fixture.repo, objective: "Update value.ts", verification: VERIFY_OK });
+      assert.equal(result.acceptance.accepted, true, result.reason);
+      const registration = await import("../../../src/native/apply-registration.js");
+      const handle = await registration.issueApplyRegistration({ stateRoot, sourceRepo: fixture.repo, result });
+      const input = { stateRoot, sourceRepo: fixture.repo, runId: handle.runId, artifactId: handle.artifactId, candidatePath: handle.candidatePath };
+      await registration.applyIssuedCandidate(input);
+      const sourceHead = git(fixture.repo, ["rev-parse", "HEAD"]);
+      let preservedPath = path.join(handle.candidatePath, "user.txt");
+      if (scenario === "tracked edit") {
+        preservedPath = path.join(handle.candidatePath, "value.ts");
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "untracked file") {
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "ignored file") {
+        const commonDir = git(fixture.repo, ["rev-parse", "--git-common-dir"]).trim();
+        await writeFile(path.resolve(fixture.repo, commonDir, "info", "exclude"), "user.txt\n");
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "locked worktree") {
+        preservedPath = path.join(handle.candidatePath, "value.ts");
+        git(fixture.repo, ["worktree", "lock", handle.candidatePath]);
+      } else if (scenario === "registered replacement") {
+        git(fixture.repo, ["worktree", "move", handle.candidatePath, `${handle.candidatePath}.retained`]);
+        git(fixture.repo, ["worktree", "add", "--detach", handle.candidatePath, result.sourceRevision]);
+        await writeFile(preservedPath, "new user bytes\n");
+      } else {
+        await registration.disposeIssuedCandidate(input);
+        await mkdir(handle.candidatePath);
+        await writeFile(preservedPath, "new user bytes\n");
+      }
+      const before = await readFile(preservedPath, "utf8");
+      await assert.rejects(() => registration.disposeIssuedCandidate(input), /retained|identity|replacement|disposal|changes/i);
+      assert.equal(await readFile(preservedPath, "utf8"), before);
+      assert.equal(git(fixture.repo, ["rev-parse", "HEAD"]), sourceHead);
+      assert.equal(await readFile(path.join(fixture.repo, "value.ts"), "utf8"), AFTER);
+      await stat(result.artifact.path);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+}

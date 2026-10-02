@@ -46,6 +46,8 @@ export interface NativeDisposeResult {
 export interface NativeDisposeAuthorization {
   readonly sourceRepo: string;
   readonly sourceRevision: string;
+  readonly sourceIdentity: RepositoryIdentity;
+  readonly candidateIdentity: RepositoryIdentity;
 }
 
 function fail(message: string): never {
@@ -93,7 +95,7 @@ function directoryIdentity(value: string): string {
   return `${info.dev}:${info.ino}`;
 }
 
-interface RepositoryIdentity {
+export interface RepositoryIdentity {
   readonly root: string;
   readonly commonDir: string;
   readonly gitDir: string;
@@ -143,6 +145,16 @@ function candidateIdentity(candidate: string, source: RepositoryIdentity, revisi
     fail("candidate worktree is no longer at its accepted base revision");
   }
   return identity;
+}
+
+export function captureNativeDisposeAuthorization(sourceRepo: string, candidatePath: string, sourceRevision: string): NativeDisposeAuthorization {
+  const sourceIdentity = repositoryIdentity(sourceRepo);
+  return {
+    sourceRepo: sourceIdentity.root,
+    sourceRevision,
+    sourceIdentity,
+    candidateIdentity: candidateIdentity(candidatePath, sourceIdentity, sourceRevision)
+  };
 }
 
 interface SourceState { readonly revision: string; readonly branch: string; readonly status: string }
@@ -355,7 +367,9 @@ export class NativeApplySession {
 
     this.managed.set(candidate, {
       sourceRepo: preflight.sourceRepo,
-      sourceRevision: result.sourceRevision
+      sourceRevision: result.sourceRevision,
+      sourceIdentity,
+      candidateIdentity: identity
     });
     return {
       status: "APPLIED",
@@ -428,12 +442,20 @@ export class NativeApplySession {
     const sourceIdentity = repositoryIdentity(input.sourceRepo);
     const resolved = path.resolve(input.candidatePath);
     const candidate = candidateIdentity(resolved, sourceIdentity, input.sourceRevision);
-    const listing = git(sourceIdentity.root, ["worktree", "list", "--porcelain"]);
-    if (!listing.ok) fail(`cannot list worktrees from source repository: ${listing.detail}`);
-    const registered = listing.stdout.split(/\r?\n/).some((line) =>
-      line.startsWith("worktree ") && pathKey(line.slice("worktree ".length)) === pathKey(candidate.root)
-    );
-    if (!registered) fail("candidate is no longer a registered worktree");
+    if (!sameRepository(sourceIdentity, input.sourceIdentity) || !sameRepository(candidate, input.candidateIdentity)) {
+      fail("issued repository or candidate identity changed; disposal refused");
+    }
+    // Force is needed because the accepted candidate remains staged against
+    // its detached base. Only remove it if both tracked bytes and index match
+    // the source's current tree and there are no additional files, including
+    // ignored files. Later edits require manual inspection, never deletion.
+    const sourceTree = gitOrThrow(sourceIdentity.root, ["rev-parse", "HEAD^{tree}"]);
+    if (!git(candidate.root, ["diff", "--quiet", sourceTree, "--"]).ok
+      || !git(candidate.root, ["diff", "--cached", "--quiet", sourceTree, "--"]).ok
+      || gitOrThrow(candidate.root, ["ls-files", "--others", "--exclude-standard", "-z"]) !== ""
+      || gitOrThrow(candidate.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]) !== "") {
+      fail("candidate has changes beyond the source tree; retained for manual inspection");
+    }
 
     const remove = git(sourceIdentity.root, ["worktree", "remove", "--force", resolved]);
     if (!remove.ok) {
