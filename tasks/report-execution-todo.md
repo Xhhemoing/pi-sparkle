@@ -7,6 +7,12 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
+## Native cancellation — PS-03/O02 bounded continuation (2026-10-02)
+
+- [x] Async authorized command runner and signal propagation through closed-loop, native write verification, candidate coding tools and native apply. Pre-abort, in-flight cancellation, timeout and output-limit behavior are distinct; candidate/source preservation covered. Focused execution/native 58/0/0, write cancellation 9/0/0, apply cancellation + existing integration 12/0/0; typecheck/lint/diff checks pass. [Plan](../docs/superpowers/plans/2026-10-02-native-cancellation.md) · [Evidence](../docs/reports/2026-10-02-native-cancellation.md).
+- [ ] Independent review of this exact head; hosted Linux/Windows CI and the full preview gate remain required.
+- [ ] O03 cross-instance ownership/disposal, crash reconciliation and R10/R11 review remain open.
+
 ## Evidence invalidation — C2-evidence-2 (2026-10-01)
 
 - [x] PS-05 host-independent remainder, first slice (`TASK-20261001-evidence-invalidation`): plan `c2160aa`, RED `03b8820`, GREEN `1fbfd87`; focused evaluation 83/0, adjacent 339/0/1, `pnpm gate` 3222/0/19 + build PASS. Valid/invalidated/foreign classification with fail-closed unbound/snapshot handling; advisory only, host wiring waits for B2. [Plan](../docs/superpowers/plans/2026-10-01-evidence-invalidation.md) · [Evidence](../docs/reports/2026-10-01-evidence-invalidation.md).

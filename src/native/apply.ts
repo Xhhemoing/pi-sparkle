@@ -211,11 +211,21 @@ function isAcceptedWriteResult(result: NativeWriteSessionResult): boolean {
  * the source is touched. The command/argv come from the acceptance record that
  * the write session froze from trusted host input, not from any model text.
  */
-function reverifyCandidate(verification: { command: string; args: readonly string[] }, candidatePath: string): void {
+async function reverifyCandidate(
+  verification: { command: string; args: readonly string[] },
+  candidatePath: string,
+  signal?: AbortSignal
+): Promise<void> {
   // Validate the trusted host command shape, then run the real check inside
   // the candidate. This executes candidate code; host policy applies.
   prepareVerification(verification);
-  const check = runIndependentCheck({ cwd: candidatePath, command: verification.command, args: [...verification.args] });
+  const check = await runIndependentCheck({
+    cwd: candidatePath,
+    command: verification.command,
+    args: [...verification.args],
+    ...(signal === undefined ? {} : { signal })
+  });
+  if (signal?.aborted) fail("apply aborted during candidate verification");
   if (!check.ok) {
     fail(`candidate re-verification failed before apply (exitCode=${check.exitCode})`);
   }
@@ -276,7 +286,9 @@ export class NativeApplySession {
 
     // Re-verify inside the candidate with the frozen host command before the
     // source is mutated. This executes candidate code; host policy applies.
-    reverifyCandidate(preflight.verification, candidate);
+    await reverifyCandidate(preflight.verification, candidate, input.signal);
+
+    if (input.signal?.aborted) fail("apply aborted after verification; candidate not applied");
 
     if (!sameRepository(identity, candidateIdentity(candidate, sourceIdentity, preflight.revision))) {
       fail("candidate worktree identity changed during verification; candidate not applied");

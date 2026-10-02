@@ -246,6 +246,27 @@ test("shutdown settles active work and skips acceptance", async () => {
   });
 });
 
+test("cancellation during host verification retains the candidate without acceptance", async () => {
+  await withRepo(async ({ repo, stateRoot }) => {
+    const controller = new AbortController();
+    const calls = { count: 0, requests: [] as AgentExecutionRequest[] };
+    const session = await makeSession({ stateRoot, executorFactory: executorFactory("write", calls) });
+    const pending = session.execute({
+      ...input(repo),
+      verification: { command: process.execPath, args: ["-e", "setInterval(() => {}, 30000)"] },
+      signal: controller.signal
+    });
+    setTimeout(() => controller.abort(), 80).unref();
+    const result = await pending;
+    await withRetainedCandidate(repo, result, async () => {
+      assert.equal(result.status, "CANCELLED");
+      assert.equal(result.acceptance.accepted, false);
+      assert.match(result.reason, /cancel/i);
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+    });
+  });
+});
+
 test("thrown executor failure is retained and cannot be accepted", async () => {
   await withRepo(async ({ repo, stateRoot }) => {
     const calls = { count: 0, requests: [] as AgentExecutionRequest[] };

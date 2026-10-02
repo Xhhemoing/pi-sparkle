@@ -34,6 +34,12 @@ export {
   type CommandPolicy
 } from "./command-policy.js";
 export {
+  runAuthorizedCommand,
+  type AuthorizedCommandRunInput,
+  type AuthorizedCommandRunResult,
+  type CommandRunStatus
+} from "./command-runner.js";
+export {
   closeClosedLoop,
   openClosedLoop,
   runClosedLoopCheck,
