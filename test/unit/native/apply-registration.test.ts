@@ -182,11 +182,17 @@ test("foreign runs and mutated artifacts are refused at apply time", async () =>
   });
 });
 
-test("session-scoped disposal refuses paths never managed by an apply session", async () => {
-  await withStateRoot(async ({ repo }) => {
+test("issued disposal requires the durable receipt identity", async () => {
+  await withStateRoot(async ({ repo, stateRoot }) => {
     await assert.rejects(
-      () => disposeIssuedCandidate({ candidatePath: repo }),
-      /managed|issued|session/i
+      () => disposeIssuedCandidate({
+        stateRoot,
+        sourceRepo: repo,
+        runId: "run_" + "f".repeat(64),
+        artifactId: "art_v2_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        candidatePath: repo
+      }),
+      /issued|artifact|run|candidate/i
     );
   });
 });
