@@ -11,7 +11,8 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 - [x] Async authorized command runner and signal propagation through closed-loop, native write verification, candidate coding tools and native apply. Pre-abort, in-flight cancellation, timeout and output-limit behavior are distinct; candidate/source preservation covered. Focused execution/native 58/0/0, write cancellation 9/0/0, apply cancellation + existing integration 12/0/0; typecheck/lint/diff checks pass. [Plan](../docs/superpowers/plans/2026-10-02-native-cancellation.md) · [Evidence](../docs/reports/2026-10-02-native-cancellation.md).
 - [ ] Independent review of this exact head; hosted Linux/Windows CI and the full preview gate remain required.
-- [ ] O03 cross-instance ownership/disposal, crash reconciliation and R10/R11 review remain open.
+- [x] O03 non-crash cross-instance disposal is implemented in PR #55 (`f024a7b027f423812118aff0e865a2dd2fb4441a`): fresh-instance disposal, identity/mutation/lock/replacement refusal, idempotent disposal receipt, retained evidence, and host-only disposal command. Hosted Linux/Windows regression, quality, and CLI smoke checks are 5/5 success; focused disposal suite is 59/0/0. [Plan](../docs/superpowers/plans/2026-10-02-native-candidate-disposal.md) · [Evidence](../docs/reports/2026-10-02-native-candidate-disposal.md) · [PR #55](https://github.com/Xhhemoing/pi-sparkle/pull/55)
+- [ ] O03 crash reconciliation after Git removal and before disposal-receipt persistence, plus the separate R10/R11 review boundary, remain open; no production authorization or automatic write-to-apply chaining is claimed.
 
 ## Evidence invalidation — C2-evidence-2 (2026-10-01)
 
