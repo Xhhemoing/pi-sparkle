@@ -1,6 +1,6 @@
 {
   "name": "pi-sparkle",
-  "version": "0.1.0",
+  "version": "0.1.0-preview.2",
   "private": true,
   "description": "Project-development multi-agent runtime built on Pi",
   "license": "MIT",
@@ -19,7 +19,7 @@
   "bin": {
     "pi-sparkle": "dist/cli/main.js"
   },
-    "files": [
+  "files": [
     "dist",
     "src",
     "extensions",
@@ -32,7 +32,9 @@
     "examples"
   ],
   "pi": {
-    "extensions": ["./extensions/pi-sparkle/index.ts"],
+    "extensions": [
+      "./extensions/pi-sparkle/index.ts"
+    ],
     "skills": [
       ".agents/skills"
     ],
@@ -76,7 +78,9 @@
     "@earendil-works/pi-coding-agent": ">=0.84.4 <0.87.0"
   },
   "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": { "optional": true }
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.86.1",

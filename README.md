@@ -1,6 +1,6 @@
 # pi-sparkle
 
-**Developer Preview (0.1.0; `private: true`).** This repository **will not
+**Developer Preview (0.1.0-preview.2; `private: true`).** This repository **will not
 publish to npm**. Clone the repository and use pnpm locally; npm/global/package
 installation is unsupported. The fake-executor CLI (`run` / `inspect` /
 `resume` / `--flowchart` / `--children`) is the supported path. Real providers
@@ -211,7 +211,7 @@ pnpm cli run \
 
 | Command | Description |
 |---------|-------------|
-| `pnpm cli version` | Print `0.1.0` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
+| `pnpm cli version` | Print `0.1.0-preview.2` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
 | `pnpm cli help` | Print the usage block (same as `--help` / `-h`). It is the authoritative flag list; this table is the shorter tour |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--max-cost-usd`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
@@ -295,7 +295,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Development workflow](docs/development-workflow.md) · [Agent rules](AGENTS.md) · [Active tasks](tasks/)
-- [Developer Preview 0.1.0-preview.1 (2026-08-27)](docs/reports/2026-08-27-preview-declaration.md)
+- [Developer Preview 0.1.0-preview.2 (2026-10-01)](docs/reports/2026-10-01-preview-declaration.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
 - [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
 - [Architecture](docs/specs/m0-m2-architecture.md)

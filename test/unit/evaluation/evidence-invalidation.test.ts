@@ -160,3 +160,28 @@ test("records carry the dependency snapshot they were created against", () => {
   });
   assert.deepEqual(carried.dependencyVersions, snapshot);
 });
+
+
+test("created records snapshot mutable evidence bindings", () => {
+  const target = {
+    artifactId: reference.artifactId,
+    artifactVersion: reference.artifactVersion
+  };
+  const dependencies = { ...reference.dependencyVersions };
+  const evaluatorInput = { ...evaluator };
+  const created = createEvaluationRecord({
+    episodeId: createEpisodeId(UUID),
+    evaluator: evaluatorInput,
+    rubric,
+    evidence: { "ac-1": "ev-1" },
+    target,
+    dependencyVersions: dependencies
+  });
+
+  (target as { artifactVersion: string }).artifactVersion = "v4";
+  dependencies["tool-node"] = "24.18.0";
+  (evaluatorInput as { version: string }).version = "eval-v2";
+
+  const verdict = assessEvidenceValidity(created, reference);
+  assert.equal(verdict.state, "valid");
+});
