@@ -41,3 +41,46 @@ export function parseCandidateCommandArgs(input: string): readonly [string, stri
   if (parts.length !== 5) throw new Error("Expected exactly five candidate arguments");
   return [parts[0]!, parts[1]!, parts[2]!, parts[3]!, parts[4]!];
 }
+
+export interface CandidateDisposalArgs {
+  readonly runId: string;
+  readonly artifactId: string;
+  readonly candidatePath: string;
+  readonly sourceRepo: string;
+  readonly stateRoot: string;
+}
+
+/**
+ * Parse the host-only disposal command. JSON is preferred for paths containing
+ * quotes; the five quoted positional arguments remain supported for existing
+ * command-line habits. This parser performs no shell expansion or execution.
+ */
+export function parseCandidateDisposalArgs(input: string): CandidateDisposalArgs {
+  const trimmed = input.trim();
+  if (trimmed.startsWith("{")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed) as unknown;
+    } catch {
+      throw new Error("Disposal JSON is invalid");
+    }
+    if (parsed === null || typeof parsed !== "object") throw new Error("Disposal JSON must be an object");
+    const record = parsed as Record<string, unknown>;
+    const fields = ["runId", "artifactId", "candidatePath", "sourceRepo", "stateRoot"] as const;
+    if (Object.keys(record).some((key) => !fields.includes(key as (typeof fields)[number]))) {
+      throw new Error("Disposal JSON contains unknown fields");
+    }
+    if (fields.some((field) => typeof record[field] !== "string" || (record[field] as string).trim() === "")) {
+      throw new Error("Disposal JSON fields must be nonempty strings");
+    }
+    return {
+      runId: record.runId as string,
+      artifactId: record.artifactId as string,
+      candidatePath: record.candidatePath as string,
+      sourceRepo: record.sourceRepo as string,
+      stateRoot: record.stateRoot as string
+    };
+  }
+  const [runId, artifactId, candidatePath, sourceRepo, stateRoot] = parseCandidateCommandArgs(input);
+  return { runId, artifactId, candidatePath, sourceRepo, stateRoot };
+}

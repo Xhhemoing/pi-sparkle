@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
@@ -42,6 +41,13 @@ export interface NativeApplyResult {
 export interface NativeDisposeResult {
   readonly status: "DISPOSED";
   readonly candidatePath: string;
+}
+
+export interface NativeDisposeAuthorization {
+  readonly sourceRepo: string;
+  readonly sourceRevision: string;
+  readonly sourceIdentity: RepositoryIdentity;
+  readonly candidateIdentity: RepositoryIdentity;
 }
 
 function fail(message: string): never {
@@ -89,7 +95,7 @@ function directoryIdentity(value: string): string {
   return `${info.dev}:${info.ino}`;
 }
 
-interface RepositoryIdentity {
+export interface RepositoryIdentity {
   readonly root: string;
   readonly commonDir: string;
   readonly gitDir: string;
@@ -139,6 +145,16 @@ function candidateIdentity(candidate: string, source: RepositoryIdentity, revisi
     fail("candidate worktree is no longer at its accepted base revision");
   }
   return identity;
+}
+
+export function captureNativeDisposeAuthorization(sourceRepo: string, candidatePath: string, sourceRevision: string): NativeDisposeAuthorization {
+  const sourceIdentity = repositoryIdentity(sourceRepo);
+  return {
+    sourceRepo: sourceIdentity.root,
+    sourceRevision,
+    sourceIdentity,
+    candidateIdentity: candidateIdentity(candidatePath, sourceIdentity, sourceRevision)
+  };
 }
 
 interface SourceState { readonly revision: string; readonly branch: string; readonly status: string }
@@ -240,7 +256,7 @@ function prepareVerification(input: NativeWriteVerificationInput): { command: st
 }
 
 export class NativeApplySession {
-  private readonly managed = new Set<string>();
+  private readonly managed = new Map<string, NativeDisposeAuthorization>();
   private closed = false;
 
   get managedCount(): number {
@@ -349,7 +365,12 @@ export class NativeApplySession {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, "source did not retain the expected candidate revision and clean checkout");
     }
 
-    this.managed.add(candidate);
+    this.managed.set(candidate, {
+      sourceRepo: preflight.sourceRepo,
+      sourceRevision: result.sourceRevision,
+      sourceIdentity,
+      candidateIdentity: identity
+    });
     return {
       status: "APPLIED",
       appliedRevision: candidateCommit,
@@ -390,23 +411,58 @@ export class NativeApplySession {
     if (this.closed) fail("native apply session is shut down");
     if (typeof candidatePath !== "string" || candidatePath.trim() === "") fail("candidate path is required");
     const resolved = path.resolve(candidatePath);
-    if (!this.managed.has(resolved)) {
+    const authorization = this.managed.get(resolved);
+    if (authorization === undefined) {
       fail(`path is not a managed candidate worktree: ${resolved}`);
     }
-    // Resolve the owning main repository from the worktree itself, so removal
-    // is issued by the repo that owns the worktree registry.
-    const listing = git(resolved, ["worktree", "list", "--porcelain"]);
-    if (!listing.ok) fail(`cannot list worktrees from candidate: ${listing.detail}`);
-    const firstLine = listing.stdout.split(/\r?\n/, 1)[0] ?? "";
-    if (!firstLine.startsWith("worktree ")) fail("cannot resolve the owning repository of the candidate");
-    const mainRepo = path.resolve(firstLine.slice("worktree ".length));
-    const remove = git(mainRepo, ["worktree", "remove", "--force", resolved]);
-    if (!remove.ok) {
-      // Best-effort fallback: directory may already be gone; still prune.
-      await rm(resolved, { recursive: true, force: true }).catch(() => undefined);
-      git(mainRepo, ["worktree", "prune"]);
-    }
+    const disposed = await this.disposeAuthorized({
+      ...authorization,
+      candidatePath: resolved
+    });
     this.managed.delete(resolved);
+    return disposed;
+  }
+
+  /**
+   * Dispose a candidate using a durable host-issued identity rather than this
+   * process's in-memory managed set. The caller must have already verified the
+   * run-scoped receipt; this method rechecks the live Git registration and base
+   * revision before removing it. It never recursively removes a replacement
+   * path when Git refuses the worktree removal.
+   */
+  async disposeAuthorized(input: NativeDisposeAuthorization & { readonly candidatePath: string }): Promise<NativeDisposeResult> {
+    if (this.closed) fail("native apply session is shut down");
+    if (typeof input !== "object" || input === null) fail("dispose authorization is required");
+    if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
+    if (typeof input.sourceRevision !== "string" || !/^[0-9a-f]{40}$/.test(input.sourceRevision)) {
+      fail("source revision is required");
+    }
+    if (typeof input.candidatePath !== "string" || input.candidatePath.trim() === "") fail("candidate path is required");
+
+    const sourceIdentity = repositoryIdentity(input.sourceRepo);
+    const resolved = path.resolve(input.candidatePath);
+    const candidate = candidateIdentity(resolved, sourceIdentity, input.sourceRevision);
+    if (!sameRepository(sourceIdentity, input.sourceIdentity) || !sameRepository(candidate, input.candidateIdentity)) {
+      fail("issued repository or candidate identity changed; disposal refused");
+    }
+    // Force is needed because the accepted candidate remains staged against
+    // its detached base. Only remove it if both tracked bytes and index match
+    // the source's current tree and there are no additional files, including
+    // ignored files. Later edits require manual inspection, never deletion.
+    const sourceTree = gitOrThrow(sourceIdentity.root, ["rev-parse", "HEAD^{tree}"]);
+    if (!git(candidate.root, ["diff", "--quiet", sourceTree, "--"]).ok
+      || !git(candidate.root, ["diff", "--cached", "--quiet", sourceTree, "--"]).ok
+      || gitOrThrow(candidate.root, ["ls-files", "--others", "--exclude-standard", "-z"]) !== ""
+      || gitOrThrow(candidate.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]) !== "") {
+      fail("candidate has changes beyond the source tree; retained for manual inspection");
+    }
+
+    const remove = git(sourceIdentity.root, ["worktree", "remove", "--force", resolved]);
+    if (!remove.ok) {
+      // A failed Git removal is an unresolved disposal. Never report success
+      // and never recursively remove a path that may have been replaced.
+      fail(`candidate disposal failed; candidate retained: ${remove.detail}`);
+    }
     return { status: "DISPOSED", candidatePath: resolved };
   }
 

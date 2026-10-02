@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -20,7 +20,7 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 async function makeRepo(): Promise<{ root: string; repo: string }> {
-  const root = await mkdtemp(path.join(tmpdir(), "native-apply-tool-int-"));
+  const root = await mkdtemp(path.join(tmpdir(), "native apply tool '中文' "));
   const repo = path.join(root, "repo");
   await mkdir(repo);
   git(repo, ["init"]);
@@ -121,8 +121,9 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     // The host/user registers the issued handle through the host-only
     // command path (the slash command cannot be invoked by the model).
     const issueCommand = extension.commands.get("sparkle-issue-candidate")!;
+    const quote = (value: string): string => `"${value}"`;
     await issueCommand.handler(
-      `${handle.runId} ${handle.artifactId} ${handle.candidatePath} ${fixture.repo} ${stateRoot}`,
+      [handle.runId, handle.artifactId, handle.candidatePath, fixture.repo, stateRoot].map(quote).join(" "),
       { cwd: fixture.root, hasUI: false } as never
     );
     const applied = await applyTool.execute(
@@ -135,6 +136,26 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     assert.ok(applied, "issued handle must be accepted by the tool");
     assert.match(applied.content[0]!.text, /Applied/);
     assert.equal(applied.details.status, "APPLIED");
+
+    // Disposal is authorized by the durable issued receipt, so a fresh
+    // management instance can safely remove the retained candidate.
+    const disposed = await regMod.disposeIssuedCandidate({
+      stateRoot,
+      sourceRepo: fixture.repo,
+      runId: handle.runId,
+      artifactId: handle.artifactId,
+      candidatePath: handle.candidatePath
+    });
+    assert.equal(disposed.status, "DISPOSED");
+    assert.equal(await readFile(result.artifact.path, "utf8").then(() => true).catch(() => false), true, "run evidence must remain");
+    const repeated = await regMod.disposeIssuedCandidate({
+      stateRoot,
+      sourceRepo: fixture.repo,
+      runId: handle.runId,
+      artifactId: handle.artifactId,
+      candidatePath: handle.candidatePath
+    });
+    assert.equal(repeated.status, "DISPOSED", "repeated disposal must be idempotent");
 
     // 5. Source carries the candidate content; verification passes at root.
     assert.equal(await readFile(path.join(fixture.repo, "value.ts"), "utf8"), AFTER);
@@ -152,3 +173,109 @@ test("registered apply tool round-trips an issued candidate through the Pi loade
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("issued disposal refuses a replaced candidate path without recursive fallback", async () => {
+  const fixture = await makeRepo();
+  const stateRoot = path.join(fixture.root, "state");
+  let candidatePath = "";
+  try {
+    const writeSession = new NativeWriteSession({ stateRoot, executorFactory: writeExecutorFactory(), sandboxRoot: path.join(stateRoot, "sandbox") });
+    const result = await writeSession.execute({
+      sourceRepo: fixture.repo,
+      objective: "Update value.ts",
+      verification: VERIFY_OK
+    });
+    assert.equal(result.acceptance.accepted, true, result.reason);
+    candidatePath = result.candidatePath;
+    const regMod = await import("../../../src/native/apply-registration.js");
+    const handle = await regMod.issueApplyRegistration({ stateRoot, sourceRepo: fixture.repo, result });
+    await regMod.applyIssuedCandidate({
+      stateRoot,
+      sourceRepo: fixture.repo,
+      runId: handle.runId,
+      artifactId: handle.artifactId,
+      candidatePath: handle.candidatePath
+    });
+
+    const retained = `${candidatePath}.retained`;
+    await rename(candidatePath, retained);
+    await mkdir(candidatePath);
+    await assert.rejects(
+      () => regMod.disposeIssuedCandidate({
+        stateRoot,
+        sourceRepo: fixture.repo,
+        runId: handle.runId,
+        artifactId: handle.artifactId,
+        candidatePath: handle.candidatePath
+      }),
+      /worktree|Git|candidate|repository/i
+    );
+    await stat(candidatePath);
+    await rm(candidatePath, { recursive: true, force: true });
+    await rename(retained, candidatePath);
+    await regMod.disposeIssuedCandidate({
+      stateRoot,
+      sourceRepo: fixture.repo,
+      runId: handle.runId,
+      artifactId: handle.artifactId,
+      candidatePath: handle.candidatePath
+    });
+  } finally {
+    if (candidatePath !== "") {
+      await disposeIsolatedWorktree({
+        cwd: candidatePath,
+        sandboxRoot: path.dirname(candidatePath),
+        sourceRepo: fixture.repo,
+        ref: git(fixture.repo, ["rev-parse", "HEAD"]).trim()
+      }).catch(() => undefined);
+    }
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+for (const scenario of ["tracked edit", "untracked file", "ignored file", "locked worktree", "registered replacement", "disposed replacement"] as const) {
+  test(`issued disposal preserves ${scenario}`, async () => {
+    const fixture = await makeRepo();
+    const stateRoot = path.join(fixture.root, "state");
+    try {
+      const writeSession = new NativeWriteSession({ stateRoot, executorFactory: writeExecutorFactory(), sandboxRoot: path.join(stateRoot, "sandbox") });
+      const result = await writeSession.execute({ sourceRepo: fixture.repo, objective: "Update value.ts", verification: VERIFY_OK });
+      assert.equal(result.acceptance.accepted, true, result.reason);
+      const registration = await import("../../../src/native/apply-registration.js");
+      const handle = await registration.issueApplyRegistration({ stateRoot, sourceRepo: fixture.repo, result });
+      const input = { stateRoot, sourceRepo: fixture.repo, runId: handle.runId, artifactId: handle.artifactId, candidatePath: handle.candidatePath };
+      await registration.applyIssuedCandidate(input);
+      const sourceHead = git(fixture.repo, ["rev-parse", "HEAD"]);
+      let preservedPath = path.join(handle.candidatePath, "user.txt");
+      if (scenario === "tracked edit") {
+        preservedPath = path.join(handle.candidatePath, "value.ts");
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "untracked file") {
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "ignored file") {
+        const commonDir = git(fixture.repo, ["rev-parse", "--git-common-dir"]).trim();
+        await writeFile(path.resolve(fixture.repo, commonDir, "info", "exclude"), "user.txt\n");
+        await writeFile(preservedPath, "new user bytes\n");
+      } else if (scenario === "locked worktree") {
+        preservedPath = path.join(handle.candidatePath, "value.ts");
+        git(fixture.repo, ["worktree", "lock", handle.candidatePath]);
+      } else if (scenario === "registered replacement") {
+        git(fixture.repo, ["worktree", "move", handle.candidatePath, `${handle.candidatePath}.retained`]);
+        git(fixture.repo, ["worktree", "add", "--detach", handle.candidatePath, result.sourceRevision]);
+        await writeFile(preservedPath, "new user bytes\n");
+      } else {
+        await registration.disposeIssuedCandidate(input);
+        await mkdir(handle.candidatePath);
+        await writeFile(preservedPath, "new user bytes\n");
+      }
+      const before = await readFile(preservedPath, "utf8");
+      await assert.rejects(() => registration.disposeIssuedCandidate(input), /retained|identity|replacement|disposal|changes/i);
+      assert.equal(await readFile(preservedPath, "utf8"), before);
+      assert.equal(git(fixture.repo, ["rev-parse", "HEAD"]), sourceHead);
+      assert.equal(await readFile(path.join(fixture.repo, "value.ts"), "utf8"), AFTER);
+      await stat(result.artifact.path);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+}

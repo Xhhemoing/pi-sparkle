@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseCandidateCommandArgs } from "../../../src/native/command-args.js";
+import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../../src/native/command-args.js";
 
 const cases: readonly { name: string; input: string; expected: readonly string[] }[] = [
   { name: "legacy unquoted paths", input: "run_1 art_v2_1 /tmp/candidate /tmp/source /tmp/state",
@@ -36,3 +36,23 @@ for (const input of [
     assert.throws(() => parseCandidateCommandArgs(input));
   });
 }
+
+test("disposal parser accepts structured JSON and quoted positional paths", () => {
+  const expected = {
+    runId: "run_1",
+    artifactId: "art_v2_1",
+    candidatePath: "C:\\Candidate Work\\'中文'",
+    sourceRepo: "C:\\Source Repo\\'中文'",
+    stateRoot: "C:\\State Root\\'中文'"
+  };
+  assert.deepEqual(parseCandidateDisposalArgs(JSON.stringify(expected)), expected);
+  assert.deepEqual(
+    parseCandidateDisposalArgs(
+      [expected.runId, expected.artifactId, expected.candidatePath, expected.sourceRepo, expected.stateRoot]
+        .map((value) => `"${value}"`)
+        .join(" ")
+    ),
+    expected
+  );
+  assert.throws(() => parseCandidateDisposalArgs('{"runId":"run_1","extra":"refused"}'), /unknown fields/i);
+});

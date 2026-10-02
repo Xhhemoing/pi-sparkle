@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
+import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import type { ClosedLoopAcceptance } from "../execution/acceptance.js";
 import {
@@ -7,7 +8,7 @@ import {
   saveLoopArtifact,
   type LoopArtifactRef
 } from "../execution/loop-artifact.js";
-import type { NativeApplyInput } from "./apply.js";
+import { captureNativeDisposeAuthorization, type NativeApplyInput, type NativeDisposeAuthorization } from "./apply.js";
 import type { NativeWriteSessionResult } from "./write-session.js";
 
 /**
@@ -33,12 +34,24 @@ import type { NativeWriteSessionResult } from "./write-session.js";
  */
 
 const REGISTRATION_KIND = "native-apply-registration" as const;
-const REGISTRATION_SCHEMA = 1;
+const REGISTRATION_SCHEMA = 2;
+const DISPOSAL_KIND = "native-apply-disposal" as const;
+const DISPOSAL_SCHEMA = 1;
 
 interface StoredCandidateArtifact {
   readonly kind: typeof REGISTRATION_KIND;
   readonly registrationSchema: typeof REGISTRATION_SCHEMA;
+  readonly sourceRepo: string;
+  readonly disposalAuthorization: NativeDisposeAuthorization;
   readonly result: NativeWriteSessionResult;
+}
+
+interface StoredDisposalArtifact {
+  readonly kind: typeof DISPOSAL_KIND;
+  readonly disposalSchema: typeof DISPOSAL_SCHEMA;
+  readonly registrationArtifactId: string;
+  readonly sourceRepo: string;
+  readonly candidatePath: string;
 }
 
 interface PsP3LoopArtifact {
@@ -80,6 +93,7 @@ export interface IssuedApplyCandidate {
   readonly runId: NativeWriteSessionResult["runId"];
   readonly artifactId: string;
   readonly candidatePath: string;
+  readonly sourceRepo: string;
   readonly sourceRevision: string;
   readonly accepted: true;
 }
@@ -119,6 +133,8 @@ export async function issueApplyRegistration(
   const body: StoredCandidateArtifact = {
     kind: REGISTRATION_KIND,
     registrationSchema: REGISTRATION_SCHEMA,
+    sourceRepo: path.resolve(input.sourceRepo),
+    disposalAuthorization: captureNativeDisposeAuthorization(input.sourceRepo, input.result.candidatePath, input.result.sourceRevision),
     result: input.result
   };
   const artifact = await saveLoopArtifact({
@@ -130,6 +146,7 @@ export async function issueApplyRegistration(
     runId: input.result.runId,
     artifactId: artifact.id,
     candidatePath: input.result.candidatePath,
+    sourceRepo: path.resolve(input.sourceRepo),
     sourceRevision: input.result.sourceRevision,
     accepted: true
   };
@@ -187,7 +204,7 @@ async function readIssuedArtifact(
   }
 }
 
-async function reconstructIssuedResult(input: ApplyIssuedCandidateInput): Promise<NativeWriteSessionResult> {
+async function reconstructIssuedResult(input: ApplyIssuedCandidateInput, requireDisposalIdentity = false): Promise<NativeWriteSessionResult> {
   validateHandleShape(input);
   const body = await readIssuedArtifact(input.stateRoot, input.runId, input.artifactId);
   if (
@@ -195,13 +212,18 @@ async function reconstructIssuedResult(input: ApplyIssuedCandidateInput): Promis
     typeof body === "object" &&
     (body as { kind?: unknown }).kind === REGISTRATION_KIND
   ) {
-    if ((body as StoredCandidateArtifact).registrationSchema !== REGISTRATION_SCHEMA) {
+    const schema = (body as { registrationSchema?: unknown }).registrationSchema;
+    if (schema !== REGISTRATION_SCHEMA && (requireDisposalIdentity || schema !== 1)) {
       fail("issued artifact body has an unsupported registration schema");
     }
     const stored = (body as { result: unknown }).result;
     if (!isAcceptedWriteResult(stored)) fail("issued artifact body does not carry an accepted result");
     if (stored.runId !== input.runId) fail("issued artifact body names a different run");
     if (stored.candidatePath !== input.candidatePath) fail("candidate path does not match the issued record");
+    const storedSourceRepo = (body as { sourceRepo?: unknown }).sourceRepo;
+    if (schema === REGISTRATION_SCHEMA && (typeof storedSourceRepo !== "string" || path.resolve(storedSourceRepo) !== path.resolve(input.sourceRepo))) {
+      fail("source repository does not match the issued record");
+    }
     return stored;
   }
   fail("issued artifact body is not a native-apply-registration record");
@@ -263,23 +285,91 @@ function emptyHandle(): ApplyIssuedCandidateInput {
 }
 
 export interface DisposeIssuedCandidateInput {
+  readonly stateRoot: string;
+  readonly sourceRepo: string;
+  readonly runId: string;
+  readonly artifactId: string;
   readonly candidatePath: string;
 }
 
+async function findDisposalReceipt(input: DisposeIssuedCandidateInput): Promise<boolean> {
+  validateHandleShape(input as ApplyIssuedCandidateInput);
+  const dir = loopArtifactsDir(input.stateRoot, input.runId as Parameters<typeof loopArtifactsDir>[1]);
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const id = entry.slice(0, -".json".length);
+    if (!/^art_v2_[0-9a-f-]{36}$/.test(id)) continue;
+    const body = await readIssuedArtifact(input.stateRoot, input.runId, id);
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      (body as { kind?: unknown }).kind === DISPOSAL_KIND &&
+      (body as StoredDisposalArtifact).disposalSchema === DISPOSAL_SCHEMA &&
+      (body as StoredDisposalArtifact).registrationArtifactId === input.artifactId &&
+      (body as StoredDisposalArtifact).candidatePath === input.candidatePath &&
+      typeof (body as StoredDisposalArtifact).sourceRepo === "string" &&
+      path.resolve((body as StoredDisposalArtifact).sourceRepo) === path.resolve(input.sourceRepo)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Dispose one candidate through a fresh apply session's managed-path check.
- * Only worktree paths that an apply session previously applied (managed)
- * can be removed; foreign paths are refused by the apply module.
+ * Dispose one issued candidate through a fresh apply session. The durable
+ * registration receipt binds the source repository, accepted base revision,
+ * and candidate path; the apply module rechecks the live worktree identity
+ * before removal. A disposal receipt makes a successful retry idempotent.
  */
 export async function disposeIssuedCandidate(
   input: DisposeIssuedCandidateInput
 ): Promise<{ status: "DISPOSED"; candidatePath: string }> {
   if (input === null || typeof input !== "object") fail("input is required");
+  if (typeof input.stateRoot !== "string" || input.stateRoot.trim() === "") fail("state root is required");
+  if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
+  if (typeof input.runId !== "string" || input.runId.trim() === "") fail("run id is required");
+  if (typeof input.artifactId !== "string" || input.artifactId.trim() === "") fail("artifact id is required");
   if (typeof input.candidatePath !== "string" || input.candidatePath.trim() === "") {
     fail("candidate path is required");
   }
+  const result = await reconstructIssuedResult(input, true);
+  if (await findDisposalReceipt(input)) {
+    try {
+      await lstat(input.candidatePath);
+    } catch (error) {
+      if (error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+        return { status: "DISPOSED", candidatePath: path.resolve(input.candidatePath) };
+      }
+      throw error;
+    }
+    fail("disposed candidate path exists again; replacement retained for inspection");
+  }
+  const registration = await readIssuedArtifact(input.stateRoot, input.runId, input.artifactId) as StoredCandidateArtifact;
+  const authorization = registration.disposalAuthorization;
+  if (authorization === null || typeof authorization !== "object"
+    || authorization.sourceIdentity === null || typeof authorization.sourceIdentity !== "object"
+    || authorization.candidateIdentity === null || typeof authorization.candidateIdentity !== "object"
+    || authorization.sourceRevision !== result.sourceRevision) fail("issued disposal identity is missing or invalid");
   const { NativeApplySession } = await import("./apply.js");
   const session = new NativeApplySession();
-  const disposed = await session.dispose(input.candidatePath);
-  return { status: disposed.status, candidatePath: disposed.candidatePath };
+  const disposed = await session.disposeAuthorized({
+    ...authorization,
+    sourceRepo: input.sourceRepo,
+    sourceRevision: result.sourceRevision,
+    candidatePath: input.candidatePath
+  });
+  await saveLoopArtifact({
+    stateRoot: input.stateRoot,
+    runId: input.runId as NativeWriteSessionResult["runId"],
+    body: {
+      kind: DISPOSAL_KIND,
+      disposalSchema: DISPOSAL_SCHEMA,
+      registrationArtifactId: input.artifactId,
+      sourceRepo: path.resolve(input.sourceRepo),
+      candidatePath: disposed.candidatePath
+    } satisfies StoredDisposalArtifact
+  });
+  return disposed;
 }

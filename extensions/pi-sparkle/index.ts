@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { parseCandidateCommandArgs } from "../../src/native/command-args.js";
+import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { NativeSession } from "../../src/native/session.js";
@@ -186,6 +186,28 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
       const [runId, artifactId, candidatePath, sourceRepo, stateRoot] = parts;
       issuedCandidates.set(runId, { stateRoot, sourceRepo, runId, artifactId, candidatePath });
       if (ctx.hasUI) ctx.ui.notify(`Issued apply handle for ${runId}. The model may now call sparkle_apply_candidate with this handle.`, "info");
+    }
+  });
+  pi.registerCommand("sparkle-dispose-candidate", {
+    description: "Dispose one retained issued candidate after inspection (host/user action)",
+    handler: async (args, ctx) => {
+      let input: ReturnType<typeof parseCandidateDisposalArgs>;
+      try {
+        input = parseCandidateDisposalArgs(args);
+      } catch (error) {
+        if (ctx.hasUI) ctx.ui.notify(
+          `usage: /sparkle-dispose-candidate {"runId":"...","artifactId":"...","candidatePath":"...","sourceRepo":"...","stateRoot":"..."} or five quoted arguments. ${error instanceof Error ? error.message : String(error)}`,
+          "error"
+        );
+        return;
+      }
+      try {
+        const { disposeIssuedCandidate } = await import("../../src/native/apply-registration.js");
+        const disposed = await disposeIssuedCandidate(input);
+        if (ctx.hasUI) ctx.ui.notify(`Disposed retained candidate ${disposed.candidatePath}. Run evidence remains available.`, "info");
+      } catch (error) {
+        if (ctx.hasUI) ctx.ui.notify(`Candidate disposal refused: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
     }
   });
   pi.registerCommand("sparkle-status", {
