@@ -1,5 +1,11 @@
 # Active checklist
 
+## PS-06 status/recovery projection (2026-10-02)
+
+- [x] Correct the draft's absent-log, foreign-run cost, swallowed-corruption and child-verification wiring defects with RED→GREEN tests; focused run/telemetry/CLI check: 372 tests / 370 pass / 0 fail / 2 skip. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [x] Full `pnpm gate`: 3257 tests / 3238 pass / 0 fail / 19 skip, build PASS; security probe 26 PASS and Pi probe four PASS (2026-10-02, source `e0affe5`). [Exact evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [ ] Independent review and main integration remain open. Grok read-only dispatch failed HTTP 403; no reviewer verdict. Candidate location/Web UI and PS-03/04/B2/S0-min/production gates are not part of this slice.
+
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
 - [x] Source synchronization, two remote deletions, local tracking-ref pruning and retained-work inventory checks verified on 2026-09-29; `pnpm workflow:check` and `git diff --check` PASS. [Exact evidence](../docs/reports/2026-09-29-sync-cleanup.md).

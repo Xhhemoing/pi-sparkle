@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## PS-06 status/recovery projection (2026-10-02)
+
+`TASK-20261001-ps06-status-projection`: host-independent opt-in `inspect --run --status-json` on `feat/status-projection-20261001`, based on main `cd47a75`. Existing summary/event/status contracts are unchanged; child verification is self-report, and own-run cost is a recorded subset, not settlement. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [verification / root causes / open gates](../docs/reports/2026-10-02-ps06-status-projection.md). Independent review and main integration remain open; no PS-03 ownership, PS-04 budget, B2/S0-min, live-provider, or production gate is closed.
+
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
 `TASK-20260929-sync-cleanup`: local main fast-forwarded by 15 commits to `b114255b`; fresh GitHub metadata confirms both PR #47 and #48 are merged. Their redundant remote branches were deleted and local tracking refs pruned. All nine local feature branches remain: eight have unmerged ancestry, and merged O09 owns dirty drafts. All 12 worktree paths and both stashes were preserved. [Plan](../docs/superpowers/plans/2026-09-29-sync-cleanup.md) · [verification and recovery](../docs/reports/2026-09-29-sync-cleanup.md). This dated source-integration fact supersedes earlier merge-pending snapshots below; independent acceptance and owner/experiment/production gates remain separate.

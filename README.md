@@ -75,6 +75,7 @@ This executes a deterministic fake agent, writes JSONL events, and produces a ch
 pnpm cli inspect --run <runId>
 pnpm cli inspect --run <runId> --json
 pnpm cli inspect --run <runId> --summary-json
+pnpm cli inspect --run <runId> --status-json
 pnpm cli inspect --episode <epId>
 ```
 
@@ -90,6 +91,21 @@ surface, is only available with `--run`, is not a domain event (no `id`, its
 `type` is outside the event union), and the two flags stay mutually
 exclusive. A stalled or blocked run also shows its `required evidence` list
 in the default prose view.
+
+`--status-json` prints exactly one `RUN_STATUS_PROJECTION` object: child-reported
+outcomes/verification/criteria (not independent acceptance), current blockers,
+this run's eligible token counts and fully priced USD subset, separate event
+and telemetry torn-tail flags, and advisory recovery commands. Missing files
+set `cost.invocationsAvailable: false`; empty files stay available. Unknown
+numeric totals are omitted, never invented as zero. Corruption, invalid rows,
+read limits and I/O failures are command errors, not missing data. Cost is not
+a bill, root-budget settlement, or child-run rollup. Outcome-success and
+unknown-verification counts can overlap. The output is a **frozen additive-only
+contract** (`RunStatusProjection` in `src/run/projection.ts`; field semantics in
+[the data dictionary](docs/data-dictionary.md#run-status-projection-ps-06)), only
+available with `--run`, mutually exclusive with `--json` / `--summary-json` /
+`--follow`, and read-only. It never invents a terminal status or accepts a
+model's "percent complete" as fact.
 
 ### Resume an interrupted run
 
@@ -202,7 +218,7 @@ pnpm cli run \
 | `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Check a children spec or flowchart against the live catalog without starting a run |
 | `pnpm cli list [--runs \| --episodes]` | List persisted runs or episodes in the state root |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart specs into the working directory |
-| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` — a frozen additive-only contract: pin `type`/`runId`/`status`/`requiredEvidence`, new keys may appear, existing keys keep meaning (mutually exclusive with `--json`, run-only). `--follow` tails events.jsonl read-only until a stopping status (optional `--idle-timeout-ms`; incompatible with `--summary-json`). A crash-truncated JSONL tail is ignored and warned on stderr |
+| `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` — a frozen additive-only contract: pin `type`/`runId`/`status`/`requiredEvidence`, new keys may appear, existing keys keep meaning (mutually exclusive with `--json`, run-only). `--follow` tails events.jsonl read-only until a stopping status (optional `--idle-timeout-ms`; incompatible with `--summary-json` / `--status-json`). `--status-json` projects child-reported progress, current blockers, own-run cost subsets/gaps and advisory recovery commands; run-only and mutually exclusive with the other JSON modes. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
 | `pnpm cli resume --run <runId>` | Resume a paused or interrupted run (`--supervised` for M2 DAG checkpoints; `--unpause` to clear a pause token) |
 | `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |

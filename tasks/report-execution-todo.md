@@ -7,6 +7,12 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
+## PS-06 status/recovery projection (2026-10-02)
+
+- [x] Local implementation and focused verification: 372 tests / 370 pass / 0 fail / 2 skip; own-run cost subsets, child-report verification, current-only recovery advice and fail-closed telemetry. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [x] Author delivery gate at source `e0affe5`: 3257 tests / 3238 pass / 0 fail / 19 skip + build PASS; security 26 PASS, Pi four PASS (2026-10-02; evidence above).
+- [ ] Independent review: Grok dispatch HTTP 403 produced no verdict. Main merge, candidate lookup and host/owner/experiment gates remain open.
+
 ## Evidence invalidation — C2-evidence-2 (2026-10-01)
 
 - [x] PS-05 host-independent remainder, first slice (`TASK-20261001-evidence-invalidation`): plan `c2160aa`, RED `03b8820`, GREEN `1fbfd87`; focused evaluation 83/0, adjacent 339/0/1, `pnpm gate` 3222/0/19 + build PASS. Valid/invalidated/foreign classification with fail-closed unbound/snapshot handling; advisory only, host wiring waits for B2. [Plan](../docs/superpowers/plans/2026-10-01-evidence-invalidation.md) · [Evidence](../docs/reports/2026-10-01-evidence-invalidation.md).

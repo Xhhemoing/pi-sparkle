@@ -333,6 +333,41 @@ diagnostics stay on `inspect`, and the note routes there. Both production causes
 the unknown-is-not-unmet rule of `tracking/from-child.ts::unmetCriteriaOf`
 applies to what is named, so an `UNOBSERVED` or absent criterion stays open.
 
+## Run status projection (PS-06)
+
+`inspect --run <runId> --status-json` is an opt-in, read-only, frozen-additive
+JSON object (`RUN_STATUS_PROJECTION`), **not an Event**. It is incompatible with
+`--json`, `--summary-json`, `--follow`, and episode inspection. The existing
+four-key `INSPECT_SUMMARY`, NDJSON stream, Event union and RunStatus are unchanged.
+Contract tests: `test/integration/cli/status-projection.test.ts` (top-level and
+nested key pins) plus the existing `inspect-summary.test.ts`.
+
+| Field | Meaning / unknown handling |
+|---|---|
+| `type`, `runId`, `status` | Projection discriminator, requested run, existing replay status; no inferred terminal state. |
+| `children` | `taskId`, `childRunId`, reported `outcome`; optional reported `verification`, explicit `verificationSource` (`child-report` or `not-reported`). `criteriaReported` distinguishes missing criteria from a reported empty list; `metCriteria`, `unmetCriteria`, `unobservedCriteria` are IDs of reported PASSED/FAILED/UNOBSERVED criteria. These are not independent acceptance, and omitted expected criteria cannot be inferred from this subset. |
+| `progress` | `total`; outcome counts `succeeded` (SUCCESS), `failed` (FAILURE/TIMEOUT), `partial`, `cancelled`, `inFlight` (RUNNING). `unobserved` counts absent/UNOBSERVED verification and can overlap any outcome. `criteriaUnobserved` counts explicit unknown criterion IDs; `criteriaNotReported` counts children without criterion lists. No percentage/completeness claim. |
+| `blockers` | Current BLOCKED `gateCause` (when joinable via existing `gateBlockCause`) and `requiredEvidence`; WAITING_FOR_USER `pendingQuestions`. Historical cleared blocks and terminal questions are not current recovery advice. |
+| `cost.invocationsAvailable` | Presence observation for the shared telemetry file: false when absent, true for an existing empty file. Not proof of complete telemetry or an atomic cross-log snapshot. |
+| `cost.known` | This run's eligible (`callOutcome: ok`) `invocations`; `withUsage` counts rows reporting either token side; optional `tokensIn` / `tokensOut` totals. `pricedInvocations` and optional `usd` cover only rows with both token counts and both recorded per-million rates yielding a finite subtotal. No external price lookup. |
+| `cost.unknown` | `missingUsage` (eligible rows with neither token side), `excludedNotOk`, `unattributed` (no outcome), `unpricedInvocations` (eligible rows lacking complete finite USD inputs). Categories may overlap. Partial token-side gaps are not a completeness claim. Excluded calls may have incurred spend; this is not a bill or settlement. |
+| `safeNextSteps` | Advisory `command`, `reason`, optional `note`; never executed. BLOCKED: inspect/inject/unblock/conditional resume. PAUSED: resume --unpause. Actual pending questions: answer with recorded message ID. Terminal/no-remedy states: empty. Clarification-only waiting has no child question; existing prose, not a fabricated answer command, remains the continuation guide. |
+| `dataQuality` | Boolean `truncated` (event torn tail) and `invocationsTruncated` (telemetry torn tail), also warned on stderr. A false flag does not certify historical completeness. |
+
+Unknown numbers serialize as absent keys, not zero/null. Event state uses one
+validated EventStore read; telemetry is a separate bounded snapshot. Both use
+4 MiB / 20,000-record limits. Full rows are validated before run filtering;
+corruption, invalid rows, limits and non-ENOENT I/O errors fail the command with
+no projection. Recovery ignores only a torn tail and never repairs source bytes.
+Global log size/foreign corruption may therefore refuse an own-run projection.
+No child-run cost rollup, candidate location, new storage, bill reconciliation,
+provider authorization, or host acceptance is introduced.
+
+[Plan](superpowers/plans/2026-10-01-ps06-status-projection.md) ·
+[Verification and open gates](reports/2026-10-02-ps06-status-projection.md).
+
+## Unblocking and deletion (continued)
+
 Ordinary `RUN_UNBLOCKED` keeps exactly its three signed-off keys
 (`blockedEventId`, `reason`, optional `retryNodeId`) and cannot discard
 executed descendants. The stronger `--discard-executed` authorization has the
