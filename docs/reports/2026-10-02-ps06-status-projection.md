@@ -82,7 +82,13 @@ Outcome: `git merge-tree --write-tree HEAD origin/main` produced a conflict-free
 
 This records an unchanged-source successful rerun, not proof that the transient process failure has been repaired. If it recurs, collect process/resource evidence under a separate runner-reliability task rather than altering runtime assertions.
 
+## Publication and latest-main blocker
+
+Draft [PR #54](https://github.com/Xhhemoing/pi-sparkle/pull/54) opened with published head `250d69f0d8b5941b219736573d34676ad675929f` (documentation-only successor of tested source `6d45d59`). No main merge was attempted.
+
+During publication, main advanced again, to `3dd25aada218ca84c94f67c6d3bc385f88258598`, adding native cooperative verification cancellation. That work is **not included in this branch's verification**. GitHub reports `mergeable: CONFLICTING`; a read-only `git merge-tree --write-tree HEAD origin/main` confirms one content conflict in `tasks/report-execution-todo.md` (two independently added task sections). The real worktree/index are clean: no actual merge, conflict resolution, reset or overwrite was performed. Preserve both owners' work. Resolving that hunk requires the repository's line-by-line human conflict review and a new combined-source gate; independent PS-06 review also remains open. Hosted CI is not claimed here.
+
 ## Handoff
 
-- Next: publish the verified branch as a draft review candidate, then re-dispatch review on source `6d45d59` (or its documentation-only successor); do not auto-merge without resolving review.
+- Next: reconcile the checklist-only conflict against main `3dd25aa`, retain native cancellation changes, obtain conflict-hunk human review, rerun the combined-source gate, and re-dispatch independent PS-06 review. Keep PR #54 draft until those conditions hold; do not auto-merge.
 - Durable links: [active plan](../../tasks/plan.md), [active checklist](../../tasks/todo.md), [execution checklist](../../tasks/report-execution-todo.md), [status](../status-matrix.md).

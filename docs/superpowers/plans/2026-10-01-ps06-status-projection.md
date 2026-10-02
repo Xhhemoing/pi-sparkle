@@ -2,7 +2,7 @@
 
 Task: `TASK-20261001-ps06-status-projection`. Date: 2026-10-01.
 Owner: implementation agent; independent review remains a separate open gate.
-State: ready-for-review; implementation and author-run gates verified, independent review and merge open.
+State: ready-for-review; author-run gates verified at `6d45d59`; independent review open. Draft PR #54 integration is blocked by a later-main checklist conflict, not a runtime conflict resolved in this task.
 Baseline: main `cd47a753c88cb5364f036eb3dda64d0f13772321` (PR #51 merged; includes PS-01, PS-02 and the bounded PS-05 classifier). Continuation verification date: 2026-10-02.
 
 ## Problem and Scope
@@ -57,7 +57,7 @@ PS-06's acceptance asks for a projection of progress, satisfied/unmet criteria, 
 - Human/policy gate: none closed; independent review open; frozen-contract additions pinned by tests in the same diff.
 - Rollback or abort condition: a frozen-contract conflict with the four-key summary pins, or regression outside the new surfaces — stop and reconcile.
 - Required durable records: this plan, RED commit, GREEN commit, evidence report, data-dictionary + status-matrix + checklist rows.
-- Next command after handoff: re-dispatch independent review against `6d45d59` or its documentation-only successor; keep merge pending that review.
+- Next command after handoff: inspect draft PR #54 and latest main `3dd25aa`; reconcile `tasks/report-execution-todo.md` with human conflict review, then run a new combined-source gate and independent PS-06 review. Latest native cancellation is not included in the tests recorded here.
 
 ## CLI-boundary correction (before delivery)
 
