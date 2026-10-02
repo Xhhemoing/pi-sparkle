@@ -57,7 +57,7 @@ PS-06's acceptance asks for a projection of progress, satisfied/unmet criteria, 
 - Human/policy gate: none closed; independent review open; frozen-contract additions pinned by tests in the same diff.
 - Rollback or abort condition: a frozen-contract conflict with the four-key summary pins, or regression outside the new surfaces — stop and reconcile.
 - Required durable records: this plan, RED commit, GREEN commit, evidence report, data-dictionary + status-matrix + checklist rows.
-- Next command after handoff: re-dispatch independent review against `e0affe5` or its documentation-only successor; keep merge pending that review.
+- Next command after handoff: re-dispatch independent review against `6d45d59` or its documentation-only successor; keep merge pending that review.
 
 ## CLI-boundary correction (before delivery)
 
@@ -78,7 +78,7 @@ Final fetch found PR #52 advanced origin/main to `ab2f11394b46295182ac23185b2c58
 
 ## Closeout
 
-- Verified source: `e0affe57289fa9fd640575ef21ef23be0c0607ad`, 2026-10-02 (same runtime/test bytes as the working-tree gate).
-- Commands and outcomes: focused 370/0/2; full gate 3238/0/19 and build PASS; security 26 PASS; Pi four PASS. Boundary RED details and final documentation checks are in the report.
+- Verified initial source: `e0affe57289fa9fd640575ef21ef23be0c0607ad`, 2026-10-02. Latest combined source: `6d45d59bfeccff0e873d4c04bb1d4a9a0ef93a01`, preserving upstream PR #52 without conflicts.
+- Latest commands: focused 37/0/0; unchanged-source full gate rerun 3239/0/19 and build PASS; security 26 PASS; Pi four PASS. The preceding gate attempt timed out and exited 3221225794 after passing assertions; it did not build and is recorded as failure. No process-failure fix is claimed.
 - Open risks/follow-ups: independent review dispatch failed HTTP 403 (no verdict); no merge or outcome support. Candidate position/Web UI deferred; advisory strings need re-review if CLI recovery semantics change. Cost is not complete billing; no cross-log atomic snapshot.
 - Evidence: [verification record](../../reports/2026-10-02-ps06-status-projection.md).

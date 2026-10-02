@@ -10,7 +10,7 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 ## PS-06 status/recovery projection (2026-10-02)
 
 - [x] Local implementation and focused verification: 372 tests / 370 pass / 0 fail / 2 skip; own-run cost subsets, child-report verification, current-only recovery advice and fail-closed telemetry. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
-- [x] Author delivery gate at source `e0affe5`: 3257 tests / 3238 pass / 0 fail / 19 skip + build PASS; security 26 PASS, Pi four PASS (2026-10-02; evidence above).
+- [x] Latest author delivery gate at combined source `6d45d59`: 3258 tests / 3239 pass / 0 fail / 19 skip + build PASS; security 26 PASS, Pi four PASS, focused 37/0/0 (2026-10-02). Upstream PR #52 retained; prior gate timeout/OS exit recorded, unchanged-source rerun succeeded.
 - [ ] Independent review: Grok dispatch HTTP 403 produced no verdict. Main merge, candidate lookup and host/owner/experiment gates remain open.
 
 ## Evidence invalidation — C2-evidence-2 (2026-10-01)

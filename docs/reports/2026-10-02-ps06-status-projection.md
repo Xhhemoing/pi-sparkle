@@ -5,7 +5,7 @@
 - Task: `TASK-20261001-ps06-status-projection`; implementation owner: coding agent; independent acceptance owner: maintainer/reviewer.
 - Verification date/environment: 2026-10-02, Windows, Node `v24.18.0`, pnpm `10.17.1`.
 - Worktree: `C:/Users/86080/dev/pi-sparkle`, branch `feat/status-projection-20261001`; baseline main `cd47a753c88cb5364f036eb3dda64d0f13772321` (PR #51).
-- Initial plan `262f993`, initial module-missing RED `0d4c0c7`. Continuation corrects the uncommitted draft; boundary RED/GREEN commands below are working-tree evidence, not separately committed RED revisions. Delivery source commit: `e0affe57289fa9fd640575ef21ef23be0c0607ad` (same runtime/test bytes as the working-tree gate; subsequent changes are documentation only). State: ready-for-review, not accepted/merged.
+- Initial plan `262f993`, initial module-missing RED `0d4c0c7`. Continuation corrects the uncommitted draft; boundary RED/GREEN commands below are working-tree evidence, not separately committed RED revisions. Initial PS-06 source commit: `e0affe57289fa9fd640575ef21ef23be0c0607ad` (same runtime/test bytes as the first working-tree gate). Current combined feature source: `6d45d59bfeccff0e873d4c04bb1d4a9a0ef93a01` after incorporating upstream PR #52; verification below. State: ready-for-review, not accepted or merged into main.
 - [Plan / acceptance criteria](../superpowers/plans/2026-10-01-ps06-status-projection.md); [contract](../data-dictionary.md#run-status-projection-ps-06).
 
 ## Commands
@@ -53,7 +53,7 @@ Author inspection included runtime diff and existing/new machine-output pins. Th
 
 Read-only review attempt: `sparkle_delegate`, model `xhh-grok/grok-4.7`, run `run_6a316602-49df-4cca-89a8-293444e4225f`, task `tsk_d5395153-da4d-49f6-852c-dd114db66adc`: **FAILED**, HTTP **403**, Cloudflare blocked page; no child verdict, independent acceptance **UNOBSERVED**. A preceding longer request was refused by the 8,000-character task-budget check before dispatch. No successful review, channel recovery or acceptance is claimed.
 
-Main merge and hosted CI are not established by local tests. No merge is performed by this verification record.
+Main merge and hosted CI are not established by local tests. The upstream-to-feature merge below is not a feature-to-main merge.
 
 ## Risks and Gates
 
@@ -69,7 +69,20 @@ Main merge and hosted CI are not established by local tests. No merge is perform
 
 Final fetch found remote main had advanced to `ab2f11394b46295182ac23185b2c5841c4d7788f` (PR #52: preview.2 metadata, documentation and creation-time evidence snapshots). Diff reviewed; no dependencies changed. Preserve that work, incorporate only if Git can merge without conflict, and rerun the full gate/probes on the combined feature branch before publication. Any conflict requires separate resolution/review; no reset, force push, preview tag or main merge is authorized by this decision.
 
+Outcome: `git merge-tree --write-tree HEAD origin/main` produced a conflict-free tree; `git merge --no-edit origin/main` created feature-branch commit `6d45d59bfeccff0e873d4c04bb1d4a9a0ef93a01`. No conflict hunks were authored or auto-resolved. All upstream changes are retained.
+
+| Command on combined source | Result | Evidence |
+|---|---|---|
+| First `pnpm gate` attempt (600-second tool limit) | **FAIL / incomplete gate** | Tool timed out while descendants continued. `integrated-gate.log` later recorded 3258 tests / 3239 pass / 0 fail / 19 skip, then `ELIFECYCLE` exit **3221225794 (`0xC0000142`)**; build not reached. No assertion failure, but this is not a passing gate. OS/process cause unestablished. |
+| Unchanged-source `pnpm gate` rerun (1800-second tool limit) | **PASS**, `GATE_EXIT=0` | `integrated-gate-rerun.log`: 3258 tests / 3239 pass / 0 fail / 19 skip; test duration 195204 ms; workflow, typecheck, lint and build passed. No source change or timeout-related fix. One extra test vs the earlier gate is upstream's binding snapshot regression, not new PS-06 scope. |
+| `node scripts/run-tests.mjs test/unit/run/status-projection.test.ts test/integration/cli/status-projection.test.ts test/integration/cli/inspect-summary.test.ts test/unit/cli/readme-command-parity.test.ts test/unit/evaluation/evidence-invalidation.test.ts` | **PASS**, 37 tests / 37 pass / 0 fail / 0 skip | `integrated-focused.log`; new projection, old summary/NDJSON, README parity, and upstream invalidation regression. |
+| `pnpm security:probe` | **PASS**, 26 checks, no findings | `integrated-security.log`; current build. |
+| `pnpm pi:probe` | **PASS**, four checks | `integrated-pi-probe.log`; current build. |
+| `git diff --check` | **PASS**, exit 0 | Combined feature source. |
+
+This records an unchanged-source successful rerun, not proof that the transient process failure has been repaired. If it recurs, collect process/resource evidence under a separate runner-reliability task rather than altering runtime assertions.
+
 ## Handoff
 
-- Next: publish the verified branch as a draft review candidate, then re-dispatch review on source `e0affe5` (or its documentation-only successor); do not auto-merge without resolving review.
+- Next: publish the verified branch as a draft review candidate, then re-dispatch review on source `6d45d59` (or its documentation-only successor); do not auto-merge without resolving review.
 - Durable links: [active plan](../../tasks/plan.md), [active checklist](../../tasks/todo.md), [execution checklist](../../tasks/report-execution-todo.md), [status](../status-matrix.md).

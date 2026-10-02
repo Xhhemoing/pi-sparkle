@@ -2,7 +2,7 @@
 
 ## PS-06 status/recovery projection (2026-10-02)
 
-`TASK-20261001-ps06-status-projection`: host-independent opt-in `inspect --run --status-json` on `feat/status-projection-20261001`, based on main `cd47a75`. Existing summary/event/status contracts are unchanged; child verification is self-report, and own-run cost is a recorded subset, not settlement. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [verification / root causes / open gates](../docs/reports/2026-10-02-ps06-status-projection.md). Independent review and main integration remain open; no PS-03 ownership, PS-04 budget, B2/S0-min, live-provider, or production gate is closed.
+`TASK-20261001-ps06-status-projection`: host-independent opt-in `inspect --run --status-json` on `feat/status-projection-20261001`, based initially on main `cd47a75`, now incorporating PR #52 (`ab2f113`) conflict-free at feature source `6d45d59`. Full gate rerun 3239/0/19 + build and both probes passed; the prior transient process failure is retained in the record. Existing summary/event/status contracts are unchanged; child verification is self-report, and own-run cost is a recorded subset, not settlement. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [verification / root causes / open gates](../docs/reports/2026-10-02-ps06-status-projection.md). Independent review and main integration remain open; no PS-03 ownership, PS-04 budget, B2/S0-min, live-provider, or production gate is closed.
 
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
