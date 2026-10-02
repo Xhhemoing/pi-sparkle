@@ -52,6 +52,7 @@ export interface RunClosedLoopCheckInput {
   /** Extra body fields stored alongside the acceptance artifact. */
   readonly note?: string;
   readonly snapshotManifest?: SnapshotManifest;
+  readonly signal?: AbortSignal;
 }
 
 export interface ClosedLoopResult {
@@ -69,11 +70,12 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
   const revision = readWorktreeRevision(cwd);
   const args = input.args ?? [];
   await assertRunPresent(input.stateRoot, input.runId);
-  const check = runIndependentCheck({
+  const check = await runIndependentCheck({
     cwd,
     command: input.command,
     args,
-    ...(input.snapshotManifest !== undefined ? { snapshotManifest: input.snapshotManifest } : {})
+    ...(input.snapshotManifest !== undefined ? { snapshotManifest: input.snapshotManifest } : {}),
+    ...(input.signal !== undefined ? { signal: input.signal } : {})
   });
 
   const provisional = {

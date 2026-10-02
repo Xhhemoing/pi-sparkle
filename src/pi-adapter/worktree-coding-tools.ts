@@ -2,12 +2,12 @@
  * Pi tool schemas are generic; this file is inside the adapter/execution boundary. */
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
-import { spawnSync } from "node:child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import { resolveInsideRoot } from "../execution/paths.js";
 import { authorizeCommand, type CommandPolicy } from "../execution/command-policy.js";
+import { runAuthorizedCommand } from "../execution/command-runner.js";
 
 export interface WorktreeCodingToolsContext {
   /** Absolute isolated worktree root; all paths are bound here. */
@@ -19,6 +19,7 @@ export interface WorktreeCodingToolsContext {
    * deny). Not an OS sandbox — see command-policy docs.
    */
   readonly commandPolicy?: CommandPolicy;
+  readonly signal?: AbortSignal;
 }
 
 function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
@@ -117,31 +118,24 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
             })
           : [];
         const authorized = authorizeCommand(ctx.commandPolicy, record.command, args);
-        const result = spawnSync(authorized.executable, [...authorized.args], {
+        const result = await runAuthorizedCommand({
+          executable: authorized.executable,
+          args: authorized.args,
           cwd: root,
-          encoding: "utf8",
-          windowsHide: true,
-          timeout: authorized.timeoutMs,
           env: authorized.env,
-          maxBuffer: Math.max(authorized.maxStdoutBytes, authorized.maxStderrBytes)
+          timeoutMs: authorized.timeoutMs,
+          maxStdoutBytes: authorized.maxStdoutBytes,
+          maxStderrBytes: authorized.maxStderrBytes,
+          ...(ctx.signal === undefined ? {} : { signal: ctx.signal })
         });
-        if (result.error !== undefined && result.status === null) {
-          throw new DomainValidationError(`command failed to start: ${result.error.message}`);
-        }
-        const exitCode = result.status ?? 1;
-        const stdout = result.stdout ?? "";
-        const stderr = result.stderr ?? "";
-        if (Buffer.byteLength(stdout, "utf8") > authorized.maxStdoutBytes) {
-          throw new DomainValidationError("sparkle_run_command denied: stdout exceeds host maxStdoutBytes");
-        }
-        if (Buffer.byteLength(stderr, "utf8") > authorized.maxStderrBytes) {
-          throw new DomainValidationError("sparkle_run_command denied: stderr exceeds host maxStderrBytes");
+        if (result.status !== "completed") {
+          throw new DomainValidationError(`command ${result.status}: ${result.errorMessage ?? "did not complete"}`);
         }
         return textResult(
           JSON.stringify({
-            exitCode,
-            stdout,
-            stderr,
+            exitCode: result.exitCode,
+            stdout: result.stdoutText,
+            stderr: result.stderrText,
             cwd: root
           })
         );
