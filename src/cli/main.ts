@@ -22,7 +22,7 @@ import {
 import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { FakeExecutor } from "../testing/fake-executor.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import type { CostGateEvent } from "../pi-adapter/pi-executor.js";
@@ -51,11 +51,15 @@ import {
   followRunEvents,
   gateBlockCause,
   inspectRun,
+  inspectRunEvents,
   INSPECTION_EVENT_READ_LIMITS,
   FOLLOW_STOP_STATUSES,
   type GateBlockCause
 } from "../run/inspection.js";
 import { formatTaskResultLine, formatUnverifiedSummary } from "./inspect-format.js";
+import { buildRunStatusProjection } from "../run/projection.js";
+import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";
+import { readInvocationRecords, invocationsLogPath } from "../telemetry/invocation-log.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { bindPreferenceStore, prefCommand } from "./pref.js";
@@ -285,7 +289,7 @@ Usage:
   pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
   pi-sparkle init [--dir <path>] [--force] [--json]
-  pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json]
+  pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json | --status-json]
   pi-sparkle inspect --run <runId> --follow [--json] [--idle-timeout-ms <ms>] [--state-root <dir>]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
@@ -1545,6 +1549,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       "state-root": { type: "string" },
       json: { type: "boolean", default: false },
       "summary-json": { type: "boolean", default: false },
+      "status-json": { type: "boolean", default: false },
       follow: { type: "boolean", default: false },
       "idle-timeout-ms": { type: "string" }
     }
@@ -1558,6 +1563,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     });
   }
   const summaryJson = values["summary-json"] === true;
+  const statusJson = values["status-json"] === true;
   if (summaryJson && values.json === true) {
     return cliFail(io, {
       command: "inspect",
@@ -1566,7 +1572,22 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
       next: "pass --json for the event stream or --summary-json for one summary object"
     });
   }
+  if (statusJson && (values.json === true || summaryJson)) {
+    return cliFail(io, {
+      command: "inspect",
+      stage: "parse-args",
+      message: "inspect accepts only one of --json, --summary-json, or --status-json",
+      next: "pass --status-json for one run status projection object"
+    });
+  }
   const follow = values.follow === true;
+  if (follow && statusJson) {
+    return cliFail(io, {
+      command: "inspect", stage: "parse-args",
+      message: "inspect accepts either --follow or --status-json, not both",
+      next: "pass --status-json for one status projection, or --follow for the event tail"
+    });
+  }
   if (follow && summaryJson) {
     return cliFail(io, {
       command: "inspect",
@@ -1588,6 +1609,13 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   const idleTimeoutMs = followIdleTimeoutMs(values["idle-timeout-ms"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
   if (values.episode !== undefined) {
+    if (statusJson) {
+      return cliFail(io, {
+        command: "inspect", stage: "parse-args",
+        message: "inspect --status-json is only available with --run",
+        next: "pass --run <runId> --status-json, or --episode --json for the snapshot"
+      });
+    }
     if (summaryJson) {
       return cliFail(io, {
         command: "inspect",
@@ -1637,6 +1665,47 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
     // never change name, type or meaning, and a fifth arrives only in a diff
     // that also updates the pins in `test/unit/run/inspection.test.ts`.
     io.stdout(`${JSON.stringify(summary)}\n`);
+    return 0;
+  }
+  if (statusJson) {
+    // One event snapshot; validation/I/O failures are command errors, not an
+    // empty projection. The shared JSONL reader maps ENOENT to [], so observe
+    // presence separately to distinguish an absent log from an empty one.
+    const inspection = inspectRunEvents(runId, read.events);
+    const invocationFile = await stat(invocationsLogPath(stateRoot)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    let invocations: ModelInvocation[] | undefined;
+    let invocationsTruncated = false;
+    if (invocationFile !== undefined) {
+      if (!invocationFile.isFile()) throw new DomainValidationError("invocation log is not a regular file");
+      // Same bounded-read posture as events; the presence check is advisory,
+      // not an atomic cross-log snapshot or a writer lock.
+      const log = await readInvocationRecords(stateRoot, "refusing status projection", INSPECTION_EVENT_READ_LIMITS);
+      invocations = [];
+      for (const [index, value] of log.values.entries()) {
+        if (!isInvocation(value)) throw new DomainValidationError(`invalid invocation row ${index + 1}; refusing status projection`);
+        if (value.runId === runId) invocations.push(value);
+      }
+      invocationsTruncated = log.recovery.incompleteLine !== undefined;
+      warnTruncatedJsonl(io, log.recovery, "invocation log");
+    }
+    const projection = buildRunStatusProjection({
+      runId,
+      status: inspection.status,
+      children: inspection.children,
+      events: read.events,
+      ...(invocations !== undefined ? { invocations } : {}),
+      pendingQuestions: inspection.pendingQuestions.map((question) => ({
+        id: question.id,
+        question: question.question
+      })),
+      requiredEvidence: inspection.requiredEvidence,
+      truncated: read.recovery.incompleteLine !== undefined,
+      invocationsTruncated
+    });
+    io.stdout(`${JSON.stringify(projection)}\n`);
     return 0;
   }
   const state = replayRun(read.events);

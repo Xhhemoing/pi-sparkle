@@ -1,5 +1,11 @@
 # Active checklist
 
+## PS-06 status/recovery projection (2026-10-02)
+
+- [x] Correct the draft's absent-log, foreign-run cost, swallowed-corruption and child-verification wiring defects with RED→GREEN tests; focused run/telemetry/CLI check: 372 tests / 370 pass / 0 fail / 2 skip. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [x] Combined-source `6d45d59` (upstream PR #52 preserved) full `pnpm gate` rerun: 3258 tests / 3239 pass / 0 fail / 19 skip, build PASS; security 26 PASS, Pi four PASS, focused 37/0/0 (2026-10-02). Prior timed-out/OS-exit attempt is retained as a failed gate, not erased. [Exact evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [ ] [Draft PR #54](https://github.com/Xhhemoing/pi-sparkle/pull/54): independent review and main integration remain open. Grok dispatch failed HTTP 403. Later main `3dd25aa` causes a checklist-only conflict in `tasks/report-execution-todo.md`; no real merge/resolution performed. Preserve its native cancellation work, obtain human hunk review and rerun a combined gate before merge. Candidate location/UI and PS-03/04/B2/S0-min/production acceptance remain outside this slice.
+
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
 - [x] Source synchronization, two remote deletions, local tracking-ref pruning and retained-work inventory checks verified on 2026-09-29; `pnpm workflow:check` and `git diff --check` PASS. [Exact evidence](../docs/reports/2026-09-29-sync-cleanup.md).

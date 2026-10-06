@@ -206,7 +206,13 @@ const SECRET_PATTERNS = [
 
 try {
   const listing = execSync("npm pack --dry-run --json", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-  const files = JSON.parse(listing)[0]?.files?.map((f) => f.path) ?? [];
+  const packListing = JSON.parse(listing);
+  const packEntry = Array.isArray(packListing)
+    ? packListing[0]
+    : packListing && typeof packListing === "object"
+      ? packListing[Object.keys(packListing)[0]]
+      : undefined;
+  const files = packEntry?.files?.map((f) => f.path) ?? [];
   let scanned = 0;
   for (const rel of files) {
     if (!/\.(js|mjs|cjs|json|md|txt)$/.test(rel)) continue;
