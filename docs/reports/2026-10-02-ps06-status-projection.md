@@ -91,4 +91,11 @@ During publication, main advanced again, to `3dd25aada218ca84c94f67c6d3bc385f882
 ## Handoff
 
 - Next: reconcile the checklist-only conflict against main `3dd25aa`, retain native cancellation changes, obtain conflict-hunk human review, rerun the combined-source gate, and re-dispatch independent PS-06 review. Keep PR #54 draft until those conditions hold; do not auto-merge.
+
+## 2026-10-06 combined-source reconciliation and gate
+
+- Reconciled PR #54 against origin/main `36b89ca3600ad0b0a23cb0c75b79d675314865f2` on `reconcile/ps06-main-20261006`. Merge commit `062384f0b1ff70538c9ed973eae9f517f4035302` retained the PS-06 and Native cancellation/O03 checklist sections; `tasks/report-execution-todo.md` was the only conflict, while `docs/status-matrix.md` auto-merged with both facts.
+- Local full merge gate on current head: `pnpm gate` **PASS** at 3271 tests / 3252 pass / 0 fail / 19 skip, followed by build PASS. `node scripts/security-probe.mjs` PASS (`status: ok`, 26 passed), `node scripts/pi-compat-probe.mjs` PASS (4 checks), and `node scripts/preview-release-probe.mjs` PASS (5 checks). `pnpm workflow:check` PASS.
+- The first full run exposed one local npm-shape failure in `test/unit/package/security-waiver.test.ts`: npm 12 `pack --dry-run --json` returns an object keyed by package name, while npm 11 returns an array. The probe previously accepted only the array shape and therefore scanned zero files (fail-open). The probe now accepts both shapes without relaxing secret patterns, scanning, or fail-closed waiver accounting; the previously failing focused test then passed 3/0/0. This compatibility change is part of combined-source review.
+- Independent PS-06 review remains open; the earlier dispatch produced no verdict. This local Windows evidence does not replace hosted CI, human conflict-hunk review, owner approval, or a feature-to-main merge.
 - Durable links: [active plan](../../tasks/plan.md), [active checklist](../../tasks/todo.md), [execution checklist](../../tasks/report-execution-todo.md), [status](../status-matrix.md).
