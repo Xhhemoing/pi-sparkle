@@ -119,3 +119,18 @@ cancellation/O03 item was silently dropped or marked complete without evidence.
   `BLOCKED`, with exact findings and commands. No verdict may be inferred.
 - Merge, draft-to-ready conversion, and any preview.3 release step require
   owner authorization.
+
+## Owner-delegated integration decision — 2026-10-06
+
+The repository owner stated in chat that they would not perform the review and
+delegated the integration decision to the implementation agent. The decision is
+to integrate PR #54 into `main` now, based on the exact evidence above.
+
+This is an owner-delegated integration decision, not an independent review
+verdict. It explicitly does not claim that independent review occurred. The
+human line-by-line conflict-hunk review also did not occur; the owner delegated
+the integration decision instead, and this exception is recorded here.
+
+Remaining boundaries stay open: independent review of the exact merged source,
+R10/R11, full crash-atomicity, production apply, automatic write-to-apply
+chaining, live-provider, and Outcome-supported claims.
