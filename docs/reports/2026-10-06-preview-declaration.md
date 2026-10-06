@@ -69,3 +69,12 @@ Outcome-supported claims remain open.
 The GitHub Release and tag for this preview are separate owner-authorized
 publication actions. The GitHub Release for `0.1.0-preview.2` remains
 uncreated.
+
+## Publication record — 2026-10-06
+
+PR #57 was merged as `03fe13e2f0466e3439b11e1189e5cd8ff0dbc7c6`; its hosted CI
+run passed 3/3, and merged-main CI run
+[`37473406742`](https://github.com/Xhhemoing/pi-sparkle/actions/runs/37473406742)
+passed. Tag `v0.1.0-preview.3` was pushed to that exact green main commit, and
+the GitHub Release was created with prerelease classification. npm publication
+remains unsupported and is not claimed.
