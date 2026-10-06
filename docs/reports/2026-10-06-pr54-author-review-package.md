@@ -66,6 +66,28 @@ Author verification at the exact head, Windows local:
   Windows root regression; Ubuntu and Windows CLI smoke). Runs:
   [quality/smoke](https://github.com/Xhhemoing/pi-sparkle/actions/runs/37459295557),
   [root regression](https://github.com/Xhhemoing/pi-sparkle/actions/runs/37459295570).
+- Hosted CI for the documentation-only review-package head `4936d683`: all
+  five checks PASS (quality; Ubuntu and Windows root regression; Ubuntu and
+  Windows CLI smoke). Runs:
+  [quality/smoke](https://github.com/Xhhemoing/pi-sparkle/actions/runs/37460271243),
+  [root regression](https://github.com/Xhhemoing/pi-sparkle/actions/runs/37460271251).
+- Fresh worktree probe validation at `ebc8d8fd`: clean install, build, then
+  security probe 26 PASS / no findings; `security-waiver.test.ts` 3/0/0.
+- Review-worktree focused suite at `ebc8d8fd`: 32 tests / 32 pass / 0 fail /
+  0 skip. Separately, the O03 disposal suite remained 13 pass / 0 fail after
+  a measured Git stale-record probe showed a missing candidate path with a
+  `prunable gitdir file points to non-existent location` record is still
+  refused, as required.
+
+## Git-state observation
+
+A direct Git probe confirmed the other side of the boundary: deleting the
+candidate directory without a Git removal leaves the exact worktree record
+with `prunable gitdir file points to non-existent location`. The current
+implementation refuses that record, so it does not authorize filesystem
+cleanup that Git itself did not perform. This narrower safety behavior is
+intentional and should be reviewed together with the crash-window receipt
+logic.
 
 ## Human conflict-hunk review packet
 
