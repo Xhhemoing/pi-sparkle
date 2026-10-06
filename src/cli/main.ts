@@ -196,7 +196,9 @@ async function createExecutor(
   /** Explicit --primary-model wins over ambient env vars and providers.json. */
   modelOverride?: { readonly providerId: string; readonly modelId: string },
   /** Already-resolved --thinking level; falls back to PI_THINKING_LEVEL here. */
-  thinkingLevel?: CliThinkingLevel
+  thinkingLevel?: CliThinkingLevel,
+  /** Explicit --executor-model pins the pi executor to a concrete model. */
+  executorModelOverride?: { readonly providerId: string; readonly modelId: string }
 ): Promise<AgentExecutor> {
   if (kind === "fake") {
     return new FakeExecutor([
@@ -215,8 +217,12 @@ async function createExecutor(
     const envModel = process.env.PI_MODEL;
     const primary = config.primary !== undefined ? parseModelRef(config.primary) : undefined;
     // Precedence: explicit --primary-model flag > env vars > providers.json.
-    const providerId = modelOverride?.providerId ?? envProvider ?? primary?.providerId;
-    const modelId = modelOverride?.modelId ?? envModel ?? primary?.modelId;
+    // --executor-model is distinct from --primary-model: it pins only the
+    // executor's model, while --primary-model continues to drive the track
+    // router's premium alias. Explicit flag > env vars > providers.json.
+    const executorOverride = executorModelOverride ?? modelOverride;
+    const providerId = executorOverride?.providerId ?? envProvider ?? primary?.providerId;
+    const modelId = executorOverride?.modelId ?? envModel ?? primary?.modelId;
     if (providerId === undefined || modelId === undefined) {
       throw new DomainValidationError(
         "--executor pi requires an enabled primary model (pi-sparkle models set-default) or PI_PROVIDER and PI_MODEL"
@@ -227,8 +233,8 @@ async function createExecutor(
     const envRef = envProvider !== undefined && envModel !== undefined
       ? { providerId: envProvider, modelId: envModel }
       : undefined;
-    const effectiveRef = modelOverride ?? envRef;
-    const premiumAlias = primary && modelOverride === undefined ? primary : (effectiveRef ?? primary);
+    const effectiveRef = executorOverride ?? envRef;
+    const premiumAlias = primary && executorOverride === undefined ? primary : (effectiveRef ?? primary);
     const cheapAlias = fast ?? premiumAlias;
     return await createConfiguredPiExecutor({
       stateRoot,
@@ -245,6 +251,7 @@ async function createExecutor(
             }
           }
         : {}),
+      ...(fast !== undefined && fast !== modelOverride ? { fallbackModels: [fast] } : {}),
       ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {}),
       // Only the real executor has a cost gate. The fakes above ignore a cap
       // by design, so wiring the sink onto them would promise a warning that
@@ -283,7 +290,7 @@ Usage:
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
-  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
+  pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--executor-model <provider/model>] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
   pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
@@ -294,7 +301,7 @@ Usage:
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode events --episode <epId> [--state-root <dir>] [--json]
   pi-sparkle episode close --episode <epId> --status <COMPLETED|FAILED|ABANDONED> [--state-root <dir>]
-  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi] [--primary-model <id>] [--thinking <level>]
+  pi-sparkle resume --run <runId> [--state-root <dir>] [--supervised] [--executor fake-children|pi] [--primary-model <id>] [--executor-model <provider/model>] [--thinking <level>]
   pi-sparkle resume --run <runId> [--results <results.json>] [--selected <id>] [--selected-ids <csv>] [--text <answer>] [--unpause] [--state-root <dir>]
   pi-sparkle answer --run <runId> --message <msgId> --text <answer> [--state-root <dir>]
   pi-sparkle answer --run <runId> --selected <id> [--selected-ids <csv>] [--text <answer>] [--results <results.json>] [--state-root <dir>]
@@ -860,6 +867,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       "public-prior": { type: "string" },
       "require-public-prior": { type: "boolean", default: false },
       thinking: { type: "string" },
+      "executor-model": { type: "string" },
       "max-cost-usd": { type: "string" }
     }
   });
@@ -922,6 +930,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   const thinkingLevel = resolveThinkingLevel(values.thinking);
   const maxCostUsd = parseRunCostCeiling(values["max-cost-usd"]);
   const stateRoot = values["state-root"] ?? defaultStateRoot();
+  const flaggedExecutorModel =
+    values["executor-model"] !== undefined ? tryParseModelRef(values["executor-model"]) : undefined;
   // One telemetry sink for every executor this command builds. It writes each
   // invocation through the log's exclusive lock, retries a lock timeout a few
   // times so a concurrent `delete --run` rewrite does not silently erase the
@@ -955,7 +965,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
               onCostGate: reportCostGate
             },
             undefined,
-            thinkingLevel
+            thinkingLevel,
+            flaggedExecutorModel
           )
         : undefined;
     const outcome = await startFlowchartRun(
@@ -1016,7 +1027,8 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       onCostGate: reportCostGate
     },
     flaggedPrimary,
-    thinkingLevel
+    thinkingLevel,
+    flaggedExecutorModel
   );
   bindPreferenceStore(stateRoot);
   const envCatalogId =
@@ -1860,6 +1872,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       supervised: { type: "boolean", default: false },
       executor: { type: "string" },
       "primary-model": { type: "string" },
+      "executor-model": { type: "string" },
       thinking: { type: "string" },
       results: { type: "string" },
       selected: { type: "string", multiple: true },
@@ -1900,6 +1913,8 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   const thinkingLevel = resolveThinkingLevel(values.thinking);
   const modelOverride =
     values["primary-model"] !== undefined ? tryParseModelRef(values["primary-model"]) : undefined;
+  const executorModelOverride =
+    values["executor-model"] !== undefined ? tryParseModelRef(values["executor-model"]) : undefined;
   const discloseExecutorConfig = (kind: string | undefined): void => {
     const notice = describeResumeExecutorConfig({
       kind,
@@ -1946,7 +1961,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
             void invocationSink(invocation);
           },
           onCostGate: reportCostGate
-        }, modelOverride, thinkingLevel),
+        }, modelOverride, thinkingLevel, executorModelOverride),
         registry: createAgentProfileRegistry(defaultAgentProfiles())
       },
       runId
@@ -1991,7 +2006,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
               void invocationSink(invocation);
             },
             onCostGate: reportCostGate
-          }, modelOverride, thinkingLevel)
+          }, modelOverride, thinkingLevel, executorModelOverride)
         : undefined;
     const outcome = await resumeFlowchartRun(
       {

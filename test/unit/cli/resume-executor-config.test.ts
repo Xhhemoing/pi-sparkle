@@ -294,6 +294,6 @@ test("usage documents the resume flags", async () => {
   const { io, out } = capture();
   assert.equal(await main(["help"], io), 0);
   const usage = out.join("");
-  assert.match(usage, /resume --run <runId>.*\[--primary-model <id>\] \[--thinking <level>\]/);
+  assert.match(usage, /resume --run <runId>.*\[--primary-model <id>\].*\[--thinking <level>\]/);
   assert.match(usage, /executor configuration is\nnot recorded/);
 });

@@ -94,6 +94,13 @@ export interface PiExecutorOptions {
    */
   retry?: RetryOptions;
   /**
+   * Fallback model chain to try when the primary model fails after the retry
+   * cap. Each entry is `{ providerId, modelId }`; the executor walks the list
+   * in order. Only used when the primary exhausted its attempts on a
+   * retryable-class failure.
+   */
+  fallbackModels?: readonly ModelRef[];
+  /**
    * Optional sink receiving one validated invocation record per execute()
    * call: frozen configuration snapshot, response hash, usage, and latency.
    * The response body itself is never persisted — only its hash.
@@ -770,34 +777,93 @@ export class PiAgentExecutor implements AgentExecutor {
       yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
       return;
     }
-    const { identity, model } = resolved;
-    const gate = this.buildCostGate(request, model);
-    const { attempt, events: collected, failure } = yield* this.runWithRetry(
-      model,
-      request,
-      gate,
-      signal
-    );
-    const callOutcome: InvocationCallOutcome = signal.aborted
-      ? "cancelled"
-      : failure === undefined
-        ? "ok"
-        : callOutcomeForFailure(failure);
 
-    this.reportInvocation(request, identity, collected, startedAtMs, attempt, callOutcome);
-
-    const gateState = gate.state;
-    if (gate.stopRequested && gateState.armed) {
-      this.options.onCostGate?.({
-        kind: "stopped",
-        taskId: request.taskId,
-        maxCostUsd: gateState.maxCostUsd,
-        ledger: gate.ledger
-      });
+    // Model chain: primary first, then fallbackModels in order. Each entry
+    // gets its own retry budget and cost gate. The first entry whose
+    // runWithRetry returns without a provider failure wins; the chain stops on
+    // cancellation, a cost-gate stop, or exhaustion of the fallback list.
+    const chain: Array<{ readonly identity: ModelRef; readonly model: Model<Api> }> = [resolved];
+    for (const fallback of this.options.fallbackModels ?? []) {
+      const fallbackModel = this.models.getModel(fallback.providerId, fallback.modelId);
+      if (fallbackModel !== undefined) {
+        chain.push({ identity: fallback, model: fallbackModel });
+      }
     }
 
-    const outcome = signal.aborted ? "CANCELLED" : failure !== undefined ? "FAILURE" : "SUCCESS";
-    yield* this.finish(request, collected, outcome, gate.stopRequested, failure);
+    let winningIdentity: ModelRef | undefined;
+    let winningEvents: readonly ExecutionEvent[] = [];
+    let winningFailure: ProviderFailure | undefined;
+    let winningAttempt = 0;
+    let stoppedGate: CostGate | undefined;
+
+    for (const entry of chain) {
+      if (signal.aborted) break;
+      const gate = this.buildCostGate(request, entry.model);
+      const { attempt, events: collected, failure } = yield* this.runWithRetry(
+        entry.model,
+        request,
+        gate,
+        signal
+      );
+      if (signal.aborted) {
+        winningIdentity = entry.identity;
+        winningEvents = collected;
+        winningAttempt = attempt;
+        stoppedGate = gate;
+        break;
+      }
+      if (failure === undefined) {
+        winningIdentity = entry.identity;
+        winningEvents = collected;
+        winningAttempt = attempt;
+        stoppedGate = gate;
+        break;
+      }
+      // The entry failed; record its invocation and try the next fallback.
+      const callOutcome: InvocationCallOutcome = callOutcomeForFailure(failure);
+      this.reportInvocation(request, entry.identity, collected, startedAtMs, attempt, callOutcome);
+      winningFailure = failure;
+      const gateState = gate.state;
+      if (gate.stopRequested && gateState.armed) {
+        this.options.onCostGate?.({
+          kind: "stopped",
+          taskId: request.taskId,
+          maxCostUsd: gateState.maxCostUsd,
+          ledger: gate.ledger
+        });
+        break;
+      }
+    }
+
+    if (winningIdentity === undefined) {
+      // Every entry in the chain failed. Close the transcript with a FAILURE
+      // terminal and the last provider failure so finish() can synthesize the
+      // UNOBSERVED + PROVIDER_ERROR message that downstream attribution needs.
+      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
+      yield* this.finish(request, [], "FAILURE", false, winningFailure);
+      return;
+    }
+
+    const callOutcome: InvocationCallOutcome = signal.aborted
+      ? "cancelled"
+      : "ok";
+
+    this.reportInvocation(request, winningIdentity, winningEvents, startedAtMs, winningAttempt, callOutcome);
+
+    if (stoppedGate !== undefined && stoppedGate.stopRequested) {
+      const gateState = stoppedGate.state;
+      if (gateState.armed) {
+        this.options.onCostGate?.({
+          kind: "stopped",
+          taskId: request.taskId,
+          maxCostUsd: gateState.maxCostUsd,
+          ledger: stoppedGate.ledger
+        });
+      }
+    }
+
+    const outcome = signal.aborted ? "CANCELLED" : "SUCCESS";
+    yield* this.finish(request, winningEvents, outcome, stoppedGate?.stopRequested ?? false, winningFailure);
   }
 
   private reportInvocation(
