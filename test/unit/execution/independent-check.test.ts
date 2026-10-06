@@ -34,10 +34,10 @@ function nodePolicy(over: Partial<CommandPolicy> = {}): CommandPolicy {
   };
 }
 
-test("stdout over maxStdoutBytes fails even when exit is 0 and stderr cap is larger", () => {
+test("stdout over maxStdoutBytes fails even when exit is 0 and stderr cap is larger", async () => {
   const dir = initRepo();
   try {
-    const check = runIndependentCheck({
+    const check = await runIndependentCheck({
       cwd: dir,
       command: "node",
       args: ["-e", "process.stdout.write('x'.repeat(64)); process.exit(0)"],
@@ -50,10 +50,10 @@ test("stdout over maxStdoutBytes fails even when exit is 0 and stderr cap is lar
   }
 });
 
-test("stderr over maxStderrBytes fails even when exit is 0 and stdout cap is larger", () => {
+test("stderr over maxStderrBytes fails even when exit is 0 and stdout cap is larger", async () => {
   const dir = initRepo();
   try {
-    const check = runIndependentCheck({
+    const check = await runIndependentCheck({
       cwd: dir,
       command: "node",
       args: ["-e", "process.stderr.write('y'.repeat(64)); process.exit(0)"],
@@ -66,10 +66,10 @@ test("stderr over maxStderrBytes fails even when exit is 0 and stdout cap is lar
   }
 });
 
-test("multibyte stdout is measured in bytes not characters", () => {
+test("multibyte stdout is measured in bytes not characters", async () => {
   const dir = initRepo();
   try {
-    const check = runIndependentCheck({
+    const check = await runIndependentCheck({
       cwd: dir,
       command: "node",
       args: ["-e", "process.stdout.write('中'); process.exit(0)"],
@@ -82,10 +82,10 @@ test("multibyte stdout is measured in bytes not characters", () => {
   }
 });
 
-test("stdout at the exact byte cap still passes when the check is otherwise clean", () => {
+test("stdout at the exact byte cap still passes when the check is otherwise clean", async () => {
   const dir = initRepo();
   try {
-    const check = runIndependentCheck({
+    const check = await runIndependentCheck({
       cwd: dir,
       command: "node",
       args: ["-e", "process.stdout.write('abcdefgh'); process.exit(0)"],
@@ -98,7 +98,7 @@ test("stdout at the exact byte cap still passes when the check is otherwise clea
   }
 });
 
-test("timeout must not pass", () => {
+test("timeout must not pass", async () => {
   const dir = initRepo();
   try {
     const run = () =>
@@ -109,7 +109,7 @@ test("timeout must not pass", () => {
         commandPolicy: nodePolicy({ timeoutMs: 200, maxStdoutBytes: 1024, maxStderrBytes: 1024 })
       });
     try {
-      const check = run();
+      const check = await run();
       assert.equal(check.ok, false);
     } catch (err) {
       assert.ok(err instanceof DomainValidationError);
@@ -119,10 +119,10 @@ test("timeout must not pass", () => {
   }
 });
 
-test("non-positive stream caps are refused", () => {
+test("non-positive stream caps are refused", async () => {
   const dir = initRepo();
   try {
-    assert.throws(
+    await assert.rejects(
       () =>
         runIndependentCheck({
           cwd: dir,
@@ -132,7 +132,7 @@ test("non-positive stream caps are refused", () => {
         }),
       /positive integer|maxStdoutBytes/
     );
-    assert.throws(
+    await assert.rejects(
       () =>
         runIndependentCheck({
           cwd: dir,

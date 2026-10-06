@@ -243,7 +243,7 @@ export class NativeWriteSession {
       throw error;
     }
 
-    const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd })
+    const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd, signal })
       .filter((tool) => tool.name === "sparkle_read_file" || tool.name === "sparkle_write_file");
     let factoryError: string | undefined;
     let executor: AgentExecutor;
@@ -319,7 +319,8 @@ export class NativeWriteSession {
         runId: outcome.runId,
         command: preflight.verification.command,
         args: preflight.verification.args,
-        note: "native isolated write"
+        note: "native isolated write",
+        signal
       });
     } catch (error) {
       return this.failureResult(preflight, session, `independent verification failed: ${error instanceof Error ? error.message : String(error)}`, {

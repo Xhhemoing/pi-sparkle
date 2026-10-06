@@ -7,11 +7,12 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
-## PS-06 status/recovery projection (2026-10-02)
+## Native cancellation — PS-03/O02 bounded continuation (2026-10-02)
 
-- [x] Local implementation and focused verification: 372 tests / 370 pass / 0 fail / 2 skip; own-run cost subsets, child-report verification, current-only recovery advice and fail-closed telemetry. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
-- [x] Latest author delivery gate at combined source `6d45d59`: 3258 tests / 3239 pass / 0 fail / 19 skip + build PASS; security 26 PASS, Pi four PASS, focused 37/0/0 (2026-10-02). Upstream PR #52 retained; prior gate timeout/OS exit recorded, unchanged-source rerun succeeded.
-- [ ] Independent review: Grok dispatch HTTP 403 produced no verdict. Main merge, candidate lookup and host/owner/experiment gates remain open.
+- [x] Async authorized command runner and signal propagation through closed-loop, native write verification, candidate coding tools and native apply. Pre-abort, in-flight cancellation, timeout and output-limit behavior are distinct; candidate/source preservation covered. Focused execution/native 58/0/0, write cancellation 9/0/0, apply cancellation + existing integration 12/0/0; typecheck/lint/diff checks pass. [Plan](../docs/superpowers/plans/2026-10-02-native-cancellation.md) · [Evidence](../docs/reports/2026-10-02-native-cancellation.md).
+- [ ] Independent review of this exact head; hosted Linux/Windows CI and the full preview gate remain required.
+- [x] O03 non-crash cross-instance disposal is implemented in PR #55 (`f024a7b027f423812118aff0e865a2dd2fb4441a`): fresh-instance disposal, identity/mutation/lock/replacement refusal, idempotent disposal receipt, retained evidence, and host-only disposal command. Hosted Linux/Windows regression, quality, and CLI smoke checks are 5/5 success; focused disposal suite is 59/0/0. [Plan](../docs/superpowers/plans/2026-10-02-native-candidate-disposal.md) · [Evidence](../docs/reports/2026-10-02-native-candidate-disposal.md) · [PR #55](https://github.com/Xhhemoing/pi-sparkle/pull/55)
+- [ ] O03 crash reconciliation after Git removal and before disposal-receipt persistence, plus the separate R10/R11 review boundary, remain open; no production authorization or automatic write-to-apply chaining is claimed.
 
 ## Evidence invalidation — C2-evidence-2 (2026-10-01)
 

@@ -134,6 +134,33 @@ test("accepted candidate applies to matching source and passes verification at s
   });
 });
 
+test("cancellation during candidate verification preserves the source", async () => {
+  await withFixture(async ({ repo, stateRoot }) => {
+    const produced = await produceAcceptedCandidate(repo, stateRoot);
+    const controller = new AbortController();
+    const result = {
+      ...produced,
+      acceptance: {
+        ...produced.acceptance,
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 30000)"]
+      }
+    };
+    const apply = await makeApplySession();
+    const pending = apply.apply({ sourceRepo: repo, result, signal: controller.signal });
+    setTimeout(() => controller.abort(), 80).unref();
+    await assert.rejects(pending, /abort|cancel/i);
+    assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+    assert.ok(await stat2(produced.candidatePath), "candidate remains available for inspection");
+    await disposeIsolatedWorktree({
+      cwd: produced.candidatePath,
+      sandboxRoot: path.dirname(produced.candidatePath),
+      sourceRepo: repo,
+      ref: produced.sourceRevision
+    });
+  });
+});
+
 test("apply refuses a candidate whose re-verification now fails, source untouched", async () => {
   await withFixture(async ({ repo, stateRoot }) => {
     const result = await produceAcceptedCandidate(repo, stateRoot);

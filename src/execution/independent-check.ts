@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { authorizeCommand, type CommandPolicy } from "./command-policy.js";
+import { runAuthorizedCommand } from "./command-runner.js";
 import { readWorktreeRevision } from "./worktree.js";
 import {
   WORKTREE_FINGERPRINT_SCHEMA,
@@ -32,6 +32,7 @@ export interface IndependentCheckInput {
    * empty env allowlist — host API reuse, not model default-deny.
    */
   readonly commandPolicy?: CommandPolicy;
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -90,7 +91,7 @@ function artifactByteLength(filePath: string): number | undefined {
  * fingerprints before/after. Does not hash output and does not trust any
  * agent-authored verdict.
  */
-export function runIndependentCheck(input: IndependentCheckInput): IndependentCheckRecord {
+export async function runIndependentCheck(input: IndependentCheckInput): Promise<IndependentCheckRecord> {
   const cwd = path.resolve(input.cwd);
   if (input.command.trim() === "") {
     throw new DomainValidationError("independent check command must be non-empty");
@@ -108,35 +109,34 @@ export function runIndependentCheck(input: IndependentCheckInput): IndependentCh
       timeoutMs: input.timeoutMs ?? 60_000
     } satisfies CommandPolicy);
   const authorized = authorizeCommand(policy, input.command, args);
-  const result = spawnSync(authorized.executable, [...authorized.args], {
+  const result = await runAuthorizedCommand({
+    executable: authorized.executable,
+    args: authorized.args,
     cwd,
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: authorized.timeoutMs,
     env: authorized.env,
-    maxBuffer: Math.max(authorized.maxStdoutBytes, authorized.maxStderrBytes)
+    timeoutMs: authorized.timeoutMs,
+    maxStdoutBytes: authorized.maxStdoutBytes,
+    maxStderrBytes: authorized.maxStderrBytes,
+    ...(input.signal === undefined ? {} : { signal: input.signal })
   });
-
-  if (result.error !== undefined && result.status === null && result.signal === null) {
-    throw new DomainValidationError(`independent check failed to start: ${result.error.message}`);
-  }
 
   const after = captureWorktreeFingerprint(cwd, manifest);
   const compat = fingerprintsCompatible(before, after, manifest);
 
-  const exitCode = result.status ?? (result.signal !== null ? 128 : 1);
-  const stdout = result.stdout ?? "";
-  const stderr = result.stderr ?? "";
-  const stdoutByteLength = Buffer.byteLength(stdout, "utf8");
-  const stderrByteLength = Buffer.byteLength(stderr, "utf8");
-  const stdoutOver = stdoutByteLength > authorized.maxStdoutBytes;
-  const stderrOver = stderrByteLength > authorized.maxStderrBytes;
+  const exitCode = result.exitCode ?? (result.signal !== null ? 128 : 1);
+  const stdout = result.stdoutText;
+  const stderr = result.stderrText;
+  const stdoutByteLength = result.stdoutByteLength;
+  const stderrByteLength = result.stderrByteLength;
+  const stdoutOver = result.status === "output_limit" && stdoutByteLength > authorized.maxStdoutBytes;
+  const stderrOver = result.status === "output_limit" && stderrByteLength > authorized.maxStderrBytes;
   const revision = readWorktreeRevision(cwd);
 
   const storedArtifactByteLength =
     input.artifactPath !== undefined ? artifactByteLength(input.artifactPath) : undefined;
 
   const ok =
+    result.status === "completed" &&
     exitCode === 0 &&
     compat.ok &&
     !stdoutOver &&

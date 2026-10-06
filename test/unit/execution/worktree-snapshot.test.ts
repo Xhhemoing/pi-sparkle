@@ -104,7 +104,7 @@ test("deleted tracked file is represented in fingerprint", () => {
   }
 });
 
-test("quotePath Chinese path content change records byte length and same-length rewrite is not a digest check", () => {
+test("quotePath Chinese path content change records byte length and same-length rewrite is not a digest check", async () => {
   const dir = initQuotedChineseRepo();
   try {
     writeFileSync(path.join(dir, "中文.txt"), "v2\n", "utf8");
@@ -114,7 +114,7 @@ test("quotePath Chinese path content change records byte length and same-length 
     assert.equal(zh.byteLength, Buffer.byteLength("v2\n", "utf8"));
     assert.equal("sha256" in zh, false);
 
-    const check = runIndependentCheck({
+    const check = await runIndependentCheck({
       cwd: dir,
       command: "node",
       args: ["-e", "require('fs').writeFileSync('中文.txt','v3\\n')"]
@@ -193,7 +193,7 @@ test("staged delete plus same-name untracked keeps both entries and detects cont
   }
 });
 
-test("rename source identity changes the fingerprint even when file contents match", () => {
+test("rename source identity changes the fingerprint even when file contents match", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "g1a-rename-source-"));
   try {
     gitOk(dir, ["init"]);
@@ -206,7 +206,7 @@ test("rename source identity changes the fingerprint even when file contents mat
     gitOk(dir, ["mv", "a.txt", "dest.txt"]);
     const before = captureWorktreeFingerprint(dir);
     const command = "const {execFileSync}=require('node:child_process'); execFileSync('git',['mv','dest.txt','a.txt']); execFileSync('git',['mv','b.txt','dest.txt']);";
-    const check = runIndependentCheck({ cwd: dir, command: "node", args: ["-e", command] });
+    const check = await runIndependentCheck({ cwd: dir, command: "node", args: ["-e", command] });
     assert.equal(check.exitCode, 0);
     assert.equal(check.ok, false, "swapping identical rename sources changes the file set");
     assert.notEqual(check.contentFingerprintAfter.snapshotId, before.snapshotId);

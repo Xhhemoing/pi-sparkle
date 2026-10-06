@@ -66,10 +66,13 @@ export function writeResult(repo: string, overrides?: {
 }): NativeWriteSessionResult {
   const revision = git(repo, ["rev-parse", "HEAD"]).trim();
   const accepted = overrides?.accepted ?? true;
+  const runId = createRunId();
+  const candidatePath = path.join(path.dirname(repo), `candidate-${runId}`);
+  git(repo, ["worktree", "add", "--detach", candidatePath, revision]);
   return {
-    runId: createRunId(),
+    runId,
     status: overrides?.status ?? (accepted ? "COMPLETED" : "FAILED"),
-    candidatePath: "/unused/candidate",
+    candidatePath,
     sourceRevision: revision,
     artifact: artifactRef(),
     acceptance: acceptance(accepted),
@@ -182,11 +185,17 @@ test("foreign runs and mutated artifacts are refused at apply time", async () =>
   });
 });
 
-test("session-scoped disposal refuses paths never managed by an apply session", async () => {
-  await withStateRoot(async ({ repo }) => {
+test("issued disposal requires the durable receipt identity", async () => {
+  await withStateRoot(async ({ repo, stateRoot }) => {
     await assert.rejects(
-      () => disposeIssuedCandidate({ candidatePath: repo }),
-      /managed|issued|session/i
+      () => disposeIssuedCandidate({
+        stateRoot,
+        sourceRepo: repo,
+        runId: "run_" + "f".repeat(64),
+        artifactId: "art_v2_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        candidatePath: repo
+      }),
+      /issued|artifact|run|candidate/i
     );
   });
 });
