@@ -7,6 +7,13 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 
 [Saved plan](../docs/superpowers/plans/2026-09-29-report-execution.md) | [Slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md) | [Prior evidence](../docs/reports/2026-09-29-report-execution.md) | [Remaining queue](../docs/superpowers/plans/2026-09-29-report-next-steps.md) | [New plan](../docs/superpowers/plans/2026-09-29-evidence-provenance.md) | [Current evidence](../docs/reports/2026-09-29-evidence-provenance.md)
 
+## PS-06 status/recovery projection (2026-10-02)
+
+- [x] Local implementation and focused verification: 372 tests / 370 pass / 0 fail / 2 skip; own-run cost subsets, child-report verification, current-only recovery advice and fail-closed telemetry. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [Evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
+- [x] Latest author delivery gate at PR-head combined source `6d45d59bfeccff0e873d4c04bb1d4a9a0ef93a01`: full gate 3239 pass / 0 fail / 19 skip + build PASS; security 26 PASS; Pi probe four PASS; focused suite 37/0/0 (2026-10-02). Upstream PR #52 was retained; the prior gate timeout/OS exit was recorded and superseded by an unchanged-source successful rerun.
+- [x] 2026-10-06 reconciliation merge from main `36b89ca3` into branch merge `062384f0`: only `tasks/report-execution-todo.md` conflicted; both the PS-06 and Native cancellation/O03 sections were retained. `docs/status-matrix.md` auto-merged with native cancellation/disposal and PS-06 facts intact. A combined-source gate rerun is required before independent review and merge.
+- [ ] Independent review: Grok dispatch HTTP 403 produced no verdict. Combined-source gate, candidate lookup, main merge and host/owner/experiment gates remain open.
+
 ## Native cancellation — PS-03/O02 bounded continuation (2026-10-02)
 
 - [x] Async authorized command runner and signal propagation through closed-loop, native write verification, candidate coding tools and native apply. Pre-abort, in-flight cancellation, timeout and output-limit behavior are distinct; candidate/source preservation covered. Focused execution/native 58/0/0, write cancellation 9/0/0, apply cancellation + existing integration 12/0/0; typecheck/lint/diff checks pass. [Plan](../docs/superpowers/plans/2026-10-02-native-cancellation.md) · [Evidence](../docs/reports/2026-10-02-native-cancellation.md).
