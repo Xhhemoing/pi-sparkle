@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented here.
 
+## [0.1.0-preview.3] - 2026-10-06
+
+Developer Preview only. The package remains private and is intended for clone + pnpm use.
+
+### Added
+
+- Read-only `inspect --run <runId> --status-json` projection with child-reported outcomes/verification/criteria, current blockers, own-run eligible and fully-priced cost subsets/gaps, advisory recovery steps, and independent event/telemetry truncation flags.
+- Cross-session issued-candidate disposal with durable source/candidate filesystem identity authorization, live worktree rechecks, idempotent disposal receipts, retained evidence, and host-only `/sparkle-dispose-candidate`.
+- Crash-window receipt reconciliation after a completed Git worktree removal, bounded to the exact authorized absent path, with a narrow prunable-stale-record repair.
+
+### Fixed
+
+- Security probe now accepts npm 12 object-shaped and npm 11 array-shaped packaged-file listings without relaxing secret patterns, scanning, or fail-closed waiver accounting.
+
+### Changed
+
+- Integrated PR #54 into main under a recorded owner-delegated integration decision; independent review, production, R10/R11, live-provider, and Outcome-supported boundaries remain open.
 ## [0.1.0-preview.2] - 2026-10-01
 
 Developer Preview only. The package remains private and is intended for clone + pnpm use.
