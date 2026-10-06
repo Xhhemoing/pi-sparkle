@@ -29,3 +29,37 @@ Task: `TASK-20261002-o03-issued-candidate-disposal`. Date: 2026-10-02.
 - Crash reconciliation between a successful Git removal and writing the final disposal artifact remains part of R10/R11 and is not claimed here.
 - This does not authorize automatic write-to-apply chaining, production apply, or removal of run evidence.
 - Independent review and owner authorization remain open.
+
+## 2026-10-06 crash-window receipt reconciliation
+
+Task: `TASK-20261006-o03-crash-reconciliation`. Plan: [2026-10-06 O03 crash reconciliation](../superpowers/plans/2026-10-06-o03-crash-reconciliation.md).
+
+The new integration regression reproduces the crash window after a successful
+`git worktree remove --force` and before the disposal receipt is written. The
+pre-fix retry failed on the absent candidate path. A temporary Git probe also
+confirmed that successful removal removes both the path and its exact
+administrative worktree record on this environment.
+
+`disposeAuthorized` now checks the issued source identity first. If the exact
+authorized candidate path is absent and Git has no record for that exact path,
+it reports `DISPOSED` so the ordinary durable receipt is persisted. If a
+prunable stale record remains, it prunes that record, rechecks that the exact
+record disappeared, and then reports `DISPOSED`. A missing path with a
+non-prunable record, a live replacement, a foreign or mutated identity, and a
+failed Git removal continue to fail closed.
+
+### Author verification
+
+- RED: `node --import tsx --test test/integration/native/apply-registration-crash.test.ts` failed before the fix on the absent candidate path.
+- Regression: same command passed with 1 test / 1 pass / 0 fail / 0 skip.
+- Focused native/apply/registration suite: 37 tests / 37 pass / 0 fail / 0 skip, including the existing replacement, tracked-edit, untracked, ignored, and locked-worktree refusal cases.
+- `node_modules/.bin/tsc --noEmit`: PASS.
+- `node_modules/.bin/eslint src/native/apply.ts test/integration/native/apply-registration-crash.test.ts`: PASS.
+- `git diff --check`: PASS.
+
+### Still open
+
+- Independent review of this exact source is required; author commands are not independent acceptance.
+- The separate R10/R11 evaluator-definition and candidate-snapshot boundary remains open.
+- This is receipt reconciliation after one completed Git removal, not a claim that apply and disposal are fully crash-atomic.
+- No production authorization or automatic write-to-apply chaining is claimed.

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
@@ -118,6 +118,13 @@ function sameRepository(left: RepositoryIdentity, right: RepositoryIdentity): bo
     && pathKey(left.gitDir) === pathKey(right.gitDir)
     && left.directoryId === right.directoryId
     && left.gitDirectoryId === right.gitDirectoryId;
+}
+
+function exactWorktreeRecord(root: string, candidatePath: string): string[] | undefined {
+  const listing = gitOrThrow(root, ["worktree", "list", "--porcelain", "-z"]);
+  return listing.split("\0\0").map((record) => record.split("\0")).find((fields) => fields.some((field) =>
+    field.startsWith("worktree ") && pathKey(field.slice("worktree ".length)) === pathKey(candidatePath)
+  ));
 }
 
 function candidateIdentity(candidate: string, source: RepositoryIdentity, revision: string): RepositoryIdentity {
@@ -439,10 +446,37 @@ export class NativeApplySession {
     }
     if (typeof input.candidatePath !== "string" || input.candidatePath.trim() === "") fail("candidate path is required");
 
-    const sourceIdentity = repositoryIdentity(input.sourceRepo);
     const resolved = path.resolve(input.candidatePath);
-    const candidate = candidateIdentity(resolved, sourceIdentity, input.sourceRevision);
-    if (!sameRepository(sourceIdentity, input.sourceIdentity) || !sameRepository(candidate, input.candidateIdentity)) {
+    const sourceIdentity = repositoryIdentity(input.sourceRepo);
+    if (!sameRepository(sourceIdentity, input.sourceIdentity)) {
+      fail("issued repository or candidate identity changed; disposal refused");
+    }
+
+    let candidate: RepositoryIdentity;
+    try {
+      candidate = candidateIdentity(resolved, sourceIdentity, input.sourceRevision);
+    } catch (error) {
+      const missingNow = lstatSync(resolved, { throwIfNoEntry: false }) === undefined;
+      if (!missingNow) throw error;
+      // A successful `git worktree remove` deletes both the candidate path and
+      // its exact administrative record. Reconcile that completed removal only
+      // from durable authorization for this exact path; never infer success for
+      // a replacement or a foreign path.
+      const record = exactWorktreeRecord(sourceIdentity.root, resolved);
+      if (record === undefined) {
+        return { status: "DISPOSED", candidatePath: resolved };
+      }
+      // Retain the narrower repair path for a prunable stale registration left
+      // behind after a partially completed removal.
+      if (!record.includes("prunable")) throw error;
+      const prune = git(sourceIdentity.root, ["worktree", "prune"]);
+      if (!prune.ok) fail(`candidate stale worktree reconciliation failed: ${prune.detail}`);
+      if (exactWorktreeRecord(sourceIdentity.root, resolved) !== undefined) {
+        fail("stale worktree registration survived reconciliation; disposal refused");
+      }
+      return { status: "DISPOSED", candidatePath: resolved };
+    }
+    if (!sameRepository(candidate, input.candidateIdentity)) {
       fail("issued repository or candidate identity changed; disposal refused");
     }
     // Force is needed because the accepted candidate remains staged against
