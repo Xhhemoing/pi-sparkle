@@ -6,6 +6,10 @@
 - [x] Combined-source `6d45d59` (upstream PR #52 preserved) full `pnpm gate` rerun: 3258 tests / 3239 pass / 0 fail / 19 skip, build PASS; security 26 PASS, Pi four PASS, focused 37/0/0 (2026-10-02). Prior timed-out/OS-exit attempt is retained as a failed gate, not erased. [Exact evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
 - [x] 2026-10-06 main integration of PR #54 after owner delegated the review/integration decision: merge commit `dd9699b57eabb26810149ad9625593a41eab1b1d`. Behavior head `ebc8d8fd` passed local `pnpm prerelease` (tests 3272/3253/0/19 + build, preview/security/Pi probes PASS); decision head hosted CI was 5/5 PASS and merged-main CI run `37465254859` passed. This records owner-delegated integration, not independent review or production acceptance. Candidate location/UI and PS-03/04/B2/S0-min/production acceptance remain outside the slice.
 
+## Developer Preview 0.1.0-preview.3 (2026-10-06)
+
+- [x] Release candidate metadata and declaration prepared: package version bumped to `0.1.0-preview.3`; README and exact version assertions updated; changelog entry and [declaration](../docs/reports/2026-10-06-preview-declaration.md) added. First full prerelease found and fixed the stale unit version assertion at `test/unit/cli/adapt.test.ts`; rerun passed.
+- [ ] Local `pnpm prerelease` on the release-candidate source: PASS at preview probe 5/0/0, gate 3272 tests / 3253 pass / 0 fail / 19 skip + build, security 26 PASS, Pi 4 PASS; hosted CI and owner tag/release authorization remain open.
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
 - [x] Source synchronization, two remote deletions, local tracking-ref pruning and retained-work inventory checks verified on 2026-09-29; `pnpm workflow:check` and `git diff --check` PASS. [Exact evidence](../docs/reports/2026-09-29-sync-cleanup.md).

@@ -1,6 +1,6 @@
 {
   "name": "pi-sparkle",
-  "version": "0.1.0-preview.2",
+  "version": "0.1.0-preview.3",
   "private": true,
   "description": "Project-development multi-agent runtime built on Pi",
   "license": "MIT",
