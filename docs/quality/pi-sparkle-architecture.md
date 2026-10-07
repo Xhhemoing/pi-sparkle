@@ -281,14 +281,14 @@ flowchart TB
 
 - 仓库：`E:\Project\pi-sparkle`，remote `https://github.com/Xhhemoing/pi-sparkle.git`；只读 `git log/branch/status/worktree/stash`，`gh run list`、`gh pr list`（无开放 PR）、`gh release list`。
 - 权威状态：`docs/status-matrix.md`、`tasks/plan.md`、`tasks/todo.md`、`tasks/controlled-improvement-todo.md`、`docs/reports/2026-10-06-preview-declaration.md`、`CHANGELOG.md`、`.github/workflows/ci.yml`。
-- 源码：本文“关键算法”一节逐条列出的文件（读自当前工作区，含未提交 WIP）。
+- 源码：本文“关键算法”一节逐条列出的文件（main `b7a59389` 工作树，2026-10-07 校正时干净）。
 - `C:\Users\86080\.agent_workspace\pi-sparkle` 只有 `runtime/` 与 `adaptation/` 运行时状态目录，不是代码副本。
 - `E:\Project\SoL-Pi-research` 是 `NVlabs/SoL-Pi` 的克隆（Action Fusion / ObservationPack / Evidence-Preserving Reducer / Online Context Compact），是 sol-efficiency 工作线的参考来源。
 - Notion（搜索 “pi-sparkle”）：没有找到相关计划/状态页面。
 
 ### UNVERIFIED（本次无法确认）
 
-- 2026-10-07 已重跑全量测试/build：3274 tests / 3255 pass / 0 fail / 19 skip；`pnpm gate` 与 `pnpm prerelease` 整体未重跑。
+- 2026-10-07 作者本地重跑 full suite/build；托管 CI 本条 commit 正在执行，结论未当场确认。`pnpm prerelease` 未重跑。
 - “Sparkle Implementer seat”这一角色在仓库中没有找到对应记录。
 - PS-03 的当前所有者与剩余范围。
 - 已消除：执行器模型回退 focused/full test、typecheck/build、托管 CI 均通过；独立评审与 live-provider 仍开放。
