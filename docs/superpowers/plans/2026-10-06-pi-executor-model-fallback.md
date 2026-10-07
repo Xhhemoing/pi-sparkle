@@ -2,7 +2,7 @@
 
 - ID: TASK-20261006-pi-executor-model-fallback
 - Owner: agent
-- State: planned
+- State: ready-for-review
 - Date opened: 2026-10-06
 - Related: live-provider smoke (preview.3 install)
 
@@ -51,3 +51,30 @@
 
 - Required durable records: this plan + implementation report.
 - Next command after handoff: `pnpm gate`
+
+## Closeout — 2026-10-07
+
+Implementation was reviewed and completed on merged main `98af1b5928956de531280addae2ae1a847518eec` as PR #59. `--executor-model` is parsed for both `run` and `resume`, with precedence over `--primary-model`, ambient `PI_PROVIDER`/`PI_MODEL`, and `providers.json`; without the flag the default resolution is unchanged. The pi executor resolves the primary model first, then catalog-resolved fallback entries. `--executor-model` is recorded as the serving identity. When providers declare a fast alias that differs from the selected executor model override (or the selected `--primary-model` fallback), it becomes the first fallback; catalog entries that do not resolve are skipped, and skipped entries do not issue a call.
+
+The final default fallback decision remains a product/policy review point. The current implementation emits one validated invocation record for each attempted model with the model identity and terminal call outcome, but does not add a separate operator-facing opt-in or stderr disclosure. No production, outcome-support, live-provider, or independent-review claim follows from the author verification below.
+
+## Verification record — 2026-10-07
+
+- Commit: `98af1b5928956de531280addae2ae1a847518eec`
+- Environment: Windows, Asia/Shanghai; local repository worktree.
+- Reviewer/owner: author verification only; independent review remains open.
+
+| Command | Result | Notes |
+|---|---|---|
+| `pnpm test test/unit/pi-adapter/executor-fallback.test.ts test/unit/cli/resume-executor-config.test.ts` | `PASS` | 12 tests / 12 pass / 0 fail / 0 skip; includes fallback success, no-fallback-on-success, and invocation-model attribution. |
+| `pnpm lint` | `PASS` | No findings. |
+| `pnpm typecheck` | `PASS` | No findings. |
+| `pnpm test` | `PASS` | 3274 tests / 3255 pass / 0 fail / 19 skip. |
+| `pnpm build` | `PASS` | TypeScript build completed. |
+| `pnpm workflow:check` | `PASS` | 10 required files and 16 required headings. |
+| `git diff --check` | `PASS` | Documentation closeout worktree. |
+
+### Verification boundary
+
+- Not run: live-provider end-to-end, security probe, and prerelease-class probe suite.
+- Not closed: independent review, owner review of default fallback, production authorization, and Outcome-supported status.

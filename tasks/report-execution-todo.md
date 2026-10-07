@@ -14,6 +14,7 @@ Original baseline: `6ef6a04882ed5a42fa5dae1d37f77b0c48e64689`. PR #47 merged as 
 - [x] 2026-10-06 reconciliation merge from main `36b89ca3` into branch merge `062384f0`: only `tasks/report-execution-todo.md` conflicted; both the PS-06 and Native cancellation/O03 sections were retained. `docs/status-matrix.md` auto-merged with native cancellation/disposal and PS-06 facts intact. Combined-source local gate rerun passed at 3271 tests / 3252 pass / 0 fail / 19 skip + build; security, Pi and preview probes also passed after an npm 12/11 pack-JSON compatibility fix.
 - [x] 2026-10-06 owner-delegated integration: behavior head `ebc8d8fd` passed local `pnpm prerelease`, decision head CI 5/5 PASS, and PR #54 merged to main as `dd9699b`. Merged-main CI run `37465254859` passed. [Review/decision package](../docs/reports/2026-10-06-pr54-author-review-package.md)
 - [ ] Independent review of the exact merged source and candidate lookup/UI remain open. Host/owner/experiment/production gates remain unchanged.
+- [x] 2026-10-07 post-merge closeout/verification of PR #59 on main `98af1b59`: focused 12/12 PASS, lint/typecheck/full suite/build PASS (3274 / 3255 / 0 / 19), workflow check PASS. Independent review and owner decision on default fast-model fallback remain open. [Plan closeout](../docs/superpowers/plans/2026-10-06-pi-executor-model-fallback.md)
 
 ## Native cancellation — PS-03/O02 bounded continuation (2026-10-02)
 

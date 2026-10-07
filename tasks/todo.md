@@ -10,6 +10,11 @@
 
 - [x] Release candidate metadata and declaration prepared: package version bumped to `0.1.0-preview.3`; README and exact version assertions updated; changelog entry and [declaration](../docs/reports/2026-10-06-preview-declaration.md) added. First full prerelease found and fixed the stale unit version assertion at `test/unit/cli/adapt.test.ts`; rerun passed.
 - [x] Local `pnpm prerelease` on the release-candidate source: PASS at preview probe 5/0/0, gate 3272 tests / 3253 pass / 0 fail / 19 skip + build, security 26 PASS, Pi 4 PASS. PR #57 merged as `03fe13e2`; its hosted CI was 3/3 PASS, merged-main CI run `37473406742` passed, tag `v0.1.0-preview.3` was pushed, and the prerelease-classified GitHub Release was created. npm publication remains unsupported/open.
+## Executor model fallback closeout (2026-10-07)
+
+- [x] PR #59 was merged to main as `98af1b5928956de531280addae2ae1a847518eec`. 2026-10-07 author verification on that exact head: focused executor/resume config suite 12/12 PASS, lint/typecheck/full suite/build PASS (3274 tests / 3255 pass / 0 fail / 19 skip), and workflow check PASS. [Plan closeout](../docs/superpowers/plans/2026-10-06-pi-executor-model-fallback.md) · [Status row](../docs/status-matrix.md).
+- [ ] Independent review of the exact merged source remains open. The owner also needs to decide whether the current default fast-model fallback is accepted or requires an explicit operator opt-in/disclosure.
+
 ## GitHub/local sync and branch cleanup (2026-09-29)
 
 - [x] Source synchronization, two remote deletions, local tracking-ref pruning and retained-work inventory checks verified on 2026-09-29; `pnpm workflow:check` and `git diff --check` PASS. [Exact evidence](../docs/reports/2026-09-29-sync-cleanup.md).

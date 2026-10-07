@@ -67,8 +67,9 @@ live-provider verification, npm publication, adaptive activation, and
 Outcome-supported claims remain open.
 
 The GitHub Release and tag for this preview are separate owner-authorized
-publication actions. The GitHub Release for `0.1.0-preview.2` remains
-uncreated.
+publication actions. A 2026-10-07 correction: the GitHub Release for
+`0.1.0-preview.2` had already been created as a prerelease by 2026-10-02;
+the prior sentence was stale.
 
 ## Publication record — 2026-10-06
 
