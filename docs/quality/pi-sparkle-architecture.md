@@ -292,3 +292,4 @@ flowchart TB
 - “Sparkle Implementer seat”这一角色在仓库中没有找到对应记录。
 - PS-03 的当前所有者与剩余范围。
 - 已消除：执行器模型回退 focused/full test、typecheck/build、托管 CI 均通过；独立评审与 live-provider 仍开放。
+- 2026-10-07 附加归档：两个含未提交改动的 worktree（\0-reconstruction-check\ 34 文件、\stage0-20260924\ 4 文件）与两个 stash patch 已复制到 \.agent_workspace/archive/worktrees-20261007/\，哈希核对 0 mismatch；原始 worktree 与 stash 保留。\elease/preview3-prep-20261006\ 是遗留别名，指向已合并提交且无独有变更，已删除。
