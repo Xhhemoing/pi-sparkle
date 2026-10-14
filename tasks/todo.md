@@ -1,5 +1,42 @@
 # Active checklist
 
+## Flowchart recovery responsibility extraction (2026-10-15)
+
+- [x] 2026-10-15: preserve last-request precedence, durable first-write records, known-empty
+  declarations, restored routing roles and per-child budget isolation through
+  a pure-module extraction. [Plan](../docs/superpowers/plans/2026-10-15-flowchart-recovery-refactor.md).
+- [x] 2026-10-15: independent review PASS; actual pinned `pnpm gate` PASS
+  (3321 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS.
+  [Evidence](../docs/reports/2026-10-15-flowchart-recovery-refactor.md).
+- [x] 2026-10-15: checkpoint `43aea5a` published and remote ref verified in
+  [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61). Dedicated recovery
+  [run 38612917798](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917798)
+  and root regression [run 38612917262](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917262)
+  passed both Ubuntu/Windows jobs. Standard CI is observed separately.
+
+## Flowchart terminal recorder extraction (2026-10-15)
+
+- [x] 2026-10-15: extract normal terminal recorders with unchanged runtime statements,
+  first-terminal precedence and cancellation before failure recording.
+  [Plan](../docs/superpowers/plans/2026-10-15-flowchart-terminal-refactor.md).
+- [x] 2026-10-15: preserve moved source-owner guards; independent review PASS;
+  actual `pnpm gate` 3328 pass / 0 fail / 1 opt-in skip, security 26 / Pi 4 /
+  kernel 3 PASS. [Evidence](../docs/reports/2026-10-15-flowchart-terminal-refactor.md).
+- [x] 2026-10-15: second checkpoint `203fc94` published in [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61)
+  and remote ref verified. Twelve-suite recovery [run 38614349306](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38614349306)
+  passed Ubuntu/Windows; full CI/root regression are tracked on the PR.
+- [ ] Main integration and the remaining architecture queue remain separate.
+
+## Architecture and bounded agent development (2026-10-15)
+
+- [x] 2026-10-15: fallback, cleanup, bounded native repair and supervisor correctness slices have RED/GREEN evidence in the linked reports.
+- [x] 2026-10-15: independent agent review findings resolved; integrated gate-equivalent commands PASS (3313 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS. Local literal pnpm gate remains environment-blocked by version mixing; hosted CI is separate.
+- [x] 2026-10-15: [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) published with remaining crash-resume, host verification, project-budget and production boundaries documented.
+- [ ] Merge/production acceptance, live-provider effectiveness and the explicitly deferred project-level continuation queue remain open; this checklist accepts only this implementation slice.
+
+[Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md) ·
+[Evidence](../docs/reports/2026-10-15-architecture-agent-loop.md).
+
 ## PS-06 status/recovery projection (2026-10-02)
 
 - [x] Correct the draft's absent-log, foreign-run cost, swallowed-corruption and child-verification wiring defects with RED→GREEN tests; focused run/telemetry/CLI check: 372 tests / 370 pass / 0 fail / 2 skip. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).

@@ -1,5 +1,35 @@
 # Active implementation plan
 
+## Flowchart recovery responsibility extraction (2026-10-15)
+
+First verified checkpoint published as `43aea5a` in
+[PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61). It builds on the
+unmerged PR #60 baseline; source publication does not mean main integration.
+Next bounded scope is the [terminal recorder extraction](../docs/superpowers/plans/2026-10-15-flowchart-terminal-refactor.md)
+with independent characterization, source-owner pins and a second full gate.
+The terminal source now has independent review PASS and actual pinned gate
+3328/0/1 plus security/Pi/kernel probes PASS. Second checkpoint `203fc94` is
+published in PR #61 with Ubuntu/Windows recovery PASS; complete hosted evidence
+is tracked on the PR. It changes normal recording ownership only.
+
+`TASK-20261015-flowchart-recovery-refactor` continues the P2 architecture queue
+from PR #60 `c2b802c` in the isolated `codex/continuous-quality-20261015` branch.
+Extract pure child reconstruction and durable criteria/cost recovery from
+`flowchart-run.ts`, retain orchestration and all existing frozen contracts, and
+add direct boundary checks plus a dedicated Ubuntu/Windows recovery job.
+Concurrent Stage 2 work is preserved in its original checkout and is not part of
+this branch. [Plan](../docs/superpowers/plans/2026-10-15-flowchart-recovery-refactor.md).
+
+## Architecture and bounded agent development (2026-10-15)
+
+`TASK-20261015-architecture-agent-loop` is ready for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60), from
+`main@44db4b1`: model fallback correctness, bounded command cleanup,
+same-candidate native repair, review-driven supervisor settlement fixes, and
+test-launcher portability. Local gate-equivalent commands passed (3313 pass / 0 fail / 1 opt-in skip), probes passed, and independent agent review findings were resolved. Standard hosted CI is tracked on the PR. Existing apply/adaptive/production gates remain
+separate. [Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md)
+· [Architecture and evidence](../docs/reports/2026-10-15-architecture-agent-loop.md)
+· [SDK/demo](../docs/native-development-loop.md).
+
 ## PS-06 status/recovery projection (2026-10-02)
 
 `TASK-20261001-ps06-status-projection`: host-independent opt-in `inspect --run --status-json` on `feat/status-projection-20261001`, based initially on main `cd47a75`, now incorporating PR #52 (`ab2f113`) conflict-free at feature source `6d45d59`. Full gate rerun 3239/0/19 + build and both probes passed; the prior transient process failure is retained in the record. Existing summary/event/status contracts are unchanged; child verification is self-report, and own-run cost is a recorded subset, not settlement. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [verification / root causes / open gates](../docs/reports/2026-10-02-ps06-status-projection.md). PS-06 and O03 crash-window receipt reconciliation integrated into main on 2026-10-06 as PR #54 merge `dd9699b` under the recorded owner-delegated integration decision. Independent review of the exact merged source, candidate lookup/UI, PS-03 ownership, PS-04 budget, B2/S0-min, live-provider, and production gates remain open.

@@ -1,7 +1,18 @@
 import { readdir, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+
+// Preserve separate option values while identifying whether the caller chose
+// test files. Equals-form flags pass through unchanged as well.
+const optionsWithValues = new Set([
+  "--test-concurrency", "--test-name-pattern", "--test-skip-pattern",
+  "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout",
+  "--test-isolation", "--experimental-test-isolation", "--test-global-setup",
+  "--test-coverage-include", "--test-coverage-exclude", "--test-coverage-lines",
+  "--test-coverage-functions", "--test-coverage-branches",
+  "--import", "--require", "-r", "--loader", "--experimental-loader",
+  "--conditions", "-C", "--env-file", "--env-file-if-exists"
+]);
 
 async function discoverTests(directory) {
   const tests = [];
@@ -40,13 +51,26 @@ async function main() {
   const input = process.argv.slice(2);
   if (input[0] === "--") input.shift();
 
-  const argumentsToTsx = [];
-  for (const argument of input) {
-    argumentsToTsx.push(...(await expandArgument(argument)));
+  const argumentsToNode = [];
+  let hasSelection = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const argument = input[index];
+    if (argument.startsWith("-")) {
+      argumentsToNode.push(argument);
+      if (optionsWithValues.has(argument) && input[index + 1] !== undefined) {
+        argumentsToNode.push(input[index + 1]);
+        index += 1;
+      }
+    } else {
+      hasSelection = true;
+      argumentsToNode.push(...(await expandArgument(argument)));
+    }
   }
+  if (!hasSelection) argumentsToNode.push(...(await expandArgument("test")));
 
-  const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"));
-  const child = spawn(process.execPath, [tsxCli, "--test", ...argumentsToTsx], {
+  // The supported registration hook needs no CLI IPC server. Enumerating
+  // defaults also keeps TypeScript test discovery consistent on Node 22.
+  const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), "--test", ...argumentsToNode], {
     stdio: "inherit"
   });
   process.exitCode = await new Promise((resolve, reject) => {

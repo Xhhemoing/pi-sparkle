@@ -1,0 +1,86 @@
+name: Flowchart recovery regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/run/**'
+      - 'src/supervisor/**'
+      - 'src/protocol/**'
+      - 'src/domain/**'
+      - 'src/routing/**'
+      - 'src/agents/**'
+      - 'src/cli/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'test/unit/run/**'
+      - 'test/unit/tracking/**'
+      - 'test/integration/m2.5/**'
+      - 'test/integration/run/**'
+      - 'scripts/run-tests.mjs'
+      - '.github/workflows/flowchart-recovery.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/run/**'
+      - 'src/supervisor/**'
+      - 'src/protocol/**'
+      - 'src/domain/**'
+      - 'src/routing/**'
+      - 'src/agents/**'
+      - 'src/cli/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'test/unit/run/**'
+      - 'test/unit/tracking/**'
+      - 'test/integration/m2.5/**'
+      - 'test/integration/run/**'
+      - 'scripts/run-tests.mjs'
+      - '.github/workflows/flowchart-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flowchart-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Recovery, budgets, terminal ordering and checkpoint contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $focusedTests = @(
+            'test/unit/run/flowchart-child-recovery.test.ts',
+            'test/unit/run/flowchart-terminal.test.ts',
+            'test/unit/run/replay.test.ts',
+            'test/unit/run/flowchart-run-abort.test.ts',
+            'test/unit/run/flowchart-checkpoint.test.ts',
+            'test/unit/run/flowchart-applyretry-absence.test.ts',
+            'test/unit/run/control-plane-single-writer.test.ts',
+            'test/unit/run/parent-terminal-refusal.test.ts',
+            'test/unit/run/terminal-replay-statuses-freeze.test.ts',
+            'test/unit/tracking/option-a-preconditions.test.ts',
+            'test/integration/m2.5/resume.test.ts',
+            'test/integration/run/unblock-flow.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @focusedTests
+          exit $LASTEXITCODE

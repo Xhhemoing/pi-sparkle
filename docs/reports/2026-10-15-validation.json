@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-15",
+  "timezone": "Asia/Shanghai",
+  "baselineCommit": "44db4b15078ccce9b1c191d29fec438af044a95c",
+  "implementationRemoteCommit": "14ffc2a4b43803100376bfa5addfe42e1f2b4b60",
+  "implementationTree": "cec9a9aa0175b8aa03aadaee225aa2516f7cca7c",
+  "pr": "https://github.com/Xhhemoing/pi-sparkle/pull/60",
+  "environment": {
+    "os": "Linux",
+    "node": "24.19.0",
+    "pnpmGate": "environment-blocked: nested pnpm 11.25.0 conflicts with required 10.17.1",
+    "gateEquivalent": "all original gate commands passed directly"
+  },
+  "tests": {
+    "total": 3314,
+    "passed": 3313,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "opt-in real-provider smoke not requested"
+  },
+  "checks": [
+    {
+      "name": "workflow",
+      "command": [
+        "node",
+        "scripts/workflow-check.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 0.05
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 10.48
+    },
+    {
+      "name": "lint",
+      "command": [
+        "node",
+        "node_modules/eslint/bin/eslint.js",
+        "."
+      ],
+      "exitCode": 0,
+      "durationSeconds": 12.25
+    },
+    {
+      "name": "test",
+      "command": [
+        "node",
+        "scripts/run-tests.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 38.42
+    },
+    {
+      "name": "build",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.build.json"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 4.75
+    },
+    {
+      "name": "security",
+      "command": [
+        "node",
+        "scripts/security-probe.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 1.51
+    },
+    {
+      "name": "pi-compat",
+      "command": [
+        "node",
+        "scripts/pi-compat-probe.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 0.07
+    },
+    {
+      "name": "kernel-reuse",
+      "command": [
+        "node",
+        "scripts/kernel-reuse-probe.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 0.07
+    },
+    {
+      "name": "repair-demo",
+      "command": [
+        "node",
+        "examples/native-repair-demo.mjs"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 0.54
+    }
+  ],
+  "independentAgentReview": {
+    "fallback": "PASS; 18 final tests",
+    "nativeRepair": "PASS; 15 final tests",
+    "supervisor": "PASS; 38 tests",
+    "commandCleanup": "PASS; no blocking findings"
+  },
+  "hostedCI": {
+    "implementationRun": 38609594579,
+    "rootRegressionRun": 38609594458,
+    "statusAtRecord": "implementation commit passed both workflows, all five jobs",
+    "jobs": [
+      {
+        "name": "quality (22.19.x)",
+        "conclusion": "success"
+      },
+      {
+        "name": "cli-smoke (ubuntu-latest, 22.19.x)",
+        "conclusion": "success"
+      },
+      {
+        "name": "cli-smoke (windows-latest, 22.19.x)",
+        "conclusion": "success"
+      },
+      {
+        "name": "root-regression (ubuntu-latest)",
+        "conclusion": "success"
+      },
+      {
+        "name": "root-regression (windows-latest)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "notVerified": [
+    "live-provider effectiveness",
+    "production apply",
+    "unattended crash resume",
+    "session-wide dollar settlement",
+    "Windows descendant containment"
+  ]
+}

@@ -114,11 +114,11 @@ export interface SupervisedRunHandle {
 
 const LEASE_MS = 300_000;
 
-function toTaskOutcome(outcome: ChildRunOutcome["outcome"]): TaskOutcome {
+/** A rejected judge verdict cannot be overridden by a child's success claim. */
+function rejectedTaskOutcome(outcome: ChildRunOutcome["outcome"]): TaskOutcome {
   switch (outcome) {
     case "SUCCESS":
     case "PARTIAL":
-      return "SUCCESS";
     case "FAILURE":
       return "FAILURE";
     case "TIMEOUT":
@@ -451,7 +451,7 @@ async function executeSupervisorRounds(
           roundEvent.newEvidenceIds.push(...evidenceIds);
           break;
         case "REJECTED": {
-          const transition = applyTaskOutcome({ ...node, attempt: attempt - 1 }, toTaskOutcome(outcome.outcome));
+          const transition = applyTaskOutcome({ ...node, attempt: attempt - 1 }, rejectedTaskOutcome(outcome.outcome));
           await recordStatus(taskId, transition.status, transition.attempt);
           if (transition.status === "BLOCKED") {
             await recordRetry(node, transition.attempt);
@@ -504,10 +504,17 @@ async function executeSupervisorRounds(
   }
 
   if (finalStatus === "RUNNING") {
-    // Rounds exhausted without a terminal decision.
-    finalStatus = "FAILED";
-    finalReason = `maxRounds (${limits.maxRounds}) exhausted without completion`;
-    await append(make("RUN_FAILED", { reason: finalReason }));
+    // The final permitted round may have completed the graph. Settlement must
+    // not consume a further scheduling round just to observe that completion.
+    const completed = graph.tasks.every((node) => statuses.get(node.id) === "COMPLETED");
+    if (completed) {
+      finalStatus = "COMPLETED";
+      await append(make("RUN_COMPLETED", {}));
+    } else {
+      finalStatus = "FAILED";
+      finalReason = `maxRounds (${limits.maxRounds}) exhausted without completion`;
+      await append(make("RUN_FAILED", { reason: finalReason }));
+    }
   }
 
   return { status: finalStatus, ...(finalReason !== undefined ? { reason: finalReason } : {}) };

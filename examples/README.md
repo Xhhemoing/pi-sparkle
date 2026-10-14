@@ -1,5 +1,20 @@
 # Examples
 
+## Bounded native repair (offline demo)
+
+After `pnpm build`, run `node examples/native-repair-demo.mjs`. It creates a
+temporary source repository and a retained candidate, writes an intentionally
+incorrect implementation, observes a real host command failure, and repairs
+the same candidate in a second attempt. The script asserts host acceptance,
+exactly two attempts, and an unchanged source checkout. It prints the retained
+candidate and evidence paths. Its executor is scripted: it demonstrates the
+control loop, not live-model coding quality.
+
+For the SDK contract, limits and ongoing project workflow, see
+[bounded native development](../docs/native-development-loop.md).
+
+## Graph specifications
+
 Two runnable spec files for the two `pi-sparkle run` graph modes, plus the one
 thing that trips people up: **these files use two different role vocabularies,
 and they are not interchangeable.**

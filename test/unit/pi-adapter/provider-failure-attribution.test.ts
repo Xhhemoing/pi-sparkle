@@ -129,7 +129,10 @@ describe("provider failure attribution (HOTFIX)", () => {
             },
             { id: "tool_call_1" }
           )
-        )
+        ),
+        // Close the reported rejection without a transport failure. A verdict
+        // followed by provider exhaustion is unobserved provider evidence.
+        fauxAssistantMessage("finished reporting the failed check")
       ])
     );
     const result = terminalsOf(events)[0]!;
