@@ -17,6 +17,7 @@ import {
   type IsolatedWorktree
 } from "./worktree.js";
 import type { SnapshotManifest } from "./worktree-snapshot.js";
+import type { TrustedVerificationDescriptor } from "./trusted-verification.js";
 
 export interface ClosedLoopSession {
   readonly worktree: IsolatedWorktree;
@@ -53,6 +54,7 @@ export interface RunClosedLoopCheckInput {
   readonly note?: string;
   readonly snapshotManifest?: SnapshotManifest;
   readonly signal?: AbortSignal;
+  readonly trustedVerification?: TrustedVerificationDescriptor;
 }
 
 export interface ClosedLoopResult {
@@ -75,6 +77,7 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
     command: input.command,
     args,
     ...(input.snapshotManifest !== undefined ? { snapshotManifest: input.snapshotManifest } : {}),
+    ...(input.trustedVerification !== undefined ? { trustedVerification: input.trustedVerification } : {}),
     ...(input.signal !== undefined ? { signal: input.signal } : {})
   });
 
@@ -103,7 +106,8 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
     revision,
     cwd,
     command: input.command,
-    args
+    args,
+    ...(input.trustedVerification !== undefined ? { trustedVerification: input.trustedVerification } : {})
   });
 
   await saveLoopArtifact({

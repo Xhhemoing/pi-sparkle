@@ -83,6 +83,7 @@ import {
   withRecordedCostCeilings,
   withRecordedCriteria
 } from "./flowchart-child-recovery.js";
+import { requireFlowchartCheckpoint, requireFlowchartReplay } from "./flowchart-lifecycle.js";
 import { EventStore } from "./event-store.js";
 import {
   routingContextFields,
@@ -1494,27 +1495,8 @@ async function resumeLockedFlowchartRun(
   const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
 
   const read = await eventStore.readAll();
-  if (read.events.length === 0) {
-    throw new DomainValidationError(`Run ${runId} not found`);
-  }
-  const replayed = replayRun(read.events);
-  if (replayed.run === undefined) {
-    throw new DomainValidationError(`Run ${runId} has no RUN_CREATED event`);
-  }
-  if (replayed.project === undefined) {
-    throw new DomainValidationError(`Run ${runId} has no PROJECT_DISCOVERED event`);
-  }
-
-  const raw = await checkpointStore.read();
-  if (raw === undefined) {
-    throw new DomainValidationError(
-      `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
-    );
-  }
-  const checkpoint = validateCheckpoint(raw);
-  if (checkpoint.flowchart === undefined) {
-    throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
-  }
+  const replayed = requireFlowchartReplay(runId, read.events);
+  const checkpoint = requireFlowchartCheckpoint(runId, await checkpointStore.read());
 
   const { definition, limits } = checkpoint.flowchart;
   // An explicit continuation stays authoritative — an embedder that hands the
@@ -1673,26 +1655,8 @@ async function restoreFlowchartSession(
   const eventStore = new EventStore(deps.stateRoot, runId);
   const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
   const read = await eventStore.readAll();
-  if (read.events.length === 0) {
-    throw new DomainValidationError(`Run ${runId} not found`);
-  }
-  const replayed = replayRun(read.events);
-  if (replayed.run === undefined) {
-    throw new DomainValidationError(`Run ${runId} has no RUN_CREATED event`);
-  }
-  if (replayed.project === undefined) {
-    throw new DomainValidationError(`Run ${runId} has no PROJECT_DISCOVERED event`);
-  }
-  const raw = await checkpointStore.read();
-  if (raw === undefined) {
-    throw new DomainValidationError(
-      `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
-    );
-  }
-  const checkpoint = validateCheckpoint(raw);
-  if (checkpoint.flowchart === undefined) {
-    throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
-  }
+  const replayed = requireFlowchartReplay(runId, read.events);
+  const checkpoint = requireFlowchartCheckpoint(runId, await checkpointStore.read());
   const { definition, limits } = checkpoint.flowchart;
   const supervisor = await restoreCheckpointedSupervisor({
     deps,
@@ -2123,16 +2087,7 @@ async function unblockLockedFlowchartRun(
     );
   }
 
-  const raw = await checkpointStore.read();
-  if (raw === undefined) {
-    throw new DomainValidationError(
-      `Flowchart run ${runId} has no durable checkpoint; refusing to invent state`
-    );
-  }
-  const checkpoint = validateCheckpoint(raw);
-  if (checkpoint.flowchart === undefined) {
-    throw new DomainValidationError(`Flowchart run ${runId} checkpoint is missing flowchart snapshot`);
-  }
+  const checkpoint = requireFlowchartCheckpoint(runId, await checkpointStore.read());
   const { definition, snapshot, limits, contract, taskCriteria, taskCostCeilings } = checkpoint.flowchart;
   const gateFailedNode = gateBlockedFailedNode(read.events, blockedEventId, definition, snapshot);
   const retryNodeId = resolveRetryTarget(gateFailedNode, request.retryNodeId);

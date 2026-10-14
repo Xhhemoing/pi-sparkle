@@ -8,7 +8,7 @@ import {
   saveLoopArtifact,
   type LoopArtifactRef
 } from "../execution/loop-artifact.js";
-import { captureNativeDisposeAuthorization, type NativeApplyInput, type NativeDisposeAuthorization } from "./apply.js";
+import { assertNativeApplyVerificationSupported, captureNativeDisposeAuthorization, type NativeApplyInput, type NativeDisposeAuthorization } from "./apply.js";
 import type { NativeWriteSessionResult } from "./write-session.js";
 
 /**
@@ -128,6 +128,7 @@ export async function issueApplyRegistration(
   if (typeof input.stateRoot !== "string" || input.stateRoot.trim() === "") fail("state root is required");
   if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
   if (!isAcceptedWriteResult(input.result)) fail("candidate result is not accepted; refused");
+  assertNativeApplyVerificationSupported(input.result);
   if (!isLoopArtifactRef(input.result.artifact)) fail("candidate result carries no usable loop artifact reference");
 
   const body: StoredCandidateArtifact = {

@@ -46,6 +46,8 @@ export async function createConfiguredPiExecutor(input: {
   readonly thinkingLevel?: SparkleThinkingLevel;
   readonly apiKey?: string;
   readonly aliases?: Readonly<Record<string, ModelRef>>;
+  /** Ordered alternatives after retryable provider failures exhaust retries. */
+  readonly fallbackModels?: readonly ModelRef[];
   readonly customProviders?: readonly CustomProviderConfig[];
   readonly systemPrompt?: string;
   /** Overrides the executor's default bounded 429/5xx retry. */
@@ -63,13 +65,13 @@ export async function createConfiguredPiExecutor(input: {
    * tools inside `PiAgentExecutor`. Not prompt-only permissions.
    */
   readonly tools?: PiExecutorOptions["tools"];
-}): Promise<PiAgentExecutor> {
+}, runtimeFactory: (input: Parameters<typeof createPiRuntime>[0]) => Promise<Pick<PiRuntime, "models">> = createPiRuntime): Promise<PiAgentExecutor> {
   // Omitted customProviders means "load the state root's providers.json";
   // callers may still pass an explicit list (tests, embedded setups).
   const customProviders =
     input.customProviders ??
     (await loadProvidersConfig(input.stateRoot)).customProviders;
-  const { models } = await createPiRuntime({
+  const { models } = await runtimeFactory({
     stateRoot: input.stateRoot,
     customProviders
   });
@@ -80,6 +82,7 @@ export async function createConfiguredPiExecutor(input: {
     ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
     ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
     ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+    ...(input.fallbackModels !== undefined ? { fallbackModels: input.fallbackModels } : {}),
     ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
     ...(input.retry !== undefined ? { retry: input.retry } : {}),
     ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {}),

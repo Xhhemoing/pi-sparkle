@@ -3,6 +3,20 @@
 > **Removal gate (updated 2026-09-22):** SHA-dependent paths and identity fields in this dictionary are legacy/historical evidence superseded by [ADR-008](decisions/0008-remove-sha256.md). Runtime identity now uses opaque versioned locators (`obs_v2_`, `art_v2_`) with exact-byte comparisons; legacy SHA-bound records are quarantined historical/read-only and are never rehashed, upgraded, or reclassified. The dictionary remains descriptive; this notice is not a runtime migration.
 
 Source of truth: `src/privacy/record-classes.ts` (`DURABLE_RECORD_CLASSES`).
+
+Stage-two development state (2026-10-15) adds a host-scoped work queue and action
+ledger under `runtime/development/<queueId>/`. These contain goals, command argv,
+paths and operational receipts, so they are sensitive operational state rather
+than a learning dataset. Stores bound payload sizes and use atomic mode-0600
+publication. They are excluded from automatic dataset exports and remain until
+the host retires the queue directory. `delete --run` does not silently erase a
+project queue or ledger; deleted run artifacts make their evidence unresolved
+and block progression. No new run→queue deletion propagation is claimed.
+
+Transient exact verifier snapshots are private in-process byte handles. Raw
+candidate/checker bytes are not a new durable record class. The disposable
+`runtime/development/checks/` worktrees used to recheck integrated source are
+removed by their own host verification lifecycle, with no source application.
 Tests: `test/unit/privacy/record-classes.test.ts` (schema, required ids,
 **path-completeness**, sensitivity-class consistency, **plane layout**),
 `test/unit/privacy/plane-boundary.test.ts` (**adaptation→runtime boundary**,

@@ -1,4 +1,5 @@
-import type { IndependentCheckRecord } from "./independent-check.js";
+import { hasTrustedVerificationEvidence, type IndependentCheckRecord } from "./independent-check.js";
+import type { TrustedVerificationDescriptor } from "./trusted-verification.js";
 import {
   WORKTREE_FINGERPRINT_SCHEMA,
   fingerprintsCompatible,
@@ -46,6 +47,7 @@ export interface EvaluateAcceptanceInput {
   readonly command: string;
   /** Host-declared argv (must match independentCheck.args). */
   readonly args?: readonly string[];
+  readonly trustedVerification?: TrustedVerificationDescriptor;
 }
 
 function argsEqual(a: readonly string[], b: readonly string[]): boolean {
@@ -90,6 +92,10 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
   }
 
   const check = input.independentCheck;
+
+  if (input.trustedVerification !== undefined && !hasTrustedVerificationEvidence(check, input.trustedVerification)) {
+    return { ...base, accepted: false, reason: "trusted verification requires original host-bound exact evidence; serialized or missing claims are refused" };
+  }
 
   if (!check.ok || check.exitCode !== 0) {
     return {
@@ -171,6 +177,7 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
   return {
     ...base,
     accepted: true,
-    reason: "independent check ok with artifact + g1a-v1 content binding"
+    reason: input.trustedVerification === undefined ? "independent check ok with artifact + g1a-v1 content binding" :
+      "independent check ok with artifact + host-bound exact candidate/checker equality"
   };
 }
