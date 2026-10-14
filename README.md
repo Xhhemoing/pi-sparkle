@@ -289,6 +289,8 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 
 ## Documentation
 
+- [Host work queue, durable development CLI and continuous agent workflow](docs/development-agent-loop.md)
+- [Development control-plane implementation and verification](docs/reports/2026-10-15-development-control-plane.md)
 - [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
 - [Architecture review and continuous development queue (2026-10-15)](docs/reports/2026-10-15-architecture-agent-loop.md)
 - [Status matrix](docs/status-matrix.md)

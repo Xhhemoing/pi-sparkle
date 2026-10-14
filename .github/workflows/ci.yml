@@ -108,6 +108,9 @@ jobs:
       - name: Fake children and doctor
         run: pnpm test -- test/integration/m1/cli-children.test.ts test/unit/cli/doctor.test.ts
 
+      - name: Development queue and controller
+        run: pnpm test -- test/integration/cli/development.test.ts test/integration/development/controller.test.ts
+
       - name: Native reliability and bounded persistence
         shell: pwsh
         run: |

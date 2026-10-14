@@ -30,6 +30,10 @@ const EPISODE_BIND = "src/run/episode-bind.ts";
 const EPISODE_MODEL = "src/domain/episode.ts";
 const FLOWCHART_CHECKPOINT_MODEL = "src/run/replay.ts";
 const ORIGINAL_RUN_AUTHORITY_FIELDS = new Set(["acceptanceCriteria", "constraints", "contract"]);
+const HOST_ACCEPTANCE_DECLARATIONS = new Map([
+  [resolve(REPO_ROOT, "src/development/work-items.ts"), "WorkItemDefinition"],
+  [resolve(REPO_ROOT, "src/native/write-session.ts"), "NativeWriteSessionResult"]
+]);
 
 type FunctionScope =
   | ts.ArrowFunction
@@ -143,9 +147,89 @@ function callName(node: ts.CallExpression): string | undefined {
   return undefined;
 }
 
+function censusProgram(modules: readonly { readonly file: string; readonly source: string }[]): ts.Program {
+  const sources = new Map(modules.map((module) => [resolve(REPO_ROOT, module.file), module.source]));
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    strict: true,
+    skipLibCheck: true,
+    types: [],
+    noEmit: true
+  };
+  const host = ts.createCompilerHost(options, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (file, languageVersion, onError, shouldCreateNewSourceFile) => {
+    const source = sources.get(resolve(file));
+    return source === undefined
+      ? getSourceFile(file, languageVersion, onError, shouldCreateNewSourceFile)
+      : ts.createSourceFile(file, source, languageVersion, true);
+  };
+  return ts.createProgram([...sources.keys()], options, host);
+}
+
+function isDeclaredHostAcceptance(type: ts.Type, checker: ts.TypeChecker): boolean {
+  // A union containing even one episode/unknown branch must keep the signal.
+  if (type.isUnion()) return type.types.every((member) => isDeclaredHostAcceptance(member, checker));
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const declarations = checker.getPropertyOfType(type, "acceptance")?.declarations;
+  return declarations !== undefined && declarations.length > 0 && declarations.every((declaration) =>
+    ts.isPropertySignature(declaration) && ts.isInterfaceDeclaration(declaration.parent) &&
+    HOST_ACCEPTANCE_DECLARATIONS.get(resolve(declaration.getSourceFile().fileName)) === declaration.parent.name.text
+  );
+}
+
+function hasAssertedReceiverOrigin(receiver: ts.Node, checker: ts.TypeChecker): boolean {
+  const visiting = new Set<ts.Node>();
+  let remaining = 256;
+  function visit(node: ts.Node): boolean {
+    if (--remaining < 0 || visiting.has(node)) return true;
+    if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node)) return true;
+    visiting.add(node);
+    try {
+      // Destructuring gets the same provenance check as a direct property read.
+      if (ts.isObjectBindingPattern(node) && ts.isVariableDeclaration(node.parent) &&
+          node.parent.initializer !== undefined && visit(node.parent.initializer)) return true;
+      // A local alias must not turn an asserted episode into a trusted DTO.
+      if (ts.isIdentifier(node)) {
+        const declarations = checker.getSymbolAtLocation(node)?.declarations ?? [];
+        if (declarations.some((declaration) => {
+          let local: ts.Node = declaration;
+          while (ts.isBindingElement(local) || ts.isObjectBindingPattern(local) || ts.isArrayBindingPattern(local)) {
+            if (ts.isBindingElement(local) && local.initializer !== undefined && visit(local.initializer)) return true;
+            local = local.parent;
+          }
+          return ts.isVariableDeclaration(local) && local.initializer !== undefined && visit(local.initializer);
+        })) return true;
+      }
+      return ts.forEachChild(node, (child) => visit(child) || undefined) === true;
+    } finally {
+      visiting.delete(node);
+    }
+  }
+  return visit(receiver);
+}
+
+function readsAcceptance(node: ts.Node, checker: ts.TypeChecker): boolean {
+  let receiver: ts.Node | undefined;
+  if ((ts.isPropertyAccessExpression(node) && node.name.text === "acceptance") ||
+      isNamedElementAccess(node, "acceptance")) {
+    receiver = (node as ts.PropertyAccessExpression | ts.ElementAccessExpression).expression;
+  } else if (ts.isBindingElement(node)) {
+    const key = node.propertyName ?? node.name;
+    if ((ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && key.text === "acceptance") receiver = node.parent;
+  }
+  // Keep the broad census: only the two exact host declarations above establish
+  // a different authority. Names, unresolved types and foreign DTOs do not.
+  return receiver !== undefined &&
+    (hasAssertedReceiverOrigin(receiver, checker) || !isDeclaredHostAcceptance(checker.getTypeAtLocation(receiver), checker));
+}
+
 function scopeSignals(
   scope: FunctionScope,
-  checkpointCriteriaFields: ReadonlySet<string>
+  checkpointCriteriaFields: ReadonlySet<string>,
+  checker: ts.TypeChecker
 ): {
   readonly readsEpisode: boolean;
   readonly constructsContract: boolean;
@@ -159,9 +243,7 @@ function scopeSignals(
     if (node !== body && isFunctionScope(node)) return;
 
     if (
-      (ts.isPropertyAccessExpression(node) && node.name.text === "acceptance") ||
-      isNamedElementAccess(node, "acceptance") ||
-      (ts.isBindingElement(node) && propertyName(node) === "acceptance") ||
+      readsAcceptance(node, checker) ||
       (ts.isIdentifier(node) && node.text === "ProjectEpisode") ||
       (ts.isPropertyAccessExpression(node) &&
         node.name.text === "episode" &&
@@ -198,10 +280,13 @@ function assertNoEpisodeContractSynthesis(
   const readers: string[] = [];
   const violations: string[] = [];
   const criteriaFields = new Set(checkpointCriteriaFields);
+  const program = censusProgram(modules);
+  const checker = program.getTypeChecker();
   for (const module of modules) {
-    const parsed = parse(module.file, module.source);
+    const parsed = program.getSourceFile(resolve(REPO_ROOT, module.file));
+    assert.ok(parsed, `the census must parse ${module.file}`);
     for (const scope of functionScopes(parsed)) {
-      const signals = scopeSignals(scope, criteriaFields);
+      const signals = scopeSignals(scope, criteriaFields, checker);
       if (!signals.readsEpisode) continue;
       const location = `${module.file}:${scopeName(scope)}`;
       readers.push(location);
@@ -294,6 +379,80 @@ test("no source reader of episode data constructs a RequirementContract", () => 
   assert.ok(readers.includes("src/run/episode-bind.ts:settleLockedEpisode"));
   assert.ok(readers.includes("src/cli/main.ts:inspectEpisode"));
   assert.ok(readers.includes("src/privacy/deletion.ts:episodeTextOf"));
+});
+
+const CONTROLLER_FIXTURE_FILE = "src/development/controller.ts";
+const HOST_ACCEPTANCE_FIXTURE = `
+  import type { WorkItemDefinition } from "./work-items.js";
+  import type { NativeWriteSessionResult } from "../native/write-session.js";
+  import type { ProjectEpisode as EpisodeAlias } from "../domain/episode.js";
+  function runNext(selected: { item: WorkItemDefinition }, result: NativeWriteSessionResult) {
+    const acceptanceCriteria = selected.item.acceptance;
+    return { acceptanceCriteria, contract: result.acceptance };
+  }
+`;
+
+test("the census distinguishes declared host recipes and verdicts from episode acceptance", () => {
+  assert.deepEqual(assertNoEpisodeContractSynthesis([
+    { file: CONTROLLER_FIXTURE_FILE, source: HOST_ACCEPTANCE_FIXTURE }
+  ]), []);
+});
+
+test("the same controller location still rejects real episodes and mixed receiver types", () => {
+  for (const receiverType of ["EpisodeAlias", "WorkItemDefinition | EpisodeAlias"]) {
+    for (const read of ["selected.item.acceptance", 'selected.item["acceptance"]']) {
+      const source = HOST_ACCEPTANCE_FIXTURE
+        .replace("item: WorkItemDefinition", `item: ${receiverType}`)
+        .replace("selected.item.acceptance", read);
+      assert.throws(() => assertNoEpisodeContractSynthesis([
+        { file: CONTROLLER_FIXTURE_FILE, source }
+      ]), assert.AssertionError, `${receiverType} via ${read}`);
+    }
+  }
+});
+
+test("renamed episode destructuring remains a source signal at the controller location", () => {
+  const source = HOST_ACCEPTANCE_FIXTURE
+    .replace("item: WorkItemDefinition", "item: EpisodeAlias")
+    .replace("const acceptanceCriteria = selected.item.acceptance;", "const { acceptance: criteria } = selected.item;")
+    .replace("return { acceptanceCriteria, contract: result.acceptance };", "return { acceptanceCriteria: criteria };");
+  assert.throws(() => assertNoEpisodeContractSynthesis([
+    { file: CONTROLLER_FIXTURE_FILE, source }
+  ]), assert.AssertionError);
+});
+
+test("assertions and local aliases cannot cast episode data into the host exception", () => {
+  for (const read of [
+    "const { item: cast = selected.item as unknown as WorkItemDefinition } = {}; const acceptanceCriteria = cast.acceptance;",
+    "const { item: cast } = { item: selected.item as unknown as WorkItemDefinition }; const acceptanceCriteria = cast.acceptance;",
+    "const [{ item: cast }] = [{ item: selected.item as unknown as WorkItemDefinition }]; const acceptanceCriteria = cast.acceptance;",
+    "const acceptanceCriteria = (selected.item as unknown as WorkItemDefinition).acceptance;",
+    "const acceptanceCriteria = (<WorkItemDefinition><unknown>selected.item).acceptance;",
+    "const cast = selected.item as unknown as WorkItemDefinition; const alias = cast; const acceptanceCriteria = alias.acceptance;",
+    "const cast = selected.item as unknown as WorkItemDefinition; const { acceptance: acceptanceCriteria } = cast;",
+    "const acceptanceCriteria = (selected.item satisfies WorkItemDefinition).acceptance;"
+  ]) {
+    const source = HOST_ACCEPTANCE_FIXTURE
+      .replace("item: WorkItemDefinition", "item: EpisodeAlias")
+      .replace("const acceptanceCriteria = selected.item.acceptance;", read);
+    assert.throws(() => assertNoEpisodeContractSynthesis([
+      { file: CONTROLLER_FIXTURE_FILE, source }
+    ]), assert.AssertionError, read);
+  }
+});
+
+test("unknown and same-name foreign DTO receivers do not gain the host exception", () => {
+  for (const declaration of [
+    "type WorkItemDefinition = any;",
+    "interface WorkItemDefinition { acceptance: readonly unknown[] }"
+  ]) {
+    const source = HOST_ACCEPTANCE_FIXTURE.replace(
+      'import type { WorkItemDefinition } from "./work-items.js";', declaration
+    );
+    assert.throws(() => assertNoEpisodeContractSynthesis([
+      { file: CONTROLLER_FIXTURE_FILE, source }
+    ]), assert.AssertionError, declaration);
+  }
 });
 
 test("the source census rejects reconstruction and an empty-constraints claim", () => {

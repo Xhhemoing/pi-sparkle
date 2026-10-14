@@ -83,6 +83,8 @@ flowchart TD
 
 ### 后续实现队列
 
+阶段二已按这一队列实现 host 工作项、原生具名条件、持久操作对账、可信验证、CLI 装配拆分及显式开发入口。后续结果以 [阶段二验收记录](2026-10-15-development-control-plane.md) 和 [DP checklist](../../tasks/development-control-plane-todo.md) 为准；以下表格保留阶段一排程依据。新增可信候选验证不关闭既有 R10/R11 生产应用决策，真实模型评估仍需要已配置模型和试验预算。
+
 | 优先级 | 下一切片与验收 | 依赖和停止条件 |
 |---|---|---|
 | P1 | 将原生写任务的 host acceptance criteria 映射到实现任务提示与结果；不能只依赖空 acceptanceCriteria | 保持 protocol/DTO 边界；验证条件仍由宿主控制 |

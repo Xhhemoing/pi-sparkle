@@ -54,3 +54,17 @@ Existing characterization: 49/49 before and after extraction. New regression
 suite: RED 8 pass / 5 fail, then GREEN 13/13. Final focused CLI/adapter/telemetry
 verification: 573/573 with no skips. TypeScript, changed-file ESLint and workflow
 validation passed. See the [verification report](../../reports/2026-10-15-cli-run-assembly.md).
+
+## Full-gate producer-location correction
+
+The integrated gate exposed a remaining tracking census pin at
+`test/unit/tracking/option-a-preconditions.test.ts:307`: its exhaustive expected
+producer map still names `src/cli/main.ts`, while the unchanged child fake and
+its literal PASSED verdict moved to `src/cli/executor-factory.ts`. RED evidence:
+`.agent_workspace/architecture-20261015/stage2-full-tests.log`.
+
+Authorized follow-up changes only that expected path and adds a dated source
+move comment. Preserve the complete source census, exact producer/verdict map,
+Pi MESSAGE count and all behavioral gate assertions. Run the focused option-a
+suite, record results in this report and request independent pin review before
+the root-owned full-gate rerun. No source behavior or other test changes.
