@@ -1,5 +1,15 @@
 # Active implementation plan
 
+## Flowchart recovery responsibility extraction (2026-10-15)
+
+`TASK-20261015-flowchart-recovery-refactor` continues the P2 architecture queue
+from PR #60 `c2b802c` in the isolated `codex/continuous-quality-20261015` branch.
+Extract pure child reconstruction and durable criteria/cost recovery from
+`flowchart-run.ts`, retain orchestration and all existing frozen contracts, and
+add direct boundary checks plus a dedicated Ubuntu/Windows recovery job.
+Concurrent Stage 2 work is preserved in its original checkout and is not part of
+this branch. [Plan](../docs/superpowers/plans/2026-10-15-flowchart-recovery-refactor.md).
+
 ## Architecture and bounded agent development (2026-10-15)
 
 `TASK-20261015-architecture-agent-loop` is ready for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60), from

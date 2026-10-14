@@ -1,5 +1,15 @@
 # Active checklist
 
+## Flowchart recovery responsibility extraction (2026-10-15)
+
+- [x] 2026-10-15: preserve last-request precedence, durable first-write records, known-empty
+  declarations, restored routing roles and per-child budget isolation through
+  a pure-module extraction. [Plan](../docs/superpowers/plans/2026-10-15-flowchart-recovery-refactor.md).
+- [x] 2026-10-15: independent review PASS; actual pinned `pnpm gate` PASS
+  (3321 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS.
+  [Evidence](../docs/reports/2026-10-15-flowchart-recovery-refactor.md).
+- [ ] Publish and verify GitHub checkpoint and hosted Ubuntu/Windows recovery.
+
 ## Architecture and bounded agent development (2026-10-15)
 
 - [x] 2026-10-15: fallback, cleanup, bounded native repair and supervisor correctness slices have RED/GREEN evidence in the linked reports.

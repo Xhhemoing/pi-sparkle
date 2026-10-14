@@ -5,6 +5,14 @@ outcome-supported. It is **not** a production readiness certificate.
 
 ## Architecture and development candidate (2026-10-15)
 
+Additional isolated P2 candidate: pure child recovery extracted from
+`flowchart-run.ts` on `codex/continuous-quality-20261015`, based on PR #60
+`c2b802c`. No run/event/checkpoint/acceptance/budget contract changed.
+Independent review and actual pinned local `pnpm gate` PASS (3321/0/1),
+security/Pi/kernel probes PASS. Dedicated Ubuntu/Windows recovery checks are
+configured; hosted evidence and publication are recorded separately in the
+[recovery verification record](reports/2026-10-15-flowchart-recovery-refactor.md).
+
 [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) contains the reviewed
 candidate from main `44db4b1`; it is not a claim of main integration or
 production acceptance. [Architecture, research and verification](reports/2026-10-15-architecture-agent-loop.md).

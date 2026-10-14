@@ -9,6 +9,11 @@ const FLOWCHART_SOURCES = [
   "../../../src/supervisor/flowchart-supervisor.ts"
 ] as const;
 
+const ALL_FLOWCHART_SOURCES = [
+  ...FLOWCHART_SOURCES,
+  "../../../src/run/flowchart-child-recovery.ts"
+] as const;
+
 function assertNoSchedulerRetry(fileName: string, source: string): void {
   const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const violations: string[] = [];
@@ -50,7 +55,7 @@ function assertNoSchedulerRetry(fileName: string, source: string): void {
 }
 
 test("the flowchart plane neither imports scheduler nor references applyRetry", () => {
-  for (const relativePath of FLOWCHART_SOURCES) {
+  for (const relativePath of ALL_FLOWCHART_SOURCES) {
     const path = fileURLToPath(new URL(relativePath, import.meta.url));
     assertNoSchedulerRetry(relativePath, readFileSync(path, "utf8"));
   }
