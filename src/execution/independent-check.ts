@@ -6,6 +6,10 @@ import { authorizeCommand, type CommandPolicy } from "./command-policy.js";
 import { runAuthorizedCommand, type CommandRunStatus } from "./command-runner.js";
 import { readWorktreeRevision } from "./worktree.js";
 import {
+  beginTrustedVerification, finishTrustedVerification,
+  type TrustedVerificationDescriptor, type TrustedVerificationEvidence
+} from "./trusted-verification.js";
+import {
   WORKTREE_FINGERPRINT_SCHEMA,
   captureWorktreeFingerprint,
   fingerprintsCompatible,
@@ -33,6 +37,8 @@ export interface IndependentCheckInput {
    */
   readonly commandPolicy?: CommandPolicy;
   readonly signal?: AbortSignal;
+  /** Host-only opt-in exact candidate/checker binding; preserve runtime identity. */
+  readonly trustedVerification?: TrustedVerificationDescriptor;
 }
 
 /**
@@ -54,6 +60,8 @@ export interface IndependentCheckRecord {
   /** Original process termination evidence, before legacy exit normalization. */
   readonly processExitCode?: number | null;
   readonly processSignal?: NodeJS.Signals | null;
+  /** Metadata only; raw candidate/checker snapshot bytes are never persisted. */
+  readonly trustedVerification?: TrustedVerificationEvidence;
   readonly stdoutText: string;
   readonly stderrText: string;
   readonly stdoutByteLength: number;
@@ -73,6 +81,14 @@ export interface IndependentCheckRecord {
 }
 
 const STORED_STREAM_MAX_BYTES = 4096;
+// Only this actual execution path can issue trusted check authority. There is
+// deliberately no exported registrar for caller-supplied/serialized evidence.
+const trustedChecks = new WeakMap<IndependentCheckRecord, TrustedVerificationDescriptor>();
+
+export function hasTrustedVerificationEvidence(check: IndependentCheckRecord, descriptor: TrustedVerificationDescriptor): boolean {
+  return trustedChecks.get(check) === descriptor && check.trustedVerification?.ok === true &&
+    check.trustedVerification.descriptorId === descriptor.id;
+}
 
 function boundedText(text: string): string {
   const bytes = Buffer.from(text, "utf8");
@@ -102,10 +118,12 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     throw new DomainValidationError("independent check command must be non-empty");
   }
 
-  const manifest = input.snapshotManifest ?? {};
+  const trusted = input.trustedVerification;
+  const observation = trusted === undefined ? undefined : beginTrustedVerification(trusted, cwd, input.command, input.args ?? [], input.snapshotManifest);
+  const manifest = trusted?.snapshotManifest ?? input.snapshotManifest ?? {};
   const before = captureWorktreeFingerprint(cwd, manifest);
 
-  const args = input.args ?? [];
+  const args = trusted?.args ?? input.args ?? [];
   const policy: CommandPolicy =
     input.commandPolicy ??
     ({
@@ -125,6 +143,7 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     ...(input.signal === undefined ? {} : { signal: input.signal })
   });
 
+  const exactEvidence = observation === undefined ? undefined : finishTrustedVerification(observation);
   const after = captureWorktreeFingerprint(cwd, manifest);
   const compat = fingerprintsCompatible(before, after, manifest);
 
@@ -144,11 +163,12 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     result.status === "completed" &&
     exitCode === 0 &&
     compat.ok &&
+    (exactEvidence === undefined || exactEvidence.ok) &&
     !stdoutOver &&
     !stderrOver &&
     (input.artifactPath === undefined || storedArtifactByteLength !== undefined);
 
-  return {
+  const record: IndependentCheckRecord = {
     kind: "command-check",
     schemaVersion: WORKTREE_FINGERPRINT_SCHEMA,
     checkId: `check_v2_${randomUUID()}`,
@@ -159,6 +179,7 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     processStatus: result.status,
     processExitCode: result.exitCode,
     processSignal: result.signal,
+    ...(exactEvidence === undefined ? {} : { trustedVerification: exactEvidence }),
     stdoutText: boundedText(stdout),
     stderrText: boundedText(stderr),
     stdoutByteLength,
@@ -171,4 +192,15 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     snapshotManifest: manifest,
     ok
   };
+  if (trusted !== undefined) {
+    // Runtime evidence is immutable and identity-bound. Serialized copies can
+    // be inspected, but cannot recreate opt-in acceptance authority.
+    for (const fingerprint of [before, after]) {
+      for (const entry of fingerprint.entries) Object.freeze(entry);
+      Object.freeze(fingerprint.entries); Object.freeze(fingerprint);
+    }
+    Object.freeze(record);
+    trustedChecks.set(record, trusted);
+  }
+  return record;
 }

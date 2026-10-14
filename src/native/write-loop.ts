@@ -28,6 +28,7 @@ export interface NativeWriteAttemptRecord {
   readonly runId: RunId;
   readonly artifact: LoopArtifactRef;
   readonly accepted: boolean;
+  readonly taskContractArtifact?: LoopArtifactRef;
 }
 export interface NativeWriteLoopResult {
   readonly maxAttempts: number;
@@ -57,10 +58,12 @@ export function repairFeedback(check: IndependentCheckRecord, runId: RunId, arti
     stdoutText: check.stdoutText.slice(0, 4096), stderrText: check.stderrText.slice(0, 4096),
     stdoutByteLength: check.stdoutByteLength, stderrByteLength: check.stderrByteLength });
 }
-export function isRepairableCheck(check: IndependentCheckRecord): boolean {
+export function isRepairableCheck(check: IndependentCheckRecord, repairableExitCodes?: readonly number[]): boolean {
   // Legacy records without runner status cannot distinguish spawn failures
   // from exit 1. They never authorize automatic repair.
   return check.processStatus === "completed" && check.processSignal === null &&
+    (repairableExitCodes === undefined || repairableExitCodes.includes(check.exitCode)) &&
+    (check.trustedVerification === undefined || check.trustedVerification.ok) &&
     Number.isSafeInteger(check.processExitCode) && check.processExitCode === check.exitCode && check.exitCode !== 0 &&
     fingerprintsCompatible(check.contentFingerprintBefore, check.contentFingerprintAfter, check.snapshotManifest).ok;
 }

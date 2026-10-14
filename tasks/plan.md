@@ -1,5 +1,14 @@
 # Active implementation plan
 
+## Development control plane, stage two (2026-10-15)
+
+The user instructed continued execution and staged saves. `TASK-20261015-development-control-plane`
+is in progress from the saved stage-one PR #60 checkpoint. [Plan](../docs/superpowers/plans/2026-10-15-development-control-plane.md)
+· [Checklist](development-control-plane-todo.md). Work queues, named criteria,
+trusted verification, operation reconciliation and explicit development entry
+points are implemented in separate reviewable slices. Existing production,
+apply, adaptive and live-provider evidence boundaries remain distinct.
+
 ## Architecture and bounded agent development (2026-10-15)
 
 `TASK-20261015-architecture-agent-loop` is ready for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60), from

@@ -28,6 +28,13 @@ export interface NativeApplyInput {
   readonly signal?: AbortSignal;
 }
 
+/** Persisted exact-check metadata cannot recreate an in-process host capability. */
+export function assertNativeApplyVerificationSupported(result: NativeWriteSessionResult): void {
+  if (result.acceptance.independentCheck?.trustedVerification !== undefined) {
+    throw new DomainValidationError("trusted verification candidate application is not supported by native apply; retain the candidate for host review until fresh descriptor re-verification is supported");
+  }
+}
+
 export interface NativeApplyResult {
   readonly status: "APPLIED";
   readonly appliedRevision: string;
@@ -284,6 +291,7 @@ export class NativeApplySession {
 
     const result = input.result;
     if (!isAcceptedWriteResult(result)) fail("candidate result is not accepted; refused");
+    assertNativeApplyVerificationSupported(result);
     // Reuse the write preflight for source cleanliness validation. The
     // verification snapshot comes from the accepted acceptance record (trusted
     // host input frozen at write time), never from model text.

@@ -7,6 +7,8 @@ import {
 } from "../../../src/privacy/record-classes.js";
 
 const REQUIRED_IDS = [
+  "development-work-queue",
+  "development-action-ledger",
   "run-event",
   "run-checkpoint",
   "episode",
