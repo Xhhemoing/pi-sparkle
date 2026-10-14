@@ -22,11 +22,10 @@ this branch. [Plan](../docs/superpowers/plans/2026-10-15-flowchart-recovery-refa
 ## Development control plane, stage two (2026-10-15)
 
 The user instructed continued execution and staged saves. `TASK-20261015-development-control-plane`
-is in progress from the saved stage-one PR #60 checkpoint. [Plan](../docs/superpowers/plans/2026-10-15-development-control-plane.md)
+is implemented, independently reviewed and ready for review on PR #60. [Plan](../docs/superpowers/plans/2026-10-15-development-control-plane.md)
 · [Checklist](development-control-plane-todo.md). Work queues, named criteria,
 trusted verification, operation reconciliation and explicit development entry
-points are implemented in separate reviewable slices. Existing production,
-apply, adaptive and live-provider evidence boundaries remain distinct.
+points are implemented in separate reviewable slices. DP-01 through DP-08 are verified: local 3430 pass / 0 fail / 1 opt-in skip and five hosted jobs PASS, including the new development checks on Ubuntu/Windows. Source/demo/test checkpoint `9828011b` matches local `b3910c6` exactly. [Final evidence](../docs/reports/2026-10-15-development-control-plane.md) · [Continuation guide](../docs/development-agent-loop.md). LIVE-01 remains blocked because no model is configured; it needs a host provider/model and trial budget. Existing production, apply, adaptive and live-provider evidence boundaries remain distinct; main is not merged by this delivery.
 
 ## Architecture and bounded agent development (2026-10-15)
 

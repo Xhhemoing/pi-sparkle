@@ -4,7 +4,7 @@ Plan: [development control plane](../superpowers/plans/2026-10-15-development-co
 
 ## Stage-two source checkpoint
 
-The scoped implementation is present and independently reviewed. This checkpoint preserves source before the final example and aggregate gate; it does not claim the aggregate gate or a live-model trial has completed.
+The scoped implementation is present and independently reviewed. The initial checkpoint preserved source before the final example and aggregate gate. The final gate and checkpoint are recorded below; a live-model trial has not completed.
 
 The host declares a work-item dependency graph, literal write prefixes, named command criteria and protected checker/configuration paths. `DevelopmentController` claims one eligible item, records action intent before effects, runs a bounded native-write loop in an isolated Git candidate, saves a completed effect receipt before the queue transition, and exposes the candidate for explicit review. Acceptance never applies the candidate to the original source. Dependent work rechecks the accepted prerequisite against the actual source revision in a disposable check worktree.
 
@@ -36,7 +36,7 @@ Read-only model inspection found no configured primary, fast, or available model
 
 ## Continuation
 
-Finish the reusable scripted development example, aggregate local checks and hosted Linux/Windows gates; save exact tested trees and final results. Continue later work by a host-authored queue, one bounded claim/effect at a time, checking the receipt and candidate before accepting, integrating source explicitly, and only then unlocking dependent work. Do not schedule a perpetual writer or infer integration from queue acceptance.
+The reusable scripted example, continuation guide, aggregate local gate and hosted Linux/Windows gates are complete. Continue later work by a host-authored queue, one bounded claim/effect at a time, checking the receipt and candidate before accepting, integrating source explicitly, and only then unlocking dependent work. Do not schedule a perpetual writer or infer integration from queue acceptance. The remaining live-evaluation condition is an allowed configured model/provider and a host-defined trial budget.
 
 ## Saved checkpoint and aggregate correction
 
@@ -57,3 +57,16 @@ The final original package commands all exit 0: `node node_modules/typescript/bi
 Final episode-guard independent review passed 10/10 (24.19 seconds), plus all five independently constructed existing cast/alias/binding/default probes rejected reconstruction. The guard still scans all source modules and function scopes; its exception resolves only the two declared host interfaces, with conservative unknown/union handling and bounded initializer-origin checks. It is a source regression guard, not a general interprocedural information-flow proof. [Detailed correction](2026-10-15-episode-contract-boundary-review.md).
 
 The standard local pnpm wrapper remains an environment failure, not a passing `pnpm gate`: it selects 11.25.0 while the repository fixes 10.17.1. A later literal workflow command also triggered the wrapper's install phase and `ERR_PNPM_IGNORED_BUILDS`; its generated four-line `allowBuilds` draft was precisely removed, with the original `onlyBuiltDependencies: [esbuild]` unchanged. No build-policy approval was granted. The direct original package commands above provide the local gate-equivalent result; hosted pinned-pnpm gates are recorded separately.
+
+## Hosted gate, saved stages and completion
+
+Final tested source/demo/test checkpoint: local `b3910c65a2e04b890f457c5e7af7914fc9e75330`, remote `9828011b3c2aeb68a302fe3a677067f29a748d05`, exact shared tree `3539ff0724e946cd6df97a55dfdea840d65653bc`. Public Git fetch independently confirmed the remote ref and no tree difference. Earlier source checkpoint `a4c4a42` / `83105ec2` is preserved; stage-one implementation and evidence remain in the same PR history.
+
+| Hosted run at `9828011b` | Jobs | Result |
+|---|---|---|
+| [CI 38619472492](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38619472492) | quality, Ubuntu smoke, Windows smoke | **3/3 success** |
+| [Report root regression 38619472480](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38619472480) | Ubuntu, Windows | **2/2 success** |
+
+Both smoke jobs' actual `Development queue and controller` steps returned success. These run the new CLI and controller integration cases, in addition to existing doctor, children, native reliability and persistence checks. The quality job executes the repository's standard pinned pnpm workflow, type, lint, full test, build and probe steps. This is hosted Node 22.19.x evidence, separate from the local Node 24.19.0 result.
+
+DP-01 through DP-08 are implemented, independently reviewed, verified and saved for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60). Final closeout changes only evidence and task documents; runtime source, tests, example and CI configuration remain identical to the tested checkpoint. Main stays `44db4b1`, with no merge, release or original-source application. LIVE-01 remains explicitly blocked by empty configured model selection and missing trial budget, with zero live trials; no effectiveness, cost benefit, adaptive/holdout or production conclusion is implied.
