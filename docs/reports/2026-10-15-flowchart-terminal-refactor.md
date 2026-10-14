@@ -77,8 +77,27 @@ suites, including the new terminal behavior tests and the moved replay/source
 owner pins. Workflow syntax, matrix, file existence and exit-code propagation
 checked locally. Actual hosted execution follows source publication.
 
-Next action: publish and verify the second checkpoint, inspect its Ubuntu/Windows
-and full CI evidence, and retain the exact revision in PR #61. Further lifecycle
-extraction requires its own bounded characterization and plan. The original
-Stage 2 queue/action-ledger/native verification work remains separate; integrate
-it only after source review and its own gates rather than overwriting drafts.
+Second checkpoint `203fc9473355107db840593c1982892d115d2b8b` published and remote
+ref verified in [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61).
+Its Git tree `af4eed4e3f6a48a6230625025fd293caa6d81036` matches the locally staged
+tree (local snapshot commit `dc69ace` has different metadata). The twelve-suite
+recovery [run 38614349306](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38614349306)
+passed Ubuntu/Windows. [CI 38614349148](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38614349148)
+and [root regression 38614349149](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38614349149)
+are observed separately on the PR.
+
+Final whole-branch `git diff c2b802c --check` found two new-file trailing blank
+lines that the earlier unstaged-only check did not inspect. Removed only those
+EOF blank lines, then focused ESLint and whole-branch diff checks passed.
+Function bodies and test definitions are unchanged. Final helper sizes are
+431 and 73 lines; earlier counts above describe the checkpointed source before
+this formatting correction. The final hosted checks validate the published
+tip after this correction; local full-gate counts above describe its otherwise
+identical runtime/test source.
+
+Next action: verify the latest PR head's complete hosted checks, then keep it
+reviewable. Integrate the separately developed Stage 2 queue/action-ledger/native
+verification candidate only after its source review and own gates. Further
+crash/checkpoint extraction requires a bounded plan and characterization;
+monetary settlement, paid provider evaluation and production gates retain their
+existing dependencies. No current task is selected from an agent's self-report.

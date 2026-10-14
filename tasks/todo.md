@@ -22,8 +22,10 @@
 - [x] 2026-10-15: preserve moved source-owner guards; independent review PASS;
   actual `pnpm gate` 3328 pass / 0 fail / 1 opt-in skip, security 26 / Pi 4 /
   kernel 3 PASS. [Evidence](../docs/reports/2026-10-15-flowchart-terminal-refactor.md).
-- [ ] Publish and verify the second checkpoint and its hosted checks; main
-  integration and the rest of the architecture queue remain separate.
+- [x] 2026-10-15: second checkpoint `203fc94` published in [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61)
+  and remote ref verified. Twelve-suite recovery [run 38614349306](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38614349306)
+  passed Ubuntu/Windows; full CI/root regression are tracked on the PR.
+- [ ] Main integration and the remaining architecture queue remain separate.
 
 ## Architecture and bounded agent development (2026-10-15)
 

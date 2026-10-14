@@ -429,4 +429,3 @@ export function mappedAgentRole(role: FlowNode["role"]): AgentRole | undefined {
   if (role === "actor") return "implementer";
   return undefined;
 }
-

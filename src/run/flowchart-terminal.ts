@@ -71,4 +71,3 @@ export async function persistFailed(ctx: FlowchartTerminalContext, reason: strin
   if (await alreadyTerminal(ctx)) return;
   await ctx.append(ctx.make("RUN_FAILED", { reason }));
 }
-
