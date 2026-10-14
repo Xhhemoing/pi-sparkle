@@ -13,6 +13,14 @@ security/Pi/kernel probes PASS. Dedicated Ubuntu/Windows recovery checks are
 configured; hosted evidence and publication are recorded separately in the
 [recovery verification record](reports/2026-10-15-flowchart-recovery-refactor.md).
 
+The next bounded candidate separates normal terminal recording into
+`flowchart-terminal.ts`; finish, crash, checkpoint and writer-lock ownership
+remain in the orchestrator. Four runtime function bodies are unchanged; seven
+new awaited-order/refusal tests and transferred live-owner pins pass.
+Independent review and combined actual pinned gate PASS (3328/0/1), with
+security/Pi/kernel probes PASS. [Terminal evidence](reports/2026-10-15-flowchart-terminal-refactor.md).
+Neither extraction changes terminal vocabulary or claims new recovery semantics.
+
 [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) contains the reviewed
 candidate from main `44db4b1`; it is not a claim of main integration or
 production acceptance. [Architecture, research and verification](reports/2026-10-15-architecture-agent-loop.md).

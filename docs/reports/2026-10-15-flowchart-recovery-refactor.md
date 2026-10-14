@@ -68,6 +68,19 @@ serially on Ubuntu/Windows with Node 22.19.x and pnpm 10.17.1. Syntax, matrix
 and selected-file existence were checked locally. Hosted results are recorded
 separately after GitHub publication.
 
-Next action: publish this verified checkpoint and inspect its GitHub head and
-checks. A further terminal/lifecycle slice requires its own bounded plan and
-characterization rather than extending this refactor implicitly.
+First checkpoint published and remote ref verified at `43aea5ae9f00834f8249495d7e601f4c6439541e`
+in [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61). Remote Git tree
+`8e137d2ed8170a1526a1e6a7f8bea27d95b6547b` equals the locally checked and staged
+tree. The local snapshot commit `0b041ec` has different author/commit metadata
+and the same tree; it is not mislabeled as the remote revision.
+Dedicated recovery [run 38612917798](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917798)
+and root regression [run 38612917262](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917262)
+both passed their Ubuntu/Windows jobs. Standard [CI 38612917294](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917294)
+also passed its quality and Ubuntu/Windows smoke jobs: **7/7 hosted jobs PASS**
+at that exact first checkpoint, including the genuine pinned-pnpm gate under
+Node 22.19.x.
+
+Next action: the separately scoped [terminal recorder plan](../superpowers/plans/2026-10-15-flowchart-terminal-refactor.md)
+characterizes and extracts only normal terminal recording. Finish/crash/checkpoint
+ownership remains in the original orchestrator. This staged publication does
+not merge PR #60 or #61 into main.

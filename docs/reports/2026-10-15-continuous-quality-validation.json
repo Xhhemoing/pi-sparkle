@@ -1,0 +1,38 @@
+{
+  "recordType": "development-verification",
+  "recordVersion": 1,
+  "project": "Xhhemoing/pi-sparkle",
+  "date": "2026-10-15",
+  "timezone": "Asia/Shanghai",
+  "baselineCommit": "c2b802c385dda97c5becd0a9ecde666782806ae5",
+  "pullRequest": 61,
+  "branch": "codex/continuous-quality-20261015",
+  "localEnvironment": {"node": "24.19.0", "pnpm": "10.17.1", "platform": "linux"},
+  "stages": [
+    {
+      "taskId": "TASK-20261015-flowchart-recovery-refactor",
+      "publishedCommit": "43aea5ae9f00834f8249495d7e601f4c6439541e",
+      "sourceTree": "8e137d2ed8170a1526a1e6a7f8bea27d95b6547b",
+      "mechanicalEquivalence": {"functions": 15, "result": "PASS"},
+      "independentReview": "PASS",
+      "gate": {"command": "pnpm gate", "exitCode": 0, "tests": 3322, "pass": 3321, "fail": 0, "skip": 1},
+      "probes": {"security": 26, "piCompatibility": 4, "kernelReuse": 3},
+      "hosted": {"jobsPassed": 7, "runs": [38612917294, 38612917798, 38612917262]},
+      "report": "docs/reports/2026-10-15-flowchart-recovery-refactor.md"
+    },
+    {
+      "taskId": "TASK-20261015-flowchart-terminal-refactor",
+      "comparisonBaseCommit": "43aea5ae9f00834f8249495d7e601f4c6439541e",
+      "mechanicalEquivalence": {"functions": 4, "result": "PASS"},
+      "independentReview": "PASS",
+      "independentFocusedTests": {"pass": 96, "fail": 0, "skip": 0},
+      "gate": {"command": "pnpm gate", "exitCode": 0, "tests": 3329, "pass": 3328, "fail": 0, "skip": 1},
+      "probes": {"security": 26, "piCompatibility": 4, "kernelReuse": 3},
+      "hosted": {"status": "not-yet-observed"},
+      "report": "docs/reports/2026-10-15-flowchart-terminal-refactor.md"
+    }
+  ],
+  "skipReason": "Opt-in real-provider smoke requires credentials and explicit execution scope.",
+  "sourceMetrics": {"orchestratorLinesBefore": 2671, "orchestratorLinesAfter": 2214, "newBehaviorTests": 15},
+  "boundaries": {"automaticApply": false, "mainMerged": false, "productionAccepted": false, "liveProviderEffectivenessVerified": false, "newCrashRecoveryGuarantee": false}
+}

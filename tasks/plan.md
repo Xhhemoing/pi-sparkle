@@ -2,6 +2,15 @@
 
 ## Flowchart recovery responsibility extraction (2026-10-15)
 
+First verified checkpoint published as `43aea5a` in
+[PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61). It builds on the
+unmerged PR #60 baseline; source publication does not mean main integration.
+Next bounded scope is the [terminal recorder extraction](../docs/superpowers/plans/2026-10-15-flowchart-terminal-refactor.md)
+with independent characterization, source-owner pins and a second full gate.
+The terminal source now has independent review PASS and actual pinned gate
+3328/0/1 plus security/Pi/kernel probes PASS. Second publication and hosted
+evidence are recorded separately; it changes normal recording ownership only.
+
 `TASK-20261015-flowchart-recovery-refactor` continues the P2 architecture queue
 from PR #60 `c2b802c` in the isolated `codex/continuous-quality-20261015` branch.
 Extract pure child reconstruction and durable criteria/cost recovery from

@@ -11,7 +11,8 @@ const FLOWCHART_SOURCES = [
 
 const ALL_FLOWCHART_SOURCES = [
   ...FLOWCHART_SOURCES,
-  "../../../src/run/flowchart-child-recovery.ts"
+  "../../../src/run/flowchart-child-recovery.ts",
+  "../../../src/run/flowchart-terminal.ts"
 ] as const;
 
 function assertNoSchedulerRetry(fileName: string, source: string): void {

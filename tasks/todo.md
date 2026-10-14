@@ -8,7 +8,22 @@
 - [x] 2026-10-15: independent review PASS; actual pinned `pnpm gate` PASS
   (3321 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS.
   [Evidence](../docs/reports/2026-10-15-flowchart-recovery-refactor.md).
-- [ ] Publish and verify GitHub checkpoint and hosted Ubuntu/Windows recovery.
+- [x] 2026-10-15: checkpoint `43aea5a` published and remote ref verified in
+  [PR #61](https://github.com/Xhhemoing/pi-sparkle/pull/61). Dedicated recovery
+  [run 38612917798](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917798)
+  and root regression [run 38612917262](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38612917262)
+  passed both Ubuntu/Windows jobs. Standard CI is observed separately.
+
+## Flowchart terminal recorder extraction (2026-10-15)
+
+- [x] 2026-10-15: extract normal terminal recorders with unchanged runtime statements,
+  first-terminal precedence and cancellation before failure recording.
+  [Plan](../docs/superpowers/plans/2026-10-15-flowchart-terminal-refactor.md).
+- [x] 2026-10-15: preserve moved source-owner guards; independent review PASS;
+  actual `pnpm gate` 3328 pass / 0 fail / 1 opt-in skip, security 26 / Pi 4 /
+  kernel 3 PASS. [Evidence](../docs/reports/2026-10-15-flowchart-terminal-refactor.md).
+- [ ] Publish and verify the second checkpoint and its hosted checks; main
+  integration and the rest of the architecture queue remain separate.
 
 ## Architecture and bounded agent development (2026-10-15)
 

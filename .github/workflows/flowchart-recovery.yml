@@ -70,6 +70,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $focusedTests = @(
             'test/unit/run/flowchart-child-recovery.test.ts',
+            'test/unit/run/flowchart-terminal.test.ts',
+            'test/unit/run/replay.test.ts',
             'test/unit/run/flowchart-run-abort.test.ts',
             'test/unit/run/flowchart-checkpoint.test.ts',
             'test/unit/run/flowchart-applyretry-absence.test.ts',
