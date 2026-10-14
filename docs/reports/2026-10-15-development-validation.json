@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "task": "TASK-20261015-development-control-plane",
+  "mode": "offline-mechanism-validation",
+  "environment": { "os": "Linux", "node": "24.19.0", "requiredPnpm": "10.17.1", "localWrapperPnpm": "11.25.0" },
+  "savedSourceCheckpoint": {
+    "localCommit": "a4c4a428ae8b5195454bc600d1db4779613e7877",
+    "remoteCommit": "83105ec2af2d70ac1650368ae3be6427634b4a70",
+    "sharedTree": "58c5a8465aca2fc1e3de185de3c7609f056f7090"
+  },
+  "finalReviewedEpisodeGuardBlob": "f44fa0a415e09e76c409c0896f40b309f41b8ad5",
+  "checks": [
+    { "command": "node scripts/workflow-check.mjs", "exitCode": 0 },
+    { "command": "node node_modules/typescript/bin/tsc --noEmit", "exitCode": 0 },
+    { "command": "node node_modules/eslint/bin/eslint.js .", "exitCode": 0 },
+    { "command": "node scripts/run-tests.mjs", "exitCode": 0, "tests": 3431, "passed": 3430, "failed": 0, "skipped": 1, "durationMs": 69018.834425, "skipReason": "opt-in real-provider smoke", "log": ".agent_workspace/architecture-20261015/stage2-full-tests-delivery.log" },
+    { "command": "node node_modules/typescript/bin/tsc -p tsconfig.build.json", "exitCode": 0 },
+    { "command": "node scripts/security-probe.mjs", "exitCode": 0, "passed": 26, "openFindings": [] },
+    { "command": "node scripts/pi-compat-probe.mjs", "exitCode": 0, "passed": 4 },
+    { "command": "node scripts/kernel-reuse-probe.mjs", "exitCode": 0, "passed": 3 },
+    { "command": "git diff --check", "exitCode": 0 }
+  ],
+  "independentReviews": { "workQueue": "PASS", "actionLedger": "PASS", "nativeCriteria": "PASS", "trustedVerification": "PASS", "cliAssembly": "PASS", "flowchartExtraction": "PASS", "controllerCliEvaluation": "PASS", "episodeGuard": "PASS", "developmentDemoGuide": "PASS" },
+  "scriptedDemonstration": { "attempts": 2, "firstHostExitCode": 1, "repairedHostExitCode": 0, "explicitHostAcceptance": true, "sourceUnchanged": true, "sourceApplied": false, "candidateRetained": true, "costSource": "unknown", "observedCostCoverage": 0 },
+  "liveEvaluation": { "status": "blocked", "configuredModels": 0, "primary": null, "fast": null, "liveTrials": 0, "supportsLiveEffectivenessClaim": false, "condition": "host configures an allowed provider/model and trial budget" },
+  "hostedFinalGate": { "status": "pending", "reference": "https://github.com/Xhhemoing/pi-sparkle/pull/60", "requiredJobs": 5, "developmentIntegrationSmoke": ["Ubuntu", "Windows"] },
+  "productionApplication": false,
+  "mainMerged": false
+}

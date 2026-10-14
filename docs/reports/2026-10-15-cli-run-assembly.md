@@ -62,6 +62,23 @@ post-extraction, final focused and typecheck logs are under
 `.agent_workspace/executor-fallback-audit/cli-assembly-*.log`; RED counts were
 observed in the test command output before correction.
 
+## Integrated-gate producer census correction
+
+The first combined stage-two gate caught a stale source-location pin in
+`test/unit/tracking/option-a-preconditions.test.ts`: the exhaustive producer
+map still expected the CLI child fake in `src/cli/main.ts`, while extraction
+moved that unchanged PASSED-producing class to `src/cli/executor-factory.ts`.
+The actual and expected maps differed only in this path. RED evidence remains
+in `.agent_workspace/architecture-20261015/stage2-full-tests.log`.
+
+The correction changes only the expected file location and adds a dated move
+comment. The full source census, exact verdict arrays, Pi MESSAGE count and
+behavioral gate assertions remain intact. No source or other test was edited.
+`node --import tsx --test test/unit/tracking/option-a-preconditions.test.ts`
+now passes **7/7**, zero failures/skips. Output:
+`.agent_workspace/executor-fallback-audit/cli-assembly-producer-pin.log`.
+Independent pin review returned PASS: the complete pre-extraction `ChildFakeExecutor` class is byte-identical to its new location (30 lines, 1003 characters). The test differs only in the expected path and dated relocation comment. Recursive source enumeration, exact producer set/verdict arrays, Pi MESSAGE count and PASSED/FAILED/UNOBSERVED behavior assertions remain intact. Independent focused command `node --import tsx --test --test-concurrency=1 test/unit/tracking/option-a-preconditions.test.ts` passed 7/7, with scoped ESLint and diff checks. The integrated full-gate rerun and final revision binding remain root-owned.
+
 ## Limits and integration
 
 This slice does not extract the flowchart lifecycle/recovery machinery: that
