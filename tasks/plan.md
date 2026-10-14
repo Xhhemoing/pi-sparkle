@@ -2,10 +2,10 @@
 
 ## Architecture and bounded agent development (2026-10-15)
 
-`TASK-20261015-architecture-agent-loop` is in progress on an isolated branch from
+`TASK-20261015-architecture-agent-loop` is ready for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60), from
 `main@44db4b1`: model fallback correctness, bounded command cleanup,
 same-candidate native repair, review-driven supervisor settlement fixes, and
-test-launcher portability. Existing apply/adaptive/production gates remain
+test-launcher portability. Local gate-equivalent commands passed (3313 pass / 0 fail / 1 opt-in skip), probes passed, and independent agent review findings were resolved. Standard hosted CI is tracked on the PR. Existing apply/adaptive/production gates remain
 separate. [Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md)
 · [Architecture and evidence](../docs/reports/2026-10-15-architecture-agent-loop.md)
 · [SDK/demo](../docs/native-development-loop.md).

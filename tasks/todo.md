@@ -2,9 +2,10 @@
 
 ## Architecture and bounded agent development (2026-10-15)
 
-- [ ] Complete fallback, cleanup, bounded native repair and supervisor correctness slices with RED/GREEN evidence.
-- [ ] Resolve independent review findings, run integrated gate/probes and retain exact command outcomes.
-- [ ] Publish a reviewable branch/PR and record remaining crash-resume, host verification and production boundaries.
+- [x] 2026-10-15: fallback, cleanup, bounded native repair and supervisor correctness slices have RED/GREEN evidence in the linked reports.
+- [x] 2026-10-15: independent agent review findings resolved; integrated gate-equivalent commands PASS (3313 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS. Local literal pnpm gate remains environment-blocked by version mixing; hosted CI is separate.
+- [x] 2026-10-15: [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) published with remaining crash-resume, host verification, project-budget and production boundaries documented.
+- [ ] Merge/production acceptance, live-provider effectiveness and the explicitly deferred project-level continuation queue remain open; this checklist accepts only this implementation slice.
 
 [Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md) ·
 [Evidence](../docs/reports/2026-10-15-architecture-agent-loop.md).

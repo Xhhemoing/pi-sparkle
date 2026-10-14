@@ -4,7 +4,7 @@
 
 - ID: `TASK-20261015-architecture-agent-loop`
 - Owner: root coordinator; file-disjoint implementation and independent review agents.
-- State: `in-progress`
+- State: `ready-for-review`
 - Opened: 2026-10-15 (Asia/Shanghai); baseline `44db4b1` on GitHub main.
 - Related contracts: ADR-001 Pi boundary, ADR-006 native adapter, ADR-008 opaque identity; existing native write/apply, frozen status/event contracts and adaptive gates.
 
@@ -28,12 +28,12 @@ No automatic candidate application, merge, release, production deployment, adapt
 
 ## Acceptance Criteria
 
-- [ ] Permanent provider errors do not dispatch fallback; successful fallback has honest success attribution; priced fallback attempts share the configured execution ceiling.
-- [ ] Timeout/cancellation/output overflow terminates a stubborn command within a bounded interval, retains the original failure reason, and documents platform limits.
-- [ ] Default native write behavior remains one attempt. Opt-in repair preserves the same candidate, host verifier and original source; completed verifier failure feeds the next attempt and successful host acceptance stops the loop.
-- [ ] Cancellation, infrastructure failure, unchanged candidate, unavailable progress evidence and exhausted limits stop safely; each checked attempt retains its run/artifact evidence.
-- [ ] Real Git/command regression tests, relevant compatibility/security checks and an independent review are recorded with environment limitations distinguished from product defects.
-- [ ] Tasks/status/docs accurately distinguish source implementation, command verification, independent agent review and human/production acceptance.
+- [x] Permanent provider errors do not dispatch fallback; successful fallback has honest success attribution; priced fallback attempts share the configured execution ceiling.
+- [x] Timeout/cancellation/output overflow terminates a stubborn command within a bounded interval, retains the original failure reason, and documents platform limits.
+- [x] Default native write behavior remains one attempt. Opt-in repair preserves the same candidate, host verifier and original source; completed verifier failure feeds the next attempt and successful host acceptance stops the loop.
+- [x] Cancellation, infrastructure failure, unchanged candidate, unavailable progress evidence and exhausted limits stop safely; each checked attempt retains its run/artifact evidence.
+- [x] Real Git/command regression tests, relevant compatibility/security checks and an independent review are recorded with environment limitations distinguished from product defects.
+- [x] Tasks/status/docs accurately distinguish source implementation, command verification, independent agent review and human/production acceptance.
 
 ## Implementation Slice
 
@@ -57,4 +57,4 @@ Stop implementation expansion on a frozen-contract mismatch; resolve in a dated 
 
 ## Closeout
 
-Pending implementation and integrated verification. See the dated architecture report added during closeout; local source is not yet accepted.
+2026-10-15 implementation tree `cec9a9aa0175b8aa03aadaee225aa2516f7cca7c`, remote implementation commit `14ffc2a4`, [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60). Gate-equivalent direct commands passed: 3313 tests passed / 0 failed / 1 live-provider opt-in skipped; build/typecheck/lint/workflow and security/Pi/kernel probes passed. Literal local pnpm gate is environment-blocked by nested package-manager version mixing, separately documented; hosted CI is tracked on the PR. Independent agent review findings were reproduced and closed. See [architecture and evidence](../../reports/2026-10-15-architecture-agent-loop.md). This scoped implementation acceptance does not close the open project/production gates.

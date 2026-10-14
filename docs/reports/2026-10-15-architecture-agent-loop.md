@@ -95,7 +95,27 @@ flowchart TD
 
 ## 7. 证据边界与验证结果
 
-本轮具体命令、测试计数、独立审查结论和 PR 信息在集成验证结束后补入。历史 preview.3 测试不计为本轮 PASS。
+历史 preview.3 测试不计为本轮 PASS。最终本地集成结果如下，命令均执行当前实现，而不是模拟返回码。
+
+| 命令 | 结果 |
+|---|---|
+| `node scripts/workflow-check.mjs` | PASS |
+| `node node_modules/typescript/bin/tsc --noEmit` | PASS |
+| `node node_modules/eslint/bin/eslint.js .` | PASS |
+| `node scripts/run-tests.mjs` | **3314 tests / 3313 pass / 0 fail / 1 skip**，38.42 秒；唯一跳过为 opt-in 真实供应商冒烟 |
+| `node node_modules/typescript/bin/tsc -p tsconfig.build.json` | PASS |
+| `node scripts/security-probe.mjs` | 26 PASS，0 open findings |
+| `node scripts/pi-compat-probe.mjs` | 4 PASS |
+| `node scripts/kernel-reuse-probe.mjs` | 3 PASS |
+| `node examples/native-repair-demo.mjs` | PASS：两轮、第一次拒绝、第二次通过、source unchanged、candidate not applied |
+
+这些是 `package.json` gate/probe 的原始命令；本地 wrapper 下的字面 `pnpm gate` 未通过，不能把它写成 PASS。详细说明见下文。机器可读摘要见 [validation.json](2026-10-15-validation.json)。相同基线/发现规则下，本轮比干净源码增加 48 个测试；不是用测试数量代表功能完成度。
+
+交付：[PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60)。初始远端实现提交 `14ffc2a4b43803100376bfa5addfe42e1f2b4b60` 与本地实现提交 `7762d52` 的 Git tree 完全相同：`cec9a9aa0175b8aa03aadaee225aa2516f7cca7c`。普通 Git 写入通道没有凭据，使用已连接 GitHub 创建完全相同的 tree/commit/branch，未修改 main。后续证据记录是文档变更。
+
+环境基线：Linux，Node 24.19.0；CI 使用 Node 22.19.x。初始源码全量有 9 个测试被 tsx CLI 的 Unix IPC 限制阻断，改用官方 Node 注册方式后相关 18 个验证全部通过。`pnpm gate` 的本地外层启动器还会引入 pnpm 11.25.0，而仓库固定为 10.17.1；其 14 个 doctor 失败来自真实的版本不匹配检查。没有修改 doctor、伪造 package-manager 版本或放宽依赖构建许可。最终本地以包脚本的原始 Node 命令逐项执行同一 gate；标准 pnpm 路径由托管 CI 另行验证。
+
+托管实现验证已经通过：初始实现提交 `14ffc2a4` 的 [CI 38609594579](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38609594579) 完整质量门禁、Ubuntu smoke、Windows smoke 三项均 success；[Report root regression 38609594458](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38609594458) 的 Ubuntu/Windows 两项均 success。共 **5/5 hosted jobs PASS**。随后仅补充证据文档，运行时代码与测试不变；最终 PR 检查状态以 GitHub 为准。
 
 ### 独立代理审查与第二轮修正
 
