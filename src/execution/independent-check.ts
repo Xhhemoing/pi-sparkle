@@ -3,7 +3,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { authorizeCommand, type CommandPolicy } from "./command-policy.js";
-import { runAuthorizedCommand } from "./command-runner.js";
+import { runAuthorizedCommand, type CommandRunStatus } from "./command-runner.js";
 import { readWorktreeRevision } from "./worktree.js";
 import {
   WORKTREE_FINGERPRINT_SCHEMA,
@@ -49,6 +49,11 @@ export interface IndependentCheckRecord {
   readonly command: string;
   readonly args: readonly string[];
   readonly exitCode: number;
+  /** Absent in legacy records; required before automatic repair is considered. */
+  readonly processStatus?: CommandRunStatus;
+  /** Original process termination evidence, before legacy exit normalization. */
+  readonly processExitCode?: number | null;
+  readonly processSignal?: NodeJS.Signals | null;
   readonly stdoutText: string;
   readonly stderrText: string;
   readonly stdoutByteLength: number;
@@ -151,6 +156,9 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     command: input.command,
     args,
     exitCode,
+    processStatus: result.status,
+    processExitCode: result.exitCode,
+    processSignal: result.signal,
     stdoutText: boundedText(stdout),
     stderrText: boundedText(stderr),
     stdoutByteLength,

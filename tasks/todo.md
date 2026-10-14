@@ -1,5 +1,14 @@
 # Active checklist
 
+## Architecture and bounded agent development (2026-10-15)
+
+- [ ] Complete fallback, cleanup, bounded native repair and supervisor correctness slices with RED/GREEN evidence.
+- [ ] Resolve independent review findings, run integrated gate/probes and retain exact command outcomes.
+- [ ] Publish a reviewable branch/PR and record remaining crash-resume, host verification and production boundaries.
+
+[Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md) ·
+[Evidence](../docs/reports/2026-10-15-architecture-agent-loop.md).
+
 ## PS-06 status/recovery projection (2026-10-02)
 
 - [x] Correct the draft's absent-log, foreign-run cost, swallowed-corruption and child-verification wiring defects with RED→GREEN tests; focused run/telemetry/CLI check: 372 tests / 370 pass / 0 fail / 2 skip. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).

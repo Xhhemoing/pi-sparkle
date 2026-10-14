@@ -1,11 +1,33 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { runAuthorizedCommand } from "../../../src/execution/command-runner.js";
+import { runAuthorizedCommand, type AuthorizedCommandRunResult } from "../../../src/execution/command-runner.js";
 
 const policy = { timeoutMs: 5_000, maxStdoutBytes: 1024, maxStderrBytes: 1024 };
+
+test("successful commands preserve stdout, stderr and exit status", async () => {
+  const result = await runAuthorizedCommand({
+    executable: process.execPath,
+    args: ["-e", "process.stdout.write('ok'); process.stderr.write('warning')"],
+    cwd: process.cwd(), env: process.env, ...policy
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.stdoutText, "ok");
+  assert.equal(result.stderrText, "warning");
+});
+
+test("a missing executable returns spawn_error without waiting for timeout", async () => {
+  const result = await runAuthorizedCommand({
+    executable: path.join(tmpdir(), "sparkle-command-does-not-exist", "missing"),
+    args: [], cwd: process.cwd(), env: process.env, ...policy
+  });
+  assert.equal(result.status, "spawn_error");
+  assert.equal(result.ok, false);
+});
 
 test("pre-aborted command never starts", async () => {
   const controller = new AbortController();
@@ -57,4 +79,139 @@ test("output overflow is a distinct terminal result", async () => {
   });
   assert.equal(result.status, "output_limit");
   assert.equal(result.ok, false);
+});
+
+const posixOnly = { skip: process.platform === "win32" };
+
+function killFixture(pid: number): void {
+  try { process.kill(pid, "SIGKILL"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+async function within<T>(pending: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("command cleanup exceeded test deadline")), milliseconds);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function withStubbornFixture(
+  kind: "direct" | "inherited" | "escaped" | "overflow",
+  inspect: (fixture: {
+    running: Promise<AuthorizedCommandRunResult>;
+    controller: AbortController;
+  }) => Promise<void>,
+  timeoutMs = 5_000
+): Promise<void> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "sparkle-runner-cleanup-"));
+  const readyPath = path.join(cwd, "ready.json");
+  const controller = new AbortController();
+  // Every fixture also self-exits, independently of the runner and test cleanup.
+  const stubborn = `
+    const fs = require('node:fs');
+    process.on('SIGTERM', () => {});
+    setTimeout(() => process.exit(99), 10000);
+    fs.writeFileSync(process.argv[1], JSON.stringify({
+      leader: Number(process.argv[2]) || process.pid, child: process.pid
+    }));
+    ${kind === "overflow" ? "process.stdout.write('x'.repeat(4096));" : ""}
+  `;
+  const script = kind === "direct" || kind === "overflow" ? stubborn : `
+    const { spawn } = require('node:child_process');
+    const fs = require('node:fs');
+    spawn(process.execPath, ['-e', ${JSON.stringify(stubborn)}, process.argv[1], String(process.pid)], {
+      detached: ${kind === "escaped"}, stdio: ['ignore', 'inherit', 'inherit']
+    });
+    setTimeout(() => process.exit(98), 10000);
+    const ready = setInterval(() => {
+      if (fs.existsSync(process.argv[1])) { clearInterval(ready); process.exit(0); }
+    }, 5);
+  `;
+  const running = runAuthorizedCommand({
+    executable: process.execPath, args: ["-e", script, readyPath], cwd,
+    env: process.env, ...policy, timeoutMs, signal: controller.signal
+  });
+  let pids: { leader: number; child: number } | undefined;
+  try {
+    const readReady = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          pids = JSON.parse(await readFile(readyPath, "utf8")) as typeof pids;
+          return;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+      throw new Error("command fixture did not become ready");
+    };
+    await readReady();
+    await inspect({ running, controller });
+  } finally {
+    controller.abort();
+    if (pids !== undefined) {
+      for (const pid of [-pids.leader, pids.child]) {
+        killFixture(pid);
+      }
+    }
+    await within(running, 11_000);
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+test("abort force-kills a ready command that ignores SIGTERM", posixOnly, async () => {
+  await withStubbornFixture("direct", async ({ running, controller }) => {
+    controller.abort();
+    const result = await within(running, 2_000);
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.ok, false);
+    assert.equal(result.errorMessage, undefined);
+  });
+});
+
+test("timeout force-kills a ready command that ignores SIGTERM", posixOnly, async () => {
+  await withStubbornFixture("direct", async ({ running }) => {
+    const result = await within(running, 2_000);
+    assert.equal(result.status, "timed_out");
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.errorMessage, "command exceeded 300ms");
+  }, 300);
+});
+
+test("output overflow force-kills without replacing the first failure reason", posixOnly, async () => {
+  await withStubbornFixture("overflow", async ({ running }) => {
+    const result = await within(running, 2_000);
+    assert.equal(result.status, "output_limit");
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.errorMessage, "stdout exceeded host limit");
+    assert.equal(result.stdoutText.length, policy.maxStdoutBytes);
+  }, 300);
+});
+
+test("timeout kills inherited-pipe descendants after the group leader exits", posixOnly, async () => {
+  await withStubbornFixture("inherited", async ({ running }) => {
+    const result = await within(running, 2_000);
+    assert.equal(result.status, "timed_out");
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorMessage, "command exceeded 300ms");
+  }, 300);
+});
+
+test("escaped descendants cannot hold cleanup forever or produce success", posixOnly, async () => {
+  await withStubbornFixture("escaped", async ({ running }) => {
+    const result = await within(running, 2_000);
+    assert.equal(result.status, "timed_out");
+    assert.equal(result.ok, false);
+    assert.match(result.errorMessage ?? "", /cleanup incomplete/);
+  }, 300);
 });
