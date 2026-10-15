@@ -2,7 +2,7 @@
 
 ## Exact trusted candidate application (2026-10-15)
 
-Continuation from green `e837aab`: [TA plan](../docs/superpowers/plans/2026-10-15-trusted-apply-binding.md) · [Checklist](trusted-apply-binding-todo.md). TA-00 through TA-05 are implemented and author-verified: stable registration snapshots, bounded exact Git tree binding, explicit fresh-capability native SDK apply, prepared-target fences, and accepted-candidate integration/dependent continuation. Local full suite is 3574 total / 3572 pass / 0 fail / 2 skips; independent implementation review and hosted source checkpoint remain for TA-06. Registration and automatic apply remain unchanged; LIVE-01 and production/experimental gates remain separate.
+Continuation from green `e837aab`: [TA plan](../docs/superpowers/plans/2026-10-15-trusted-apply-binding.md) · [Checklist](trusted-apply-binding-todo.md). TA-00 through TA-06 are implemented and closed: stable registration snapshots, bounded exact Git tree binding, explicit fresh-capability native SDK apply, prepared-target fences, accepted-candidate integration/dependent continuation, source-disjoint review, and five hosted jobs PASS. Local full suite is 3574 total / 3572 pass / 0 fail / 2 skips; remote head `df28c0b4` has exact tree `25e16232`. Registration and automatic apply remain unchanged; LIVE-01 and production/experimental gates remain separate.
 
 ## Bounded development batches and candidate review (2026-10-15)
 
