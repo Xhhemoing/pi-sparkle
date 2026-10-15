@@ -4,7 +4,7 @@
 
 - ID: TASK-20261015-development-batch-review
 - Owner: root coordination, file-disjoint implementation and independent reviewers
-- State: in-progress
+- State: ready-for-review
 - Baseline: PR #60, `726e5e5519aabf74fcb6699c64b268d401a2cefd`; previous DP source and five hosted jobs verified
 - User direction: continue the project plan and preserve staged results
 
@@ -21,7 +21,7 @@ Implement optional operation signals for selection/claim/publication, cancellati
 - [x] B3-03: review by action checks task/action/claim/base/run/candidate bindings, bounded artifact structure and stable queue/action versions; emits historical per-attempt observations and explicit not-reverified semantics. It runs no checker/model, changes no persisted record, and refuses corrupt/missing/stale evidence.
 - [x] B3-04: a finite batch performs at most eight requested items, serially, from one fixed source revision, with a shared cooperative wall-clock deadline and remaining per-item limits. Only ready-for-review permits continuing. Visible unknown effects/running claims, blocked outcome, cancellation, source drift, no ready work or exhausted limits stop dispatch.
 - [x] B3-05: develop batch/review are additive, require explicit executor for execution, preserve old run JSON/flags, and report candidates/results/stop reason with no automatic accept/apply. Real-provider use remains opt-in and scripted results remain separate.
-- [ ] B3-06: independent review, full gate/probes, real-Git demonstration and exact saved source tree/hosted cross-platform evidence.
+- [x] B3-06: independent review, full gate/probes, real-Git demonstration and exact saved source tree/hosted cross-platform evidence.
 
 ## Ownership and interfaces
 
@@ -58,3 +58,7 @@ Review both completed action receipts and assert historical attempt outcomes `[f
 Author result: direct build, built demo, focused lint and workflow all PASS. Both tasks reached ready-for-review after actual host checks `[1, 0]`; accepted count zero, source unchanged, both candidates retained. Batch elapsed 1013.80035 ms; measured batch-through-review/assertions duration 1088.58488 ms; live calls zero, cost unknown. Evidence and retained paths: [dated demo report](../../reports/2026-10-15-development-batch-demo.md). Frozen example blob `ad74b93e9df8cc95cf325d19fe726ebb855c9eb2`; independent review/execution requested before closeout.
 
 Independent closeout: research agent's source review and separate built-demo execution PASS on that exact blob. Independent batch elapsed 869.663136 ms, total 934.146428 ms; ready two / accepted zero, both `[false, true]` histories and `[1, 0]` real check exits, unchanged source/review snapshots, retained candidates, no live calls and unknown cost all confirmed. Report contains the separate run output and retained fixture identities. This completes the demonstration subtask; aggregate/hosted verification and staged delivery remain coordinator-owned.
+
+## Stage closeout
+
+B3-01 through B3-06 are implemented, independently reviewed and verified. Source checkpoint remote `fccfa2470df9de100d0a210428c5531a393eff1a` / local `4366acc6409610686f54d86efbaa17e7ac4d16f2` shares exact tree `165325780f65ab2500b31e12bb848d2ecac47e8e`. Both full suites report 3518 pass / 0 fail / 1 opt-in skip. Five hosted source jobs PASS: [CI38664804090](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38664804090) and [root38664803991](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38664803991). Final closeout changes only evidence, guide and task documents. [Consolidated record](../../reports/2026-10-15-development-batch-review.md). Main merge, source application, production/experimental acceptance and LIVE-01 are unchanged separate gates.
