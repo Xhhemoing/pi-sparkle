@@ -61,7 +61,10 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        # Some historical-review regressions intentionally patch a prototype
+        # for one read window; serialize the full suite so that host-level
+        # evidence remains isolated across test files.
+        run: pnpm test -- --test-concurrency=1
 
       - name: Build
         run: pnpm build
