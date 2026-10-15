@@ -72,7 +72,7 @@ function repositoryRoot(repository: string, expectedRoot?: string): string {
     fail("repository does not match the snapshot root");
   }
   const top = runGit(canonical, ["rev-parse", "--show-toplevel"], 4096).toString("utf8").trim();
-  if (!top || path.resolve(top) !== canonical) fail("repository must be the Git worktree root");
+  if (!top || !sameRepositoryPath(top, canonical)) fail("repository must be the Git worktree root");
   return canonical;
 }
 
@@ -253,6 +253,14 @@ function unchanged(before: BigIntStats, after: BigIntStats): boolean {
 
 function assertUnchanged(absolute: string, before: BigIntStats): void {
   if (!unchanged(before, fs.lstatSync(absolute, { bigint: true }))) fail("filesystem path identity changed during capture");
+}
+
+function sameRepositoryPath(left: string, right: string): boolean {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
 }
 
 function readExactFile(absolute: string, before: BigIntStats, remainingBytes: number): Buffer {
