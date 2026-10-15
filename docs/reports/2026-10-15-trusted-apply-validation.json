@@ -40,12 +40,12 @@
     "requiredJobs": 5,
     "node": "22.19.x",
     "pnpm": "10.17.1",
-    "ciRun": "38684829754",
-    "ciUrl": "https://github.com/Xhhemoing/pi-sparkle/actions/runs/38684829754",
-    "rootRun": "38684828933",
-    "rootUrl": "https://github.com/Xhhemoing/pi-sparkle/actions/runs/38684828933",
-    "headCommit": "df28c0b4ce560b66b9472d2f716c75155a5901b9",
-    "headTree": "25e16232faae04729c93140c8ed82cdf6c496b54"
+    "ciRun": "38686154490",
+    "ciUrl": "https://github.com/Xhhemoing/pi-sparkle/actions/runs/38686154490",
+    "rootRun": "38686154515",
+    "rootUrl": "https://github.com/Xhhemoing/pi-sparkle/actions/runs/38686154515",
+    "headCommit": "e6c9f532bbc1c4c23ec2161ab0bab3f4f592cbd8",
+    "headTree": "3c7eb200971e6e91286328aa848c9172a247d800"
   },
   "live": {"state": "blocked", "primary": null, "fast": null, "models": [], "calls": 0, "cost": "unknown"},
   "sourceApplied": false,
