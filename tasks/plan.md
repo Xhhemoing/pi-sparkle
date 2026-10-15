@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## Bounded development batches and candidate review (2026-10-15)
+
+User requested continued development from saved PR #60 at `726e5e55`. [B3 plan](../docs/superpowers/plans/2026-10-15-development-batch-review.md) · [Checklist](development-batch-review-todo.md). The next slice adds cancellation through admission, explicit receipt artifact references, read-only evidence review and finite serial batches. Candidate review and integration remain explicit; live evaluation still needs configured model/budget. Existing source/production/experimental boundaries are preserved.
+
 ## Development control plane, stage two (2026-10-15)
 
 The user instructed continued execution and staged saves. `TASK-20261015-development-control-plane`

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-20261015-development-batch-review",
+  "date": "2026-10-15",
+  "baselineCommit": "726e5e5519aabf74fcb6699c64b268d401a2cefd",
+  "state": "local-verified-hosted-pending",
+  "local": {
+    "node": "24.19.0",
+    "runner": "node scripts/run-tests.mjs",
+    "total": 3519,
+    "passed": 3518,
+    "failed": 0,
+    "skipped": 1,
+    "durationMs": 65073.015117,
+    "skipReason": "existing opt-in live provider smoke",
+    "checks": {
+      "typecheck": "pass",
+      "lint": "pass",
+      "workflow": "pass",
+      "build": "pass",
+      "diff": "pass",
+      "security": {
+        "passed": 26,
+        "findings": 0
+      },
+      "pi": {
+        "passed": 4
+      },
+      "kernelReuse": {
+        "passed": 3
+      }
+    }
+  },
+  "independentReview": {
+    "batchCliStore": {
+      "passed": 61,
+      "failed": 0
+    },
+    "controller": {
+      "passed": 26,
+      "failed": 0
+    },
+    "candidateReview": {
+      "passed": 23,
+      "failed": 0
+    },
+    "boundedReader": {
+      "passed": 42,
+      "failed": 0
+    },
+    "batchDemo": "pass"
+  },
+  "hosted": {
+    "state": "pending",
+    "requiredJobs": 5,
+    "node": "22.19.x",
+    "pnpm": "10.17.1"
+  },
+  "live": {
+    "state": "blocked",
+    "primary": null,
+    "fast": null,
+    "models": [],
+    "calls": 0,
+    "cost": "unknown"
+  },
+  "sourceApplied": false,
+  "automaticAcceptance": false,
+  "mainMerged": false,
+  "limits": [
+    "cooperative deadline; cleanup/persistence may exceed it",
+    "serial within one batch invocation; no global worker quota",
+    "historical review is not current-candidate revalidation",
+    "no dollar cost ceiling or live model effectiveness claim"
+  ]
+}

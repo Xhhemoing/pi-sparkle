@@ -92,6 +92,30 @@ pnpm cli develop candidates --queue addition-demo --project "$SPARKLE_PROJECT" -
 
 ## 在同一候选中有限修复
 
+### 有界地处理多个独立任务
+
+需要在同一次调用中继续处理独立任务时，使用新增 `batch`：
+
+```sh
+pnpm cli develop batch --queue addition-demo --project "$SPARKLE_PROJECT" --state-root "$SPARKLE_STATE" --executor pi --max-items 2 --max-attempts 3 --max-wall-time-ms 300000 --max-total-wall-time-ms 600000 --json
+```
+
+`--max-items` 必填，范围 1–8；单项时限与整批时限分别受上限 1800000 ms 约束。默认每项三次尝试、单项及整批各 600000 ms。每项得到剩余整批时间与单项上限中的较小值。整批时间是协作取消期限：会向正在选择、领取、验证与执行的操作传递取消，并等待其真实停止；同步 Git、清理和持久化尾部可能超出期限。它不提供美元费用上限，也不会在超时返回后留下被放弃的后台 claim/run。
+
+一次 batch 内串行执行；其他调用仍由现有 claim/action 栅栏治理，没有新增全局长期锁或跨调用总额度。每次准入及结果后观察到 running claim 或 running/needs-reconciliation effect 都会停为 `needs-reconciliation`。首次功能失败、取消、总时间耗尽、源 revision 变化或无可做任务也停止。结果 `DEVELOPMENT_BATCH_RESULT` 保留逐项真实结果、候选/action 引用、stopReason 和最后观察的 queueSummary。
+
+成功项停在 `ready-for-review`，batch 不会 accept、release、对账或集成代码。依赖、重叠范围和已有待审任务继续遵循原选择规则。`no-ready-task` 只是没有可领取项；检查 queueSummary 区分待审、blocked 和仍未满足依赖的任务，不把它解释为项目完成。重启后先检查保存的 action；未知效果仍须 host 核对，不能靠新 batch 重放。
+
+### 查看候选的历史证据
+
+```sh
+pnpm cli develop review --queue addition-demo --project "$SPARKLE_PROJECT" --state-root "$SPARKLE_STATE" --action action_v1_REPLACE_WITH_ACTUAL_UUID --json
+```
+
+使用 batch/run 返回的真实 action ID。review 核对当前 claim、任务定义、action 输入、base/run/candidate 及显式 artifact 引用，输出每次尝试的历史命令检查结果、停止原因、criterion IDs 和状态版本。每条 artifact 限 512 KiB，run log 限 2 MiB/10000 条；最多五次尝试，不扫描目录猜测“最后一条”。当前 claim 失效、指定引用缺失/损坏/绑定矛盾或读取时版本漂移会拒绝输出一致性结论。旧收据缺少新引用时明确显示 unavailable。
+
+`historicalOnly: true`、`reverified: false` 是关键边界：review 不运行检查器或模型，不输出原始源码、完整命令/输出，不修改队列或 action。历史成功不证明候选当前仍通过，也不授予 accept/apply 权限。需要新验收仍走显式 accept；`candidates` 继续只是 checkpoint 列表。
+
 一个 `run` 使用同一隔离候选。真实检查产生可修复的 exit 1 时，下一次尝试收到之前的 `runId`、`artifactId` 和截断的 stdout/stderr。命令输出是修复线索，不是新的执行权限。每次尝试都保留合同与检查证据，原仓文件不会由这个循环自动应用。
 
 达到尝试数或时间限制、候选没有进展、worker 失败、取消、源版本变化，或检查与快照不可用时，循环停止。超时、被信号终止、检查器漂移等情况不能冒充普通功能失败继续修复。不要用外部 `while` 循环、不断 release 或新建队列绕过这些停止条件。

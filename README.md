@@ -215,7 +215,7 @@ pnpm cli run \
 | `pnpm cli help` | Print the usage block (same as `--help` / `-h`). It is the authoritative flag list; this table is the shorter tour |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--max-cost-usd`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
-| `pnpm cli develop --help` | Host work queues: `init`, `status`, `next`, `candidates`, bounded `run --executor fake\|pi`, explicit `accept`, `reconcile`, and claim-only `release`. Fake performs no LLM calls or edits; host checks remain required. No automatic source application |
+| `pnpm cli develop --help` | Host queues: `init`, `status`, `next`, `candidates`, bounded `run` or serial `batch --max-items N --executor fake\|pi`, historical `review --action ID`, explicit `accept`, `reconcile`, and claim-only `release`. Fake makes no LLM calls or edits; checks remain required. No automatic source application |
 | `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Check a children spec or flowchart against the live catalog without starting a run |
 | `pnpm cli list [--runs \| --episodes]` | List persisted runs or episodes in the state root |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart specs into the working directory |

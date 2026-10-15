@@ -109,7 +109,22 @@ jobs:
         run: pnpm test -- test/integration/m1/cli-children.test.ts test/unit/cli/doctor.test.ts
 
       - name: Development queue and controller
-        run: pnpm test -- test/integration/cli/development.test.ts test/integration/development/controller.test.ts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $developmentTests = @(
+            'test/integration/cli/development.test.ts',
+            'test/integration/cli/development-batch-review.test.ts',
+            'test/integration/development/controller.test.ts',
+            'test/integration/development/controller-cancellation.test.ts',
+            'test/integration/development/work-item-cancellation.test.ts',
+            'test/integration/development/batch.test.ts',
+            'test/integration/development/candidate-review.test.ts',
+            'test/unit/development/batch.test.ts',
+            'test/unit/execution/loop-artifact-bounds.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @developmentTests
+          exit $LASTEXITCODE
 
       - name: Native reliability and bounded persistence
         shell: pwsh
