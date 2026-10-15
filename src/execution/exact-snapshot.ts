@@ -71,11 +71,11 @@ function repositoryRoot(repository: string, expectedRoot?: string): string {
   if (expectedRoot !== undefined && canonical !== expectedRoot) {
     fail("repository does not match the snapshot root");
   }
-  const top = runGit(canonical, ["rev-parse", "--show-toplevel"], 4096).toString("utf8").trim();
-  let topCanonical: string;
-  try { topCanonical = fs.realpathSync(top); }
-  catch { fail("repository must be the Git worktree root"); }
-  if (!top || !sameRepositoryPath(topCanonical, canonical)) fail("repository must be the Git worktree root");
+  // `--show-toplevel` may use an MSYS path form on Windows (for example
+  // `/d/...`) that Node cannot resolve as a native path. Git's own relative
+  // root query is representation-independent and is empty only at the root.
+  const parentPrefix = runGit(canonical, ["rev-parse", "--show-cdup"], 4096).toString("utf8");
+  if (parentPrefix.trim() !== "") fail("repository must be the Git worktree root");
   return canonical;
 }
 
@@ -256,14 +256,6 @@ function unchanged(before: BigIntStats, after: BigIntStats): boolean {
 
 function assertUnchanged(absolute: string, before: BigIntStats): void {
   if (!unchanged(before, fs.lstatSync(absolute, { bigint: true }))) fail("filesystem path identity changed during capture");
-}
-
-function sameRepositoryPath(left: string, right: string): boolean {
-  const normalizedLeft = path.resolve(left);
-  const normalizedRight = path.resolve(right);
-  return process.platform === "win32"
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
 
 function readExactFile(absolute: string, before: BigIntStats, remainingBytes: number): Buffer {
