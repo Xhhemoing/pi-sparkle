@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { NativeWriteSession, type NativeWriteSessionResult } from "../../../src/native/write-session.js";
 import { applyIssuedCandidate, disposeIssuedCandidate, issueApplyRegistration, type ApplyIssuedCandidateInput, type IssueApplyRegistrationInput } from "../../../src/native/apply-registration.js";
@@ -160,7 +160,9 @@ test("registration refuses serialized signal authority and apply/disposal reject
 }));
 
 test("relative candidate paths are refused before asynchronous registration or handle lookup", async () => fixture(async (value) => {
-  const candidatePath = relative(process.cwd(), value.result.candidatePath);
+  // Use the candidate's own parent so Windows temp directories on a different
+  // drive cannot make path.relative return an absolute path.
+  const candidatePath = relative(dirname(value.result.candidatePath), value.result.candidatePath);
   const before = await readdir(loopArtifactsDir(value.stateRoot, value.result.runId));
   await assert.rejects(issueApplyRegistration({ stateRoot: value.stateRoot, sourceRepo: value.sourceRepo,
     result: { ...value.result, candidatePath } }), /absolute/);

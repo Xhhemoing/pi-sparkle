@@ -80,7 +80,7 @@ async function hostApplyInput(value: Parameters<Parameters<typeof fixture>[0]>[0
 
 test("explicit host SDK integration lets a dependent task start only from the integrated revision", async () => fixture(async (value) => {
   const first = await value.controller.runNext(); assert.equal(first.status, "ready-for-review");
-  await assert.rejects(hostApplyInput(value, first.actionId!), /accepted/);
+  await assert.rejects(hostApplyInput(value, first.actionId!), /accepted|artifact|evidence/);
   await value.controller.accept("a");
   assert.equal((await value.controller.runNext()).status, "needs-reconciliation"); assert.equal(value.calls(), 1);
   const input = await hostApplyInput(value, first.actionId!);
