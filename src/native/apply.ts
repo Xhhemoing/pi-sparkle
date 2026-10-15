@@ -3,6 +3,19 @@ import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
+import {
+  assertExactSnapshotMatchesGitTree,
+  assertGitAttributesPreserveExactBytes,
+  captureExactSnapshot,
+  sameExactSnapshot,
+  type ExactSnapshot
+} from "../execution/exact-snapshot.js";
+import {
+  assertTrustedVerificationDescriptor,
+  beginTrustedVerification,
+  finishTrustedVerification,
+  type TrustedVerificationDescriptor
+} from "../execution/trusted-verification.js";
 import type { NativeWriteSessionResult } from "./write-session.js";
 import { physicalDirectoryWithoutLinks } from "./physical-directory.js";
 import {
@@ -26,6 +39,17 @@ export interface NativeApplyInput {
   /** The retained result previously returned by `NativeWriteSession.execute`. */
   readonly result: NativeWriteSessionResult;
   readonly signal?: AbortSignal;
+  /** Original host-issued in-process capability; historical JSON is insufficient. */
+  readonly trustedVerification?: TrustedVerificationDescriptor;
+  /** Persist the prepared target before source mutation. Failure prevents checkout. */
+  readonly onPrepared?: (target: NativeApplyPreparedTarget) => void | Promise<void>;
+}
+
+export interface NativeApplyPreparedTarget {
+  readonly sourceRevision: string;
+  readonly appliedRevision: string;
+  readonly candidatePath: string;
+  readonly candidateTree: string;
 }
 
 /** Persisted exact-check metadata cannot recreate an in-process host capability. */
@@ -64,6 +88,11 @@ function fail(message: string): never {
 interface GitOk { ok: true; stdout: string }
 interface GitErr { ok: false; detail: string }
 type GitResult = GitOk | GitErr;
+
+// Only the explicit exact path changes Git conversion behavior. Attributes are
+// refused separately; these options suppress implicit repository/global CRLF
+// conversion without editing the caller's configuration.
+const EXACT_GIT_OPTIONS = ["--no-replace-objects", "-c", "core.autocrlf=false", "-c", "core.eol=lf"] as const;
 
 function git(cwd: string, args: readonly string[]): GitResult {
   const result = spawnSync("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", windowsHide: true });
@@ -244,7 +273,8 @@ function isAcceptedWriteResult(result: NativeWriteSessionResult): boolean {
 async function reverifyCandidate(
   verification: { command: string; args: readonly string[] },
   candidatePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  trustedVerification?: TrustedVerificationDescriptor
 ): Promise<void> {
   // Validate the trusted host command shape, then run the real check inside
   // the candidate. This executes candidate code; host policy applies.
@@ -253,6 +283,7 @@ async function reverifyCandidate(
     cwd: candidatePath,
     command: verification.command,
     args: [...verification.args],
+    ...(trustedVerification === undefined ? {} : { trustedVerification }),
     ...(signal === undefined ? {} : { signal })
   });
   if (signal?.aborted) fail("apply aborted during candidate verification");
@@ -267,6 +298,25 @@ function prepareVerification(input: NativeWriteVerificationInput): { command: st
   const args = input.args === undefined ? [] : input.args;
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) fail("verification args must be strings");
   return { command: input.command, args: [...args] };
+}
+
+function prepareExactVerification(
+  descriptor: TrustedVerificationDescriptor,
+  verification: { command: string; args: readonly string[] }
+): void {
+  assertTrustedVerificationDescriptor(descriptor, verification.command, verification.args);
+  const manifest = descriptor.snapshotManifest;
+  if ((manifest.includePrefixes?.length ?? 0) !== 0
+    || (manifest.excludePrefixes?.length ?? 0) !== 0
+    || (manifest.allowedOutputDirs?.length ?? 0) !== 0) {
+    fail("trusted apply requires a whole-candidate descriptor without manifest exceptions");
+  }
+}
+
+function captureWholeSnapshot(repository: string, descriptor: TrustedVerificationDescriptor): ExactSnapshot {
+  return captureExactSnapshot(repository, descriptor.snapshotManifest, {
+    maxFiles: descriptor.maxSnapshotFiles, maxBytes: descriptor.maxSnapshotBytes
+  });
 }
 
 export class NativeApplySession {
@@ -287,54 +337,108 @@ export class NativeApplySession {
   async apply(input: NativeApplyInput): Promise<NativeApplyResult> {
     if (this.closed) fail("native apply session is shut down");
     if (input === null || typeof input !== "object") fail("input is required");
-    if (input.signal?.aborted) fail("apply aborted before any work");
+    const signal = input.signal;
+    if (signal?.aborted) fail("apply aborted before any work");
 
     const result = input.result;
     if (!isAcceptedWriteResult(result)) fail("candidate result is not accepted; refused");
-    assertNativeApplyVerificationSupported(result);
+    // Snapshot all caller-owned bindings before the first await. The capability
+    // retains its original identity; cloning it would discard its authority.
+    const sourceRepo = input.sourceRepo;
+    const sourceRevision = result.sourceRevision;
+    const candidatePath = result.candidatePath;
+    const verification = prepareVerification({ command: result.acceptance.command, args: result.acceptance.args });
+    const trustedVerification = input.trustedVerification;
+    const onPrepared = input.onPrepared;
+    if (onPrepared !== undefined && typeof onPrepared !== "function") fail("onPrepared must be a host callback");
+    if (trustedVerification === undefined) assertNativeApplyVerificationSupported(result);
+    else prepareExactVerification(trustedVerification, verification);
     // Reuse the write preflight for source cleanliness validation. The
     // verification snapshot comes from the accepted acceptance record (trusted
     // host input frozen at write time), never from model text.
     const preflight: NativeWritePreflight = prepareNativeWrite({
-      sourceRepo: input.sourceRepo,
+      sourceRepo,
       objective: "candidate application",
       verification: {
-        command: result.acceptance.command,
-        args: result.acceptance.args
+        command: verification.command,
+        args: verification.args
       },
-      ...(input.signal !== undefined ? { signal: input.signal } : {})
+      ...(signal !== undefined ? { signal } : {})
     });
-    if (result.sourceRevision !== preflight.revision) {
-      fail(`stale target: source is at ${preflight.revision}, candidate was built from ${result.sourceRevision}`);
+    if (sourceRevision !== preflight.revision) {
+      fail(`stale target: source is at ${preflight.revision}, candidate was built from ${sourceRevision}`);
     }
 
     const sourceIdentity = repositoryIdentity(preflight.sourceRepo);
     const before = sourceState(preflight.sourceRepo);
     if (before.revision !== preflight.revision || before.status !== "") fail("source changed during apply preflight; candidate not applied");
     if (!before.branch.startsWith("refs/heads/")) fail("apply requires a named source branch; detached source HEAD is refused before verification");
-    const candidate = path.resolve(result.candidatePath);
+    const candidate = path.resolve(candidatePath);
     const identity = candidateIdentity(candidate, sourceIdentity, preflight.revision);
+    const exact = trustedVerification === undefined ? undefined : {
+      descriptor: trustedVerification,
+      candidate: beginTrustedVerification(trustedVerification, candidate, verification.command, verification.args),
+      source: captureWholeSnapshot(preflight.sourceRepo, trustedVerification),
+      baseTree: gitOrThrow(candidate, [...EXACT_GIT_OPTIONS, "rev-parse", `${preflight.revision}^{tree}`])
+    };
+    const assertAttributes = (afterTree: string): void => {
+      if (exact === undefined) return;
+      const trees = { beforeTree: exact.baseTree, afterTree };
+      assertGitAttributesPreserveExactBytes(exact.candidate.candidate, candidate, trees);
+      assertGitAttributesPreserveExactBytes(exact.source, preflight.sourceRepo, trees);
+    };
+    const assertCheckedCandidate = (): void => {
+      if (exact === undefined) return;
+      // Also recheck external host checker files after host persistence settles.
+      const evidence = finishTrustedVerification(exact.candidate);
+      if (!evidence.ok) fail(`trusted candidate changed before apply: ${evidence.reason}`);
+    };
+    const assertExactSourceBefore = (): void => {
+      if (exact !== undefined && !sameExactSnapshot(exact.source, captureWholeSnapshot(preflight.sourceRepo, exact.descriptor))) {
+        fail("source exact snapshot changed before apply; candidate not applied; source changes preserved");
+      }
+    };
+    const assertSourceTree = (tree: string): void => {
+      if (exact !== undefined) {
+        assertExactSnapshotMatchesGitTree(captureWholeSnapshot(preflight.sourceRepo, exact.descriptor), preflight.sourceRepo, tree);
+      }
+    };
+    if (exact !== undefined) {
+      assertAttributes(exact.baseTree);
+      // Fail before mutation for unrepresentable initial paths, permissions or
+      // normalized source bytes, rather than discovering them after checkout.
+      assertExactSnapshotMatchesGitTree(exact.source, preflight.sourceRepo, exact.baseTree);
+    }
 
     // Re-verify inside the candidate with the frozen host command before the
     // source is mutated. This executes candidate code; host policy applies.
-    await reverifyCandidate(preflight.verification, candidate, input.signal);
+    await reverifyCandidate(preflight.verification, candidate, signal, trustedVerification);
 
-    if (input.signal?.aborted) fail("apply aborted after verification; candidate not applied");
+    if (signal?.aborted) fail("apply aborted after verification; candidate not applied");
 
     if (!sameRepository(identity, candidateIdentity(candidate, sourceIdentity, preflight.revision))) {
       fail("candidate worktree identity changed during verification; candidate not applied");
     }
     assertUnchangedSource(sourceIdentity, before);
+    assertCheckedCandidate();
+    assertExactSourceBefore();
+    if (exact !== undefined) assertAttributes(exact.baseTree);
 
     // Bind the candidate's exact working-tree content: stage everything inside
     // the candidate worktree (never the source), then write its tree object.
     // The source checkout's index is never touched by this.
-    const stage = git(candidate, ["add", "-A"]);
+    const gitOptions = exact === undefined ? [] : EXACT_GIT_OPTIONS;
+    const stage = git(candidate, [...gitOptions, "add", "-A"]);
     if (!stage.ok) fail(`candidate staging failed: ${stage.detail}`);
-    const candidateTree = gitOrThrow(candidate, ["write-tree"]);
+    const candidateTree = gitOrThrow(candidate, [...gitOptions, "write-tree"]);
+    if (exact !== undefined) {
+      assertCheckedCandidate();
+      assertExactSnapshotMatchesGitTree(exact.candidate.candidate, candidate, candidateTree);
+      assertAttributes(candidateTree);
+    }
 
     // Fast-forward-shaped apply only. No merge commits, no rebase.
-    const candidateCommit = this.commitCandidateTree(candidate, candidateTree, preflight);
+    const candidateCommit = this.commitCandidateTree(candidate, candidateTree, preflight, gitOptions);
 
     const isAncestor = this.isAncestorOf(preflight.sourceRepo, preflight.revision, candidateCommit);
     if (!isAncestor) {
@@ -342,18 +446,36 @@ export class NativeApplySession {
     }
 
     const previous = preflight.revision;
+    if (onPrepared !== undefined) {
+      // Do not race host persistence against cancellation: wait for its actual
+      // settlement before fencing the first source mutation.
+      await onPrepared(Object.freeze({ sourceRevision: previous, appliedRevision: candidateCommit, candidatePath: candidate, candidateTree }));
+    }
+    if (signal?.aborted) fail("apply aborted before source checkout; candidate not applied");
+    if (!sameRepository(identity, candidateIdentity(candidate, sourceIdentity, preflight.revision))) {
+      fail("candidate worktree identity changed before source checkout; candidate not applied");
+    }
     assertUnchangedSource(sourceIdentity, before);
+    assertCheckedCandidate();
+    assertExactSourceBefore();
+    if (exact !== undefined) {
+      assertExactSnapshotMatchesGitTree(exact.candidate.candidate, candidate, candidateTree);
+      assertAttributes(candidateTree);
+    }
+    if (signal?.aborted) fail("apply aborted before source checkout; candidate not applied");
     // Checkout before any ref hooks run. `merge --ff-only` may invoke an
     // ORIG_HEAD hook and then overwrite index edits made by that hook from a
     // stale index view. Two-tree read-tree uses Git's index lock and refuses
     // dirty-path conflicts; subsequent ref operations never write file bytes
     // or the index. This is not an atomic checkout/ref or crash protocol.
-    const checkout = git(preflight.sourceRepo, ["read-tree", "-m", "-u", previous, candidateCommit]);
+    const checkout = git(preflight.sourceRepo, [...gitOptions, "read-tree", "-m", "-u", previous, candidateCommit]);
     if (!checkout.ok) {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, checkout.detail);
     }
     try {
       assertCandidateCheckout(sourceIdentity, before, candidateCommit);
+      assertSourceTree(candidateTree);
+      assertAttributes(candidateTree);
     } catch (error) {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, String(error));
     }
@@ -364,6 +486,8 @@ export class NativeApplySession {
     }
     try {
       assertCandidateCheckout(sourceIdentity, before, candidateCommit);
+      assertSourceTree(candidateTree);
+      assertAttributes(candidateTree);
     } catch (error) {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, String(error));
     }
@@ -376,13 +500,15 @@ export class NativeApplySession {
     }
     try {
       assertUnchangedSource(sourceIdentity, { ...before, revision: candidateCommit });
+      assertSourceTree(candidateTree);
+      assertAttributes(candidateTree);
     } catch {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, "source did not retain the expected candidate revision and clean checkout");
     }
 
     this.managed.set(candidate, {
       sourceRepo: preflight.sourceRepo,
-      sourceRevision: result.sourceRevision,
+      sourceRevision,
       sourceIdentity,
       candidateIdentity: identity
     });
@@ -396,13 +522,13 @@ export class NativeApplySession {
     };
   }
 
-  private commitCandidateTree(candidate: string, candidateTree: string, preflight: NativeWritePreflight): string {
+  private commitCandidateTree(candidate: string, candidateTree: string, preflight: NativeWritePreflight, gitOptions: readonly string[] = []): string {
     // The candidate worktree is detached at sourceRevision; if the implementer
     // wrote files without committing, HEAD still points at the base commit. A
     // tree hash alone is not a commit; create a commit object binding the
     // candidate tree onto the base revision.
     const commitEnv = { ...process.env, GIT_AUTHOR_NAME: "sparkle-native-apply", GIT_AUTHOR_EMAIL: "native@sparkle.invalid", GIT_COMMITTER_NAME: "sparkle-native-apply", GIT_COMMITTER_EMAIL: "native@sparkle.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" };
-    const commit = spawnSync("git", ["commit-tree", candidateTree, "-p", preflight.revision, "-m", "sparkle native apply candidate"], { cwd: candidate, encoding: "utf8", windowsHide: true, env: commitEnv });
+    const commit = spawnSync("git", [...gitOptions, "commit-tree", candidateTree, "-p", preflight.revision, "-m", "sparkle native apply candidate"], { cwd: candidate, encoding: "utf8", windowsHide: true, env: commitEnv });
     if (commit.error !== undefined || commit.status !== 0) {
       fail(`cannot bind candidate tree: ${commit.error?.message ?? commit.stderr ?? "unknown error"}`);
     }

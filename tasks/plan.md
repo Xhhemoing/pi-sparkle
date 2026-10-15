@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## Exact trusted candidate application (2026-10-15)
+
+Continuation from green `e837aab`: [TA plan](../docs/superpowers/plans/2026-10-15-trusted-apply-binding.md) · [Checklist](trusted-apply-binding-todo.md). TA-00 through TA-05 are implemented and author-verified: stable registration snapshots, bounded exact Git tree binding, explicit fresh-capability native SDK apply, prepared-target fences, and accepted-candidate integration/dependent continuation. Local full suite is 3574 total / 3572 pass / 0 fail / 2 skips; independent implementation review and hosted source checkpoint remain for TA-06. Registration and automatic apply remain unchanged; LIVE-01 and production/experimental gates remain separate.
+
 ## Bounded development batches and candidate review (2026-10-15)
 
 User requested continued development from saved PR #60 at `726e5e55`. [B3 plan](../docs/superpowers/plans/2026-10-15-development-batch-review.md) · [Checklist](development-batch-review-todo.md). B3-01 through B3-06 are implemented, independently reviewed and ready for review: cancellation through admission, explicit receipt artifact references, read-only evidence review and finite serial batches. Source checkpoint `fccfa247` matches local `4366acc` exactly (tree `165325780f65ab2500b31e12bb848d2ecac47e8e`); local aggregate is 3518 pass / 0 fail / 1 opt-in skip. Hosted full-suite result is also 3518 pass / 0 fail / 1 opt-in skip; all five jobs PASS (CI38664804090, root38664803991), including new tests on Ubuntu/Windows. [Evidence](../docs/reports/2026-10-15-development-batch-review.md). Candidate review and integration remain explicit; live evaluation still needs configured model/budget. Existing source/production/experimental boundaries are preserved.
