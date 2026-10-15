@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { access, chmod, lstat, mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { RunId } from "../domain/ids.js";
+import { constants, type BigIntStats } from "node:fs";
+import { access, chmod, lstat, mkdir, open, readFile } from "node:fs/promises";
+import { dirname, join, parse, resolve, sep } from "node:path";
+import { parseRunId, type RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { runtimeRoot } from "../privacy/state-layout.js";
-import { EventStore, runLockPath } from "../run/event-store.js";
+import { EventStore, runLockPath, type EventLogReadLimits } from "../run/event-store.js";
 import type { Event } from "../run/events.js";
 
 const ARTIFACT_SCHEMA = "loop-artifact-v2" as const;
@@ -50,6 +51,123 @@ export interface SaveLoopArtifactInput {
   readonly id?: string;
 }
 
+/** Opt-in read bounds; omitted options preserve the legacy reader contract. */
+export interface LoopArtifactReadOptions {
+  readonly maxBytes: number;
+  readonly eventLogLimits: EventLogReadLimits;
+}
+
+function readOptionsObject(value: unknown, fields: readonly string[]): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)
+    || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+    throw new DomainValidationError("loop artifact read options must be ordinary objects");
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(value).length !== fields.length || fields.some((field) =>
+    descriptors[field] === undefined || !("value" in descriptors[field]))) {
+    throw new DomainValidationError("loop artifact read options require ordinary values for every limit");
+  }
+  const result: Record<string, unknown> = {};
+  for (const field of fields) result[field] = descriptors[field]!.value;
+  return result;
+}
+
+function positiveReadLimit(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new DomainValidationError(`loop artifact ${name} limit must be a positive safe integer`);
+  }
+  return value;
+}
+
+function snapshotEventLimits(input: EventLogReadLimits): EventLogReadLimits {
+  const values = readOptionsObject(input, ["maxBytes", "maxRecords"]);
+  return Object.freeze({ maxBytes: positiveReadLimit(values.maxBytes, "event maxBytes"),
+    maxRecords: positiveReadLimit(values.maxRecords, "event maxRecords") });
+}
+
+function snapshotReadOptions(input: LoopArtifactReadOptions): LoopArtifactReadOptions {
+  const values = readOptionsObject(input, ["maxBytes", "eventLogLimits"]);
+  return Object.freeze({ maxBytes: positiveReadLimit(values.maxBytes, "maxBytes"),
+    eventLogLimits: snapshotEventLimits(values.eventLogLimits as EventLogReadLimits) });
+}
+
+interface PathObservation {
+  readonly path: string;
+  readonly stat: BigIntStats;
+}
+interface BoundedPathObservation extends PathObservation {
+  readonly parents: readonly PathObservation[];
+}
+
+function sameIdentity(left: BigIntStats, right: BigIntStats): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode && left.nlink === right.nlink;
+}
+function sameFile(left: BigIntStats, right: BigIntStats): boolean {
+  return sameIdentity(left, right) && left.size === right.size
+    && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+}
+
+async function inspectBoundedPath(file: string, maxBytes: number): Promise<BoundedPathObservation> {
+  const absolute = resolve(file);
+  const parent = dirname(absolute);
+  let cursor = parse(parent).root;
+  const parents: PathObservation[] = [];
+  for (const component of parent.slice(cursor.length).split(sep).filter(Boolean)) {
+    cursor = join(cursor, component);
+    const stat = await lstat(cursor, { bigint: true });
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new DomainValidationError("bounded loop artifact parent must be a nonlinked directory");
+    }
+    parents.push({ path: cursor, stat });
+  }
+  const stat = await lstat(absolute, { bigint: true });
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1n) {
+    throw new DomainValidationError("bounded loop artifact and event log must be nonlinked regular files");
+  }
+  if (stat.size > BigInt(maxBytes)) throw new DomainValidationError("bounded loop artifact read exceeds byte limit");
+  return { path: absolute, stat, parents };
+}
+
+async function assertStableBoundedPath(observation: BoundedPathObservation): Promise<void> {
+  for (const parent of observation.parents) {
+    if (!sameIdentity(parent.stat, await lstat(parent.path, { bigint: true }))) {
+      throw new DomainValidationError("bounded loop artifact parent identity changed during read");
+    }
+  }
+  if (!sameFile(observation.stat, await lstat(observation.path, { bigint: true }))) {
+    throw new DomainValidationError("bounded loop artifact path changed during read");
+  }
+}
+
+async function readBoundedArtifact(file: string, maxBytes: number): Promise<Buffer> {
+  const observation = await inspectBoundedPath(file, maxBytes);
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || !sameFile(observation.stat, before)) {
+      throw new DomainValidationError("bounded loop artifact identity changed before read");
+    }
+    if (before.size > BigInt(maxBytes)) throw new DomainValidationError("bounded loop artifact read exceeds byte limit");
+    // The opened descriptor fixes both identity and allocation size. Concurrent
+    // growth cannot cause readFile-style unbounded allocation; one probe byte
+    // detects growth while the before/after metadata detects other changes.
+    const bytes = Buffer.alloc(Number(before.size));
+    let used = 0;
+    while (used < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, used, bytes.length - used, used);
+      if (bytesRead === 0) throw new DomainValidationError("bounded loop artifact changed or truncated during read");
+      used += bytesRead;
+    }
+    const extra = Buffer.alloc(1);
+    if ((await handle.read(extra, 0, 1, used)).bytesRead !== 0
+      || !sameFile(before, await handle.stat({ bigint: true }))) {
+      throw new DomainValidationError("bounded loop artifact changed during read");
+    }
+    await assertStableBoundedPath(observation);
+    return bytes;
+  } finally { await handle.close(); }
+}
+
 function assertOpaqueArtifactId(id: string): void {
   if (LEGACY_HEX_ID.test(id)) {
     throw new DomainValidationError(
@@ -88,7 +206,9 @@ async function assertNotSymlink(path: string): Promise<void> {
  * the existing EventStore recovery policy. Called under the run lock; the
  * EventStore read takes no lock (no nested same-lock acquisition).
  */
-export async function assertRunPresent(stateRoot: string, runId: RunId): Promise<void> {
+export async function assertRunPresent(stateRoot: string, runId: RunId, eventLogLimits?: EventLogReadLimits): Promise<void> {
+  const limits = eventLogLimits === undefined ? undefined : snapshotEventLimits(eventLogLimits);
+  if (limits !== undefined) parseRunId(runId);
   try {
     await access(runEventsPath(stateRoot, runId));
   } catch {
@@ -98,7 +218,9 @@ export async function assertRunPresent(stateRoot: string, runId: RunId): Promise
   }
   let events;
   try {
-    ({ events } = await new EventStore(stateRoot, runId).readAll());
+    const observation = limits === undefined ? undefined : await inspectBoundedPath(runEventsPath(stateRoot, runId), limits.maxBytes);
+    ({ events } = await new EventStore(stateRoot, runId).readAll(limits));
+    if (observation !== undefined) await assertStableBoundedPath(observation);
   } catch (err) {
     throw new DomainValidationError(
       `loop artifact refused: run event log for ${runId} is not a valid durable run: ${
@@ -185,13 +307,22 @@ export async function saveLoopArtifact(input: SaveLoopArtifactInput): Promise<Lo
 export async function readLoopArtifact(
   stateRoot: string,
   runId: RunId,
-  id: string
+  id: string,
+  options?: LoopArtifactReadOptions
 ): Promise<unknown> {
   assertOpaqueArtifactId(id);
+  const bounds = options === undefined ? undefined : snapshotReadOptions(options);
+  if (bounds !== undefined) {
+    parseRunId(runId);
+    // Inspect before lock creation as well as under the lock. Missing or linked
+    // storage is refused without creating a new run-directory hierarchy.
+    await inspectBoundedPath(runEventsPath(stateRoot, runId), bounds.eventLogLimits.maxBytes);
+    await inspectBoundedPath(loopArtifactPath(stateRoot, runId, id), bounds.maxBytes);
+  }
   return withExclusiveFileLock(runLockPath(stateRoot, runId), async () => {
-    await assertRunPresent(stateRoot, runId);
+    await assertRunPresent(stateRoot, runId, bounds?.eventLogLimits);
     const path = loopArtifactPath(stateRoot, runId, id);
-    const bytes = await readFile(path);
+    const bytes = bounds === undefined ? await readFile(path) : await readBoundedArtifact(path, bounds.maxBytes);
     let parsed: unknown;
     try {
       parsed = JSON.parse(bytes.toString("utf8")) as unknown;

@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## Bounded development batches and candidate review (2026-10-15)
+
+User requested continued development from saved PR #60 at `726e5e55`. [B3 plan](../docs/superpowers/plans/2026-10-15-development-batch-review.md) · [Checklist](development-batch-review-todo.md). The next slice adds cancellation through admission, explicit receipt artifact references, read-only evidence review and finite serial batches. Candidate review and integration remain explicit; live evaluation still needs configured model/budget. Existing source/production/experimental boundaries are preserved.
+
 ## Flowchart recovery responsibility extraction (2026-10-15)
 
 First verified checkpoint published as `43aea5a` in

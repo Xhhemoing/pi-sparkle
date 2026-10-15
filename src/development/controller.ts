@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { parseRunId } from "../domain/ids.js";
-import { readLoopArtifact } from "../execution/loop-artifact.js";
+import { loopArtifactPath, readLoopArtifact } from "../execution/loop-artifact.js";
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
 import { createIsolatedWorktree, disposeIsolatedWorktree } from "../execution/worktree.js";
@@ -43,9 +43,15 @@ interface EffectReceipt {
   readonly accepted: boolean;
   readonly reason: string;
   readonly evidence: readonly WorkItemEvidence[];
+  /** Explicit locators on new receipts; absent on legacy receipts. */
+  readonly finalArtifactRef?: string;
+  readonly loopArtifactRef?: string;
 }
 
 function fail(reason: string): never { throw new DomainValidationError(`development controller: ${reason}`); }
+function checkCancellation(signal?: AbortSignal): void {
+  if (signal?.aborted) fail("run cancelled");
+}
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true });
   if (result.error !== undefined || result.status !== 0) fail(`Git check failed: ${result.error?.message ?? result.stderr}`);
@@ -102,6 +108,13 @@ function parseReceipt(action: ActionRecord): EffectReceipt {
   if (typeof result.itemId !== "string" || typeof result.claimToken !== "string" || typeof result.sourceRevision !== "string" ||
       typeof result.candidatePath !== "string" || typeof result.runId !== "string" || typeof result.accepted !== "boolean" ||
       typeof result.reason !== "string" || !Array.isArray(result.evidence)) fail("action receipt is incomplete");
+  for (const reference of [result.finalArtifactRef, result.loopArtifactRef]) {
+    if (reference === undefined) continue;
+    if (typeof reference !== "string") fail("action receipt artifact reference is invalid");
+    const pieces = reference.split("/");
+    if (pieces.length !== 2 || pieces[0] !== result.runId) fail("action receipt artifact reference run binding mismatch");
+    loopArtifactPath("", parseRunId(result.runId), pieces[1]!);
+  }
   return result as EffectReceipt;
 }
 
@@ -124,17 +137,24 @@ export class DevelopmentController {
   async status(): Promise<{ queue: WorkQueue; actions: readonly ActionRecord[] }> {
     return { queue: await this.store.load(), actions: await this.ledger.list() };
   }
-  next(): Promise<WorkItemDefinition | undefined> { return this.store.next(); }
+  next(options: { readonly signal?: AbortSignal } = {}): Promise<WorkItemDefinition | undefined> { return this.store.next(options); }
+
+  /** Fresh source identity for a host's bounded batch; never a cached claim base. */
+  currentSourceRevision(): string { return git(this.options.sourceRepo, ["rev-parse", "HEAD"]); }
 
   private async verifyIntegrated(item: WorkItemDefinition, revision: string, signal?: AbortSignal, protectedBase = revision): Promise<boolean> {
+    checkCancellation(signal);
     if (!unchangedProtected(this.options.sourceRepo, protectedBase, revision, item)) return false;
     const sandboxRoot = path.join(runtimeRoot(this.options.stateRoot), "development", "checks");
     await mkdir(sandboxRoot, { recursive: true });
+    checkCancellation(signal);
     const view = await createIsolatedWorktree({ sourceRepo: this.options.sourceRepo, sandboxRoot });
     try {
+      checkCancellation(signal);
       if (git(view.cwd, ["rev-parse", "HEAD"]) !== revision) return false;
       const check = await runIndependentCheck({ cwd: view.cwd, ...verification(item),
         ...(signal === undefined ? {} : { signal }) });
+      checkCancellation(signal);
       assertScope(view.cwd, item);
       return check.ok && git(this.options.sourceRepo, ["rev-parse", "HEAD"]) === revision;
     } finally {
@@ -143,10 +163,12 @@ export class DevelopmentController {
   }
 
   private async verifyEvidence(evidence: WorkItemEvidence, context: WorkItemVerificationContext, signal: AbortSignal): Promise<boolean> {
+    checkCancellation(signal);
     const pieces = evidence.artifactRef.split("/");
     if (pieces.length !== 2) return false;
     const [runId, artifactId] = pieces as [string, string];
     const body = await readLoopArtifact(this.options.stateRoot, parseRunId(runId), artifactId);
+    checkCancellation(signal);
     if (body === null || typeof body !== "object" || !("check" in body) || !("cwd" in body)) return false;
     const stored = body as { check: { checkId?: string; ok?: boolean }; cwd: unknown; revision?: string; args?: unknown };
     if (stored.check.checkId !== evidence.checkId || stored.check.ok !== true || typeof stored.cwd !== "string" ||
@@ -168,6 +190,7 @@ export class DevelopmentController {
     assertScope(candidate, context.item);
     const check = await runIndependentCheck({ cwd: candidate,
       ...verification({ ...context.item, acceptance: [context.recipe] }), signal });
+    checkCancellation(signal);
     assertScope(candidate, context.item);
     return check.ok && git(source, ["rev-parse", "HEAD"]) === currentSource;
   }
@@ -185,11 +208,14 @@ export class DevelopmentController {
       ...(input.signal === undefined ? {} : { signal: input.signal }) });
     if (options.signal?.aborted) fail("run cancelled before claiming work");
     if (this.options.executorFactory === undefined) fail("run requires a host executor factory");
-    const sourceRevision = git(this.options.sourceRepo, ["rev-parse", "HEAD"]);
-    const advisory = await this.store.next();
+    const sourceRevision = this.currentSourceRevision();
+    const advisory = await this.store.next(options.signal === undefined ? {} : { signal: options.signal });
+    checkCancellation(options.signal);
     if (advisory === undefined) return { status: "no-ready-task" };
     assertRecipePolicy(advisory);
-    const pending = (await this.ledger.list()).find((action) => {
+    const actions = await this.ledger.list();
+    checkCancellation(options.signal);
+    const pending = actions.find((action) => {
       if (action.kind !== "candidate-write" || !["running", "needs-reconciliation"].includes(action.state)) return false;
       const definition = JSON.parse(action.inputCanonicalJson) as { itemId?: unknown };
       return definition.itemId === advisory.id;
@@ -197,20 +223,33 @@ export class DevelopmentController {
     if (pending !== undefined) return { status: "needs-reconciliation", itemId: advisory.id, actionId: pending.actionId,
       reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay" };
     const beforeClaim = await this.store.load();
+    checkCancellation(options.signal);
     for (const dependencyId of advisory.dependencies) {
       const dependency = beforeClaim.items.find((record) => record.definition.id === dependencyId)!;
-      if (!await this.verifyIntegrated(dependency.definition, sourceRevision, options.signal, dependency.claim!.baseRevision)) return { status: "needs-reconciliation", itemId: advisory.id,
+      const verified = await this.verifyIntegrated(dependency.definition, sourceRevision, options.signal, dependency.claim!.baseRevision);
+      checkCancellation(options.signal);
+      if (!verified) return { status: "needs-reconciliation", itemId: advisory.id,
         reason: `dependency ${dependencyId} is accepted as a candidate but does not verify in the current source; integrate and reverify first` };
     }
-    const selected = await this.store.claimNext({ owner: this.options.owner, baseRevision: sourceRevision });
-    if (selected === undefined) return { status: "no-ready-task" };
-    const queue = await this.store.load();
+    const selected = await this.store.claimNext({ owner: this.options.owner, baseRevision: sourceRevision,
+      ...(options.signal === undefined ? {} : { signal: options.signal }) });
+    if (selected === undefined) {
+      checkCancellation(options.signal);
+      return { status: "no-ready-task" };
+    }
     let actionClaim: ActionClaim | undefined;
     let actionId: string | undefined;
     let candidatePath: string | undefined;
     try {
+      // A committed claim must enter fenced cleanup even if cancellation or
+      // a queue read failure arrives before any action/effect exists.
+      checkCancellation(options.signal);
+      const queue = await this.store.load();
+      checkCancellation(options.signal);
       assertRecipePolicy(selected.item);
-      const unresolved = (await this.ledger.list()).find((action) => {
+      const claimedActions = await this.ledger.list();
+      checkCancellation(options.signal);
+      const unresolved = claimedActions.find((action) => {
         if (action.kind !== "candidate-write" || !["running", "needs-reconciliation"].includes(action.state)) return false;
         return (JSON.parse(action.inputCanonicalJson) as { itemId?: unknown }).itemId === selected.item.id;
       });
@@ -220,22 +259,29 @@ export class DevelopmentController {
       // advisory selection race. Verify the dependencies actually claimed.
       for (const dependencyId of selected.item.dependencies) {
         const dependency = queue.items.find((record) => record.definition.id === dependencyId)!;
-        if (!await this.verifyIntegrated(dependency.definition, sourceRevision, options.signal, dependency.claim!.baseRevision)) fail(`claimed dependency ${dependencyId} is not integrated in the current source`);
+        const verified = await this.verifyIntegrated(dependency.definition, sourceRevision, options.signal, dependency.claim!.baseRevision);
+        checkCancellation(options.signal);
+        if (!verified) fail(`claimed dependency ${dependencyId} is not integrated in the current source`);
       }
+      checkCancellation(options.signal);
       const action = await this.ledger.prepare({ idempotencyKey: `${queue.id}:${selected.item.id}:${selected.token}`,
         kind: "candidate-write", input: { queueId: queue.id, itemId: selected.item.id, claimToken: selected.token,
           sourceRepo: this.options.sourceRepo, sourceRevision, owner: this.options.owner, definition: selected.item } });
       actionId = action.actionId;
+      checkCancellation(options.signal);
       actionClaim = await this.ledger.claim(action.actionId, action.version);
+      checkCancellation(options.signal);
       const checker = verification(selected.item);
       const factory = this.options.executorFactory;
       const session = new NativeWriteSession({ stateRoot: this.options.stateRoot,
         ...(this.options.sandboxRoot === undefined ? {} : { sandboxRoot: this.options.sandboxRoot }),
         executorFactory: async (context) => {
           candidatePath = context.candidatePath;
+          checkCancellation(options.signal);
           actionClaim = await this.ledger.checkpoint(actionClaim!, { evidence: { summary: "candidate allocated before worker dispatch",
             references: [candidatePath, context.sourceRevision] }, result: { candidatePath, sourceRevision: context.sourceRevision,
               itemId: selected.item.id, claimToken: selected.token } });
+          checkCancellation(options.signal);
           const tools = context.tools.map((tool) => tool.name !== "sparkle_write_file" ? tool : {
             ...tool, execute: (id: string, raw: unknown, signal?: AbortSignal) => {
               const relative = raw !== null && typeof raw === "object" && "path" in raw ? (raw as { path: unknown }).path : undefined;
@@ -246,10 +292,12 @@ export class DevelopmentController {
             }
           });
           const executor = await factory({ ...context, tools });
+          checkCancellation(options.signal);
           const guarded: AgentExecutor = {
             ...(executor.supportedModelIds === undefined ? {} : { supportedModelIds: executor.supportedModelIds }),
             ...(executor.steerText === undefined ? {} : { steerText: executor.steerText.bind(executor) }),
             async *execute(request, signal) {
+              checkCancellation(options.signal);
               yield* executor.execute(request, signal);
               assertScope(context.candidatePath, selected.item);
             }
@@ -259,6 +307,7 @@ export class DevelopmentController {
       });
       let result;
       try {
+        checkCancellation(options.signal);
         result = await session.execute({ sourceRepo: this.options.sourceRepo,
           objective: `${selected.item.goal}\n\nHost allowed write prefixes: ${selected.item.allowedScope.join(", ")}`,
           verification: { ...checker, repairableExitCodes: [1] }, acceptanceCriteria: selected.item.acceptance.map((recipe) => ({ id: recipe.id,
@@ -272,14 +321,20 @@ export class DevelopmentController {
           baseRevision: sourceRevision, recipeId: recipe.id, verifierVersion: recipe.verifierVersion,
           command: recipe.command, args: [...recipe.args], artifactRef: `${result.runId}/${result.artifact.id}`, checkId, exitCode: 0 })) : [];
       const receipt: EffectReceipt = { itemId: selected.item.id, claimToken: selected.token, sourceRevision,
-        candidatePath: result.candidatePath, runId: result.runId, accepted: result.acceptance.accepted, reason: result.reason, evidence };
+        candidatePath: result.candidatePath, runId: result.runId, accepted: result.acceptance.accepted, reason: result.reason, evidence,
+        finalArtifactRef: `${result.runId}/${result.artifact.id}`,
+        ...(result.loop === undefined ? {} : { loopArtifactRef: `${result.runId}/${result.loop.artifact.id}` }) };
+      // Persist the actual settled result even if cancellation arrived while
+      // execution/shutdown completed. It remains evidence, never a replay grant.
       await this.ledger.complete(actionClaim!, { evidence: { summary: "native development effect completed",
-        references: [result.artifact.path, result.candidatePath] }, result: receipt });
+        references: [result.artifact.path, result.candidatePath, ...(result.loop === undefined ? [] : [result.loop.artifact.path])] }, result: receipt });
       if (!result.acceptance.accepted) {
         await this.store.block(selected.item.id, selected.token, result.reason);
         return { status: "blocked", itemId: selected.item.id, actionId, candidatePath: result.candidatePath, reason: result.reason };
       }
-      await this.store.markReady(selected.item.id, selected.token, git(this.options.sourceRepo, ["rev-parse", "HEAD"]), evidence);
+      checkCancellation(options.signal);
+      await this.store.markReady(selected.item.id, selected.token, this.currentSourceRevision(), evidence, options.signal);
+      checkCancellation(options.signal);
       return { status: "ready-for-review", itemId: selected.item.id, actionId, candidatePath: result.candidatePath };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

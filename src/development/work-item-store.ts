@@ -29,6 +29,9 @@ export interface WorkItemClaimResult {
   readonly token: string;
   readonly claim: WorkItemClaim;
 }
+export interface WorkItemOperationOptions {
+  readonly signal?: AbortSignal;
+}
 
 const MAX_QUEUE_BYTES = 1_048_576;
 function fail(reason: string): never { throw new DomainValidationError(`work item store: ${reason}`); }
@@ -39,6 +42,22 @@ function duration(value: number | undefined, fallback: number, maximum: number):
   const result = value ?? fallback;
   if (!Number.isSafeInteger(result) || result < 1 || result > maximum) fail("duration out of bounds");
   return result;
+}
+function snapshotInput<T extends object>(value: T, fields: readonly string[]): Readonly<T> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+      Reflect.ownKeys(value).some((key) => typeof key !== "string" || !fields.includes(key)) ||
+      Object.values(Object.getOwnPropertyDescriptors(value)).some((property) => property.get !== undefined || property.set !== undefined)) {
+    fail("invalid operation input or accessor");
+  }
+  return Object.freeze({ ...value });
+}
+function operationSignal(value: unknown): AbortSignal | undefined {
+  if (value !== undefined && !(value instanceof AbortSignal)) fail("operation signal must be an AbortSignal");
+  return value;
+}
+function checkCancellation(signal?: AbortSignal): void {
+  if (signal?.aborted) fail("operation cancelled");
 }
 
 /**
@@ -111,9 +130,16 @@ export class WorkItemStore {
     await writeFileAtomic(this.path, body, { mode: 0o600 });
   }
 
-  private async locked<T>(operation: () => Promise<T>, create = false): Promise<T> {
+  private async locked<T>(operation: () => Promise<T>, create = false, signal?: AbortSignal): Promise<T> {
+    checkCancellation(signal);
     await this.checkParent(create);
-    return withExclusiveFileLock(`${this.path}.lock`, operation, this.lockOptions);
+    checkCancellation(signal);
+    return withExclusiveFileLock(`${this.path}.lock`, async () => {
+      // Lock contention is cooperative; a cancelled waiter must not mutate
+      // after it eventually acquires the lock. Do not check after publication.
+      checkCancellation(signal);
+      return operation();
+    }, this.lockOptions);
   }
 
   async create(value: WorkQueue): Promise<void> {
@@ -132,57 +158,81 @@ export class WorkItemStore {
   /** Read-only state inspection; statuses here alone are never execution authority. */
   load(): Promise<WorkQueue> { return this.read(); }
 
-  private async verify(record: WorkItemRecord): Promise<void> {
+  private async verify(record: WorkItemRecord, signal?: AbortSignal): Promise<void> {
+    checkCancellation(signal);
     const resolver = this.verifyEvidence;
     if (resolver === undefined) fail("host evidence verifier is required");
     if (record.claim === undefined) fail("claim is required for evidence verification");
     const records = validateWorkItemEvidence(record.evidence, record.definition, record.claim, record.claim.baseRevision);
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        reject(new DomainValidationError("work item store: evidence verification timed out"));
-        controller.abort();
-      }, this.verificationTimeoutMs);
-    });
+    const combinedSignal = signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]);
+    let timeoutError: DomainValidationError | undefined;
+    let rejectTimeout: ((reason: DomainValidationError) => void) | undefined;
+    // Preserve legacy no-signal timeout behavior. Signal-aware operations must
+    // await the active resolver's cleanup instead of detaching while it runs.
+    const timeout = signal === undefined ? new Promise<never>((_resolve, reject) => { rejectTimeout = reject; }) : undefined;
+    const timer = setTimeout(() => {
+      timeoutError = new DomainValidationError("work item store: evidence verification timed out");
+      controller.abort();
+      rejectTimeout?.(timeoutError);
+    }, this.verificationTimeoutMs);
+    const checkStopped = (): void => {
+      if (timeoutError !== undefined) throw timeoutError;
+      checkCancellation(combinedSignal);
+    };
     try {
-      await Promise.race([timeout, (async () => {
+      const verification = (async () => {
         for (const entry of records) {
-          if (controller.signal.aborted) fail("evidence verification cancelled");
+          checkStopped();
           const recipe = record.definition.acceptance.find((candidate) => candidate.id === entry.recipeId)!;
           const context = freezeWorkItemValue({ item: record.definition, claim: record.claim!, recipe });
-          if (await resolver(entry, context, controller.signal) !== true) fail("host evidence verification refused");
+          let accepted: boolean;
+          try { accepted = await resolver(entry, context, combinedSignal); }
+          catch (error) { checkStopped(); throw error; }
+          checkStopped();
+          if (accepted !== true) fail("host evidence verification refused");
         }
-      })()]);
+      })();
+      if (timeout === undefined) await verification;
+      else await Promise.race([timeout, verification]);
     } finally {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       controller.abort();
     }
   }
 
-  private async verifyAccepted(queue: WorkQueue): Promise<void> {
-    for (const record of queue.items) if (record.status === "accepted") await this.verify(record);
+  private async verifyAccepted(queue: WorkQueue, signal?: AbortSignal): Promise<void> {
+    checkCancellation(signal);
+    for (const record of queue.items) if (record.status === "accepted") await this.verify(record, signal);
+    checkCancellation(signal);
   }
 
-  async next(): Promise<WorkItemDefinition | undefined> {
+  async next(input: WorkItemOperationOptions = {}): Promise<WorkItemDefinition | undefined> {
+    const options = snapshotInput(input, ["signal"]);
+    const signal = operationSignal(options.signal);
+    checkCancellation(signal);
     const queue = await this.read();
-    await this.verifyAccepted(queue);
+    await this.verifyAccepted(queue, signal);
     return selectNextWorkItem(queue);
   }
 
-  async claimNext(input: { readonly owner: string; readonly baseRevision: string }): Promise<WorkItemClaimResult | undefined> {
-    if (input === null || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => key !== "owner" && key !== "baseRevision")) fail("invalid claim input");
-    const owner = workItemText(input.owner, "owner", 128);
-    const baseRevision = workItemBaseRevision(input.baseRevision);
+  async claimNext(input: { readonly owner: string; readonly baseRevision: string; readonly signal?: AbortSignal }): Promise<WorkItemClaimResult | undefined> {
+    const options = snapshotInput(input, ["owner", "baseRevision", "signal"]);
+    const owner = workItemText(options.owner, "owner", 128);
+    const baseRevision = workItemBaseRevision(options.baseRevision);
+    const signal = operationSignal(options.signal);
     return this.locked(async () => {
       const queue = await this.read();
-      await this.verifyAccepted(queue);
+      await this.verifyAccepted(queue, signal);
       const item = selectNextWorkItem(queue);
       if (item === undefined) return undefined;
       const claim = freezeWorkItemValue({ token: randomUUID(), owner, baseRevision, startedAt: new Date().toISOString() });
+      checkCancellation(signal);
       await this.replace(queue, { definition: item, status: "running", claim });
+      // Once publication begins, return the committed token even if aborted.
+      // The controller owns subsequent fenced cleanup; never lose ownership.
       return freezeWorkItemValue({ item, token: claim.token, claim });
-    });
+    }, false, signal);
   }
 
   private async replace(queue: WorkQueue, record: WorkItemRecord): Promise<WorkItemRecord> {
@@ -194,16 +244,19 @@ export class WorkItemStore {
 
   private async transition(
     id: string, token: string, statuses: readonly WorkItemStatus[],
-    update: (entry: WorkItemRecord) => Promise<WorkItemRecord>
+    update: (entry: WorkItemRecord) => Promise<WorkItemRecord>, signal?: AbortSignal
   ): Promise<WorkItemRecord> {
     workItemText(id, "item id", 64);
     workItemText(token, "claim token", 128);
     return this.locked(async () => {
       const queue = await this.read();
+      checkCancellation(signal);
       const entry = queue.items.find((candidate) => candidate.definition.id === id);
       if (entry === undefined || entry.claim?.token !== token || !statuses.includes(entry.status)) fail("stale claim token or invalid transition");
-      return this.replace(queue, await update(entry));
-    });
+      const updated = await update(entry);
+      checkCancellation(signal);
+      return this.replace(queue, updated);
+    }, false, signal);
   }
 
   block(id: string, token: string, reason: string): Promise<WorkItemRecord> {
@@ -218,15 +271,16 @@ export class WorkItemStore {
       ({ definition: entry.definition, status: "planned" }));
   }
 
-  markReady(id: string, token: string, currentBaseRevision: string, evidence: readonly WorkItemEvidence[]): Promise<WorkItemRecord> {
+  markReady(id: string, token: string, currentBaseRevision: string, evidence: readonly WorkItemEvidence[], signal?: AbortSignal): Promise<WorkItemRecord> {
+    const callerSignal = operationSignal(signal);
     const baseRevision = workItemBaseRevision(currentBaseRevision);
     const snapshot = structuredClone(evidence);
     return this.transition(id, token, ["running"], async (entry) => {
       const bound = validateWorkItemEvidence(snapshot, entry.definition, entry.claim!, baseRevision);
       const ready: WorkItemRecord = { ...entry, status: "ready-for-review", evidence: bound };
-      await this.verify(ready);
+      await this.verify(ready, callerSignal);
       return ready;
-    });
+    }, callerSignal);
   }
 
   /** Separate host acceptance; persisted ready evidence is resolved afresh. */

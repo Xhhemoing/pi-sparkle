@@ -162,7 +162,7 @@ Usage:
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
-  pi-sparkle develop init|status|next|candidates|run|accept|reconcile|release --help
+  pi-sparkle develop init|status|next|candidates|run|batch|review|accept|reconcile|release --help
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--executor-model <provider/model>] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]

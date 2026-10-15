@@ -37,6 +37,20 @@ repair loop after a crash, apply a candidate automatically, settle a
 cross-attempt dollar budget or enable adaptive live routing. Existing
 R10/R11, S0-min, F6/F-PROD and production/outcome boundaries remain separate.
 
+## Host development control plane and continuation (2026-10-15)
+
+The original four architecture rows above describe stage one. Stage two is independently reviewed and saved at PR #60 `726e5e55`; stage-three batch/review continues on the same source candidate. These are PR capabilities, not main integration, production approval or model benefit. [Stage-two verification](reports/2026-10-15-development-control-plane.md) · [stage-three plan](superpowers/plans/2026-10-15-development-batch-review.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host work queue and durable action reconciliation | PR #60 | WorkItemStore/ActionLedger and explicit develop CLI | queue/persistence/concurrent-process/crash-window integrations and independent review | no |
+| Named native criteria and exact bounded verification | PR #60 | NativeWriteSession and host development controller | real commands, same-length changes, protected checker, authentic descriptor and independent review | no |
+| Candidate historical review | stage-three candidate | reviewDevelopmentCandidate / develop review | bounded reads, real one/two-attempt artifacts, stale/corrupt/contradictory refs, read-only regressions and independent review | no |
+| Finite serial development batch | stage-three candidate | runDevelopmentBatch / develop batch | independent candidates, no auto-accept/dependency bypass, shared cooperative deadline, first-failure/unknown-effect stops and independent review | no |
+| Selection/claim/publication cancellation | stage-three candidate | optional operation signal plus controller await fences | committed-token preservation, resolver-tail settlement, inherited-signal refusal and independent review | no |
+
+Batch serialization applies within one invocation; there is no new global lifecycle lock or cross-worker cost quota. The deadline requests cooperative cancellation and waits for actual settlement; synchronous Git and cleanup/persistence tails may overrun it. No dollar ceiling or automatic source integration is added. Review reports historical observations with reverified=false, not fresh acceptance authority. Legacy receipts without new refs remain unavailable; explicit invalid refs refuse. [Continuation guide](development-agent-loop.md). LIVE-01 still requires configured model/provider and a host trial budget; real model effectiveness remains unobserved.
+
 ## SHA-256 removal gate (2026-09-21)
 
 A repository-wide census found SHA-256 in runtime identity, persistence, integrity, evaluator/apply, holdout, migration, and active-contract surfaces. Removal is authorized by [ADR-008](decisions/0008-remove-sha256.md). All runtime removal groups are implemented on the uncommitted worktree with the G5 gate green as of 2026-09-22 (author-run; evidence: [removal report](reports/2026-09-21-remove-sha256.md), Session 5): zero active SHA-256 computations remain in runtime surfaces; only legacy-refusal detectors remain. Legacy SHA-bound records are quarantined historical/read-only evidence, never rehashed or reclassified. Migration execution, live-provider runs, production apply/rollout, holdout/F6, and independent review remain separate open gates.

@@ -28,16 +28,20 @@ Usage:
   pi-sparkle develop init --file <host-definitions.json> --queue <id> [--state-root <dir>] [--json]
   pi-sparkle develop status|next|candidates --queue <id> --project <path> [--state-root <dir>] [--json]
   pi-sparkle develop run --queue <id> --project <path> --executor fake|pi [--model <provider/model>] [--max-attempts <1..5>] [--max-wall-time-ms <1..1800000>] [--state-root <dir>] [--json]
+  pi-sparkle develop batch --queue <id> --project <path> --executor fake|pi --max-items <1..8> [--model <provider/model>] [--max-total-wall-time-ms <1..1800000>] [--max-attempts <1..5>] [--max-wall-time-ms <1..1800000>] [--state-root <dir>] [--json]
+  pi-sparkle develop review --queue <id> --project <path> --action <id> [--state-root <dir>] [--json]
   pi-sparkle develop accept|release --queue <id> --project <path> --item <id> [--state-root <dir>] [--json]
   pi-sparkle develop reconcile --queue <id> --project <path> --action <id> [--state-root <dir>] [--json]
 
 init accepts {id, authorityRef, items} host definitions (at most 1 MiB); id must match --queue. It never executes a checker.
 run defaults to 3 attempts / 600000 ms. fake: no LLM and no writes; host checks can only confirm existing contents. pi uses configured credentials and scoped read/write tools.
+batch runs serially with one fixed source revision; defaults are 3 attempts and 600000 ms per item and total. Its deadline is cooperative; cleanup can exceed it. It never accepts or applies candidates.
+review reads bound historical evidence only: no checker/model execution, no current candidate re-verification and no source application.
 accept is explicit host review, not source application. candidates lists recorded checkpoints, not a fresh verification.
 reconcile completes only an already completed effect receipt; unknown/running effects need actual-state reconciliation and are never replayed.
 release invalidates only the task claim. Stop its worker first; unknown effects remain unresolved and are never automatically reused.
 `;
-const COMMANDS = ["init", "status", "next", "candidates", "run", "accept", "reconcile", "release"] as const;
+const COMMANDS = ["init", "status", "next", "candidates", "run", "batch", "review", "accept", "reconcile", "release"] as const;
 const MAX_INPUT_BYTES = 1_048_576;
 function fail(message: string): never { throw new DomainValidationError(`develop: ${message}`); }
 function safeId(value: string | undefined, flag: string): string {
@@ -96,9 +100,10 @@ function modeOf(owner: unknown): string {
 
 export async function developmentCommand(args: string[], io: DevelopmentIo, dependencies: DevelopmentCommandDependencies = {}): Promise<number> {
   const [command, ...rest] = args;
+  const executes = command === "run" || command === "batch";
   const json = args.includes("--json");
   const emit = (queueId: string | undefined, value: Record<string, unknown>): void => {
-    const output = { type: "DEVELOPMENT_RESULT", command, ...(queueId === undefined ? {} : { queueId }), ...value };
+    const output = { type: command === "batch" ? "DEVELOPMENT_BATCH_RESULT" : "DEVELOPMENT_RESULT", command, ...(queueId === undefined ? {} : { queueId }), ...value };
     io.stdout(`${JSON.stringify(output, null, json ? undefined : 2)}\n`);
   };
   try {
@@ -110,6 +115,7 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
     const { values, tokens } = parseArgs({ args: rest, strict: true, allowPositionals: false, tokens: true, options: {
       queue: { type: "string" }, project: { type: "string" }, "state-root": { type: "string" }, file: { type: "string" },
       executor: { type: "string" }, model: { type: "string" }, "max-attempts": { type: "string" }, "max-wall-time-ms": { type: "string" },
+      "max-items": { type: "string" }, "max-total-wall-time-ms": { type: "string" },
       item: { type: "string" }, action: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }
     } });
     const seen = new Set<string>();
@@ -118,8 +124,9 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
       seen.add(token.name);
     }
     const allowed = new Set(["queue", "state-root", "json", "help", ...(command === "init" ? ["file"] : ["project"]),
-      ...(command === "run" ? ["executor", "model", "max-attempts", "max-wall-time-ms"] : []),
-      ...(["accept", "release"].includes(command) ? ["item"] : []), ...(command === "reconcile" ? ["action"] : [])]);
+      ...(executes ? ["executor", "model", "max-attempts", "max-wall-time-ms"] : []),
+      ...(command === "batch" ? ["max-items", "max-total-wall-time-ms"] : []),
+      ...(["accept", "release"].includes(command) ? ["item"] : []), ...(["reconcile", "review"].includes(command) ? ["action"] : [])]);
     for (const name of seen) if (!allowed.has(name)) fail(`--${name} is not supported by ${command}`);
     if (values.help) { io.stdout(DEVELOPMENT_USAGE); return 0; }
     const queueId = safeId(values.queue, "--queue");
@@ -133,15 +140,17 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
     }
     const sourceRepo = resolve(required(values.project, "--project"));
     const itemId = ["accept", "release"].includes(command) ? safeId(values.item, "--item") : undefined;
-    const actionId = command === "reconcile" ? required(values.action, "--action") : undefined;
+    const actionId = ["reconcile", "review"].includes(command) ? required(values.action, "--action") : undefined;
     if (actionId !== undefined && !/^action_v1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(actionId)) fail("--action must be an action_v1 id");
     const mode = values.executor;
     const maxAttempts = boundedInteger(values["max-attempts"], 3, 5, "--max-attempts");
     const maxWallTimeMs = boundedInteger(values["max-wall-time-ms"], 600_000, 1_800_000, "--max-wall-time-ms");
+    const maxItems = command === "batch" ? boundedInteger(required(values["max-items"], "--max-items"), 1, 8, "--max-items") : undefined;
+    const maxTotalWallTimeMs = command === "batch" ? boundedInteger(values["max-total-wall-time-ms"], 600_000, 1_800_000, "--max-total-wall-time-ms") : undefined;
     let executorFactory: NativeWriteExecutorFactory | undefined;
     const pendingInvocations: Promise<void>[] = [];
-    if (command === "run") {
-      if (mode !== "fake" && mode !== "pi") fail("run requires --executor fake or pi");
+    if (executes) {
+      if (mode !== "fake" && mode !== "pi") fail(`${command} requires --executor fake or pi`);
       const model = values.model === undefined ? undefined : parseModelRef(values.model);
       if (mode === "fake") {
         if (model !== undefined) fail("--model requires --executor pi");
@@ -155,13 +164,20 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
     }
     const controller = new DevelopmentController({ sourceRepo, queuePath, stateRoot, owner: `cli:${mode ?? "host"}:${process.pid}`,
       ...(executorFactory === undefined ? {} : { executorFactory }) });
-    if (command === "run") {
+    if (executes) {
       if (mode === "fake") io.stderr("mode=fake: no LLM and no writes; host checks verify existing candidate contents only.\n");
       else io.stderr("mode=pi: configured model execution with scoped candidate read/write tools.\n");
       const abort = new AbortController();
       const onSignal = () => abort.abort();
       process.once("SIGINT", onSignal); process.once("SIGTERM", onSignal);
       try {
+        if (command === "batch") {
+          const { runDevelopmentBatch } = await import("../development/batch.js");
+          const result = await runDevelopmentBatch(controller, { maxItems: maxItems!, maxWallTimeMs: maxTotalWallTimeMs!,
+            maxAttempts, perItemWallTimeMs: maxWallTimeMs, signal: abort.signal });
+          emit(queueId, { mode, ...result });
+          return result.stopReason === "max-items" || result.stopReason === "no-ready-task" ? 0 : 1;
+        }
         const result = await controller.runNext({ maxAttempts, maxWallTimeMs, signal: abort.signal });
         emit(queueId, { mode, limits: { maxAttempts, maxWallTimeMs }, ...result });
         return ["blocked", "needs-reconciliation"].includes(result.status) ? 1 : 0;
@@ -172,6 +188,11 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
     }
     if (command === "status") { emit(queueId, { status: "snapshot", ...await controller.status() }); return 0; }
     if (command === "next") { emit(queueId, { status: "advisory", item: await controller.next() ?? null }); return 0; }
+    if (command === "review") {
+      const { reviewDevelopmentCandidate } = await import("../development/candidate-review.js");
+      const report = await reviewDevelopmentCandidate({ sourceRepo, queuePath, stateRoot, actionId: actionId! });
+      emit(queueId, { ...report }); return 0;
+    }
     if (command === "candidates") {
       const { actions, queue } = await controller.status();
       const candidates = actions.filter((action) => action.kind === "candidate-write").flatMap((action) => {
