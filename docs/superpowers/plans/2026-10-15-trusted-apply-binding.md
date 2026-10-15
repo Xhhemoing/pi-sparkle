@@ -25,7 +25,7 @@ No automatic accept/apply, develop apply CLI, registration downgrade, automatic 
 
 ## Verification update
 
-TA-00 through TA-05 have author GREEN evidence: registration 23/23; exact Git tree 26 pass / 0 fail / 1 Windows skip; trusted apply 16/16; existing native apply/source/unit 26/26; queue integration 2/2; local full suite 3574 total / 3572 pass / 0 fail / 2 skips. Local typecheck, lint, build, workflow, security 26/0, Pi 4 and kernel 3 probes pass. Independent implementation review reports PASS on focused 56 tests (55 pass / 0 fail / 1 Windows skip) and current source blobs. TA-06 is closed by the exact remote source/tree checkpoint `df28c0b4ce560b66b9472d2f716c75155a5901b9` / `25e16232faae04729c93140c8ed82cdf6c496b54`, with five hosted jobs passing: CI quality plus Ubuntu/Windows smoke, and root Ubuntu/Windows regressions. Main, production/R10/R11, and LIVE-01 remain separate gates.
+TA-00 through TA-05 have author GREEN evidence: registration 23/23; exact Git tree 26 pass / 0 fail / 1 Windows skip; trusted apply 16/16; existing native apply/source/unit 26/26; queue integration 2/2; local full suite 3574 total / 3572 pass / 0 fail / 2 skips. Local typecheck, lint, build, workflow, security 26/0, Pi 4 and kernel 3 probes pass. Independent implementation review reports PASS on focused 56 tests (55 pass / 0 fail / 1 Windows skip) and current source blobs. TA-06 is closed by the exact remote source/tree checkpoint `e6c9f532bbc1c4c23ec2161ab0bab3f4f592cbd8` / `3c7eb200971e6e91286328aa848c9172a247d800`, with five hosted jobs passing: CI quality plus Ubuntu/Windows smoke, and root Ubuntu/Windows regressions. Main, production/R10/R11, and LIVE-01 remain separate gates.
 
 ## Interfaces and ownership
 
