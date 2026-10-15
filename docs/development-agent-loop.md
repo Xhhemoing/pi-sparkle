@@ -1,6 +1,6 @@
 # 用 agent 持续推进项目
 
-`develop` 每次推进一个由 host 定义的任务：保存执行意图，在隔离候选中进行有限修复，用真实命令验证，再等待显式验收。持续推进由一次次有证据、有预算、有保存点的调用组成。当前实现不提供后台调度或自动合并。
+`develop` 围绕 host 定义的任务推进：保存执行意图，在隔离候选中进行有限修复，用真实命令验证，再等待显式验收。`run` 处理一个任务，`batch` 在有限预算内串行处理独立任务。持续推进由一次次有证据、有预算、有保存点的调用组成。当前实现不提供后台调度或自动合并。
 
 本指南对应 [`development.ts`](../src/cli/development.ts) 的 CLI、[`DevelopmentController`](../src/development/controller.ts) 和 [`WorkItemDefinition`](../src/development/work-items.ts)。流程约束以 [AGENTS.md](../AGENTS.md)、[开发工作流](development-workflow.md)、[状态矩阵](status-matrix.md) 和当前任务计划为准。
 
@@ -160,9 +160,12 @@ pnpm cli develop reconcile --queue addition-demo --project "$SPARKLE_PROJECT" --
 ```sh
 pnpm build
 node examples/development-demo.mjs
+node examples/development-batch-demo.mjs
 ```
 
 该演示用脚本先写错加法、再根据真实失败反馈修复。它断言检查 exit 1 → 0、`ready-for-review` → 显式 accept、源文件与源提交不变，并输出保留的候选和证据位置。输出标记 `mode: "offline-scripted"`、`liveModelCalls: 0`、`supportsLiveEffectivenessClaim: false`。`descriptiveEvaluation` 统计实际尝试、验收和用时；费用来源为 unknown、`costCoverage` 为零，空成本小计不是零费用测量。这验证控制器和检查链路，不提供真实模型成功率或成本改善证据；见 [演示执行记录](reports/2026-10-15-development-demo.md)。
+
+批次演示分别修复两个独立任务，再用 `reviewDevelopmentCandidate` 读取每次失败与成功的历史。它断言两个候选均待审、accepted 数为零、review 前后状态与原仓内容不变，并保留候选与证据；见 [批次演示记录](reports/2026-10-15-development-batch-demo.md)。两次独立执行均通过，仍属于脚本机制验证。
 
 CLI 的 `--executor fake` 是另一种机制测试：不调用 LLM，也不写文件，只能用 host 检查确认已有候选内容。失败的实现不会因 fake 模式得到修复。脚本演示与 CLI fake 都不能充当真实模型实验。
 
