@@ -72,7 +72,10 @@ function repositoryRoot(repository: string, expectedRoot?: string): string {
     fail("repository does not match the snapshot root");
   }
   const top = runGit(canonical, ["rev-parse", "--show-toplevel"], 4096).toString("utf8").trim();
-  if (!top || !sameRepositoryPath(top, canonical)) fail("repository must be the Git worktree root");
+  let topCanonical: string;
+  try { topCanonical = fs.realpathSync(top); }
+  catch { fail("repository must be the Git worktree root"); }
+  if (!top || !sameRepositoryPath(topCanonical, canonical)) fail("repository must be the Git worktree root");
   return canonical;
 }
 
