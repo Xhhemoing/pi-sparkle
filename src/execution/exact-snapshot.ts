@@ -1,4 +1,5 @@
 import fs, { type BigIntStats } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import type { SnapshotManifest } from "./worktree-snapshot.js";
@@ -24,12 +25,204 @@ interface SnapshotData {
   readonly root: string;
   readonly scope: string;
   readonly entries: readonly Entry[];
+  readonly limits: ExactSnapshotLimits;
 }
 
 const snapshots = new WeakMap<ExactSnapshot, SnapshotData>();
 
+const WHOLE_SCOPE = JSON.stringify([[], [".git"]]);
+const TREE_ID = /^[0-9a-f]{40}$/;
+const SAFE_GIT_FILE_MODES = new Set([0o100644, 0o100755]);
+
+interface GitTreeEntry {
+  readonly relativePath: string;
+  readonly mode: number;
+  readonly type: "blob" | "tree" | "commit";
+  readonly object: string;
+}
+
 function fail(reason: string): never {
   throw new DomainValidationError(`exact snapshot: ${reason}`);
+}
+
+function requireSnapshot(snapshot: ExactSnapshot): SnapshotData {
+  const data = snapshots.get(snapshot);
+  if (!data) fail("a genuine in-process snapshot handle is required");
+  if (data.scope !== WHOLE_SCOPE) fail("only a whole-worktree snapshot can bind a Git tree");
+  return data;
+}
+
+function repositoryRoot(repository: string, expectedRoot?: string): string {
+  if (typeof repository !== "string" || !repository || repository.includes("\0")) {
+    fail("invalid repository path");
+  }
+  const requested = path.resolve(repository);
+  let stat: BigIntStats;
+  let canonical: string;
+  try {
+    stat = fs.lstatSync(requested, { bigint: true });
+    if (!stat.isDirectory() || stat.isSymbolicLink()) fail("repository must be a nonlinked directory");
+    canonical = fs.realpathSync(requested);
+    assertUnchanged(canonical, stat);
+  } catch (error) {
+    if (error instanceof DomainValidationError) throw error;
+    fail("repository path is unavailable");
+  }
+  if (expectedRoot !== undefined && canonical !== expectedRoot) {
+    fail("repository does not match the snapshot root");
+  }
+  const top = runGit(canonical, ["rev-parse", "--show-toplevel"], 4096).toString("utf8").trim();
+  if (!top || path.resolve(top) !== canonical) fail("repository must be the Git worktree root");
+  return canonical;
+}
+
+function runGit(repository: string, args: readonly string[], maxBuffer: number, input?: Buffer, allowNoMatch = false): Buffer {
+  const result = spawnSync("git", ["--no-replace-objects", "-C", repository, ...args], {
+    input,
+    encoding: "buffer",
+    windowsHide: true,
+    timeout: 10_000,
+    maxBuffer,
+    env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" }
+  });
+  if (!result.error && allowNoMatch && result.status === 1 && Buffer.isBuffer(result.stdout)) return result.stdout;
+  if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    const detail = (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOBUFS"
+      ? "Git output bound exceeded"
+      : result.error?.message ?? (Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : "unknown Git error");
+    fail(`Git command failed: ${detail.slice(0, 240)}`);
+  }
+  return result.stdout;
+}
+
+function strictUtf8(bytes: Buffer): string {
+  const text = bytes.toString("utf8");
+  if (Buffer.from(text, "utf8").compare(bytes) !== 0 || text.includes("\ufffd")) {
+    fail("Git tree contains an invalid UTF-8 path");
+  }
+  return text;
+}
+
+function validateGitPath(relativePath: string): void {
+  if (!relativePath || relativePath.startsWith("/") || relativePath.includes("\\") || relativePath.includes("\0")
+    || relativePath === ".git" || relativePath.startsWith(".git/") || relativePath.split("/").some((part) => !part || part === "." || part === "..")) {
+    fail("Git tree contains an unsafe or unsupported path");
+  }
+}
+
+function validateTreeId(treeId: string): void {
+  if (typeof treeId !== "string" || !TREE_ID.test(treeId)) {
+    fail("tree object address must be a complete 40-character Git object id");
+  }
+}
+
+function treeEntries(data: SnapshotData, repository: string, treeId: string): GitTreeEntry[] {
+  validateTreeId(treeId);
+  const maxFiles = data.limits.maxFiles;
+  // ls-tree output is deliberately capped before parsing. A normal path is
+  // much shorter than 4 KiB; this bound scales with the immutable capture
+  // limit and prevents an adversarial tree from allocating unbounded output.
+  const maxBuffer = Math.min(16 * 1024 * 1024, Math.max(4096, (Math.min(maxFiles, 4096) + 1) * 4096));
+  const type = runGit(repository, ["cat-file", "-t", treeId], 128).toString("utf8").trim();
+  if (type !== "tree") fail("tree object address does not name a tree object");
+  const output = runGit(repository, ["ls-tree", "-rz", "-t", "--full-tree", treeId], maxBuffer);
+  const entries: GitTreeEntry[] = [];
+  const seenPaths = new Set<string>();
+  let offset = 0;
+  while (offset < output.length) {
+    const end = output.indexOf(0, offset);
+    if (end < 0) fail("Git tree output is missing a NUL terminator");
+    const record = output.subarray(offset, end);
+    offset = end + 1;
+    const tab = record.indexOf(9);
+    if (tab <= 0) fail("Git tree record is malformed");
+    const header = record.subarray(0, tab).toString("ascii").split(" ");
+    if (header.length !== 3 || !/^[0-7]{6}$/.test(header[0]!) || !TREE_ID.test(header[2]!)) {
+      fail("Git tree record has an invalid mode or object address");
+    }
+    const relativePath = strictUtf8(record.subarray(tab + 1));
+    validateGitPath(relativePath);
+    if (seenPaths.has(relativePath)) fail("Git tree contains a duplicate path");
+    seenPaths.add(relativePath);
+    const mode = Number.parseInt(header[0]!, 8);
+    const typeName = header[1];
+    if (typeName !== "blob" && typeName !== "tree" && typeName !== "commit") {
+      fail("Git tree contains an unsupported object type");
+    }
+    if (typeName === "tree" && mode !== 0o40000) fail("Git tree directory mode is invalid");
+    if (typeName === "blob" && !SAFE_GIT_FILE_MODES.has(mode) && mode !== 0o120000) {
+      fail("Git tree contains an unsupported file mode");
+    }
+    if (typeName === "commit" && mode !== 0o160000) fail("Git submodule mode is invalid");
+    entries.push({ relativePath, mode, type: typeName, object: header[2]! });
+    const fileCount = entries.reduce((count, entry) => count + (entry.type === "blob" ? 1 : 0), 0);
+    if (fileCount > maxFiles) fail("Git tree file limit exceeded");
+    if (entries.length > maxFiles * 129 + 1) fail("Git tree entry limit exceeded");
+  }
+  return entries;
+}
+
+function readBlob(repository: string, object: string, maxBytes: number): Buffer {
+  const type = runGit(repository, ["cat-file", "-t", object], 128).toString("utf8").trim();
+  if (type !== "blob") fail("Git tree file object is not a blob");
+  const size = Number(runGit(repository, ["cat-file", "-s", object], 128).toString("utf8").trim());
+  if (!Number.isSafeInteger(size) || size < 0 || size > maxBytes) fail("Git blob exceeds the captured byte limit");
+  const bytes = runGit(repository, ["cat-file", "blob", object], Math.max(1, maxBytes + 1));
+  if (bytes.length > maxBytes) fail("Git blob exceeds the captured byte limit");
+  return bytes;
+}
+
+function expectedMaps(data: SnapshotData): { files: Map<string, Entry>; dirs: Set<string> } {
+  const files = new Map<string, Entry>();
+  const dirs = new Set<string>();
+  for (const entry of data.entries) {
+    if (!entry.relativePath) continue;
+    if (entry.bytes === undefined) dirs.add(entry.relativePath);
+    else files.set(entry.relativePath, entry);
+  }
+  return { files, dirs };
+}
+
+function assertTreeObjects(repository: string, entries: readonly GitTreeEntry[]): void {
+  for (const entry of entries) {
+    const actual = runGit(repository, ["cat-file", "-t", entry.object], 128).toString("utf8").trim();
+    if (actual !== entry.type) fail("Git tree entry points to an object of the wrong type");
+  }
+}
+
+function compareTree(data: SnapshotData, repository: string, treeId: string): GitTreeEntry[] {
+  const entries = treeEntries(data, repository, treeId);
+  const expected = expectedMaps(data);
+  const seenFiles = new Set<string>();
+  const seenDirs = new Set<string>();
+  let totalBytes = 0;
+  for (const entry of entries) {
+    if (entry.type === "tree") {
+      seenDirs.add(entry.relativePath);
+      continue;
+    }
+    if (entry.type !== "blob") fail("Git tree contains a symlink or submodule instead of a regular file");
+    const expectedFile = expected.files.get(entry.relativePath);
+    if (!expectedFile) fail(`Git tree path does not match captured files: ${entry.relativePath}`);
+    const executable = (expectedFile.mode & 0o100n) !== 0n;
+    if ((executable && entry.mode !== 0o100755) || (!executable && entry.mode !== 0o100644)) {
+      fail(`Git tree executable mode does not match captured file: ${entry.relativePath}`);
+    }
+    const bytes = readBlob(repository, entry.object, data.limits.maxBytes - totalBytes);
+    totalBytes += bytes.length;
+    if (!bytes.equals(expectedFile.bytes!)) fail(`Git tree byte content does not match captured file: ${entry.relativePath}`);
+    seenFiles.add(entry.relativePath);
+  }
+  if (seenFiles.size !== expected.files.size || [...expected.files.keys()].some((key) => !seenFiles.has(key))) {
+    fail("Git tree file paths do not match the complete captured snapshot");
+  }
+  if (seenDirs.size !== expected.dirs.size || [...expected.dirs].some((key) => !seenDirs.has(key))) {
+    fail("Git tree directory paths do not match the complete captured snapshot");
+  }
+  if (totalBytes !== data.entries.reduce((sum, entry) => sum + (entry.bytes?.length ?? 0), 0)) {
+    fail("Git tree byte total does not match the captured snapshot");
+  }
+  return entries;
 }
 
 function prefixes(value: readonly string[] | undefined): string[] {
@@ -177,7 +370,12 @@ export function captureExactSnapshot(
     if (fs.realpathSync(requestedRoot) !== canonicalRoot) fail("root identity changed during capture");
     entries.sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0);
     const snapshot = Object.freeze({ fileCount, byteLength });
-    snapshots.set(snapshot, { root: canonicalRoot, scope, entries });
+    snapshots.set(snapshot, {
+      root: canonicalRoot,
+      scope,
+      entries,
+      limits: Object.freeze({ maxFiles: limits.maxFiles, maxBytes: limits.maxBytes })
+    });
     return snapshot;
   } catch (error) {
     if (error instanceof DomainValidationError) throw error;
@@ -197,4 +395,70 @@ export function sameExactSnapshot(a: ExactSnapshot, b: ExactSnapshot): boolean {
       && (entry.bytes === undefined ? other.bytes === undefined
         : other.bytes !== undefined && entry.bytes.equals(other.bytes));
   });
+}
+
+export function assertExactSnapshotMatchesGitTree(snapshot: ExactSnapshot, repository: string, treeId: string): void {
+  const data = requireSnapshot(snapshot);
+  const root = repositoryRoot(repository, data.root);
+  compareTree(data, root, treeId);
+  // The worktree can be changed between capture and verification. The tree
+  // comparison is intentionally against the immutable captured bytes; callers
+  // that need a second live check must capture another genuine handle.
+}
+
+export function assertGitAttributesPreserveExactBytes(
+  snapshot: ExactSnapshot,
+  repository: string,
+  trees: { readonly beforeTree: string; readonly afterTree: string }
+): void {
+  const data = requireSnapshot(snapshot);
+  const root = repositoryRoot(repository, data.root);
+  if (!trees || typeof trees !== "object" || Array.isArray(trees)) fail("invalid Git tree pair");
+  validateTreeId(trees.beforeTree);
+  validateTreeId(trees.afterTree);
+  const before = treeEntries(data, root, trees.beforeTree);
+  const after = treeEntries(data, root, trees.afterTree);
+  assertTreeObjects(root, before);
+  assertTreeObjects(root, after);
+  const paths = new Set<string>(data.entries.filter((entry) => entry.relativePath).map((entry) => entry.relativePath));
+  for (const entry of [...before, ...after]) paths.add(entry.relativePath);
+  const orderedPaths = [...paths].sort();
+
+  const inspect = (args: string[], view: string): void => {
+    for (const relativePath of orderedPaths) {
+      const output = runGit(root, ["check-attr", "-z", "--all", ...args, "--", relativePath], 16 * 1024);
+      if (output.length === 0) continue;
+      const fields = output.toString("utf8").split("\0");
+      if (fields[fields.length - 1] === "") fields.pop();
+      if (fields.length % 3 !== 0) fail(`Git attribute output is malformed for ${view}`);
+      for (let index = 0; index < fields.length; index += 3) {
+        const name = fields[index + 1];
+        const value = fields[index + 2];
+        if (name === "filter" && value !== "unset") fail(`active Git filter attribute in ${view}`);
+        if (name === "text" && value !== "unset") fail(`active Git text conversion attribute in ${view}`);
+        if (name === "eol" && value !== "unset") fail(`active Git line-ending attribute in ${view}`);
+        if (name === "ident" && value !== "unset") fail(`active Git ident attribute in ${view}`);
+        if (name === "crlf" && value !== "unset") fail(`active Git CRLF attribute in ${view}`);
+        // Even an explicit disabling assignment is rejected. Git versions and
+        // attribute macros have differed in how this value is interpreted, so
+        // accepting it could silently re-enable a worktree encoding conversion.
+        if (name === "working-tree-encoding") fail(`Git attribute working-tree-encoding is unsupported in ${view}`);
+      }
+    }
+  };
+
+  // `filter=unset` and `filter=unspecified` are valid literal driver names;
+  // Git prints the same values it uses for an unset attribute. Refuse these
+  // sentinel drivers by inspecting configuration metadata, without invoking
+  // any clean/process command.
+  const sentinelConfig = runGit(root, [
+    "config", "--includes", "--name-only", "--get-regexp",
+    "^filter\\.(unset|unspecified)\\.(clean|smudge|process|required)$"
+  ], 16 * 1024, undefined, true).toString("utf8").trim();
+  if (sentinelConfig) fail("Git attribute filter transform is configured");
+
+  inspect([], "worktree");
+  inspect(["--cached"], "index");
+  inspect([`--source=${trees.beforeTree}`], "before tree");
+  inspect([`--source=${trees.afterTree}`], "after tree");
 }

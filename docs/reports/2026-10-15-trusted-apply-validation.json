@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-20261015-trusted-apply-binding",
+  "date": "2026-10-15",
+  "baselineCommit": "e837aab0950bfafeb669a6a88d9499944fa7dbae",
+  "state": "ready-for-review-hosted-pending",
+  "local": {
+    "runner": "node scripts/run-tests.mjs",
+    "total": 3574,
+    "passed": 3572,
+    "failed": 0,
+    "skipped": 2,
+    "skipReasons": ["existing opt-in live provider smoke", "Windows-only executable tree test on Linux"],
+    "focused": {"total": 56, "passed": 55, "failed": 0, "skipped": 1},
+    "registration": {"total": 23, "passed": 23, "failed": 0},
+    "trustedApply": {"total": 16, "passed": 16, "failed": 0},
+    "existingNativeApplySourceUnit": {"total": 26, "passed": 26, "failed": 0},
+    "queueIntegration": {"total": 2, "passed": 2, "failed": 0},
+    "checks": {
+      "typecheck": "pass",
+      "lint": "pass",
+      "workflow": "pass",
+      "build": "pass",
+      "diff": "pass",
+      "security": {"passed": 26, "openFindings": 0},
+      "pi": {"passed": 4},
+      "kernelReuse": {"passed": 3}
+    }
+  },
+  "independentReview": {
+    "verdict": "PASS",
+    "focusedTotal": 56,
+    "focusedPassed": 55,
+    "focusedFailed": 0,
+    "focusedSkipped": 1,
+    "tsc": "pass"
+  },
+  "hosted": {"state": "pending", "requiredJobs": 5, "node": "22.19.x", "pnpm": "10.17.1"},
+  "live": {"state": "blocked", "primary": null, "fast": null, "models": [], "calls": 0, "cost": "unknown"},
+  "sourceApplied": false,
+  "fixtureOnlySourceApplication": true,
+  "automaticAcceptance": false,
+  "automaticApplication": false,
+  "mainMerged": false,
+  "limits": [
+    "trusted capability is original in-process authority; serialized registration remains refused",
+    "exact snapshot/tree comparison is bounded and direct-byte, not cryptographic integrity",
+    "Git checkout/ref publication is not crash-atomic; ambiguous or partial state is retained for reconciliation",
+    "explicit SDK integration handles one current-base candidate; no automatic rebase or batch apply",
+    "no dollar-cost ceiling or live model effectiveness claim"
+  ]
+}

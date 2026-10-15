@@ -119,9 +119,13 @@ jobs:
             'test/integration/development/controller-cancellation.test.ts',
             'test/integration/development/work-item-cancellation.test.ts',
             'test/integration/development/batch.test.ts',
+            'test/integration/development/source-integration.test.ts',
             'test/integration/development/candidate-review.test.ts',
+            'test/integration/native/apply-registration-inputs.test.ts',
+            'test/integration/native/trusted-apply.test.ts',
             'test/unit/development/batch.test.ts',
-            'test/unit/execution/loop-artifact-bounds.test.ts'
+            'test/unit/execution/loop-artifact-bounds.test.ts',
+            'test/unit/execution/exact-git-tree.test.ts'
           )
           pnpm test -- --test-concurrency=1 @developmentTests
           exit $LASTEXITCODE

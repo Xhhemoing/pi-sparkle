@@ -1,6 +1,7 @@
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
+import { canonicalizeStableJson } from "../domain/canonical-json.js";
 import type { ClosedLoopAcceptance } from "../execution/acceptance.js";
 import {
   loopArtifactsDir,
@@ -65,6 +66,99 @@ function fail(message: string): never {
   throw new DomainValidationError(message);
 }
 
+/** Inspect descriptors before reading values; never execute a host accessor. */
+function ownDataFields(value: unknown, allowed?: readonly string[]): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+    fail("registration input must be a plain object without inherited fields");
+  }
+  const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || (allowed !== undefined && !allowed.includes(key))) fail("registration input contains an unsupported field");
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!("value" in descriptor) || !descriptor.enumerable) fail("registration fields must be ordinary enumerable values, not accessors");
+    fields[key] = descriptor.value;
+  }
+  return fields;
+}
+
+/** Preserve ordinary JSON metadata while omitting optional undefined fields. */
+function copyResultData(value: unknown, ancestors = new Set<object>()): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (ancestors.has(value)) fail("registration result contains a cycle");
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) fail("registration result must contain plain arrays");
+      for (const key of Reflect.ownKeys(value)) {
+        if (key !== "length" && (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) {
+          fail("registration result array contains an unsupported field");
+        }
+      }
+      const copy: unknown[] = [];
+      for (let index = 0; index < value.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) fail("registration result array must contain ordinary values, not accessors or holes");
+        copy.push(copyResultData(descriptor.value, ancestors));
+      }
+      return Object.freeze(copy);
+    }
+    const copy = ownDataFields(value);
+    for (const key of Object.keys(copy)) {
+      if (copy[key] === undefined) delete copy[key];
+      else copy[key] = copyResultData(copy[key], ancestors);
+    }
+    return Object.freeze(copy);
+  } finally { ancestors.delete(value); }
+}
+
+function snapshotResult(value: unknown): NativeWriteSessionResult {
+  const result = copyResultData(value);
+  // Validate the entire captured data tree without invoking toJSON or treating
+  // serialized metadata as an in-process verification capability.
+  canonicalizeStableJson(result);
+  if (!isAcceptedWriteResult(result)) fail("candidate result is not accepted; refused");
+  requiredAbsolutePath(result.candidatePath, "candidate path");
+  if (typeof result.runId !== "string" || !result.runId.startsWith("run_")) fail("run id must be a durable run id");
+  if (typeof result.acceptance.command !== "string" || result.acceptance.command.trim() === "" ||
+      !Array.isArray(result.acceptance.args) || result.acceptance.args.some((arg) => typeof arg !== "string")) {
+    fail("candidate result must carry a host command and string argv");
+  }
+  assertNativeApplyVerificationSupported(result);
+  if (!isLoopArtifactRef(result.artifact)) fail("candidate result carries no usable loop artifact reference");
+  return result;
+}
+
+function requiredText(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim() === "" || value.includes("\0")) fail(`${label} is required`);
+  return value;
+}
+
+function requiredAbsolutePath(value: unknown, label: string): string {
+  const text = requiredText(value, label);
+  if (!path.isAbsolute(text)) fail(`${label} must be absolute`);
+  return text;
+}
+
+function originalSignal(value: unknown): AbortSignal | undefined {
+  if (value !== undefined && !(value instanceof AbortSignal)) fail("signal must be an AbortSignal");
+  return value;
+}
+
+function snapshotHandle(input: unknown, allowSignal: boolean): ApplyIssuedCandidateInput {
+  const fields = ownDataFields(input, ["stateRoot", "sourceRepo", "runId", "artifactId", "candidatePath", ...(allowSignal ? ["signal"] : [])]);
+  const signal = allowSignal ? originalSignal(fields.signal) : undefined;
+  const snapshot = Object.freeze({
+    stateRoot: path.resolve(requiredText(fields.stateRoot, "state root")),
+    sourceRepo: path.resolve(requiredText(fields.sourceRepo, "source repository")),
+    runId: requiredText(fields.runId, "run id"), artifactId: requiredText(fields.artifactId, "artifact id"),
+    candidatePath: requiredAbsolutePath(fields.candidatePath, "candidate path"),
+    ...(signal === undefined ? {} : { signal })
+  });
+  validateHandleShape(snapshot);
+  return snapshot;
+}
+
 function isAcceptedWriteResult(result: unknown): result is NativeWriteSessionResult {
   return (
     result !== null &&
@@ -123,32 +217,33 @@ export interface ApplyIssuedCandidateInput {
 export async function issueApplyRegistration(
   input: IssueApplyRegistrationInput
 ): Promise<IssuedApplyCandidate> {
-  if (input === null || typeof input !== "object") fail("input is required");
-  if (input.signal?.aborted) fail("apply registration aborted before any work");
-  if (typeof input.stateRoot !== "string" || input.stateRoot.trim() === "") fail("state root is required");
-  if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
-  if (!isAcceptedWriteResult(input.result)) fail("candidate result is not accepted; refused");
-  assertNativeApplyVerificationSupported(input.result);
-  if (!isLoopArtifactRef(input.result.artifact)) fail("candidate result carries no usable loop artifact reference");
+  const fields = ownDataFields(input, ["stateRoot", "sourceRepo", "result", "signal"]);
+  const signal = originalSignal(fields.signal);
+  if (signal?.aborted) fail("apply registration aborted before any work");
+  const request = Object.freeze({
+    stateRoot: path.resolve(requiredText(fields.stateRoot, "state root")),
+    sourceRepo: path.resolve(requiredText(fields.sourceRepo, "source repository")),
+    result: snapshotResult(fields.result)
+  });
 
   const body: StoredCandidateArtifact = {
     kind: REGISTRATION_KIND,
     registrationSchema: REGISTRATION_SCHEMA,
-    sourceRepo: path.resolve(input.sourceRepo),
-    disposalAuthorization: captureNativeDisposeAuthorization(input.sourceRepo, input.result.candidatePath, input.result.sourceRevision),
-    result: input.result
+    sourceRepo: request.sourceRepo,
+    disposalAuthorization: captureNativeDisposeAuthorization(request.sourceRepo, request.result.candidatePath, request.result.sourceRevision),
+    result: request.result
   };
   const artifact = await saveLoopArtifact({
-    stateRoot: input.stateRoot,
-    runId: input.result.runId,
+    stateRoot: request.stateRoot,
+    runId: request.result.runId,
     body
   });
   return {
-    runId: input.result.runId,
+    runId: request.result.runId,
     artifactId: artifact.id,
-    candidatePath: input.result.candidatePath,
-    sourceRepo: path.resolve(input.sourceRepo),
-    sourceRevision: input.result.sourceRevision,
+    candidatePath: request.result.candidatePath,
+    sourceRepo: request.sourceRepo,
+    sourceRevision: request.result.sourceRevision,
     accepted: true
   };
 }
@@ -162,15 +257,15 @@ export async function issueApplyRegistration(
 export async function applyIssuedCandidate(
   input: ApplyIssuedCandidateInput
 ): Promise<{ status: "APPLIED"; appliedRevision: string; retainedCandidate: true }> {
-  if (input === null || typeof input !== "object") fail("input is required");
-  if (input.signal?.aborted) fail("apply aborted before any work");
-  const result = await reconstructIssuedResult(input);
+  const request = snapshotHandle(input, true);
+  if (request.signal?.aborted) fail("apply aborted before any work");
+  const result = await reconstructIssuedResult(request);
   const { NativeApplySession } = await import("./apply.js");
   const session = new NativeApplySession();
   const applyInput: NativeApplyInput = {
-    sourceRepo: input.sourceRepo,
+    sourceRepo: request.sourceRepo,
     result,
-    ...(input.signal !== undefined ? { signal: input.signal } : {})
+    ...(request.signal !== undefined ? { signal: request.signal } : {})
   };
   const applied = await session.apply(applyInput);
   return {
@@ -244,6 +339,7 @@ export async function findAcceptedLoopArtifact(
   candidatePath: string
 ): Promise<NativeWriteSessionResult> {
   validateHandleShape({ ...emptyHandle(), runId, artifactId: provisionalId });
+  requiredAbsolutePath(candidatePath, "candidate path");
   const dir = loopArtifactsDir(stateRoot, runId as Parameters<typeof loopArtifactsDir>[1]);
   const entries = await readdir(dir).catch(() => [] as string[]);
   for (const entry of entries) {
@@ -327,27 +423,20 @@ async function findDisposalReceipt(input: DisposeIssuedCandidateInput): Promise<
 export async function disposeIssuedCandidate(
   input: DisposeIssuedCandidateInput
 ): Promise<{ status: "DISPOSED"; candidatePath: string }> {
-  if (input === null || typeof input !== "object") fail("input is required");
-  if (typeof input.stateRoot !== "string" || input.stateRoot.trim() === "") fail("state root is required");
-  if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
-  if (typeof input.runId !== "string" || input.runId.trim() === "") fail("run id is required");
-  if (typeof input.artifactId !== "string" || input.artifactId.trim() === "") fail("artifact id is required");
-  if (typeof input.candidatePath !== "string" || input.candidatePath.trim() === "") {
-    fail("candidate path is required");
-  }
-  const result = await reconstructIssuedResult(input, true);
-  if (await findDisposalReceipt(input)) {
+  const request = snapshotHandle(input, false);
+  const result = await reconstructIssuedResult(request, true);
+  if (await findDisposalReceipt(request)) {
     try {
-      await lstat(input.candidatePath);
+      await lstat(request.candidatePath);
     } catch (error) {
       if (error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-        return { status: "DISPOSED", candidatePath: path.resolve(input.candidatePath) };
+        return { status: "DISPOSED", candidatePath: path.resolve(request.candidatePath) };
       }
       throw error;
     }
     fail("disposed candidate path exists again; replacement retained for inspection");
   }
-  const registration = await readIssuedArtifact(input.stateRoot, input.runId, input.artifactId) as StoredCandidateArtifact;
+  const registration = await readIssuedArtifact(request.stateRoot, request.runId, request.artifactId) as StoredCandidateArtifact;
   const authorization = registration.disposalAuthorization;
   if (authorization === null || typeof authorization !== "object"
     || authorization.sourceIdentity === null || typeof authorization.sourceIdentity !== "object"
@@ -357,18 +446,18 @@ export async function disposeIssuedCandidate(
   const session = new NativeApplySession();
   const disposed = await session.disposeAuthorized({
     ...authorization,
-    sourceRepo: input.sourceRepo,
+    sourceRepo: request.sourceRepo,
     sourceRevision: result.sourceRevision,
-    candidatePath: input.candidatePath
+    candidatePath: request.candidatePath
   });
   await saveLoopArtifact({
-    stateRoot: input.stateRoot,
-    runId: input.runId as NativeWriteSessionResult["runId"],
+    stateRoot: request.stateRoot,
+    runId: request.runId as NativeWriteSessionResult["runId"],
     body: {
       kind: DISPOSAL_KIND,
       disposalSchema: DISPOSAL_SCHEMA,
-      registrationArtifactId: input.artifactId,
-      sourceRepo: path.resolve(input.sourceRepo),
+      registrationArtifactId: request.artifactId,
+      sourceRepo: path.resolve(request.sourceRepo),
       candidatePath: disposed.candidatePath
     } satisfies StoredDisposalArtifact
   });
