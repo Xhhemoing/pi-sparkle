@@ -27,3 +27,7 @@ Write regressions first and record the real RED command, then implement and run 
 - Targeted ESLint and TypeScript checks, plus `git diff --check`, pass. The coordinator owns the aggregate full-suite and hosted-platform result.
 
 Empty directories and unsupported Git path/mode representations fail conservatively. Whole snapshots inherit the descriptor's bounded file/byte limits; no raw file snapshot is persisted and Git object identifiers only address immutable objects, not new content-integrity authority. If a reference hook changes source state after the two-tree checkout, apply retains the observed partial state and refuses publication; it does not guess a rollback.
+
+## Hosted closeout
+
+The final staged remote checkpoint is commit `df28c0b4ce560b66b9472d2f716c75155a5901b9` with tree `25e16232faae04729c93140c8ed82cdf6c496b54`. Five required hosted jobs passed on Node 22.19.x and pnpm 10.17.1: [CI quality and Ubuntu/Windows smoke](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38684829754) and [root Ubuntu/Windows regressions](https://github.com/Xhhemoing/pi-sparkle/actions/runs/38684828933). This closes TA-06 for this bounded in-process SDK slice; main is unchanged and production/R10/R11/LIVE-01 evidence remains out of scope.
