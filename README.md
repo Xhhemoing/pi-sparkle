@@ -9,7 +9,7 @@ Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
 `pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
-Start with the [interactive architecture guide (中文)](docs/architecture.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
+Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
 
 The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
 
@@ -294,6 +294,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 ## Documentation
 
 - [Interactive current architecture guide (中文, offline HTML)](docs/architecture.html)
+- [Detailed architecture map (中文, interactive HTML)](docs/architecture-map.html) · [standalone SVG](docs/architecture-map.svg)
 - [Current architecture and code map (中文)](docs/framework.md)
 - [Algorithm choices and validation contracts (中文)](docs/architecture-algorithms.md)
 - [Architecture migration plan (中文)](docs/architecture-migration.md)

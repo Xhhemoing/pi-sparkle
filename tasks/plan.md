@@ -1,5 +1,18 @@
 # Active implementation plan
 
+## Detailed architecture map and compact navigation (2026-10-16)
+
+`TASK-20261016-detailed-architecture-map` continues from `415b072`. The user
+repeated the top-bar removal request, asked for thinner bottom controls and a
+very detailed architecture diagram for explanation. The [plan](../docs/superpowers/plans/2026-10-16-detailed-architecture-map.md)
+scopes this to the guide layout and a standalone interactive map. Root and HTML
+author have separate file ownership; independent reviewers verify architecture
+relations and actual UI. [Evidence](../docs/reports/2026-10-16-detailed-architecture-map.md)
+records 48 px single-row controls, 32-node/39-edge map and four supplementary
+diagrams. Author and independent browser/content review, local references and
+the pinned workflow passed; publication to existing PR #60 is pending. No
+runtime migration or production gate is changed.
+
 ## Architecture explanation and navigation polish (2026-10-16)
 
 `TASK-20261016-architecture-explanation-polish` continues from documentation head

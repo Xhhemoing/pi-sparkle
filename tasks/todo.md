@@ -1,5 +1,13 @@
 # Active checklist
 
+## Detailed architecture map and compact navigation (2026-10-16)
+
+- [x] Record scope, file ownership and measurable UI/diagram acceptance in the [plan](../docs/superpowers/plans/2026-10-16-detailed-architecture-map.md).
+- [x] Remove top-bar leftovers and reduce bottom controls to one thin 48 px row, measured across desktop/mobile.
+- [x] Add the 32-node interactive architecture map, 39 relationships, four supplementary diagrams and standalone SVG; link them from the existing explanation.
+- [x] Verify real browser behavior and architecture facts; record [evidence](../docs/reports/2026-10-16-detailed-architecture-map.md).
+- [ ] Publish the verified documentation to existing PR #60 without forcing or merging.
+
 ## Architecture explanation and navigation polish (2026-10-16)
 
 - [x] 2026-10-16: record the requested HTML refinements and documentation-only boundary in the [plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md).
