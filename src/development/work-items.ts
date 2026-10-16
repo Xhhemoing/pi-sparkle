@@ -7,7 +7,17 @@ export interface WorkItemRecipe {
   readonly verifierVersion: string;
   /** Host-declared decisive checker/dependency prefixes, never worker-writable. */
   readonly protectedPaths?: readonly string[];
+  /** Host command deadline; defaults to 5000 ms. All recipes together allow at most 40000 ms. */
+  readonly timeoutMs?: number;
+  /** Per-stream hard output caps; defaults to 2048 bytes, maximum 1 MiB each. */
+  readonly maxStdoutBytes?: number;
+  readonly maxStderrBytes?: number;
 }
+
+export const DEFAULT_RECIPE_TIMEOUT_MS = 5000;
+export const DEFAULT_RECIPE_OUTPUT_BYTES = 2048;
+const MAX_RECIPE_TOTAL_TIMEOUT_MS = 40000;
+const MAX_RECIPE_OUTPUT_BYTES = 1024 * 1024;
 export interface WorkItemDefinition {
   readonly id: string;
   readonly goal: string;
@@ -105,7 +115,17 @@ function scope(value: unknown): string {
   return text;
 }
 function recipe(value: unknown): WorkItemRecipe {
-  const raw = object(value, ["id", "command", "args", "verifierVersion", "protectedPaths"]);
+  const raw = object(value, ["id", "command", "args", "verifierVersion", "protectedPaths", "timeoutMs", "maxStdoutBytes", "maxStderrBytes"]);
+  if (Object.values(Object.getOwnPropertyDescriptors(raw)).some((property) => !("value" in property))) {
+    fail("recipes must contain ordinary values, not accessors");
+  }
+  const optionalLimit = (name: string, maximum: number): number | undefined => {
+    const value: unknown = Object.getOwnPropertyDescriptor(raw, name)?.value;
+    return value === undefined ? undefined : integer(value, maximum, 1);
+  };
+  const timeoutMs = optionalLimit("timeoutMs", MAX_RECIPE_TOTAL_TIMEOUT_MS);
+  const maxStdoutBytes = optionalLimit("maxStdoutBytes", MAX_RECIPE_OUTPUT_BYTES);
+  const maxStderrBytes = optionalLimit("maxStderrBytes", MAX_RECIPE_OUTPUT_BYTES);
   let protectedPaths: string[] | undefined;
   if (raw.protectedPaths !== undefined) {
     const paths = array(raw.protectedPaths, 16);
@@ -119,14 +139,26 @@ function recipe(value: unknown): WorkItemRecipe {
   }
   return { id: id(raw.id), command: workItemText(raw.command, "command"), args: args(raw.args),
     verifierVersion: workItemText(raw.verifierVersion, "verifier version", 128),
-    ...(protectedPaths === undefined ? {} : { protectedPaths }) };
+    ...(protectedPaths === undefined ? {} : { protectedPaths }),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    ...(maxStdoutBytes === undefined ? {} : { maxStdoutBytes }),
+    ...(maxStderrBytes === undefined ? {} : { maxStderrBytes }) };
+}
+
+/** Validate and snapshot the whole host recipe set before any checker starts. */
+export function prepareWorkItemRecipes(value: unknown): readonly WorkItemRecipe[] {
+  const recipes = unique(array(value, 8, 1).map(recipe), (entry) => entry.id);
+  if (recipes.reduce((total, entry) => total + (entry.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS), 0) > MAX_RECIPE_TOTAL_TIMEOUT_MS) {
+    fail("combined recipe timeout exceeds 40000 ms");
+  }
+  return freezeWorkItemValue(recipes);
 }
 function definition(value: unknown): WorkItemDefinition {
   const raw = object(value, ["id", "goal", "dependencies", "allowedScope", "priority", "acceptance"]);
   return { id: id(raw.id), goal: workItemText(raw.goal, "goal", 4096),
     dependencies: unique(array(raw.dependencies, 32).map(id), (entry) => entry),
     allowedScope: unique(array(raw.allowedScope, 32, 1).map(scope), (entry) => entry),
-    priority: integer(raw.priority, 100), acceptance: unique(array(raw.acceptance, 8, 1).map(recipe), (entry) => entry.id) };
+    priority: integer(raw.priority, 100), acceptance: prepareWorkItemRecipes(raw.acceptance) };
 }
 function claim(value: unknown): WorkItemClaim {
   const raw = object(value, ["token", "owner", "baseRevision", "startedAt"]);

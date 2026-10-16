@@ -1,5 +1,17 @@
 # Active implementation plan
 
+## Framework map and host recipe limits (2026-10-16)
+
+`TASK-20261016-development-recipe-limits` continues PR #60 from `167a5404`.
+The [framework/code map](../docs/framework.md) reconciles main, PR #60 and independent PR #61;
+the [RL plan](../docs/superpowers/plans/2026-10-16-development-recipe-limits.md) adds host-owned
+per-recipe timeout/output bounds, whole-definition validation before execution, and immutable snapshots.
+Focused development/acceptance regressions: 52/52 PASS. Aggregate verification and publication
+are recorded in the [dated report](../docs/reports/2026-10-16-development-recipe-limits.md).
+The old stage-one continuation-queue deferral is superseded by the implemented DP/B3/TA slices;
+shared root budgets, real model evaluation, independent review of this delta, main integration
+and production/experimental acceptance remain separate.
+
 ## Exact trusted candidate application (2026-10-15)
 
 Continuation from green `e837aab`: [TA plan](../docs/superpowers/plans/2026-10-15-trusted-apply-binding.md) · [Checklist](trusted-apply-binding-todo.md). TA-00 through TA-06 are implemented and closed: stable registration snapshots, bounded exact Git tree binding, explicit fresh-capability native SDK apply, prepared-target fences, accepted-candidate integration/dependent continuation, source-disjoint review, and five hosted jobs PASS. Local full suite is 3574 total / 3572 pass / 0 fail / 2 skips; remote source/evidence head `e6c9f532` has exact tree `3c7eb200`. Registration and automatic apply remain unchanged; LIVE-01 and production/experimental gates remain separate.

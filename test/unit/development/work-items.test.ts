@@ -96,3 +96,39 @@ test("recipe protected paths are bounded safe literals and survive immutable rou
   const legacy = createWorkQueue({ id: "legacy", authorityRef: "tasks/plan.md", items: [definition] });
   assert.equal(Object.hasOwn(legacy.items[0]!.definition.acceptance[0]!, "protectedPaths"), false);
 });
+
+test("host recipe limits survive immutable round trips without changing omitted legacy fields", () => {
+  const base = item("a");
+  const limits = { timeoutMs: 12000, maxStdoutBytes: 65536, maxStderrBytes: 32768 };
+  const definition = { ...base, acceptance: [{ ...base.acceptance[0]!, ...limits }] };
+  const queue = createWorkQueue({ id: "limits", authorityRef: "host:test", items: [definition] });
+  definition.acceptance[0]!.timeoutMs = 1;
+  const stored = queue.items[0]!.definition.acceptance[0]!;
+  assert.deepEqual(Object.fromEntries(Object.keys(limits).map((key) => [key, Reflect.get(stored, key)])), limits);
+  assert.equal(Object.isFrozen(stored), true);
+  assert.deepEqual(validateWorkQueue(JSON.parse(JSON.stringify(queue))), queue);
+  const legacy = createWorkQueue({ id: "legacy", authorityRef: "host:test", items: [base] });
+  assert.deepEqual(legacy.items[0]!.definition.acceptance, base.acceptance);
+  for (const key of Object.keys(limits)) assert.equal(Object.hasOwn(legacy.items[0]!.definition.acceptance[0]!, key), false);
+});
+
+test("recipe command bounds and the combined deadline reject invalid host values", () => {
+  const base = item("a");
+  const make = (extra: object) => createWorkQueue({ id: "limits", authorityRef: "host:test",
+    items: [{ ...base, acceptance: [{ ...base.acceptance[0]!, ...extra }] }] });
+  for (const field of ["timeoutMs", "maxStdoutBytes", "maxStderrBytes"]) {
+    const maximum = field === "timeoutMs" ? 40000 : 1048576;
+    for (const invalid of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER, maximum + 1, "5000", null, true]) {
+      assert.throws(() => make({ [field]: invalid }), `${field}=${String(invalid)}`);
+    }
+    make({ [field]: 1 });
+    make({ [field]: maximum });
+    const accessor = Object.defineProperty({ ...base.acceptance[0]! }, field, { get() { throw new Error("getter executed"); }, enumerable: true });
+    assert.throws(() => createWorkQueue({ id: "limits", authorityRef: "host:test", items: [{ ...base, acceptance: [accessor] }] }),
+      (error: unknown) => error instanceof Error && !error.message.includes("getter executed"));
+  }
+  const recipes = Array.from({ length: 8 }, (_, index) => ({ ...base.acceptance[0]!, id: `check${index}` }));
+  createWorkQueue({ id: "limits", authorityRef: "host:test", items: [{ ...base, acceptance: recipes }] });
+  assert.throws(() => createWorkQueue({ id: "limits", authorityRef: "host:test", items: [{ ...base,
+    acceptance: recipes.map((recipe, index) => index === 0 ? { ...recipe, timeoutMs: 5001 } : recipe) }] }));
+});

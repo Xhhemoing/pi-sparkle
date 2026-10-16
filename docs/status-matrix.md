@@ -3,6 +3,23 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Framework and host verifier limits (2026-10-16)
+
+Current source baseline: PR #60 `167a5404`; main remains `44db4b1`. The [framework map](framework.md)
+distinguishes merged foundations, the DP/B3/TA candidate and separate PR #61. The [RL plan](superpowers/plans/2026-10-16-development-recipe-limits.md)
+and [report](reports/2026-10-16-development-recipe-limits.md) govern this continuation.
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host recipe timeout/output limits and immutable recipe set | RL source candidate | WorkItemRecipe/prepareWorkItemRecipes, recipe-check and DevelopmentController; validator included in trusted checker dependencies | RED 7 pass / 8 fail; focused 52/52 PASS, including real >5-second / >2-KiB commands and Git run/review/accept | no |
+
+Defaults remain 5000 ms and 2048 bytes per stream. Optional timeouts are 1..40000 ms, with all
+effective recipe timeouts together at most 40000 ms; optional stream caps are 1..1048576 bytes each.
+Legacy omitted fields retain their serialized shape. Invalid complete definitions refuse before any
+checker runs. Existing outer 60000 ms check windows and unavailable-versus-functional-failure meanings remain unchanged.
+This is author verification; current aggregate/hosted results are in the dated report, and independent
+review, main integration, live effectiveness, root cost settlement and production remain separate.
+
 ## Architecture and development candidate (2026-10-15)
 
 Additional isolated P2 candidate: pure child recovery extracted from

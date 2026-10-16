@@ -74,6 +74,7 @@ async function hostApplyInput(value: Parameters<Parameters<typeof fixture>[0]>[0
       cwd: review.candidatePath, command: process.execPath, args, independentCheck: stored.check, reason: "host accepted queue item" } };
   const trustedVerification = prepareTrustedVerification({ command: process.execPath, args,
     checkerFiles: [checker, fileURLToPath(new URL("../../../src/execution/command-runner.ts", import.meta.url)),
+      fileURLToPath(new URL("../../../src/development/work-items.ts", import.meta.url)),
       fileURLToPath(new URL("../../../src/domain/errors.ts", import.meta.url))], maxSnapshotFiles: 1024, maxSnapshotBytes: 16*1024*1024 });
   return { sourceRepo: value.sourceRepo, result, trustedVerification } as NativeApplyInput;
 }

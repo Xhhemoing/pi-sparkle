@@ -123,6 +123,7 @@ jobs:
             'test/integration/development/work-item-cancellation.test.ts',
             'test/integration/development/batch.test.ts',
             'test/integration/development/source-integration.test.ts',
+            'test/integration/development/recipe-limits.test.ts',
             'test/integration/development/candidate-review.test.ts',
             'test/integration/native/apply-registration-inputs.test.ts',
             'test/integration/native/trusted-apply.test.ts',
