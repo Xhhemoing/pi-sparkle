@@ -1,4 +1,6 @@
-# pi-sparkle 架构总览与完成状态
+# pi-sparkle 历史架构与完成状态快照
+
+> **历史记录。** 以下保留当时的代码、状态和证据，不代表最新架构。请从[当前架构宣讲](../architecture.html)、[框架与代码地图](../framework.md)和[状态矩阵](../status-matrix.md)进入持续维护的文档。
 
 > 快照初稿：2026-10-06 23:45（UTC+8）· 2026-10-07 校正 · 仓库 E:\Project\pi-sparkle · main @ `98af1b59`（0.1.0-preview.3，含 PR #59）
 
