@@ -10,8 +10,9 @@ author have separate file ownership; independent reviewers verify architecture
 relations and actual UI. [Evidence](../docs/reports/2026-10-16-detailed-architecture-map.md)
 records 48 px single-row controls, 32-node/39-edge map and four supplementary
 diagrams. Author and independent browser/content review, local references and
-the pinned workflow passed; publication to existing PR #60 is pending. No
-runtime migration or production gate is changed.
+the pinned workflow passed. Documentation commit `613bfbf` is published to
+existing PR #60 with the exact reviewed tree. No runtime migration or production
+gate is changed.
 
 ## Architecture explanation and navigation polish (2026-10-16)
 

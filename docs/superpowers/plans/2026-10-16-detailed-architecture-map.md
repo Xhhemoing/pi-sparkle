@@ -4,7 +4,7 @@
 
 - ID: `TASK-20261016-detailed-architecture-map`.
 - Owner: root integrates the guide and delivery; HTML author owns the new map; architecture and interaction reviewers inspect independently.
-- State: ready-for-review; documentation verified, publication pending.
+- State: accepted (documentation); verified files published to existing PR #60.
 - Baseline: PR #60 documentation head `415b072b8be18818be84e87489d00d7d44826bce`.
 - User outcome: completely remove top-bar clutter, make the bottom controls thinner, and provide a very detailed architecture diagram for explanation.
 
