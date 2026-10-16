@@ -13,7 +13,8 @@ share the accepted design in [ADR-009](../docs/decisions/0009-lightweight-adapti
 The [dated report](../docs/reports/2026-10-16-current-architecture-guide.md) records
 pinned workflow PASS, 557 valid local references, actual browser checks across
 12 chapters/34 manual steps, and independent review PASS after the navigation
-race was corrected. Publication is tracked in the checklist; runtime migration
+race was corrected. Documentation commit `a480d8c` is published to PR #60 with
+the exact reviewed tree; runtime migration
 starts separately with M0 and no production gate is closed here.
 
 ## Framework map and host recipe limits (2026-10-16)

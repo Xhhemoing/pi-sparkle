@@ -6,7 +6,7 @@
 - [x] 2026-10-16: write the maintained framework, ten algorithm contracts, bounded migration plan and accepted design ADR; preserve implementation and evidence boundaries. [Verification](../docs/reports/2026-10-16-current-architecture-guide.md).
 - [x] 2026-10-16: verify the self-contained HTML's 12 chapters and 34 manual steps, continuous reading, expandable detail, keyboard, reduced motion, mobile, offline and print behavior. [Browser evidence](../docs/reports/2026-10-16-current-architecture-guide.md).
 - [x] 2026-10-16: independent review PASS, pinned `pnpm workflow:check` PASS, 557 local links and diff check PASS; corrected the deferred-scroll navigation race. [Dated report](../docs/reports/2026-10-16-current-architecture-guide.md).
-- [ ] Publish the documentation commit to existing PR #60 and verify the remote head. Runtime migration remains separate, starting with nested-process cancellation/settlement (M0).
+- [x] 2026-10-16: publish documentation commit `a480d8c` to existing PR #60; fresh remote head and exact tree match the reviewed files. Publication evidence is in the dated report above. Runtime migration remains separate, starting with nested-process cancellation/settlement (M0).
 
 ## Framework map and host recipe limits (2026-10-16)
 
