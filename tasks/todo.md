@@ -5,7 +5,7 @@
 - [x] 2026-10-16: record the requested HTML refinements and documentation-only boundary in the [plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md).
 - [x] Remove the top toolbar, separate global chapter navigation from local diagrams, and expand the overall architecture and module/data-flow explanation.
 - [x] Verify browser behavior, responsive/offline/no-JS/print output, architecture consistency, links and workflow; record [evidence](../docs/reports/2026-10-16-architecture-explanation-polish.md).
-- [ ] Publish the verified document update to existing PR #60 with an expected-head, non-forced update; no runtime or production gate changes.
+- [x] Publish verified documentation commit `1d9d0b2` to existing PR #60 with an expected-head, non-forced update; fetched remote files match the reviewed tree. No runtime or production gate changes.
 
 ## Maintained current architecture and interactive guide (2026-10-16)
 

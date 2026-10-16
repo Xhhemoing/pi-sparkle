@@ -4,7 +4,7 @@
 
 - ID: `TASK-20261016-architecture-explanation-polish`
 - Owner: root integration; separate HTML author and architecture/reliability reviewers.
-- State: documentation verified; publication pending.
+- State: complete; verified documentation published to existing PR #60.
 - Base: documentation delivery `77dda44909048c05f3f10af738cacc75606de045` on PR #60.
 - User request: simplify chapter switching, remove unnecessary top content, and explain the overall architecture in greater detail.
 
