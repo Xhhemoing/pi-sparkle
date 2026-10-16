@@ -5,7 +5,7 @@
 - Task: `TASK-20261016-detailed-architecture-map`.
 - Baseline: `415b072b8be18818be84e87489d00d7d44826bce`, existing PR #60.
 - Date: 2026-10-16.
-- State: documentation verified; publication pending.
+- State: complete; verified documentation published to existing PR #60.
 - Scope: documentation diagrams and navigation only.
 - Environment: Node 24.19.0, pinned pnpm 10.17.1, local-file Playwright/Chromium.
 
@@ -122,7 +122,19 @@ are not closed by these diagrams or browser checks.
 ## Handoff
 
 [Plan](../superpowers/plans/2026-10-16-detailed-architecture-map.md).
-Documentation verification is complete; publication to existing PR #60 is
-pending. Use an expected-head, non-forced update; do not merge main. When the
-map changes, update its embedded SVG and standalone SVG together. The local
-HTML remains an offline snapshot when downloaded.
+Documentation commit `613bfbfcb6c2716d195c7b5e7af0819580b8c11a` is published to
+existing PR #60. Its exact reviewed tree is
+`88b28c187d7180ca831ce538e65795bee5693471`. The connected GitHub API created
+that same tree before a non-forced update with expected prior head
+`415b072b8be18818be84e87489d00d7d44826bce`. A fresh fetch and
+`git diff --exit-code HEAD origin/codex/architecture-agent-loop-20261015`
+confirmed identical local/remote files. Fresh PR metadata confirmed that head,
+an open/unmerged PR, and unchanged main/base
+`44db4b15078ccce9b1c191d29fec438af044a95c`.
+
+This closeout changes evidence and checklist status only. When the map changes,
+update its embedded SVG and standalone SVG together. The local HTML remains an
+offline snapshot when downloaded; runtime migration remains separate.
+
+The evidence-only closeout reran the pinned workflow and whitespace checks
+(PASS), plus 199 local references across its four documentation files (zero errors).

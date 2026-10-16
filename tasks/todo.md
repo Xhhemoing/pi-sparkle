@@ -6,7 +6,7 @@
 - [x] Remove top-bar leftovers and reduce bottom controls to one thin 48 px row, measured across desktop/mobile.
 - [x] Add the 32-node interactive architecture map, 39 relationships, four supplementary diagrams and standalone SVG; link them from the existing explanation.
 - [x] Verify real browser behavior and architecture facts; record [evidence](../docs/reports/2026-10-16-detailed-architecture-map.md).
-- [ ] Publish the verified documentation to existing PR #60 without forcing or merging.
+- [x] Publish verified documentation commit `613bfbf` to existing PR #60 without forcing or merging; fetched remote files match the reviewed tree.
 
 ## Architecture explanation and navigation polish (2026-10-16)
 
