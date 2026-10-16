@@ -6,7 +6,7 @@
 - Date: 2026-10-16.
 - Baseline: PR #60 documentation head `77dda44909048c05f3f10af738cacc75606de045`.
 - Scope: HTML presentation and navigation; accepted architecture and runtime unchanged.
-- State: documentation verified; publication pending.
+- State: complete; verified documentation published to existing PR #60.
 - Environment: Node 24.19.0, pinned pnpm 10.17.1, local-file Playwright/Chromium.
 
 ## Changes
@@ -88,7 +88,22 @@ Chromium build; runtime migration remains separate.
 ## Handoff
 
 Maintain `docs/architecture.html` at the stable path. A downloaded copy remains
-an offline snapshot. Publication will use the connected GitHub API and verify
-the exact local/remote tree, since CLI push credentials were unavailable in the
-preceding delivery. See the [plan](../superpowers/plans/2026-10-16-architecture-explanation-polish.md)
+an offline snapshot. See the [plan](../superpowers/plans/2026-10-16-architecture-explanation-polish.md)
 and [active checklist](../../tasks/todo.md).
+
+Publication used the connected GitHub API because CLI push credentials were
+unavailable in the preceding delivery. The non-forced ref update required the
+expected prior head `77dda44909048c05f3f10af738cacc75606de045`.
+
+- Published documentation commit: `1d9d0b2cafa9baeb4c1c4199c7c403583fe32301`.
+- Exact reviewed tree: `121246a8cc6a2a75d84150f4102e247e7e57863e`.
+- The remote tree matched the local content commit before updating the ref.
+- A fresh fetch and `git diff --exit-code HEAD origin/codex/architecture-agent-loop-20261015`
+  confirmed identical files after publication.
+- Fresh PR #60 metadata confirmed that head, an open/unmerged PR, and unchanged
+  main/base `44db4b15078ccce9b1c191d29fec438af044a95c`.
+
+This closeout adds publication evidence and checklist completion only; the HTML
+is the verified document in the content commit above. The closeout reran the
+pinned workflow, whitespace check and local-link check: PASS, with 196 valid
+references across its four documentation files.

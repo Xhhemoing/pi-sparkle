@@ -12,7 +12,8 @@ HTML/documentation only. The guide now has 13 chapters with architecture first,
 independent local panels and no top toolbar. Author browser checks, independent
 review, 270 local references and the pinned workflow check passed; the reading
 mode URL mismatch was corrected. [Verification](../docs/reports/2026-10-16-architecture-explanation-polish.md)
-records the evidence; publication to existing PR #60 is pending.
+records the evidence. Documentation commit `1d9d0b2` is published to existing
+PR #60 with the exact reviewed tree; runtime and production gates are unchanged.
 
 ## Maintained current architecture and interactive guide (2026-10-16)
 
