@@ -8,7 +8,7 @@
 - Scope: repository documentation and a self-contained, manually controlled HTML explanation. No runtime, dependency, schema, tool authority or package metadata changes.
 - Decision: the user accepted the reviewed lightweight adaptive architecture and requested the current design in the project, without a numbered-revision presentation.
 - Owners: separate architecture author and HTML author; root integrates entries and evidence; independent reviewer did not author the target files.
-- State: documentation verified and independently reviewed; ready for publication to PR #60.
+- State: documentation verified, independently reviewed and published to PR #60; main remains unmerged.
 
 ## Changes
 
@@ -121,6 +121,14 @@ Keep the framework, algorithm contracts, migration plan, ADR and HTML consistent
 when the architecture changes. The next runtime slice is migration M0; the other
 modules remain bounded, optional work with their own acceptance evidence.
 
-Publication verification will be recorded after the documentation commit is pushed
-to the existing PR #60 branch. The [task plan](../superpowers/plans/2026-10-16-current-architecture-guide.md)
+The [task plan](../superpowers/plans/2026-10-16-current-architecture-guide.md)
 and [active checklist](../../tasks/todo.md) track this documentation delivery.
+
+## Publication Verification
+
+- Published documentation commit: `a480d8c6869bf3b7494ba1dd8531056ea16546b2`, parent `740767403ef634c9d6f8be7829f8f489be7a68db`.
+- Exact published tree: `e827e432a21f63b34309af833a33323b9d0e6250`, identical to local reviewed commit `584a717d7016db73a464e7e56b9256df5c474d66`. The different commit identities reflect transport/author metadata, not different files.
+- The initial CLI `git push origin HEAD:codex/architecture-agent-loop-20261015` exited 128 because the environment could not read a GitHub username; it did not update the branch. Publication then used the connected GitHub API with the verified tree and a non-forced ref update requiring the expected previous head `7407674`.
+- A preliminary unpublished API tree exposed one normalized carriage return in the historical Markdown snapshot. Tree equality caught it before any branch update; exact original bytes were restored in serialization, and only the matching tree was committed/published.
+- `git fetch origin` and `git diff --exit-code HEAD origin/codex/architecture-agent-loop-20261015` confirmed identical file content. Fresh PR metadata confirmed head `a480d8c`, PR #60 open and unmerged, base main still `44db4b1`.
+- The local authored commit remains on its branch; the delivery worktree follows the published lineage. A documentation-only closeout records this publication evidence and the checklist completion; it does not alter the verified HTML, architecture, algorithms or migration plan.
