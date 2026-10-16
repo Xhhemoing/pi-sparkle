@@ -95,6 +95,7 @@ function verification(item: WorkItemDefinition) {
   const command = process.execPath;
   const trustedVerification = prepareTrustedVerification({ command, args,
     checkerFiles: [checker, fileURLToPath(new URL(`../execution/command-runner${suffix}`, import.meta.url)),
+      fileURLToPath(new URL(`./work-items${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`../domain/errors${suffix}`, import.meta.url))],
     snapshotManifest: { includePrefixes: [...new Set([...item.allowedScope, ...protectedPaths(item)])] },
     maxSnapshotFiles: 1024, maxSnapshotBytes: 16 * 1024 * 1024 });

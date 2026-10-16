@@ -9,6 +9,8 @@ Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
 `pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
+Read the [current framework and code map (中文)](docs/framework.md) for module responsibilities, the development flow, main versus PR capabilities, and the next implementation priorities. The [development guide](docs/development-agent-loop.md) covers explicit work queues and candidate review.
+
 ## Quick Start
 
 ### Install

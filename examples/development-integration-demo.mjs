@@ -86,6 +86,7 @@ const result = {runId, status: "COMPLETED", sourceRevision: initialRevision, can
     args, independentCheck: stored.check, reason: "explicit host accepted queue item"}};
 const descriptor = prepareTrustedVerification({command: process.execPath, args,
   checkerFiles: [checker, fileURLToPath(new URL("../dist/execution/command-runner.js", import.meta.url)),
+    fileURLToPath(new URL("../dist/development/work-items.js", import.meta.url)),
     fileURLToPath(new URL("../dist/domain/errors.js", import.meta.url))], maxSnapshotFiles: 1024, maxSnapshotBytes: 16*1024*1024});
 const intent = await controller.ledger.prepare({kind: "candidate-apply", idempotencyKey: `host-apply:${first.actionId}`,
   input: {candidateActionId: first.actionId, sourceRepo, sourceRevision: initialRevision, candidatePath: review.candidatePath}});

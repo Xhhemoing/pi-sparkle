@@ -1,23 +1,19 @@
 /** Host-owned aggregate verifier. Recipes are fixed argv data, never worker commands. */
 import { pathToFileURL } from "node:url";
 import { runAuthorizedCommand } from "../execution/command-runner.js";
-import { DomainValidationError } from "../domain/errors.js";
-import type { WorkItemRecipe } from "./work-items.js";
+import { DEFAULT_RECIPE_OUTPUT_BYTES, DEFAULT_RECIPE_TIMEOUT_MS, prepareWorkItemRecipes, type WorkItemRecipe } from "./work-items.js";
 
 export async function checkDevelopmentRecipes(recipes: readonly WorkItemRecipe[]): Promise<"accepted" | "failed" | "unavailable"> {
-  if (!Array.isArray(recipes) || recipes.length < 1 || recipes.length > 8) {
-    throw new DomainValidationError("development verifier requires 1..8 recipes");
-  }
+  const fixedRecipes = prepareWorkItemRecipes(recipes);
   let accepted = true;
   let unavailable = false;
   const results: { recipeId: string; ok: boolean; status: string; exitCode: number | null; signal: string | null;
     stdoutText: string; stderrText: string }[] = [];
-  for (const recipe of recipes) {
-    if (typeof recipe.command !== "string" || !Array.isArray(recipe.args) || recipe.args.some((arg: unknown) => typeof arg !== "string")) {
-      throw new DomainValidationError("invalid development verification recipe");
-    }
+  for (const recipe of fixedRecipes) {
     const result = await runAuthorizedCommand({ executable: recipe.command, args: recipe.args, cwd: process.cwd(),
-      env: {}, timeoutMs: 5000, maxStdoutBytes: 2048, maxStderrBytes: 2048 });
+      env: {}, timeoutMs: recipe.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS,
+      maxStdoutBytes: recipe.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES,
+      maxStderrBytes: recipe.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES });
     const ok = result.ok && result.status === "completed" && result.signal === null;
     results.push({ recipeId: recipe.id, ok, status: result.status, exitCode: result.exitCode, signal: result.signal,
       stdoutText: result.stdoutText, stderrText: result.stderrText });
@@ -28,7 +24,7 @@ export async function checkDevelopmentRecipes(recipes: readonly WorkItemRecipe[]
   }
   // The first stored 4 KiB must name every attempted criterion before excerpts.
   process.stdout.write(`${JSON.stringify({ results: results.map(({ stdoutText: _out, stderrText: _err, ...row }) => row),
-    unobserved: recipes.slice(results.length).map((recipe) => recipe.id) })}\n`);
+    unobserved: fixedRecipes.slice(results.length).map((recipe) => recipe.id) })}\n`);
   for (const result of results.filter((row) => !row.ok)) {
     const excerpt = (text: string) => Buffer.from(text).subarray(0, 256).toString("utf8");
     process.stdout.write(`${JSON.stringify({ recipeId: result.recipeId, stdoutText: excerpt(result.stdoutText), stderrText: excerpt(result.stderrText) })}\n`);

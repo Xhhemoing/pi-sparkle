@@ -49,7 +49,11 @@ Host 是有权限设定项目目标、执行命令和验收条件的调用方。
 
 `authorityRef` 是 host 的来源记录，不是授权签名。`allowedScope` 和 `protectedPaths` 都是仓库相对路径的字面前缀，不支持 glob、绝对路径或 `..`。示例仅允许写 `add.mjs`。将实际决定 PASS/FAIL 的检查器、它导入的断言辅助文件，以及决定检查行为的配置列入 `protectedPaths`；不要把待实现代码当作不可修改的检查器依赖。控制器拒绝 worker 写入保护路径，并核对检查前后的内容。声明不完整会削弱验收依据，运行时不会自动推导全部依赖。
 
-每个任务至少有一个验收 recipe，最多八个；每个 recipe 最多声明十六个保护前缀。控制器要求非空 `protectedPaths`，固定 Node inline argv 检查是特例。库层兼容可选字段不表示控制器会接受缺少保护声明的普通脚本。命令按 `command` 和 `args` 执行，不展开 shell 管道或重定向。当前 recipe runner 每条命令限时 5000 ms，stdout/stderr 各有 2048 bytes 硬上限；超出会判为基础设施不可用并停止修复。这不是可直接容纳任意大型全量测试的通用执行入口。
+每个任务至少有一个验收 recipe，最多八个；每个 recipe 最多声明十六个保护前缀。控制器要求非空 `protectedPaths`，固定 Node inline argv 检查是特例。库层兼容可选字段不表示控制器会接受缺少保护声明的普通脚本。命令按 `command` 和 `args` 执行，不展开 shell 管道或重定向。
+
+Recipe 默认限时 5000 ms，stdout/stderr 默认各 2048 bytes。宿主可在定义中显式加入 `"timeoutMs": 12000, "maxStdoutBytes": 65536, "maxStderrBytes": 32768`。超时范围为 1–40000 ms，同一任务所有 recipe 的有效超时之和最多 40000 ms；每路输出上限为 1–1048576 bytes，均要求整数。省略字段按默认值计入合计，例如八条默认 recipe 已占满 40000 ms。完整定义在第一条检查执行前经过校验和不可变快照，非法的后续 recipe 也不会触发前面的命令。新字段需要支持它们的新版 reader；旧定义保持原来的序列化形状。
+
+超时、输出超限、信号终止和无法启动仍判为基础设施不可用并停止修复；正常 exit 1 才进入原有功能修复路径。检查器进程的外层 60000 ms 限制保持不变，合计上限为启动和清理留下余量，但不保证整条 CLI 在固定墙钟时间内结束。这仍是有限的检查入口，任意大型全量测试需另行设计检查环境。
 
 检查器应尽量不修改候选。生成文件必须留在允许范围内，或由 host 在独立检查视图中管理，不能改动保护路径。即使写入范围合法，检查前后的快照漂移也会使可信验证失败；需要构建产物的项目应先设计与当前快照约束兼容的检查方式。这里的 Git 隔离、工具限制与内容验证不构成通用 OS sandbox，host 命令和外部依赖仍需要信任与约束。
 
@@ -126,7 +130,7 @@ pnpm cli develop review --queue addition-demo --project "$SPARKLE_PROJECT" --sta
 pnpm cli develop accept --queue addition-demo --project "$SPARKLE_PROJECT" --state-root "$SPARKLE_STATE" --item implement-addition --json
 ```
 
-`accept` 会重新验证绑定的真实证据，输出 `sourceApplied: false`。它接受当前候选，没有将代码集成到原仓。Host 仍需审查最终差异，完成独立评审与适用 gate，再通过已经授权的 Git/PR 流程显式集成；`develop` 没有 apply 子命令。控制器使用 trusted verification，现有 native apply/registration 会拒绝此类序列化候选，不能作为它的现成集成路径；重新构建可信 descriptor 的 apply 支持仍是后续工作。
+`accept` 会重新验证绑定的真实证据，输出 `sourceApplied: false`。它接受当前候选，没有将代码集成到原仓。Host 仍需审查最终差异，完成独立评审与适用 gate，再通过已经授权的 Git/PR 流程显式集成；`develop` 没有 apply 子命令。控制器使用 trusted verification，native registration 仍拒绝仅有序列化证据的候选。2026-10-15 的 TA 切片已新增显式 native SDK apply：宿主从自己的固定定义签发新鲜的进程内可信 descriptor，覆盖完整候选，并在重新运行真实检查后核对精确 Git tree/实际字节。复制或反序列化 descriptor 不能取得权限；见 [TA 计划](superpowers/plans/2026-10-15-trusted-apply-binding.md) 和 [集成演示](../examples/development-integration-demo.mjs)。它不自动 accept/apply，也不关闭 production/R10/R11 条件。
 
 例如 B 依赖 A：A 候选 accepted 后，B 可能出现在 advisory `next` 中；`run` 仍会在原仓当前提交的隔离检查视图中运行 A 的前置验收。Host 应先显式集成 A 并保存新的源提交，再推进 B。仅有 A 候选的成功记录不能替代原仓检查。原仓变化还必须保留原 claim 基线的祖先关系和保护文件不变；改验收定义属于新的 host 决策。若前置功能原本已在原仓成立，无需制造无意义提交，仍以当前源检查为准。
 
