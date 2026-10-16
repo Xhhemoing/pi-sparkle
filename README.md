@@ -9,7 +9,9 @@ Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
 `pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
-Read the [current framework and code map (中文)](docs/framework.md) for module responsibilities, the development flow, main versus PR capabilities, and the next implementation priorities. The [development guide](docs/development-agent-loop.md) covers explicit work queues and candidate review.
+Start with the [interactive architecture guide (中文)](docs/architecture.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
+
+The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
 
 ## Quick Start
 
@@ -291,6 +293,11 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 
 ## Documentation
 
+- [Interactive current architecture guide (中文, offline HTML)](docs/architecture.html)
+- [Current architecture and code map (中文)](docs/framework.md)
+- [Algorithm choices and validation contracts (中文)](docs/architecture-algorithms.md)
+- [Architecture migration plan (中文)](docs/architecture-migration.md)
+- [Lightweight adaptive framework decision](docs/decisions/0009-lightweight-adaptive-framework.md)
 - [Host work queue, durable development CLI and continuous agent workflow](docs/development-agent-loop.md)
 - [Development control-plane implementation and verification](docs/reports/2026-10-15-development-control-plane.md)
 - [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
@@ -305,7 +312,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [Developer Preview 0.1.0-preview.3 (2026-10-06)](docs/reports/2026-10-06-preview-declaration.md) · [Developer Preview 0.1.0-preview.2 (2026-10-01)](docs/reports/2026-10-01-preview-declaration.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
 - [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
-- [Architecture](docs/specs/m0-m2-architecture.md)
+- [Foundational M0–M2 architecture specification](docs/specs/m0-m2-architecture.md)
 - [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
 - [ADRs](docs/decisions/)
 

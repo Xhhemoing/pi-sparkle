@@ -3,6 +3,36 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Current architecture design and explanation (2026-10-16)
+
+The user accepted the lightweight adaptive **design**, now maintained in
+[ADR-009](decisions/0009-lightweight-adaptive-framework.md), the
+[framework](framework.md), [algorithm contracts](architecture-algorithms.md),
+[migration plan](architecture-migration.md) and [interactive HTML](architecture.html).
+The documentation source baseline is PR #60 `7407674`; main is `44db4b1`, and
+PR #61 remains a separate unmerged candidate. Earlier sections below retain their
+dated evidence; the framework link now points to the maintained explanation.
+
+| Scope | Current state | Evidence / next condition |
+|---|---|---|
+| Lightweight architecture, four responsibilities and optional extensions | Accepted design; this delivery changes documentation only | User design acceptance; [documentation verification](reports/2026-10-16-current-architecture-guide.md) |
+| Light entry, dynamic findings, managed Pi generations, stable plugin facade and preference overlay | Migration targets; existing pieces are mapped separately | Bounded M0–M7 slices in the migration plan; no new runtime wiring claimed |
+| Routing, cost optimization and long-term learning | Existing proposal/shadow paths retained; new policy and settlement work planned | No live-model benefit, strict root dollar guarantee or Outcome-supported claim |
+
+**Reliability correction:** the earlier bounded-verifier-cleanup row does not prove
+whole-process-tree settlement. A POSIX nested detached-runner reproduction can
+continue writing after the outer timeout has settled; this is an open P0. The evidence is
+an equivalent nested-runner experiment, not a real `develop` end-to-end run.
+M0 must verify the real path, complete descendant settlement and prevent lease or
+workspace reuse while effects remain unresolved before adding parallel writers or
+the process-based Pi backend. Existing tests remain scoped evidence.
+
+Design acceptance does not close S0-min, R10/R11, F6/F-PROD, shared root budgets,
+live-provider, independent implementation review, production or outcome gates.
+Explicit task preference overlays do not mutate active learned-resource snapshots,
+runtime generations, authority or checker bindings. ADR-008's opaque versioned IDs
+and exact bytes continue to govern identity; no replacement hash is introduced.
+
 ## Framework and host verifier limits (2026-10-16)
 
 Current source baseline: PR #60 `167a5404`; main remains `44db4b1`. The [framework map](framework.md)
