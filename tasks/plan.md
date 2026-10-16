@@ -1,5 +1,19 @@
 # Active implementation plan
 
+## Architecture explanation and navigation polish (2026-10-16)
+
+`TASK-20261016-architecture-explanation-polish` continues from documentation head
+`77dda44`. The user requested simpler switching, removal of the top toolbar and
+more detailed explanation of the overall architecture. The
+[plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md)
+keeps the accepted design unchanged: chapter controls and local exploration are
+separate, with expanded module responsibilities and control/data flow. Scope is
+HTML/documentation only. The guide now has 13 chapters with architecture first,
+independent local panels and no top toolbar. Author browser checks, independent
+review, 270 local references and the pinned workflow check passed; the reading
+mode URL mismatch was corrected. [Verification](../docs/reports/2026-10-16-architecture-explanation-polish.md)
+records the evidence; publication to existing PR #60 is pending.
+
 ## Maintained current architecture and interactive guide (2026-10-16)
 
 `TASK-20261016-current-architecture-guide` is documentation-verified and ready for review from PR #60 checkpoint

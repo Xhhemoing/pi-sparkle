@@ -1,5 +1,12 @@
 # Active checklist
 
+## Architecture explanation and navigation polish (2026-10-16)
+
+- [x] 2026-10-16: record the requested HTML refinements and documentation-only boundary in the [plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md).
+- [x] Remove the top toolbar, separate global chapter navigation from local diagrams, and expand the overall architecture and module/data-flow explanation.
+- [x] Verify browser behavior, responsive/offline/no-JS/print output, architecture consistency, links and workflow; record [evidence](../docs/reports/2026-10-16-architecture-explanation-polish.md).
+- [ ] Publish the verified document update to existing PR #60 with an expected-head, non-forced update; no runtime or production gate changes.
+
 ## Maintained current architecture and interactive guide (2026-10-16)
 
 - [x] 2026-10-16: record the user's accepted design and documentation-only scope in the [task plan](../docs/superpowers/plans/2026-10-16-current-architecture-guide.md); source baseline PR #60 `7407674`, separate main/PR #61 preserved.
