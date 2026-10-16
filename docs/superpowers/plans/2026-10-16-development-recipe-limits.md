@@ -4,7 +4,7 @@
 
 - ID: `TASK-20261016-development-recipe-limits`
 - Owner: Codex
-- State: `in-progress`
+- State: `ready-for-review`
 - Date opened: 2026-10-16
 - Baseline: PR #60 `167a5404bcf7ca7fdf4abcc2b9e78c7f7e0bb53c`; main `44db4b1`.
 - Contracts: [development workflow](../../development-workflow.md), [status matrix](../../status-matrix.md), [ADR-008](../../decisions/0008-remove-sha256.md).
@@ -19,11 +19,11 @@ Out of scope: arbitrary long full-suite checks, environment/credential configura
 
 ## Acceptance criteria
 
-- [ ] RL-01: optional limits survive immutable queue round trips; omission preserves exact legacy shape/defaults. Invalid types, accessors, bounds and an excessive combined deadline refuse before execution.
-- [ ] RL-02: a real checker exceeding 2 KiB passes under an explicit host cap; a real checker exceeding 5 seconds passes under an explicit host deadline. Default output overflow, timeout, signal/spawn failure retain unavailable behavior and do not trigger functional repair.
-- [ ] RL-03: validate/snapshot all recipes before the first await; caller mutation during a preceding checker cannot change a later command or limit. A late invalid recipe cannot cause earlier commands to execute.
-- [ ] RL-04: real Git controller run -> historical review -> explicit accept uses the same configured limits, binds them to the saved action/command, and preserves source and checker files. Trusted checker snapshots include the reused recipe validator dependency.
-- [ ] RL-05: current framework guide, task/status entries, RED/GREEN evidence, full applicable gate/probes, and a reviewable GitHub checkpoint are recorded. Author checks are not independent review or production acceptance.
+- [x] RL-01: optional limits survive immutable queue round trips; omission preserves exact legacy shape/defaults. Invalid types, accessors, bounds and an excessive combined deadline refuse before execution.
+- [x] RL-02: a real checker exceeding 2 KiB passes under an explicit host cap; a real checker exceeding 5 seconds passes under an explicit host deadline. Default output overflow, timeout, signal/spawn failure retain unavailable behavior and do not trigger functional repair.
+- [x] RL-03: validate/snapshot all recipes before the first await; caller mutation during a preceding checker cannot change a later command or limit. A late invalid recipe cannot cause earlier commands to execute.
+- [x] RL-04: real Git controller run -> historical review -> explicit accept uses the same configured limits, binds them to the saved action/command, and preserves source and checker files. Trusted checker snapshots include the reused recipe validator dependency.
+- [x] RL-05: current framework guide, task/status entries, RED/GREEN evidence, full applicable gate/probes, and a reviewable GitHub checkpoint are recorded. Author checks are not independent review or production acceptance.
 
 ## Implementation slice
 
@@ -38,7 +38,7 @@ Out of scope: arbitrary long full-suite checks, environment/credential configura
 
 ## Test-first plan
 
-Write and run the new tests against the unchanged runtime; require failures caused by unknown optional fields and the fixed runner caps. Then implement the bounded shared validator and runner propagation. Verify negative input before spawn using a filesystem sentinel, mutation using the first command's output, and real candidate acceptance with output over the old cap. Run focused neighboring development/native tests, workflow, typecheck, lint, full tests, build and security/Pi probes. Keep exact failure/skip/not-run results.
+Write and run the new tests against the unchanged runtime; require failures caused by unknown optional fields and the fixed runner caps. Then implement the bounded shared validator and runner propagation. Verify negative input before spawn using a filesystem sentinel, mutation during the first awaited command, and real candidate acceptance with output over the old cap. Run focused neighboring development/native tests, workflow, typecheck, lint, full tests, build and security/Pi probes. Keep exact failure/skip/not-run results.
 
 ## Gates and handoff
 
@@ -46,4 +46,4 @@ Do not modify source application, frozen run/event contracts, external settings,
 
 ## Closeout
 
-Evidence and next actions will be recorded in `docs/reports/2026-10-16-development-recipe-limits.md`.
+Verified 2026-10-16 against implementation checkpoint `e6d6438` / exact tree `55b2c9eb`. Focused 52/52; serial full gate 3583 total / 3581 pass / 0 fail / 2 skip, build/workflow/typecheck/lint and security 26 / Pi 4 / kernel 3 probes PASS; built integration demo PASS with zero live calls. Initial concurrent-run failures are retained in the [verification report](../../reports/2026-10-16-development-recipe-limits.md). Independent review of this delta and main integration remain open. GitHub PR #60 carries the staged evidence-only continuation.

@@ -6,6 +6,7 @@
 - Date/environment: 2026-10-16; Linux; Node 24.19.0; project-pinned pnpm 10.17.1 selected through a session-local PATH entry.
 - Owner/verifier: Codex author. No independent review of this delta is claimed.
 - Source baseline: PR #60 `167a5404bcf7ca7fdf4abcc2b9e78c7f7e0bb53c`, exact tree `d6d0eaaa1ba311309f84fb5a3212628ddf572bf2`; main `44db4b15078ccce9b1c191d29fec438af044a95c`.
+- Implementation checkpoint: GitHub `e6d6438278fa3e592a47beb0b4f540caea7f28e7`, exact tree `55b2c9eb9e5fe06a69b81577e3ec94a1b4c85644`, identical to local `a46ef98a1a4b540980bd9630906bdb270825d0dd`. Final evidence updates are documentation-only children; runtime, tests, examples and workflow remain identical to this checkpoint.
 - [Plan](../superpowers/plans/2026-10-16-development-recipe-limits.md), [current framework](../framework.md), [usage](../development-agent-loop.md), [active checklist](../../tasks/todo.md).
 
 ## Problem and changed behavior
@@ -25,13 +26,22 @@ The framework guide maps actual entry points and module responsibilities, distin
 | `node --import tsx --test --test-concurrency=1 test/unit/development/work-items.test.ts test/integration/development/recipe-limits.test.ts test/integration/development/controller.test.ts test/integration/development/source-integration.test.ts test/integration/development/candidate-review.test.ts` | PASS 52/52, 0 fail/skip | Real processes and temporary real Git repositories; 51.30 s |
 | `node node_modules/typescript/bin/tsc --noEmit` | PASS after correcting the new test's assertion overload | Initial typecheck correctly rejected `assert.throws(..., undefined, ...)`; corrected before delivery |
 | `node node_modules/eslint/bin/eslint.js .` | PASS | Current source/tests/examples |
-| `pnpm gate` with pnpm 10.17.1 on PATH | RUNNING | Final result to be recorded before delivery |
-| Security/Pi probes and built integration demo | NOT RUN yet | Required after build |
-| GitHub checkpoint / current hosted CI | NOT RUN yet | Publish after local gate and final diff review |
+| Initial default-concurrency `pnpm gate`, pnpm 10.17.1 | FAIL: 3583 total / 3580 pass / 1 fail / 2 skip | Unchanged inherited-pipe cleanup regression expected leader exit 0 but received null under concurrent process startup; build not reached |
+| Focused command-runner check while the full suite was still running | FAIL: 8 pass / 2 fail | Both failed fixture readiness under load; not an isolated result |
+| `taskset -c 0 node --import tsx --test test/unit/execution/command-runner.test.ts` after the full run settled | PASS 10/10 | Original assertions and 300 ms deadlines unchanged; 3.82 s |
+| `taskset -c 0 pnpm gate`, pnpm 10.17.1 on PATH | PASS: 3583 total / 3581 pass / 0 fail / 2 skip; workflow/typecheck/lint/build PASS | 461.27 s for tests. One-CPU process affinity makes Node's default file concurrency serial, consistent with hosted CI's explicit serial tests; no runtime/test changes |
+| `pnpm security:probe` | PASS 26; 0 open/waived/refused findings | Current built package |
+| `pnpm pi:probe` | PASS 4 | Pinned Pi 0.86.1 boundaries |
+| `pnpm kernel-reuse:probe` | PASS 3 | Existing adapter/kernel seams |
+| `node examples/development-integration-demo.mjs` | PASS, 4 scripted worker executions, 0 live calls | Built trusted SDK verification/application and dependent continuation, 4.70 s; automatic acceptance/application false |
+| `git diff --check` | PASS | Final delta including documentation |
+| GitHub source checkpoint | Exact tree verified | `e6d6438` / `55b2c9eb`; PR #60 branch advances to its evidence-only child after closeout. Current hosted status is recorded in PR metadata, separately from these local results |
 
 New tests execute a checker for more than five seconds, permit 3072 bytes on both streams under a 4096-byte cap, preserve default overflow/explicit timeout stops, and distinguish normal failure from spawn failure. A sentinel verifies execution-before-validation and mutation cannot occur. The real Git test runs a candidate, reads bound historical review, explicitly accepts it using the same host limits, checks action/queue definition equality and confirms the original source file/revision/status remain unchanged.
 
 Temporary raw logs are under `.agent_workspace/recipe-limits/`; tracked evidence is this report and the source tests. The initial managed pnpm 11.25.0 install materialized dependencies but returned `ERR_PNPM_IGNORED_BUILDS`; its automatically inserted workspace-policy placeholders were removed. No new dependency build permission or lockfile change was introduced. The pinned pnpm was then used directly for checks; it is session-local tooling, not a repository dependency.
+
+The two full-suite skips are the opt-in live-provider smoke and a Windows-only executable-mode regression on Linux. Initial concurrent-run failures remain recorded above; serial success does not establish that the unchanged 300 ms process-startup fixture is reliable under arbitrary contention. No assertion or deadline was relaxed. Machine-readable local results are in [validation.json](2026-10-16-development-recipe-limits-validation.json).
 
 ## Risks and gates
 

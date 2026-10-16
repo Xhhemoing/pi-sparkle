@@ -1,0 +1,41 @@
+{
+  "task": "TASK-20261016-development-recipe-limits",
+  "date": "2026-10-16",
+  "state": "ready-for-review",
+  "environment": { "platform": "linux", "node": "24.19.0", "pnpm": "10.17.1" },
+  "source": {
+    "baseline": "167a5404bcf7ca7fdf4abcc2b9e78c7f7e0bb53c",
+    "implementationCommit": "e6d6438278fa3e592a47beb0b4f540caea7f28e7",
+    "implementationTree": "55b2c9eb9e5fe06a69b81577e3ec94a1b4c85644",
+    "localEquivalent": "a46ef98a1a4b540980bd9630906bdb270825d0dd",
+    "evidenceOnlyChildPreservesRuntimeTestsExamplesAndWorkflow": true
+  },
+  "red": { "total": 15, "pass": 7, "fail": 8 },
+  "focused": { "total": 52, "pass": 52, "fail": 0, "skip": 0 },
+  "initialDefaultGate": {
+    "status": "FAIL", "total": 3583, "pass": 3580, "fail": 1, "skip": 2,
+    "failure": "Unchanged inherited-pipe process fixture: leader exit null rather than 0 under concurrent startup"
+  },
+  "isolatedCommandRunner": { "status": "PASS", "total": 10, "pass": 10, "fail": 0 },
+  "serialGate": {
+    "command": "PATH=\"$PWD/.agent_workspace/tooling/bin:$PATH\" taskset -c 0 pnpm gate",
+    "status": "PASS", "total": 3583, "pass": 3581, "fail": 0, "skip": 2,
+    "testDurationMs": 461270.917094,
+    "workflow": "PASS", "typecheck": "PASS", "lint": "PASS", "build": "PASS",
+    "skips": ["opt-in live-provider smoke", "Windows-only executable-mode test on Linux"]
+  },
+  "probes": { "security": { "pass": 26, "openFindings": 0 }, "pi": { "pass": 4 }, "kernelReuse": { "pass": 3 } },
+  "builtIntegrationDemo": {
+    "status": "PASS", "mode": "offline-scripted-explicit-host-sdk", "liveModelCalls": 0,
+    "workerExecutions": 4, "automaticAcceptance": false, "automaticApplication": false,
+    "sourceApplication": "temporary fixture only", "dependentState": "ready-for-review",
+    "supportsLiveEffectivenessClaim": false, "costSource": "unknown"
+  },
+  "publication": {
+    "pullRequest": "https://github.com/Xhhemoing/pi-sparkle/pull/60",
+    "hostedChecks": "Current results are in PR metadata; baseline CI is not evidence for this delta"
+  },
+  "independentReview": "NOT_RUN",
+  "mainMerge": "NOT_RUN",
+  "productionAcceptance": "NOT_CLOSED"
+}
