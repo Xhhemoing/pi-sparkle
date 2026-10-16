@@ -4,7 +4,7 @@
 
 - [x] Reconcile the current framework, module/code map and main/PR #60/#61 boundaries in [framework.md](../docs/framework.md), including the already implemented TA SDK apply path.
 - [x] RED 7 pass / 8 fail; GREEN focused development regression 52/52. Host timeout/output limits retain legacy defaults; complete definitions are validated and frozen before any checker. [Plan](../docs/superpowers/plans/2026-10-16-development-recipe-limits.md).
-- [ ] Record the full gate/probes, exact source tree and GitHub checkpoint in the [RL verification report](../docs/reports/2026-10-16-development-recipe-limits.md).
+- [x] 2026-10-16: serial full gate 3581 pass / 0 fail / 2 skip; security 26 / Pi 4 / kernel 3 and built SDK demo PASS. Source `e6d6438` / tree `55b2c9eb`; initial concurrent failure retained in the [RL verification report](../docs/reports/2026-10-16-development-recipe-limits.md).
 - [ ] Independent review of this delta, main integration, root shared budgets, live-provider measurement and production/experimental gates remain open. DP/B3/TA implementation supersedes the earlier stage-one queue deferral below.
 ## Flowchart recovery responsibility extraction (2026-10-15)
 

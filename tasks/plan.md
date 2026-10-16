@@ -6,8 +6,9 @@
 The [framework/code map](../docs/framework.md) reconciles main, PR #60 and independent PR #61;
 the [RL plan](../docs/superpowers/plans/2026-10-16-development-recipe-limits.md) adds host-owned
 per-recipe timeout/output bounds, whole-definition validation before execution, and immutable snapshots.
-Focused development/acceptance regressions: 52/52 PASS. Aggregate verification and publication
-are recorded in the [dated report](../docs/reports/2026-10-16-development-recipe-limits.md).
+Focused development/acceptance regressions: 52/52 PASS. Serial full gate: 3581 pass / 0 fail / 2 skip;
+security 26 / Pi 4 / kernel 3 probes and built SDK integration demo PASS. Source `e6d6438` has exact
+tree `55b2c9eb`; initial concurrent-run failures and staged publication are recorded in the [dated report](../docs/reports/2026-10-16-development-recipe-limits.md).
 The old stage-one continuation-queue deferral is superseded by the implemented DP/B3/TA slices;
 shared root budgets, real model evaluation, independent review of this delta, main integration
 and production/experimental acceptance remain separate.
