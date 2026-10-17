@@ -6,7 +6,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
 import {
-  freezeWorkItemValue, selectNextWorkItem, validateWorkItemEvidence, validateWorkQueue,
+  freezeWorkItemValue, selectWorkItemCandidates, validateWorkItemEvidence, validateWorkQueue, workItemScopesOverlap,
   workItemBaseRevision, workItemText,
   type WorkItemClaim, type WorkItemDefinition, type WorkItemEvidence, type WorkItemRecipe,
   type WorkItemRecord, type WorkItemStatus, type WorkQueue
@@ -20,6 +20,8 @@ export interface WorkItemVerificationContext {
 export interface WorkItemStoreOptions {
   /** Host-owned read-only resolver of actual artifacts; never deserialize this from worker JSON. */
   readonly verifyEvidence?: (evidence: WorkItemEvidence, context: WorkItemVerificationContext, signal: AbortSignal) => Promise<boolean>;
+  /** Host-only classification of unsettled effect ownership, not invalid evidence. */
+  readonly isVerificationBlocked?: (error: unknown) => boolean;
   /** Total verifier time per item, 1..300000 ms. */
   readonly verificationTimeoutMs?: number;
   readonly lock?: FileLockOptions;
@@ -68,16 +70,19 @@ export class WorkItemStore {
   readonly path: string;
   private readonly lockOptions: FileLockOptions;
   private readonly verifyEvidence: WorkItemStoreOptions["verifyEvidence"];
+  private readonly isVerificationBlocked: WorkItemStoreOptions["isVerificationBlocked"];
   private readonly verificationTimeoutMs: number;
 
   constructor(path: string, options: WorkItemStoreOptions = {}) {
     this.path = resolve(workItemText(path, "queue path", 4096));
     if (options === null || typeof options !== "object" || Array.isArray(options) ||
-        Object.keys(options).some((key) => !["verifyEvidence", "verificationTimeoutMs", "lock"].includes(key))) fail("invalid options");
+        Object.keys(options).some((key) => !["verifyEvidence", "isVerificationBlocked", "verificationTimeoutMs", "lock"].includes(key))) fail("invalid options");
     if (options.verifyEvidence !== undefined && typeof options.verifyEvidence !== "function") fail("invalid evidence verifier");
+    if (options.isVerificationBlocked !== undefined && typeof options.isVerificationBlocked !== "function") fail("invalid blocked-verification classifier");
     if (options.lock !== undefined && (options.lock === null || typeof options.lock !== "object" || Array.isArray(options.lock) ||
         Object.keys(options.lock).some((key) => key !== "timeoutMs" && key !== "retryMs"))) fail("invalid lock options");
     this.verifyEvidence = options.verifyEvidence;
+    this.isVerificationBlocked = options.isVerificationBlocked;
     this.verificationTimeoutMs = duration(options.verificationTimeoutMs, 30_000, 300_000);
     this.lockOptions = Object.freeze({ timeoutMs: duration(options.lock?.timeoutMs, 5000, 30_000),
       retryMs: duration(options.lock?.retryMs, 10, 1000) });
@@ -201,10 +206,42 @@ export class WorkItemStore {
     }
   }
 
-  private async verifyAccepted(queue: WorkQueue, signal?: AbortSignal): Promise<void> {
+  private async selectVerified(queue: WorkQueue, signal?: AbortSignal): Promise<WorkItemDefinition | undefined> {
     checkCancellation(signal);
-    for (const record of queue.items) if (record.status === "accepted") await this.verify(record, signal);
+    const verified = new Set<string>();
+    const blocked = new Map<string, unknown>();
+    let firstBlocked: unknown;
+    for (const item of selectWorkItemCandidates(queue)) {
+      const ancestors = new Set<string>();
+      const visit = (id: string): void => {
+        if (ancestors.has(id)) return;
+        ancestors.add(id);
+        for (const dependency of queue.items.find((record) => record.definition.id === id)!.definition.dependencies) visit(dependency);
+      };
+      for (const dependency of item.dependencies) visit(dependency);
+      let candidateBlocked = false;
+      for (const record of queue.items) {
+        if (record.status !== "accepted" || (!ancestors.has(record.definition.id) &&
+            !workItemScopesOverlap(record.definition.allowedScope, item.allowedScope))) continue;
+        if (blocked.has(record.definition.id)) { candidateBlocked = true; break; }
+        if (verified.has(record.definition.id)) continue;
+        try { await this.verify(record, signal); }
+        catch (error) {
+          checkCancellation(signal);
+          if (this.isVerificationBlocked?.(error) !== true) throw error;
+          blocked.set(record.definition.id, error);
+          firstBlocked ??= error;
+          candidateBlocked = true;
+          break;
+        }
+        verified.add(record.definition.id);
+      }
+      checkCancellation(signal);
+      if (!candidateBlocked) return item;
+    }
     checkCancellation(signal);
+    if (blocked.size !== 0) throw firstBlocked;
+    return undefined;
   }
 
   async next(input: WorkItemOperationOptions = {}): Promise<WorkItemDefinition | undefined> {
@@ -212,8 +249,7 @@ export class WorkItemStore {
     const signal = operationSignal(options.signal);
     checkCancellation(signal);
     const queue = await this.read();
-    await this.verifyAccepted(queue, signal);
-    return selectNextWorkItem(queue);
+    return this.selectVerified(queue, signal);
   }
 
   async claimNext(input: { readonly owner: string; readonly baseRevision: string; readonly signal?: AbortSignal }): Promise<WorkItemClaimResult | undefined> {
@@ -223,8 +259,7 @@ export class WorkItemStore {
     const signal = operationSignal(options.signal);
     return this.locked(async () => {
       const queue = await this.read();
-      await this.verifyAccepted(queue, signal);
-      const item = selectNextWorkItem(queue);
+      const item = await this.selectVerified(queue, signal);
       if (item === undefined) return undefined;
       const claim = freezeWorkItemValue({ token: randomUUID(), owner, baseRevision, startedAt: new Date().toISOString() });
       checkCancellation(signal);

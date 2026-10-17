@@ -1,7 +1,7 @@
 import { DomainValidationError } from "../domain/errors.js";
 import { catalogModel, type CatalogModel } from "../routing/catalog-model.js";
 import type { ModelRouterConfig } from "../supervisor/model-router.js";
-import { defaultCliModelRouterConfig } from "../cli/model-catalog.js";
+import { defaultCliModelRouterConfig } from "../routing/model-catalog.js";
 import { formatModelRef, tryParseModelRef } from "../config/model-ref.js";
 
 /**

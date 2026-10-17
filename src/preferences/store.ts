@@ -11,7 +11,7 @@ import { createId } from "../domain/ids.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomicSync } from "../persist/atomic-file.js";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 
 /**
  * This module is a process-global singleton with a synchronous API, and that

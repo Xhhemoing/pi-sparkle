@@ -114,19 +114,16 @@ test("post-claim queue read failure receives fenced cleanup instead of leaving r
   assert.equal((await controller.ledger.list()).length, 0);
 }));
 
-for (const boundary of ["prepare", "claim", "checkpoint"] as const) {
+for (const boundary of ["admit", "checkpoint"] as const) {
   test(`cancellation after action ${boundary} never dispatches the executor factory`, async () => fixture(async (value) => {
     const abort = new AbortController();
     let factories = 0;
     const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: () => {
       factories++; return new ProtocolChildExecutor();
     } });
-    if (boundary === "prepare") {
-      const original = controller.ledger.prepare.bind(controller.ledger);
-      controller.ledger.prepare = async (input) => { const result = await original(input); abort.abort(); return result; };
-    } else if (boundary === "claim") {
-      const original = controller.ledger.claim.bind(controller.ledger);
-      controller.ledger.claim = async (...args) => { const result = await original(...args); abort.abort(); return result; };
+    if (boundary === "admit") {
+      const original = controller.ledger.admit.bind(controller.ledger);
+      controller.ledger.admit = async (...args) => { const result = await original(...args); abort.abort(); return result; };
     } else {
       const original = controller.ledger.checkpoint.bind(controller.ledger);
       controller.ledger.checkpoint = async (...args) => { const result = await original(...args); abort.abort(); return result; };
@@ -137,7 +134,7 @@ for (const boundary of ["prepare", "claim", "checkpoint"] as const) {
     assert.equal(factories, 0);
     assert.equal((await controller.store.load()).items[0]?.status, "blocked");
     const action = (await controller.ledger.list())[0]!;
-    assert.equal(action.state, boundary === "prepare" ? "prepared" : "needs-reconciliation");
+    assert.equal(action.state, "needs-reconciliation");
     if (boundary === "checkpoint") assert.ok(action.resultCanonicalJson?.includes("candidatePath"));
   }));
 }

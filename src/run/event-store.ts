@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { appendJsonlLine, readJsonlObjectsFromOffset } from "../persist/jsonl.js";

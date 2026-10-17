@@ -6,7 +6,7 @@ import { parseRunId, type RunId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { EventStore, runLockPath, type EventLogReadLimits } from "../run/event-store.js";
 import type { Event } from "../run/events.js";
 

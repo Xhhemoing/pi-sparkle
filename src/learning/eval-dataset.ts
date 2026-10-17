@@ -13,7 +13,7 @@ import {
   bindDefaultEvalDatasetDir,
   EVAL_DATASET_MANIFEST_FILE
 } from "../privacy/eval-dataset-path.js";
-import { defaultEvalDatasetDir, runtimeRoot } from "../privacy/state-layout.js";
+import { defaultEvalDatasetDir, runtimeRoot } from "../persist/state-layout.js";
 import type { Event } from "../run/events.js";
 import { outcomesFromRoutedRun } from "./from-episode.js";
 

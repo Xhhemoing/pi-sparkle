@@ -106,7 +106,7 @@ function args(value: unknown): string[] {
     return entry;
   });
 }
-function scope(value: unknown): string {
+export function workItemScope(value: unknown): string {
   const text = workItemText(value, "allowed scope", 256);
   const parts = text.split("/");
   if (/[:\\*?[\]]/.test(text) || parts.some((part) => part === "" || part === "." || part === "..") || parts[0] === ".git") {
@@ -133,7 +133,7 @@ function recipe(value: unknown): WorkItemRecipe {
     for (let index = 0; index < paths.length; index++) {
       const property = Object.getOwnPropertyDescriptor(paths, index);
       if (property === undefined || !("value" in property)) fail("protected paths must contain ordinary path values");
-      protectedPaths.push(scope(property.value));
+      protectedPaths.push(workItemScope(property.value));
     }
     unique(protectedPaths, (entry) => entry);
   }
@@ -157,7 +157,7 @@ function definition(value: unknown): WorkItemDefinition {
   const raw = object(value, ["id", "goal", "dependencies", "allowedScope", "priority", "acceptance"]);
   return { id: id(raw.id), goal: workItemText(raw.goal, "goal", 4096),
     dependencies: unique(array(raw.dependencies, 32).map(id), (entry) => entry),
-    allowedScope: unique(array(raw.allowedScope, 32, 1).map(scope), (entry) => entry),
+    allowedScope: unique(array(raw.allowedScope, 32, 1).map(workItemScope), (entry) => entry),
     priority: integer(raw.priority, 100), acceptance: prepareWorkItemRecipes(raw.acceptance) };
 }
 function claim(value: unknown): WorkItemClaim {
@@ -263,18 +263,23 @@ export function createWorkQueue(input: CreateWorkQueueInput): WorkQueue {
     items: array(raw.items, 128, 1).map((value) => ({ definition: value, status: "planned" })) });
 }
 
-function overlaps(a: readonly string[], b: readonly string[]): boolean {
+export function workItemScopesOverlap(a: readonly string[], b: readonly string[]): boolean {
   return a.some((left) => b.some((right) => left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)));
 }
 
 /** Read-only advisory selection; execution must use the store's reverified, locked claimNext. */
-export function selectNextWorkItem(value: WorkQueue): WorkItemDefinition | undefined {
+export function selectWorkItemCandidates(value: WorkQueue): readonly WorkItemDefinition[] {
   const queue = validateWorkQueue(value);
   const accepted = new Set(queue.items.filter((entry) => entry.status === "accepted").map((entry) => entry.definition.id));
   const active = queue.items.filter((entry) => entry.status !== "planned" && entry.status !== "accepted");
   return queue.items.filter((entry) => entry.status === "planned" &&
     entry.definition.dependencies.every((dependency) => accepted.has(dependency)) &&
-    !active.some((other) => overlaps(entry.definition.allowedScope, other.definition.allowedScope)))
+    !active.some((other) => workItemScopesOverlap(entry.definition.allowedScope, other.definition.allowedScope)))
     .map((entry) => entry.definition)
-    .sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+    .sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** Read-only advisory selection; execution still requires the store's locked claim. */
+export function selectNextWorkItem(value: WorkQueue): WorkItemDefinition | undefined {
+  return selectWorkItemCandidates(value)[0];
 }

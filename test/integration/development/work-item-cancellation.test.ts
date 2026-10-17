@@ -37,7 +37,8 @@ async function fixture(body: (path: string) => Promise<void>): Promise<void> {
 }
 async function acceptedFixture(path: string): Promise<void> {
   const store = new WorkItemStore(path, { verifyEvidence: async () => true });
-  await store.create(createWorkQueue({ id: "queue", authorityRef: "host:test", items: [item("a"), item("b")] }));
+  // A's evidence is relevant to selection only when the next task depends on it.
+  await store.create(createWorkQueue({ id: "queue", authorityRef: "host:test", items: [item("a"), { ...item("b"), dependencies: ["a"] }] }));
   const claim = (await store.claimNext({ owner: "setup", baseRevision: BASE }))!;
   await store.markReady("a", claim.token, BASE, evidence("a"));
   await store.accept("a", claim.token, BASE);

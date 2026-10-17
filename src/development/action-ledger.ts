@@ -48,6 +48,14 @@ export interface ActionClaim {
   readonly token: string;
 }
 
+/** A refused admission is availability evidence, never permission to retry its effect. */
+export class ActionAdmissionConflictError extends DomainValidationError {
+  constructor(readonly blockingActionId: string) {
+    super(`action ledger: effect ${blockingActionId} requires reconciliation or settlement before overlapping admission`);
+    this.name = "ActionAdmissionConflictError";
+  }
+}
+
 export interface ActionReceipt {
   readonly evidence: ActionEvidence;
   readonly result?: unknown;
@@ -214,6 +222,43 @@ export class ActionLedger {
         state: "prepared", version: 1, attempt: 0, createdAt: at, updatedAt: at,
         history: [{ version: 1, state: "prepared", attempt: 0, at }] };
       return { state: { ...snapshot, actions: [...snapshot.actions, record] }, result: record, changed: true };
+    });
+  }
+
+  /**
+   * Host-only atomic admission across actions. The synchronous conflict predicate
+   * sees running/uncertain records under the existing metadata lock. No rejected
+   * attempt leaves a prepared row, and no effect executes while the lock is held.
+   * A returned claim must be retained even if cancellation follows publication.
+   */
+  async admit(
+    input: { idempotencyKey: string; kind: ActionKind; input: unknown },
+    conflictsWith: (record: ActionRecord) => boolean,
+    signal?: AbortSignal
+  ): Promise<ActionClaim> {
+    text(input.idempotencyKey, "idempotencyKey", 256);
+    if (!KINDS.includes(input.kind)) fail("unknown action kind");
+    if (typeof conflictsWith !== "function") fail("host conflict predicate is required");
+    if (signal !== undefined && !(signal instanceof AbortSignal)) fail("invalid admission signal");
+    const { idempotencyKey, kind } = input;
+    const inputCanonicalJson = json(input.input, "input");
+    return this.store.update((snapshot) => {
+      if (signal?.aborted) fail("admission cancelled before publication");
+      const prior = snapshot.actions.find((record) => record.idempotencyKey === idempotencyKey);
+      if (prior !== undefined && (prior.kind !== kind || prior.inputCanonicalJson !== inputCanonicalJson)) fail("idempotency key identity mismatch");
+      if (prior !== undefined && prior.state !== "prepared") fail("only a prepared action may be admitted; reconcile running/uncertain actions; terminal effects are never replayed");
+      const conflict = snapshot.actions.find((record) =>
+        (record.state === "running" || record.state === "needs-reconciliation") && conflictsWith(record));
+      if (conflict !== undefined) throw new ActionAdmissionConflictError(conflict.actionId);
+      if (prior === undefined && snapshot.actions.length >= MAX_ACTIONS) fail("action collection limit reached");
+      const at = new Date().toISOString();
+      const prepared: ActionRecord = prior ?? { actionId: `action_v1_${randomUUID()}`, idempotencyKey, kind, inputCanonicalJson,
+        state: "prepared", version: 1, attempt: 0, createdAt: at, updatedAt: at,
+        history: [{ version: 1, state: "prepared", attempt: 0, at }] };
+      const running = this.next(prepared, "running", { claimToken: `claim_v1_${randomUUID()}`, attempt: prepared.attempt + 1 });
+      return { state: { ...snapshot, actions: prior === undefined ? [...snapshot.actions, running]
+        : snapshot.actions.map((record) => record.actionId === prior.actionId ? running : record) },
+      result: this.asClaim(running), changed: true };
     });
   }
 

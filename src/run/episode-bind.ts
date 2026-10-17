@@ -13,7 +13,7 @@ import { decideClosure } from "../episode/closure.js";
 import { attachRun, closeEpisode, openEpisode, waitForUser } from "../episode/manager.js";
 import { EpisodeEventStore } from "../episode/store.js";
 import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import type { RunStatus } from "../domain/status.js";
 import type { Event } from "./events.js";
 import { EpisodeStore } from "./episode-store.js";

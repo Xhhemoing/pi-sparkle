@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { isRedactionClass, REDACTION_CLASSES } from "./types.js";
 import type { FeedbackRecord, RedactionClass } from "./types.js";
 import { redactFeedback, type RedactionPolicy } from "./redaction.js";
