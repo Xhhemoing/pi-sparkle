@@ -85,3 +85,15 @@ confirmed no runtime/test/CI drift after reviewing that checkpoint.
 Review report is an evidence file added after source review and does not itself
 change runtime behavior. The integration owner records final gate/probes and
 publication in the [delivery record](2026-10-17-framework-migration.md).
+
+## Parallel documentation preservation
+
+After remote documentation commit `cd3aaab29b709c8e8ad92f05d7a6abfdf40d7ae6`
+arrived, the reviewer independently compared its two architecture HTML files,
+dated download-fix report and plan with the integrated working files: all four
+match byte for byte. Both additive task summary bodies are retained exactly
+beside the migration entries. The parallel commit changes no runtime, tests or
+CI; the current runtime/test/CI files still match reviewed `9089a54`. All 471
+local file links in the changed Markdown resolve, and the diff whitespace check
+passes. This is preservation and documentation consistency verification; browser
+behavior evidence remains the separate documentation author's report.

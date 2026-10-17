@@ -4,7 +4,7 @@
 
 - ID: `TASK-20261017-framework-migration`
 - Owner: root/integration agent, with disjoint M0-B, M1-A and M2-A authors.
-- State: `in-progress`; opened 2026-10-17 UTC.
+- State: `ready-for-review`; opened and verified 2026-10-17 UTC.
 - Authority: user requested continued migration and project organization, explicitly authorizing all pushes; accepted [ADR-009](../../decisions/0009-lightweight-adaptive-framework.md).
 - Baseline: PR #60 `aac7a380`; main `44db4b1` and PR #61 remain separate.
 
@@ -23,16 +23,16 @@ run, package export commitment or production apply is part of this slice.
 
 ## Acceptance Criteria
 
-- [ ] Previous M0-A publication is read back with the exact verified tree.
-- [ ] M0-B atomically admits overlapping effects through the existing ledger;
+- [x] Previous M0-A publication is read back with the exact verified tree.
+- [x] M0-B atomically admits overlapping effects through the existing ledger;
   unrelated ready tasks can continue without weakening dependent verification.
-- [ ] M1-A executes a direct task through `NativeWriteSession`, retaining checks,
+- [x] M1-A executes a direct task through `NativeWriteSession`, retaining checks,
   bounded repair, cancellation and uncertain-effect results.
-- [ ] M2-A removes the runtime CLI preference cycle and inverted catalog/layout
+- [x] M2-A removes the runtime CLI preference cycle and inverted catalog/layout
   dependencies while preserving old export identities and durable paths.
-- [ ] Current task navigation is compact, archived links resolve and historical
+- [x] Current task navigation is compact, archived links resolve and historical
   facts remain distinguishable from current verification.
-- [ ] Focused regressions, cross-author review, full pinned `pnpm gate`, security
+- [x] Focused regressions, cross-author review, full pinned `pnpm gate`, security
   and Pi probes pass; exact remote source/evidence publication is verified.
 
 ## Implementation Slice
@@ -73,5 +73,11 @@ live-provider and existing policy/production gates remain open.
 
 ## Closeout
 
-Current evidence and remaining commands will be recorded in
+Local source `9089a54` was published as `51cf50d` with the exact same tree.
+Full gate: 3630 pass / 0 fail / 2 skip plus build; probes security 26 / Pi 4 /
+kernel 3 PASS. Independent source review passed after R1 correction. Evidence
+publication `20383c2` matches exact local tree `e3971c2b`, retains parallel
+architecture update `cd3aaab`, and has fresh remote readback. The final receipt
+changes documentation only. Hosted partial/cancelled checks and all remaining
+conditions are distinguished in
 [`2026-10-17-framework-migration.md`](../../reports/2026-10-17-framework-migration.md).
