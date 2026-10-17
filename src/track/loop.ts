@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import {
   createEventId,
@@ -16,7 +16,7 @@ import type { RequirementContract } from "../domain/contract.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { nowIso } from "../domain/timestamp.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
-import { buildLiveCatalogConfig } from "../cli/model-catalog.js";
+import { buildLiveCatalogConfig } from "../routing/model-catalog.js";
 import { type TaskAssignment } from "../routing/assign.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { isAgentRole } from "../domain/roles.js";

@@ -3,7 +3,7 @@ import type { BigIntStats } from "node:fs";
 import { lstat, mkdir, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
-import { defaultEvalDatasetDir, evalDatasetsRoot } from "./state-layout.js";
+import { defaultEvalDatasetDir, evalDatasetsRoot } from "../persist/state-layout.js";
 
 /**
  * The default `adapt dataset` path is derived from the run id so that

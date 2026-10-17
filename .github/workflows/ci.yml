@@ -61,7 +61,10 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        # Some historical-review regressions intentionally patch a prototype
+        # for one read window; serialize the full suite so that host-level
+        # evidence remains isolated across test files.
+        run: pnpm test -- --test-concurrency=1
 
       - name: Build
         run: pnpm build
@@ -108,6 +111,36 @@ jobs:
       - name: Fake children and doctor
         run: pnpm test -- test/integration/m1/cli-children.test.ts test/unit/cli/doctor.test.ts
 
+      - name: Development queue and controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $developmentTests = @(
+            'test/integration/cli/development.test.ts',
+            'test/integration/cli/development-batch-review.test.ts',
+            'test/integration/development/controller.test.ts',
+            'test/integration/development/controller-admission.test.ts',
+            'test/integration/development/controller-cancellation.test.ts',
+            'test/integration/development/scoped-readiness.test.ts',
+            'test/integration/development/start-task.test.ts',
+            'test/integration/development/process-ownership.test.ts',
+            'test/integration/development/work-item-cancellation.test.ts',
+            'test/integration/development/batch.test.ts',
+            'test/integration/development/source-integration.test.ts',
+            'test/integration/development/recipe-limits.test.ts',
+            'test/integration/development/candidate-review.test.ts',
+            'test/integration/native/apply-registration-inputs.test.ts',
+            'test/integration/native/trusted-apply.test.ts',
+            'test/unit/development/batch.test.ts',
+            'test/unit/development/action-admission.test.ts',
+            'test/unit/architecture/boundary-cleanup.test.ts',
+            'test/unit/architecture/compatibility-exports.test.ts',
+            'test/unit/execution/loop-artifact-bounds.test.ts',
+            'test/unit/execution/exact-git-tree.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @developmentTests
+          exit $LASTEXITCODE
+
       - name: Native reliability and bounded persistence
         shell: pwsh
         run: |
@@ -117,6 +150,9 @@ jobs:
             'test/integration/native/apply.test.ts',
             'test/unit/native/write-preflight.test.ts',
             'test/unit/native/session.test.ts',
+            'test/integration/native/write-loop.test.ts',
+            'test/unit/execution/command-runner.test.ts',
+            'test/unit/pi-adapter/executor-fallback.test.ts',
             'test/unit/config/providers-config.test.ts',
             'test/unit/execution/paths.test.ts',
             'test/unit/pi-adapter/worktree-coding-tools.test.ts',

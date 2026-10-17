@@ -46,6 +46,30 @@ export interface DurableRecordClass {
 
 export const DURABLE_RECORD_CLASSES: readonly DurableRecordClass[] = [
   {
+    id: "development-work-queue",
+    owner: "runtime",
+    path: "runtime/development/<queueId>/queue.json (host SDK may choose an explicit external queue file)",
+    retention: "until-deleted",
+    sensitiveFields: ["task goals", "scope paths", "host verification argv", "owner", "evidence references"],
+    redaction: "operational host state; never included in adaptation datasets or public diagnostics automatically",
+    deletion: "exclude-from-export",
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "strict schema and fenced claims; missing referenced run evidence blocks progression rather than recreating acceptance"
+  },
+  {
+    id: "development-action-ledger",
+    owner: "runtime",
+    path: "runtime/development/<queueId>/actions/actions.json (host SDK may choose an explicit directory)",
+    retention: "until-deleted",
+    sensitiveFields: ["canonical host input", "candidate/source paths", "effect receipts", "reconciliation evidence"],
+    redaction: "bounded operational state written with mode 0600; no automatic transcript/dataset export",
+    deletion: "exclude-from-export",
+    deletionPropagatesTo: [],
+    migrationVersion: 1,
+    recovery: "unfinished effects require host actual-state reconciliation; reads never replay effects or steal abandoned locks"
+  },
+  {
     id: "run-event",
     owner: "runtime",
     path: "runtime/runs/<runId>/events.jsonl",

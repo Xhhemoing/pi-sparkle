@@ -3,6 +3,118 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Framework migration continuation (2026-10-17)
+
+Current task entry: [migration checklist](../tasks/migration-todo.md).
+Implementation boundaries and current commands: [dated verification](reports/2026-10-17-framework-migration.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| M0-A cooperative process ownership | Published PR #60 `e6f6a5b`, tree `73e74bc2` | Existing command/recipe/native/controller paths | Prior exact-tree full gate and probes; current publication readback | no |
+| M0-B atomic effect admission/scoped readiness | PR #60 `51cf50d` | Existing ActionLedger/WorkItemStore/controller, schema 1 | Focused 49 real controller/process and 61 final adjacent tests; integrated gate 3630 pass / 0 fail / 2 skip | no |
+| M1-A direct task entry | Experimental `development/start-task` module on PR #60 | One NativeWriteSession, inherited verifier/repair/cancel/evidence | Six real temporary Git/scripted-executor tests plus integrated gate; no provider used | no |
+| M2-A module boundaries | Canonical CLI options/routing catalog/persist layout, old import forwarding | Native/track and existing layout consumers | 98 focused tests, integrated gate; exact moved bytes and export/error identity guards | no |
+
+The earlier M0-A publication rejection below is historical: the user explicitly
+authorized pushes and the exact tested tree has now been read back from GitHub.
+Full M0 containment/Windows qualification, old-writer isolation, command-tool
+uncertainty and terminal-ledger archival remain open. Shared roots must exclude
+old controller binaries using the previous non-atomic admission path. M1 tools/
+context, stable SDK, main/PR #61 integration and existing policy/live/production
+gates remain separate. Current test results are not model-benefit evidence.
+
+## Current architecture design and explanation (2026-10-16)
+
+The user accepted the lightweight adaptive **design**, now maintained in
+[ADR-009](decisions/0009-lightweight-adaptive-framework.md), the
+[framework](framework.md), [algorithm contracts](architecture-algorithms.md),
+[migration plan](architecture-migration.md) and [interactive HTML](architecture.html).
+The documentation source baseline is PR #60 `7407674`; main is `44db4b1`, and
+PR #61 remains a separate unmerged candidate. Earlier sections below retain their
+dated evidence; the framework link now points to the maintained explanation.
+
+| Scope | Current state | Evidence / next condition |
+|---|---|---|
+| Lightweight architecture, four responsibilities and optional extensions | Accepted design; this delivery changes documentation only | User design acceptance; [documentation verification](reports/2026-10-16-current-architecture-guide.md) |
+| Light entry, dynamic findings, managed Pi generations, stable plugin facade and preference overlay | Migration targets; existing pieces are mapped separately | Bounded M0–M7 slices in the migration plan; no new runtime wiring claimed |
+| Routing, cost optimization and long-term learning | Existing proposal/shadow paths retained; new policy and settlement work planned | No live-model benefit, strict root dollar guarantee or Outcome-supported claim |
+
+**Reliability correction:** the earlier bounded-verifier-cleanup row does not prove
+whole-process-tree settlement. A POSIX nested detached-runner reproduction can
+continue writing after the outer timeout has settled; this is an open P0. The evidence is
+an equivalent nested-runner experiment, not a real `develop` end-to-end run.
+The subsequent [M0-A implementation](reports/2026-10-16-process-ownership.md)
+now reproduces this on the real develop path and addresses cooperative nested
+groups plus unresolved-effect ownership. That dated evidence supersedes the
+equivalent-only reproduction boundary; full containment and platform acceptance
+remain open and must not be inferred from signal delivery or pipe closure.
+M0 must verify the real path, complete descendant settlement and prevent lease or
+workspace reuse while effects remain unresolved before adding parallel writers or
+the process-based Pi backend. Existing tests remain scoped evidence.
+
+Design acceptance does not close S0-min, R10/R11, F6/F-PROD, shared root budgets,
+live-provider, independent implementation review, production or outcome gates.
+Explicit task preference overlays do not mutate active learned-resource snapshots,
+runtime generations, authority or checker bindings. ADR-008's opaque versioned IDs
+and exact bytes continue to govern identity; no replacement hash is introduced.
+
+## M0-A cooperative process ownership (2026-10-16)
+
+| Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|
+| Local source checkpoint `482dabb` (tested runtime `ed97692`) plus final evidence/comment correction | Command runner, internal recipe checker, strict/native verification, controller check/write action fences | Linux real develop abort/repeated abort/deadline/grandchild, retained source view, escaped uncertainty and parent crash/replay; full gate 3594 pass / 0 fail / 2 skip, security/Pi/kernel probes PASS | no |
+
+[Plan](superpowers/plans/2026-10-16-process-ownership.md) · [full evidence and publication block](reports/2026-10-16-process-ownership.md). Existing strict successes and repair semantics retain their tests. Interrupted trees are conservatively unconfirmed; they retain ownership rather than granting acceptance/replay. Main and separate PR #61 are unchanged. Hosted/Windows qualification, OS containment, old-writer isolation, concurrent checker admission, terminal-check archival and the remaining M0/production/experimental gates remain open. The prepared GitHub push was rejected by automatic approval review and was not retried through another endpoint.
+
+## Framework and host verifier limits (2026-10-16)
+
+Current source baseline: PR #60 `167a5404`; main remains `44db4b1`. The [framework map](framework.md)
+distinguishes merged foundations, the DP/B3/TA candidate and separate PR #61. The [RL plan](superpowers/plans/2026-10-16-development-recipe-limits.md)
+and [report](reports/2026-10-16-development-recipe-limits.md) govern this continuation.
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host recipe timeout/output limits and immutable recipe set | RL source candidate | WorkItemRecipe/prepareWorkItemRecipes, recipe-check and DevelopmentController; validator included in trusted checker dependencies | RED 7 pass / 8 fail; focused 52/52 PASS, including real >5-second / >2-KiB commands and Git run/review/accept | no |
+
+Defaults remain 5000 ms and 2048 bytes per stream. Optional timeouts are 1..40000 ms, with all
+effective recipe timeouts together at most 40000 ms; optional stream caps are 1..1048576 bytes each.
+Legacy omitted fields retain their serialized shape. Invalid complete definitions refuse before any
+checker runs. Existing outer 60000 ms check windows and unavailable-versus-functional-failure meanings remain unchanged.
+This is author verification; current aggregate/hosted results are in the dated report, and independent
+review, main integration, live effectiveness, root cost settlement and production remain separate.
+
+## Architecture and development candidate (2026-10-15)
+
+[PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) contains the reviewed
+candidate from main `44db4b1`; it is not a claim of main integration or
+production acceptance. [Architecture, research and verification](reports/2026-10-15-architecture-agent-loop.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Bounded native candidate repair | PR #60 | opt-in `NativeWriteSession.execute` SDK; one retained candidate, finite attempts/time, immutable check, failure feedback and explicit stop reasons | real Git/command integrations, scripted two-attempt demo and independent agent review | no |
+| Provider fallback correctness | PR #60 | existing Pi executor; retryable-only fallback, shared known-priced spend, one settled task result | focused retry/abort/attribution/cap regressions and independent review | no |
+| Bounded verifier cleanup | PR #60 | shared command runner; TERM/KILL/deadline; raw exit/signal evidence | stubborn-process regressions; Windows descendant containment remains outside scope | no |
+| Supervisor verdict and round settlement | PR #60 | existing supervised run/resume path | rejection/final-round regressions and independent review | no |
+
+These additions do not wire native writing into the default CLI, resume a
+repair loop after a crash, apply a candidate automatically, settle a
+cross-attempt dollar budget or enable adaptive live routing. Existing
+R10/R11, S0-min, F6/F-PROD and production/outcome boundaries remain separate.
+
+## Host development control plane and continuation (2026-10-15)
+
+The original four architecture rows above describe stage one. Stage two is independently reviewed and saved at PR #60 `726e5e55`; stage-three batch/review continues on the same source candidate. These are PR capabilities, not main integration, production approval or model benefit. [Stage-two verification](reports/2026-10-15-development-control-plane.md) · [stage-three plan](superpowers/plans/2026-10-15-development-batch-review.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host work queue and durable action reconciliation | PR #60 | WorkItemStore/ActionLedger and explicit develop CLI | queue/persistence/concurrent-process/crash-window integrations and independent review | no |
+| Named native criteria and exact bounded verification | PR #60 | NativeWriteSession and host development controller | real commands, same-length changes, protected checker, authentic descriptor and independent review | no |
+| Candidate historical review | stage-three candidate | reviewDevelopmentCandidate / develop review | bounded reads, real one/two-attempt artifacts, stale/corrupt/contradictory refs, read-only regressions and independent review | no |
+| Finite serial development batch | stage-three candidate | runDevelopmentBatch / develop batch | independent candidates, no auto-accept/dependency bypass, shared cooperative deadline, first-failure/unknown-effect stops and independent review | no |
+| Selection/claim/publication cancellation | stage-three candidate | optional operation signal plus controller await fences | committed-token preservation, resolver-tail settlement, inherited-signal refusal and independent review | no |
+
+Batch serialization applies within one invocation; there is no new global lifecycle lock or cross-worker cost quota. The deadline requests cooperative cancellation and waits for actual settlement; synchronous Git and cleanup/persistence tails may overrun it. No dollar ceiling or automatic source integration is added. Review reports historical observations with reverified=false, not fresh acceptance authority. Legacy receipts without new refs remain unavailable; explicit invalid refs refuse. [Continuation guide](development-agent-loop.md). LIVE-01 still requires configured model/provider and a host trial budget; real model effectiveness remains unobserved.
+
 ## SHA-256 removal gate (2026-09-21)
 
 A repository-wide census found SHA-256 in runtime identity, persistence, integrity, evaluator/apply, holdout, migration, and active-contract surfaces. Removal is authorized by [ADR-008](decisions/0008-remove-sha256.md). All runtime removal groups are implemented on the uncommitted worktree with the G5 gate green as of 2026-09-22 (author-run; evidence: [removal report](reports/2026-09-21-remove-sha256.md), Session 5): zero active SHA-256 computations remain in runtime surfaces; only legacy-refusal detectors remain. Legacy SHA-bound records are quarantined historical/read-only evidence, never rehashed or reclassified. Migration execution, live-provider runs, production apply/rollout, holdout/F6, and independent review remain separate open gates.

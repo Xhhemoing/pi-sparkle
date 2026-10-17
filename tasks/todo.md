@@ -1,5 +1,57 @@
 # Active checklist
 
+## Conversation workflow and daylight guide (2026-10-17)
+
+`TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.
+
+- [x] 15 chapters, eight new panels, daylight under dark OS theme, 48 px footer, SVG/PNG/ZIP and 407 local references verified; 59 browser assertions and pinned workflow PASS. [Evidence](../docs/reports/2026-10-17-conversation-daylight-guide.md).
+
+
+## Current framework migration (2026-10-17)
+
+The [migration checklist](migration-todo.md) is the current ADR-009 work entry.
+M0-A publication is now verified at remote `e6f6a5b`, exact tree `73e74bc2`;
+the earlier automatic-approval blocker below is historical. M0-B, M1-A and M2-A
+have separate implementation and review evidence in the [current report](../docs/reports/2026-10-17-framework-migration.md).
+
+## Architecture controls and download correction (2026-10-17)
+
+`TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
+
+- [x] Removed residual controls; 42 browser checks, actual SVG download, ZIP extraction, 3840 × 4200 PNG, 191 local references and pinned workflow passed. [Evidence](../docs/reports/2026-10-17-architecture-download-fix.md).
+
+## M0-A nested process ownership (2026-10-16)
+
+- [x] Reconcile PR #60 `415b072` and ADR-009/M0; write the [bounded plan](../docs/superpowers/plans/2026-10-16-process-ownership.md).
+- [x] Reproduce real develop abort/repeated-abort/deadline writes after return and false effect completion: four failing baseline regressions; [record](../docs/reports/2026-10-16-process-ownership.md).
+- [x] Linux real-process regressions verify inherited recipe group ownership, residue cleanup, unresolved action/claim fences, source-check view retention and crash/replay behavior; [evidence](../docs/reports/2026-10-16-process-ownership.md).
+- [x] Self-review, focused 92/92, genuine pinned full gate 3594 pass / 0 fail / 2 skip + build, security 26 / Pi 4 / kernel 3 PASS. Failed commands and actual skips are retained in the [record](../docs/reports/2026-10-16-process-ownership.md).
+- [ ] GitHub source/evidence publication blocked by automatic approval review; prepared local checkpoint `482dabb` preserves concurrent architecture-map head `aac7a380`. Explicit authorization for existing PR #60 branch is the next condition.
+- [ ] Full M0 containment/platform qualification, independent review and existing production/live/experiment gates remain separate.
+
+## Completed architecture documentation (2026-10-16)
+
+The three completed guide/map/polish task summaries and original verification
+links are preserved in the [dated archive](archive/2026-10-16-architecture-docs.md).
+Runtime migration is tracked in the [current checklist](migration-todo.md).
+
+## Framework map and host recipe limits (2026-10-16)
+
+- [x] Reconcile the current framework, module/code map and main/PR #60/#61 boundaries in [framework.md](../docs/framework.md), including the already implemented TA SDK apply path.
+- [x] RED 7 pass / 8 fail; GREEN focused development regression 52/52. Host timeout/output limits retain legacy defaults; complete definitions are validated and frozen before any checker. [Plan](../docs/superpowers/plans/2026-10-16-development-recipe-limits.md).
+- [x] 2026-10-16: serial full gate 3581 pass / 0 fail / 2 skip; security 26 / Pi 4 / kernel 3 and built SDK demo PASS. Source `e6d6438` / tree `55b2c9eb`; initial concurrent failure retained in the [RL verification report](../docs/reports/2026-10-16-development-recipe-limits.md).
+- [ ] Independent review of this delta, main integration, root shared budgets, live-provider measurement and production/experimental gates remain open. DP/B3/TA implementation supersedes the earlier stage-one queue deferral below.
+
+## Architecture and bounded agent development (2026-10-15)
+
+- [x] 2026-10-15: fallback, cleanup, bounded native repair and supervisor correctness slices have RED/GREEN evidence in the linked reports.
+- [x] 2026-10-15: independent agent review findings resolved; integrated gate-equivalent commands PASS (3313 pass / 0 fail / 1 opt-in skip), security 26 / Pi 4 / kernel 3 PASS. Local literal pnpm gate remains environment-blocked by version mixing; hosted CI is separate.
+- [x] 2026-10-15: [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) published with remaining crash-resume, host verification, project-budget and production boundaries documented.
+- [ ] Merge/production acceptance, live-provider effectiveness and the explicitly deferred project-level continuation queue remain open; this checklist accepts only this implementation slice.
+
+[Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md) ·
+[Evidence](../docs/reports/2026-10-15-architecture-agent-loop.md).
+
 ## PS-06 status/recovery projection (2026-10-02)
 
 - [x] Correct the draft's absent-log, foreign-run cost, swallowed-corruption and child-verification wiring defects with RED→GREEN tests; focused run/telemetry/CLI check: 372 tests / 370 pass / 0 fail / 2 skip. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [evidence](../docs/reports/2026-10-02-ps06-status-projection.md).
@@ -104,7 +156,7 @@ Owner-provided external review of the 2026-09-21 project status brief processed 
 
 - [x] Review verified point-by-point against the pre-ADR-008 code state: projection is tool-return-layer only (no history rewrite / no preserved-thinking risk); recall is snapshot-based and never re-projected; run isolation holds by construction; learned routing reads the promoted CAS-locked registry snapshot with exact canonical-byte checks; the current ADR-008 successor contract makes no cryptographic tamper claim. 18 skips explained (win32 POSIX-permission/atomic/symlink skips — CI runs the ubuntu+windows matrix — plus opt-in live smoke).
 - [x] Genuine gaps recorded for the pending independent reviews: apply re-verification runs the frozen command **inside the candidate** (acceptance-definition bytes not bound — reviewer's sharpest finding); handle does not bind evaluator/config digest or issue-time candidate-tree hash. Added to the apply-registration review scope (disposition R10/R11) alongside crash-reconciliation windows.
-- [ ] Hardening items are tracked in the separate projection child plan before any live pilot: ADR-008-compatible exact-byte observation identity for the send counter, typed/fail-closed projectability, marker-spoof pin, `isError` forwarding, snapshot-after-mutation pin, cumulative recall budget, delete/resume semantics pin, payload-prefix pinning, and mechanism/economic/outcome telemetry. Current wired baseline remains default-off and locally verified; these are pending hardening, not completed claims. Stage 0 boundary vocabulary was corrected author-run in [report](../reports/2026-09-22-stage0-boundary-correction.md), but Stage 0 is not frozen.
+- [ ] Hardening items are tracked in the separate projection child plan before any live pilot: ADR-008-compatible exact-byte observation identity for the send counter, typed/fail-closed projectability, marker-spoof pin, `isError` forwarding, snapshot-after-mutation pin, cumulative recall budget, delete/resume semantics pin, payload-prefix pinning, and mechanism/economic/outcome telemetry. Current wired baseline remains default-off and locally verified; these are pending hardening, not completed claims. Stage 0 boundary vocabulary was corrected author-run in [report](../docs/reports/2026-09-22-stage0-boundary-correction.md), but Stage 0 is not frozen.
 - [ ] Review's proposed execution order remains unaccepted: **Stage 0 evaluator/apply boundary design and freeze → projection hardening and mechanism/economic telemetry → read-only evaluator manifest freeze → owner budget/data approval and exploratory A/B/C pilot**. F6 remains a separate parked governance handoff; no item authorizes execution.
 - [ ] **Expert review disposition remains open:** three reports returned (2 **REQUEST CHANGES**, 1 **APPROVE WITH CHANGES**); the fourth repository-consistency review was **not run due concurrency**. Amended docs require a fresh low-concurrency review. Additional dispatches `run_be4facfd-142d-4e0f-892b-d6f9c21d2d17` and `run_0735283f-00e9-44cc-97f4-0550da23062b` both failed with `no actionable model-project issue`; acceptance remains `UNOBSERVED`. No relay recovery or review PASS is claimed. Owner items remain: approved review path, pilot budget/data-transfer scope, exact preregistration thresholds, F6 governance handoff, and product-positioning decision.
 
@@ -142,7 +194,7 @@ Evidence: [delivery gate record](../docs/reports/2026-09-18-delivery-gate-unbloc
 ## Human / policy gates (block claims, not local fake tests)
 
 - [x] Pi pin bump 0.85.1 → 0.86.1 (2026-09-20, `3db30b5` + `3f05b82`): type-surface diff reviewed (transcript-context `SystemMessage.toolsAdded`, `JsonObject` tool args, `JsonValue` details default); adapter product code unchanged; one probe adapted (`report-task-result` reads the leading system message); serialized full suite 2816/0/18; `pi-compat --online` `current`; security/Pi probes green. [Playbook](../docs/how-to-adapt-to-pi.md) updated with 0.86 behavioral notes; status row updated.
-- [ ] Pi self-review follow-up (2026-09-22): live `pnpm cli pi-compat --online` and `node scripts/pi-latest-check.mjs` report pinned agent-core/ai `0.86.1` behind latest `0.87.0`; `pi-coding-agent` is reported unpinned. Keep the known-tested `0.86.1` pin until a separate 0.87 adaptation plan, type-surface review, focused tests, full gate, security/Pi probes, and independent review are complete. Doctor also reports historical undeclared dispatch names; do not add profiles merely to silence that finding. [Self-review report](../docs/reports/2026-09-22-pi-self-review.md).
+- [ ] Pi self-review follow-up (2026-09-22): live `pnpm cli pi-compat --online` and `node scripts/pi-latest-check.mjs` report pinned agent-core/ai `0.86.1` behind latest `0.87.0`; `pi-coding-agent` is reported unpinned. Keep the known-tested `0.86.1` pin until a separate 0.87 adaptation plan, type-surface review, focused tests, full gate, security/Pi probes, and independent review are complete. Doctor also reports historical undeclared dispatch names; do not add profiles merely to silence that finding. Historical self-review reference: `docs/reports/2026-09-22-pi-self-review.md` (file absent from this checkout; link availability corrected 2026-10-16, original status retained).
 
 - [x] ADR-004 accepted and the six adaptive defaults approved, unchanged (2026-08-21). Exit recorded in [status-matrix.md](../docs/status-matrix.md).
 - [x] Close P0: independent review returned **CONDITIONAL** (2026-08-22): Q3/Q4/Q5 pass; Q1 (plane isolation) and Q2 (delete tooling + cascade) were blockers — both remediated same day (see review package §7). Package: [2026-08-22-p0-privacy-review-package.md](../docs/reports/2026-08-22-p0-privacy-review-package.md).

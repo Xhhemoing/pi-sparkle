@@ -9,7 +9,7 @@ import { startParentRun, type RunningRun } from "../run/coordinator.js";
 import type { ObservationProjector } from "../pi-adapter/observation-tools.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import type { NativeRoutingCatalog } from "./routing-catalog.js";
 import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
 import { prepareNativeTaskContract, type NativeTaskContractInput } from "./task-contract.js";

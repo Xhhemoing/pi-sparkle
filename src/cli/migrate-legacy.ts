@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join, posix, relative, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { readJsonlObjects } from "../persist/jsonl.js";
-import { adaptationRoot, runtimeRoot, type Plane } from "../privacy/state-layout.js";
+import { adaptationRoot, runtimeRoot, type Plane } from "../persist/state-layout.js";
 import { CLI_EXIT, cliFail, errorCodeOf } from "./errors.js";
 
 /**

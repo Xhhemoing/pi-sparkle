@@ -9,6 +9,15 @@ Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
 `pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
 
+Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
+
+The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
+
+For one host-driven coding task, use the experimental
+[`startDevelopmentTask` entry](docs/direct-development-task.md). It reuses the
+native candidate/check path without requiring a project queue. Current migration
+progress and remaining work are in the [migration checklist](tasks/migration-todo.md).
+
 ## Quick Start
 
 ### Install
@@ -215,6 +224,7 @@ pnpm cli run \
 | `pnpm cli help` | Print the usage block (same as `--help` / `-h`). It is the authoritative flag list; this table is the shorter tour |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--max-cost-usd`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
+| `pnpm cli develop --help` | Host queues: `init`, `status`, `next`, `candidates`, bounded `run` or serial `batch --max-items N --executor fake\|pi`, historical `review --action ID`, explicit `accept`, `reconcile`, and claim-only `release`. Fake makes no LLM calls or edits; checks remain required. No automatic source application |
 | `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Check a children spec or flowchart against the live catalog without starting a run |
 | `pnpm cli list [--runs \| --episodes]` | List persisted runs or episodes in the state root |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart specs into the working directory |
@@ -288,6 +298,16 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 
 ## Documentation
 
+- [Interactive current architecture guide (中文, offline HTML)](docs/architecture.html)
+- [Detailed architecture map (中文, interactive HTML)](docs/architecture-map.html) · [standalone SVG](docs/architecture-map.svg)
+- [Current architecture and code map (中文)](docs/framework.md)
+- [Algorithm choices and validation contracts (中文)](docs/architecture-algorithms.md)
+- [Architecture migration plan (中文)](docs/architecture-migration.md)
+- [Lightweight adaptive framework decision](docs/decisions/0009-lightweight-adaptive-framework.md)
+- [Host work queue, durable development CLI and continuous agent workflow](docs/development-agent-loop.md)
+- [Development control-plane implementation and verification](docs/reports/2026-10-15-development-control-plane.md)
+- [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
+- [Architecture review and continuous development queue (2026-10-15)](docs/reports/2026-10-15-architecture-agent-loop.md)
 - [Status matrix](docs/status-matrix.md)
 - [Real-provider acceptance runbook](docs/preview-acceptance.md)
 - [Data dictionary](docs/data-dictionary.md)
@@ -298,7 +318,7 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 - [Developer Preview 0.1.0-preview.3 (2026-10-06)](docs/reports/2026-10-06-preview-declaration.md) · [Developer Preview 0.1.0-preview.2 (2026-10-01)](docs/reports/2026-10-01-preview-declaration.md)
 - [Developer Preview readiness](docs/reports/2026-08-20-developer-preview-readiness.md)
 - [SOTA acceptance (2026-08-24 loop, final)](docs/reports/2026-08-24-sota-r3-acceptance.md)
-- [Architecture](docs/specs/m0-m2-architecture.md)
+- [Foundational M0–M2 architecture specification](docs/specs/m0-m2-architecture.md)
 - [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
 - [ADRs](docs/decisions/)
 

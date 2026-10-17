@@ -4,7 +4,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { stableStringify } from "../experiments/manifest.js";
 import { updateProjectBandit } from "./bandit-store.js";
 import { stableProjectKey } from "./learned-routing.js";

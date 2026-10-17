@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { createBanditState, recordReward, type BanditState } from "../routing/bandit.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";

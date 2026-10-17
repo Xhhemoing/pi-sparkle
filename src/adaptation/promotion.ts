@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isCandidateId, isProjectId, isResourceVersionId } from "../domain/ids.js";
 import type { CandidateId, ResourceVersionId } from "../domain/ids.js";

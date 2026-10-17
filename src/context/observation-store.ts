@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 
 /** Per-observation object cap (8 MiB). */
 export const OBSERVATION_MAX_OBJECT_BYTES = 8 * 1024 * 1024;

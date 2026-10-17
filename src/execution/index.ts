@@ -1,5 +1,12 @@
 export { isPathInside, resolveInsideRoot } from "./paths.js";
 export {
+  prepareTrustedVerification,
+  assertTrustedVerificationDescriptor,
+  type TrustedVerificationDescriptor,
+  type TrustedVerificationInput,
+  type TrustedVerificationEvidence
+} from "./trusted-verification.js";
+export {
   createIsolatedWorktree,
   disposeIsolatedWorktree,
   readWorktreeRevision,

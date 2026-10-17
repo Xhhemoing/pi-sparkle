@@ -1,0 +1,74 @@
+{
+  "task": "TASK-20261016-process-ownership",
+  "state": "author-verified-push-blocked",
+  "testedCommit": "ed97692b5ec60bd35caf1f89d0d5ffd1ad02002d",
+  "combinedSourceCommit": "482dabbf4ba1784a6aa56987dcd262092a233e41",
+  "combinedSourceTree": "916c966c5a38a3c39651491cbc5f923ee6d0df79",
+  "concurrentDocsPreserved": "aac7a3806bcc4eff85caf7e987076b7dbb51f9f8",
+  "environment": {
+    "os": "Linux",
+    "node": "24.19.0",
+    "pnpm": "10.17.1",
+    "gateAffinity": "CPU 0"
+  },
+  "focused": {
+    "tests": 92,
+    "pass": 92,
+    "fail": 0,
+    "skip": 0
+  },
+  "gate": {
+    "command": "taskset -c 0 pnpm gate",
+    "exitCode": 0,
+    "tests": 3596,
+    "pass": 3594,
+    "fail": 0,
+    "skip": 2,
+    "durationMs": 513209.112801,
+    "workflow": "pass",
+    "typecheck": "pass",
+    "lint": "pass",
+    "build": "pass"
+  },
+  "skips": [
+    "opt-in real-provider Pi smoke",
+    "Windows-only raw executable-tree refusal on Linux"
+  ],
+  "probes": {
+    "security": {
+      "pass": 26,
+      "openFindings": 0
+    },
+    "pi": {
+      "pass": 4
+    },
+    "kernelReuse": {
+      "pass": 3
+    }
+  },
+  "review": {
+    "type": "author-self-review",
+    "independent": false,
+    "finalControllerDelta": "comment-only; emitted JS byte-equal"
+  },
+  "publication": {
+    "state": "blocked-by-automatic-approval-review",
+    "remoteUnchangedAtLastRead": "aac7a3806bcc4eff85caf7e987076b7dbb51f9f8",
+    "destination": "Xhhemoing/pi-sparkle",
+    "branch": "codex/architecture-agent-loop-20261015",
+    "pr": 60,
+    "alternativeWriteAttempted": false,
+    "hostedCIForDelta": "not-run"
+  },
+  "fullM0Accepted": false,
+  "productionAccepted": false,
+  "outcomeSupported": false,
+  "remaining": [
+    "Windows/OS tree containment qualification",
+    "old-writer isolation for shared state",
+    "atomic concurrent checker admission",
+    "terminal checker row archival within existing 1024-action cap",
+    "general coding-tool process ownership",
+    "independent review"
+  ]
+}

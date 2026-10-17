@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { loadInvocationsFromStateRoot } from "./cost-calibration.js";
 

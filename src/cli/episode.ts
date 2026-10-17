@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isEpisodeId, parseEpisodeId } from "../domain/ids.js";
 import { decideClosure } from "../episode/closure.js";

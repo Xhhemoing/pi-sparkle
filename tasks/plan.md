@@ -1,5 +1,83 @@
 # Active implementation plan
 
+## Conversation workflow and daylight guide (2026-10-17)
+
+`TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. Author verification passed; [evidence](../docs/reports/2026-10-17-conversation-daylight-guide.md). [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.
+
+
+## Current framework migration (2026-10-17)
+
+Continue ADR-009 through disjoint M0-B, M1-A and M2-A slices, then integrate,
+review and push to existing PR #60. The user explicitly authorized all pushes.
+The previous M0-A tree is now published as `e6f6a5b` (exact tree `73e74bc2`),
+superseding the historical publication blocker below. Current status and next
+steps are in the [migration checklist](migration-todo.md); scope and file
+ownership are in the [integration plan](../docs/superpowers/plans/2026-10-17-framework-migration.md).
+The [verification record](../docs/reports/2026-10-17-framework-migration.md)
+distinguishes current checks from previous results. Main and PR #61 stay separate.
+
+## Architecture controls and download correction (2026-10-17)
+
+`TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. Scoped author verification passed; [evidence](../docs/reports/2026-10-17-architecture-download-fix.md). [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
+
+## M0-A nested process ownership (2026-10-16)
+
+`TASK-20261016-process-ownership` implements the first bounded migration slice
+from PR #60 `415b072`: nested recipe group ownership, unresolved cleanup fences,
+and durable checker actions in the existing ledger. The
+[plan](../docs/superpowers/plans/2026-10-16-process-ownership.md) scopes real
+develop cancellation/deadline, retained views/claims, crash and replay checks.
+Author verification is complete: actual full gate 3594 pass / 0 fail / 2 skip,
+build and security/Pi/kernel probes PASS. Publication is blocked by automatic
+approval review; current commands and remaining platform/containment conditions are in the
+[report](../docs/reports/2026-10-16-process-ownership.md). This is not all-M0,
+independent, live-provider or production acceptance. Main/PR #61 remain separate.
+
+## Completed architecture documentation (2026-10-16)
+
+The three completed guide/map/polish task summaries and original verification
+links are preserved in the [dated archive](archive/2026-10-16-architecture-docs.md).
+Runtime migration is tracked in the [current checklist](migration-todo.md).
+
+## Framework map and host recipe limits (2026-10-16)
+
+`TASK-20261016-development-recipe-limits` continues PR #60 from `167a5404`.
+The [framework/code map](../docs/framework.md) reconciles main, PR #60 and independent PR #61;
+the [RL plan](../docs/superpowers/plans/2026-10-16-development-recipe-limits.md) adds host-owned
+per-recipe timeout/output bounds, whole-definition validation before execution, and immutable snapshots.
+Focused development/acceptance regressions: 52/52 PASS. Serial full gate: 3581 pass / 0 fail / 2 skip;
+security 26 / Pi 4 / kernel 3 probes and built SDK integration demo PASS. Source `e6d6438` has exact
+tree `55b2c9eb`; initial concurrent-run failures and staged publication are recorded in the [dated report](../docs/reports/2026-10-16-development-recipe-limits.md).
+The old stage-one continuation-queue deferral is superseded by the implemented DP/B3/TA slices;
+shared root budgets, real model evaluation, independent review of this delta, main integration
+and production/experimental acceptance remain separate.
+
+## Exact trusted candidate application (2026-10-15)
+
+Continuation from green `e837aab`: [TA plan](../docs/superpowers/plans/2026-10-15-trusted-apply-binding.md) · [Checklist](trusted-apply-binding-todo.md). TA-00 through TA-06 are implemented and closed: stable registration snapshots, bounded exact Git tree binding, explicit fresh-capability native SDK apply, prepared-target fences, accepted-candidate integration/dependent continuation, source-disjoint review, and five hosted jobs PASS. Local full suite is 3574 total / 3572 pass / 0 fail / 2 skips; remote source/evidence head `e6c9f532` has exact tree `3c7eb200`. Registration and automatic apply remain unchanged; LIVE-01 and production/experimental gates remain separate.
+
+## Bounded development batches and candidate review (2026-10-15)
+
+User requested continued development from saved PR #60 at `726e5e55`. [B3 plan](../docs/superpowers/plans/2026-10-15-development-batch-review.md) · [Checklist](development-batch-review-todo.md). B3-01 through B3-06 are implemented, independently reviewed and ready for review: cancellation through admission, explicit receipt artifact references, read-only evidence review and finite serial batches. Source checkpoint `fccfa247` matches local `4366acc` exactly (tree `165325780f65ab2500b31e12bb848d2ecac47e8e`); local aggregate is 3518 pass / 0 fail / 1 opt-in skip. Hosted full-suite result is also 3518 pass / 0 fail / 1 opt-in skip; all five jobs PASS (CI38664804090, root38664803991), including new tests on Ubuntu/Windows. [Evidence](../docs/reports/2026-10-15-development-batch-review.md). Candidate review and integration remain explicit; live evaluation still needs configured model/budget. Existing source/production/experimental boundaries are preserved.
+
+## Development control plane, stage two (2026-10-15)
+
+The user instructed continued execution and staged saves. `TASK-20261015-development-control-plane`
+is implemented, independently reviewed and ready for review on PR #60. [Plan](../docs/superpowers/plans/2026-10-15-development-control-plane.md)
+· [Checklist](development-control-plane-todo.md). Work queues, named criteria,
+trusted verification, operation reconciliation and explicit development entry
+points are implemented in separate reviewable slices. DP-01 through DP-08 are verified: local 3430 pass / 0 fail / 1 opt-in skip and five hosted jobs PASS, including the new development checks on Ubuntu/Windows. Source/demo/test checkpoint `9828011b` matches local `b3910c6` exactly. [Final evidence](../docs/reports/2026-10-15-development-control-plane.md) · [Continuation guide](../docs/development-agent-loop.md). LIVE-01 remains blocked because no model is configured; it needs a host provider/model and trial budget. Existing production, apply, adaptive and live-provider evidence boundaries remain distinct; main is not merged by this delivery.
+
+## Architecture and bounded agent development (2026-10-15)
+
+`TASK-20261015-architecture-agent-loop` is ready for review in [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60), from
+`main@44db4b1`: model fallback correctness, bounded command cleanup,
+same-candidate native repair, review-driven supervisor settlement fixes, and
+test-launcher portability. Local gate-equivalent commands passed (3313 pass / 0 fail / 1 opt-in skip), probes passed, and independent agent review findings were resolved. Standard hosted CI is tracked on the PR. Existing apply/adaptive/production gates remain
+separate. [Plan](../docs/superpowers/plans/2026-10-15-architecture-agent-loop.md)
+· [Architecture and evidence](../docs/reports/2026-10-15-architecture-agent-loop.md)
+· [SDK/demo](../docs/native-development-loop.md).
+
 ## PS-06 status/recovery projection (2026-10-02)
 
 `TASK-20261001-ps06-status-projection`: host-independent opt-in `inspect --run --status-json` on `feat/status-projection-20261001`, based initially on main `cd47a75`, now incorporating PR #52 (`ab2f113`) conflict-free at feature source `6d45d59`. Full gate rerun 3239/0/19 + build and both probes passed; the prior transient process failure is retained in the record. Existing summary/event/status contracts are unchanged; child verification is self-report, and own-run cost is a recorded subset, not settlement. [Plan](../docs/superpowers/plans/2026-10-01-ps06-status-projection.md) · [verification / root causes / open gates](../docs/reports/2026-10-02-ps06-status-projection.md). PS-06 and O03 crash-window receipt reconciliation integrated into main on 2026-10-06 as PR #54 merge `dd9699b` under the recorded owner-delegated integration decision. Independent review of the exact merged source, candidate lookup/UI, PS-03 ownership, PS-04 budget, B2/S0-min, live-provider, and production gates remain open.

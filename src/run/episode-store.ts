@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { validateEpisode, type ProjectEpisode } from "../domain/episode.js";

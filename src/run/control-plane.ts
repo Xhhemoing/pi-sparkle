@@ -6,7 +6,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
 import { isIsoTimestamp, type IsoTimestamp } from "../domain/timestamp.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 
 export type ControlRequestKind = "pause" | "inject";
 
