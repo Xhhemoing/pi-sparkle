@@ -5,6 +5,7 @@ Pi-sparkle 用一个能直接干活的小核心完成开发任务，再按需要
 本页是持续维护的架构入口。用户已接受这里的设计方向，决策见 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。**设计接受不表示全部功能已实现，也不替代实现验收**；具体状态以[状态矩阵](status-matrix.md)和[当前任务](../tasks/plan.md)为准。
 
 - 宣讲与逐步阅读：[当前架构 HTML](architecture.html)。
+- 对话交互接线方案：[自然语言入口、小任务与项目长线衔接](conversation-workflow.md)（提案，待实施）。
 - 模块与调用关系详图：[交互架构图](architecture-map.html) · [独立 SVG](architecture-map.svg)。
 - 实现与验收：[十类算法契约](architecture-algorithms.md)、[迁移顺序](architecture-migration.md)。
 - 当前使用：[直接任务入口](direct-development-task.md)、[持续开发指南](development-agent-loop.md)、[原生开发接口](native-development-loop.md)。

@@ -1,5 +1,10 @@
 # Active implementation plan
 
+## Conversation workflow and daylight guide (2026-10-17)
+
+`TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. Author verification passed; [evidence](../docs/reports/2026-10-17-conversation-daylight-guide.md). [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.
+
+
 ## Current framework migration (2026-10-17)
 
 Continue ADR-009 through disjoint M0-B, M1-A and M2-A slices, then integrate,

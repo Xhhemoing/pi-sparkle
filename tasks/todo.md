@@ -1,5 +1,12 @@
 # Active checklist
 
+## Conversation workflow and daylight guide (2026-10-17)
+
+`TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.
+
+- [x] 15 chapters, eight new panels, daylight under dark OS theme, 48 px footer, SVG/PNG/ZIP and 407 local references verified; 59 browser assertions and pinned workflow PASS. [Evidence](../docs/reports/2026-10-17-conversation-daylight-guide.md).
+
+
 ## Current framework migration (2026-10-17)
 
 The [migration checklist](migration-todo.md) is the current ADR-009 work entry.

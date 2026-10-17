@@ -35,7 +35,7 @@
 **失败退路。** 调查后仍不能定位，说明缺失事实；只询问会改变实施结果的问题。
 现有 strict develop 保持独立验收和可信 apply 的语义，不能因为任务被标为 light 而降级。
 
-**已有与新增。** 已有原生写会话、有界写循环和 develop controller；统一的轻量直接入口及路径解释器待实现。
+**已有与新增。** 已有原生写会话、有界写循环和 develop controller；2026-10-17 的 [实验性 startDevelopmentTask](direct-development-task.md) 已提供直接任务入口。统一路径解释器与[自然语言入口和焦点管理](conversation-workflow.md)仍待接线。
 触点：[write-session](../src/native/write-session.ts)、[write-loop](../src/native/write-loop.ts)、[controller](../src/development/controller.ts)。
 已有测试：[原生会话](../test/integration/native/write-session.test.ts)、[控制器](../test/integration/development/controller.test.ts)。
 
