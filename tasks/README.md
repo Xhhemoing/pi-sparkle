@@ -4,6 +4,8 @@ This directory contains the active execution state. Historical plans and accepte
 
 ## Authoritative Files
 
+- [`migration-todo.md`](migration-todo.md): current ADR-009 migration slices,
+  delivery checks and next conditions.
 - [`plan.md`](plan.md): active scope, dependencies, and links to detailed plans.
 - [`todo.md`](todo.md): current checklist, human gates, and completion evidence.
 - [`adaptive-plan.md`](adaptive-plan.md): detailed adaptive-loop contract and remaining implementation constraints.
