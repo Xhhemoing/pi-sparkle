@@ -37,8 +37,9 @@ accept its entire M-number or any production/live/experimental gate.
 - [x] Run integrated pinned `pnpm gate`: 3630 pass / 0 fail / 2 skip, build PASS;
   security 26 / Pi 4 / kernel 3 PASS. Initial focused failures and skips are
   preserved in the dated records.
-- [ ] Publish final source/evidence to existing PR #60 with an expected-head
-  fast-forward update and verify exact remote tree.
+- [x] Publish source `51cf50d` and evidence `20383c2` to existing PR #60 with
+  expected-head fast-forward updates and exact remote tree readback; retain
+  parallel architecture documentation `cd3aaab`. This receipt is documentation only.
 
 ## Open conditions
 

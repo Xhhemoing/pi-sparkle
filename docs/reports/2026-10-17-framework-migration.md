@@ -19,6 +19,7 @@
 | Authorized HTTPS `git push origin HEAD:codex/architecture-agent-loop-20261015` | FAILED | No local HTTPS username/credential; no remote mutation |
 | Connected GitHub tree/commit + expected-head non-forced ref update; fresh branch fetch | PASS | Remote `e6f6a5b187f8a6a5b468a7ccee3f16e152001df6` has the exact recovered tree; parent `aac7a380` |
 | Reviewed migration source publication + fresh branch fetch | PASS | Remote `51cf50d572123511ce4cd041e67fce3638ad5cab`, tree `a5a80479eeadb4467864d5bb720f1e6e1e450744`, parent `e6f6a5b`; matches local `9089a54` exactly |
+| Organized documentation/evidence publication + fresh branch fetch | PASS | Remote `20383c2d0464c68011497633b64459ad1aca5532`, tree `e3971c2b77d4f28e3cb623a111bfcc8af04ca23c`, parent `cd3aaab`; matches local `a381d29` exactly |
 | Pinned `pnpm@10.17.1 install --frozen-lockfile` | PASS | 195 packages, package/lockfile/build policy unchanged |
 | Runtime fallback `pnpm test …` invoked by M1/M2 authors | FAILED before tests | Shim tried a package-manager install and refused non-TTY module removal; no behavioral result claimed; switched to normal Node test launcher |
 | M2 `node scripts/run-tests.mjs --test-concurrency=1 test/unit/architecture test/unit/cli/flowchart-cli.test.ts test/unit/cli/live-catalog.test.ts test/unit/native/routing-catalog.test.ts test/unit/preferences/snapshot-lock.test.ts test/integration/cli/delete.test.ts test/integration/cli/retain.test.ts test/integration/m4/preferences-cli.test.ts test/integration/track/track-loop.test.ts test/unit/privacy/plane-boundary.test.ts test/unit/privacy/adaptation-plane-closure.test.ts test/unit/routing/live-isolation.test.ts test/unit/pi-boundary.test.ts` | PASS | 98 pass / 0 fail / 0 skip; `.agent_workspace/m2-focused.log` |
@@ -28,6 +29,7 @@
 | Pinned `pnpm typecheck`, `pnpm lint` | PASS | Both exit 0 on integrated source before final M0 legacy-binding correction; final gate verifies the final source again |
 | `node scripts/workflow-check.mjs`, `git diff --check`, changed-Markdown local-link scan | PASS | 10 files / 16 headings; 453 links, no missing local files |
 | Existing CI focused-list path audit | PASS | 34 explicit test paths exist, including new M0/M1/M2 cases on Ubuntu/Windows; hosted execution remains separate |
+| Final documentation/preservation review | PASS | Four remote files match exact bytes, both task summaries retained; 471 local Markdown links valid; source/test/CI still equal reviewed `9089a54` |
 | Source-disjoint final source review | PASS after R1 correction | [Review](2026-10-17-framework-migration-review.md), source `9089a54`; reviewer independently ran 36 guard tests |
 | `PATH="$PWD/.agent_workspace/tooling/bin:$PATH" taskset -c 0 pnpm gate` | PASS | Workflow, typecheck, lint, all tests and build; 3632 total / 3630 pass / 0 fail / 2 skip; test duration 343411.50 ms; `.agent_workspace/migration-20261017/full-gate.log` |
 | Pinned `pnpm security:probe` | PASS | 26 checks, zero open/waived/refused findings; built dist/package probe |
@@ -118,7 +120,14 @@ effect can still return reconciliation before a lower-priority disjoint item.
 
 ## Handoff
 
-Next: publish the documentation/evidence child on the latest observed remote
-head with exact tree verification; retain hosted results under the commit that
-actually ran. Local gate/probes, focused evidence and source-disjoint review are
-complete. Documentation-only successors do not change the verified source.
+Source and organized evidence are published and read back exactly. This final
+publication receipt changes documentation only; current-head mapping and hosted
+checks are on [PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60). Hosted
+results stay bound to the commit that actually ran. Local gate/probes, focused
+evidence and source-disjoint review are complete. Documentation-only successors
+do not change the verified source.
+
+Next implementation: bounded M1 controlled tools/context; separately qualify
+full M0 containment and old-writer/terminal-ledger follow-ups before expanding
+process backends or overlapping writers. Current open conditions remain in the
+[migration checklist](../../tasks/migration-todo.md).

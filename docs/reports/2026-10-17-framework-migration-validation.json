@@ -126,5 +126,14 @@
     "live_provider_calls": 0,
     "automatic_acceptance": false,
     "automatic_application": false
-  }
+  },
+  "evidence_publication": {
+    "local_commit": "a381d29db31be6f18610c3c35b70da1f29a62bb8",
+    "remote_commit": "20383c2d0464c68011497633b64459ad1aca5532",
+    "tree": "e3971c2b77d4f28e3cb623a111bfcc8af04ca23c",
+    "expected_parent": "cd3aaab29b709c8e8ad92f05d7a6abfdf40d7ae6",
+    "remote_readback": "matched",
+    "receipt_child": "documentation_only; latest head and hosted checks are in PR60"
+  },
+  "hosted_latest_note": "Documentation updates trigger replacement CI; current-head status is reported on PR60. Old cancelled jobs are not passes."
 }
