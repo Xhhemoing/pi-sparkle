@@ -1,5 +1,10 @@
 # Active implementation plan
 
+## Architecture controls and download correction (2026-10-17)
+
+`TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. Scoped author verification passed; [evidence](../docs/reports/2026-10-17-architecture-download-fix.md). [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
+
+
 ## M0-A nested process ownership (2026-10-16)
 
 `TASK-20261016-process-ownership` implements the first bounded migration slice
