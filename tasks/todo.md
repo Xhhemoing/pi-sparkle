@@ -1,5 +1,12 @@
 # Active checklist
 
+## Architecture controls and download correction (2026-10-17)
+
+`TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
+
+- [x] Removed residual controls; 42 browser checks, actual SVG download, ZIP extraction, 3840 × 4200 PNG, 191 local references and pinned workflow passed. [Evidence](../docs/reports/2026-10-17-architecture-download-fix.md).
+
+
 ## M0-A nested process ownership (2026-10-16)
 
 - [x] Reconcile PR #60 `415b072` and ADR-009/M0; write the [bounded plan](../docs/superpowers/plans/2026-10-16-process-ownership.md).
