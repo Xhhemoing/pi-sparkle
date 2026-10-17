@@ -3,6 +3,26 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Framework migration continuation (2026-10-17)
+
+Current task entry: [migration checklist](../tasks/migration-todo.md).
+Implementation boundaries and current commands: [dated verification](reports/2026-10-17-framework-migration.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| M0-A cooperative process ownership | Published PR #60 `e6f6a5b`, tree `73e74bc2` | Existing command/recipe/native/controller paths | Prior exact-tree full gate and probes; current publication readback | no |
+| M0-B atomic effect admission/scoped readiness | PR #60 `51cf50d` | Existing ActionLedger/WorkItemStore/controller, schema 1 | Focused 49 real controller/process and 61 final adjacent tests; integrated gate 3630 pass / 0 fail / 2 skip | no |
+| M1-A direct task entry | Experimental `development/start-task` module on PR #60 | One NativeWriteSession, inherited verifier/repair/cancel/evidence | Six real temporary Git/scripted-executor tests plus integrated gate; no provider used | no |
+| M2-A module boundaries | Canonical CLI options/routing catalog/persist layout, old import forwarding | Native/track and existing layout consumers | 98 focused tests, integrated gate; exact moved bytes and export/error identity guards | no |
+
+The earlier M0-A publication rejection below is historical: the user explicitly
+authorized pushes and the exact tested tree has now been read back from GitHub.
+Full M0 containment/Windows qualification, old-writer isolation, command-tool
+uncertainty and terminal-ledger archival remain open. Shared roots must exclude
+old controller binaries using the previous non-atomic admission path. M1 tools/
+context, stable SDK, main/PR #61 integration and existing policy/live/production
+gates remain separate. Current test results are not model-benefit evidence.
+
 ## Current architecture design and explanation (2026-10-16)
 
 The user accepted the lightweight adaptive **design**, now maintained in

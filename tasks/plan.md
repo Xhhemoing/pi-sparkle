@@ -1,9 +1,19 @@
 # Active implementation plan
 
+## Current framework migration (2026-10-17)
+
+Continue ADR-009 through disjoint M0-B, M1-A and M2-A slices, then integrate,
+review and push to existing PR #60. The user explicitly authorized all pushes.
+The previous M0-A tree is now published as `e6f6a5b` (exact tree `73e74bc2`),
+superseding the historical publication blocker below. Current status and next
+steps are in the [migration checklist](migration-todo.md); scope and file
+ownership are in the [integration plan](../docs/superpowers/plans/2026-10-17-framework-migration.md).
+The [verification record](../docs/reports/2026-10-17-framework-migration.md)
+distinguishes current checks from previous results. Main and PR #61 stay separate.
+
 ## Architecture controls and download correction (2026-10-17)
 
 `TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. Scoped author verification passed; [evidence](../docs/reports/2026-10-17-architecture-download-fix.md). [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
-
 
 ## M0-A nested process ownership (2026-10-16)
 
@@ -18,51 +28,11 @@ approval review; current commands and remaining platform/containment conditions 
 [report](../docs/reports/2026-10-16-process-ownership.md). This is not all-M0,
 independent, live-provider or production acceptance. Main/PR #61 remain separate.
 
-## Detailed architecture map and compact navigation (2026-10-16)
+## Completed architecture documentation (2026-10-16)
 
-`TASK-20261016-detailed-architecture-map` continues from `415b072`. The user
-repeated the top-bar removal request, asked for thinner bottom controls and a
-very detailed architecture diagram for explanation. The [plan](../docs/superpowers/plans/2026-10-16-detailed-architecture-map.md)
-scopes this to the guide layout and a standalone interactive map. Root and HTML
-author have separate file ownership; independent reviewers verify architecture
-relations and actual UI. [Evidence](../docs/reports/2026-10-16-detailed-architecture-map.md)
-records 48 px single-row controls, 32-node/39-edge map and four supplementary
-diagrams. Author and independent browser/content review, local references and
-the pinned workflow passed. Documentation commit `613bfbf` is published to
-existing PR #60 with the exact reviewed tree. No runtime migration or production
-gate is changed.
-
-## Architecture explanation and navigation polish (2026-10-16)
-
-`TASK-20261016-architecture-explanation-polish` continues from documentation head
-`77dda44`. The user requested simpler switching, removal of the top toolbar and
-more detailed explanation of the overall architecture. The
-[plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md)
-keeps the accepted design unchanged: chapter controls and local exploration are
-separate, with expanded module responsibilities and control/data flow. Scope is
-HTML/documentation only. The guide now has 13 chapters with architecture first,
-independent local panels and no top toolbar. Author browser checks, independent
-review, 270 local references and the pinned workflow check passed; the reading
-mode URL mismatch was corrected. [Verification](../docs/reports/2026-10-16-architecture-explanation-polish.md)
-records the evidence. Documentation commit `1d9d0b2` is published to existing
-PR #60 with the exact reviewed tree; runtime and production gates are unchanged.
-
-## Maintained current architecture and interactive guide (2026-10-16)
-
-`TASK-20261016-current-architecture-guide` is documentation-verified and ready for review from PR #60 checkpoint
-`7407674`. The user accepted the lightweight adaptive design and requested project
-documentation plus an unversioned, expandable HTML explanation. The
-[plan](../docs/superpowers/plans/2026-10-16-current-architecture-guide.md) scopes this
-to documentation; runtime migration, Pi upgrades and PR merges are separate.
-The [current architecture](../docs/framework.md), [algorithms](../docs/architecture-algorithms.md),
-[migration](../docs/architecture-migration.md) and [interactive guide](../docs/architecture.html)
-share the accepted design in [ADR-009](../docs/decisions/0009-lightweight-adaptive-framework.md).
-The [dated report](../docs/reports/2026-10-16-current-architecture-guide.md) records
-pinned workflow PASS, 557 valid local references, actual browser checks across
-12 chapters/34 manual steps, and independent review PASS after the navigation
-race was corrected. Documentation commit `a480d8c` is published to PR #60 with
-the exact reviewed tree; runtime migration
-starts separately with M0 and no production gate is closed here.
+The three completed guide/map/polish task summaries and original verification
+links are preserved in the [dated archive](archive/2026-10-16-architecture-docs.md).
+Runtime migration is tracked in the [current checklist](migration-todo.md).
 
 ## Framework map and host recipe limits (2026-10-16)
 

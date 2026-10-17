@@ -1,0 +1,130 @@
+{
+  "task": "TASK-20261017-framework-migration",
+  "date": "2026-10-17",
+  "environment": {
+    "platform": "linux",
+    "node": "24.19.0",
+    "pnpm": "10.17.1",
+    "test_cpu_affinity": [
+      0
+    ]
+  },
+  "source": {
+    "local_commit": "9089a5458978407921e21cf580044f52cff97573",
+    "published_commit": "51cf50d572123511ce4cd041e67fce3638ad5cab",
+    "tree": "a5a80479eeadb4467864d5bb720f1e6e1e450744",
+    "pr": 60,
+    "branch": "codex/architecture-agent-loop-20261015",
+    "published_parent": "e6f6a5b187f8a6a5b468a7ccee3f16e152001df6"
+  },
+  "gate": {
+    "command": "taskset -c 0 pnpm gate",
+    "exit_code": 0,
+    "workflow": "pass",
+    "typecheck": "pass",
+    "lint": "pass",
+    "tests": {
+      "tests": 3632,
+      "suites": 147,
+      "pass": 3630,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 2,
+      "todo": 0,
+      "duration_ms": 343411.503721
+    },
+    "build": "pass"
+  },
+  "skips": [
+    "﹣ PiAgentExecutor completes a run against a real provider (0.689758ms) # set PI_SMOKE=1 with PI_PROVIDER/PI_MODEL (+PI_API_KEY, or a providers.json in the state root) to enable the real-provider smoke test",
+    "﹣ Windows raw tree comparison refuses executable trees (0.075163ms) # SKIP"
+  ],
+  "probes": {
+    "security": {
+      "exit_code": 0,
+      "passed": 26,
+      "open_findings": 0
+    },
+    "pi": {
+      "exit_code": 0,
+      "passed": 4
+    },
+    "kernel_reuse": {
+      "exit_code": 0,
+      "passed": 3
+    }
+  },
+  "focused_author_evidence": {
+    "m0_controller_process": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    "m0_final_adjacent_controller": {
+      "passed": 61,
+      "failed": 0,
+      "skipped": 0
+    },
+    "m1_direct_task": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "m2_boundaries": {
+      "passed": 98,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "independent_review": {
+    "disposition": "pass_for_bounded_slices",
+    "resolved_findings": [
+      "R1: malformed legacy scope binding"
+    ],
+    "independent_guard_tests": 36,
+    "record": "2026-10-17-framework-migration-review.md"
+  },
+  "hosted_source": {
+    "status": "partial_cancelled_after_parallel_docs",
+    "run_ids": [
+      38992273378,
+      38992273418
+    ],
+    "node": "22.19.x",
+    "pnpm": "10.17.1",
+    "successful_jobs": 3,
+    "cancelled_jobs": 2
+  },
+  "open_conditions": [
+    "Full M0 OS/Windows containment",
+    "Old controller/writer isolation",
+    "General command-tool uncertainty propagation",
+    "Terminal checker ledger archival",
+    "Selection around planned item own unresolved effect",
+    "M1 controlled tools and context",
+    "Stable SDK and packed consumers",
+    "Main/PR61 integration",
+    "Existing live/provider/policy/production gates"
+  ],
+  "notes": [
+    "No live provider or automatic source apply was used.",
+    "Documentation-only evidence child has identical runtime/test/CI content to the verified source.",
+    "Initial RED and fixture/environment failures remain in scoped author records."
+  ],
+  "parallel_documentation": {
+    "commit": "cd3aaab29b709c8e8ad92f05d7a6abfdf40d7ae6",
+    "preserved": true,
+    "runtime_test_ci_changes": false,
+    "replacement_run_ids": [
+      38992608584,
+      38992608540
+    ]
+  },
+  "built_integration_demo": {
+    "exit_code": 0,
+    "worker_executions": 4,
+    "live_provider_calls": 0,
+    "automatic_acceptance": false,
+    "automatic_application": false
+  }
+}

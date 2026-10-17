@@ -7,7 +7,7 @@ Pi-sparkle 用一个能直接干活的小核心完成开发任务，再按需要
 - 宣讲与逐步阅读：[当前架构 HTML](architecture.html)。
 - 模块与调用关系详图：[交互架构图](architecture-map.html) · [独立 SVG](architecture-map.svg)。
 - 实现与验收：[十类算法契约](architecture-algorithms.md)、[迁移顺序](architecture-migration.md)。
-- 当前使用：[持续开发指南](development-agent-loop.md)、[原生开发接口](native-development-loop.md)。
+- 当前使用：[直接任务入口](direct-development-task.md)、[持续开发指南](development-agent-loop.md)、[原生开发接口](native-development-loop.md)。
 
 ## 1. 四个职责，保持模块化单体
 
@@ -37,7 +37,7 @@ flowchart TD
 
 ## 2. 普通任务直接做，复杂度随需要增加
 
-默认设计是一个 worker：理解目标，读取相关代码，修改候选，执行与影响相称的检查，报告实际结果。普通任务无需队列、金额表单、独立 planner/reviewer 或实验卡。拟议的直接入口复用 `NativeWriteSession`；当前尚没有已稳定发布的 `startDevelopmentTask` 公共 API。
+默认设计是一个 worker：理解目标，读取相关代码，修改候选，执行与影响相称的检查，报告实际结果。普通任务无需队列、金额表单、独立 planner/reviewer 或实验卡。[`startDevelopmentTask`](direct-development-task.md) 已作为实验性宿主入口复用 `NativeWriteSession`；宿主仍提供 executor 和检查命令，尚未承诺稳定 package SDK。
 
 流程强度由可逆性、授权、公共契约影响、外部效果和证据决定。单行数据格式变更可能需要严格验证；多个机械修改不应仅因文件数多而升级。用户要求深入分析时照常提供，不以轻量为由省略。
 
@@ -104,11 +104,13 @@ flowchart TD
 | 起点 | 当前职责 | 不能据此推断 |
 |---|---|---|
 | [main](../src/cli/main.ts)、[development CLI](../src/cli/development.ts)、[扩展](../extensions/pi-sparkle/index.ts) | 参数/宿主输入与装配，不同入口能力不同 | 所有入口已统一、默认都可写或全部接入学习 |
+| [start-task](../src/development/start-task.ts) | 单次直接任务、复用 native 会话并等待 shutdown | 自动应用源码、队列接纳或稳定 SDK |
 | [controller](../src/development/controller.ts)、[work-items](../src/development/work-items.ts)、[store](../src/development/work-item-store.ts)、[batch](../src/development/batch.ts) | 定义、依赖、claim、有限串行推进 | 待审等于 accepted；accepted 候选已集成 |
 | [write-session](../src/native/write-session.ts)、[write-loop](../src/native/write-loop.ts) | 隔离候选、有限修复、尝试证据 | 崩溃后可自动续跑模型会话 |
 | [recipe-check](../src/development/recipe-check.ts)、[independent-check](../src/execution/independent-check.ts)、[trusted-verification](../src/execution/trusted-verification.ts)、[exact-snapshot](../src/execution/exact-snapshot.ts) | 宿主检查、保护与精确候选绑定 | 自报、历史 JSON、缓存能恢复可信能力 |
 | [candidate-review](../src/development/candidate-review.ts)、[apply](../src/native/apply.ts)、[apply-registration](../src/native/apply-registration.ts) | 历史审阅、新鲜验收、单独显式集成 | `develop` 有自动 apply；工具注册等于生产授权 |
 | [action-ledger](../src/development/action-ledger.ts)、[action-store](../src/development/action-store.ts)、[event-store](../src/run/event-store.ts)、Git | 效果意图/收据、执行事件、源版本各司其职 | 缺收据证明无副作用；一处 SUCCESS 代替全部检查 |
+| [CLI options](../src/cli/options.ts)、[model catalog](../src/routing/model-catalog.ts)、[state layout](../src/persist/state-layout.ts) | 共享参数、宿主无关目录、底层持久路径；旧导入路径继续转发 | 新 schema、路径迁移或全部内部 API 稳定化 |
 | [discovery](../src/project/discovery.ts)、[context](../src/context/index.ts)、[preferences](../src/preferences/store.ts)、[learned-routing](../src/learning/learned-routing.ts) | 项目快照、上下文、持久偏好、批准策略读取 | 完整长期决策记忆或在线自学习路由已接通 |
 
 严格开发从 `develop init` 固定宿主定义开始。`runNext` 验证依赖在当前源上成立，认领后记录效果意图，再建候选执行。通过检查进入 `ready-for-review`；`review` 解释历史证据，`accept` 重验并显式接受，应用是另一步。后继任务仍核验源代码已包含前置结果。[集成示例](../examples/development-integration-demo.mjs) 用真实 Git/命令和脚本执行器证明机制，没有真实模型调用。
@@ -120,11 +122,12 @@ flowchart TD
 | 状态 | 内容 |
 |---|---|
 | 已有基础及 PR 源码能力 | run/DAG、事件回放、Pi adapter；有限候选修复、WorkQueue/ActionLedger、batch、历史 review、检查限额、新鲜可信 descriptor 与显式 apply |
-| 设计已接受、需实施接线 | 统一直接入口、动态纠偏、完整上下文选择、即时偏好合成、窄 SDK、受管 Pi generation、按需严格共享准入 |
+| 2026-10-17 迁移增量 | 实验性直接任务入口；CLI 选项、目录服务与底层路径分界；既有 ledger 的原子效果准入与按依赖/范围核验就绪项；[当前证据](reports/2026-10-17-framework-migration.md) |
+| 设计已接受、需继续接线 | 受控搜索/局部编辑工具、动态纠偏、完整上下文选择、即时偏好合成、窄 SDK、受管 Pi generation、按需严格共享准入 |
 | 可选后续产品能力 | 项目经验召回、plan patch、GitHub connector、外部定时触发、有限自动策略试用与真实回滚 |
 | 独立开放条件 | 进程树可靠停止、环境/费用观测、源分支集成、S0-min、R10/R11、F6/F-PROD、live-provider、生产与 Outcome-supported |
 
-嵌套 checker 可能逃离外层进程组取消。已有等价嵌套 runner 复现足以要求优先修复，但不是完整 `develop` 多平台验收；[M0](architecture-migration.md)要求真实 recipe 链的取消、崩溃和后续写入证据，本次文档不声称已修复。现有检查限额及历史验证见 [RL 报告](reports/2026-10-16-development-recipe-limits.md)。
+此前嵌套 checker 的进程组取消漏洞已在真实 `develop` 路径复现，并交付 [M0-A 合作进程组修复](reports/2026-10-16-process-ownership.md)。中断后无法确认结束时保留 claim/工作区并拒绝重放。[M0](architecture-migration.md) 的完整 OS 逃逸/Windows containment、旧 writer 隔离及终态账本归档仍待完成；不能把已测 POSIX 合作路径扩大为全平台保证。现有检查限额及历史验证见 [RL 报告](reports/2026-10-16-development-recipe-limits.md)。
 
 先交付可靠停止和直接任务路径，边界清理可并行。项目连接、画像推断和学习实验不阻塞核心发布。普通任务额外流程模型调用、强制金额字段、强制队列文件、未触发插件执行、新运行调度器、第二份任务完成权威的目标均为零；这是验收目标，不是已测性能结论。
 

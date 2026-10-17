@@ -1,6 +1,6 @@
 # Pi-sparkle 当前架构：迁移计划
 
-本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。计划首次提交仅含设计。后续 [M0-A 实施与验证](reports/2026-10-16-process-ownership.md) 已形成代码候选：Linux 全量检查通过，GitHub 发布受自动审批阻挡；这不表示完整 M0 或其他切片已验收。
+本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。计划首次提交仅含设计。后续 [M0-A 实施与验证](reports/2026-10-16-process-ownership.md) 已在用户明确授权推送后发布到 PR #60，远端 `e6f6a5b` 与原验证树完全一致；此前自动审批阻挡是历史状态。[本轮迁移证据](reports/2026-10-17-framework-migration.md)与[当前清单](../tasks/migration-todo.md)分别记录后续切片；这不表示完整 M0–M7 已验收。
 
 ## 1. 最小交付与依赖
 
@@ -25,7 +25,9 @@ M1 的直接任务、基础小工具和相称检查构成首个用户可见增�
 
 主要触点：[command-runner](../src/execution/command-runner.ts)、[independent-check](../src/execution/independent-check.ts)、[recipe-check](../src/development/recipe-check.ts)、相关 run 取消与资源结束记录。统一资源归属，取消后先停止新准入，再等待子孙实际结束或保留未结状态；只有真实结束才能释放工作区、写入所有权和相应预留。
 
-当前发现来自等价嵌套 runner：内层 detached 进程组可能逃离外层取消。这不是完整 `develop` E2E，也未证明 Windows 行为。现有正常超时配置下外层窗口大于 recipe 总限时，重点仍要覆盖显式取消、上游 deadline 和崩溃。
+原始发现来自等价嵌套 runner：内层 detached 进程组可能逃离外层取消。当时的复现不是完整 `develop` E2E，也未证明 Windows 行为。现有正常超时配置下外层窗口大于 recipe 总限时，因此实际路径验证重点是显式取消、上游 deadline 和崩溃；后续证据见下方实施更新。
+
+实施更新：M0-A 已覆盖真实 develop 的取消、deadline、父崩溃及未结效果保留。M0-B 在既有 `ActionStore.update` 中原子检查冲突并发布 running action，checker 和 writer 共用；就绪选择只重验已接受的依赖祖先/重叠范围。运行效果不持有元数据锁，拒绝准入不新增 prepared 行；成功重验仍受原有限账本容量约束，终态归档另行设计。
 
 **退出证据：** 真实 develop recipe 链在 abort/deadline、父崩溃、忽略 TERM、重复取消与迟到结果下，无后续文件写入，或明确 unsettled 且不接受、不重用、不自动重放；POSIX/Windows 分别记录证据。保存固定任务的非模型耗时、环境准备、用量覆盖基线，未测项目保持 unknown。
 
@@ -33,7 +35,7 @@ M1 的直接任务、基础小工具和相称检查构成首个用户可见增�
 
 ## 3. M1 直接任务可用
 
-以薄的 `startDevelopmentTask` 目标入口复用 [NativeWriteSession](../src/native/write-session.ts)，不重建 agent loop。该名字是设计接口，尚非现有稳定 API。补 list/search/range-read/精确 patch/命名诊断；现有受控 workspace 与 Pi 工具包装分开，上层不用 Pi 类型表示文件能力。
+薄的 [`startDevelopmentTask`](../src/development/start-task.ts) 目标入口已复用 [NativeWriteSession](../src/native/write-session.ts)，不重建 agent loop；这是实验性深路径宿主函数，见[使用说明](direct-development-task.md)，尚非稳定 SDK。后续补 list/search/range-read/精确 patch/命名诊断；现有受控 workspace 与 Pi 工具包装分开，上层不用 Pi 类型表示文件能力。
 
 触点：[development CLI](../src/cli/development.ts)、[write-session](../src/native/write-session.ts)、[write-loop](../src/native/write-loop.ts)、[context](../src/context/index.ts)、[worktree-coding-tools](../src/pi-adapter/worktree-coding-tools.ts)。先接代码中的 CodeMap 输入来源与任务局部选择，不另建默认向量服务。
 
@@ -43,7 +45,7 @@ M1 的直接任务、基础小工具和相称检查构成首个用户可见增�
 
 ## 4. M2 边界与窄 SDK
 
-先做行为保持重构：`cli/main ↔ cli/pref` 的共享选项退出 main；宿主无关 model-catalog 构建退出 CLI；`privacy/state-layout` 下沉为基础布局，deletion/retention 保留应用级组合。路径搬迁保留转发，不顺手改变记录字节与算法。
+首个行为保持切片已将 `cli/main ↔ cli/pref` 的共享选项移至 `cli/options`；宿主无关 model-catalog 构建移至 `routing/model-catalog`；`privacy/state-layout` 下沉至 `persist/state-layout`，deletion/retention 保留应用级组合。路径搬迁保留同一导出值的转发，不改变记录字节与算法。[M2-A 证据](reports/2026-10-17-m2-boundary-cleanup.md)与全量集成验证分别记录；窄 SDK 仍待实施。
 
 触点：[main](../src/cli/main.ts)、[pref](../src/cli/pref.ts)、[model-catalog](../src/cli/model-catalog.ts)、[native routing-catalog](../src/native/routing-catalog.ts)、[track loop](../src/track/loop.ts)、[state-layout](../src/privacy/state-layout.ts)、[package.json](../package.json)。继续执行 Pi 双边界与 live/adaptation 隔离，先冻结不得新增违规边，再逐项减少旧例外。
 

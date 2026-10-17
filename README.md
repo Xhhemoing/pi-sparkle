@@ -13,6 +13,11 @@ Start with the [interactive architecture guide (中文)](docs/architecture.html)
 
 The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
 
+For one host-driven coding task, use the experimental
+[`startDevelopmentTask` entry](docs/direct-development-task.md). It reuses the
+native candidate/check path without requiring a project queue. Current migration
+progress and remaining work are in the [migration checklist](tasks/migration-todo.md).
+
 ## Quick Start
 
 ### Install

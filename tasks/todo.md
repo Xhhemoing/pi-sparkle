@@ -1,11 +1,17 @@
 # Active checklist
 
+## Current framework migration (2026-10-17)
+
+The [migration checklist](migration-todo.md) is the current ADR-009 work entry.
+M0-A publication is now verified at remote `e6f6a5b`, exact tree `73e74bc2`;
+the earlier automatic-approval blocker below is historical. M0-B, M1-A and M2-A
+have separate implementation and review evidence in the [current report](../docs/reports/2026-10-17-framework-migration.md).
+
 ## Architecture controls and download correction (2026-10-17)
 
 `TASK-20261017-architecture-download-fix`: remove the remaining brand/reading/settings controls and deliver an offline diagram bundle. [Plan](../docs/superpowers/plans/2026-10-17-architecture-download-fix.md). Documentation only; runtime and migration gates remain separate.
 
 - [x] Removed residual controls; 42 browser checks, actual SVG download, ZIP extraction, 3840 × 4200 PNG, 191 local references and pinned workflow passed. [Evidence](../docs/reports/2026-10-17-architecture-download-fix.md).
-
 
 ## M0-A nested process ownership (2026-10-16)
 
@@ -16,28 +22,11 @@
 - [ ] GitHub source/evidence publication blocked by automatic approval review; prepared local checkpoint `482dabb` preserves concurrent architecture-map head `aac7a380`. Explicit authorization for existing PR #60 branch is the next condition.
 - [ ] Full M0 containment/platform qualification, independent review and existing production/live/experiment gates remain separate.
 
-## Detailed architecture map and compact navigation (2026-10-16)
+## Completed architecture documentation (2026-10-16)
 
-- [x] Record scope, file ownership and measurable UI/diagram acceptance in the [plan](../docs/superpowers/plans/2026-10-16-detailed-architecture-map.md).
-- [x] Remove top-bar leftovers and reduce bottom controls to one thin 48 px row, measured across desktop/mobile.
-- [x] Add the 32-node interactive architecture map, 39 relationships, four supplementary diagrams and standalone SVG; link them from the existing explanation.
-- [x] Verify real browser behavior and architecture facts; record [evidence](../docs/reports/2026-10-16-detailed-architecture-map.md).
-- [x] Publish verified documentation commit `613bfbf` to existing PR #60 without forcing or merging; fetched remote files match the reviewed tree.
-
-## Architecture explanation and navigation polish (2026-10-16)
-
-- [x] 2026-10-16: record the requested HTML refinements and documentation-only boundary in the [plan](../docs/superpowers/plans/2026-10-16-architecture-explanation-polish.md).
-- [x] Remove the top toolbar, separate global chapter navigation from local diagrams, and expand the overall architecture and module/data-flow explanation.
-- [x] Verify browser behavior, responsive/offline/no-JS/print output, architecture consistency, links and workflow; record [evidence](../docs/reports/2026-10-16-architecture-explanation-polish.md).
-- [x] Publish verified documentation commit `1d9d0b2` to existing PR #60 with an expected-head, non-forced update; fetched remote files match the reviewed tree. No runtime or production gate changes.
-
-## Maintained current architecture and interactive guide (2026-10-16)
-
-- [x] 2026-10-16: record the user's accepted design and documentation-only scope in the [task plan](../docs/superpowers/plans/2026-10-16-current-architecture-guide.md); source baseline PR #60 `7407674`, separate main/PR #61 preserved.
-- [x] 2026-10-16: write the maintained framework, ten algorithm contracts, bounded migration plan and accepted design ADR; preserve implementation and evidence boundaries. [Verification](../docs/reports/2026-10-16-current-architecture-guide.md).
-- [x] 2026-10-16: verify the self-contained HTML's 12 chapters and 34 manual steps, continuous reading, expandable detail, keyboard, reduced motion, mobile, offline and print behavior. [Browser evidence](../docs/reports/2026-10-16-current-architecture-guide.md).
-- [x] 2026-10-16: independent review PASS, pinned `pnpm workflow:check` PASS, 557 local links and diff check PASS; corrected the deferred-scroll navigation race. [Dated report](../docs/reports/2026-10-16-current-architecture-guide.md).
-- [x] 2026-10-16: publish documentation commit `a480d8c` to existing PR #60; fresh remote head and exact tree match the reviewed files. Publication evidence is in the dated report above. Runtime migration remains separate, starting with nested-process cancellation/settlement (M0).
+The three completed guide/map/polish task summaries and original verification
+links are preserved in the [dated archive](archive/2026-10-16-architecture-docs.md).
+Runtime migration is tracked in the [current checklist](migration-todo.md).
 
 ## Framework map and host recipe limits (2026-10-16)
 
