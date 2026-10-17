@@ -12,6 +12,8 @@ export interface AuthorizedCommandRunInput {
   readonly maxStdoutBytes: number;
   readonly maxStderrBytes: number;
   readonly signal?: AbortSignal;
+  /** Internal nested verifier only: its outer runner owns the POSIX group. */
+  readonly inheritProcessGroup?: boolean;
 }
 
 export interface AuthorizedCommandRunResult {
@@ -25,6 +27,15 @@ export interface AuthorizedCommandRunResult {
   readonly stdoutByteLength: number;
   readonly stderrByteLength: number;
   readonly errorMessage?: string;
+  /** A handle-cleanup deadline is not proof that command effects stopped. */
+  readonly cleanupUnsettled?: true;
+}
+
+export class CommandCleanupIncompleteError extends DomainValidationError {
+  constructor(readonly result: AuthorizedCommandRunResult) {
+    super(`command cleanup unsettled: ${result.errorMessage ?? "process-tree termination was not confirmed"}`);
+    this.name = "CommandCleanupIncompleteError";
+  }
 }
 
 function requireLimit(value: number, name: string): void {
@@ -36,15 +47,17 @@ function requireLimit(value: number, name: string): void {
 const TERMINATION_GRACE_MS = 250;
 const FORCED_CLOSE_TIMEOUT_MS = 1_000;
 
-function terminate(child: ReturnType<typeof spawn>, signal: "SIGTERM" | "SIGKILL"): void {
+function terminate(child: ReturnType<typeof spawn>, signal: "SIGTERM" | "SIGKILL", ownsGroup: boolean): boolean {
   // The process group can outlive its leader while descendants hold pipes.
   // Never use child.killed as evidence of exit: it only records signal delivery.
-  if (child.pid !== undefined && process.platform !== "win32") {
-    try { process.kill(-child.pid, signal); return; } catch { /* Try the direct child below. */ }
+  if (child.pid !== undefined && ownsGroup) {
+    try { process.kill(-child.pid, signal); return true; } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+    }
   }
   // Windows signals terminate only the direct child. Tree containment requires
   // an OS-specific host facility; the final deadline still bounds local handles.
-  try { child.kill(signal); } catch { /* Missing exit/close is handled by the deadline. */ }
+  try { return child.kill(signal) || child.exitCode !== null || child.signalCode !== null; } catch { return false; }
 }
 
 function processGroupExists(child: ReturnType<typeof spawn>): boolean {
@@ -71,13 +84,14 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
   }
 
   return new Promise((resolve) => {
+    const ownsGroup = process.platform !== "win32" && input.inheritProcessGroup !== true;
     let child: ReturnType<typeof spawn>;
     try {
       child = spawn(input.executable, [...input.args], {
         cwd: input.cwd,
         env: input.env,
         shell: false,
-        detached: process.platform !== "win32",
+        detached: ownsGroup,
         windowsHide: true
       });
     } catch (error) {
@@ -102,6 +116,7 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
     let closeTimer: NodeJS.Timeout | undefined;
     let stopping = false;
     let closed = false;
+    let cleanupUnsettled = false;
     const finish = (): void => {
       if (settled) return;
       settled = true;
@@ -113,7 +128,8 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
         status, spawned: true, ok: status === "completed" && exitCode === 0,
         exitCode, signal: exitSignal, stdoutText: stdout, stderrText: stderr,
         stdoutByteLength: stdoutBytes, stderrByteLength: stderrBytes,
-        ...(errorMessage === undefined ? {} : { errorMessage })
+        ...(errorMessage === undefined ? {} : { errorMessage }),
+        ...(cleanupUnsettled ? { cleanupUnsettled: true as const } : {})
       });
     };
     const stop = (next: CommandRunStatus, reason?: string): void => {
@@ -122,14 +138,21 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
       if (status === "completed") status = next;
       if (reason !== undefined) errorMessage = reason;
       if (timer !== undefined) clearTimeout(timer);
-      terminate(child, "SIGTERM");
+      // Inherited runners defer tree settlement to their outer group owner.
+      // Windows direct-child termination cannot attest descendant settlement.
+      // Without an OS containment receipt an interrupted tree cannot be
+      // attested merely from close or successful signal delivery. The group
+      // still stops cooperative descendants; the host reconciles unknowns.
+      cleanupUnsettled = true;
+      terminate(child, "SIGTERM", ownsGroup);
       forceTimer = setTimeout(() => {
         forceTimer = undefined;
-        terminate(child, "SIGKILL");
+        if (!terminate(child, "SIGKILL", ownsGroup)) cleanupUnsettled = true;
         if (closed) { finish(); return; }
         closeTimer = setTimeout(() => {
           const cleanupError = "command cleanup incomplete: pipes did not close after SIGKILL; descendants may still be running";
           errorMessage = errorMessage === undefined ? cleanupError : `${errorMessage}; ${cleanupError}`;
+          cleanupUnsettled = true;
           // Escaped descendants (or an OS kill failure) must not hold the caller
           // forever. Release local handles and return failure, never acceptance.
           child.stdin?.destroy();
@@ -176,7 +199,10 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
       // that was healthy until the host stopped it for an output limit; the
       // distinct status is the authoritative failure reason.
       if (status === "output_limit" && exitCode === null) exitCode = 0;
-      if (!stopping || forceTimer === undefined || !processGroupExists(child)) finish();
+      if (!stopping && ownsGroup && processGroupExists(child)) {
+        stop("cancelled", "command exited while owned descendants remained");
+      }
+      if (!stopping || forceTimer === undefined || (ownsGroup && !processGroupExists(child))) finish();
     });
   });
 }

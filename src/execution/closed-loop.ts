@@ -55,6 +55,8 @@ export interface RunClosedLoopCheckInput {
   readonly snapshotManifest?: SnapshotManifest;
   readonly signal?: AbortSignal;
   readonly trustedVerification?: TrustedVerificationDescriptor;
+  readonly unsettledExitCodes?: readonly number[];
+  readonly requireSettledEffects?: boolean;
 }
 
 export interface ClosedLoopResult {
@@ -78,6 +80,8 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
     args,
     ...(input.snapshotManifest !== undefined ? { snapshotManifest: input.snapshotManifest } : {}),
     ...(input.trustedVerification !== undefined ? { trustedVerification: input.trustedVerification } : {}),
+    ...(input.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: input.unsettledExitCodes }),
+    ...(input.requireSettledEffects === undefined ? {} : { requireSettledEffects: input.requireSettledEffects }),
     ...(input.signal !== undefined ? { signal: input.signal } : {})
   });
 

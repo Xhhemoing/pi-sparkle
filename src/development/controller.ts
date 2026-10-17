@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -7,6 +8,7 @@ import { parseRunId } from "../domain/ids.js";
 import { loopArtifactPath, readLoopArtifact } from "../execution/loop-artifact.js";
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
+import { CommandCleanupIncompleteError } from "../execution/command-runner.js";
 import { createIsolatedWorktree, disposeIsolatedWorktree } from "../execution/worktree.js";
 import { prepareTrustedVerification } from "../execution/trusted-verification.js";
 import { NativeWriteSession, type NativeWriteExecutorFactory, type NativeWriteSessionInput } from "../native/write-session.js";
@@ -18,6 +20,7 @@ import { runtimeRoot } from "../privacy/state-layout.js";
 import { canonicalizeStableJson } from "../domain/canonical-json.js";
 import { WorkItemStore, type WorkItemVerificationContext } from "./work-item-store.js";
 import { validateWorkItemEvidence, type WorkItemDefinition, type WorkItemEvidence, type WorkQueue } from "./work-items.js";
+import { UNSETTLED_RECIPE_EXIT_CODE } from "./recipe-check.js";
 
 export interface DevelopmentControllerOptions {
   readonly sourceRepo: string;
@@ -63,6 +66,21 @@ function ancestor(cwd: string, base: string, current: string): boolean {
 function under(relative: string, scope: readonly string[]): boolean {
   return scope.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
 }
+function unresolvedEffect(actions: readonly ActionRecord[], item: WorkItemDefinition): ActionRecord | undefined {
+  return actions.find((action) => {
+    if (!["candidate-write", "candidate-check"].includes(action.kind) ||
+        !["running", "needs-reconciliation"].includes(action.state)) return false;
+    const binding = JSON.parse(action.inputCanonicalJson) as { itemId?: unknown; definition?: { allowedScope?: unknown } };
+    if (binding === null || typeof binding !== "object") return true;
+    if (binding.itemId === item.id) return true;
+    const scope = binding.definition?.allowedScope;
+    // Unknown old bindings cannot prove disjointness. Keep unrelated, clearly
+    // disjoint work available without surrendering an unresolved scope.
+    if (!Array.isArray(scope) || scope.length === 0 || scope.some((prefix: unknown) => typeof prefix !== "string" || prefix.length === 0)) return true;
+    return item.allowedScope.some((prefix) => scope.some((other: string) =>
+      under(prefix, [other]) || under(other, [prefix])));
+  });
+}
 function protectedPaths(item: WorkItemDefinition): readonly string[] {
   return [...new Set(item.acceptance.flatMap((recipe) => recipe.protectedPaths ?? []))];
 }
@@ -99,7 +117,7 @@ function verification(item: WorkItemDefinition) {
       fileURLToPath(new URL(`../domain/errors${suffix}`, import.meta.url))],
     snapshotManifest: { includePrefixes: [...new Set([...item.allowedScope, ...protectedPaths(item)])] },
     maxSnapshotFiles: 1024, maxSnapshotBytes: 16 * 1024 * 1024 });
-  return { command, args, trustedVerification };
+  return { command, args, trustedVerification, unsettledExitCodes: [UNSETTLED_RECIPE_EXIT_CODE] };
 }
 function parseReceipt(action: ActionRecord): EffectReceipt {
   if (action.resultCanonicalJson === undefined) fail("action has no completed effect receipt");
@@ -143,6 +161,29 @@ export class DevelopmentController {
   /** Fresh source identity for a host's bounded batch; never a cached claim base. */
   currentSourceRevision(): string { return git(this.options.sourceRepo, ["rev-parse", "HEAD"]); }
 
+  /** Use the existing effect ledger for checks, including pre-claim dependency checks. */
+  private async checkWorkspace(item: WorkItemDefinition, cwd: string, signal?: AbortSignal) {
+    checkCancellation(signal);
+    const pending = unresolvedEffect(await this.ledger.list(), item);
+    if (pending !== undefined) fail(`checker action ${pending.actionId} requires reconciliation; no check replayed`);
+    checkCancellation(signal);
+    const action = await this.ledger.prepare({ idempotencyKey: `check:${randomUUID()}`, kind: "candidate-check",
+      input: { itemId: item.id, sourceRepo: this.options.sourceRepo, cwd, definition: item } });
+    const claim = await this.ledger.claim(action.actionId, action.version);
+    try {
+      const check = await runIndependentCheck({ cwd, ...verification(item), requireSettledEffects: true,
+        ...(signal === undefined ? {} : { signal }) });
+      await this.ledger.complete(claim, { evidence: { summary: "checker returned with no unresolved cleanup",
+        references: [cwd, check.checkId] }, result: { checkId: check.checkId, ok: check.ok, exitCode: check.exitCode } });
+      return check;
+    } catch (error) {
+      const receipt = { evidence: { summary: (error instanceof Error ? error.message : String(error)).slice(0, 2048), references: [cwd] } };
+      if (error instanceof CommandCleanupIncompleteError) await this.ledger.markUncertain(claim, receipt);
+      else await this.ledger.fail(claim, receipt);
+      throw error;
+    }
+  }
+
   private async verifyIntegrated(item: WorkItemDefinition, revision: string, signal?: AbortSignal, protectedBase = revision): Promise<boolean> {
     checkCancellation(signal);
     if (!unchangedProtected(this.options.sourceRepo, protectedBase, revision, item)) return false;
@@ -150,16 +191,22 @@ export class DevelopmentController {
     await mkdir(sandboxRoot, { recursive: true });
     checkCancellation(signal);
     const view = await createIsolatedWorktree({ sourceRepo: this.options.sourceRepo, sandboxRoot });
+    let cleanupUnsettled = false;
     try {
       checkCancellation(signal);
       if (git(view.cwd, ["rev-parse", "HEAD"]) !== revision) return false;
-      const check = await runIndependentCheck({ cwd: view.cwd, ...verification(item),
-        ...(signal === undefined ? {} : { signal }) });
+      const check = await this.checkWorkspace(item, view.cwd, signal);
       checkCancellation(signal);
       assertScope(view.cwd, item);
       return check.ok && git(this.options.sourceRepo, ["rev-parse", "HEAD"]) === revision;
+    } catch (error) {
+      if (error instanceof CommandCleanupIncompleteError) {
+        cleanupUnsettled = true;
+        throw new DomainValidationError(`checker cleanup unsettled; retain workspace ${view.cwd}: ${error.message}`);
+      }
+      throw error;
     } finally {
-      await disposeIsolatedWorktree(view);
+      if (!cleanupUnsettled) await disposeIsolatedWorktree(view);
     }
   }
 
@@ -189,8 +236,7 @@ export class DevelopmentController {
     if (currentSource !== context.claim.baseRevision) return this.verifyIntegrated(
       { ...context.item, acceptance: [context.recipe] }, currentSource, signal, context.claim.baseRevision);
     assertScope(candidate, context.item);
-    const check = await runIndependentCheck({ cwd: candidate,
-      ...verification({ ...context.item, acceptance: [context.recipe] }), signal });
+    const check = await this.checkWorkspace({ ...context.item, acceptance: [context.recipe] }, candidate, signal);
     checkCancellation(signal);
     assertScope(candidate, context.item);
     return check.ok && git(source, ["rev-parse", "HEAD"]) === currentSource;
@@ -216,11 +262,7 @@ export class DevelopmentController {
     assertRecipePolicy(advisory);
     const actions = await this.ledger.list();
     checkCancellation(options.signal);
-    const pending = actions.find((action) => {
-      if (action.kind !== "candidate-write" || !["running", "needs-reconciliation"].includes(action.state)) return false;
-      const definition = JSON.parse(action.inputCanonicalJson) as { itemId?: unknown };
-      return definition.itemId === advisory.id;
-    });
+    const pending = unresolvedEffect(actions, advisory);
     if (pending !== undefined) return { status: "needs-reconciliation", itemId: advisory.id, actionId: pending.actionId,
       reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay" };
     const beforeClaim = await this.store.load();
@@ -250,10 +292,7 @@ export class DevelopmentController {
       assertRecipePolicy(selected.item);
       const claimedActions = await this.ledger.list();
       checkCancellation(options.signal);
-      const unresolved = claimedActions.find((action) => {
-        if (action.kind !== "candidate-write" || !["running", "needs-reconciliation"].includes(action.state)) return false;
-        return (JSON.parse(action.inputCanonicalJson) as { itemId?: unknown }).itemId === selected.item.id;
-      });
+      const unresolved = unresolvedEffect(claimedActions, selected.item);
       if (unresolved !== undefined) fail(`earlier effect ${unresolved.actionId} still requires reconciliation before another dispatch`);
       if (git(this.options.sourceRepo, ["rev-parse", "HEAD"]) !== selected.claim.baseRevision) fail("source changed after task claim");
       // claimNext can select a different item when another worker wins the
@@ -315,6 +354,16 @@ export class DevelopmentController {
             description: `Host criterion ${recipe.id}`, observableCheck: `${recipe.command} ${recipe.args.join(" ")}`.slice(0, 512) })),
           ...options });
       } finally { await session.shutdown(); }
+      if (result.effectsSettled === false) {
+        const reason = `command cleanup unsettled; host reconciliation required: ${result.reason}`;
+        await this.ledger.markUncertain(actionClaim!, { evidence: { summary: reason.slice(0, 2048),
+          references: [result.artifact.path, result.candidatePath,
+            ...(result.loop === undefined ? [] : [result.loop.artifact.path])] } });
+        // Keep the original running claim as ownership of unresolved effects.
+        // A returned failure must not be mistaken for proof the worker stopped.
+        return { status: "needs-reconciliation", itemId: selected.item.id, actionId,
+          candidatePath: result.candidatePath, reason };
+      }
       assertScope(result.candidatePath, selected.item);
       const checkId = result.acceptance.independentCheck?.checkId;
       const evidence: WorkItemEvidence[] = result.acceptance.accepted && checkId !== undefined

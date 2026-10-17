@@ -213,5 +213,46 @@ test("escaped descendants cannot hold cleanup forever or produce success", posix
     assert.equal(result.status, "timed_out");
     assert.equal(result.ok, false);
     assert.match(result.errorMessage ?? "", /cleanup incomplete/);
+    assert.equal(result.cleanupUnsettled, true);
   }, 300);
+});
+
+test("a normal leader exit cannot accept a surviving ignored-stdio descendant", posixOnly, async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "sparkle-runner-residue-"));
+  const heartbeat = path.join(cwd, "heartbeat");
+  const readyPath = path.join(cwd, "ready");
+  let pid: number | undefined;
+  try {
+    const script = `
+      const fs = require('node:fs');
+      const {spawn} = require('node:child_process');
+      const child = spawn(process.execPath, ['-e', ${JSON.stringify(`
+        const fs = require('node:fs');
+        process.on('SIGTERM', () => {});
+        setTimeout(() => process.exit(99), 10000);
+        fs.writeFileSync(${JSON.stringify(heartbeat)}, 'start');
+        setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeat)}, '.'), 10);
+        fs.writeFileSync(${JSON.stringify(`${readyPath}.tmp`)}, String(process.pid));
+        fs.renameSync(${JSON.stringify(`${readyPath}.tmp`)}, ${JSON.stringify(readyPath)});
+      `)}], {stdio: 'ignore'});
+      child.unref();
+      const ready = setInterval(() => { if (fs.existsSync(${JSON.stringify(readyPath)})) {clearInterval(ready); process.exit(0);} }, 10);
+      setTimeout(() => process.exit(98), 10000).unref();
+    `;
+    const result = await within(runAuthorizedCommand({ executable: process.execPath, args: ["-e", script],
+      cwd, env: process.env, ...policy }), 3_000);
+    pid = Number(await readFile(readyPath, "utf8"));
+    assert.ok(Number.isSafeInteger(pid) && pid > 1);
+    assert.equal(result.ok, false);
+    assert.equal(result.cleanupUnsettled, true);
+    const stopped = await readFile(heartbeat, "utf8");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await readFile(heartbeat, "utf8"), stopped);
+  } finally {
+    if (pid === undefined) {
+      try { pid = Number(await readFile(readyPath, "utf8")); } catch { /* Fixture failed before spawn. */ }
+    }
+    if (pid !== undefined && Number.isSafeInteger(pid) && pid > 1) killFixture(pid);
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

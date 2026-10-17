@@ -97,7 +97,7 @@ export function evaluateIndependentAcceptance(input: EvaluateAcceptanceInput): C
     return { ...base, accepted: false, reason: "trusted verification requires original host-bound exact evidence; serialized or missing claims are refused" };
   }
 
-  if (!check.ok || check.exitCode !== 0) {
+  if (!check.ok || check.exitCode !== 0 || check.processCleanupUnsettled) {
     return {
       ...base,
       accepted: false,

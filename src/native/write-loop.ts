@@ -61,7 +61,7 @@ export function repairFeedback(check: IndependentCheckRecord, runId: RunId, arti
 export function isRepairableCheck(check: IndependentCheckRecord, repairableExitCodes?: readonly number[]): boolean {
   // Legacy records without runner status cannot distinguish spawn failures
   // from exit 1. They never authorize automatic repair.
-  return check.processStatus === "completed" && check.processSignal === null &&
+  return !check.processCleanupUnsettled && check.processStatus === "completed" && check.processSignal === null &&
     (repairableExitCodes === undefined || repairableExitCodes.includes(check.exitCode)) &&
     (check.trustedVerification === undefined || check.trustedVerification.ok) &&
     Number.isSafeInteger(check.processExitCode) && check.processExitCode === check.exitCode && check.exitCode !== 0 &&
