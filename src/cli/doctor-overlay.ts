@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_PI_DISPATCH_CONTRACT } from "../agents/dispatch-preflight.js";
-import { adaptationRoot, runtimeRoot } from "../privacy/state-layout.js";
+import { adaptationRoot, runtimeRoot } from "../persist/state-layout.js";
 
 export interface OverlayCheck {
   readonly name: string;

@@ -19,8 +19,7 @@ import {
   preferenceSnapshotPath
 } from "../preferences/store.js";
 import type { PreferenceScope } from "../preferences/types.js";
-import { lockWaitOptions } from "./main.js";
-import type { CliIo } from "./main.js";
+import { lockWaitOptions, type CliIo } from "./options.js";
 
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");

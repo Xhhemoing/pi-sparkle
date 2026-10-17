@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { writeFileAtomic, type AtomicWriteOptions } from "../persist/atomic-file.js";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { hash32 } from "../domain/hash.js";
 import { isAgentRole, type AgentRole } from "../domain/roles.js";

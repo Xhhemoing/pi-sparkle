@@ -1,7 +1,7 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { assertDefaultEvalDatasetNotAliased } from "./eval-dataset-path.js";
-import { defaultEvalDatasetDir, runtimeRoot } from "./state-layout.js";
+import { defaultEvalDatasetDir, runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import { catalogObservedPath } from "../routing/catalog-observed.js";

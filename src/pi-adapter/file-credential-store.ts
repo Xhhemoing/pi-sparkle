@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import type {
   AuthOperationOptions,
   Credential,

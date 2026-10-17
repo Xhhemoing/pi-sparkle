@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { EpisodeStatus } from "../domain/episode.js";
 import { isEpisodeId, isRunId, type EpisodeId, type RunId } from "../domain/ids.js";
 import type { RunStatus } from "../domain/status.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { episodeIdFromEvents } from "./episode-bind.js";
 import { EpisodeStore } from "./episode-store.js";
 import { EventStore } from "./event-store.js";

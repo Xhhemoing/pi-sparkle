@@ -47,7 +47,7 @@ async function ready(file: string): Promise<{ pid: number; owner: number }> {
 async function fixture(escaped: boolean, body: (f: {
   controller: DevelopmentController; sourceRepo: string; heartbeat: string;
   readyPath: string; activationPath: string; stateRoot: string; queuePath: string; calls: () => number;
-}) => Promise<void>, options: { timeoutMs?: number; activation?: boolean; child?: boolean } = {}): Promise<void> {
+}) => Promise<void>, options: { timeoutMs?: number; activation?: boolean; child?: boolean; dependent?: boolean } = {}): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "sparkle-process-ownership-"));
   const sourceRepo = path.join(root, "source");
   const heartbeat = path.join(root, "heartbeat.txt");
@@ -81,12 +81,14 @@ async function fixture(escaped: boolean, body: (f: {
     ` : stubborn}`;
     const queuePath = path.join(root, "queue.json");
     const stateRoot = path.join(root, "state");
-    await new WorkItemStore(queuePath).create(createWorkQueue({
-      id: "ownership", authorityRef: "host:test", items: [{
+    const definition = {
         id: "change", goal: "Change value.txt", dependencies: [], allowedScope: ["value.txt"], priority: 1,
         acceptance: [{ id: "check", command: process.execPath, args: ["-e", script], verifierVersion: "v1",
           ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }) }]
-      }]
+    };
+    await new WorkItemStore(queuePath).create(createWorkQueue({
+      id: "ownership", authorityRef: "host:test", items: [definition,
+        ...(options.dependent ? [{ ...definition, id: "dependent", dependencies: ["change"], allowedScope: ["dependent.txt"] }] : [])]
     }));
     let count = 0;
     controller = new DevelopmentController({ sourceRepo, queuePath, stateRoot, owner: "host",
@@ -225,7 +227,7 @@ test("interrupted source verification retains its view and ledger across the nex
     await assert.rejects(controller.next(), /requires reconciliation/);
     assert.equal((await controller.ledger.get(pending.actionId))!.state, "needs-reconciliation");
     assert.equal(calls(), 1);
-  }, { activation: true });
+  }, { activation: true, dependent: true });
 });
 
 test("parent crash retains the dispatched action and restart never replays it", posix, async () => {

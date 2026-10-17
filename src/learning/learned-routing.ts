@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { parseProjectId } from "../domain/ids.js";
 import { hash32 } from "../domain/hash.js";

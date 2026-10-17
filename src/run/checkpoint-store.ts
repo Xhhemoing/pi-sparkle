@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 
 export class CheckpointStore {
   private readonly checkpointPath: string;

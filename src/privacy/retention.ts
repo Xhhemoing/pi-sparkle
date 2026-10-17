@@ -1,6 +1,6 @@
 import { readdir, rm, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { runtimeRoot } from "./state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { deleteEpisodeRecords } from "./deletion.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isEpisodeId, type EpisodeId, type RunId } from "../domain/ids.js";

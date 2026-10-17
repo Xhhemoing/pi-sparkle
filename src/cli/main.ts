@@ -2,16 +2,13 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import {
   deleteRunRecords,
   deleteEpisodeRecords,
   RUN_RECORDS_SURVIVED_CODE
 } from "../privacy/deletion.js";
-import {
-  LOCK_TIMEOUT_CODE,
-  type FileLockOptions
-} from "../persist/file-lock.js";
+import { LOCK_TIMEOUT_CODE } from "../persist/file-lock.js";
 import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
 import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
 import {
@@ -60,6 +57,9 @@ import { readInvocationRecords, invocationsLogPath } from "../telemetry/invocati
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { bindPreferenceStore, prefCommand } from "./pref.js";
+import { lockWaitOptions, type CliIo } from "./options.js";
+// Preserve existing main helper/type deep imports during boundary migration.
+export { lockWaitOptions, type CliIo } from "./options.js";
 import { unblockCommand } from "./unblock.js";
 import {
   checkpointCarriesFlowchart,
@@ -124,11 +124,6 @@ export {
   formatCostGateWarning,
   describeResumeExecutorConfig
 } from "./run-options.js";
-
-export interface CliIo {
-  stdout(text: string): void;
-  stderr(text: string): void;
-}
 
 const defaultIo: CliIo = {
   stdout: (text) => process.stdout.write(text),
@@ -2006,39 +2001,6 @@ disk than it found. A --run delete that got that far says so on stderr before
 it exits. Re-running the same delete once the lock is free is idempotent: it
 finishes the half that was refused.
 `;
-
-/**
- * Upper bound on `--lock-wait-ms`, in milliseconds (24 hours).
- *
- * The flag exists to let an operator wait out a long run, so the ceiling is
- * deliberately far above any real one. What it buys is that a typo — an extra
- * digit on an otherwise reasonable value — is refused at parse time instead of
- * presenting as a CLI that hung.
- */
-const MAX_LOCK_WAIT_MS = 86_400_000;
-
-/**
- * `--lock-wait-ms` as `withExclusiveFileLock` options, shared by `delete` and
- * the two locked `pref` mutators.
- *
- * An absent flag yields an empty object rather than an explicit default, so an
- * unflagged command makes exactly the call it made before this flag existed:
- * the 5s bound stays the lock's own, in one place, and cannot drift here.
- *
- * Only whole non-negative decimal milliseconds are accepted. `Number` would
- * also take `1e4`, `0x10` and ` 5 `; a command that waits a different amount
- * of time than the operator typed is worse than one that refuses the spelling.
- */
-export function lockWaitOptions(raw: string | undefined): FileLockOptions {
-  if (raw === undefined) return {};
-  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
-  if (!Number.isSafeInteger(value) || value > MAX_LOCK_WAIT_MS) {
-    throw new DomainValidationError(
-      `--lock-wait-ms must be a whole number of milliseconds between 0 and ${MAX_LOCK_WAIT_MS}, got: ${raw}`
-    );
-  }
-  return { timeoutMs: value };
-}
 
 export async function deleteCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({

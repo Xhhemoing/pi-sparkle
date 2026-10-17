@@ -33,7 +33,10 @@ const RUNTIME_PREFIXES = [
   "src/cli/"
 ] as const;
 
-const RUNTIME_EXACT_MODULES = ["src/routing/cost-calibration.ts"] as const;
+const RUNTIME_EXACT_MODULES = [
+  "src/routing/cost-calibration.ts",
+  "src/routing/model-catalog.ts"
+] as const;
 
 interface RuntimeAllowance {
   readonly module: string;
@@ -185,6 +188,10 @@ test("value walker erases import type declarations but keeps runtime import form
     "./re-export.js",
     "./lazy.js"
   ]);
+});
+
+test("runtime catalog configuration does not become shared policy by leaving CLI", () => {
+  assert.equal(isRuntimeModule("src/routing/model-catalog.ts"), true);
 });
 
 test("adaptation value closure reaches only explicitly allowed runtime modules", () => {

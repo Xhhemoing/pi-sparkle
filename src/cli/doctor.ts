@@ -24,7 +24,7 @@ import {
   PreferenceSnapshotUnreadableError,
   readPreferenceSnapshot
 } from "../preferences/store.js";
-import { adaptationRoot, runtimeRoot, type Plane } from "../privacy/state-layout.js";
+import { adaptationRoot, runtimeRoot, type Plane } from "../persist/state-layout.js";
 import {
   CatalogObservedCorruptError,
   catalogObservedPath,

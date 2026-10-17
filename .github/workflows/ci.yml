@@ -119,7 +119,10 @@ jobs:
             'test/integration/cli/development.test.ts',
             'test/integration/cli/development-batch-review.test.ts',
             'test/integration/development/controller.test.ts',
+            'test/integration/development/controller-admission.test.ts',
             'test/integration/development/controller-cancellation.test.ts',
+            'test/integration/development/scoped-readiness.test.ts',
+            'test/integration/development/start-task.test.ts',
             'test/integration/development/process-ownership.test.ts',
             'test/integration/development/work-item-cancellation.test.ts',
             'test/integration/development/batch.test.ts',
@@ -129,6 +132,9 @@ jobs:
             'test/integration/native/apply-registration-inputs.test.ts',
             'test/integration/native/trusted-apply.test.ts',
             'test/unit/development/batch.test.ts',
+            'test/unit/development/action-admission.test.ts',
+            'test/unit/architecture/boundary-cleanup.test.ts',
+            'test/unit/architecture/compatibility-exports.test.ts',
             'test/unit/execution/loop-artifact-bounds.test.ts',
             'test/unit/execution/exact-git-tree.test.ts'
           )

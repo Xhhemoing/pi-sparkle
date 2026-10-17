@@ -15,11 +15,11 @@ import { NativeWriteSession, type NativeWriteExecutorFactory, type NativeWriteSe
 import { prepareNativeWriteLoopLimits } from "../native/write-loop.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
-import { ActionLedger, type ActionClaim, type ActionRecord } from "./action-ledger.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { ActionAdmissionConflictError, ActionLedger, type ActionClaim, type ActionRecord } from "./action-ledger.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { canonicalizeStableJson } from "../domain/canonical-json.js";
 import { WorkItemStore, type WorkItemVerificationContext } from "./work-item-store.js";
-import { validateWorkItemEvidence, type WorkItemDefinition, type WorkItemEvidence, type WorkQueue } from "./work-items.js";
+import { validateWorkItemEvidence, workItemScope, type WorkItemDefinition, type WorkItemEvidence, type WorkQueue } from "./work-items.js";
 import { UNSETTLED_RECIPE_EXIT_CODE } from "./recipe-check.js";
 
 export interface DevelopmentControllerOptions {
@@ -76,8 +76,10 @@ function unresolvedEffect(actions: readonly ActionRecord[], item: WorkItemDefini
     const scope = binding.definition?.allowedScope;
     // Unknown old bindings cannot prove disjointness. Keep unrelated, clearly
     // disjoint work available without surrendering an unresolved scope.
-    if (!Array.isArray(scope) || scope.length === 0 || scope.some((prefix: unknown) => typeof prefix !== "string" || prefix.length === 0)) return true;
-    return item.allowedScope.some((prefix) => scope.some((other: string) =>
+    if (!Array.isArray(scope) || scope.length === 0 || scope.length > 32) return true;
+    let prefixes: string[];
+    try { prefixes = scope.map(workItemScope); } catch { return true; }
+    return item.allowedScope.some((prefix) => prefixes.some((other) =>
       under(prefix, [other]) || under(other, [prefix])));
   });
 }
@@ -149,6 +151,7 @@ export class DevelopmentController {
     this.ledger = new ActionLedger(path.join(path.dirname(this.options.queuePath), "actions"));
     this.store = new WorkItemStore(this.options.queuePath, {
       verifyEvidence: (evidence, context, signal) => this.verifyEvidence(evidence, context, signal),
+      isVerificationBlocked: (error) => error instanceof ActionAdmissionConflictError || error instanceof CommandCleanupIncompleteError,
       verificationTimeoutMs: 60_000
     });
   }
@@ -164,13 +167,11 @@ export class DevelopmentController {
   /** Use the existing effect ledger for checks, including pre-claim dependency checks. */
   private async checkWorkspace(item: WorkItemDefinition, cwd: string, signal?: AbortSignal) {
     checkCancellation(signal);
-    const pending = unresolvedEffect(await this.ledger.list(), item);
-    if (pending !== undefined) fail(`checker action ${pending.actionId} requires reconciliation; no check replayed`);
-    checkCancellation(signal);
-    const action = await this.ledger.prepare({ idempotencyKey: `check:${randomUUID()}`, kind: "candidate-check",
-      input: { itemId: item.id, sourceRepo: this.options.sourceRepo, cwd, definition: item } });
-    const claim = await this.ledger.claim(action.actionId, action.version);
+    const claim = await this.ledger.admit({ idempotencyKey: `check:${randomUUID()}`, kind: "candidate-check",
+      input: { itemId: item.id, sourceRepo: this.options.sourceRepo, cwd, definition: item } },
+    (record) => unresolvedEffect([record], item) !== undefined, signal);
     try {
+      checkCancellation(signal);
       const check = await runIndependentCheck({ cwd, ...verification(item), requireSettledEffects: true,
         ...(signal === undefined ? {} : { signal }) });
       await this.ledger.complete(claim, { evidence: { summary: "checker returned with no unresolved cleanup",
@@ -202,7 +203,9 @@ export class DevelopmentController {
     } catch (error) {
       if (error instanceof CommandCleanupIncompleteError) {
         cleanupUnsettled = true;
-        throw new DomainValidationError(`checker cleanup unsettled; retain workspace ${view.cwd}: ${error.message}`);
+        // Keep the typed uncertainty so scoped readiness can try disjoint work.
+        // The durable action input already identifies the retained view.
+        throw error;
       }
       throw error;
     } finally {
@@ -304,12 +307,11 @@ export class DevelopmentController {
         if (!verified) fail(`claimed dependency ${dependencyId} is not integrated in the current source`);
       }
       checkCancellation(options.signal);
-      const action = await this.ledger.prepare({ idempotencyKey: `${queue.id}:${selected.item.id}:${selected.token}`,
+      actionClaim = await this.ledger.admit({ idempotencyKey: `${queue.id}:${selected.item.id}:${selected.token}`,
         kind: "candidate-write", input: { queueId: queue.id, itemId: selected.item.id, claimToken: selected.token,
-          sourceRepo: this.options.sourceRepo, sourceRevision, owner: this.options.owner, definition: selected.item } });
-      actionId = action.actionId;
-      checkCancellation(options.signal);
-      actionClaim = await this.ledger.claim(action.actionId, action.version);
+          sourceRepo: this.options.sourceRepo, sourceRevision, owner: this.options.owner, definition: selected.item } },
+      (record) => unresolvedEffect([record], selected.item) !== undefined, options.signal);
+      actionId = actionClaim.actionId;
       checkCancellation(options.signal);
       const checker = verification(selected.item);
       const factory = this.options.executorFactory;

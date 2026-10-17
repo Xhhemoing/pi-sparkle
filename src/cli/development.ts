@@ -7,7 +7,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { DevelopmentController } from "../development/controller.js";
 import { WorkItemStore } from "../development/work-item-store.js";
 import { createWorkQueue, type CreateWorkQueueInput } from "../development/work-items.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef } from "../config/model-ref.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
