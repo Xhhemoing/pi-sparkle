@@ -1,5 +1,14 @@
 # Active checklist
 
+## M0-A nested process ownership (2026-10-16)
+
+- [x] Reconcile PR #60 `415b072` and ADR-009/M0; write the [bounded plan](../docs/superpowers/plans/2026-10-16-process-ownership.md).
+- [x] Reproduce real develop abort/repeated-abort/deadline writes after return and false effect completion: four failing baseline regressions; [record](../docs/reports/2026-10-16-process-ownership.md).
+- [x] Linux real-process regressions verify inherited recipe group ownership, residue cleanup, unresolved action/claim fences, source-check view retention and crash/replay behavior; [evidence](../docs/reports/2026-10-16-process-ownership.md).
+- [x] Self-review, focused 92/92, genuine pinned full gate 3594 pass / 0 fail / 2 skip + build, security 26 / Pi 4 / kernel 3 PASS. Failed commands and actual skips are retained in the [record](../docs/reports/2026-10-16-process-ownership.md).
+- [ ] GitHub source/evidence publication blocked by automatic approval review; prepared local checkpoint `482dabb` preserves concurrent architecture-map head `aac7a380`. Explicit authorization for existing PR #60 branch is the next condition.
+- [ ] Full M0 containment/platform qualification, independent review and existing production/live/experiment gates remain separate.
+
 ## Detailed architecture map and compact navigation (2026-10-16)
 
 - [x] Record scope, file ownership and measurable UI/diagram acceptance in the [plan](../docs/superpowers/plans/2026-10-16-detailed-architecture-map.md).

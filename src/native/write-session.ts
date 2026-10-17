@@ -2,6 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { createTaskId, type RunId } from "../domain/ids.js";
 import type { AgentExecutor } from "../execution/contract.js";
+import { CommandCleanupIncompleteError, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import {
   closeClosedLoop,
   openClosedLoop,
@@ -74,6 +75,8 @@ export interface NativeWriteSessionResult {
   readonly executionEvents: number;
   readonly loop?: NativeWriteLoopResult;
   readonly taskContract?: NativeWriteTaskContract;
+  /** Absent on historical/settled results; false requires host reconciliation. */
+  readonly effectsSettled?: false;
 }
 
 interface ActiveWrite {
@@ -424,15 +427,17 @@ export class NativeWriteSession {
         command: preflight.verification.command,
         args: preflight.verification.args,
         ...(preflight.verification.trustedVerification === undefined ? {} : { trustedVerification: preflight.verification.trustedVerification }),
+        ...(preflight.verification.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: preflight.verification.unsettledExitCodes }),
+        requireSettledEffects: true,
         note: "native isolated write",
         signal
       });
     } catch (error) {
-      return bindContract(await this.failureResult(preflight, session, `independent verification failed: ${error instanceof Error ? error.message : String(error)}`, {
+      return bindContract(await this.failureResult(preflight, session, `${signal.aborted ? "cancelled; " : ""}independent verification failed: ${error instanceof Error ? error.message : String(error)}`, {
         runId: outcome.runId,
-        status: "FAILED",
+        status: signal.aborted ? "CANCELLED" : "FAILED",
         events: outcome.events
-      }));
+      }, error instanceof CommandCleanupIncompleteError ? error.result : undefined));
     }
     const afterCheckStop = stopReason(this.closed, signal);
     if (afterCheckStop !== undefined) {
@@ -457,7 +462,8 @@ export class NativeWriteSession {
       runId: RunId;
       status: "FAILED" | "CANCELLED" | "COMPLETED";
       events: readonly unknown[];
-    }
+    },
+    unsettledCommand?: AuthorizedCommandRunResult
   ): Promise<NativeWriteSessionResult> {
     const artifact = await saveLoopArtifact({
       stateRoot: this.options.stateRoot,
@@ -469,7 +475,13 @@ export class NativeWriteSession {
         candidatePath: session.worktree.cwd,
         reason,
         executionEvents: outcome.events.length,
-        verification: preflight.verification
+        verification: preflight.verification,
+        ...(unsettledCommand === undefined ? {} : { processCleanup: {
+          settled: false, status: unsettledCommand.status, exitCode: unsettledCommand.exitCode,
+          signal: unsettledCommand.signal, stdoutByteLength: unsettledCommand.stdoutByteLength,
+          stderrByteLength: unsettledCommand.stderrByteLength,
+          ...(unsettledCommand.errorMessage === undefined ? {} : { errorMessage: unsettledCommand.errorMessage })
+        } })
       }
     });
     return {
@@ -480,7 +492,8 @@ export class NativeWriteSession {
       artifact,
       acceptance: failedAcceptance(preflight, session.worktree.cwd, artifact.id, reason),
       reason,
-      executionEvents: outcome.events.length
+      executionEvents: outcome.events.length,
+      ...(unsettledCommand === undefined ? {} : { effectsSettled: false as const })
     };
   }
 }

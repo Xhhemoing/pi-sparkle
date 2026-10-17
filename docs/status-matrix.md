@@ -23,6 +23,11 @@ dated evidence; the framework link now points to the maintained explanation.
 whole-process-tree settlement. A POSIX nested detached-runner reproduction can
 continue writing after the outer timeout has settled; this is an open P0. The evidence is
 an equivalent nested-runner experiment, not a real `develop` end-to-end run.
+The subsequent [M0-A implementation](reports/2026-10-16-process-ownership.md)
+now reproduces this on the real develop path and addresses cooperative nested
+groups plus unresolved-effect ownership. That dated evidence supersedes the
+equivalent-only reproduction boundary; full containment and platform acceptance
+remain open and must not be inferred from signal delivery or pipe closure.
 M0 must verify the real path, complete descendant settlement and prevent lease or
 workspace reuse while effects remain unresolved before adding parallel writers or
 the process-based Pi backend. Existing tests remain scoped evidence.
@@ -32,6 +37,14 @@ live-provider, independent implementation review, production or outcome gates.
 Explicit task preference overlays do not mutate active learned-resource snapshots,
 runtime generations, authority or checker bindings. ADR-008's opaque versioned IDs
 and exact bytes continue to govern identity; no replacement hash is introduced.
+
+## M0-A cooperative process ownership (2026-10-16)
+
+| Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|
+| Local source checkpoint `482dabb` (tested runtime `ed97692`) plus final evidence/comment correction | Command runner, internal recipe checker, strict/native verification, controller check/write action fences | Linux real develop abort/repeated abort/deadline/grandchild, retained source view, escaped uncertainty and parent crash/replay; full gate 3594 pass / 0 fail / 2 skip, security/Pi/kernel probes PASS | no |
+
+[Plan](superpowers/plans/2026-10-16-process-ownership.md) · [full evidence and publication block](reports/2026-10-16-process-ownership.md). Existing strict successes and repair semantics retain their tests. Interrupted trees are conservatively unconfirmed; they retain ownership rather than granting acceptance/replay. Main and separate PR #61 are unchanged. Hosted/Windows qualification, OS containment, old-writer isolation, concurrent checker admission, terminal-check archival and the remaining M0/production/experimental gates remain open. The prepared GitHub push was rejected by automatic approval review and was not retried through another endpoint.
 
 ## Framework and host verifier limits (2026-10-16)
 

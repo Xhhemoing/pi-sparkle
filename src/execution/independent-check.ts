@@ -3,7 +3,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { authorizeCommand, type CommandPolicy } from "./command-policy.js";
-import { runAuthorizedCommand, type CommandRunStatus } from "./command-runner.js";
+import { CommandCleanupIncompleteError, runAuthorizedCommand, type CommandRunStatus } from "./command-runner.js";
 import { readWorktreeRevision } from "./worktree.js";
 import {
   beginTrustedVerification, finishTrustedVerification,
@@ -39,6 +39,10 @@ export interface IndependentCheckInput {
   readonly signal?: AbortSignal;
   /** Host-only opt-in exact candidate/checker binding; preserve runtime identity. */
   readonly trustedVerification?: TrustedVerificationDescriptor;
+  /** Host-owned verifier protocol; these exit codes attest unresolved effects. */
+  readonly unsettledExitCodes?: readonly number[];
+  /** Retain ownership after interruption until the host verifies tree settlement. */
+  readonly requireSettledEffects?: boolean;
 }
 
 /**
@@ -60,6 +64,7 @@ export interface IndependentCheckRecord {
   /** Original process termination evidence, before legacy exit normalization. */
   readonly processExitCode?: number | null;
   readonly processSignal?: NodeJS.Signals | null;
+  readonly processCleanupUnsettled?: true;
   /** Metadata only; raw candidate/checker snapshot bytes are never persisted. */
   readonly trustedVerification?: TrustedVerificationEvidence;
   readonly stdoutText: string;
@@ -143,6 +148,12 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     ...(input.signal === undefined ? {} : { signal: input.signal })
   });
 
+  // Do not inspect a still-mutating candidate or issue acceptance authority.
+  // Callers must retain its workspace/claim until host reconciliation.
+  const cleanupUnsettled = result.cleanupUnsettled ||
+    (result.exitCode !== null && input.unsettledExitCodes?.includes(result.exitCode) === true);
+  if (cleanupUnsettled && (input.requireSettledEffects || trusted !== undefined)) throw new CommandCleanupIncompleteError(result);
+
   const exactEvidence = observation === undefined ? undefined : finishTrustedVerification(observation);
   const after = captureWorktreeFingerprint(cwd, manifest);
   const compat = fingerprintsCompatible(before, after, manifest);
@@ -161,6 +172,7 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
 
   const ok =
     result.status === "completed" &&
+    !cleanupUnsettled &&
     exitCode === 0 &&
     compat.ok &&
     (exactEvidence === undefined || exactEvidence.ok) &&
@@ -179,6 +191,7 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     processStatus: result.status,
     processExitCode: result.exitCode,
     processSignal: result.signal,
+    ...(cleanupUnsettled ? { processCleanupUnsettled: true as const } : {}),
     ...(exactEvidence === undefined ? {} : { trustedVerification: exactEvidence }),
     stdoutText: boundedText(stdout),
     stderrText: boundedText(stderr),

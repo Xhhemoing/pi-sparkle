@@ -1,5 +1,18 @@
 # Active implementation plan
 
+## M0-A nested process ownership (2026-10-16)
+
+`TASK-20261016-process-ownership` implements the first bounded migration slice
+from PR #60 `415b072`: nested recipe group ownership, unresolved cleanup fences,
+and durable checker actions in the existing ledger. The
+[plan](../docs/superpowers/plans/2026-10-16-process-ownership.md) scopes real
+develop cancellation/deadline, retained views/claims, crash and replay checks.
+Author verification is complete: actual full gate 3594 pass / 0 fail / 2 skip,
+build and security/Pi/kernel probes PASS. Publication is blocked by automatic
+approval review; current commands and remaining platform/containment conditions are in the
+[report](../docs/reports/2026-10-16-process-ownership.md). This is not all-M0,
+independent, live-provider or production acceptance. Main/PR #61 remain separate.
+
 ## Detailed architecture map and compact navigation (2026-10-16)
 
 `TASK-20261016-detailed-architecture-map` continues from `415b072`. The user

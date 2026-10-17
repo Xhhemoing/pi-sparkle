@@ -5,20 +5,20 @@ import { DomainValidationError } from "../domain/errors.js";
 import { prepareNativeWriteCriteria, type NativeWriteAcceptanceCriterion } from "./write-criteria.js";
 import { assertTrustedVerificationDescriptor, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 
-export interface NativeWriteVerificationInput { readonly command: string; readonly args?: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; }
+export interface NativeWriteVerificationInput { readonly command: string; readonly args?: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[]; }
 export interface NativeWritePreflightInput { readonly sourceRepo: string; readonly objective: string; readonly verification: NativeWriteVerificationInput; readonly signal?: AbortSignal; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; }
-export interface NativeWritePreflight { readonly sourceRepo: string; readonly objective: string; readonly verification: { readonly command: string; readonly args: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[] }; readonly revision: string; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; }
+export interface NativeWritePreflight { readonly sourceRepo: string; readonly objective: string; readonly verification: { readonly command: string; readonly args: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[] }; readonly revision: string; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; }
 
 function fail(message: string): never { throw new DomainValidationError(message); }
-function repairableExits(input: unknown): readonly number[] | undefined {
+function exitCodes(input: unknown, name: string): readonly number[] | undefined {
   if (input === undefined) return undefined;
-  if (!Array.isArray(input) || input.length > 255) fail("repairableExitCodes must be an array of unique integer exit codes from 1 to 255");
+  if (!Array.isArray(input) || input.length > 255) fail(`${name} must be an array of unique integer exit codes from 1 to 255`);
   const codes: number[] = [];
   for (let index = 0; index < input.length; index++) {
     const property = Object.getOwnPropertyDescriptor(input, index);
     const value: unknown = property !== undefined && "value" in property ? property.value : undefined;
     if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 255 || codes.includes(value)) {
-      fail("repairableExitCodes must be an array of unique integer exit codes from 1 to 255");
+      fail(`${name} must be an array of unique integer exit codes from 1 to 255`);
     }
     codes.push(value);
   }
@@ -41,7 +41,9 @@ export function prepareNativeWrite(input: NativeWritePreflightInput): NativeWrit
   const args = verification.args === undefined ? [] : verification.args;
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) fail("verification args must be strings");
   const trustedVerification = verification.trustedVerification;
-  const repairableExitCodes = repairableExits(verification.repairableExitCodes);
+  const repairableExitCodes = exitCodes(verification.repairableExitCodes, "repairableExitCodes");
+  const unsettledExitCodes = exitCodes(verification.unsettledExitCodes, "unsettledExitCodes");
+  if (unsettledExitCodes?.some((code) => repairableExitCodes?.includes(code))) fail("unsettled exit codes cannot authorize repair");
   if (trustedVerification !== undefined) assertTrustedVerificationDescriptor(trustedVerification, verification.command, args);
   const requested = path.resolve(input.sourceRepo);
   const physical = physicalDirectoryWithoutLinks(requested);
@@ -52,7 +54,8 @@ export function prepareNativeWrite(input: NativeWritePreflightInput): NativeWrit
   const revision = git(root, ["rev-parse", "HEAD"]);
   const output = { sourceRepo: root, objective: input.objective.trim(), verification: { command: verification.command, args: [...args],
     ...(trustedVerification === undefined ? {} : { trustedVerification }),
-    ...(repairableExitCodes === undefined ? {} : { repairableExitCodes }) }, revision,
+    ...(repairableExitCodes === undefined ? {} : { repairableExitCodes }),
+    ...(unsettledExitCodes === undefined ? {} : { unsettledExitCodes }) }, revision,
     ...(acceptanceCriteria === undefined ? {} : { acceptanceCriteria }) };
   Object.freeze(output.verification.args); Object.freeze(output.verification); return Object.freeze(output);
 }

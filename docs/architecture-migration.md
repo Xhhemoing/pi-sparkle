@@ -1,6 +1,6 @@
 # Pi-sparkle 当前架构：迁移计划
 
-本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。本轮仅写文档，不把任何切片标记为已实施。
+本计划落实已接受的 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。M0–M7 是可拆分的工作切片，不是八个新模块、固定日期承诺或要求全部完成的发布清单。当前能力见[状态矩阵](status-matrix.md)，行为合同见[算法文档](architecture-algorithms.md)。计划首次提交仅含设计。后续 [M0-A 实施与验证](reports/2026-10-16-process-ownership.md) 已形成代码候选：Linux 全量检查通过，GitHub 发布受自动审批阻挡；这不表示完整 M0 或其他切片已验收。
 
 ## 1. 最小交付与依赖
 

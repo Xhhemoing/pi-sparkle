@@ -120,6 +120,7 @@ jobs:
             'test/integration/cli/development-batch-review.test.ts',
             'test/integration/development/controller.test.ts',
             'test/integration/development/controller-cancellation.test.ts',
+            'test/integration/development/process-ownership.test.ts',
             'test/integration/development/work-item-cancellation.test.ts',
             'test/integration/development/batch.test.ts',
             'test/integration/development/source-integration.test.ts',

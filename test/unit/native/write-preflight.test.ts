@@ -58,6 +58,26 @@ test("clean preflight pins HEAD and freezes a copied host verification snapshot"
   });
 });
 
+test("host unsettled exit codes are immutable and cannot also authorize repair", async () => {
+  await withFixture(async ({ repo }) => {
+    const codes = [3];
+    const prepared = prepareNativeWrite({ ...input(repo), verification: {
+      command: process.execPath, args: ["-e", "process.exit(3)"], repairableExitCodes: [1], unsettledExitCodes: codes
+    } });
+    codes[0] = 1;
+    assert.deepEqual(prepared.verification.unsettledExitCodes, [3]);
+    assert.ok(Object.isFrozen(prepared.verification.unsettledExitCodes));
+    for (const invalid of [[0], [256], [3, 3], [1.5], "3"]) {
+      assertRefusal(() => prepareNativeWrite({ ...input(repo), verification: {
+        command: process.execPath, unsettledExitCodes: invalid as unknown as number[]
+      } }), /unsettledExitCodes/);
+    }
+    assertRefusal(() => prepareNativeWrite({ ...input(repo), verification: {
+      command: process.execPath, repairableExitCodes: [3], unsettledExitCodes: [3]
+    } }), /cannot authorize repair/);
+  });
+});
+
 test("equivalent root syntax is accepted while subdirectories and nonrepositories are refused", async () => {
   await withFixture(async ({ root, repo }) => {
     assert.equal(prepareNativeWrite(input(`${repo}${path.sep}.`)).sourceRepo, realpathSync.native(repo));
