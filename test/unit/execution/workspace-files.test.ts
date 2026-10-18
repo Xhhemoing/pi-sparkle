@@ -83,6 +83,33 @@ test("workspace search skips NUL and malformed UTF-8 files with visible truncati
   });
 });
 
+test("workspace discovery retains containment and link policy through an ancestor root alias", async (t) => {
+  const f = await fixture(); t.after(f.cleanup);
+  const root = path.join(f.root, "physical", "candidate");
+  await mkdir(path.join(root, "src"), { recursive: true });
+  await mkdir(path.join(root, ".git"));
+  await writeFile(path.join(root, "src/a.txt"), "needle\n");
+  await writeFile(path.join(root, ".git/config"), "needle");
+  await writeFile(path.join(f.root, "outside.txt"), "needle");
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  await symlink(path.join(f.root, "physical"), path.join(f.root, "alias"), linkType);
+  await symlink(path.join(root, "src"), path.join(root, "linked"), linkType);
+  await symlink(f.root, path.join(root, "outside"), linkType);
+  const ctx = { worktreeRoot: path.join(f.root, "alias", "candidate") };
+  assert.equal((await readWorkspaceFile(ctx, { path: "src/a.txt" })).text, "needle\n");
+  assert.deepEqual(await listWorkspaceFiles(ctx, {}), { paths: ["src/a.txt"], truncated: false });
+  assert.deepEqual(await listWorkspaceFiles(ctx, { path: path.join(ctx.worktreeRoot, "src") }), { paths: ["src/a.txt"], truncated: false });
+  assert.deepEqual(await searchWorkspaceFiles(ctx, { query: "needle", path: "src" }), {
+    matches: [{ path: "src/a.txt", line: 1, text: "needle" }], truncated: false
+  });
+  assert.deepEqual(await listWorkspaceFiles(ctx, { path: "linked" }), { paths: [], truncated: false });
+  assert.deepEqual(await searchWorkspaceFiles(ctx, { path: "linked", query: "needle" }), { matches: [], truncated: false });
+  for (const input of ["outside/outside.txt", "../outside.txt", path.join(f.root, "outside.txt"), ".git/config"]) {
+    await assert.rejects(listWorkspaceFiles(ctx, { path: input }), /escape|excluded/);
+    await assert.rejects(searchWorkspaceFiles(ctx, { path: input, query: "needle" }), /escape|excluded/);
+  }
+});
+
 test("workspace literal search is lexical and counts source lines without interpreting regex", async (t) => {
   const f = await fixture(); t.after(f.cleanup);
   await mkdir(path.join(f.root, "src"));

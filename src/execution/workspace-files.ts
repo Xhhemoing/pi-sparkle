@@ -3,7 +3,7 @@ import { isUtf8 } from "node:buffer";
 import { lstat, open, opendir, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
-import { resolveInsideRoot } from "./paths.js";
+import { isPathInside, resolveInsideRoot } from "./paths.js";
 
 export interface WorkspaceFilesContext {
   readonly worktreeRoot: string;
@@ -58,10 +58,19 @@ async function scope(ctx: WorkspaceFilesContext, input: string, discovery = fals
   checkCancelled(ctx);
   readLimit(ctx);
   assertPath(input);
-  const absolute = resolveInsideRoot(ctx.worktreeRoot, input);
-  if (discovery) checkExcluded(path.resolve(ctx.worktreeRoot), absolute);
-  const root = await realpath(ctx.worktreeRoot);
+  const requestedRoot = resolveInsideRoot(ctx.worktreeRoot, ".");
+  const requestedAbsolute = path.resolve(requestedRoot, input);
+  if (!isPathInside(requestedAbsolute, requestedRoot)) {
+    throw new DomainValidationError(`path escape refused: ${input} is outside worktree root ${requestedRoot}`);
+  }
+  if (discovery) checkExcluded(requestedRoot, requestedAbsolute);
+  const root = await realpath(requestedRoot);
   checkCancelled(ctx);
+  // Canonicalize only the root prefix before inspecting child links. Native
+  // aliases (for example Windows short names) must not make an in-root path
+  // appear outside its canonical root. Keep the child spelling so discovery
+  // still sees, and skips, an explicitly requested directory link.
+  const absolute = resolveInsideRoot(root, path.relative(requestedRoot, requestedAbsolute));
   const canonical = await realpath(absolute);
   checkCancelled(ctx);
   resolveInsideRoot(root, canonical);

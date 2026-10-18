@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -238,31 +238,39 @@ for (const autocrlf of [false, true]) {
     await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
       assert.equal(git(repo, ["config", "--get", "core.autocrlf"]), String(autocrlf));
       let workerCalls = 0;
+      let workerError: unknown;
       const result = await startDevelopmentTask({
         stateRoot, sandboxRoot, sourceRepo: repo, objective: "Find and update the exported value", verification: checkValue(candidateAfter),
-        executorFactory: ({ tools }) => ({
+        executorFactory: ({ tools, candidatePath }) => ({
           async *execute(request): AsyncIterable<ExecutionEvent> {
             workerCalls++;
-            assert.equal(tools.some((tool) => tool.name === "sparkle_run_command"), false);
-            const findTool = (name: string) => {
-              const tool = tools.find((entry) => entry.name === name);
-              assert.ok(tool, `direct task is missing ${name}`);
-              return tool;
-            };
-            const listing = await findTool("sparkle_list_files").execute("list", {}) as { content: { text: string }[] };
-            assert.deepEqual(JSON.parse((listing.content[0] as { text: string }).text), { paths: ["value.ts"], truncated: false });
-            const found = await findTool("sparkle_search_files").execute("search", { query: "value = 1" }) as { content: { text: string }[] };
-            const match = (JSON.parse((found.content[0] as { text: string }).text) as { matches: { path: string; line: number }[] }).matches[0];
-            assert.ok(match);
-            const read = await findTool("sparkle_read_file").execute("range", { path: match.path, startLine: match.line, endLine: match.line }) as { content: { text: string }[] };
-            assert.equal((read.content[0] as { text: string }).text, candidateBefore);
-            await findTool("sparkle_patch_file").execute("patch", { path: match.path, oldText: "value = 1", newText: "value = 2" });
-            yield { type: "MESSAGE", message: taskResult(request) };
-            yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+            try {
+              assert.equal(tools.some((tool) => tool.name === "sparkle_run_command"), false);
+              const findTool = (name: string) => {
+                const tool = tools.find((entry) => entry.name === name);
+                assert.ok(tool, `direct task is missing ${name}`);
+                return tool;
+              };
+              const listing = await findTool("sparkle_list_files").execute("list", {}) as { content: { text: string }[] };
+              assert.deepEqual(JSON.parse((listing.content[0] as { text: string }).text), { paths: ["value.ts"], truncated: false });
+              const found = await findTool("sparkle_search_files").execute("search", { query: "value = 1" }) as { content: { text: string }[] };
+              const match = (JSON.parse((found.content[0] as { text: string }).text) as { matches: { path: string; line: number }[] }).matches[0];
+              assert.ok(match);
+              const read = await findTool("sparkle_read_file").execute("range", { path: match.path, startLine: match.line, endLine: match.line }) as { content: { text: string }[] };
+              assert.equal((read.content[0] as { text: string }).text, candidateBefore);
+              await findTool("sparkle_patch_file").execute("patch", { path: match.path, oldText: "value = 1", newText: "value = 2" });
+              yield { type: "MESSAGE", message: taskResult(request) };
+              yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+            } catch (error) {
+              const canonical = await realpath(candidatePath).catch(() => "<unavailable>");
+              workerError = new Error(`candidate ${candidatePath}; canonical ${canonical}; ${error instanceof Error ? error.stack : String(error)}`, { cause: error });
+              throw workerError;
+            }
           }
         })
       });
       assert.equal(workerCalls, 1);
+      assert.ifError(workerError);
       assert.equal(result.acceptance.accepted, true, result.reason);
       assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
       assert.equal(await readFile(path.join(result.candidatePath, "value.ts"), "utf8"), candidateAfter);
