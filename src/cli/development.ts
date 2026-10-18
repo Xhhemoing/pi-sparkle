@@ -78,7 +78,7 @@ async function readDefinitions(file: string): Promise<unknown> {
 
 /** Preserve the host-provided closures and schemas; never create broader tools. */
 export function developmentPiTools(tools: readonly NativeWriteTool[]): NonNullable<Parameters<typeof createConfiguredPiExecutor>[0]["tools"]> {
-  return ["sparkle_read_file", "sparkle_write_file"].map((name) => {
+  return ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"].map((name) => {
     const tool = tools.find((entry) => entry.name === name);
     if (tool === undefined || !("parameters" in tool) || tool.parameters === null || typeof tool.parameters !== "object" ||
         !("label" in tool) || typeof tool.label !== "string" || !("description" in tool) || typeof tool.description !== "string") {

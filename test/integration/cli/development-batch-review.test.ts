@@ -129,7 +129,7 @@ test("Pi batch reuses model options and scoped tools for real fixture writes wit
       const file = `${calls++ === 0 ? "a" : "b"}.txt`;
       assert.equal(options.providerId, "fixture"); assert.equal(options.modelId, "model");
       assert.equal(typeof options.onInvocation, "function");
-      assert.deepEqual(options.tools?.map((tool) => tool.name), ["sparkle_read_file", "sparkle_write_file"]);
+      assert.deepEqual(options.tools?.map((tool) => tool.name), ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"]);
       return { async *execute(request, signal) {
         active++; maximumActive = Math.max(maximumActive, active);
         try {

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { loopArtifactPath, readLoopArtifact } from "../execution/loop-artifact.j
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
 import { CommandCleanupIncompleteError } from "../execution/command-runner.js";
+import { resolveInsideRoot } from "../execution/paths.js";
 import { createIsolatedWorktree, disposeIsolatedWorktree } from "../execution/worktree.js";
 import { prepareTrustedVerification } from "../execution/trusted-verification.js";
 import { NativeWriteSession, type NativeWriteExecutorFactory, type NativeWriteSessionInput } from "../native/write-session.js";
@@ -85,6 +87,34 @@ function unresolvedEffect(actions: readonly ActionRecord[], item: WorkItemDefini
 }
 function protectedPaths(item: WorkItemDefinition): readonly string[] {
   return [...new Set(item.acceptance.flatMap((recipe) => recipe.protectedPaths ?? []))];
+}
+function canonicalMutationPath(candidate: string, relative: string): string {
+  const root = realpathSync(candidate);
+  let ancestor = resolveInsideRoot(candidate, relative);
+  const missing: string[] = [];
+  for (;;) {
+    try {
+      const canonical = path.resolve(realpathSync(ancestor), ...missing.reverse());
+      resolveInsideRoot(root, canonical);
+      return path.relative(root, canonical).replaceAll("\\", "/");
+    } catch (error) {
+      if (!(error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      missing.push(path.basename(ancestor));
+      ancestor = parent;
+    }
+  }
+}
+function assertMutationScope(candidate: string, raw: unknown, item: WorkItemDefinition): void {
+  const relative = raw !== null && typeof raw === "object" && "path" in raw ? (raw as { path: unknown }).path : undefined;
+  if (typeof relative !== "string" || relative.includes("\\") || path.posix.isAbsolute(relative) ||
+      relative.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
+      !under(relative, item.allowedScope) || under(relative, protectedPaths(item))) fail("write outside task scope or into protected verifier dependency refused");
+  // Check existing targets and the nearest existing parent of new writes.
+  // Independent filesystem writers can still race this pre-mutation check.
+  const canonical = canonicalMutationPath(candidate, relative);
+  if (!under(canonical, item.allowedScope) || under(canonical, protectedPaths(item))) fail("write outside task scope or into protected verifier dependency refused");
 }
 function assertRecipePolicy(item: WorkItemDefinition): void {
   for (const recipe of item.acceptance) {
@@ -324,12 +354,9 @@ export class DevelopmentController {
             references: [candidatePath, context.sourceRevision] }, result: { candidatePath, sourceRevision: context.sourceRevision,
               itemId: selected.item.id, claimToken: selected.token } });
           checkCancellation(options.signal);
-          const tools = context.tools.map((tool) => tool.name !== "sparkle_write_file" ? tool : {
+          const tools = context.tools.map((tool) => tool.name !== "sparkle_write_file" && tool.name !== "sparkle_patch_file" ? tool : {
             ...tool, execute: (id: string, raw: unknown, signal?: AbortSignal) => {
-              const relative = raw !== null && typeof raw === "object" && "path" in raw ? (raw as { path: unknown }).path : undefined;
-              if (typeof relative !== "string" || relative.includes("\\") || path.posix.isAbsolute(relative) ||
-                  relative.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
-                  !under(relative, selected.item.allowedScope) || under(relative, protectedPaths(selected.item))) fail("write outside task scope or into protected verifier dependency refused");
+              assertMutationScope(context.candidatePath, raw, selected.item);
               return tool.execute(id, raw, signal);
             }
           });

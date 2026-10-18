@@ -1,5 +1,26 @@
 # Active checklist
 
+## Conversation entry, focus and task presentation (2026-10-18)
+
+[Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md) · [evidence](../docs/reports/2026-10-18-conversation-presentation.md).
+
+- [x] Reconcile current local source `541868a`, remote PR #60 `2a3dd470`, ADR-009 and isolated C1/C2-A / M4-A scopes.
+- [x] C1/C2-A structured host entry and focus generation/CAS/dedupe/fence: 17/17 focused, independent combined 63/63. [Evidence](../docs/reports/2026-10-18-conversation-presentation.md).
+- [x] M4-A pure presentation scopes and direct/native profile wiring, no global store/authority mutation or sibling/retry leakage: 46/46 adjacent. [Evidence](../docs/reports/2026-10-18-conversation-presentation.md).
+- [x] Independent source review PASS; pinned gate 3,689 pass / 0 fail / 2 conditional skips + build. Post-build probe results in the [current record](../docs/reports/2026-10-18-conversation-presentation.md).
+- [ ] GitHub publication remains blocked: latest automatic reviewer explicitly ruled that “执行计划” is insufficient for exact payload/destination approval. Do not use another transport as a workaround.
+
+## Latest direction implementation (2026-10-18)
+
+`TASK-20261018-direction-completion`: [plan](../docs/superpowers/plans/2026-10-18-direction-completion.md), [verification](../docs/reports/2026-10-18-direction-completion.md).
+
+- [x] Reconcile ADR-009, current framework/conversation proposal and unmerged #60/#61; preserve latest #60 `2a3dd470` as baseline.
+- [x] Record actual tools RED: 14 pass / 4 fail; missing module/new tool exposure are intended failures. Dependency setup failures are separate.
+- [x] M1-B services and native/CLI wiring; real-Git discovery→patch→host-check, author focused 83/83 and controller 16/16. [Evidence](../docs/reports/2026-10-18-direction-completion.md).
+- [x] Pinned actual gate: 3,657 pass / 0 fail / 2 conditional skips + build; independent source review PASS with 90/90. Probe results in the [current report](../docs/reports/2026-10-18-direction-completion.md).
+- [x] Prepare reviewed source and plan plus complete local Git patch; full local evidence is retained.
+- [ ] GitHub publication blocked by automatic approval review: explicit approval required for the exact 22-file payload to `Xhhemoing/pi-sparkle` existing PR #60. No remote update succeeded; [reason and unblock condition](../docs/reports/2026-10-18-direction-completion.md#publication-blocker--automatic-approval-review). Whole roadmap, main merge and benefit claims remain open.
+
 ## Conversation workflow and daylight guide (2026-10-17)
 
 `TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.

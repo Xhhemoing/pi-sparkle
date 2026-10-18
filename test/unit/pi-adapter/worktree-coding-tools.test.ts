@@ -147,3 +147,52 @@ test("sparkle_write_file creates a normal in-root new file", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("coding tools expose bounded discovery, literal search, range read and exact patch", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-discovery-"));
+  try {
+    await mkdir(path.join(root, "src"));
+    await writeFile(path.join(root, "src/value.ts"), "// header\nexport const value = 1;\n// footer\n");
+    const list = await toolByName(root, "sparkle_list_files");
+    const listed = await list.execute("list", {});
+    assert.deepEqual(JSON.parse((listed.content[0] as { text: string }).text), {
+      paths: ["src/value.ts"], truncated: false
+    });
+    const search = await toolByName(root, "sparkle_search_files");
+    const found = await search.execute("search", { query: "value = 1" });
+    assert.deepEqual(JSON.parse((found.content[0] as { text: string }).text), {
+      matches: [{ path: "src/value.ts", line: 2, text: "export const value = 1;" }], truncated: false
+    });
+    const read = await toolByName(root, "sparkle_read_file");
+    const excerpt = await read.execute("range", { path: "src/value.ts", startLine: 2, endLine: 2 });
+    assert.equal((excerpt.content[0] as { text: string }).text, "export const value = 1;\n");
+    assert.equal((excerpt.details as { startLine: number }).startLine, 2);
+    const patch = await toolByName(root, "sparkle_patch_file");
+    await patch.execute("patch", { path: "src/value.ts", oldText: "value = 1", newText: "value = 2" });
+    const result = await read.execute("whole", { path: "src/value.ts" });
+    assert.equal((result.content[0] as { text: string }).text, "// header\nexport const value = 2;\n// footer\n");
+    assert.deepEqual(result.details, { resolvedPath: "src/value.ts" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("new coding tool parameters fail closed and cancelled patch preserves bytes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-discovery-"));
+  try {
+    await writeFile(path.join(root, "value.txt"), "original");
+    const tools = createWorktreeCodingTools({ worktreeRoot: root, signal: AbortSignal.abort() });
+    for (const name of ["sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"]) {
+      const tool = tools.find((entry) => entry.name === name);
+      assert.ok(tool);
+      const params = name === "sparkle_search_files" ? { query: "original" } : name === "sparkle_patch_file"
+        ? { path: "value.txt", oldText: "original", newText: "changed" } : {};
+      await assert.rejects(() => tool.execute("cancel", params), /abort|cancel/i);
+    }
+    const read = await toolByName(root, "sparkle_read_file");
+    assert.equal((await read.execute("read", { path: "value.txt" })).content[0]?.type, "text");
+    await assert.rejects(() => read.execute("invalid-range", { path: "value.txt", startLine: "1" }), /line|Line/);
+    const search = await toolByName(root, "sparkle_search_files");
+    await assert.rejects(() => search.execute("invalid-query", { query: "" }), /query/);
+    const list = await toolByName(root, "sparkle_list_files");
+    await assert.rejects(() => list.execute("invalid-limit", { limit: 0 }), /limit/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
