@@ -20,7 +20,7 @@ function git(cwd: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-async function withRepo(body: (fixture: { root: string; repo: string; stateRoot: string; sandboxRoot: string }) => Promise<void>): Promise<void> {
+async function withRepo(body: (fixture: { root: string; repo: string; stateRoot: string; sandboxRoot: string }) => Promise<void>, autocrlf = false): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "direct-development-task-"));
   const repo = path.join(root, "repo");
   const stateRoot = path.join(root, "state");
@@ -29,6 +29,9 @@ async function withRepo(body: (fixture: { root: string; repo: string; stateRoot:
     await mkdir(repo);
     await mkdir(sandboxRoot);
     git(repo, ["init"]);
+    // Most cases assert exact LF bytes. Do not inherit the runner's checkout
+    // conversion; the discovery scenario separately exercises CRLF checkout.
+    git(repo, ["config", "core.autocrlf", String(autocrlf)]);
     git(repo, ["config", "user.email", "test@example.com"]);
     git(repo, ["config", "user.name", "Direct Development Test"]);
     await writeFile(path.join(repo, "value.ts"), BEFORE);
@@ -59,10 +62,10 @@ function taskResult(request: AgentExecutionRequest) {
   };
 }
 
-function checkValue() {
+function checkValue(expected = AFTER) {
   return {
     command: process.execPath,
-    args: ["-e", "const fs = require('node:fs'); process.exit(fs.readFileSync('value.ts', 'utf8') === 'export const value = 2;\\n' ? 0 : 1);"]
+    args: ["-e", `const fs = require('node:fs'); process.exit(fs.readFileSync('value.ts', 'utf8') === ${JSON.stringify(expected)} ? 0 : 1);`]
   };
 }
 
@@ -228,37 +231,42 @@ test("direct task preserves unsettled effects and candidate evidence through fin
   });
 });
 
-test("direct task discovers, locates, reads and patches candidate code before host acceptance", async () => {
-  await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
-    let workerCalls = 0;
-    const result = await startDevelopmentTask({
-      stateRoot, sandboxRoot, sourceRepo: repo, objective: "Find and update the exported value", verification: checkValue(),
-      executorFactory: ({ tools }) => ({
-        async *execute(request): AsyncIterable<ExecutionEvent> {
-          workerCalls++;
-          assert.equal(tools.some((tool) => tool.name === "sparkle_run_command"), false);
-          const findTool = (name: string) => {
-            const tool = tools.find((entry) => entry.name === name);
-            assert.ok(tool, `direct task is missing ${name}`);
-            return tool;
-          };
-          const listing = await findTool("sparkle_list_files").execute("list", {}) as { content: { text: string }[] };
-          assert.deepEqual(JSON.parse((listing.content[0] as { text: string }).text), { paths: ["value.ts"], truncated: false });
-          const found = await findTool("sparkle_search_files").execute("search", { query: "value = 1" }) as { content: { text: string }[] };
-          const match = (JSON.parse((found.content[0] as { text: string }).text) as { matches: { path: string; line: number }[] }).matches[0];
-          assert.ok(match);
-          const read = await findTool("sparkle_read_file").execute("range", { path: match.path, startLine: match.line, endLine: match.line }) as { content: { text: string }[] };
-          assert.equal((read.content[0] as { text: string }).text, BEFORE);
-          await findTool("sparkle_patch_file").execute("patch", { path: match.path, oldText: "value = 1", newText: "value = 2" });
-          yield { type: "MESSAGE", message: taskResult(request) };
-          yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
-        }
-      })
-    });
-    assert.equal(workerCalls, 1);
-    assert.equal(result.acceptance.accepted, true, result.reason);
-    assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
-    assert.equal(await readFile(path.join(result.candidatePath, "value.ts"), "utf8"), AFTER);
-    assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+for (const autocrlf of [false, true]) {
+  test(`direct task discovers, locates, reads and patches candidate code before host acceptance (autocrlf=${autocrlf})`, async () => {
+    const candidateBefore = autocrlf ? BEFORE.replaceAll("\n", "\r\n") : BEFORE;
+    const candidateAfter = autocrlf ? AFTER.replaceAll("\n", "\r\n") : AFTER;
+    await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
+      assert.equal(git(repo, ["config", "--get", "core.autocrlf"]), String(autocrlf));
+      let workerCalls = 0;
+      const result = await startDevelopmentTask({
+        stateRoot, sandboxRoot, sourceRepo: repo, objective: "Find and update the exported value", verification: checkValue(candidateAfter),
+        executorFactory: ({ tools }) => ({
+          async *execute(request): AsyncIterable<ExecutionEvent> {
+            workerCalls++;
+            assert.equal(tools.some((tool) => tool.name === "sparkle_run_command"), false);
+            const findTool = (name: string) => {
+              const tool = tools.find((entry) => entry.name === name);
+              assert.ok(tool, `direct task is missing ${name}`);
+              return tool;
+            };
+            const listing = await findTool("sparkle_list_files").execute("list", {}) as { content: { text: string }[] };
+            assert.deepEqual(JSON.parse((listing.content[0] as { text: string }).text), { paths: ["value.ts"], truncated: false });
+            const found = await findTool("sparkle_search_files").execute("search", { query: "value = 1" }) as { content: { text: string }[] };
+            const match = (JSON.parse((found.content[0] as { text: string }).text) as { matches: { path: string; line: number }[] }).matches[0];
+            assert.ok(match);
+            const read = await findTool("sparkle_read_file").execute("range", { path: match.path, startLine: match.line, endLine: match.line }) as { content: { text: string }[] };
+            assert.equal((read.content[0] as { text: string }).text, candidateBefore);
+            await findTool("sparkle_patch_file").execute("patch", { path: match.path, oldText: "value = 1", newText: "value = 2" });
+            yield { type: "MESSAGE", message: taskResult(request) };
+            yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+          }
+        })
+      });
+      assert.equal(workerCalls, 1);
+      assert.equal(result.acceptance.accepted, true, result.reason);
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+      assert.equal(await readFile(path.join(result.candidatePath, "value.ts"), "utf8"), candidateAfter);
+      assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+    }, autocrlf);
   });
-});
+}
