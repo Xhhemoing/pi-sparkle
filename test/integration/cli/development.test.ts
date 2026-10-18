@@ -121,7 +121,7 @@ test("Pi command wiring passes only host scoped tools and supports a real fixtur
     calls++;
     assert.equal(options.providerId, "fixture"); assert.equal(options.modelId, "model");
     assert.equal(typeof options.onInvocation, "function");
-    assert.deepEqual(options.tools?.map((tool) => tool.name), ["sparkle_read_file", "sparkle_write_file"]);
+    assert.deepEqual(options.tools?.map((tool) => tool.name), ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"]);
     return { async *execute(request, signal) {
       await options.tools!.find((tool) => tool.name === "sparkle_write_file")!.execute("fixture-write", { path: "value.txt", contents: "changed" }, signal);
       yield* new ProtocolChildExecutor().execute(request, signal);

@@ -13,11 +13,14 @@ accept its entire M-number or any production/live/experimental gate.
 | M0-A cooperative process ownership | Published on PR #60 | `e6f6a5b`, exact tested tree `73e74bc2`; [original evidence](../docs/reports/2026-10-16-process-ownership.md) and current publication record |
 | M0-B atomic effect admission and scoped readiness | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m0-atomic-admission.md); existing ledger/store, schema unchanged; 49 real controller/process and 61 final adjacent tests pass |
 | M1-A direct task host entry | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-direct-development-task.md); one existing native session; six real Git tests pass |
-| M1 remaining tools/context | Planned | Scope-aware list/search/range/patch and task-local CodeMap selection |
+| M1-B candidate file tools | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-direction-completion.md): bounded list/search/range/unique patch, host-neutral implementation and direct-task wiring |
+| M1 task-local context | Planned | CodeMap source and task-local selection; file tools do not complete this item |
 | M2-A boundary cleanup | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m2-boundary-cleanup.md); 98/98 focused, no new allowlist exceptions |
 | M2 narrow SDK and lazy contributions | Planned | Packed external consumers and activation/generation contract |
 | M3 findings/local correction | Planned | Revision-bound read-only observations before automatic repair |
-| M4 routing/usage/preferences | Planned | Independent increments; strict budget admission remains optional |
+| C1/C2-A structured conversation host and focus | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), focus/session 17/17; no NL registration or persistent focus |
+| M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
+| M4 remaining routing/usage/preferences | Planned | Independent increments; strict budget admission remains optional |
 | M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
 | M6 project/connector | Planned | Thin controller continuation and bounded external receipts |
 | M7 policy optimization | Planned | Attribution, offline/shadow evidence and existing policy gates |
@@ -53,6 +56,7 @@ a planned high-priority item's own unresolved effect remains a separate follow-u
 
 Main/PR #61 integration, stable SDK, root shared budgets, real-provider benefit,
 S0-min/R10/R11/F6 and production/experimental acceptance retain their own records.
-Next implementation priority after this delivery is the remaining M1 tool/context
-slice, with full M0 containment work required before expanding process backends
-or overlapping writers.
+Next implementation priorities are the remaining M1 task-context slice and C1/C2
+conversation/focus wiring; M1-B file tools have current source/gate evidence. Full
+M0 containment work is required before expanding process backends or overlapping
+writers.

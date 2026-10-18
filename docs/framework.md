@@ -5,7 +5,7 @@ Pi-sparkle 用一个能直接干活的小核心完成开发任务，再按需要
 本页是持续维护的架构入口。用户已接受这里的设计方向，决策见 [ADR-009](decisions/0009-lightweight-adaptive-framework.md)。**设计接受不表示全部功能已实现，也不替代实现验收**；具体状态以[状态矩阵](status-matrix.md)和[当前任务](../tasks/plan.md)为准。
 
 - 宣讲与逐步阅读：[当前架构 HTML](architecture.html)。
-- 对话交互接线方案：[自然语言入口、小任务与项目长线衔接](conversation-workflow.md)（提案，待实施）。
+- 对话交互接线方案：[自然语言入口、小任务与项目长线衔接](conversation-workflow.md)（完整方案仍分阶段推进）；[结构化宿主入口与本次表达偏好](conversation-host.md)已有有界实现，实际验证状态见记录。
 - 模块与调用关系详图：[交互架构图](architecture-map.html) · [独立 SVG](architecture-map.svg)。
 - 实现与验收：[十类算法契约](architecture-algorithms.md)、[迁移顺序](architecture-migration.md)。
 - 当前使用：[直接任务入口](direct-development-task.md)、[持续开发指南](development-agent-loop.md)、[原生开发接口](native-development-loop.md)。
@@ -38,7 +38,7 @@ flowchart TD
 
 ## 2. 普通任务直接做，复杂度随需要增加
 
-默认设计是一个 worker：理解目标，读取相关代码，修改候选，执行与影响相称的检查，报告实际结果。普通任务无需队列、金额表单、独立 planner/reviewer 或实验卡。[`startDevelopmentTask`](direct-development-task.md) 已作为实验性宿主入口复用 `NativeWriteSession`；宿主仍提供 executor 和检查命令，尚未承诺稳定 package SDK。
+默认设计是一个 worker：理解目标，读取相关代码，修改候选，执行与影响相称的检查，报告实际结果。普通任务无需队列、金额表单、独立 planner/reviewer 或实验卡。候选内的发现、字面搜索、行范围阅读和唯一精确修改已完成 [M1-B 有界切片](superpowers/plans/2026-10-18-direction-completion.md)的本地验证与源码独立审查，具体边界和当前结果见[验证记录](reports/2026-10-18-direction-completion.md)。[`startDevelopmentTask`](direct-development-task.md) 已作为实验性宿主入口复用 `NativeWriteSession`；宿主仍提供 executor 和检查命令，尚未承诺稳定 package SDK。
 
 流程强度由可逆性、授权、公共契约影响、外部效果和证据决定。单行数据格式变更可能需要严格验证；多个机械修改不应仅因文件数多而升级。用户要求深入分析时照常提供，不以轻量为由省略。
 

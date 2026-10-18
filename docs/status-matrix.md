@@ -3,6 +3,31 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Conversation host/focus and task presentation (2026-10-18)
+
+[Bounded plan](superpowers/plans/2026-10-18-conversation-presentation.md) and
+[actual verification](reports/2026-10-18-conversation-presentation.md) track the
+experimental structured host facade, generation/revision focus, direct-request
+dedupe/fencing and per-task presentation-only overlay. Focus/session 17/17 and
+presentation/native adjacent 46/46 passed; independent combined source review
+PASS with 63/63; actual pinned full gate 3,689 pass / 0 fail / 2 conditional
+skips plus build. No natural-language frontend, persistent focus,
+CodeMap, policy activation, live-provider benefit or main integration is inferred.
+GitHub publication remains separately blocked by automatic approval review.
+
+## Latest direction / M1-B candidate tools (2026-10-18)
+
+[Adjusted roadmap](superpowers/plans/2026-10-18-direction-completion.md) continues
+ADR-009 from PR #60, keeping #61 and main integration separate. Candidate tools
+are implemented in host-neutral execution services, wrapped by Pi, and wired to
+direct/native/strict-development entries. [Dated evidence](reports/2026-10-18-direction-completion.md) records author
+focused 83/83, controller 16/16, independent source review PASS with 90/90, and
+actual pinned full gate 3,657 pass / 0 fail / 2 conditional skips plus build.
+This is source/local validation, not real-model benefit or production acceptance.
+Task-local CodeMap, C1/C2 conversation/focus, presentation preference overlays,
+stable SDK/Pi generations and measured policy improvement remain follow-ups.
+No new model-benefit or production claim follows from file-tool validation.
+
 ## Framework migration continuation (2026-10-17)
 
 Current task entry: [migration checklist](../tasks/migration-todo.md).
@@ -19,7 +44,7 @@ The earlier M0-A publication rejection below is historical: the user explicitly
 authorized pushes and the exact tested tree has now been read back from GitHub.
 Full M0 containment/Windows qualification, old-writer isolation, command-tool
 uncertainty and terminal-ledger archival remain open. Shared roots must exclude
-old controller binaries using the previous non-atomic admission path. M1 tools/
+old controller binaries using the previous non-atomic admission path. Remaining M1
 context, stable SDK, main/PR #61 integration and existing policy/live/production
 gates remain separate. Current test results are not model-benefit evidence.
 

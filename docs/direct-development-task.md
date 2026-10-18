@@ -6,6 +6,10 @@ executor factory and verification command. A project queue, monetary limit,
 planner and reviewer are not required inputs. The function owns its session and
 always awaits shutdown before returning or propagating a preflight error.
 
+The next bounded host continuation adds an experimental [conversation session and
+task presentation](conversation-host.md); its actual verification state is
+recorded separately from the original M1 task entry.
+
 This is the first bounded M1 slice under [ADR-009](decisions/0009-lightweight-adaptive-framework.md),
 not a stable package SDK export. After `pnpm build`, a host in this repository can
 use the experimental deep module import:
@@ -41,8 +45,39 @@ untracked entries. Use state and sandbox directories outside that source.
 `sandboxRoot` is optional; a supplied directory must exist and satisfy the
 existing worktree checks. Top-level options are captured when the function is
 called; the existing synchronous preflight validates and snapshots verification,
-criteria and loop limits before allocating the worker. The two worker tools
-remain `sparkle_read_file` and `sparkle_write_file`.
+criteria and loop limits before allocating the worker. The worker receives candidate-scoped file tools. The command tool is excluded;
+verification commands remain host-owned.
+
+| Tool | Behavior |
+|---|---|
+| `sparkle_list_files` | Optional `path` and `limit`; deterministic lexical traversal; returns relative file `paths` and `truncated` |
+| `sparkle_search_files` | Literal single-line `query`, optional `path`/`limit`; returns `{path,line,text}` matches and `truncated` |
+| `sparkle_read_file` | Existing whole read, or optional one-based inclusive `startLine`/`endLine`; original line endings retained |
+| `sparkle_patch_file` | Existing UTF-8 file, nonempty `oldText` occurring exactly once, and `newText`; ambiguity/missing text refuses before mutation |
+| `sparkle_write_file` | Existing full-file creation/replacement behavior |
+
+Discovery skips `.git`, `node_modules`, `.agent_workspace` and traversal symlinks.
+Explicit reads retain the existing path permissions; traversal never follows an
+external link. List/search default to 200 results, hard maximum 1000. Discovery
+visits at most 10,001 entries (including an overflow sentinel), depth 64 and
+4 KiB paths; an overfull directory is omitted entirely and disclosed. Search
+scans at most 16 MiB, skips oversized/binary files visibly, and bounds each match
+snippet/query to 4 KiB. Returned path/text payloads total at most 1 MiB; JSON
+framing/escaping adds overhead. `truncated` means completeness was not established,
+including reaching the result cap; narrow the path/query to investigate further.
+
+Whole reads and exact patch input/result files have a 1 MiB ceiling; the host
+may lower `maxReadBytes`. Range reads may excerpt a larger file, scan at most
+16 MiB and emit at most the read ceiling. Ranges exceeding these bounds fail
+explicitly; `totalLines` is reported only if EOF was reached. No fuzzy patch or
+automatic whole-file fallback is performed. Exact patch is for the candidate's
+single writer; independent external edits still require ownership coordination,
+and file I/O failure can leave partial changes for inspection. Path checks are
+best-effort containment, not an OS sandbox or crash-atomic filesystem transaction.
+
+The same tools reach strict `develop` Pi workers through the existing host
+closures. Both write and patch must pass the controller's allowed-scope and
+protected-verifier checks before editing; discovery does not grant write authority.
 
 | Input / result | Meaning |
 |---|---|
@@ -81,5 +116,7 @@ pnpm test -- --test-concurrency=1 test/integration/development/start-task.test.t
 ```
 
 Implementation plan and verification: [M1-A task record](superpowers/plans/2026-10-17-direct-development-task.md).
-Controlled list/search/range/patch tools, task-local context selection, stable
-SDK exports and packaged external consumers remain separate migration work.
+M1-B implementation and current checks: [latest direction plan](superpowers/plans/2026-10-18-direction-completion.md)
+and [verification](reports/2026-10-18-direction-completion.md). Task-local context
+selection, stable SDK exports and packaged external consumers remain separate
+migration work.

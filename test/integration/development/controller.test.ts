@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -63,6 +63,47 @@ test("scope violation blocks the task and retains the failed candidate", async (
   const result = await controller.runNext();
   assert.equal(result.status, "blocked");
   assert.equal((await controller.status()).queue.items[0]?.status, "blocked");
+  assert.equal(git(value.sourceRepo, ["status", "--porcelain"]), "");
+}));
+
+test("exact patch outside task scope is refused before candidate bytes change", async () => fixture(async (value) => {
+  await writeFile(path.join(value.sourceRepo, "outside.txt"), "outside before");
+  git(value.sourceRepo, ["add", "."]); git(value.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "outside fixture"]);
+  let refusal: string | undefined;
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      try {
+        await tools.find((tool) => tool.name === "sparkle_patch_file")!.execute("outside-patch", {
+          path: "outside.txt", oldText: "outside before", newText: "outside after"
+        }, signal);
+      } catch (error) {
+        refusal = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "blocked");
+  assert.ok(result.candidatePath);
+  assert.equal(await readFile(path.join(result.candidatePath, "outside.txt"), "utf8"), "outside before");
+  assert.match(refusal ?? "", /outside task scope/);
+  assert.equal(await readFile(path.join(value.sourceRepo, "outside.txt"), "utf8"), "outside before");
+}));
+
+test("controller allows an exact in-scope patch and retains source isolation", async () => fixture(async (value) => {
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      await tools.find((tool) => tool.name === "sparkle_patch_file")!.execute("patch", {
+        path: "value.txt", oldText: "before", newText: "after"
+      }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "ready-for-review");
+  assert.equal(await readFile(path.join(result.candidatePath!, "value.txt"), "utf8"), "after");
+  assert.equal(await readFile(path.join(value.sourceRepo, "value.txt"), "utf8"), "before");
   assert.equal(git(value.sourceRepo, ["status", "--porcelain"]), "");
 }));
 
@@ -169,6 +210,76 @@ test("declared verifier dependencies remain unwritable even inside task scope", 
   }) });
   assert.equal((await controller.runNext()).status, "blocked");
 }));
+
+test("exact patch cannot mutate a protected verifier inside the task scope", async () => fixture(async (value) => {
+  const checker = "if(require('node:fs').readFileSync('value.txt','utf8')!=='after') process.exit(1)";
+  await writeFile(path.join(value.sourceRepo, "checker.cjs"), checker);
+  git(value.sourceRepo, ["add", "."]); git(value.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "host checker"]);
+  const queue = await new WorkItemStore(value.queuePath).load();
+  const definition = queue.items[0]!.definition;
+  await rm(value.queuePath);
+  await new WorkItemStore(value.queuePath).create(createWorkQueue({ id: queue.id, authorityRef: queue.authorityRef,
+    items: [{ ...definition, allowedScope: ["value.txt", "checker.cjs"],
+      acceptance: [{ ...definition.acceptance[0]!, args: ["checker.cjs"], protectedPaths: ["checker.cjs"] }] }] }));
+  let refusal: string | undefined;
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      try {
+        await tools.find((tool) => tool.name === "sparkle_patch_file")!.execute("checker-patch", {
+          path: "checker.cjs", oldText: checker, newText: "process.exit(0)"
+        }, signal);
+      } catch (error) {
+        refusal = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "blocked");
+  assert.ok(result.candidatePath);
+  assert.equal(await readFile(path.join(result.candidatePath, "checker.cjs"), "utf8"), checker);
+  assert.match(refusal ?? "", /protected verifier dependency/);
+  assert.equal(await readFile(path.join(value.sourceRepo, "checker.cjs"), "utf8"), checker);
+}));
+
+for (const toolName of ["sparkle_write_file", "sparkle_patch_file"]) {
+  test(`${toolName} refuses an allowed alias before mutating its protected canonical target`, async () => fixture(async (value) => {
+    const checker = "if(require('node:fs').readFileSync('value.txt','utf8')!=='after') process.exit(1)";
+    await mkdir(path.join(value.sourceRepo, "protected"));
+    await writeFile(path.join(value.sourceRepo, "protected/checker.cjs"), checker);
+    git(value.sourceRepo, ["add", "."]); git(value.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "host checker"]);
+    const queue = await new WorkItemStore(value.queuePath).load();
+    const definition = queue.items[0]!.definition;
+    await rm(value.queuePath);
+    await new WorkItemStore(value.queuePath).create(createWorkQueue({ id: queue.id, authorityRef: queue.authorityRef,
+      items: [{ ...definition, allowedScope: ["value.txt", "allowed", "protected"],
+        acceptance: [{ ...definition.acceptance[0]!, args: ["protected/checker.cjs"], protectedPaths: ["protected/checker.cjs"] }] }] }));
+    let refusal: string | undefined;
+    const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: async ({ tools, candidatePath }) => {
+      await symlink(path.join(candidatePath, "protected"), path.join(candidatePath, "allowed"), process.platform === "win32" ? "junction" : "dir");
+      return {
+        async *execute(request, signal) {
+          try {
+            await tools.find((tool) => tool.name === toolName)!.execute("alias-mutation", toolName === "sparkle_patch_file"
+              ? { path: "allowed/checker.cjs", oldText: checker, newText: "process.exit(0)" }
+              : { path: "allowed/checker.cjs", contents: "process.exit(0)" }, signal);
+          } catch (error) {
+            refusal = error instanceof Error ? error.message : String(error);
+            throw error;
+          }
+          yield* new ProtocolChildExecutor().execute(request, signal);
+        }
+      };
+    } });
+    const result = await controller.runNext();
+    assert.equal(result.status, "blocked");
+    assert.ok(result.candidatePath);
+    assert.equal(await readFile(path.join(result.candidatePath, "protected/checker.cjs"), "utf8"), checker);
+    assert.match(refusal ?? "", /protected verifier dependency/);
+    assert.equal(await readFile(path.join(value.sourceRepo, "protected/checker.cjs"), "utf8"), checker);
+  }));
+}
 
 test("a committed checker rewrite is refused against the original clean claim base", async () => fixture(async (value) => {
   await writeFile(path.join(value.sourceRepo, "checker.cjs"), "if(require('node:fs').readFileSync('value.txt','utf8')!=='after') process.exit(1)");

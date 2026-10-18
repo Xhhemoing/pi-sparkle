@@ -1,5 +1,13 @@
 # Active implementation plan
 
+## Conversation entry, focus and task presentation (2026-10-18)
+
+`TASK-20261018-conversation-presentation`: [bounded execution plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), [current evidence](../docs/reports/2026-10-18-conversation-presentation.md). C1/C2-A experimental host facade and M4-A presentation overlay are source-reviewed and locally verified: independent 63/63; actual pinned gate 3,689 pass / 0 fail / 2 conditional skips + build. External GitHub publication remains separately blocked. No full natural-language frontend, persistent focus or learned policy activation is claimed.
+
+## Latest direction implementation (2026-10-18)
+
+`TASK-20261018-direction-completion`: [adjusted roadmap and M1-B slice](../docs/superpowers/plans/2026-10-18-direction-completion.md). Continue ADR-009 from PR #60 `2a3dd470`: candidate-local list, literal search, line-range read and unique exact patch, then C1/C2 conversation focus, task context/preferences and evidence-first improvement. [Current verification](../docs/reports/2026-10-18-direction-completion.md). Bounded M1-B source is independently reviewed and locally gate-verified. GitHub upload was blocked by automatic approval review pending explicit approval for the 22-file payload to existing PR #60; local source/patch and [blocker evidence](../docs/reports/2026-10-18-direction-completion.md#publication-blocker--automatic-approval-review) are ready. Main/#61 integration, context selection and real-provider benefit remain separate.
+
 ## Conversation workflow and daylight guide (2026-10-17)
 
 `TASK-20261017-conversation-daylight-guide`: source-grounded conversation proposal, two interactive chapters and white/daylight guide/map exports. Author verification passed; [evidence](../docs/reports/2026-10-17-conversation-daylight-guide.md). [Plan](../docs/superpowers/plans/2026-10-17-conversation-daylight-guide.md). Natural-language routing is a proposal, not a runtime change.

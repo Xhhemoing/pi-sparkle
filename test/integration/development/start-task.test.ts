@@ -70,7 +70,7 @@ function writer(onExecute: (candidatePath: string) => void = () => undefined): N
   return ({ candidatePath, tools }) => ({
     async *execute(request): AsyncIterable<ExecutionEvent> {
       onExecute(candidatePath);
-      assert.deepEqual(tools.map((tool) => tool.name).sort(), ["sparkle_read_file", "sparkle_write_file"]);
+      assert.deepEqual(tools.map((tool) => tool.name).sort(), ["sparkle_list_files", "sparkle_patch_file", "sparkle_read_file", "sparkle_search_files", "sparkle_write_file"]);
       const write = tools.find((tool) => tool.name === "sparkle_write_file");
       assert.ok(write);
       await write.execute("direct-write", { path: "value.ts", contents: AFTER });
@@ -225,5 +225,40 @@ test("direct task preserves unsettled effects and candidate evidence through fin
     const artifact = JSON.parse(await readFile(result.artifact.path, "utf8")) as { body: { processCleanup: { settled: boolean } } };
     assert.equal(artifact.body.processCleanup.settled, false);
     assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+  });
+});
+
+test("direct task discovers, locates, reads and patches candidate code before host acceptance", async () => {
+  await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
+    let workerCalls = 0;
+    const result = await startDevelopmentTask({
+      stateRoot, sandboxRoot, sourceRepo: repo, objective: "Find and update the exported value", verification: checkValue(),
+      executorFactory: ({ tools }) => ({
+        async *execute(request): AsyncIterable<ExecutionEvent> {
+          workerCalls++;
+          assert.equal(tools.some((tool) => tool.name === "sparkle_run_command"), false);
+          const findTool = (name: string) => {
+            const tool = tools.find((entry) => entry.name === name);
+            assert.ok(tool, `direct task is missing ${name}`);
+            return tool;
+          };
+          const listing = await findTool("sparkle_list_files").execute("list", {}) as { content: { text: string }[] };
+          assert.deepEqual(JSON.parse((listing.content[0] as { text: string }).text), { paths: ["value.ts"], truncated: false });
+          const found = await findTool("sparkle_search_files").execute("search", { query: "value = 1" }) as { content: { text: string }[] };
+          const match = (JSON.parse((found.content[0] as { text: string }).text) as { matches: { path: string; line: number }[] }).matches[0];
+          assert.ok(match);
+          const read = await findTool("sparkle_read_file").execute("range", { path: match.path, startLine: match.line, endLine: match.line }) as { content: { text: string }[] };
+          assert.equal((read.content[0] as { text: string }).text, BEFORE);
+          await findTool("sparkle_patch_file").execute("patch", { path: match.path, oldText: "value = 1", newText: "value = 2" });
+          yield { type: "MESSAGE", message: taskResult(request) };
+          yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+        }
+      })
+    });
+    assert.equal(workerCalls, 1);
+    assert.equal(result.acceptance.accepted, true, result.reason);
+    assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+    assert.equal(await readFile(path.join(result.candidatePath, "value.ts"), "utf8"), AFTER);
+    assert.equal(git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
   });
 });
