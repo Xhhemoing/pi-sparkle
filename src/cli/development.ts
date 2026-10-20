@@ -159,7 +159,10 @@ export async function developmentCommand(args: string[], io: DevelopmentIo, depe
         const sink = createInvocationSink(stateRoot, { onDrop: (reason) => io.stderr(`warning: ${reason}\n`) });
         const options = resolveCliPiExecutorOptions({ stateRoot, config: await loadProvidersConfig(stateRoot), env: process.env,
           ...(model === undefined ? {} : { executorModelOverride: model }), hooks: { onInvocation: (invocation) => { pendingInvocations.push(sink(invocation)); } } });
-        executorFactory = (context) => (dependencies.createPiExecutor ?? createConfiguredPiExecutor)({ ...options, tools: developmentPiTools(context.tools) });
+        executorFactory = (context) => (dependencies.createPiExecutor ?? createConfiguredPiExecutor)({ ...options,
+          tools: developmentPiTools(context.tools), onInvocation: (invocation) => {
+            context.onInvocation(invocation); options.onInvocation?.(invocation);
+          } });
       }
     }
     const controller = new DevelopmentController({ sourceRepo, queuePath, stateRoot, owner: `cli:${mode ?? "host"}:${process.pid}`,
