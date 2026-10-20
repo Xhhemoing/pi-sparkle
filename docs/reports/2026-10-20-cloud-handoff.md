@@ -27,11 +27,14 @@
 | `git ls-remote --heads origin codex/command-tool-uncertainty-20261019 codex/architecture-agent-loop-20261015 codex/cloud-continuation-20261020` | PASS, exit 0 | 仅原跟踪远端分支返回记录 |
 | `git diff --name-only origin/codex/architecture-agent-loop-20261015 HEAD -- .agent_workspace .env '*.pem' '*.key' '*auth.json'` | PASS, exit 0 | 指定敏感/运行材料路径没有本轮跟踪差异；这不是通用安全认证 |
 | `pnpm workflow:check` | PASS, exit 0 | 10 required files / 16 required headings |
-| `git diff --check` | PASS, exit 0 | 文档差异检查；暂存后还检查新文件 |
+| `git diff --check` | PASS, exit 0 | `git diff --cached --check` 也已 exit 0，包含两份新增文件 |
 | pwsh targeted link / existing-entry validation | PASS, exit 0 | 两份新文档 9 个本地链接、10 个现有代码/测试入口均存在；显式标注的新建文件不要求预先存在 |
 | Independent review: recent_delivery_evidence | PASS, no concrete findings | 读取两份新文档全文、活动任务实际 diff，并核对命令与入口；只读审查，未独立运行测试 |
 | 本次新增完整产品测试 | NOT RUN | 仅文档变更；现有第三轮 gate 正在其他既有执行流程中，未启动第二份重构建 |
-| Git commit / target push / remote readback | NOT RUN at initial draft | 完成后在交付回执报告准确提交及远端匹配 |
+| `git commit -m "docs(plan): prepare cloud continuation"` | PASS, exit 0 | `543baa205ca116ce0f0a136ec3f80e625a36a457`，四份文档/入口，包含先前功能源码历史 |
+| `git push origin HEAD:refs/heads/codex/cloud-continuation-20261020` | PASS, exit 0 | 已创建独立远端分支；原跟踪分支未被覆盖 |
+| `git ls-remote --heads origin refs/heads/codex/cloud-continuation-20261020` | PASS, exit 0 | 回读与 `543baa205ca116ce0f0a136ec3f80e625a36a457` 完全一致 |
+| `git merge-base --is-ancestor 3d3dcdc5 543baa205ca116ce0f0a136ec3f80e625a36a457` | PASS, exit 0 | 云端分支包含已核查的功能源码检查点 |
 
 ## Behavioral Evidence
 
@@ -44,3 +47,7 @@
 ## Handoff
 
 云端从目标分支读取计划并持续执行；不假设本地 `.agent_workspace/`、凭据、其他聊天或 subagent 会话可用。完成每片后更新证据和活动清单，最后说明提交、实际测试、未验证项和下一条命令。
+
+## Publication receipt
+
+2026-10-20：上述交接提交已推送并回读匹配。此段回执作为后续文档提交保留；最终回执提交在交付消息中给出，并再次普通推送/回读。用户现有授权支持此次独立分支交接，旧报告的特定 PR/payload 审批状态不被改写。云端应以该分支最新交接提交为入口，保留后续自己的修改，不重置到旧检查点。
