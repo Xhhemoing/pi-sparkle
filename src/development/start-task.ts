@@ -1,3 +1,4 @@
+import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
 import {
   NativeWriteSession,
   type NativeWriteSessionInput,
@@ -24,11 +25,17 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("task presentation must be an own data property");
   }
   const presentation = snapshotTaskPresentation(descriptor?.value as TaskPresentationInput | undefined);
-  const { stateRoot, executorFactory, sandboxRoot, presentation: _presentation, ...task } = input;
+  const contextDescriptor = Object.getOwnPropertyDescriptor(input, "taskContext");
+  if ((contextDescriptor === undefined && "taskContext" in input) || (contextDescriptor !== undefined && !("value" in contextDescriptor))) {
+    throw new DomainValidationError("task context must be an own data property");
+  }
+  const taskContext = contextDescriptor?.value === undefined ? undefined : snapshotTaskContext(contextDescriptor.value as TaskContextInput);
+  const { stateRoot, executorFactory, sandboxRoot, presentation: _presentation, taskContext: _taskContext, ...task } = input;
   const session = new NativeWriteSession({ stateRoot, executorFactory,
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
-    return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }) });
+    return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }),
+      ...(taskContext === undefined ? {} : { taskContext }) });
   } finally {
     await session.shutdown();
   }

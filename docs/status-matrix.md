@@ -3,6 +3,9 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Staged ADR-009 implementation (2026-10-19)
+
+[Current evidence](reports/2026-10-19-staged-continuation.md) separates source, command checks and independent review. M1-C task context is now wired through native/direct/conversation host entry to the final executor prompt. Root integrated focused checks: 57/57; independent service/integration specification and quality reviews PASS. Two explicitly authorized synthetic real-provider tasks accepted exact candidate edits while leaving source unchanged. This is basic execution smoke, not comparative model benefit. M1 final integrated full gate remains pending; selected source may contain private data and is sent only under host selection.
 ## Generic command-tool uncertainty follow-up (2026-10-19)
 
 [Plan](superpowers/plans/2026-10-19-command-uncertainty.md) and [verification](reports/2026-10-19-command-uncertainty.md): host-wired generic tools notify Native before model-visible cleanup errors; sticky uncertainty retains existing effectsSettled/ledger/claim fencing. Focused 23/23 and independent specification/quality reviews pass; build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 Windows fixture-cleanup EPERM / 48 skip. The cleanup failure was reproduced and corrected without relaxing product assertions; affected file 25 pass / 0 fail / 2 platform skips. Final integrated full gate remains pending. Arbitrary host effects, OS containment, old writers, terminal archival, publication and production/outcome acceptance remain open.
