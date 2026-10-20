@@ -161,7 +161,7 @@ test("the track loop's clarification path takes the lock through the shared help
 
   assert.match(
     loop,
-    /return withRunLifecycleLock\(\s*input\.stateRoot,\s*runId,\s*\(\) => recordClarificationRun\(input, contract, questions, runId, project\),\s*input\.runLock\s*\);/,
+    /return withRunLifecycleLock\(\s*input\.stateRoot,\s*runId,\s*\(\) => recordClarificationRun\(input, contract, questions, runId, project, engineBinding\),\s*input\.runLock\s*\);/,
     "the record-writing body is what is wrapped, and the options seam is threaded"
   );
   assert.doesNotMatch(

@@ -29,7 +29,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M5-B actual staged Pi qualification | Source reviewed / focused verified | [Guide](../docs/managed-pi.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root/spec/quality20/20 each; five actual offline scenarios, private issuance, final gate pending |
 | M5-C retained qualified selection | Source reviewed / focused verified | [Guide](../docs/managed-pi.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root/spec/quality17/17 each; author A/B/C52/52; locked publication and retained lookup; final gate pending |
 | M5-D1 durable engine binding | Source reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): root36/36, independent154 pass/1 Windows skip; original event identity retained across resume/children; final gate pending |
-| M5-D2 controlled Pi driver | Planned next; broader M0 dependency retained | [Plan](../docs/superpowers/plans/2026-10-19-managed-pi.md): actual staged application identity and cooperative stop; no public managed dispatch acceptance |
+| M5-D2 controlled Pi driver | Source reviewed / focused verified | [Guide](../docs/managed-pi.md): root104/104 adjacent and14/14 actual process tests after cancellation repair; independent63/63 plus5 filesystem-window probes; internal controlled offline path, final gate pending |
 | M6-B read-only GitHub drafts | Source reviewed / focused verified | [Guide](../docs/github-drafts.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): author/root/reviewer22/22; current-fact drafts and finite transport receipts only; no remote write/activation, final gate pending |
 | M6-A project continuation | Source reviewed / focused verified | [Guide](../docs/advance-project.md); root 10/10, spec 10/10, quality 13/13; full gate and connector separate |
 | M7-C offline preparation | Source reviewed / focused verified | [Usage](../docs/host-attribution.md); integrated28/28, independent spec/quality PASS; original-only observations and genuine spend, task-disjoint split; final full gate pending |
@@ -57,8 +57,7 @@ accept its entire M-number or any production/live/experimental gate.
 
 ## Open conditions
 
-Full M0 retains OS escape/Windows containment qualification, old-writer
-isolation, generic command-tool uncertainty and bounded terminal-ledger archival.
+Full M0 retains OS escape/Windows containment qualification and arbitrary old-writer isolation. Scoped generic command uncertainty and fresh-ledger completed-check archival are implemented and independently reviewed; final integrated gate remains pending.
 Successful checker rechecks still consume the existing finite ledger capacity;
 no unknown effects are deleted or made replayable. New binaries must not share
 effect roots with old controllers using the previous admission algorithm.
@@ -67,7 +66,7 @@ effect: independent focused verification passes; final integrated gate remains p
 
 Main/PR #61 integration, stable SDK, root shared budgets, real-provider benefit,
 S0-min/R10/R11/F6 and production/experimental acceptance retain their own records.
-Current local priorities are managed Pi generations, read-only connector and fresh-ledger archival. Task context, conversation/focus and file tools have their separately recorded evidence. Full
+Managed Pi A/B/C/D1/D2, read-only GitHub drafts and fresh-ledger archival are now implemented and independently reviewed. The remaining local delivery work is the final integrated gate/probes and packed consumers. Task context, conversation/focus and file tools have their separately recorded evidence. Full
 M0 containment work is required before expanding process backends or overlapping
 writers.
 

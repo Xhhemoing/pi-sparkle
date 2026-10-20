@@ -369,11 +369,11 @@ test("the run lifecycles are the only place the acquisition lives", async () => 
   assert.doesNotMatch(flowchart, /runLockPath/);
   assert.match(
     coordinator,
-    /return withRunLifecycleLock\(deps\.stateRoot, runId, \(\) => runM0Run\(project\), deps\.runLock\);/
+    /return withRunLifecycleLock\(deps\.stateRoot, runId, \(\) => runM0Run\(project, engineBinding\), deps\.runLock\);/
   );
   assert.match(
     coordinator,
-    /return withRunLifecycleLock\(deps\.stateRoot, runId, \(\) => runParentRun\(project\), deps\.runLock\);/
+    /return withRunLifecycleLock\(deps\.stateRoot, runId, \(\) => runParentRun\(project, engineBinding\), deps\.runLock\);/
   );
   assert.match(
     coordinator,

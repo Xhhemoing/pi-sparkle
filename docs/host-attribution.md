@@ -14,7 +14,7 @@ The existing run artifact store retains bounded references, not prompts or sourc
 
 ## Offline preparation
 
-`prepareHostAttribution` in `src/learning/host-attribution.ts` accepts original observations, an explicit ISO cutoff, and `evidenceMode: "observed" | "synthetic"`. Observed mode requires actual `pi` provenance; synthetic mode requires `faux`. Copies and parsed artifacts remain untrusted in either mode. Optional `invocations` must exactly match the issued snapshots and cannot fill unknown model versions, tokens or prices.
+`prepareHostAttribution` in `src/native/host-attribution.ts` accepts original observations, an explicit ISO cutoff, and `evidenceMode: "observed" | "synthetic"`. Observed mode requires actual `pi` provenance; synthetic mode requires `faux`. Copies and parsed artifacts remain untrusted in either mode. Optional `invocations` must exactly match the issued snapshots and cannot fill unknown model versions, tokens or prices.
 
 The result includes eligible and excluded rows with references and reasons, plus training/test partitions. All repair attempts in one logical task stay together. Timing covers host execution start/completion and each invocation: wholly before the cutoff is training, at/after is test, and spanning tasks enter neither partition. Identical originals deduplicate; conflicting identities select no winner.
 
