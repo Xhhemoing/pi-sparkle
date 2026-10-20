@@ -29,7 +29,8 @@
     "CHANGELOG.md",
     ".agents/skills",
     "prompts",
-    "examples"
+    "examples",
+    "sdk"
   ],
   "pi": {
     "extensions": [
