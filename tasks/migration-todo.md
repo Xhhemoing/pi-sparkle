@@ -25,7 +25,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
 | M4-B all-outcome usage coverage | Source reviewed / focused verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, full gate pending; routing/preferences remain separate |
 | M4-C deleted preference replay | Source reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): root45/45, spec36+9 and quality45 plus128 snapshot combinations; final gate pending |
-| M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
+| M5 managed Pi | M5-A implementation in progress; broader M0 dependency retained | [Plan](../docs/superpowers/plans/2026-10-19-managed-pi.md): isolated physical candidates first, actual qualification/selection/binding next; no managed dispatch acceptance |
 | M6-A project continuation | Source reviewed / focused verified | [Guide](../docs/advance-project.md); root 10/10, spec 10/10, quality 13/13; full gate and connector separate |
 | M7-C offline preparation | Source reviewed / focused verified | [Usage](../docs/host-attribution.md); integrated28/28, independent spec/quality PASS; original-only observations and genuine spend, task-disjoint split; final full gate pending |
 | M7-B actual host publisher | Source reviewed / focused verified | [Usage](../docs/host-attribution.md); integrated20/20, independent spec/quality PASS; corrected opt-in smoke proves unknown-version exclusion, earlier failures retained; final full gate pending |
