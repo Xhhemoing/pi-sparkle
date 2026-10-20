@@ -1,3 +1,4 @@
+import { findingsFromIndependentCheck, type BoundCheckFinding } from "../evaluation/check-findings.js";
 import { buildTaskContext, snapshotTaskContext, type TaskContext, type TaskContextInput } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
@@ -85,6 +86,8 @@ export interface NativeWriteSessionResult {
   readonly executionEvents: number;
   readonly loop?: NativeWriteLoopResult;
   readonly taskContract?: NativeWriteTaskContract;
+  /** Optional exact host check observations; absence means stronger evidence is unavailable. */
+  readonly findings?: readonly BoundCheckFinding[];
   /** Absent on historical/settled results; false requires host reconciliation. */
   readonly effectsSettled?: false;
 }
@@ -525,7 +528,12 @@ export class NativeWriteSession {
         events: outcome.events
       }));
     }
-    return bindContract(acceptedResult(preflight, session, checked, outcome.runId, outcome.events.length));
+    const result = acceptedResult(preflight, session, checked, outcome.runId, outcome.events.length);
+    const descriptor = preflight.verification.trustedVerification;
+    if (descriptor === undefined) return bindContract(result);
+    const projection = findingsFromIndependentCheck({ check: checked.check, trustedVerification: descriptor,
+      runId: outcome.runId, revision: preflight.revision, generation: outcome.runId });
+    return bindContract(projection.state === "available" ? { ...result, findings: projection.findings } : result);
   }
 
   private async disposeBeforeRun(session: ClosedLoopSession): Promise<void> {
