@@ -41,7 +41,11 @@ import { acceptanceForRole } from "./plan.js";
 import { splitAndAssignForPrimary } from "./primary-split.js";
 import { applyPrecedence } from "../requirement/precedence.js";
 
+import type { RunEngineBinding } from "../domain/run-engine-binding.js";
+import { bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "../run/engine-binding.js";
+
 export interface TrackRunInput {
+  readonly engineContext?: RunEngineContext;
   readonly projectRoot: string;
   readonly objective: string;
   readonly stateRoot: string;
@@ -94,6 +98,8 @@ export interface TrackRunOutcome extends RunOutcome {
 }
 
 export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOutcome> {
+  const engineContext = captureRunEngineContext(input.engineContext);
+  const engineBinding = await bindingForNewRun(engineContext);
   const clarify = await clarifyObjective({
     objective: input.objective,
     projectKey: input.projectRoot,
@@ -102,7 +108,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   const answers = input.answers ?? {};
   const applied = applyAnswers(clarify.questions, answers);
   if (clarify.waiting && applied.unanswered.length > 0) {
-    return waitForClarification(input, clarify.candidate.contract, applied.unanswered);
+    return waitForClarification(input, clarify.candidate.contract, applied.unanswered, engineBinding);
   }
 
   const contract = applyPrecedence(clarify.candidate.contract, "user-first");
@@ -182,6 +188,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   const outcome = await startFlowchartRun(
     {
       stateRoot: input.stateRoot,
+      ...(engineContext !== undefined ? { engineContext } : {}),
       router: createModelRouter(catalog),
       executor: input.executor,
       registry,
@@ -244,7 +251,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
 async function waitForClarification(
   input: TrackRunInput,
   contract: RequirementContract,
-  questions: readonly { id: string; question: string }[]
+  questions: readonly { id: string; question: string }[],
+  engineBinding: RunEngineBinding | undefined
 ): Promise<TrackRunOutcome> {
   const generateId = input.generateId;
   const runId = createRunId(generateId);
@@ -256,7 +264,7 @@ async function waitForClarification(
   return withRunLifecycleLock(
     input.stateRoot,
     runId,
-    () => recordClarificationRun(input, contract, questions, runId, project),
+    () => recordClarificationRun(input, contract, questions, runId, project, engineBinding),
     input.runLock
   );
 }
@@ -266,7 +274,8 @@ async function recordClarificationRun(
   contract: RequirementContract,
   questions: readonly { id: string; question: string }[],
   runId: RunId,
-  project: ProjectSnapshot
+  project: ProjectSnapshot,
+  engineBinding: RunEngineBinding | undefined
 ): Promise<TrackRunOutcome> {
   const generateId = input.generateId;
   const now = nowIso;
@@ -290,6 +299,7 @@ async function recordClarificationRun(
   await append(
     make("RUN_CREATED", {
       run: {
+        ...(engineBinding !== undefined ? { engineBinding } : {}),
         id: runId,
         projectId: project.id,
         rootTaskId,

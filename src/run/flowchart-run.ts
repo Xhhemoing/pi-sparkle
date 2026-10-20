@@ -111,7 +111,11 @@ import {
   type TaskCostCeiling
 } from "./replay.js";
 
+import type { RunEngineBinding } from "../domain/run-engine-binding.js";
+import { assertRunEngineForResume, bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "./engine-binding.js";
+
 export interface FlowchartRunDeps {
+  engineContext?: RunEngineContext;
   stateRoot: string;
   router: ModelRouter;
   now?: () => IsoTimestamp;
@@ -739,6 +743,7 @@ function withRecordedCostCeilings(
 }
 
 function attachChildRuntime(input: {
+  readonly engineBinding?: RunEngineBinding;
   readonly stateRoot: string;
   readonly executor: AgentExecutor;
   readonly runId: RunId;
@@ -792,6 +797,7 @@ function attachChildRuntime(input: {
     stateRoot: input.stateRoot,
     executor: input.executor,
     parentRunId: input.runId,
+    ...(input.engineBinding !== undefined ? { engineBinding: input.engineBinding } : {}),
     project: input.project,
     registry: input.registry,
     maxConcurrentTasks: defaultRunLimits().maxConcurrentTasks,
@@ -1663,6 +1669,8 @@ export async function startFlowchartRun(
   deps: FlowchartRunDeps,
   input: FlowchartRunInput
 ): Promise<FlowchartRunOutcome> {
+  const engineContext = captureRunEngineContext(deps.engineContext);
+  const engineBinding = await bindingForNewRun(engineContext);
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
   const runId = createRunId(generateId);
@@ -1706,12 +1714,13 @@ export async function startFlowchartRun(
   return withRunLifecycleLock(
     deps.stateRoot,
     runId,
-    () => startLockedFlowchartRun(deps, input, { runId, now, generateId, resolved, project }),
+    () => startLockedFlowchartRun(deps, input, { runId, now, generateId, resolved, project, engineBinding }),
     deps.runLock
   );
 }
 
 interface StartedRunPreflight {
+  readonly engineBinding: RunEngineBinding | undefined;
   readonly runId: RunId;
   readonly now: () => IsoTimestamp;
   readonly generateId: IdGenerator | undefined;
@@ -1724,12 +1733,13 @@ async function startLockedFlowchartRun(
   input: FlowchartRunInput,
   preflight: StartedRunPreflight
 ): Promise<FlowchartRunOutcome> {
-  const { runId, now, generateId, resolved, project } = preflight;
+  const { runId, now, generateId, resolved, project, engineBinding } = preflight;
   const eventStore = new EventStore(deps.stateRoot, runId);
   const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
   const rootTaskId = createTaskId(generateId);
   const defaults = defaultRunLimits();
   const run: Run = {
+    ...(engineBinding !== undefined ? { engineBinding } : {}),
     id: runId,
     projectId: project.id,
     rootTaskId,
@@ -1818,6 +1828,7 @@ async function startLockedFlowchartRun(
       cluster: deps.cluster !== false,
       now,
       abort,
+      ...(run.engineBinding !== undefined ? { engineBinding: run.engineBinding } : {}),
       ...(run.limits.maxCostUsd !== undefined ? { maxCostUsd: run.limits.maxCostUsd } : {}),
       ...(generateId !== undefined ? { generateId } : {})
     });
@@ -1930,13 +1941,14 @@ export async function resumeFlowchartRun(
   runId: RunId,
   continuation: FlowchartContinuation = {}
 ): Promise<FlowchartRunOutcome> {
+  const engineContext = captureRunEngineContext(deps.engineContext);
   // Same acquisition as a fresh start, and it also serializes a resume against
   // the run it is resuming: two processes cannot drive one run's records at
   // once, and neither can drive them while a delete holds the lock.
   return withRunLifecycleLock(
     deps.stateRoot,
     runId,
-    () => resumeLockedFlowchartRun(deps, runId, continuation),
+    () => resumeLockedFlowchartRun(deps, runId, continuation, engineContext),
     deps.runLock
   );
 }
@@ -1944,7 +1956,8 @@ export async function resumeFlowchartRun(
 async function resumeLockedFlowchartRun(
   deps: FlowchartRunDeps,
   runId: RunId,
-  continuation: FlowchartContinuation
+  continuation: FlowchartContinuation,
+  engineContext: RunEngineContext | undefined
 ): Promise<FlowchartRunOutcome> {
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
@@ -1953,6 +1966,7 @@ async function resumeLockedFlowchartRun(
 
   const read = await eventStore.readAll();
   const replayed = requireFlowchartReplay(runId, read.events);
+  await assertRunEngineForResume(replayed.run.engineBinding, engineContext);
   const checkpoint = requireFlowchartCheckpoint(runId, await checkpointStore.read());
 
   const { definition, limits } = checkpoint.flowchart;
@@ -2016,6 +2030,7 @@ async function resumeLockedFlowchartRun(
       // no `FlowchartContinuation` counterpart for the same reason there is
       // none for `taskCostCeilings` — a resume must not be a way to introduce
       // or raise a cap.
+      ...(replayed.run.engineBinding !== undefined ? { engineBinding: replayed.run.engineBinding } : {}),
       ...(replayed.run.limits.maxCostUsd !== undefined ? { maxCostUsd: replayed.run.limits.maxCostUsd } : {}),
       ...(generateId !== undefined ? { generateId } : {})
     });
