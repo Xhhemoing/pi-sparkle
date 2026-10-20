@@ -1,4 +1,4 @@
-# Prepare a managed Pi candidate
+# Manage staged Pi runtimes
 
 The experimental `pi-adapter/managed/candidate` module stages a fresh build and
 its installed runtime dependencies into a new opaque generation directory.
@@ -78,11 +78,45 @@ validated data. Copies and JSON round trips cannot recreate that receipt.
 it cannot issue approval authority. This checks cooperative candidate behavior,
 not the integrity of hostile candidate code or malicious local file edits.
 
-Approved selection, durable root binding and the controlled process driver are
-the next implementation stages. Public managed execution against real projects
-remains subject to the existing process containment qualification. No CLI default,
-installed version, dependency pin or native Pi host lifecycle changes merely
-because a candidate was staged or qualified.
+## Retain and select a qualified generation
+
+The experimental `pi-adapter/managed/generation-store` module persists successful
+qualification and a selected generation under the existing physical manager root:
+
+```ts
+const store = new ManagedGenerationStore(managerRoot);
+if (result.status === "qualified") {
+  await store.approve(result);
+}
+const selected = await store.readApproved();
+const retained = await store.getQualifiedGeneration(candidate.generationId);
+```
+
+`approve` requires the exact result issued in this process for this manager.
+It writes `qualifications/<generationId>.json` before `approved.json`; the pointer
+contains only the generation ID. Reapproving a generation validates and reuses its
+existing qualification record. It never overwrites that record, even if another
+successful attempt has different valid observations. Restarted stores can read
+persisted selection without turning JSON into an approval receipt.
+
+Approval and both reader methods share `manager.lock`. They validate bounded
+regular metadata files, physical candidate paths and matching identities.
+`readApproved` returns `undefined` for a never-selected manager; a requested or
+referenced generation that is missing or corrupt is an error. Corrupt current
+selection also blocks approval until host reconciliation. No method silently
+chooses the newest directory, falls back to workspace code or deletes old state.
+
+If qualification publication fails, the selected pointer is untouched. If pointer
+replacement fails, the existing atomic writer attempts to restore the old file.
+A failed restoration can leave publication remnants; subsequent readers report
+that reconciliation is required. This is cooperative locked publication, without
+a power-loss transaction or hostile-file-writer integrity claim.
+
+Durable root binding and the controlled process driver are the next implementation
+stages. Selecting a generation here does not change CLI execution. Public managed
+execution against real projects remains subject to the existing process
+containment qualification. Installed versions, dependency pins and the native Pi
+host lifecycle are unaffected by staging, qualification or selection.
 
 [Implementation plan](superpowers/plans/2026-10-19-managed-pi.md) and
 [current evidence](reports/2026-10-19-staged-continuation.md).
