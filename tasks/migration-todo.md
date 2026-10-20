@@ -23,6 +23,7 @@ accept its entire M-number or any production/live/experimental gate.
 | C1/C2-A structured conversation host and focus | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), focus/session 17/17; no NL registration or persistent focus |
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
 | M4-B all-outcome usage coverage | Source reviewed / focused verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, full gate pending; routing/preferences remain separate |
+| M4-C deleted preference replay | Source reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): root45/45, spec36+9 and quality45 plus128 snapshot combinations; final gate pending |
 | M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
 | M6-A project continuation | Source reviewed / focused verified | [Guide](../docs/advance-project.md); root 10/10, spec 10/10, quality 13/13; full gate and connector separate |
 | M7-C offline preparation | Source reviewed / focused verified | [Usage](../docs/host-attribution.md); integrated28/28, independent spec/quality PASS; original-only observations and genuine spend, task-disjoint split; final full gate pending |
@@ -60,8 +61,7 @@ effect: independent focused verification passes; final integrated gate remains p
 
 Main/PR #61 integration, stable SDK, root shared budgets, real-provider benefit,
 S0-min/R10/R11/F6 and production/experimental acceptance retain their own records.
-Next implementation priorities are the remaining M1 task-context slice and C1/C2
-conversation/focus wiring; M1-B file tools have current source/gate evidence. Full
+Current local priorities are optional finding analysis, managed Pi generations, read-only connector and fresh-ledger archival. Task context, conversation/focus and file tools have their separately recorded evidence. Full
 M0 containment work is required before expanding process backends or overlapping
 writers.
 
