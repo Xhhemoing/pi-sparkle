@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-local-followons
 - Owner: root coordinator and sequential implementation agents.
-- State: in-progress; M4-B/M6-A and scoped readiness independently reviewed; M4 tombstone replay implementing next.
+- State: in-progress; M4-B/M6-A, scoped readiness and tombstone replay independently reviewed; M3 optional analysis implementing next.
 - Date: 2026-10-19 (America/Los_Angeles).
 - Parent: [staged continuation](2026-10-19-staged-continuation.md).
 
