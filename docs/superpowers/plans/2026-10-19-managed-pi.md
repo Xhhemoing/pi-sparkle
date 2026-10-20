@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-managed-pi
 - Owner: root coordinator and implementation/review agents.
-- State: planned.
+- State: in-progress.
 - Date: 2026-10-19.
 - Authority: ADR-009 section 5; [parent plan](2026-10-19-staged-continuation.md).
 

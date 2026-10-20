@@ -42,11 +42,47 @@ concurrent filesystem writer. Lifecycle immutability is not an OS permission
 boundary. The initial execution evidence uses Windows and Node24; minimum Node22
 and other platforms require their own actual runs.
 
-Actual multi-scenario qualification, approved selection, durable root binding
-and the controlled process driver are the next implementation stages. Public
-managed execution against real projects remains subject to the existing process
-containment qualification. No CLI default, installed version, dependency pin or
-native Pi host lifecycle changes merely because a candidate was staged.
+## Qualify the staged runtime
+
+Use an existing physical manager directory with candidates beneath its
+`generations` child. The experimental qualification module launches the fixed
+worker from the candidate through its bootstrap:
+
+```ts
+const result = await qualifyManagedCandidate({ managerRoot, candidate });
+if (result.status === "failed") {
+  console.error(result.reason);
+}
+```
+
+The worker uses actual copied Pi Agent, adapter and kernel code with a local
+faux provider. It checks priced stopping after a tool turn, an explicit unenforced
+cap for an unpriced model, cancellation before dispatch, cancellation while a tool
+is held, and a held asynchronous `agent_end` listener. Held/released observations
+show whether completion waited for the actual operation. Cancelled invocation
+usage remains unknown even when a completed earlier turn reports usage; synthetic
+prices and tokens do not represent a provider bill or strict cost admission.
+
+Each attempt gets isolated writable home/state/temp directories under
+`manager/runtime/qualification`, outside the candidate. Parent credentials,
+proxy settings and Node injection variables are not forwarded; Windows inherited
+path/profile defaults are explicitly overridden. The launcher accepts no custom
+worker, executable or environment. Timeout defaults to 30 seconds and can be set
+between 1 and 120,000 milliseconds; each output stream is capped at 64 KiB.
+Timeout, cancellation, malformed observations, nonzero exit and uncertain cleanup
+cannot produce a qualified result. Attempt scratch remains for diagnosis.
+
+A qualified result is an exact frozen process-local receipt, backed by private
+validated data. Copies and JSON round trips cannot recreate that receipt.
+`validateManagedQualificationRecord` only validates ordinary persisted data;
+it cannot issue approval authority. This checks cooperative candidate behavior,
+not the integrity of hostile candidate code or malicious local file edits.
+
+Approved selection, durable root binding and the controlled process driver are
+the next implementation stages. Public managed execution against real projects
+remains subject to the existing process containment qualification. No CLI default,
+installed version, dependency pin or native Pi host lifecycle changes merely
+because a candidate was staged or qualified.
 
 [Implementation plan](superpowers/plans/2026-10-19-managed-pi.md) and
 [current evidence](reports/2026-10-19-staged-continuation.md).
