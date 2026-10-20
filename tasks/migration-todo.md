@@ -23,7 +23,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
 | M4-B all-outcome usage coverage | Source reviewed / focused verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, full gate pending; routing/preferences remain separate |
 | M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
-| M6 project/connector | Planned | Thin controller continuation and bounded external receipts |
+| M6-A project continuation | Source reviewed / focused verified | [Guide](../docs/advance-project.md); root 10/10, spec 10/10, quality 13/13; full gate and connector separate |
 | M7 policy optimization | Planned | Attribution, offline/shadow evidence and existing policy gates |
 
 ## Current delivery checks
