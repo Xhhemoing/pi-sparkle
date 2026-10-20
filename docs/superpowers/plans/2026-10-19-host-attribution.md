@@ -56,3 +56,6 @@ Return explicit eligible/excluded rows and deterministic training/test partition
 
 ### Repair-check attribution correction
 Independent quality probes establish two required regressions: an undeclared earlier checker exit must remain an unavailable-evaluator exclusion after successful repair; a final checker exception must not reuse a preceding attempt check. Each attempt clears the collector final-check slot. Store the actual checker parent run identity at the session callback and compare it at final projection. Checker exceptions explicitly exclude attribution. These changes affect observation eligibility only, preserving original repair and acceptance decisions.
+
+### Coverage and optional-join authority
+Only genuine issued invocation snapshots feed numeric coverage. An optional external join may invalidate a label through a missing/conflicting match, but cannot inject tokens/prices or erase genuine recorded spend. Conflicting identities between two genuine issued snapshots still use the existing summarizer's no-winner behavior. Add an explicit join-conflict test showing original spend remains visible while its dataset row is excluded.
