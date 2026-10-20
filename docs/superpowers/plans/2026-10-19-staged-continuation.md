@@ -23,7 +23,7 @@ The user requests sustained staged implementation, feasibility analysis, review 
 
 ## Acceptance criteria
 - Each new behavior has an observed RED, focused GREEN and actual integration evidence where applicable.
-- Each completed part receives specification review then independent code-quality review, with findings resolved before its commit.
+- Remaining parts receive one independent read-only review covering specification, code quality and applicable contract-pinning tests before commit; concrete fixes receive targeted re-review when needed. Earlier separately executed specification/quality reviews remain historical evidence. This follows the updated user collaboration instructions recorded below.
 - Applicable existing pnpm gate and probes are executed; full output stays under .agent_workspace/staged-continuation. Failure/skip is never reclassified as pass.
 - Plans/checklists/status and a dated verification record identify changed symbols, exact commands, remaining scope and owner/condition.
 - Local commits preserve each completed part; publication, main/#61 integration and external acceptance are tracked separately.
@@ -55,3 +55,8 @@ RED cases: required file content absent from dispatch; invalid/missing/escaped/s
 - Observed RED: full gate 3646 pass / 1 fail / 48 skip and unchanged selected rerun 0/1, both EPERM in fs.rmSync temporary-directory teardown; production output-cap assertion is not the failing line.
 - Change: use existing fixture convention maxRetries=10/retryDelay=50 for recursive removal; retain final error on exhaustion, no catch-ignore and no skipped behavior assertion.
 - Acceptance: selected test repeated successfully, complete exact-git-tree file passes, focused lint; independent review; fresh final integrated gate still required. No production behavior or bound changed.
+
+## Updated user collaboration rules (2026-10-20)
+The latest user-provided AGENTS instructions replace earlier general instructions. Continue the authorized scope, preserve other contributors' changes and use one writer per path. Current shared run/binding work remains serial. For remaining slices, one independent reviewer covers requirements, actual diff, code quality and relevant frozen-surface pinning evidence; the reviewer reads the candidate before the author narrative and reports concrete defects only. Do not repeat broad checks on an unchanged candidate without a new concern. This supersedes the earlier two-reviewer sequencing in this plan and its subordinate local slice plans; it preserves independent review and all existing applicable acceptance checks.
+
+Root schedules complete builds, gates and packaging so at most one is running. Tests that internally run a full build count toward this restriction. Implementers may run authorized focused tests/typecheck/lint that do not trigger a complete build; they request scheduling for heavier commands. Root continues integration and targeted verification, then the required final current-candidate gate/probes. No dependency installation, lockfile change, new gate, hash or baseline is authorized by this process refinement. Previously recorded command results are not retroactively changed or described as future acceptance.
