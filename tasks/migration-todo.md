@@ -21,7 +21,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M3-A trusted check findings | Independently reviewed / focused verified | [Usage](../docs/check-findings.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root 15/15, reviewers each 7/7; single-flight analysis/local correction remain follow-ups |
 | C1/C2-A structured conversation host and focus | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), focus/session 17/17; no NL registration or persistent focus |
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
-| M4 remaining routing/usage/preferences | Planned | Independent increments; strict budget admission remains optional |
+| M4-B all-outcome usage coverage | Source reviewed / focused verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, full gate pending; routing/preferences remain separate |
 | M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
 | M6 project/connector | Planned | Thin controller continuation and bounded external receipts |
 | M7 policy optimization | Planned | Attribution, offline/shadow evidence and existing policy gates |
