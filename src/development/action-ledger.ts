@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalizeStableJson, STABLE_JSON_CONTRACT } from "../domain/canonical-json.js";
 import { DomainValidationError } from "../domain/errors.js";
+import type { AtomicWriteOptions } from "../persist/atomic-file.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
 import { ActionStore } from "./action-store.js";
 
@@ -74,17 +75,33 @@ export interface ActionReconciliation extends ActionRecovery {
   readonly result?: unknown;
 }
 
-interface ActionSnapshot {
+export interface ActionLedgerOptions extends FileLockOptions {
+  /** Explicit opt-in for a fresh schema2 directory; never migrates schema1. */
+  readonly completedCheckArchive?: boolean;
+  /** Existing atomic rename test seam. Does not alter fixed snapshot permissions. */
+  readonly rename?: AtomicWriteOptions["rename"];
+}
+
+interface ActionSnapshotV1 {
   readonly schemaVersion: 1;
   readonly canonicalization: typeof STABLE_JSON_CONTRACT;
   readonly actions: readonly ActionRecord[];
 }
+
+interface ActionSnapshotV2 {
+  readonly schemaVersion: 2;
+  readonly canonicalization: typeof STABLE_JSON_CONTRACT;
+  readonly actions: readonly ActionRecord[];
+  readonly archivedChecks: readonly ActionRecord[];
+}
+type ActionSnapshot = ActionSnapshotV1 | ActionSnapshotV2;
 
 const KINDS: readonly ActionKind[] = ["candidate-write", "candidate-check", "git-commit", "pull-request", "candidate-apply"];
 const STATES: readonly ActionState[] = ["prepared", "running", "completed", "needs-reconciliation", "failed"];
 const ID = /^action_v1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TOKEN = /^claim_v1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_ACTIONS = 1024;
+const MAX_ARCHIVED_CHECKS = 4096;
 const MAX_HISTORY = 256;
 
 function fail(message: string): never { throw new DomainValidationError(`action ledger: ${message}`); }
@@ -134,14 +151,21 @@ function timestamp(value: unknown): void {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) fail("invalid action timestamp");
 }
 
-function validateSnapshot(value: unknown): ActionSnapshot {
+function validateSnapshot(value: unknown, archive: boolean): ActionSnapshot {
   const snapshot = object(value, "snapshot");
-  fields(snapshot, ["schemaVersion", "canonicalization", "actions"], "snapshot");
-  if (snapshot.schemaVersion !== 1 || snapshot.canonicalization !== STABLE_JSON_CONTRACT) fail("unsupported action schema");
+  if (snapshot.schemaVersion !== (archive ? 2 : 1) || snapshot.canonicalization !== STABLE_JSON_CONTRACT) fail("unsupported action schema");
+  fields(snapshot, archive ? ["schemaVersion", "canonicalization", "actions", "archivedChecks"] : ["schemaVersion", "canonicalization", "actions"], "snapshot");
+
   if (!Array.isArray(snapshot.actions) || snapshot.actions.length > MAX_ACTIONS) fail("invalid action collection");
+  const archivedChecks = archive ? snapshot.archivedChecks : [];
+  if (!Array.isArray(archivedChecks) || archivedChecks.length > MAX_ARCHIVED_CHECKS) fail("invalid archived check collection");
+  for (const value of archivedChecks) {
+    const record = object(value, "archived check");
+    if (record.kind !== "candidate-check" || record.state !== "completed") fail("only completed candidate-check records may be archived");
+  }
   const ids = new Set<string>();
   const keys = new Set<string>();
-  for (const raw of snapshot.actions) {
+  for (const raw of [...snapshot.actions, ...archivedChecks]) {
     const record = object(raw, "action");
     fields(record, ["actionId", "idempotencyKey", "kind", "inputCanonicalJson", "state", "version", "attempt", "createdAt", "updatedAt", "claimToken", "resultCanonicalJson", "history"], "action");
     text(record.actionId, "actionId", 64);
@@ -191,6 +215,25 @@ function validateSnapshot(value: unknown): ActionSnapshot {
   return snapshot as unknown as ActionSnapshot;
 }
 
+function allActions(snapshot: ActionSnapshot): readonly ActionRecord[] {
+  return snapshot.schemaVersion === 1 ? snapshot.actions : [...snapshot.actions, ...snapshot.archivedChecks];
+}
+
+/** Only new full-capacity admission may compact, in one atomic snapshot. */
+function admissionSnapshot(snapshot: ActionSnapshot): ActionSnapshot {
+  if (snapshot.actions.length < MAX_ACTIONS) return snapshot;
+  if (snapshot.schemaVersion !== 2) fail("action collection limit reached");
+  let remaining = MAX_ARCHIVED_CHECKS - snapshot.archivedChecks.length;
+  const actions: ActionRecord[] = []; const moved: ActionRecord[] = [];
+  for (const record of snapshot.actions) {
+    if (remaining > 0 && record.kind === "candidate-check" && record.state === "completed") {
+      moved.push(record); remaining--;
+    } else actions.push(record);
+  }
+  if (moved.length === 0) fail("action collection limit reached; completed-check archive capacity unavailable");
+  return { ...snapshot, actions, archivedChecks: [...snapshot.archivedChecks, ...moved] };
+}
+
 export function createActionIdempotencyKey(): string { return `idempotency_v1_${randomUUID()}`; }
 
 /**
@@ -200,8 +243,20 @@ export function createActionIdempotencyKey(): string { return `idempotency_v1_${
  */
 export class ActionLedger {
   private readonly store: ActionStore<ActionSnapshot>;
-  constructor(directory: string, lockOptions: FileLockOptions = {}) {
-    this.store = new ActionStore(directory, validateSnapshot, () => ({ schemaVersion: 1, canonicalization: STABLE_JSON_CONTRACT, actions: [] }), lockOptions);
+  constructor(directory: string, options: ActionLedgerOptions = {}) {
+    if (options === null || typeof options !== "object" || Array.isArray(options) ||
+        ![Object.prototype, null].includes(Object.getPrototypeOf(options)) ||
+        Reflect.ownKeys(options).some((key) => typeof key !== "string" || !["timeoutMs", "retryMs", "completedCheckArchive", "rename"].includes(key)) ||
+        Object.values(Object.getOwnPropertyDescriptors(options)).some((field) => field.get !== undefined || field.set !== undefined)) fail("invalid ledger options");
+    if (options.completedCheckArchive !== undefined && typeof options.completedCheckArchive !== "boolean") fail("invalid completed-check archive mode");
+    if (options.rename !== undefined && typeof options.rename !== "function") fail("invalid atomic publication option");
+    const archive = options.completedCheckArchive === true;
+    const lock = Object.freeze({ ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(options.retryMs === undefined ? {} : { retryMs: options.retryMs }) });
+    this.store = new ActionStore(directory, (value) => validateSnapshot(value, archive),
+      (): ActionSnapshot => archive ? { schemaVersion: 2, canonicalization: STABLE_JSON_CONTRACT, actions: [], archivedChecks: [] }
+        : { schemaVersion: 1, canonicalization: STABLE_JSON_CONTRACT, actions: [] }, lock,
+      { persistEmpty: archive, ...(options.rename === undefined ? {} : { rename: options.rename }) });
   }
 
   async prepare(input: { idempotencyKey: string; kind: ActionKind; input: unknown }): Promise<ActionRecord> {
@@ -211,17 +266,17 @@ export class ActionLedger {
     const kind = input.kind;
     const inputCanonicalJson = json(input.input, "input");
     return this.store.update((snapshot) => {
-      const prior = snapshot.actions.find((action) => action.idempotencyKey === idempotencyKey);
+      const prior = allActions(snapshot).find((action) => action.idempotencyKey === idempotencyKey);
       if (prior !== undefined) {
         if (prior.kind !== kind || prior.inputCanonicalJson !== inputCanonicalJson) fail("idempotency key identity mismatch");
         return { state: snapshot, result: prior, changed: false };
       }
-      if (snapshot.actions.length >= MAX_ACTIONS) fail("action collection limit reached");
+      const admitted = admissionSnapshot(snapshot);
       const at = new Date().toISOString();
       const record: ActionRecord = { actionId: `action_v1_${randomUUID()}`, idempotencyKey, kind, inputCanonicalJson,
         state: "prepared", version: 1, attempt: 0, createdAt: at, updatedAt: at,
         history: [{ version: 1, state: "prepared", attempt: 0, at }] };
-      return { state: { ...snapshot, actions: [...snapshot.actions, record] }, result: record, changed: true };
+      return { state: { ...admitted, actions: [...admitted.actions, record] }, result: record, changed: true };
     });
   }
 
@@ -244,28 +299,28 @@ export class ActionLedger {
     const inputCanonicalJson = json(input.input, "input");
     return this.store.update((snapshot) => {
       if (signal?.aborted) fail("admission cancelled before publication");
-      const prior = snapshot.actions.find((record) => record.idempotencyKey === idempotencyKey);
+      const prior = allActions(snapshot).find((record) => record.idempotencyKey === idempotencyKey);
       if (prior !== undefined && (prior.kind !== kind || prior.inputCanonicalJson !== inputCanonicalJson)) fail("idempotency key identity mismatch");
       if (prior !== undefined && prior.state !== "prepared") fail("only a prepared action may be admitted; reconcile running/uncertain actions; terminal effects are never replayed");
       const conflict = snapshot.actions.find((record) =>
         (record.state === "running" || record.state === "needs-reconciliation") && conflictsWith(record));
       if (conflict !== undefined) throw new ActionAdmissionConflictError(conflict.actionId);
-      if (prior === undefined && snapshot.actions.length >= MAX_ACTIONS) fail("action collection limit reached");
+      const admitted = prior === undefined ? admissionSnapshot(snapshot) : snapshot;
       const at = new Date().toISOString();
       const prepared: ActionRecord = prior ?? { actionId: `action_v1_${randomUUID()}`, idempotencyKey, kind, inputCanonicalJson,
         state: "prepared", version: 1, attempt: 0, createdAt: at, updatedAt: at,
         history: [{ version: 1, state: "prepared", attempt: 0, at }] };
       const running = this.next(prepared, "running", { claimToken: `claim_v1_${randomUUID()}`, attempt: prepared.attempt + 1 });
-      return { state: { ...snapshot, actions: prior === undefined ? [...snapshot.actions, running]
-        : snapshot.actions.map((record) => record.actionId === prior.actionId ? running : record) },
+      return { state: { ...admitted, actions: prior === undefined ? [...admitted.actions, running]
+        : admitted.actions.map((record) => record.actionId === prior.actionId ? running : record) },
       result: this.asClaim(running), changed: true };
     });
   }
 
   async get(actionId: string): Promise<ActionRecord | undefined> {
-    return (await this.store.read()).actions.find((action) => action.actionId === actionId);
+    return allActions(await this.store.read()).find((action) => action.actionId === actionId);
   }
-  async list(): Promise<readonly ActionRecord[]> { return (await this.store.read()).actions; }
+  async list(): Promise<readonly ActionRecord[]> { return allActions(await this.store.read()); }
 
   async claim(actionId: string, expectedVersion: number): Promise<ActionClaim> {
     const record = await this.change(actionId, expectedVersion, (current) => {
@@ -316,12 +371,12 @@ export class ActionLedger {
     version(expectedVersion);
     if (!ID.test(actionId)) fail("invalid actionId");
     return this.store.update((snapshot) => {
-      const index = snapshot.actions.findIndex((record) => record.actionId === actionId);
-      const current = snapshot.actions[index];
+      const current = allActions(snapshot).find((record) => record.actionId === actionId);
       if (current === undefined) fail("unknown actionId");
       if (current.version !== expectedVersion) fail("stale action version");
+      if (snapshot.schemaVersion === 2 && snapshot.archivedChecks.some((record) => record.actionId === actionId)) fail("archived completed check is terminal and cannot transition");
       const record = update(current);
-      return { state: { ...snapshot, actions: snapshot.actions.map((entry, at) => at === index ? record : entry) }, result: record, changed: true };
+      return { state: { ...snapshot, actions: snapshot.actions.map((entry) => entry.actionId === actionId ? record : entry) }, result: record, changed: true };
     });
   }
 
