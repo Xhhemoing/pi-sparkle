@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { test } from "node:test";
+import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 import { DevelopmentController } from "../../../src/development/controller.js";
 import { WorkItemStore } from "../../../src/development/work-item-store.js";
 import { createWorkQueue, type WorkItemDefinition } from "../../../src/development/work-items.js";
@@ -135,3 +136,50 @@ for (const scope of ["src/*", "src/?", "src/[ab]", "disk:path", ".git/config", "
     assert.equal((await controller.ledger.list()).length, 1);
   }));
 }
+
+test("generic command uncertainty survives swallowed tool failure and controller restart", async () => fixture(async (value) => {
+  const checked = path.join(value.root, "checker-ran");
+  const item = definition();
+  await rm(value.queuePath);
+  await new WorkItemStore(value.queuePath).create(createWorkQueue({ id: "fixture", authorityRef: "host:test",
+    items: [{ ...item, acceptance: [{ ...item.acceptance[0]!, args: ["-e",
+      `require('node:fs').writeFileSync(${JSON.stringify(checked)},'checked')`] }] }, definition("overlap")] }));
+  let swallowedErrors = 0;
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: (context) => {
+    const command = createWorktreeCodingTools({ ...context, worktreeRoot: context.candidatePath,
+      commandPolicy: { allow: [{ executable: "node", argvPrefix: ["-e"] }], timeoutMs: 1_000 }
+    }).find((tool) => tool.name === "sparkle_run_command")!;
+    const later = createWorktreeCodingTools({ ...context, worktreeRoot: context.candidatePath,
+      commandPolicy: { allow: [{ executable: "node", argvPrefix: ["-e"] }], timeoutMs: 30_000 }
+    }).find((tool) => tool.name === "sparkle_run_command")!;
+    return { async *execute(request, signal) {
+      try { await command.execute("unknown", { command: "node", args: ["-e", "setInterval(()=>{},1000)"] }); }
+      catch { swallowedErrors++; } // Pi may convert a tool exception to model-visible text.
+      await later.execute("later-success", { command: "node", args: ["-e", "process.exit(0)"] });
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    } };
+  } });
+  const result = await controller.runNext({ maxAttempts: 2 });
+  assert.equal(swallowedErrors, 1);
+  assert.equal(result.status, "needs-reconciliation");
+  assert.ok(result.candidatePath);
+  assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), "before");
+  assert.equal(await readFile(path.join(value.sourceRepo, "value.txt"), "utf8"), "before");
+  const actions = await controller.ledger.list();
+  assert.equal(actions.length, 1, "uncertainty must prevent host checks and repairs");
+  assert.equal(actions[0]!.state, "needs-reconciliation");
+  const failure = JSON.parse(await readFile(actions[0]!.history.at(-1)!.evidence!.references[0]!, "utf8"));
+  assert.equal(failure.body.kind, "native-write-failure");
+  assert.equal(failure.body.processCleanup.settled, false);
+  assert.equal(failure.body.processCleanup.status, "timed_out");
+  assert.equal("stdoutText" in failure.body.processCleanup, false);
+  await assert.rejects(() => readFile(checked), { code: "ENOENT" });
+  assert.equal((await new WorkItemStore(value.queuePath).load()).items[0]!.status, "running");
+  const restarted = new DevelopmentController({ ...value, owner: "restart", executorFactory: () => {
+    assert.fail("unreconciled writer must not dispatch again");
+  } });
+  assert.equal((await restarted.ledger.list())[0]!.state, "needs-reconciliation");
+  assert.equal((await restarted.runNext()).status, "no-ready-task");
+  assert.equal((await new WorkItemStore(value.queuePath).load()).items[1]!.status, "planned");
+  assert.equal((await restarted.ledger.list()).length, 1);
+}));

@@ -1,5 +1,14 @@
 # Active implementation plan
 
+## Staged ADR-009 continuation (2026-10-19)
+
+`TASK-20261019-staged-continuation`: [execution plan](../docs/superpowers/plans/2026-10-19-staged-continuation.md) · [current evidence](../docs/reports/2026-10-19-staged-continuation.md). User authorized sustained staged implementation, independent review and local commits. M0-C focused 23/23 and independent specification/quality reviews pass; fresh full gate found a Windows fixture-cleanup failure, now corrected and focused-verified; final integrated gate remains pending. Next: M1 task-local context, additive SDK, trusted findings, all-outcome coverage, thin project continuation and offline attribution. Existing external qualification and production/experiment boundaries remain distinct.
+
+## Generic command-tool uncertainty (2026-10-19)
+
+`TASK-20261019-command-uncertainty`: [plan](../docs/superpowers/plans/2026-10-19-command-uncertainty.md) · [verification](../docs/reports/2026-10-19-command-uncertainty.md). Source independently reviewed; focused 23/23, build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 fixture-cleanup failure / 48 skip. Windows EPERM cleanup failure reproduced and corrected with bounded retries; full affected file 25 pass / 0 fail / 2 platform skips. A local checkpoint preserves this work; final integrated gate remains pending. Host command tools must forward the callback; full containment, arbitrary host effects, publication and production acceptance remain separate.
+
+
 ## Conversation entry, focus and task presentation (2026-10-18)
 
 `TASK-20261018-conversation-presentation`: [bounded execution plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), [current evidence](../docs/reports/2026-10-18-conversation-presentation.md). C1/C2-A experimental host facade and M4-A presentation overlay are source-reviewed and locally verified: independent 63/63; actual pinned gate 3,689 pass / 0 fail / 2 conditional skips + build. External GitHub publication remains separately blocked. No full natural-language frontend, persistent focus or learned policy activation is claimed.

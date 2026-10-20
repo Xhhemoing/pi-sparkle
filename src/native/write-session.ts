@@ -42,6 +42,8 @@ export interface NativeWriteExecutorFactoryInput {
   readonly signal: AbortSignal;
   readonly attempt?: NativeWriteAttemptContext;
   readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[];
+  /** Wire into host-created command tools; tool errors alone may be swallowed by the worker. */
+  readonly onCommandCleanupUnsettled: (result: AuthorizedCommandRunResult) => void;
 }
 
 export type NativeWriteExecutorFactory =
@@ -354,6 +356,10 @@ export class NativeWriteSession {
       .filter((tool) => ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files",
         "sparkle_search_files", "sparkle_patch_file"].includes(tool.name));
     let factoryError: string | undefined;
+    let unsettledCommand: AuthorizedCommandRunResult | undefined;
+    const onCommandCleanupUnsettled = (result: AuthorizedCommandRunResult): void => {
+      if (result.cleanupUnsettled) unsettledCommand ??= result;
+    };
     let executor: AgentExecutor;
     try {
       executor = await this.options.executorFactory({
@@ -362,17 +368,19 @@ export class NativeWriteSession {
         objective,
         tools,
         signal,
+        onCommandCleanupUnsettled,
         ...(attempt === undefined ? {} : { attempt }),
         ...(preflight.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: preflight.acceptanceCriteria })
       });
     } catch (error) {
+      if (error instanceof CommandCleanupIncompleteError) onCommandCleanupUnsettled(error.result);
       factoryError = error instanceof Error ? error.message : String(error);
       executor = failedExecutor(factoryError);
     }
     const factoryStop = stopReason(this.closed, signal);
     if (factoryStop !== undefined) {
       // Once a repair has prior evidence its candidate is never disposed.
-      if (attempt === undefined || attempt.number === 1) {
+      if (unsettledCommand === undefined && (attempt === undefined || attempt.number === 1)) {
         await this.disposeBeforeRun(session);
         throw new DomainValidationError(`native write ${factoryStop}`);
       }
@@ -403,6 +411,13 @@ export class NativeWriteSession {
     });
     const bindContract = (result: NativeWriteSessionResult): NativeWriteSessionResult =>
       taskContract === undefined ? result : { ...result, taskContract };
+
+    if (unsettledCommand !== undefined) {
+      return bindContract(await this.failureResult(preflight, session,
+        "command cleanup unsettled; host reconciliation required", {
+          runId: outcome.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: outcome.events
+        }, unsettledCommand));
+    }
 
     const terminalStop = stopReason(this.closed, signal);
     if (terminalStop !== undefined || outcome.status === "CANCELLED") {
