@@ -1,5 +1,12 @@
 # Active checklist
 
+## Current cloud attempt (2026-10-20)
+
+- [x] Verify target branch at `d6a3032a`, clean intake, source ancestry and pinned toolchain; read repository authority and focused interfaces. [Evidence](../docs/reports/2026-10-20-cloud-validation.md).
+- [ ] Work 1 BLOCKED: actual Node24 `pnpm gate` exit 1 (`tsc: not found`); dependencies incomplete after automatic approval rejected unknown telemetry egress. Offline install exit 1 for missing pinned Pi tarball. Owner: user/environment policy owner; unblock with a complete trusted offline store or reviewed explicit egress authorization.
+- [ ] Node22 gate, all probes, actual packaging and SDK consumer remain NOT RUN; Windows environment unavailable. No historical partial pass substitutes for these checks.
+- [ ] Work 2/C3/later slices: read-only findings and [exact Work 2 plan](../docs/superpowers/plans/2026-10-20-conversation-tools.md) preserved; no implementation or valid behavioral RED/GREEN yet. Resume with the dependency/gate command in the evidence record.
+
 ## Cloud continuation handoff (2026-10-20)
 
 [Execution plan](../docs/superpowers/plans/2026-10-20-cloud-continuation.md) · [handoff evidence](../docs/reports/2026-10-20-cloud-handoff.md).

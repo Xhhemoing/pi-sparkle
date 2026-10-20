@@ -3,6 +3,10 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Current cloud candidate verification (2026-10-20)
+
+Source `d6a3032a` is present on the requested continuation branch. Current Linux Node24 `pnpm gate` exits 1 at missing `tsc`, after workflow passes and before product tests/build. Dependency installation is blocked by automatic approval review for unknown telemetry egress; an offline/scripts-disabled alternative fails for a missing locked tarball. Node22.19.0 is available but product verification is NOT RUN; Windows is unavailable. No current full-gate, probe, packed-consumer or new implementation acceptance follows. [Exact commands, independent investigation and unblock condition](reports/2026-10-20-cloud-validation.md). Historical scoped results below remain historical.
+
 ## Staged ADR-009 implementation (2026-10-19)
 
 Final local acceptance (2026-10-20), runtime 3d3dcdc5: pinned gate3978 pass/0 fail/48 conditional skips and build PASS; security26/Pi4/kernel3 and two actual packed SDK consumers PASS. [Exact commands, reviews and limits](reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). The following scoped slices are locally verified; whole M0-M7 and external conditions are not accepted by this result.
