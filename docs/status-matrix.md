@@ -285,3 +285,7 @@ Current F6 prerequisite reconciliation: [2026-09-18 delivery gate record](report
 | Checkpoint G Outcome-supported | routing | F-PROD | Held-out benefit without guardrail regression | Forbidden until F |
 
 Live R1, bandit, and topology stay off the execution path until F-PROD closes.
+
+## Fresh-ledger completed-check archival (2026-10-20)
+
+Explicit host-only schema2 mode is integrated and independently reviewed. Root27 pass/1 existing Windows skip includes actual1026 filesystem check lifecycles; exact historical-source publication tests pass. Full records and unresolved effects remain, with finite1024/4096/8MiB bounds. No automatic migration, arbitrary-old-host isolation or containment claim. Final integrated gate pending. [Guide](check-archive.md) · [Evidence](reports/2026-10-19-staged-continuation.md).

@@ -77,3 +77,5 @@ writers.
 - [x] 2026-10-19: Real RED/GREEN, final 23/23, typecheck/lint/build and security/Pi probes recorded in the linked evidence.
 - [x] Independent specification and code-quality source reviews passed; dated continuation evidence linked above.
 - [ ] Root coordinator: rerun final integrated full gate after reviewed slices; current full run had one corrected Windows fixture-cleanup failure, not a passing gate.
+
+Fresh-ledger archival (2026-10-20): source reviewed/focused verified; root27 pass/1 existing Windows skip with actual1026 lifecycles, exact historical-source publication probe exit0. Finite opt-in schema2 only; final combined gate pending. [Guide](../docs/check-archive.md) and [evidence](../docs/reports/2026-10-19-staged-continuation.md).

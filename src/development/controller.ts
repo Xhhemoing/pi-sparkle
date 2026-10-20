@@ -31,6 +31,8 @@ export interface DevelopmentControllerOptions {
   readonly owner: string;
   readonly executorFactory?: NativeWriteExecutorFactory;
   readonly sandboxRoot?: string;
+  /** Explicit fresh-directory schema2 ledger mode; never migrates existing schema1. */
+  readonly completedCheckArchive?: boolean;
 }
 export interface DevelopmentResult {
   readonly status: "ready-for-review" | "blocked" | "no-ready-task" | "needs-reconciliation";
@@ -184,9 +186,12 @@ export class DevelopmentController {
   private readonly options: DevelopmentControllerOptions;
 
   constructor(options: DevelopmentControllerOptions) {
-    this.options = Object.freeze({ ...options, sourceRepo: path.resolve(options.sourceRepo),
+    const completedCheckArchive = options.completedCheckArchive;
+    if (completedCheckArchive !== undefined && typeof completedCheckArchive !== "boolean") fail("invalid completed-check archive mode");
+    this.options = Object.freeze({ ...options, completedCheckArchive: completedCheckArchive === true, sourceRepo: path.resolve(options.sourceRepo),
       stateRoot: path.resolve(options.stateRoot), queuePath: path.resolve(options.queuePath) });
-    this.ledger = new ActionLedger(path.join(path.dirname(this.options.queuePath), "actions"));
+    this.ledger = new ActionLedger(path.join(path.dirname(this.options.queuePath), "actions"),
+      { completedCheckArchive: completedCheckArchive === true });
     this.store = new WorkItemStore(this.options.queuePath, {
       verifyEligibility: async (item, signal) => {
         checkCancellation(signal);
