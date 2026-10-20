@@ -10,6 +10,8 @@ M2-B now supplies additive `sdk/host.js` and `sdk/testing.js` entries, bounded l
 
 M3-A exposes historical revision/generation-bound findings from actual trusted checks. Root integrated 15/15 and independent reviewers each 7/7 pass. This adds observations only; automatic investigation/correction and final full gate remain open. See [findings guide](check-findings.md).
 
+M4-B reported usage coverage includes all outcomes, missing usage/prices and identity conflicts. Integrated 20/20, typecheck/lint and independent spec/quality reviews pass; final full gate remains pending. Known-cost subsets are not settled bills. See [usage guide](usage-coverage.md).
+
 ## Generic command-tool uncertainty follow-up (2026-10-19)
 
 [Plan](superpowers/plans/2026-10-19-command-uncertainty.md) and [verification](reports/2026-10-19-command-uncertainty.md): host-wired generic tools notify Native before model-visible cleanup errors; sticky uncertainty retains existing effectsSettled/ledger/claim fencing. Focused 23/23 and independent specification/quality reviews pass; build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 Windows fixture-cleanup EPERM / 48 skip. The cleanup failure was reproduced and corrected without relaxing product assertions; affected file 25 pass / 0 fail / 2 platform skips. Final integrated full gate remains pending. Arbitrary host effects, OS containment, old writers, terminal archival, publication and production/outcome acceptance remain open.
