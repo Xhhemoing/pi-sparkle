@@ -115,6 +115,8 @@ import type { RunEngineBinding } from "../domain/run-engine-binding.js";
 import { assertRunEngineForResume, bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "./engine-binding.js";
 
 export interface FlowchartRunDeps {
+  /** Process-lifetime cooperative stop; absence preserves ordinary host behavior. */
+  signal?: AbortSignal;
   engineContext?: RunEngineContext;
   stateRoot: string;
   router: ModelRouter;
@@ -293,6 +295,18 @@ function childTaskMap(tasks: readonly ChildTaskInput[] | undefined): Map<TaskId,
 class RunAbortScope {
   private readonly controller = new AbortController();
   private readonly live = new Set<ChildRunHandle>();
+  private readonly external: AbortSignal | undefined;
+  private readonly onExternalStop = (): void => this.cancel();
+
+  constructor(signal?: AbortSignal) {
+    this.external = signal;
+    signal?.addEventListener("abort", this.onExternalStop, { once: true });
+    if (signal?.aborted) this.cancel();
+  }
+
+  detach(): void {
+    this.external?.removeEventListener("abort", this.onExternalStop);
+  }
 
   get signal(): AbortSignal {
     return this.controller.signal;
@@ -302,9 +316,16 @@ class RunAbortScope {
     return this.controller.signal.aborted;
   }
 
+  /** Normal teardown also aborts the internal controller; only the host signal
+   * records that an external process stop was actually requested. */
+  get externalStopRequested(): boolean {
+    return this.external?.aborted === true;
+  }
+
   /** Registers a child so teardown can cancel it; forgotten once it settles. */
   track(handle: ChildRunHandle): ChildRunHandle {
     this.live.add(handle);
+    if (this.aborted) handle.cancel();
     const forget = (): void => {
       this.live.delete(handle);
     };
@@ -874,6 +895,7 @@ async function executeClusteredNode(
   const outcome = await handle.done;
   ctx.finishedChildren.set(outcome.taskId, outcome);
   await drainSpawnedChildren(ctx.spawnHandles, ctx.finishedChildren, spawnedBefore);
+  if (ctx.abort.aborted) return;
   const current = await ctx.eventStore.readAll();
   const gated = applyChildThreeLine({
     events: current.events,
@@ -892,6 +914,7 @@ async function executeClusteredNode(
 async function executeRemainingRunningNodes(ctx: FlowchartLoopContext): Promise<number> {
   let applied = 0;
   for (const node of ctx.definition.nodes) {
+    if (ctx.abort.aborted) break;
     if (ctx.supervisor.nodeState(node.id) !== "RUNNING") continue;
     const spec = ctx.childByTaskId.get(node.taskId);
     if (spec !== undefined && ctx.childCoordinator !== undefined) {
@@ -919,8 +942,9 @@ async function executeRemainingRunningNodes(ctx: FlowchartLoopContext): Promise<
     } catch {
       result = { outcome: "FAILURE" as const };
     }
-    const agentOutcome = result.outcome === "FAILURE" ? "FAILURE" : "SUCCESS";
+    const agentOutcome = ctx.abort.aborted ? "CANCELLED" : result.outcome === "FAILURE" ? "FAILURE" : "SUCCESS";
     await ctx.append(ctx.make("AGENT_FINISHED", { agentInstanceId, outcome: agentOutcome }, node.taskId));
+    if (ctx.abort.aborted) break;
     ctx.supervisor.applyChildResult(node.id, result);
     applied += 1;
   }
@@ -947,6 +971,8 @@ function failedReason(supervisor: FlowchartSupervisor): string {
 }
 
 async function finishIfSettled(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome | undefined> {
+  const stopped = await stopIfRequested(ctx);
+  if (stopped !== undefined) return stopped;
   const status = flowchartStatus(ctx.supervisor);
   if (status === "WAITING_FOR_USER") {
     await persistWaiting(ctx);
@@ -1156,16 +1182,23 @@ async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
   // Terminal teardown: whatever the status, the run stops here, so nothing it
   // launched may outlive it.
   await ctx.abort.cancelAndSettle();
-  const checkpoint = await persistCheckpoint(ctx);
+  let checkpoint = await persistCheckpoint(ctx);
   const beforeSettle = await ctx.eventStore.readAll();
-  await settleBoundEpisode({
-    stateRoot: ctx.stateRoot,
-    events: beforeSettle.events,
-    status: replayRun(beforeSettle.events).status,
-    append: ctx.append,
-    make: (type, payload) => ctx.make(type, payload)
-  });
-  const read = await ctx.eventStore.readAll();
+  await settleFlowchartEpisode(ctx, beforeSettle.events);
+  let read = await ctx.eventStore.readAll();
+  // Reconcile after every normal finish await. A stop may arrive while the
+  // WAITING/PAUSED checkpoint or episode is being persisted. Once this check
+  // sees no request there are no further awaits before the returned projection.
+  // Existing terminal outcomes retain precedence; internal teardown is not a
+  // host stop and must not cancel ordinary waiting or operator pause.
+  if (ctx.abort.externalStopRequested && replayedTerminalStatus(read.events) === undefined &&
+      !read.events.some((event) => event.type === "RUN_CANCEL_REQUESTED")) {
+    await ctx.append(ctx.make("RUN_CANCEL_REQUESTED", {}));
+    checkpoint = await persistCheckpoint(ctx);
+    const cancelled = await ctx.eventStore.readAll();
+    await settleFlowchartEpisode(ctx, cancelled.events);
+    read = await ctx.eventStore.readAll();
+  }
   const replayed = replayRun(read.events);
   const pendingApproval = ctx.supervisor.pendingApproval;
   return {
@@ -1180,6 +1213,16 @@ async function finish(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
     // settled, so what is left here is what the run lost.
     ...(ctx.clusterHost !== undefined ? { clusterMail: summarizeClusterMail(ctx.clusterHost) } : {})
   };
+}
+
+function settleFlowchartEpisode(ctx: FlowchartLoopContext, events: readonly Event[]): Promise<void> {
+  return settleBoundEpisode({
+    stateRoot: ctx.stateRoot,
+    events,
+    status: replayRun(events).status,
+    append: ctx.append,
+    make: (type, payload) => ctx.make(type, payload)
+  });
 }
 
 async function applyApproval(
@@ -1455,6 +1498,8 @@ async function pauseIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRun
 
 async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome> {
   for (let round = 1; round <= ctx.maxRounds; round += 1) {
+    const stopped = await stopIfRequested(ctx);
+    if (stopped !== undefined) return stopped;
     const controlStop = await drainControlQueue(ctx);
     if (controlStop !== undefined) return controlStop;
 
@@ -1464,11 +1509,16 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
     const settled = await finishIfSettled(ctx);
     if (settled !== undefined) return settled;
 
+    const stoppedBeforeLease = await stopIfRequested(ctx);
+    if (stoppedBeforeLease !== undefined) return stoppedBeforeLease;
     const leases = ctx.supervisor.leaseReadyNodes();
     for (const lease of leases) {
       await ctx.append(ctx.make("MODEL_ROUTED", toModelRoutedPayload(lease.decision), lease.taskId));
     }
     if (leases.length > 0) await persistCheckpoint(ctx);
+
+    const stoppedAfterLease = await stopIfRequested(ctx);
+    if (stoppedAfterLease !== undefined) return stoppedAfterLease;
 
     if (ctx.autoSelectDefaultApprovals === true && ctx.supervisor.status === "WAITING_FOR_USER") {
       const pending = ctx.supervisor.pendingApproval;
@@ -1502,6 +1552,8 @@ async function runFlowchartLoop(ctx: FlowchartLoopContext): Promise<FlowchartRun
 
     const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
     const appliedExecutor = await executeRemainingRunningNodes(ctx);
+    const stoppedAfterExecution = await stopIfRequested(ctx);
+    if (stoppedAfterExecution !== undefined) return stoppedAfterExecution;
     const applied = appliedResults + appliedExecutor;
     if (applied > 0) {
       const advanced = ctx.supervisor.advanceRound();
@@ -1591,7 +1643,19 @@ async function withRunTeardown(
     await recordCrashTerminal(ctx, error);
     await preserveResumableState(ctx);
     throw error;
+  } finally {
+    ctx.abort.detach();
   }
+}
+
+async function stopIfRequested(ctx: FlowchartLoopContext): Promise<FlowchartRunOutcome | undefined> {
+  if (!ctx.abort.aborted) return undefined;
+  await ctx.abort.cancelAndSettle();
+  const read = await ctx.eventStore.readAll();
+  if (replayedTerminalStatus(read.events) === undefined && !read.events.some((event) => event.type === "RUN_CANCEL_REQUESTED")) {
+    await ctx.append(ctx.make("RUN_CANCEL_REQUESTED", {}));
+  }
+  return finish(ctx);
 }
 
 function makeEventFactory(
@@ -1669,6 +1733,8 @@ export async function startFlowchartRun(
   deps: FlowchartRunDeps,
   input: FlowchartRunInput
 ): Promise<FlowchartRunOutcome> {
+  deps = { ...deps };
+  deps.signal?.throwIfAborted();
   const engineContext = captureRunEngineContext(deps.engineContext);
   const engineBinding = await bindingForNewRun(engineContext);
   const now = deps.now ?? nowIso;
@@ -1807,7 +1873,7 @@ async function startLockedFlowchartRun(
     }
   }
 
-  const abort = new RunAbortScope();
+  const abort = new RunAbortScope(deps.signal);
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   const plannedChildren = input.childTasks ?? [];
   const childByTaskId = childTaskMap(plannedChildren);
@@ -1868,8 +1934,10 @@ async function startLockedFlowchartRun(
     ...(input.autoSelectDefaultApprovals === true ? { autoSelectDefaultApprovals: true } : {})
 
   };
-  await persistCheckpoint(ctx);
-  return withRunTeardown(ctx, () => runFlowchartLoop(ctx));
+  return withRunTeardown(ctx, async () => {
+    await persistCheckpoint(ctx);
+    return runFlowchartLoop(ctx);
+  });
 }
 
 /** Position of an event id in the log, or `-1` when it is not on it. */
@@ -1941,6 +2009,8 @@ export async function resumeFlowchartRun(
   runId: RunId,
   continuation: FlowchartContinuation = {}
 ): Promise<FlowchartRunOutcome> {
+  deps = { ...deps };
+  deps.signal?.throwIfAborted();
   const engineContext = captureRunEngineContext(deps.engineContext);
   // Same acquisition as a fresh start, and it also serializes a resume against
   // the run it is resuming: two processes cannot drive one run's records at
@@ -1993,7 +2063,7 @@ async function resumeLockedFlowchartRun(
   });
 
   const make = makeEventFactory(runId, now, generateId);
-  const abort = new RunAbortScope();
+  const abort = new RunAbortScope(deps.signal);
   const registry = deps.registry ?? createAgentProfileRegistry(defaultAgentProfiles());
   // Reuses the read the resume already did: the log is the spec source, and
   // reading it twice would only widen the window for the two copies to differ.
@@ -2076,6 +2146,8 @@ async function resumeRestoredRun(
   ctx: FlowchartLoopContext,
   continuation: FlowchartContinuation
 ): Promise<FlowchartRunOutcome> {
+  const stopped = await stopIfRequested(ctx);
+  if (stopped !== undefined) return stopped;
   if (continuation.unpause === true) {
     const pause = ctx.pause ?? createFilePauseController(ctx.stateRoot, ctx.now);
     await pause.clearPause(ctx.runId);
@@ -2103,6 +2175,8 @@ async function resumeRestoredRun(
 
   const appliedResults = applyRunningResults(ctx.supervisor, ctx.definition, ctx.results);
   const appliedExecutor = await executeRemainingRunningNodes(ctx);
+  const stoppedAfterExecution = await stopIfRequested(ctx);
+  if (stoppedAfterExecution !== undefined) return stoppedAfterExecution;
   const applied = appliedResults + appliedExecutor;
   if (continuation.approvalReply !== undefined || applied > 0) {
     const advanced = ctx.supervisor.advanceRound();

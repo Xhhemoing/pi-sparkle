@@ -79,3 +79,5 @@ writers.
 - [ ] Root coordinator: rerun final integrated full gate after reviewed slices; current full run had one corrected Windows fixture-cleanup failure, not a passing gate.
 
 Fresh-ledger archival (2026-10-20): source reviewed/focused verified; root27 pass/1 existing Windows skip with actual1026 lifecycles, exact historical-source publication probe exit0. Finite opt-in schema2 only; final combined gate pending. [Guide](../docs/check-archive.md) and [evidence](../docs/reports/2026-10-19-staged-continuation.md).
+
+M5-D2 (2026-10-20): controlled driver source reviewed/focused verified; root104/104 adjacent and14/14 actual process tests after R1 cancellation repair, independent63/63 plus5 filesystem probes. Internal controlled offline path only; public real-project managed execution still awaits containment qualification. Final combined gate pending. [Guide](../docs/managed-pi.md).

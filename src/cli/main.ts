@@ -105,6 +105,7 @@ import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
 import { CLI_EXIT, cliFail, doctorJsonCommand, errorCodeOf } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
+import { captureRunEngineContext, type RunEngineContext } from "../run/engine-binding.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
 
@@ -129,6 +130,32 @@ const defaultIo: CliIo = {
   stdout: (text) => process.stdout.write(text),
   stderr: (text) => process.stderr.write(text)
 };
+
+/** Local host composition only; no command flag or environment variable enables it. */
+export interface CliRuntimeContext {
+  readonly engineContext?: RunEngineContext;
+  readonly signal?: AbortSignal;
+}
+interface CliCommandRuntime extends CliRuntimeContext {
+  readonly pendingWrites?: Set<Promise<void>>;
+}
+
+function commandRuntimeDeps(runtime: CliRuntimeContext): CliRuntimeContext {
+  runtime.signal?.throwIfAborted();
+  return runtime;
+}
+
+async function awaitCliHandle<T>(handle: { done: Promise<T>; cancel(): void }, signal?: AbortSignal): Promise<T> {
+  const stop = (): void => handle.cancel();
+  signal?.addEventListener("abort", stop, { once: true });
+  if (signal?.aborted) stop();
+  try { return await handle.done; }
+  finally { signal?.removeEventListener("abort", stop); }
+}
+
+function trackInvocationWrite(runtime: CliCommandRuntime, write: Promise<void>): void {
+  runtime.pendingWrites?.add(write);
+}
 
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
@@ -233,7 +260,7 @@ ChildNodeResult and wins over --executor for those nodes. Optional --executor
 fake|pi runs remaining RUNNING nodes (--executor fake uses the protocol child
 fake, same as --children). Without --results or --executor, leased nodes stall.
 Resume of a flowchart checkpoint continues resumeFlowchartRun (optional --results,
---executor, and --selected / --selected-ids). A run's executor configuration is
+--executor, and --selected / --selected-ids). A run's model/thinking configuration is
 not recorded, so resume takes --primary-model / --thinking again for the
 executor it rebuilds and prints one stderr line saying what it built (including
 when it fell back to defaults). --supervised still uses M2 DAG
@@ -663,7 +690,7 @@ function flowchartContinuation(opts: {
   };
 }
 
-async function runCommand(args: string[], io: CliIo): Promise<number> {
+async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -775,7 +802,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
             stateRoot,
             {
               onInvocation: (invocation) => {
-                void invocationSink(invocation);
+                trackInvocationWrite(runtime, invocationSink(invocation));
               },
               onCostGate: reportCostGate
             },
@@ -786,6 +813,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         : undefined;
     const outcome = await startFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause: createFilePauseController(stateRoot),
@@ -837,7 +865,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     stateRoot,
     {
       onInvocation: (invocation) => {
-        void invocationSink(invocation);
+        trackInvocationWrite(runtime, invocationSink(invocation));
       },
       onCostGate: reportCostGate
     },
@@ -890,6 +918,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     // that every command paid when track/loop was a direct static dependency.
     const { startTrackedRun } = await import("../track/loop.js");
     const outcome = await startTrackedRun({
+      ...commandRuntimeDeps(runtime),
       projectRoot,
       objective,
       stateRoot,
@@ -1003,6 +1032,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     );
     const outcome = await startFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: createModelRouter(catalog),
         executor,
@@ -1052,7 +1082,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`  ${unverifiedSummary}\n`);
     }
     const episodeId = episodeIdFromEvents(outcome.events);
-    try {
+    if (!runtime.signal?.aborted) try {
       const adapt = await runAutoAdaptLoop({
         stateRoot,
         projectRoot,
@@ -1084,14 +1114,14 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   // `input.limits` or nothing, so handing it a lone `maxCostUsd` would drop
   // every other default. Absent leaves the call the CLI has always made.
   const running = startRun(
-    { stateRoot, executor },
+    { stateRoot, executor, ...commandRuntimeDeps(runtime) },
     {
       projectRoot,
       objective,
       ...(maxCostUsd !== undefined ? { limits: { ...defaultRunLimits(), maxCostUsd } } : {})
     }
   );
-  const outcome = await running.done;
+  const outcome = await awaitCliHandle(running, runtime.signal);
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
   io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
@@ -1628,7 +1658,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-async function resumeCommand(args: string[], io: CliIo): Promise<number> {
+async function resumeCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -1720,10 +1750,11 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     discloseExecutorConfig(executorKind);
     const running = resumeSupervisedRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         executor: await createExecutor(executorKind, stateRoot, {
           onInvocation: (invocation) => {
-            void invocationSink(invocation);
+            trackInvocationWrite(runtime, invocationSink(invocation));
           },
           onCostGate: reportCostGate
         }, modelOverride, thinkingLevel, executorModelOverride),
@@ -1731,7 +1762,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       },
       runId
     );
-    const outcome = await running.done;
+    const outcome = await awaitCliHandle(running, runtime.signal);
     io.stdout(`Run ${runId}: resumed (${outcome.status})\n`);
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl")}\n`);
     io.stdout(`  checkpoint: ${join(runtimeRoot(stateRoot), "runs", runId, "checkpoint.json")}\n`);
@@ -1768,13 +1799,14 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       values.executor !== undefined
         ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
             onInvocation: (invocation) => {
-              void invocationSink(invocation);
+              trackInvocationWrite(runtime, invocationSink(invocation));
             },
             onCostGate: reportCostGate
           }, modelOverride, thinkingLevel, executorModelOverride)
         : undefined;
     const outcome = await resumeFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause,
@@ -1815,7 +1847,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-async function answerCommand(args: string[], io: CliIo): Promise<number> {
+async function answerCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -1905,7 +1937,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause },
+      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause, ...commandRuntimeDeps(runtime) },
       runId,
       flowchartContinuation({
         checkpoint,
@@ -2288,12 +2320,18 @@ function unknownCatalogModelNext(error: unknown): string | undefined {
   return undefined;
 }
 
-export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
+export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliRuntimeContext): Promise<number> {
   const [command, ...rest] = argv;
+  const pendingWrites = new Set<Promise<void>>();
   try {
+    const engineContext = captureRunEngineContext(runtime?.engineContext);
+    const commandRuntime: CliCommandRuntime = { pendingWrites,
+      ...(runtime?.signal === undefined ? {} : { signal: runtime.signal }),
+      ...(engineContext === undefined ? {} : { engineContext }) };
+    commandRuntime.signal?.throwIfAborted();
     switch (command) {
       case "run":
-        return await runCommand(rest, io);
+        return await runCommand(rest, io, commandRuntime);
       case "validate":
         return await validateCommand(rest, io);
       case "list":
@@ -2303,9 +2341,9 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":
-        return await resumeCommand(rest, io);
+        return await resumeCommand(rest, io, commandRuntime);
       case "answer":
-        return await answerCommand(rest, io);
+        return await answerCommand(rest, io, commandRuntime);
       // One-shot subcommand handlers are loaded at their dispatch site
       // (S4-I pattern): each module subtree is dead weight for every other
       // command, and the ESM cache keeps the singleton identical.
@@ -2387,6 +2425,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       message: error instanceof Error ? error.message : String(error),
       next: commandFailureNext(error, rest)
     });
+  } finally {
+    await Promise.allSettled([...pendingWrites]);
   }
 }
 
