@@ -10,6 +10,8 @@ export interface WorkspaceFilesContext {
   /** May lower the 1 MiB hard per-file/output read bound. */
   readonly maxReadBytes?: number;
   readonly signal?: AbortSignal;
+  /** Reject malformed UTF-8 on reads; omitted preserves historical replacement decoding. */
+  readonly requireValidUtf8?: boolean;
 }
 
 const MAX_READ_BYTES = 1024 * 1024;
@@ -22,6 +24,11 @@ const MAX_PATH_BYTES = 4096;
 const MAX_MATCH_BYTES = 4096;
 const CHUNK_BYTES = 64 * 1024;
 const EXCLUDED = new Set([".git", "node_modules", ".agent_workspace"]);
+
+function decodeRead(ctx: WorkspaceFilesContext, bytes: Buffer): string {
+  if (ctx.requireValidUtf8 === true && !isUtf8(bytes)) throw new DomainValidationError("file contains invalid UTF-8");
+  return bytes.toString("utf8");
+}
 
 function checkCancelled(ctx: WorkspaceFilesContext): void {
   if (ctx.signal?.aborted) throw new DomainValidationError("workspace operation cancelled");
@@ -144,7 +151,7 @@ export async function readWorkspaceFile(
   const resolvedPath = relativePath(root, canonical);
   const handle = await openRegular(ctx, root, canonical);
   try {
-    if (!hasRange) return { text: (await readBounded(ctx, handle, maximum)).toString("utf8"), resolvedPath };
+    if (!hasRange) return { text: decodeRead(ctx, await readBounded(ctx, handle, maximum)), resolvedPath };
     const chunks: Buffer[] = [];
     let bytesScanned = 0;
     let outputBytes = 0;
@@ -159,7 +166,7 @@ export async function readWorkspaceFile(
       if (bytesRead === 0) {
         const totalLines = currentLine - (lineHasBytes ? 0 : 1);
         if (startLine > totalLines) throw new DomainValidationError(`startLine exceeds file line count (${totalLines})`);
-        return { text: Buffer.concat(chunks, outputBytes).toString("utf8"), resolvedPath, startLine, endLine: selectedEnd, totalLines };
+        return { text: decodeRead(ctx, Buffer.concat(chunks, outputBytes)), resolvedPath, startLine, endLine: selectedEnd, totalLines };
       }
       bytesScanned += bytesRead;
       let segmentStart = 0;
@@ -174,7 +181,7 @@ export async function readWorkspaceFile(
           selectedEnd = currentLine;
         }
         if (currentLine === endLine) {
-          return { text: Buffer.concat(chunks, outputBytes).toString("utf8"), resolvedPath, startLine, endLine: selectedEnd };
+          return { text: decodeRead(ctx, Buffer.concat(chunks, outputBytes)), resolvedPath, startLine, endLine: selectedEnd };
         }
         currentLine += 1;
         lineHasBytes = false;

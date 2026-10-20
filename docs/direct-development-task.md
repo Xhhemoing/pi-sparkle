@@ -118,5 +118,50 @@ pnpm test -- --test-concurrency=1 test/integration/development/start-task.test.t
 Implementation plan and verification: [M1-A task record](superpowers/plans/2026-10-17-direct-development-task.md).
 M1-B implementation and current checks: [latest direction plan](superpowers/plans/2026-10-18-direction-completion.md)
 and [verification](reports/2026-10-18-direction-completion.md). Task-local context
-selection, stable SDK exports and packaged external consumers remain separate
-migration work.
+selection is described below; SDK exports and packaged consumers have separate migration evidence.
+
+## Select task-local source context
+
+The host may add `taskContext` to the input above:
+
+```ts
+// sourceRevision is the clean source repository's current Git HEAD.
+const taskContext = {
+  requiredFiles: ["src/example.ts"],
+  relatedFiles: ["src/example.test.ts"],
+  expectedSourceRevision: sourceRevision,
+  tokenBudget: 8000,
+};
+```
+
+Pass this object as `startDevelopmentTask({ ...hostTask, taskContext })`, using
+an otherwise valid host task as shown above. The input is copied synchronously.
+The session reads selected files from its candidate before creating the executor;
+`executorFactory` receives the resulting `preparedContext`. The same rendered
+context reaches the actual worker prompt. A repair reads the candidate again,
+so prior edits appear in its next context.
+
+`requiredFiles` must be readable in full, valid UTF-8, candidate-relative and
+within the configured context budget. Missing, stale, escaping or oversized
+mandatory context fails explicitly before dispatch; it is never silently trimmed.
+After an earlier attempt, a context failure retains that attempt's candidate and
+evidence and stops without allocating another worker or invoking the checker.
+
+`relatedFiles` are optional and selected in lexical order. `omissions` reports
+`token-budget`, `byte-limit` or `unavailable`. At most 32 selected files and 64 KiB
+of source are admitted, with an 8 KiB per-related-file bound. The token budget
+is an integer from 1 to 32,768, measured by the existing deterministic estimator
+over objective and rendered context; it is not a limit on the entire provider
+prompt. Objective and acceptance metadata are retained in this admission.
+
+The returned CodeMap contains honest file/module entries for admitted related
+files; it does not claim parsed symbols or semantic calls. Revision identifies
+the candidate's initial Git base, not unchanged current bytes. File contents are
+labeled untrusted data and grant no tool or verification authority. `.git`,
+`node_modules`, `.agent_workspace`, path traversal and escaping aliases are
+excluded. Conversation-host registration accepts this same host-only input and
+snapshots it; model requests cannot supply their own context selection.
+
+M1-C implementation and verification are recorded in the
+[staged continuation report](reports/2026-10-19-staged-continuation.md), including
+actual final-prompt tests and the separately authorized two-case provider smoke.

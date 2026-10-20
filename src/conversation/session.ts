@@ -1,3 +1,4 @@
+import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { DevelopmentController } from "../development/controller.js";
 import { startDevelopmentTask, type StartDevelopmentTaskInput } from "../development/start-task.js";
@@ -61,7 +62,7 @@ function exitCodes(input: unknown, label: string): readonly number[] | undefined
 }
 function snapshotTask(input: unknown): Omit<StartDevelopmentTaskInput, "signal"> {
   const value = conversationRecord(input, ["stateRoot", "executorFactory", "sandboxRoot", "sourceRepo", "objective", "verification",
-    "maxAttempts", "maxWallTimeMs", "acceptanceCriteria", "presentation"], "registered task input");
+    "maxAttempts", "maxWallTimeMs", "acceptanceCriteria", "presentation", "taskContext"], "registered task input");
   if (typeof value.executorFactory !== "function") fail("registered task requires an executorFactory");
   const verification = conversationRecord(value.verification, ["command", "args", "trustedVerification", "repairableExitCodes", "unsettledExitCodes"], "host verification");
   const args = Object.freeze(array(verification.args === undefined ? [] : verification.args, 256, "verification args").map((arg) => {
@@ -77,7 +78,9 @@ function snapshotTask(input: unknown): Omit<StartDevelopmentTaskInput, "signal">
   if (unsettledExitCodes?.some((code) => repairableExitCodes?.includes(code))) fail("unsettled exit codes cannot authorize repair");
   const acceptanceCriteria = prepareNativeWriteCriteria(value.acceptanceCriteria);
   const presentation = snapshotTaskPresentation(value.presentation as StartDevelopmentTaskInput["presentation"]);
+  const taskContext = value.taskContext === undefined ? undefined : snapshotTaskContext(value.taskContext as TaskContextInput);
   return Object.freeze({
+    ...(taskContext === undefined ? {} : { taskContext }),
     stateRoot: conversationText(value.stateRoot, "stateRoot", 8192), sourceRepo: conversationText(value.sourceRepo, "sourceRepo", 8192),
     objective: conversationText(value.objective, "objective", 65536), executorFactory: value.executorFactory as StartDevelopmentTaskInput["executorFactory"],
     ...(value.sandboxRoot === undefined ? {} : { sandboxRoot: conversationText(value.sandboxRoot, "sandboxRoot", 8192) }),

@@ -15,7 +15,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M0-C host-wired generic command uncertainty | Independently reviewed; final integrated gate pending | [Evidence](../docs/reports/2026-10-19-command-uncertainty.md); focused 23/23 and probes pass; fresh gate 3646/1/48, Windows fixture cleanup corrected and independently reviewed |
 | M1-A direct task host entry | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-direct-development-task.md); one existing native session; six real Git tests pass |
 | M1-B candidate file tools | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-direction-completion.md): bounded list/search/range/unique patch, host-neutral implementation and direct-task wiring |
-| M1 task-local context | Planned | CodeMap source and task-local selection; file tools do not complete this item |
+| M1-C task-local context | Independently reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): integrated 57/57, prior adjacent 142 pass / 1 Windows skip, 2/2 opted-in synthetic provider smoke; final full gate pending |
 | M2-A boundary cleanup | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m2-boundary-cleanup.md); 98/98 focused, no new allowlist exceptions |
 | M2 narrow SDK and lazy contributions | Planned | Packed external consumers and activation/generation contract |
 | M3 findings/local correction | Planned | Revision-bound read-only observations before automatic repair |
