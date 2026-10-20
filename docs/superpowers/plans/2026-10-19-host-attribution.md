@@ -3,7 +3,7 @@
 ## Identity and scope
 - ID: TASK-20261019-host-attribution
 - Owner: root coordinator and sequential builder/review agents.
-- State: planned.
+- State: in-progress.
 - Authority: ADR-009 A7; parent [staged plan](2026-10-19-staged-continuation.md).
 - Implement read-only host attribution and task-disjoint offline preparation. Reuse existing HostTerminalOutcome/Binding/Assessment types. No online policy changes, new authority ledger, hashes, gates or schema freeze. Each sub-slice is separately verified/reviewed/committed.
 
@@ -11,7 +11,7 @@
 Source inspection identifies two hypotheses in src/learning/from-episode.ts: outcomeKindFromResult ignores outcome (PARTIAL/CANCELLED can acquire PASSED/FAILED labels); applyCascadeRetry retains the earlier modelVersion when the next model version is unknown. Write failing tests first in test/unit/learning/from-episode.test.ts. Reuse existing taskSuccessFromResult semantics and invalidate unknown-version routes until complete subsequent routing evidence. Preserve valid explicit-version cascades. Verify focused file plus task-success.test.ts and eval-dataset.test.ts. This does not reclassify self-report as independent host evidence.
 
 ## B: actual host publication
-Files: src/native/write-session.ts, new src/native/host-outcome.ts, test/integration/native/host-outcome.test.ts. Source task identity exists on every attempt but is dropped without optional taskContract; expose the genuine taskId additively on attempted results. Allocate one opaque logical-task ID per execute call because repairs create new taskId/runId while reusing the candidate. Carry all attempts in the same logical group, never hash objective text.
+Files: src/native/write-session.ts, new src/native/host-outcome.ts, development/start-task.ts, additive callback composition in src/cli/development.ts and test/integration/native/host-outcome.test.ts. Source task identity exists on every attempt but is dropped without optional taskContract; expose the genuine taskId additively on attempted results. Allocate one opaque logical-task ID per execute call because repairs create new taskId/runId while reusing the candidate. Carry all attempts in the same logical group, never hash objective text.
 
 The internal publisher receives the original runClosedLoopCheck check plus its original TrustedVerificationDescriptor at the real session boundary. Require hasTrustedVerificationEvidence, exact cwd/revision/command/argv and settled completed check; copied/deserialized records cannot mint authority. Use actual run/project/episode/task identities and exact matching ModelInvocation rows from host-owned execution telemetry, not routing aliases. Preserve private capability provenance via original object identity; ordinary saved artifact JSON remains historical inspection, not rehydrated trusted authority.
 
@@ -41,3 +41,18 @@ The MODEL_ROUTED branch also leaves a prior complete route in the map when a lat
 
 ### Execution provenance in offline preparation
 Preserve existing ModelInvocation.executorClass rather than treating deterministic fixtures as real provider samples. Host observation metadata distinguishes consistent pi, consistent faux and missing/mixed provenance; it does not rename faux rows to pi. Offline preparation takes an explicit evidence mode (observed or synthetic), excludes absent/mixed or mismatched provenance, and records the selected mode in its output. Synthetic fixtures can verify host binding and split behavior without becoming observed model-quality evidence. No mode enables online learning or production claims. Add regression coverage for faux/unknown/mixed provenance and keep real unversioned provider calls excluded for their actual missing version.
+
+### Actual parent/child identity and opt-in wiring
+Actual ModelInvocation.runId is a child execution run; checks/artifacts and NativeWriteSessionResult use the parent run. Preserve both through attempt/execution tuples. HostTerminalOutcome.record binds the genuine execution child identity, while bindingRef and artifact refs identify the parent-owned check. Never force unrelated run IDs equal. Execute-owned start/completion timestamps support later task-duration splitting.
+
+Host publication is explicit hostEvaluator opt-in. Without it, invocation callback is a no-op and no collector/wrapper/observation artifact is introduced. Actual native results return genuine task/logical identity, while DTO fields remain optional for historical reconstructed results. Direct entry forwards the constructor option; CLI factory composes the existing telemetry sink with the supplied callback rather than replacing persistence.
+
+Registration of a trusted observation must remain private to actual NativeWriteSession finalization. An exported helper collector can build an untrusted projection only; genuine-check plus fabricated RunOutcome/project/task JSON must not pass the public original-observation guard. No public registration/mint function is introduced. Evaluator configuration and exit arrays reject accessors and are copied before asynchronous work. Late cancellation during observation persistence must leave durable correction even in the default single-attempt path, and issuance occurs synchronously after the final cancellation check.
+
+### Offline projection API and coverage decision
+Planned prepareHostAttribution accepts readonly unknown observations, optional exact telemetry join, explicit cutoff and observed/synthetic evidence mode. Check original-observation guard first; clones cannot supply trusted times, identities or usage. Optional joined rows must match the publisher's actual invocation snapshots, never fill unknown values or introduce unrelated calls. Genuine observation copies deduplicate by original identity; conflicting join variants exclude every affected dataset row. Task timing spans host start/completion and all actual invocation times; repair executions stay together.
+
+Return explicit eligible/excluded rows and deterministic training/test partitions. Excluded genuine samples retain their reported usage, including provider/error/cancelled costs. Overall genuine-observation coverage is distinct from eligible training/test coverage, preventing label exclusion from hiding recorded spend. Untrusted copies cannot add usage. Missing actual prices/versions remain missing. Deterministic fixtures stay faux/synthetic; do not label them pi to manufacture an observed-positive test. Genuine unversioned live samples can prove exclusion and telemetry plumbing, not observed model-quality eligibility.
+
+### Repair-check attribution correction
+Independent quality probes establish two required regressions: an undeclared earlier checker exit must remain an unavailable-evaluator exclusion after successful repair; a final checker exception must not reuse a preceding attempt check. Each attempt clears the collector final-check slot. Store the actual checker parent run identity at the session callback and compare it at final projection. Checker exceptions explicitly exclude attribution. These changes affect observation eligibility only, preserving original repair and acceptance decisions.

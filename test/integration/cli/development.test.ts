@@ -11,6 +11,10 @@ import { WorkItemStore } from "../../../src/development/work-item-store.js";
 import { developmentCommand, developmentPiTools } from "../../../src/cli/development.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
+import { createInvocationId } from "../../../src/domain/ids.js";
+import { nowIso } from "../../../src/domain/timestamp.js";
+import { readInvocationRecords } from "../../../src/telemetry/invocation-log.js";
+import type { ModelInvocation } from "../../../src/telemetry/model-invocation.js";
 
 async function call(args: string[]) {
   let stdout = "", stderr = "";
@@ -115,6 +119,7 @@ test("Pi command wiring passes only host scoped tools and supports a real fixtur
   await writeFile(file, JSON.stringify(definition));
   await call(["init", "--file", file, "--queue", "demo", "--state-root", state]);
   let stdout = "", stderr = "", calls = 0;
+  let reportedInvocation: ModelInvocation | undefined;
   const code = await developmentCommand(["run", ...base, "--executor", "pi", "--model", "fixture/model"], {
     stdout: (value) => { stdout += value; }, stderr: (value) => { stderr += value; }
   }, { createPiExecutor: async (options) => {
@@ -123,6 +128,10 @@ test("Pi command wiring passes only host scoped tools and supports a real fixtur
     assert.equal(typeof options.onInvocation, "function");
     assert.deepEqual(options.tools?.map((tool) => tool.name), ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"]);
     return { async *execute(request, signal) {
+      reportedInvocation = { id: createInvocationId(), runId: request.runId, taskId: request.taskId, agentInstanceId: request.agentInstanceId,
+        config: { provider: "fixture", model: "model", modelVersion: "fixture-v1", parameterHash: "a" }, responseHash: "b",
+        tokensIn: 3, tokensOut: 4, latencyMs: 1, occurredAt: nowIso(), callOutcome: "ok", executorClass: "faux" };
+      options.onInvocation!(reportedInvocation);
       await options.tools!.find((tool) => tool.name === "sparkle_write_file")!.execute("fixture-write", { path: "value.txt", contents: "changed" }, signal);
       yield* new ProtocolChildExecutor().execute(request, signal);
     } };
@@ -131,6 +140,8 @@ test("Pi command wiring passes only host scoped tools and supports a real fixtur
   const result = JSON.parse(stdout);
   assert.equal(result.mode, "pi"); assert.equal(result.status, "ready-for-review");
   assert.equal(calls, 1);
+  assert.ok(reportedInvocation);
+  assert.deepEqual((await readInvocationRecords(state)).values, [reportedInvocation], "host callback composition must retain the existing telemetry sink exactly once");
   assert.equal(await readFile(join(result.candidatePath, "value.txt"), "utf8"), "changed");
   assert.equal(await readFile(join(project, "value.txt"), "utf8"), "already-satisfied");
 }));

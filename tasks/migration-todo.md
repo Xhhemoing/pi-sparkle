@@ -24,6 +24,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M4-B all-outcome usage coverage | Source reviewed / focused verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, full gate pending; routing/preferences remain separate |
 | M5 managed Pi | Planned; M0 dependency | Qualified immutable generation and actual stop/settlement evidence |
 | M6-A project continuation | Source reviewed / focused verified | [Guide](../docs/advance-project.md); root 10/10, spec 10/10, quality 13/13; full gate and connector separate |
+| M7-B actual host publisher | Source reviewed / focused verified | [Usage](../docs/host-attribution.md); integrated20/20, independent spec/quality PASS; corrected opt-in smoke proves unknown-version exclusion, earlier failures retained; final full gate pending |
 | M7-A replay correctness | Source reviewed / focused verified | [Plan](../docs/superpowers/plans/2026-10-19-host-attribution.md); 54 pass / 1 Windows skip; host publisher/offline work and policy gates remain separate |
 
 ## Current delivery checks

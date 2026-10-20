@@ -7,6 +7,7 @@ import {
 } from "../native/write-session.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { snapshotTaskPresentation, type TaskPresentationInput } from "../preferences/task-presentation.js";
+import { snapshotNativeHostEvaluator, type NativeHostEvaluator } from "../native/host-outcome.js";
 
 /** Experimental host input; no queue, budget or automatic source application. */
 export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, NativeWriteSessionInput {}
@@ -30,8 +31,14 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("task context must be an own data property");
   }
   const taskContext = contextDescriptor?.value === undefined ? undefined : snapshotTaskContext(contextDescriptor.value as TaskContextInput);
-  const { stateRoot, executorFactory, sandboxRoot, presentation: _presentation, taskContext: _taskContext, ...task } = input;
+  const evaluatorDescriptor = Object.getOwnPropertyDescriptor(input, "hostEvaluator");
+  if ((evaluatorDescriptor === undefined && "hostEvaluator" in input) || (evaluatorDescriptor !== undefined && !("value" in evaluatorDescriptor))) {
+    throw new DomainValidationError("host evaluator must be an own data property");
+  }
+  const hostEvaluator = snapshotNativeHostEvaluator(evaluatorDescriptor?.value as NativeHostEvaluator | undefined);
+  const { stateRoot, executorFactory, sandboxRoot, hostEvaluator: _hostEvaluator, presentation: _presentation, taskContext: _taskContext, ...task } = input;
   const session = new NativeWriteSession({ stateRoot, executorFactory,
+    ...(hostEvaluator === undefined ? {} : { hostEvaluator }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
     return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }),

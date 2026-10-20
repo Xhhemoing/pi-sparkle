@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { findingsFromIndependentCheck, type BoundCheckFinding } from "../evaluation/check-findings.js";
 import { buildTaskContext, snapshotTaskContext, type TaskContext, type TaskContextInput } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
-import { createTaskId, type RunId } from "../domain/ids.js";
+import { createTaskId, type RunId, type TaskId } from "../domain/ids.js";
+import type { ModelInvocation } from "../telemetry/model-invocation.js";
+import { NativeHostOutcomeCollector, snapshotNativeHostEvaluator, type NativeHostEvaluator, type NativeHostObservation } from "./host-outcome.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import { CommandCleanupIncompleteError, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import {
@@ -48,6 +51,8 @@ export interface NativeWriteExecutorFactoryInput {
   readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[];
   /** Wire into host-created command tools; tool errors alone may be swallowed by the worker. */
   readonly onCommandCleanupUnsettled: (result: AuthorizedCommandRunResult) => void;
+  /** Host-only synchronous reference telemetry, forwarded to the Pi runtime. */
+  readonly onInvocation: (invocation: ModelInvocation) => void;
 }
 
 export type NativeWriteExecutorFactory =
@@ -57,6 +62,8 @@ export interface NativeWriteSessionOptions {
   readonly stateRoot: string;
   readonly executorFactory: NativeWriteExecutorFactory;
   readonly sandboxRoot?: string;
+  /** Optional read-only host publication; never changes acceptance or repair. */
+  readonly hostEvaluator?: NativeHostEvaluator;
 }
 
 export interface NativeWriteSessionInput {
@@ -77,6 +84,9 @@ export interface NativeWriteSessionInput {
 
 export interface NativeWriteSessionResult {
   readonly runId: RunId;
+  /** Present on actual executions; absent on historical reconstructed DTOs. */
+  readonly taskId?: TaskId;
+  readonly logicalTaskId?: string;
   readonly status: "COMPLETED" | "FAILED" | "CANCELLED";
   readonly candidatePath: string;
   readonly sourceRevision: string;
@@ -90,6 +100,17 @@ export interface NativeWriteSessionResult {
   readonly findings?: readonly BoundCheckFinding[];
   /** Absent on historical/settled results; false requires host reconciliation. */
   readonly effectsSettled?: false;
+  readonly hostObservation?: NativeHostObservation;
+}
+
+type AttemptResult = Omit<NativeWriteSessionResult, "taskId" | "logicalTaskId">;
+type ExecutionResult = Omit<NativeWriteSessionResult, "logicalTaskId" | "taskId"> & { readonly taskId: TaskId };
+
+// Only the actual execute finalizer can issue an observation. Public collector
+// projections and serialized artifacts cannot recreate this process identity.
+const issuedHostObservations = new WeakSet<object>();
+export function isNativeHostObservation(value: unknown): value is NativeHostObservation {
+  return typeof value === "object" && value !== null && issuedHostObservations.has(value);
 }
 
 interface ActiveWrite {
@@ -151,7 +172,7 @@ function acceptedResult(
   checked: ClosedLoopResult,
   runId: RunId,
   executionEvents: number
-): NativeWriteSessionResult {
+): AttemptResult {
   return {
     runId,
     status: checked.acceptance.accepted ? "COMPLETED" : "FAILED",
@@ -184,7 +205,14 @@ export class NativeWriteSession {
   private closed = false;
 
   private readonly options: NativeWriteSessionOptions;
-  constructor(options: NativeWriteSessionOptions) { this.options = Object.freeze({ ...options }); }
+  constructor(options: NativeWriteSessionOptions) {
+    const property = Object.getOwnPropertyDescriptor(options, "hostEvaluator");
+    if ((property === undefined && "hostEvaluator" in options) || (property !== undefined && !("value" in property))) {
+      throw new DomainValidationError("host evaluator must be an own data property");
+    }
+    const hostEvaluator = snapshotNativeHostEvaluator(property?.value as NativeHostEvaluator | undefined);
+    this.options = Object.freeze({ ...options, ...(hostEvaluator === undefined ? {} : { hostEvaluator }) });
+  }
 
   get activeCount(): number {
     return this.active.size;
@@ -234,7 +262,37 @@ export class NativeWriteSession {
     let timedOut = false;
     const timer = limits.enabled ? setTimeout(() => { timedOut = true; active.cancel(); }, limits.maxWallTimeMs) : undefined;
     timer?.unref();
-    const operation = this.executeInternal(input, combinedSignal, active, limits, () => timedOut, presentation, taskContext).finally(() => {
+    const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
+    const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
+    const operation = this.executeInternal(input, combinedSignal, active, limits, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+      if (collector === undefined) return { ...result, logicalTaskId };
+      let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
+      let terminalResult = result;
+      if ((combinedSignal.aborted || this.closed) && result.loop !== undefined &&
+          result.loop.stopReason !== "cancelled" && result.loop.stopReason !== "time-budget") {
+        const stopReason = timedOut ? "time-budget" as const : "cancelled" as const;
+        const { artifact: previousArtifact, ...detail } = result.loop;
+        const corrected = { ...detail, stopReason };
+        const summary = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: {
+          kind: "native-write-loop", schemaVersion: 1, sourceRevision: result.sourceRevision, candidatePath: result.candidatePath,
+          verification: input.verification, ...corrected, supersedesArtifactId: previousArtifact.id } });
+        terminalResult = { ...result, loop: { ...corrected, artifact: summary } };
+      }
+      if (combinedSignal.aborted || this.closed || result.status === "CANCELLED") {
+        artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: {
+          ...collector.references(), terminalState: "CANCELLED", reason: timedOut ? "time-budget" : "cancelled", supersedesArtifactId: artifact.id } });
+      }
+      // Publication is after every loop/artifact await. Nothing asynchronous may
+      // intervene between this cancellation check and issuance/returned identity.
+      const cancelled = combinedSignal.aborted || this.closed || result.status === "CANCELLED";
+      const finalResult = cancelled ? { ...terminalResult, status: "CANCELLED" as const, reason: timedOut ? "time-budget" : "cancelled",
+        acceptance: { ...result.acceptance, accepted: false, reason: timedOut ? "time-budget" : "cancelled" } } : result;
+      const hostObservation = collector.project({ runId: result.runId, taskId: result.taskId, sourceRevision: result.sourceRevision,
+        artifact, cancelled, timedOut, effectsSettled: result.effectsSettled !== false,
+        accepted: finalResult.acceptance.accepted, terminalReason: finalResult.reason });
+      issuedHostObservations.add(hostObservation);
+      return { ...finalResult, logicalTaskId, hostObservation };
+    }).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
       input.signal?.removeEventListener("abort", onAbort);
       this.active.delete(active);
@@ -259,8 +317,9 @@ export class NativeWriteSession {
     limits: NativeWriteLoopLimits,
     timedOut: () => boolean,
     presentation: ResolvedTaskPresentation | undefined,
-    taskContext: TaskContextInput | undefined
-  ): Promise<NativeWriteSessionResult> {
+    taskContext: TaskContextInput | undefined,
+    collector: NativeHostOutcomeCollector | undefined
+  ): Promise<ExecutionResult> {
     const preflightInput: NativeWritePreflightInput = { ...input, signal };
     const preflight = prepareNativeWrite(preflightInput);
     const beforeWorktreeStop = stopReason(this.closed, signal);
@@ -305,7 +364,7 @@ export class NativeWriteSession {
     const attempts: NativeWriteAttemptRecord[] = [];
     let previous: NativeWriteFeedback | undefined;
     let previousSnapshot: NativeCandidateSnapshot | undefined;
-    let previousResult: NativeWriteSessionResult | undefined;
+    let previousResult: ExecutionResult | undefined;
     for (let number = 1; number <= limits.maxAttempts; number++) {
       const attempt = limits.enabled ? Object.freeze({ number, maxAttempts: limits.maxAttempts,
         ...(previous === undefined ? {} : { previous }) }) : undefined;
@@ -326,6 +385,7 @@ export class NativeWriteSession {
             throw error;
           }
           const reason = `task context admission failed: ${error instanceof Error ? error.message : "read failed"}`;
+          collector?.exclude("run-failure: task context admission failed");
           const failure = await this.failureResult(preflight, session, reason, {
             runId: previousResult.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: []
           });
@@ -334,18 +394,18 @@ export class NativeWriteSession {
           const artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: previousResult.runId,
             body: { kind: "native-write-loop", schemaVersion: 1, sourceRevision: preflight.revision,
               candidatePath: session.worktree.cwd, verification: preflight.verification, ...loop } });
-          return { ...failure, executionEvents: previousResult.executionEvents,
+          return { ...failure, taskId: previousResult.taskId, executionEvents: previousResult.executionEvents,
             ...(previousResult.taskContract === undefined ? {} : { taskContract: previousResult.taskContract }), loop: { ...loop, artifact } };
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, attempt, presentation, objective, preparedContext);
+      const result = await this.runAttempt(preflight, session, signal, active, attempt, presentation, objective, preparedContext, collector);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
       if (!limits.enabled) return result;
 
-      const finish = async (reason: NativeWriteStopReason): Promise<NativeWriteSessionResult> => {
+      const finish = async (reason: NativeWriteStopReason): Promise<ExecutionResult> => {
         let finalReason = reason;
         const detail = () => ({ maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: finalReason });
         const persist = (supersedesArtifactId?: string) => saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId,
@@ -362,7 +422,7 @@ export class NativeWriteSession {
           artifact = await persist(artifact.id);
         }
         const stopped = finalReason === "cancelled" || finalReason === "time-budget";
-        const finalResult: NativeWriteSessionResult = stopped ? { ...result, status: "CANCELLED", reason: finalReason,
+        const finalResult: ExecutionResult = stopped ? { ...result, status: "CANCELLED", reason: finalReason,
           acceptance: { ...result.acceptance, accepted: false, reason: finalReason } } : result;
         return { ...finalResult, loop: { ...detail(), artifact } };
       };
@@ -395,8 +455,10 @@ export class NativeWriteSession {
     attempt: NativeWriteAttemptContext | undefined,
     presentation: ResolvedTaskPresentation | undefined,
     objective: string,
-    preparedContext: TaskContext | undefined
-  ): Promise<NativeWriteSessionResult> {
+    preparedContext: TaskContext | undefined,
+    collector: NativeHostOutcomeCollector | undefined
+  ): Promise<ExecutionResult> {
+    const hostAttempt = collector?.beginAttempt();
     const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd, signal })
       .filter((tool) => ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files",
         "sparkle_search_files", "sparkle_patch_file"].includes(tool.name));
@@ -414,6 +476,7 @@ export class NativeWriteSession {
         tools,
         signal,
         onCommandCleanupUnsettled,
+        onInvocation: hostAttempt?.onInvocation ?? (() => undefined),
         ...(preparedContext === undefined ? {} : { preparedContext }),
         ...(attempt === undefined ? {} : { attempt }),
         ...(preflight.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: preflight.acceptanceCriteria })
@@ -435,7 +498,7 @@ export class NativeWriteSession {
 
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
     const task = implementerTask(objective, registry, preflight.acceptanceCriteria, presentation);
-    const running = startParentRun({ stateRoot: this.options.stateRoot, executor }, {
+    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(executor) ?? executor }, {
       projectRoot: session.worktree.cwd,
       objective,
       children: [task]
@@ -444,6 +507,7 @@ export class NativeWriteSession {
     const startStop = stopReason(this.closed, signal);
     if (startStop !== undefined) running.cancel();
     const outcome = await running.done;
+    hostAttempt?.complete(outcome, task.taskId);
     active.running = undefined;
     const taskContract = preflight.acceptanceCriteria === undefined ? undefined : Object.freeze({
       schemaVersion: 1 as const, taskId: task.taskId, acceptanceCriteria: preflight.acceptanceCriteria,
@@ -455,8 +519,8 @@ export class NativeWriteSession {
         definitionOnly: true, perCriterionVerification: "UNOBSERVED"
       } })
     });
-    const bindContract = (result: NativeWriteSessionResult): NativeWriteSessionResult =>
-      taskContract === undefined ? result : { ...result, taskContract };
+    const bindContract = (result: AttemptResult): ExecutionResult =>
+      ({ ...result, taskId: task.taskId, ...(taskContract === undefined ? {} : { taskContract }) });
 
     if (unsettledCommand !== undefined) {
       return bindContract(await this.failureResult(preflight, session,
@@ -514,6 +578,7 @@ export class NativeWriteSession {
         signal
       });
     } catch (error) {
+      collector?.exclude("evaluator-unavailable");
       return bindContract(await this.failureResult(preflight, session, `${signal.aborted ? "cancelled; " : ""}independent verification failed: ${error instanceof Error ? error.message : String(error)}`, {
         runId: outcome.runId,
         status: signal.aborted ? "CANCELLED" : "FAILED",
@@ -521,6 +586,7 @@ export class NativeWriteSession {
       }, error instanceof CommandCleanupIncompleteError ? error.result : undefined));
     }
     const afterCheckStop = stopReason(this.closed, signal);
+    collector?.checked(checked.check, preflight.verification.trustedVerification, session.worktree.cwd, preflight.revision, checked.artifact, outcome.runId);
     if (afterCheckStop !== undefined) {
       return bindContract(await this.failureResult(preflight, session, afterCheckStop, {
         runId: outcome.runId,
@@ -550,7 +616,7 @@ export class NativeWriteSession {
       events: readonly unknown[];
     },
     unsettledCommand?: AuthorizedCommandRunResult
-  ): Promise<NativeWriteSessionResult> {
+  ): Promise<AttemptResult> {
     const artifact = await saveLoopArtifact({
       stateRoot: this.options.stateRoot,
       runId: outcome.runId,
