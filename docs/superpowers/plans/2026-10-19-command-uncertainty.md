@@ -2,7 +2,7 @@
 
 ## Identity
 - ID: TASK-20261019-command-uncertainty / BF-20261019-command-uncertainty
-- Owner: Codex; state: ready-for-review (full merge gate remains open); opened: 2026-10-19.
+- Owner: Codex; state: accepted for bounded local scope (2026-10-20); opened: 2026-10-19. Independent reviews and final local gate/probes passed; external conditions remain open.
 - Baseline: PR #60 branch fetched at 2ec715a5cf0c43333710ebb7050fe7278d62be8f; ADR-009 and M0-A/M0-B. Existing main and dirty personal-team worktree preserved.
 
 ## Problem and scope
@@ -28,3 +28,7 @@ Run pnpm test test/unit/pi-adapter/worktree-coding-tools.test.ts test/integratio
 - Final focused 23/23; final typecheck and changed-file lint pass; build, security 26 and Pi 4 pass.
 - Full gate: 3695 total / 3645 pass / 2 fail / 48 skip. Both failures are unchanged batch deadline assertions; standalone serial file rerun passes 3/3. Initial stale-fixture failures retained, not counted as current product failures.
 - [Verification and host wiring](../../reports/2026-10-19-command-uncertainty.md). Maintainer owns clean full gate under isolated load and independent review before merge; no human acceptance, publication or all-M0 closure.
+
+## Superseding local acceptance (2026-10-20)
+
+The later staged execution supplied independent source reviews, commits and final pinned gate3978 pass/0 fail/48 conditional skips plus build, security26/Pi4/kernel3 and actual packed consumers. See [final evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). Earlier no-commit/no-independent-review and failed-gate statements describe their dated checkpoint, not the current local state. Whole M0 containment, arbitrary host effects and production acceptance remain separate.

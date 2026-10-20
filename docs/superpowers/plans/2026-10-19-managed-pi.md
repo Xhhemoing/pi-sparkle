@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-managed-pi
 - Owner: root coordinator and implementation/review agents.
-- State: scoped A/B/C/D1/D2 source implemented and independently reviewed; final integrated gate pending.
+- State: accepted for the scoped local implementation; independent review and final local gate/probes/packed verification complete (2026-10-20). External platform, production and experimental conditions remain open.
 - Date: 2026-10-19.
 - Authority: ADR-009 section 5; [parent plan](2026-10-19-staged-continuation.md).
 
@@ -118,4 +118,8 @@ Root schedules the self-building managed-driver process suite and final gate/pro
 
 ## D2 source checkpoint (2026-10-20)
 
-D2 is integrated and independently reviewed, including the reproduced late-cancellation R1 and targeted re-review. Root current104/104 adjacent,14/14 actual rebuilt/staged application tests, typecheck/lint0 and architecture6/6. See the linked dated report for exact commands and retained failures. Local A/B/C/D1/D2 source scope is complete; root final combined gate/probes remain pending. Public managed real-project dispatch, OS containment and other external acceptance remain separate.
+D2 is integrated and independently reviewed, including the reproduced late-cancellation R1 and targeted re-review. Root current104/104 adjacent,14/14 actual rebuilt/staged application tests, typecheck/lint0 and architecture6/6. See the linked dated report for exact commands and retained failures. Local A/B/C/D1/D2 scope passed the final combined gate/probes; see the dated local acceptance below. Public managed real-project dispatch, OS containment and other external acceptance remain separate.
+
+## Local acceptance (2026-10-20)
+
+Runtime source 3d3dcdc5: final pinned pnpm gate exit0,3978 pass/0 fail/48 existing conditional skips and build PASS; security26/Pi4/kernel3 PASS; two actual packed SDK consumers PASS. Independent slice reviews and retained failed attempts are recorded in [final local evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). This accepts only this plan's bounded local scope, not full M0-M7 or external/platform/production conditions. Historical planning and source-checkpoint entries above retain their original evidence.

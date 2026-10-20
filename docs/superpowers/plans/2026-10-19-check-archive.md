@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-check-archive
 - Owner: root coordinator and sequential builder/review agents.
-- State: source-reviewed; final integrated gate pending.
+- State: accepted for the scoped local implementation; independent review and final local gate/probes/packed verification complete (2026-10-20). External platform, production and experimental conditions remain open.
 - Date: 2026-10-19.
 - Authority: ADR-009 M0; [local follow-ons](2026-10-19-local-followons.md).
 
@@ -49,3 +49,7 @@ Schema2 retains at most1024 active actions and4096 full archivedChecks, with the
 ActionStore needs explicit default-off durable-empty initialization support: while holding existing actions.lock, a genuinely absent primary with no publication remnants may validate and publish the schema2 empty snapshot before successful initialized read/update. Merely returning an empty factory would leave known-old admission unfenced. Existing schema1, including empty schema1, refuses explicit schema2 and remains byte-identical; default schema1 refuses schema2. Default read-only empty v1 still publishes nothing. No asynchronous constructor, unlocked exists-then-create or new lock owner.
 
 Historical source import is already measured: exact six-file source at e6f6a5b187f8a6a5b468a7ccee3f16e152001df6 imported under tsx and completed/reloaded a synthetic v1 action. This is feasibility only. Implementer must run ordered actual old/new races under held actions.lock, including preconstructed old object, and assert refusal before fixture effect marker for v2-first plus byte preservation for old-first. No claim covers the historical415b072b controller check bypass or arbitrary old hosts. Actual >1024 filesystem prepare/admit/complete, archive restart/idempotency, concurrent admissions/settlements, finite row/byte/publication failure and real controller option tests remain mandatory. Exact tests/seams are finalized before runtime edits; only root schedules a full build/gate/package, with one independent combined implementation/pinning review under the parent process update.
+
+## Local acceptance (2026-10-20)
+
+Runtime source 3d3dcdc5: final pinned pnpm gate exit0,3978 pass/0 fail/48 existing conditional skips and build PASS; security26/Pi4/kernel3 PASS; two actual packed SDK consumers PASS. Independent slice reviews and retained failed attempts are recorded in [final local evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). This accepts only this plan's bounded local scope, not full M0-M7 or external/platform/production conditions. Historical planning and source-checkpoint entries above retain their original evidence.
