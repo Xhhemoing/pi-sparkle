@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-local-followons
 - Owner: root coordinator and sequential implementation agents.
-- State: in-progress; M4-B/M6-A, scoped readiness, tombstone replay and scoped M3 optional analysis independently reviewed; managed Pi next. Full integrated gate pending.
+- State: all scoped source slices implemented and independently reviewed, including managed Pi, read-only GitHub drafts and fresh-ledger archival; final integrated gate/probes/packed verification pending.
 - Date: 2026-10-19 (America/Los_Angeles).
 - Parent: [staged continuation](2026-10-19-staged-continuation.md).
 

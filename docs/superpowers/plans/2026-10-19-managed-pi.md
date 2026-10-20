@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-managed-pi
 - Owner: root coordinator and implementation/review agents.
-- State: in-progress.
+- State: scoped A/B/C/D1/D2 source implemented and independently reviewed; final integrated gate pending.
 - Date: 2026-10-19.
 - Authority: ADR-009 section 5; [parent plan](2026-10-19-staged-continuation.md).
 

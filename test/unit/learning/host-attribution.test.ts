@@ -7,7 +7,7 @@ import { createEvidenceId, createInvocationId, createMessageId } from "../../../
 import { nowIso } from "../../../src/domain/timestamp.js";
 import type { AgentExecutionRequest, ExecutionEvent } from "../../../src/execution/contract.js";
 import { prepareTrustedVerification } from "../../../src/execution/trusted-verification.js";
-import { prepareHostAttribution as project } from "../../../src/learning/host-attribution.js";
+import { prepareHostAttribution as project } from "../../../src/native/host-attribution.js";
 import type { NativeHostObservation } from "../../../src/native/host-outcome.js";
 import { NativeWriteSession, isNativeHostObservation } from "../../../src/native/write-session.js";
 import type { ModelInvocation } from "../../../src/telemetry/model-invocation.js";

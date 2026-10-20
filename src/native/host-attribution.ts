@@ -3,8 +3,8 @@ import { DomainValidationError } from "../domain/errors.js";
 import { isInvocationId } from "../domain/ids.js";
 import { isIsoTimestamp } from "../domain/timestamp.js";
 import type { HostTerminalOutcome } from "../evaluation/types.js";
-import type { NativeHostObservation } from "../native/host-outcome.js";
-import { isNativeHostObservation } from "../native/write-session.js";
+import type { NativeHostObservation } from "./host-outcome.js";
+import { isNativeHostObservation } from "./write-session.js";
 import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";
 import { summarizeUsageCoverage, type UsageCoverageSummary } from "../telemetry/usage-coverage.js";
 
