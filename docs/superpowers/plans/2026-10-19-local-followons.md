@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-local-followons
 - Owner: root coordinator and sequential implementation agents.
-- State: all scoped source slices implemented and independently reviewed, including managed Pi, read-only GitHub drafts and fresh-ledger archival; final integrated gate/probes/packed verification pending.
+- State: accepted for the scoped local implementation; independent review and final local gate/probes/packed verification complete (2026-10-20). External platform, production and experimental conditions remain open.
 - Date: 2026-10-19 (America/Los_Angeles).
 - Parent: [staged continuation](2026-10-19-staged-continuation.md).
 
@@ -91,3 +91,7 @@ Invalidate the current analysis generation before the next executor factory, ret
 Independent quality review reproduced a genuine pending Promise whose throwing constructor getter prevents intrinsic then from attaching settlement handlers. Promise species lookup has the same limitation. General observation of poisoned Promise metadata cannot be guaranteed without mutating host objects/global state; this new optional API does not do that.
 
 The supported callback return contract is an own-data summary object or an ordinary native Promise of that object, including an ordinary cross-realm Promise. Constructor overrides, subclasses/custom species and modified intrinsic Promise metadata are unsupported. Actual settlement ownership and late-rejection consumption apply to supported returns only; unsupported asynchronous objects remain the host's responsibility. Descriptor-only checks reject obvious own/inherited constructor overrides, subclasses without ordinary own species metadata and custom data species without invoking accessors. These checks are best-effort validation, not proof of intrinsic identity or a sandbox; custom species getters/global alterations violate the trusted-host precondition. Never use names/toString to claim such proof. Preserve ordinary cross-realm resolution/rejection and timeout/shutdown behavior. Add observed RED/GREEN cases for rejected metadata with zero getter calls, settle invalid promises in test-owned cleanup, and repeat independent specification then quality review. This explicitly reconciles the provisional broad native-Promise wording before acceptance; no shipped lifecycle protection is removed.
+
+## Local acceptance (2026-10-20)
+
+Runtime source 3d3dcdc5: final pinned pnpm gate exit0,3978 pass/0 fail/48 existing conditional skips and build PASS; security26/Pi4/kernel3 PASS; two actual packed SDK consumers PASS. Independent slice reviews and retained failed attempts are recorded in [final local evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). This accepts only this plan's bounded local scope, not full M0-M7 or external/platform/production conditions. Historical planning and source-checkpoint entries above retain their original evidence.

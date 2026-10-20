@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-staged-continuation
 - Owner: root coordinator; gpt-6.1-sol/high implementation and independent review agents.
-- State: in-progress.
+- State: accepted for the scoped local implementation; independent review and final local gate/probes/packed verification complete (2026-10-20). External platform, production and experimental conditions remain open.
 - Date: 2026-10-19 (America/Los_Angeles).
 - Authority: [ADR-009](../../decisions/0009-lightweight-adaptive-framework.md), [migration design](../../architecture-migration.md), [active checklist](../../../tasks/migration-todo.md).
 - Workspace: continue the existing codex/command-tool-uncertainty-20261019 checkout; preserve its initial ten-file task diff. No reset or unrelated branch integration. A managed M1 worktree from the same source base may be used while the initial full gate runs, to keep its source unchanged; integrate reviewed commits afterward.
@@ -69,3 +69,7 @@ Acceptance: the four privacy tests preserve their existing policy and pass with 
 Privacy regression root cause and bounded repair: the new host-attribution preparation module joined genuine Native observations and runtime telemetry from src/learning, bringing runtime modules into the adaptation value closure. Move this unpublished host-side bridge to src/native/host-attribution.ts and update its sole test import; keep public symbols, authority checks and dataset behavior. There are no SDK/source consumers to redirect and no learning value-forwarder may retain the forbidden edge. Existing runtime module/ingress allowances remain unchanged.
 
 The repository-wide computed-import watchlist separately flags the new GithubCurrentFactImporter.import method, which is not an import expression, and the intentional managed bootstrap loader. Use the existing TypeScript parser to distinguish actual ImportKeyword calls, with RED cases for method/literal versus variable/template/whitespace imports; retain the conservative literal value-closure walker unchanged. The one new justified computed-loader entry is runtime-only managed/bootstrap.ts: it validates a physical contained entry and resolves runtime-selected candidate entries, including existing boundary fixtures, so a fixed static dispatch would change the current loader contract. Explicitly assert both computed-loader exceptions remain outside the adaptation value closure; preserve the actual bootstrap dependency hooks and entry validation. This is a narrow existing watchlist correction, not permission for learning to import runtime or a new gate. Independent delta review must check the justification and regression assertions before acceptance.
+
+## Local acceptance (2026-10-20)
+
+Runtime source 3d3dcdc5: final pinned pnpm gate exit0,3978 pass/0 fail/48 existing conditional skips and build PASS; security26/Pi4/kernel3 PASS; two actual packed SDK consumers PASS. Independent slice reviews and retained failed attempts are recorded in [final local evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). This accepts only this plan's bounded local scope, not full M0-M7 or external/platform/production conditions. Historical planning and source-checkpoint entries above retain their original evidence.

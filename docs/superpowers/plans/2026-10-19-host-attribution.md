@@ -3,7 +3,7 @@
 ## Identity and scope
 - ID: TASK-20261019-host-attribution
 - Owner: root coordinator and sequential builder/review agents.
-- State: in-progress.
+- State: accepted for the scoped local implementation; independent review and final local gate/probes/packed verification complete (2026-10-20). External platform, production and experimental conditions remain open.
 - Authority: ADR-009 A7; parent [staged plan](2026-10-19-staged-continuation.md).
 - Implement read-only host attribution and task-disjoint offline preparation. Reuse existing HostTerminalOutcome/Binding/Assessment types. No online policy changes, new authority ledger, hashes, gates or schema freeze. Each sub-slice is separately verified/reviewed/committed.
 
@@ -59,3 +59,7 @@ Independent quality probes establish two required regressions: an undeclared ear
 
 ### Coverage and optional-join authority
 Only genuine issued invocation snapshots feed numeric coverage. An optional external join may invalidate a label through a missing/conflicting match, but cannot inject tokens/prices or erase genuine recorded spend. Conflicting identities between two genuine issued snapshots still use the existing summarizer's no-winner behavior. Add an explicit join-conflict test showing original spend remains visible while its dataset row is excluded.
+
+## Local acceptance (2026-10-20)
+
+Runtime source 3d3dcdc5: final pinned pnpm gate exit0,3978 pass/0 fail/48 existing conditional skips and build PASS; security26/Pi4/kernel3 PASS; two actual packed SDK consumers PASS. Independent slice reviews and retained failed attempts are recorded in [final local evidence](../../reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). This accepts only this plan's bounded local scope, not full M0-M7 or external/platform/production conditions. Historical planning and source-checkpoint entries above retain their original evidence.
