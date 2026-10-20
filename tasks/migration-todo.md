@@ -18,7 +18,7 @@ accept its entire M-number or any production/live/experimental gate.
 | M1-C task-local context | Independently reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): integrated 57/57, prior adjacent 142 pass / 1 Windows skip, 2/2 opted-in synthetic provider smoke; final full gate pending |
 | M2-A boundary cleanup | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m2-boundary-cleanup.md); 98/98 focused, no new allowlist exceptions |
 | M2-B narrow SDK and lazy contributions | Independently reviewed / packed verified | [SDK](../docs/sdk.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): 32/32 integrated, two actual packed consumers, legacy paths; final full gate pending |
-| M3 findings/local correction | Planned | Revision-bound read-only observations before automatic repair |
+| M3-A trusted check findings | Independently reviewed / focused verified | [Usage](../docs/check-findings.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root 15/15, reviewers each 7/7; single-flight analysis/local correction remain follow-ups |
 | C1/C2-A structured conversation host and focus | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), focus/session 17/17; no NL registration or persistent focus |
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
 | M4 remaining routing/usage/preferences | Planned | Independent increments; strict budget admission remains optional |
