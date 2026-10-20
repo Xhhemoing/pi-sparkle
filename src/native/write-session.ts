@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { CheckFindingAnalysisOwner, snapshotCheckFindingAnalysis,
+  type CheckFindingAnalysis, type CheckFindingAnalysisOptions, type CheckFindingAnalysisProjection } from "../evaluation/check-finding-analysis.js";
 import { findingsFromIndependentCheck, type BoundCheckFinding } from "../evaluation/check-findings.js";
 import { buildTaskContext, snapshotTaskContext, type TaskContext, type TaskContextInput } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -64,6 +66,8 @@ export interface NativeWriteSessionOptions {
   readonly sandboxRoot?: string;
   /** Optional read-only host publication; never changes acceptance or repair. */
   readonly hostEvaluator?: NativeHostEvaluator;
+  /** Host-only opt-in advisory analysis; bounded checker output may contain secrets. */
+  readonly checkFindingAnalysis?: CheckFindingAnalysisOptions;
 }
 
 export interface NativeWriteSessionInput {
@@ -98,6 +102,8 @@ export interface NativeWriteSessionResult {
   readonly taskContract?: NativeWriteTaskContract;
   /** Optional exact host check observations; absence means stronger evidence is unavailable. */
   readonly findings?: readonly BoundCheckFinding[];
+  /** Immutable advisory history, partitioned by the final attempt identity. */
+  readonly findingAnalyses?: CheckFindingAnalysisProjection;
   /** Absent on historical/settled results; false requires host reconciliation. */
   readonly effectsSettled?: false;
   readonly hostObservation?: NativeHostObservation;
@@ -116,6 +122,8 @@ export function isNativeHostObservation(value: unknown): value is NativeHostObse
 interface ActiveWrite {
   readonly controller: AbortController;
   readonly cancel: () => void;
+  readonly analysis?: CheckFindingAnalysisOwner;
+  readonly analysisHistory: CheckFindingAnalysis[];
   running: RunningRun | undefined;
   promise?: Promise<NativeWriteSessionResult>;
 }
@@ -202,6 +210,8 @@ function failedExecutor(reason: string): AgentExecutor {
  */
 export class NativeWriteSession {
   private readonly active = new Set<ActiveWrite>();
+  // Timed-out callbacks can outlive execute and must remain shutdown-owned.
+  private readonly analysisFlights = new Set<Promise<void>>();
   private closed = false;
 
   private readonly options: NativeWriteSessionOptions;
@@ -211,7 +221,14 @@ export class NativeWriteSession {
       throw new DomainValidationError("host evaluator must be an own data property");
     }
     const hostEvaluator = snapshotNativeHostEvaluator(property?.value as NativeHostEvaluator | undefined);
-    this.options = Object.freeze({ ...options, ...(hostEvaluator === undefined ? {} : { hostEvaluator }) });
+    const analysisProperty = Object.getOwnPropertyDescriptor(options, "checkFindingAnalysis");
+    if ((analysisProperty === undefined && "checkFindingAnalysis" in options) ||
+        (analysisProperty !== undefined && !("value" in analysisProperty))) {
+      throw new DomainValidationError("check finding analysis must be an own data property");
+    }
+    const checkFindingAnalysis = snapshotCheckFindingAnalysis(analysisProperty?.value as CheckFindingAnalysisOptions | undefined);
+    this.options = Object.freeze({ ...options, ...(hostEvaluator === undefined ? {} : { hostEvaluator }),
+      ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }) });
   }
 
   get activeCount(): number {
@@ -246,9 +263,16 @@ export class NativeWriteSession {
     const combinedSignal = input.signal === undefined
       ? controller.signal
       : AbortSignal.any([input.signal, controller.signal]);
+    const analysisConfig = snapshotCheckFindingAnalysis(this.options.checkFindingAnalysis);
+    const analysis = analysisConfig === undefined ? undefined : new CheckFindingAnalysisOwner(analysisConfig, (settlement) => {
+      this.analysisFlights.add(settlement);
+      void settlement.then(() => this.analysisFlights.delete(settlement));
+    });
     let active!: ActiveWrite;
     active = {
       controller,
+      ...(analysis === undefined ? {} : { analysis }),
+      analysisHistory: [],
       running: undefined,
       cancel: () => {
         controller.abort();
@@ -265,6 +289,7 @@ export class NativeWriteSession {
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
     const operation = this.executeInternal(input, combinedSignal, active, limits, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+      if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
       if (collector === undefined) return { ...result, logicalTaskId };
       let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
       let terminalResult = result;
@@ -308,6 +333,9 @@ export class NativeWriteSession {
     await Promise.allSettled(active.flatMap((operation) =>
       operation.promise === undefined ? [] : [operation.promise]
     ));
+    // The waiter deadline does not terminate same-process trusted host code.
+    // An uncooperative callback can delay shutdown (and startDevelopmentTask).
+    await Promise.allSettled([...this.analysisFlights]);
   }
 
   private async executeInternal(
@@ -458,6 +486,7 @@ export class NativeWriteSession {
     preparedContext: TaskContext | undefined,
     collector: NativeHostOutcomeCollector | undefined
   ): Promise<ExecutionResult> {
+    active.analysis?.setCurrent(undefined);
     const hostAttempt = collector?.beginAttempt();
     const tools = createWorktreeCodingTools({ worktreeRoot: session.worktree.cwd, signal })
       .filter((tool) => ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files",
@@ -503,6 +532,7 @@ export class NativeWriteSession {
       objective,
       children: [task]
     });
+    active.analysis?.setCurrent({ runId: running.runId, revision: preflight.revision, generation: running.runId });
     active.running = running;
     const startStop = stopReason(this.closed, signal);
     if (startStop !== undefined) running.cancel();
@@ -599,7 +629,20 @@ export class NativeWriteSession {
     if (descriptor === undefined) return bindContract(result);
     const projection = findingsFromIndependentCheck({ check: checked.check, trustedVerification: descriptor,
       runId: outcome.runId, revision: preflight.revision, generation: outcome.runId });
-    return bindContract(projection.state === "available" ? { ...result, findings: projection.findings } : result);
+    if (projection.state !== "available") return bindContract(result);
+    if (active.analysis !== undefined) {
+      const feedback = repairFeedback(checked.check, outcome.runId, checked.artifact.id);
+      // Existing limits allow at most five attempts, each with one projected
+      // host-check finding. Retain refused rows here without an unbounded cache
+      // of refused identities in the standalone analysis owner.
+      active.analysisHistory.push(...await Promise.all(projection.findings.map((finding) =>
+        active.analysis!.analyze(finding, feedback, signal))));
+    }
+    const afterAnalysisStop = stopReason(this.closed, signal);
+    const observed = { ...result, findings: projection.findings };
+    // Covers the default one-attempt path with no hostEvaluator finalizer too.
+    return bindContract(afterAnalysisStop === undefined ? observed : { ...observed, status: "CANCELLED",
+      reason: afterAnalysisStop, acceptance: { ...result.acceptance, accepted: false, reason: afterAnalysisStop } });
   }
 
   private async disposeBeforeRun(session: ClosedLoopSession): Promise<void> {
