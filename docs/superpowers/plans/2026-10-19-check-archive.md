@@ -3,7 +3,7 @@
 ## Identity
 - ID: TASK-20261019-check-archive
 - Owner: root coordinator and sequential builder/review agents.
-- State: planned.
+- State: in-progress.
 - Date: 2026-10-19.
 - Authority: ADR-009 M0; [local follow-ons](2026-10-19-local-followons.md).
 
