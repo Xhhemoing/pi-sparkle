@@ -45,6 +45,7 @@ import type { RunEngineBinding } from "../domain/run-engine-binding.js";
 import { bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "../run/engine-binding.js";
 
 export interface TrackRunInput {
+  readonly signal?: AbortSignal;
   readonly engineContext?: RunEngineContext;
   readonly projectRoot: string;
   readonly objective: string;
@@ -98,14 +99,18 @@ export interface TrackRunOutcome extends RunOutcome {
 }
 
 export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOutcome> {
+  input = { ...input };
+  input.signal?.throwIfAborted();
   const engineContext = captureRunEngineContext(input.engineContext);
   const engineBinding = await bindingForNewRun(engineContext);
+  input.signal?.throwIfAborted();
   const clarify = await clarifyObjective({
     objective: input.objective,
     projectKey: input.projectRoot,
     assumeDefaults: input.assumeDefaults === true || input.answers !== undefined
   });
   const answers = input.answers ?? {};
+  input.signal?.throwIfAborted();
   const applied = applyAnswers(clarify.questions, answers);
   if (clarify.waiting && applied.unanswered.length > 0) {
     return waitForClarification(input, clarify.candidate.contract, applied.unanswered, engineBinding);
@@ -120,6 +125,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
     input.stateRoot
   );
   const learned = await loadLearnedRouting(input.stateRoot, input.projectRoot);
+  input.signal?.throwIfAborted();
   const split = splitAndAssignForPrimary({
     contract,
     catalog,
@@ -188,6 +194,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   const outcome = await startFlowchartRun(
     {
       stateRoot: input.stateRoot,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
       ...(engineContext !== undefined ? { engineContext } : {}),
       router: createModelRouter(catalog),
       executor: input.executor,
@@ -208,6 +215,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       ...(input.assumeDefaults === true ? { autoSelectDefaultApprovals: true } : {})
     }
   );
+  if (input.signal?.aborted) return { ...outcome, assignments, questions: [], split: { source: split.source } };
   const episodeId = episodeIdFromEvents(outcome.events);
   const adapt = await runAutoAdaptLoop({
     stateRoot: input.stateRoot,
@@ -277,6 +285,7 @@ async function recordClarificationRun(
   project: ProjectSnapshot,
   engineBinding: RunEngineBinding | undefined
 ): Promise<TrackRunOutcome> {
+  input.signal?.throwIfAborted();
   const generateId = input.generateId;
   const now = nowIso;
   const eventStore = new EventStore(input.stateRoot, runId);

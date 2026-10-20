@@ -112,8 +112,7 @@ A failed restoration can leave publication remnants; subsequent readers report
 that reconciliation is required. This is cooperative locked publication, without
 a power-loss transaction or hostile-file-writer integrity claim.
 
-The controlled process driver is the next implementation
-stages. Selecting a generation here does not change CLI execution. Public managed
+Selecting a generation here does not change ordinary CLI execution. Public managed
 execution against real projects remains subject to the existing process
 containment qualification. Installed versions, dependency pins and the native Pi
 host lifecycle are unaffected by staging, qualification or selection.
@@ -135,6 +134,15 @@ for a legacy run refuses; checkpoint edits cannot change the original identity.
 Terminal supervised metadata reads and pause/inject/unblock controls need no
 loaded engine. Old runs and ordinary callers retain the existing legacy path.
 
-This host callback is an availability assertion. The planned controlled process
-driver must establish actual loaded identity before supplying it; setting a
-binding object alone does not change or prove the executor in use.
+This host callback is an availability assertion. The controlled process driver establishes actual loaded identity before supplying it; setting a binding object alone does not change or prove the executor in use.
+## Run the controlled application
+
+The internal `pi-adapter/managed/driver` module exposes `startControlledManagedRun({ managerRoot, request, signal?, timeoutMs?, stopGraceMs?, maxOutputBytes? })` for trusted hosts and controlled offline projects. A `run` request supplies `stateRoot`, `projectRoot` and `objective`, with optional children/flowchart paths, track and assumeDefaults. A `resume` request supplies `stateRoot` and `runId`, with optional unpause, selectedActionIds and supervised flags.
+
+New roots select the approved generation once. Resume reads the original event binding and loads that retained generation, even after another generation is approved. Missing or corrupt retained state refuses; the driver does not fall back or bind a legacy run. The fixed fresh-process entry verifies its physical location, bootstraps contained application imports, checks retained qualification and calls actual CLI main with Pi and the verified binding. It accepts no custom worker or environment, and does not add a public CLI selector or change SDK defaults.
+
+Attempts use isolated home/state/temp directories below `manager/runtime/driver`; ambient credentials, proxies and Node injection settings are not inherited. The request's explicit state root remains host-owned. Timeout defaults to 60 seconds; stop grace defaults to 2 seconds, with a maximum of 30 seconds. Each output stream defaults to 256 KiB, configurable up to 2 MiB. Attempt files remain available for diagnosis.
+
+The result reports status separately from settlement. `application-settled` requires a matching receipt after main, adapter, child work and pending telemetry have settled. A nonzero application exit still reports failure. Cancellation stops further work and reconciles a late flowchart stop after waiting/checkpoint/episode persistence, while preserving an already recorded terminal outcome. Force-stop, lost IPC, missing or malformed receipt and output overflow report unknown settlement; callers must retain uncertainty and must not automatically retry effects.
+
+These are cooperative application and module-loading checks. The actual driver tests use a loopback provider; held-tool and asynchronous agent-end behavior are separately exercised by qualification. Their composition does not prove OS process-tree containment, hostile-code isolation or suitability for public real-project managed execution. That public path remains subject to the existing containment acceptance boundary.
