@@ -3,6 +3,10 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Generic command-tool uncertainty follow-up (2026-10-19)
+
+[Plan](superpowers/plans/2026-10-19-command-uncertainty.md) and [verification](reports/2026-10-19-command-uncertainty.md): host-wired generic tools notify Native before model-visible cleanup errors; sticky uncertainty retains existing effectsSettled/ledger/claim fencing. Focused 23/23 and independent specification/quality reviews pass; build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 Windows fixture-cleanup EPERM / 48 skip. The cleanup failure was reproduced and corrected without relaxing product assertions; affected file 25 pass / 0 fail / 2 platform skips. Final integrated full gate remains pending. Arbitrary host effects, OS containment, old writers, terminal archival, publication and production/outcome acceptance remain open.
+
 ## Conversation host/focus and task presentation (2026-10-18)
 
 [Bounded plan](superpowers/plans/2026-10-18-conversation-presentation.md) and

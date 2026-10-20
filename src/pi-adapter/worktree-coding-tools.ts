@@ -7,7 +7,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import { resolveInsideRoot } from "../execution/paths.js";
 import { authorizeCommand, type CommandPolicy } from "../execution/command-policy.js";
-import { runAuthorizedCommand } from "../execution/command-runner.js";
+import { CommandCleanupIncompleteError, runAuthorizedCommand, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles } from "../execution/workspace-files.js";
 import { patchWorkspaceFile } from "../execution/workspace-patch.js";
 
@@ -22,6 +22,8 @@ export interface WorktreeCodingToolsContext {
    */
   readonly commandPolicy?: CommandPolicy;
   readonly signal?: AbortSignal;
+  /** Host receipt, delivered before the model-visible tool error. */
+  readonly onCommandCleanupUnsettled?: (result: AuthorizedCommandRunResult) => void;
 }
 
 function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
@@ -119,7 +121,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
         command: Type.String(),
         args: Type.Optional(Type.Array(Type.String()))
       }),
-      execute: async (_toolCallId: string, params: unknown) => {
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) => {
         const record = params as { command?: unknown; args?: unknown };
         if (typeof record.command !== "string" || record.command.trim() === "") {
           throw new DomainValidationError("command must be a non-empty string");
@@ -133,6 +135,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
             })
           : [];
         const authorized = authorizeCommand(ctx.commandPolicy, record.command, args);
+        const commandSignal = toolContext(signal).signal;
         const result = await runAuthorizedCommand({
           executable: authorized.executable,
           args: authorized.args,
@@ -141,8 +144,12 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
           timeoutMs: authorized.timeoutMs,
           maxStdoutBytes: authorized.maxStdoutBytes,
           maxStderrBytes: authorized.maxStderrBytes,
-          ...(ctx.signal === undefined ? {} : { signal: ctx.signal })
+          ...(commandSignal === undefined ? {} : { signal: commandSignal })
         });
+        if (result.cleanupUnsettled) {
+          ctx.onCommandCleanupUnsettled?.(result);
+          throw new CommandCleanupIncompleteError(result);
+        }
         if (result.status !== "completed") {
           throw new DomainValidationError(`command ${result.status}: ${result.errorMessage ?? "did not complete"}`);
         }

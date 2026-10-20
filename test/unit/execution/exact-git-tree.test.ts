@@ -22,7 +22,7 @@ function git(root: string, args: string[], input?: Buffer | string): string {
 
 function fixture(t: { after(fn: () => void): void }): string {
   const root = fs.mkdtempSync(path.join(tmpdir(), "sparkle-exact-tree-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "fixture@example.invalid"]);
   git(root, ["config", "user.name", "Fixture"]);

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { CommandCleanupIncompleteError } from "../../../src/execution/command-runner.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 
 function linkParentDir(target: string, link: string): void {
@@ -194,5 +195,24 @@ test("new coding tool parameters fail closed and cancelled patch preserves bytes
     await assert.rejects(() => search.execute("invalid-query", { query: "" }), /query/);
     const list = await toolByName(root, "sparkle_list_files");
     await assert.rejects(() => list.execute("invalid-limit", { limit: 0 }), /limit/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("generic command reports cleanup uncertainty to host and preserves typed error", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sparkle-command-unknown-"));
+  const observed: unknown[] = [];
+  try {
+    const context = { worktreeRoot: root, onCommandCleanupUnsettled: (result: unknown) => observed.push(result),
+      commandPolicy: { allow: [{ executable: "node", argvPrefix: ["-e"] }], timeoutMs: 1_000 } };
+    const run = createWorktreeCodingTools(context).find((tool) => tool.name === "sparkle_run_command")!;
+    await assert.rejects(() => run.execute("timeout", { command: "node", args: ["-e", "setInterval(()=>{},1000)"] }),
+      (error: unknown) => error instanceof CommandCleanupIncompleteError && error.result === observed[0]);
+    assert.equal(observed.length, 1);
+    const settled = createWorktreeCodingTools({ ...context, commandPolicy: { ...context.commandPolicy, timeoutMs: 30_000 } })
+      .find((tool) => tool.name === "sparkle_run_command")!;
+    await settled.execute("nonzero", { command: "node", args: ["-e", "process.exit(3)"] });
+    await assert.rejects(() => run.execute("denied", { command: "unauthorized" }));
+    await assert.rejects(() => run.execute("cancelled-before-spawn", { command: "node", args: ["-e", "process.exit(0)"] }, AbortSignal.abort()));
+    assert.equal(observed.length, 1, "known failure and no-spawn cancellation are not unknown effects");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

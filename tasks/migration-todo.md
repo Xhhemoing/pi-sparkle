@@ -12,6 +12,7 @@ accept its entire M-number or any production/live/experimental gate.
 |---|---|---|
 | M0-A cooperative process ownership | Published on PR #60 | `e6f6a5b`, exact tested tree `73e74bc2`; [original evidence](../docs/reports/2026-10-16-process-ownership.md) and current publication record |
 | M0-B atomic effect admission and scoped readiness | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m0-atomic-admission.md); existing ledger/store, schema unchanged; 49 real controller/process and 61 final adjacent tests pass |
+| M0-C host-wired generic command uncertainty | Independently reviewed; final integrated gate pending | [Evidence](../docs/reports/2026-10-19-command-uncertainty.md); focused 23/23 and probes pass; fresh gate 3646/1/48, Windows fixture cleanup corrected and independently reviewed |
 | M1-A direct task host entry | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-direct-development-task.md); one existing native session; six real Git tests pass |
 | M1-B candidate file tools | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-direction-completion.md): bounded list/search/range/unique patch, host-neutral implementation and direct-task wiring |
 | M1 task-local context | Planned | CodeMap source and task-local selection; file tools do not complete this item |
@@ -60,3 +61,10 @@ Next implementation priorities are the remaining M1 task-context slice and C1/C2
 conversation/focus wiring; M1-B file tools have current source/gate evidence. Full
 M0 containment work is required before expanding process backends or overlapping
 writers.
+
+## Generic command-tool uncertainty (2026-10-19)
+
+`TASK-20261019-command-uncertainty`: [plan](../docs/superpowers/plans/2026-10-19-command-uncertainty.md) · [verification](../docs/reports/2026-10-19-command-uncertainty.md). Source independently reviewed; focused 23/23, build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 fixture-cleanup failure / 48 skip. Windows EPERM cleanup failure reproduced and corrected with bounded retries; full affected file 25 pass / 0 fail / 2 platform skips. A local checkpoint preserves this work; final integrated gate remains pending. Host command tools must forward the callback; full containment, arbitrary host effects, publication and production acceptance remain separate.
+- [x] 2026-10-19: Real RED/GREEN, final 23/23, typecheck/lint/build and security/Pi probes recorded in the linked evidence.
+- [x] Independent specification and code-quality source reviews passed; dated continuation evidence linked above.
+- [ ] Root coordinator: rerun final integrated full gate after reviewed slices; current full run had one corrected Windows fixture-cleanup failure, not a passing gate.
