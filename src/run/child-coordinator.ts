@@ -47,7 +47,10 @@ import {
   type LiveCascadePlan
 } from "../routing/live-cascade.js";
 
+import { snapshotRunEngineBinding, type RunEngineBinding } from "../domain/run-engine-binding.js";
+
 export interface ChildCoordinatorDeps {
+  engineBinding?: RunEngineBinding;
   stateRoot: string;
   executor: AgentExecutor;
   parentRunId: RunId;
@@ -225,6 +228,7 @@ const realSchedule = (fn: () => void, ms: number): { cancel(): void } => {
 
 export class ChildCoordinator {
   readonly parentRunId: RunId;
+  private readonly engineBinding: RunEngineBinding | undefined;
   private readonly executor: AgentExecutor;
   private readonly project: ProjectSnapshot;
   private readonly stateRoot: string;
@@ -255,6 +259,7 @@ export class ChildCoordinator {
   private readonly pendingQuestionsList: AgentQuestion[] = [];
 
   constructor(deps: ChildCoordinatorDeps) {
+    this.engineBinding = deps.engineBinding === undefined ? undefined : snapshotRunEngineBinding(deps.engineBinding);
     this.stateRoot = deps.stateRoot;
     this.executor = deps.executor;
     this.project = deps.project;
@@ -453,6 +458,7 @@ export class ChildCoordinator {
     // to spend, so the ceiling belongs in it rather than only in the request.
     const costCap = this.costCapFor(input.limits);
     const childRun: Run = {
+      ...(this.engineBinding !== undefined ? { engineBinding: this.engineBinding } : {}),
       id: childRunId,
       projectId: this.project.id,
       parentRunId: this.parentRunId,

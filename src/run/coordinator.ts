@@ -46,9 +46,12 @@ import {
   type RunCheckpoint
 } from "./replay.js";
 
+import { bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "./engine-binding.js";
+
 const SUMMARY_LIMIT = 500;
 
 export interface CoordinatorDeps {
+  engineContext?: RunEngineContext;
   stateRoot: string;
   executor: AgentExecutor;
   registry?: AgentProfileRegistry;
@@ -293,6 +296,7 @@ function bounded(text: string, limit = SUMMARY_LIMIT): string {
 }
 
 export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRun {
+  const engineContext = captureRunEngineContext(deps.engineContext);
   const controller = new AbortController();
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
@@ -304,20 +308,22 @@ export function startRun(deps: CoordinatorDeps, input: StartRunInput): RunningRu
   // Discovery stays outside it — a run refused there has written nothing, and
   // the lock would create `runtime/runs/` for a run that never started.
   const done = (async (): Promise<RunOutcome> => {
+    const engineBinding = await bindingForNewRun(engineContext);
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
-    return withRunLifecycleLock(deps.stateRoot, runId, () => runM0Run(project), deps.runLock);
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runM0Run(project, engineBinding), deps.runLock);
   })();
 
-  async function runM0Run(project: ProjectSnapshot): Promise<RunOutcome> {
+  async function runM0Run(project: ProjectSnapshot, engineBinding: Run["engineBinding"]): Promise<RunOutcome> {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
     const agentInstanceId = createAgentInstanceId(generateId);
 
     const run: Run = {
+      ...(engineBinding !== undefined ? { engineBinding } : {}),
       id: runId,
       projectId: project.id,
       rootTaskId,
@@ -507,6 +513,7 @@ async function loggedTerminalStatus(eventStore: EventStore): Promise<RunStatus |
  * CANCELLED when the parent is cancelled.
  */
 export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): RunningRun {
+  const engineContext = captureRunEngineContext(deps.engineContext);
   if (input.contract !== undefined) {
     assertCoverageAllowsStart(
       input.contract,
@@ -536,20 +543,22 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
   // records mid-flight. Discovery stays outside, so a run that never starts
   // leaves nothing behind — including the lock's own parent directory.
   const done = (async (): Promise<RunOutcome> => {
+    const engineBinding = await bindingForNewRun(engineContext);
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
     });
-    return withRunLifecycleLock(deps.stateRoot, runId, () => runParentRun(project), deps.runLock);
+    return withRunLifecycleLock(deps.stateRoot, runId, () => runParentRun(project, engineBinding), deps.runLock);
   })();
 
-  async function runParentRun(project: ProjectSnapshot): Promise<RunOutcome> {
+  async function runParentRun(project: ProjectSnapshot, engineBinding: Run["engineBinding"]): Promise<RunOutcome> {
     const index = buildProjectContextIndex(project);
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
 
     const run: Run = {
+      ...(engineBinding !== undefined ? { engineBinding } : {}),
       id: runId,
       projectId: project.id,
       rootTaskId,
@@ -734,6 +743,7 @@ export function startParentRun(deps: CoordinatorDeps, input: ParentRunInput): Ru
       stateRoot: deps.stateRoot,
       executor: deps.executor,
       parentRunId: runId,
+      ...(run.engineBinding !== undefined ? { engineBinding: run.engineBinding } : {}),
       project,
       registry,
       maxConcurrentTasks: (input.limits ?? defaultRunLimits()).maxConcurrentTasks,

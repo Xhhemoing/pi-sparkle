@@ -112,7 +112,7 @@ A failed restoration can leave publication remnants; subsequent readers report
 that reconciliation is required. This is cooperative locked publication, without
 a power-loss transaction or hostile-file-writer integrity claim.
 
-Durable root binding and the controlled process driver are the next implementation
+The controlled process driver is the next implementation
 stages. Selecting a generation here does not change CLI execution. Public managed
 execution against real projects remains subject to the existing process
 containment qualification. Installed versions, dependency pins and the native Pi
@@ -120,3 +120,21 @@ host lifecycle are unaffected by staging, qualification or selection.
 
 [Implementation plan](superpowers/plans/2026-10-19-managed-pi.md) and
 [current evidence](reports/2026-10-19-staged-continuation.md).
+
+## Preserve a run's engine binding
+
+Run records may now carry `{ kind: "managed-pi", generationId }`. Host run APIs
+accept an optional `engineContext` containing that binding and an asynchronous
+`assertQualifiedGeneration` callback. They capture the context before awaiting
+and check availability before creating a new root. Children, retries, supervisor
+rounds and tracked clarification inherit the captured binding.
+
+Executable resume checks the original event record before restoring runtime
+state. A different context, missing context for a managed run, or managed context
+for a legacy run refuses; checkpoint edits cannot change the original identity.
+Terminal supervised metadata reads and pause/inject/unblock controls need no
+loaded engine. Old runs and ordinary callers retain the existing legacy path.
+
+This host callback is an availability assertion. The planned controlled process
+driver must establish actual loaded identity before supplying it; setting a
+binding object alone does not change or prove the executor in use.

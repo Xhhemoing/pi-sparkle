@@ -1,3 +1,4 @@
+import { assertRunEngineForResume, bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "./engine-binding.js";
 import {
   createEventId,
   createRunId,
@@ -79,6 +80,7 @@ export function planTaskTopology(input: TopologyInput): TopologyDecision {
 }
 
 export interface SupervisorDeps {
+  engineContext?: RunEngineContext;
   stateRoot: string;
   executor: AgentExecutor;
   registry: AgentProfileRegistry;
@@ -378,6 +380,7 @@ async function executeSupervisorRounds(
       stateRoot: deps.stateRoot,
       executor: deps.executor,
       parentRunId: ctx.runId,
+      ...(ctx.run.engineBinding !== undefined ? { engineBinding: ctx.run.engineBinding } : {}),
       project: ctx.project,
       registry: deps.registry,
       maxConcurrentTasks: limits.maxConcurrentTasks,
@@ -628,6 +631,7 @@ async function runAndSettleSupervisedRun(
 
 /** M2: starts a supervisor run over a validated task graph. */
 export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInput): SupervisedRunHandle {
+  const engineContext = captureRunEngineContext(deps.engineContext);
   if (input.contract !== undefined) {
     assertCoverageAllowsStart(
       input.contract,
@@ -658,6 +662,7 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
   // where the M0, parent and flowchart planes all persist nothing. The handle
   // is still returned synchronously and `runId` is still known before either.
   const done = (async (): Promise<SupervisedRunOutcome> => {
+    const engineBinding = await bindingForNewRun(engineContext);
     const project = await discoverProject(input.projectRoot, {
       now,
       ...(generateId !== undefined ? { generateId } : {})
@@ -666,20 +671,22 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
     return withRunLifecycleLock(
       deps.stateRoot,
       runId,
-      () => startLockedSupervisedRun(project, graph),
+      () => startLockedSupervisedRun(project, graph, engineBinding),
       deps.runLock
     );
   })();
 
   async function startLockedSupervisedRun(
     project: ProjectSnapshot,
-    graph: TaskGraph
+    graph: TaskGraph,
+    engineBinding: Run["engineBinding"]
   ): Promise<SupervisedRunOutcome> {
     const eventStore = new EventStore(deps.stateRoot, runId);
     const checkpointStore = new CheckpointStore(deps.stateRoot, runId);
     const rootTaskId = createTaskId(generateId);
 
     const run: Run = {
+      ...(engineBinding !== undefined ? { engineBinding } : {}),
       id: runId,
       projectId: project.id,
       rootTaskId,
@@ -759,6 +766,7 @@ export function startSupervisedRun(deps: SupervisorDeps, input: SupervisedRunInp
 
 /** Resume a supervised run from persisted events. */
 export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): SupervisedRunHandle {
+  const engineContext = captureRunEngineContext(deps.engineContext);
   const controller = new AbortController();
   const now = deps.now ?? nowIso;
   const generateId = deps.generateId;
@@ -819,6 +827,7 @@ export function resumeSupervisedRun(deps: SupervisorDeps, runId: RunId): Supervi
       };
     }
 
+    await assertRunEngineForResume(replayed.run.engineBinding, engineContext);
     const state = reconstructSupervisorState(read.events, () => Date.parse(now()));
     if (!state) {
       throw new Error(`Run ${runId} has no TASK_GRAPH_ACCEPTED event`);

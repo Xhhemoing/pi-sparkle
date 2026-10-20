@@ -272,7 +272,7 @@ test("the supervised lifecycle takes the lock through the shared helper, with it
 
   assert.match(
     supervisor,
-    /const graph = validateTaskGraph\(input\.tasks\);\s*return withRunLifecycleLock\(\s*deps\.stateRoot,\s*runId,\s*\(\) => startLockedSupervisedRun\(project, graph\),\s*deps\.runLock\s*\);/,
+    /const graph = validateTaskGraph\(input\.tasks\);\s*return withRunLifecycleLock\(\s*deps\.stateRoot,\s*runId,\s*\(\) => startLockedSupervisedRun\(project, graph, engineBinding\),\s*deps\.runLock\s*\);/,
     "discovery and graph validation are pre-flight; only the record-writing body is wrapped"
   );
   assert.match(

@@ -11,7 +11,10 @@ import { isRunLimits, type RunLimits } from "./limits.js";
 import { isRunStatus, type RunStatus } from "./status.js";
 import { isIsoTimestamp, type IsoTimestamp } from "./timestamp.js";
 
+import { isRunEngineBinding, type RunEngineBinding } from "./run-engine-binding.js";
+
 export interface Run {
+  engineBinding?: RunEngineBinding;
   id: RunId;
   projectId: ProjectId;
   parentRunId?: RunId;
@@ -25,6 +28,7 @@ export interface Run {
 function runError(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null) return "expected an object";
   const run = value as Record<string, unknown>;
+  if (run.engineBinding !== undefined && !isRunEngineBinding(run.engineBinding)) return "engineBinding must be a valid RunEngineBinding";
   if (!isRunId(run.id)) return "id must be a valid RunId";
   if (!isProjectId(run.projectId)) return "projectId must be a valid ProjectId";
   if (run.parentRunId !== undefined && !isRunId(run.parentRunId)) return "parentRunId must be a valid RunId";
