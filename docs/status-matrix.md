@@ -14,7 +14,7 @@ M4-B reported usage coverage includes all outcomes, missing usage/prices and ide
 
 M6-A thin project continuation now delegates one operation to the existing controller with detached progress and cancellation settlement. Root 10/10 and independent spec/quality reviews pass; final full gate remains pending. [Usage](advance-project.md). Connector and background operation are separate.
 
-M7-A legacy replay now excludes partial/cancelled results and stale model-version bindings. Root and independent reviewers each ran 54 pass / 1 existing Windows skip. This preserves historical self-report provenance; the actual host publisher is now independently reviewed and integrated20/20. One corrected live smoke confirms unknown-version exclusion after retained timeout/harness failures. Offline preparation and final full gate remain in progress. [Host attribution usage](host-attribution.md).
+M7-A legacy replay now excludes partial/cancelled results and stale model-version bindings. Root and independent reviewers each ran 54 pass / 1 existing Windows skip. This preserves historical self-report provenance; the actual host publisher is now independently reviewed and integrated20/20. One corrected live smoke confirms unknown-version exclusion after retained timeout/harness failures. Offline preparation is now integrated28/28 with independent spec/quality PASS, preserving genuine usage and task-disjoint temporal splits. Final full gate remains in progress. [Host attribution usage](host-attribution.md).
 
 ## Generic command-tool uncertainty follow-up (2026-10-19)
 

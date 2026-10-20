@@ -10,4 +10,12 @@ The returned `hostObservation` binds one logical task across repair attempts. At
 
 The existing run artifact store retains bounded references, not prompts or source text. Published invocation snapshots carry reported usage and preserve `pi`/`faux` provenance. Unknown usage or prices stay unknown. With attribution disabled, no collector or observation artifact is created. Actual results also expose additive task/logical-task identities; historical reconstructed results may lack them.
 
-[Implementation plan](superpowers/plans/2026-10-19-host-attribution.md) · [Verification record](reports/2026-10-19-staged-continuation.md). Offline dataset preparation is a separate slice. Real-provider capability smoke is separate from model-quality benefit and production authorization.
+[Implementation plan](superpowers/plans/2026-10-19-host-attribution.md) · [Verification record](reports/2026-10-19-staged-continuation.md). Offline dataset preparation is the separate read-only slice described below. Real-provider capability smoke is separate from model-quality benefit and production authorization.
+
+## Offline preparation
+
+`prepareHostAttribution` in `src/learning/host-attribution.ts` accepts original observations, an explicit ISO cutoff, and `evidenceMode: "observed" | "synthetic"`. Observed mode requires actual `pi` provenance; synthetic mode requires `faux`. Copies and parsed artifacts remain untrusted in either mode. Optional `invocations` must exactly match the issued snapshots and cannot fill unknown model versions, tokens or prices.
+
+The result includes eligible and excluded rows with references and reasons, plus training/test partitions. All repair attempts in one logical task stay together. Timing covers host execution start/completion and each invocation: wholly before the cutoff is training, at/after is test, and spanning tasks enter neither partition. Identical originals deduplicate; conflicting identities select no winner.
+
+`overallCoverage` counts genuine recorded usage even for excluded labels, with separate training/test coverage. Missing or conflicting external joins cannot inject or erase genuine spend. Conflicts between genuine invocation identities remain explicit and omit contradictory quantities. Unknown price means no complete USD total; known-cost subsets are not bills. This pure projection writes no dataset, routing state or learned policy, and does not establish model benefit.
