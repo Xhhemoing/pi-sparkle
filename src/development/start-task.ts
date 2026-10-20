@@ -1,4 +1,5 @@
 import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
+import { snapshotCheckFindingAnalysis, type CheckFindingAnalysisOptions } from "../evaluation/check-finding-analysis.js";
 import {
   NativeWriteSession,
   type NativeWriteSessionInput,
@@ -36,9 +37,17 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("host evaluator must be an own data property");
   }
   const hostEvaluator = snapshotNativeHostEvaluator(evaluatorDescriptor?.value as NativeHostEvaluator | undefined);
-  const { stateRoot, executorFactory, sandboxRoot, hostEvaluator: _hostEvaluator, presentation: _presentation, taskContext: _taskContext, ...task } = input;
+  const analysisDescriptor = Object.getOwnPropertyDescriptor(input, "checkFindingAnalysis");
+  if ((analysisDescriptor === undefined && "checkFindingAnalysis" in input) ||
+      (analysisDescriptor !== undefined && !("value" in analysisDescriptor))) {
+    throw new DomainValidationError("check finding analysis must be an own data property");
+  }
+  const checkFindingAnalysis = snapshotCheckFindingAnalysis(analysisDescriptor?.value as CheckFindingAnalysisOptions | undefined);
+  const { stateRoot, executorFactory, sandboxRoot, hostEvaluator: _hostEvaluator, checkFindingAnalysis: _analysis,
+    presentation: _presentation, taskContext: _taskContext, ...task } = input;
   const session = new NativeWriteSession({ stateRoot, executorFactory,
     ...(hostEvaluator === undefined ? {} : { hostEvaluator }),
+    ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
     return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }),
