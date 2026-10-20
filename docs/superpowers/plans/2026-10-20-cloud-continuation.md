@@ -12,7 +12,7 @@
 
 - ID: `TASK-20261020-cloud-continuation`
 - Owner: cloud root coordinator；Windows 专属验证由有 Windows 环境的后续执行者承担。
-- State: `planned`；本文件的交接准备不表示下述功能已完成。
+- State: `blocked` at Work 1 dependency bootstrap in the current cloud attempt; [actual verification/blocker](../../reports/2026-10-20-cloud-validation.md). No runtime acceptance follows from the handoff or this attempt.
 - Date opened: 2026-10-20（America/Los_Angeles）。
 - Design: [ADR-009](../../decisions/0009-lightweight-adaptive-framework.md)、[对话方案](../../conversation-workflow.md)、[迁移清单](../../../tasks/migration-todo.md)。
 - Handoff evidence: [交接记录](../../reports/2026-10-20-cloud-handoff.md)。
@@ -134,3 +134,5 @@ Work 2/3 完成后不因完成一个小项就结束；按以下顺序选择满�
 ## Closeout
 
 本文件记录后续执行授权与顺序，不是功能验收报告。交接准备的实际命令、提交与远端可达性在[交接记录](../../reports/2026-10-20-cloud-handoff.md)及交付消息中；后续执行者按完成切片更新本节并链接各自验证记录。
+
+2026-10-20 cloud attempt: confirmed `d6a3032a` and underlying source ancestry. Actual Linux Node24 gate exit 1 before tests because dependencies are incomplete. Installation was blocked by automatic approval review for unknown telemetry egress; offline cache is missing a pinned Pi tarball. Node22.19.0 is installed, Windows unavailable, all product probes/pack/consumer checks remain pending. [Current record](../../reports/2026-10-20-cloud-validation.md) states exact failed commands, read-only continuation findings, responsible owner, safe unblock condition and next command. Work 2 has a [precise unimplemented slice plan](2026-10-20-conversation-tools.md); no behavioral code/test completion is claimed.

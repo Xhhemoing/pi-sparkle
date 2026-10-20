@@ -8,6 +8,8 @@ Evidence: [dated verification](../docs/reports/2026-10-17-framework-migration.md
 This checklist tracks bounded implementation slices. Passing a slice does not
 accept its entire M-number or any production/live/experimental gate.
 
+**2026-10-20 current cloud correction:** `d6a3032a` actual Linux Node24 gate exits 1 before tests (`tsc` unavailable). Dependency bootstrap is blocked by automatic approval for unknown telemetry egress; offline cache is incomplete. Node22 runtime is installed but not verified against the product. Cloud Linux gate/probes/pack/SDK and C1/C2 tool wiring/C3 remain open. [Evidence and exact unblock/next command](../docs/reports/2026-10-20-cloud-validation.md). The separate local Windows acceptance below is not cloud Linux acceptance.
+
 2026-10-20 final local evidence for runtime3d3dcdc5: gate3978 pass/0 fail/48 conditional skips + build; security26/Pi4/kernel3 and two actual packed consumers PASS. [Commands/reviews/limits](../docs/reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). Platform, public execution and later conversation/repair work remain separate.
 
 | Slice | State | Evidence / next condition |

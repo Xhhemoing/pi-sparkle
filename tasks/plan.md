@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## Current cloud attempt (2026-10-20)
+
+Current source `d6a3032a` was checked out without resetting any work. Linux Node24 `pnpm gate` was actually run and exited 1 at `tsc: not found`; the test suite/build were not reached. Dependency installation was twice blocked by automatic approval review for unknown telemetry egress; an offline, scripts-disabled attempt exited 1 for a missing pinned tarball. Node22.19.0 and pnpm10.17.1 are available, but product acceptance remains blocked on a complete approved dependency tree. [Commands, independent read-only findings and unblock owner/condition](../docs/reports/2026-10-20-cloud-validation.md). No runtime changes or product pass claimed. [Work 2 interface/test plan](../docs/superpowers/plans/2026-10-20-conversation-tools.md) is prepared but unimplemented; C3 and subsequent slices remain pending. Next: supply an exact-lockfile offline cache or resolve the egress approval, then run the report's next command.
+
 ## Cloud continuation handoff (2026-10-20)
 
 `TASK-20261020-cloud-continuation`: [execution plan](../docs/superpowers/plans/2026-10-20-cloud-continuation.md) · [handoff record](../docs/reports/2026-10-20-cloud-handoff.md). User requested committed cloud-accessible source and an explicit sustained development/testing prompt. First finish current-candidate gate/probes/packed/platform evidence, then conversation-tool wiring and C3 recovery, followed by bounded repair and C4 planning slices. Existing staged implementation remains source-reviewed; full product acceptance is not inferred from this documentation handoff. Paid providers, production/external writes and existing experimental approvals remain separate.
