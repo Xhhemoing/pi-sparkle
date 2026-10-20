@@ -24,3 +24,6 @@ Each case uses one native attempt, no provider retry/fallback, low reasoning set
 
 ## Follow-up
 Run the two cases once after M1 focused/review acceptance. Further calls require a concrete unresolved question and retain the user's cost-efficiency instruction. Real production/holdout gates and full M0 platform containment remain separate.
+
+## Follow-up eligibility smoke (planned after M7 publisher integration)
+The original two fixtures passed as recorded in the staged report. After the actual host publisher is implemented/reviewed, one additional synthetic status-literal task may answer a new question: does live Pi telemetry reach the host-owned collector while an unpinned/unknown actual modelVersion remains explicitly ineligible for model-quality attribution? Forward the existing invocation callback to both host collector and private usage capture; do not invent a version or rates. Require real checker acceptance/source unchanged, nonempty observed invocations, reported usage coverage, and explicit unknown-version exclusion. Same endpoint/model, one native attempt, output/wall bounds and credential handling. No comparative experiment, holdout, online policy or extra broad provider runs are authorized by this smoke record. Keep status planned until executed evidence exists.
