@@ -252,6 +252,95 @@ test("cascade retry binds the second result to the next model", () => {
   assert.equal(outcomes[1]?.outcome, "PASS");
 });
 
+for (const outcome of ["PARTIAL", "CANCELLED"] as const) {
+  for (const verification of ["PASSED", "FAILED"] as const) {
+    test(`legacy replay omits ${outcome} results with ${verification} verification`, () => {
+      const message = {
+        ...resultMessage({ outcome: "SUCCESS", summary: "unfinished task" }),
+        outcome,
+        verification: { kind: verification, evidenceIds: ["evd_check"] }
+      };
+      const events = [
+        makeEvent("MODEL_ROUTED", routedPayload(), { taskId: TASK_ID, runId: RUN_ID }),
+        makeEvent("CHILD_MESSAGE", { message }, { taskId: TASK_ID, runId: RUN_ID })
+      ];
+
+      assert.deepEqual(outcomesFromRoutedRun(events), []);
+    });
+  }
+}
+
+for (const nextModelVersion of [undefined, "", "   "]) {
+  test(`legacy retry with ${JSON.stringify(nextModelVersion)} version invalidates only its task until complete routing`, () => {
+    const otherTaskId = parseTaskId("tsk_other");
+    const success = resultMessage({ outcome: "SUCCESS", summary: "checked" });
+    const events = [
+      makeEvent("MODEL_ROUTED", routedPayload(), { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("MODEL_ROUTED", routedPayload({ taskId: otherTaskId }), {
+        taskId: otherTaskId, runId: RUN_ID
+      }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("TASK_RETRY", {
+        childRunId: createRunId(), attempt: 1, reason: "cascade cheap->premium",
+        previousModel: "cheap", nextModel: "premium",
+        ...(nextModelVersion !== undefined ? { nextModelVersion } : {})
+      }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("TASK_RETRY", {
+        childRunId: createRunId(), attempt: 2, reason: "retry premium",
+        previousModel: "premium", nextModel: "premium", nextModelVersion: "premium-v2"
+      }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("CHILD_MESSAGE", { message: { ...success, taskId: otherTaskId } }, {
+        taskId: otherTaskId, runId: RUN_ID
+      }),
+      makeEvent("MODEL_ROUTED", routedPayload({ model: "premium", modelVersion: "premium-v3" }), {
+        taskId: TASK_ID, runId: RUN_ID
+      }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID })
+    ];
+
+    assert.deepEqual(outcomesFromRoutedRun(events).map((row) => [
+      row.taskId, row.modelId, row.modelVersion, row.outcome
+    ]), [
+      [TASK_ID, "cheap", "cheap-v1", "PASS"],
+      [otherTaskId, "cheap", "cheap-v1", "PASS"],
+      [TASK_ID, "premium", "premium-v3", "PASS"]
+    ]);
+  });
+}
+
+for (const [field, value] of [
+  ["modelVersion", undefined],
+  ["modelVersion", "   "],
+  ["family", undefined],
+  ["featureVersion", undefined],
+  ["agentRole", undefined]
+] as const) {
+  test(`legacy incomplete replacement ${field}=${JSON.stringify(value)} clears stale route until complete routing`, () => {
+    const success = resultMessage({ outcome: "SUCCESS", summary: "checked" });
+    const events = [
+      makeEvent("MODEL_ROUTED", routedPayload(), { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("MODEL_ROUTED", { ...routedPayload({ model: "premium" }), [field]: value }, {
+        taskId: TASK_ID, runId: RUN_ID
+      }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID }),
+      makeEvent("MODEL_ROUTED", routedPayload({ model: "premium", modelVersion: "premium-v2" }), {
+        taskId: TASK_ID, runId: RUN_ID
+      }),
+      makeEvent("CHILD_MESSAGE", { message: success }, { taskId: TASK_ID, runId: RUN_ID })
+    ];
+
+    assert.deepEqual(outcomesFromRoutedRun(events).map((row) => [
+      row.modelId, row.modelVersion, row.outcome
+    ]), [
+      ["cheap", "cheap-v1", "PASS"],
+      ["premium", "premium-v2", "PASS"]
+    ]);
+  });
+}
+
 /**
  * The preference store is a process-global singleton, so an unbound store hides
  * a stray write: it lands in memory and dies at exit, which is exactly how the

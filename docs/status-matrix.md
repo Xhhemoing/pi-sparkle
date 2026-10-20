@@ -14,6 +14,8 @@ M4-B reported usage coverage includes all outcomes, missing usage/prices and ide
 
 M6-A thin project continuation now delegates one operation to the existing controller with detached progress and cancellation settlement. Root 10/10 and independent spec/quality reviews pass; final full gate remains pending. [Usage](advance-project.md). Connector and background operation are separate.
 
+M7-A legacy replay now excludes partial/cancelled results and stale model-version bindings. Root and independent reviewers each ran 54 pass / 1 existing Windows skip. This preserves historical self-report provenance; actual host publication/offline preparation and final gate are still in progress.
+
 ## Generic command-tool uncertainty follow-up (2026-10-19)
 
 [Plan](superpowers/plans/2026-10-19-command-uncertainty.md) and [verification](reports/2026-10-19-command-uncertainty.md): host-wired generic tools notify Native before model-visible cleanup errors; sticky uncertainty retains existing effectsSettled/ledger/claim fencing. Focused 23/23 and independent specification/quality reviews pass; build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 Windows fixture-cleanup EPERM / 48 skip. The cleanup failure was reproduced and corrected without relaxing product assertions; affected file 25 pass / 0 fail / 2 platform skips. Final integrated full gate remains pending. Arbitrary host effects, OS containment, old writers, terminal archival, publication and production/outcome acceptance remain open.

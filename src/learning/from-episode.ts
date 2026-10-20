@@ -11,6 +11,7 @@ import type { Event, ModelRoutedPayload } from "../run/events.js";
 import type { TaskFamily } from "../task/taxonomy.js";
 import { oneHotDistribution } from "../routing/catalog-model.js";
 import { classifyTaskFailure } from "../routing/failure-class.js";
+import { taskSuccessFromResult } from "./task-success.js";
 import {
   observationsForR1,
   parseOutcomeObservation,
@@ -194,6 +195,7 @@ export function outcomesFromRoutedRun(events: readonly Event[]): OutcomeObservat
     if (event.type === "MODEL_ROUTED") {
       const payload = event.payload;
       if (isCompleteRoute(payload)) routes.set(payload.taskId, payload);
+      else routes.delete(payload.taskId);
       continue;
     }
     if (event.type === "TASK_RETRY") {
@@ -209,7 +211,7 @@ export function outcomesFromRoutedRun(events: readonly Event[]): OutcomeObservat
     if (family === undefined) continue;
     const role = route.agentRole;
     if (role === undefined || !isAgentRole(role)) continue;
-    const kind = outcomeKindFromResult(message.outcome, message.verification.kind);
+    const kind = taskSuccessFromResult(message.outcome, message.verification.kind)?.outcomeKind;
     if (kind === undefined) continue;
     const failureClass =
       kind === "FAIL"
@@ -255,16 +257,17 @@ function applyCascadeRetry(
   if (taskId === undefined || nextModel === undefined || nextModel.trim() === "") return;
   const current = routes.get(taskId);
   if (current === undefined) return;
+  if (nextModelVersion === undefined || nextModelVersion.trim() === "") {
+    routes.delete(taskId);
+    return;
+  }
   const eligible = current.eligibleModels.includes(nextModel)
     ? current.eligibleModels
     : [...current.eligibleModels, nextModel];
   routes.set(taskId, {
     ...current,
     model: nextModel,
-    modelVersion:
-      nextModelVersion !== undefined && nextModelVersion.trim() !== ""
-        ? nextModelVersion
-        : current.modelVersion,
+    modelVersion: nextModelVersion,
     behaviorDistribution: oneHotDistribution(eligible, nextModel)
   });
 }
@@ -283,13 +286,4 @@ function isCompleteRoute(payload: ModelRoutedPayload): boolean {
 
 function familyFromRouted(value: string): TaskFamily | undefined {
   return (FAMILIES as readonly string[]).includes(value) ? (value as TaskFamily) : undefined;
-}
-
-function outcomeKindFromResult(
-  outcome: string,
-  verification: string
-): "PASS" | "FAIL" | undefined {
-  if (verification === "PASSED") return "PASS";
-  if (verification === "FAILED") return "FAIL";
-  return undefined;
 }
