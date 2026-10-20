@@ -20,7 +20,7 @@ import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
 import { ActionAdmissionConflictError, ActionLedger, type ActionClaim, type ActionRecord } from "./action-ledger.js";
 import { runtimeRoot } from "../persist/state-layout.js";
 import { canonicalizeStableJson } from "../domain/canonical-json.js";
-import { WorkItemStore, type WorkItemVerificationContext } from "./work-item-store.js";
+import { WorkItemStore, type WorkItemClaimResult, type WorkItemVerificationContext } from "./work-item-store.js";
 import { validateWorkItemEvidence, workItemScope, type WorkItemDefinition, type WorkItemEvidence, type WorkQueue } from "./work-items.js";
 import { UNSETTLED_RECIPE_EXIT_CODE } from "./recipe-check.js";
 
@@ -38,6 +38,14 @@ export interface DevelopmentResult {
   readonly actionId?: string;
   readonly candidatePath?: string;
   readonly reason?: string;
+}
+/** Selection availability only; the final atomic ledger admission remains authoritative. */
+class WorkItemEligibilityConflictError extends ActionAdmissionConflictError {
+  constructor(readonly itemId: string, actionId: string) { super(actionId); }
+  result(): DevelopmentResult {
+    return { status: "needs-reconciliation", itemId: this.itemId, actionId: this.blockingActionId,
+      reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay" };
+  }
 }
 interface EffectReceipt {
   readonly itemId: string;
@@ -180,6 +188,13 @@ export class DevelopmentController {
       stateRoot: path.resolve(options.stateRoot), queuePath: path.resolve(options.queuePath) });
     this.ledger = new ActionLedger(path.join(path.dirname(this.options.queuePath), "actions"));
     this.store = new WorkItemStore(this.options.queuePath, {
+      verifyEligibility: async (item, signal) => {
+        checkCancellation(signal);
+        const actions = await this.ledger.list();
+        checkCancellation(signal);
+        const pending = unresolvedEffect(actions, item);
+        if (pending !== undefined) throw new WorkItemEligibilityConflictError(item.id, pending.actionId);
+      },
       verifyEvidence: (evidence, context, signal) => this.verifyEvidence(evidence, context, signal),
       isVerificationBlocked: (error) => error instanceof ActionAdmissionConflictError || error instanceof CommandCleanupIncompleteError,
       verificationTimeoutMs: 60_000
@@ -289,15 +304,15 @@ export class DevelopmentController {
     if (options.signal?.aborted) fail("run cancelled before claiming work");
     if (this.options.executorFactory === undefined) fail("run requires a host executor factory");
     const sourceRevision = this.currentSourceRevision();
-    const advisory = await this.store.next(options.signal === undefined ? {} : { signal: options.signal });
+    let advisory: WorkItemDefinition | undefined;
+    try { advisory = await this.store.next(options.signal === undefined ? {} : { signal: options.signal }); }
+    catch (error) {
+      if (error instanceof WorkItemEligibilityConflictError) return error.result();
+      throw error;
+    }
     checkCancellation(options.signal);
     if (advisory === undefined) return { status: "no-ready-task" };
     assertRecipePolicy(advisory);
-    const actions = await this.ledger.list();
-    checkCancellation(options.signal);
-    const pending = unresolvedEffect(actions, advisory);
-    if (pending !== undefined) return { status: "needs-reconciliation", itemId: advisory.id, actionId: pending.actionId,
-      reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay" };
     const beforeClaim = await this.store.load();
     checkCancellation(options.signal);
     for (const dependencyId of advisory.dependencies) {
@@ -307,8 +322,14 @@ export class DevelopmentController {
       if (!verified) return { status: "needs-reconciliation", itemId: advisory.id,
         reason: `dependency ${dependencyId} is accepted as a candidate but does not verify in the current source; integrate and reverify first` };
     }
-    const selected = await this.store.claimNext({ owner: this.options.owner, baseRevision: sourceRevision,
-      ...(options.signal === undefined ? {} : { signal: options.signal }) });
+    let selected: WorkItemClaimResult | undefined;
+    try {
+      selected = await this.store.claimNext({ owner: this.options.owner, baseRevision: sourceRevision,
+        ...(options.signal === undefined ? {} : { signal: options.signal }) });
+    } catch (error) {
+      if (error instanceof WorkItemEligibilityConflictError) return error.result();
+      throw error;
+    }
     if (selected === undefined) {
       checkCancellation(options.signal);
       return { status: "no-ready-task" };

@@ -12,6 +12,7 @@ accept its entire M-number or any production/live/experimental gate.
 |---|---|---|
 | M0-A cooperative process ownership | Published on PR #60 | `e6f6a5b`, exact tested tree `73e74bc2`; [original evidence](../docs/reports/2026-10-16-process-ownership.md) and current publication record |
 | M0-B atomic effect admission and scoped readiness | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-m0-atomic-admission.md); existing ledger/store, schema unchanged; 49 real controller/process and 61 final adjacent tests pass |
+| M0-D planned-item scoped readiness | Source reviewed / focused verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): root22/22, independent quality68/68 plus2 lock/cancellation probes; final gate pending |
 | M0-C host-wired generic command uncertainty | Independently reviewed; final integrated gate pending | [Evidence](../docs/reports/2026-10-19-command-uncertainty.md); focused 23/23 and probes pass; fresh gate 3646/1/48, Windows fixture cleanup corrected and independently reviewed |
 | M1-A direct task host entry | Reviewed/local gate verified; published source | [Plan](../docs/superpowers/plans/2026-10-17-direct-development-task.md); one existing native session; six real Git tests pass |
 | M1-B candidate file tools | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-direction-completion.md): bounded list/search/range/unique patch, host-neutral implementation and direct-task wiring |
@@ -54,8 +55,8 @@ isolation, generic command-tool uncertainty and bounded terminal-ledger archival
 Successful checker rechecks still consume the existing finite ledger capacity;
 no unknown effects are deleted or made replayable. New binaries must not share
 effect roots with old controllers using the previous admission algorithm.
-Scoped readiness covers unrelated accepted-task verification; selecting around
-a planned high-priority item's own unresolved effect remains a separate follow-up.
+Scoped readiness now also selects around a planned high-priority item's unresolved
+effect: independent focused verification passes; final integrated gate remains pending.
 
 Main/PR #61 integration, stable SDK, root shared budgets, real-provider benefit,
 S0-min/R10/R11/F6 and production/experimental acceptance retain their own records.

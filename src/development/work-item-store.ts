@@ -18,6 +18,8 @@ export interface WorkItemVerificationContext {
   readonly recipe: WorkItemRecipe;
 }
 export interface WorkItemStoreOptions {
+  /** Host-only read-only eligibility assertion; must not mutate the store or admit effects. */
+  readonly verifyEligibility?: (item: WorkItemDefinition, signal: AbortSignal) => void | Promise<void>;
   /** Host-owned read-only resolver of actual artifacts; never deserialize this from worker JSON. */
   readonly verifyEvidence?: (evidence: WorkItemEvidence, context: WorkItemVerificationContext, signal: AbortSignal) => Promise<boolean>;
   /** Host-only classification of unsettled effect ownership, not invalid evidence. */
@@ -69,6 +71,7 @@ function checkCancellation(signal?: AbortSignal): void {
 export class WorkItemStore {
   readonly path: string;
   private readonly lockOptions: FileLockOptions;
+  private readonly verifyEligibility: WorkItemStoreOptions["verifyEligibility"];
   private readonly verifyEvidence: WorkItemStoreOptions["verifyEvidence"];
   private readonly isVerificationBlocked: WorkItemStoreOptions["isVerificationBlocked"];
   private readonly verificationTimeoutMs: number;
@@ -76,11 +79,13 @@ export class WorkItemStore {
   constructor(path: string, options: WorkItemStoreOptions = {}) {
     this.path = resolve(workItemText(path, "queue path", 4096));
     if (options === null || typeof options !== "object" || Array.isArray(options) ||
-        Object.keys(options).some((key) => !["verifyEvidence", "isVerificationBlocked", "verificationTimeoutMs", "lock"].includes(key))) fail("invalid options");
+        Object.keys(options).some((key) => !["verifyEligibility", "verifyEvidence", "isVerificationBlocked", "verificationTimeoutMs", "lock"].includes(key))) fail("invalid options");
+    if (options.verifyEligibility !== undefined && typeof options.verifyEligibility !== "function") fail("invalid eligibility verifier");
     if (options.verifyEvidence !== undefined && typeof options.verifyEvidence !== "function") fail("invalid evidence verifier");
     if (options.isVerificationBlocked !== undefined && typeof options.isVerificationBlocked !== "function") fail("invalid blocked-verification classifier");
     if (options.lock !== undefined && (options.lock === null || typeof options.lock !== "object" || Array.isArray(options.lock) ||
         Object.keys(options.lock).some((key) => key !== "timeoutMs" && key !== "retryMs"))) fail("invalid lock options");
+    this.verifyEligibility = options.verifyEligibility;
     this.verifyEvidence = options.verifyEvidence;
     this.isVerificationBlocked = options.isVerificationBlocked;
     this.verificationTimeoutMs = duration(options.verificationTimeoutMs, 30_000, 300_000);
@@ -212,6 +217,15 @@ export class WorkItemStore {
     const blocked = new Map<string, unknown>();
     let firstBlocked: unknown;
     for (const item of selectWorkItemCandidates(queue)) {
+      try { await this.verifyEligibility?.(item, signal ?? new AbortController().signal); }
+      catch (error) {
+        checkCancellation(signal);
+        if (this.isVerificationBlocked?.(error) !== true) throw error;
+        blocked.set(item.id, error);
+        firstBlocked ??= error;
+        continue;
+      }
+      checkCancellation(signal);
       const ancestors = new Set<string>();
       const visit = (id: string): void => {
         if (ancestors.has(id)) return;
