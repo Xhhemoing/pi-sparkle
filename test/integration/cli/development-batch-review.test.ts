@@ -69,7 +69,7 @@ test("batch requires bounded max-items and validates every flag before queue mut
 
 test("fake batch retains two independent candidates without accepting or applying them", async () => fixture(async ({ base, queuePath, project }) => {
   const result = await call(["batch", ...base, "--executor", "fake", "--max-items", "2"]);
-  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   const output = JSON.parse(result.stdout);
   assert.equal(output.type, "DEVELOPMENT_BATCH_RESULT"); assert.equal(output.command, "batch");
   assert.equal(output.mode, "fake"); assert.equal(output.stopReason, "max-items");
@@ -97,7 +97,7 @@ test("old run keeps its exact envelope and rejects batch-only flags before claim
   assert.equal(JSON.parse(invalid.stdout).type, "DEVELOPMENT_RESULT");
   assert.equal(await readFile(queuePath, "utf8"), before);
   const result = await call(["run", ...base, "--executor", "fake"]);
-  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   const output = JSON.parse(result.stdout);
   assert.deepEqual(Object.keys(output).sort(), ["actionId", "candidatePath", "command", "itemId", "limits", "mode", "queueId", "status", "type"]);
   assert.equal(output.type, "DEVELOPMENT_RESULT"); assert.equal(output.command, "run");
@@ -111,7 +111,7 @@ test("review reads completed evidence without changing queue, actions, source or
   const actionsPath = join(dirname(queuePath), "actions", "actions.json");
   const beforeQueue = await readFile(queuePath, "utf8"), beforeActions = await readFile(actionsPath, "utf8");
   const result = await call(["review", ...base, "--action", actionId], { createPiExecutor: async () => { throw new Error("review must not invoke a model"); } });
-  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   const output = JSON.parse(result.stdout);
   assert.equal(output.type, "DEVELOPMENT_RESULT"); assert.equal(output.command, "review");
   assert.equal(output.actionId, actionId);
@@ -139,7 +139,7 @@ test("Pi batch reuses model options and scoped tools for real fixture writes wit
       } };
     }
   });
-  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   const output = JSON.parse(result.stdout);
   assert.equal(output.type, "DEVELOPMENT_BATCH_RESULT"); assert.equal(output.mode, "pi");
   assert.equal(output.results.length, 2); assert.equal(calls, 2); assert.equal(maximumActive, 1);
@@ -149,7 +149,7 @@ test("Pi batch reuses model options and scoped tools for real fixture writes wit
 
 test("batch no-ready stop is successful and records only executed items", async () => fixture(async ({ base }) => {
   const result = await call(["batch", ...base, "--executor", "fake", "--max-items", "3"]);
-  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
   const output = JSON.parse(result.stdout);
   assert.equal(output.stopReason, "no-ready-task"); assert.equal(output.results.length, 2);
 }));
