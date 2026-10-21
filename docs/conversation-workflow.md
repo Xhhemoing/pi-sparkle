@@ -1,12 +1,12 @@
 # 对话入口与长期任务衔接
 
-这是在现有四职责架构上提出的交互接线方案。2026-10-18 的 [C1/C2-A 宿主切片](conversation-host.md)已补上结构化查询/直接任务、会话内焦点与 M4-A 本次表达偏好；当前结果见[验证记录](reports/2026-10-18-conversation-presentation.md)。自然语言解析、扩展工具注册和跨会话恢复仍待后续。用户希望把命令内化到对话、同时容纳小任务和长期项目；本文说明具体行为与后续实施条件，**不表示自然语言路由已完成实现**。源码核对基线为 PR #60 `14a1164`。
+这是在现有四职责架构上提出的交互接线方案。2026-10-18 的 [C1/C2-A 宿主切片](conversation-host.md)已补上结构化查询/直接任务、会话内焦点与 M4-A 本次表达偏好；当前结果见[验证记录](reports/2026-10-18-conversation-presentation.md)。P1 已补显式宿主配置的扩展工具接线，验收状态见[当前记录](reports/2026-10-20-conversation-tools.md)；P2 已完成本地验收的[只读引用恢复](reports/2026-10-20-conversation-recovery.md)，自然语言配置仍待后续。用户希望把命令内化到对话、同时容纳小任务和长期项目；本文说明具体行为与后续实施条件，**不表示自然语言路由已完成实现**。源码核对基线为 PR #60 `14a1164`。
 
 ## 1. 已有基础与缺口
 
 | 能力 | 当前事实 | 还要补什么 |
 | --- | --- | --- |
-| 对话调用能力 | [原生扩展](../extensions/pi-sparkle/index.ts) 已注册模型可调用的只读 `sparkle_delegate`，以及需要宿主事先签发句柄的 `sparkle_apply_candidate` | 把查询、单任务、项目推进与授权表达接到一致的对话入口 |
+| 对话调用能力 | [原生扩展](../extensions/pi-sparkle/index.ts) 已注册模型可调用的只读 `sparkle_delegate`，以及需要宿主事先签发句柄的 `sparkle_apply_candidate` | P1 配置后增加查询/焦点/宿主授权直接任务工具；项目推进与新增授权表达仍需后续切片 |
 | 普通开发任务 | 实验性 [startDevelopmentTask](direct-development-task.md) 复用 NativeWriteSession，无需项目队列、planner 或金额表单 | 宿主自动装配受信任 executor、检查命令和任务上下文；当前用户仍不能仅凭一句话自动调用所有能力 |
 | 长期项目 | [WorkItemStore](../src/development/work-item-store.ts)、[DevelopmentController](../src/development/controller.ts) 已负责依赖、认领、检查和进展 | 对话焦点绑定、跨会话恢复提示、范围受控的计划修改 |
 | 长期上下文 | 事件、候选记录、Git、偏好等基础可复用 | 带来源的任务摘要、纠正与失效、按焦点检索；聊天窗口本身不替代项目事实 |
@@ -82,3 +82,5 @@ CLI 保留为脚本、排障和高级入口。对话与 CLI 调同一应用能�
 | C4 项目增强 | 任务提升、计划修改、受控自然语言应用授权 | 不重复执行/计入结果，不生成第二套成功状态；源码变化后重验；未知效果不放行 |
 
 这些是建议实施切片，不是本次已运行的测试。与 [M1 轻任务、M3 动态纠偏、M6 项目推进](architecture-migration.md) 对齐；复用现有模块和 [A1/A3/A9](architecture-algorithms.md) 的约束。首轮优先 C1/C2，再用真实长线对话验证 C3/C4，不把全部记忆与调度能力设为日常使用的前提。
+
+P2 的精确实现边界见[恢复计划](superpowers/plans/2026-10-20-conversation-recovery.md)：显式宿主引用、fresh facts 与新焦点 generation；恢复实例不获得执行权限，不自动重放，队列与直接任务的身份映射分别声明。当前验收以[恢复记录](reports/2026-10-20-conversation-recovery.md)为准。

@@ -1,6 +1,21 @@
 # Active implementation plan
 
-## Current cloud attempt (2026-10-20)
+## Accepted local P1/P2 continuation (2026-10-20)
+
+P1 was accepted before P2 began. P2 is now accepted locally: focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build, security26/Pi4. Recovery restores selected references and fresh facts with a new focus generation; it never restores execution authority. [Precise accepted scope](../docs/superpowers/plans/2026-10-20-conversation-recovery.md) · [exact evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). P3 is the next planned slice; P3/P4/P5 and other-platform qualification remain unaccepted. Lower sync/cloud sections preserve earlier stages, not current local implementation status.
+
+- [x] P2 real-process/loader RED then GREEN; references and fresh read-only facts, no restored execution authority; focused36/36 in the linked evidence.
+- [x] P2 focused GREEN, independent spec/quality review, final serial gate3995/0/48+build and security26/Pi4; usage/status reconciled in the linked evidence.
+
+## Conversation tools implementation (2026-10-20)
+
+User authorized P1 implementation, complete testing and independent review, then P2 recovery. That sequence is complete locally. P1 focused28/28, independent reviews, gate3987/0/48+build and security26/Pi4 passed before P2 source implementation. [Accepted P1 plan](../docs/superpowers/plans/2026-10-20-conversation-tools.md) · [P1 evidence](../docs/reports/2026-10-20-conversation-tools.md). Existing planning edits are preserved; no production or other-platform condition is closed.
+
+## Local sync and next development (2026-10-20)
+
+TASK-20261020-sync-next: synced clean source to codex/cloud-continuation-20261020@26808ad2, preserving the previous branch. [Current plan](../docs/superpowers/plans/2026-10-20-sync-next.md) · [verification](../docs/reports/2026-10-20-sync-next.md). This request is synchronization and planning only. Fresh Windows Node24 conversation/native-loader tests pass 19/19. Next: host-configured conversation tools, then read-only cross-session recovery; controlled-driver combination coverage can be edited independently with serialized builds. Linux dependency/matrix and containment conditions remain separate; the plan clarifies local dependencies without claiming cloud Work 1 complete.
+
+## Earlier cloud attempt (2026-10-20)
 
 Current source `d6a3032a` was checked out without resetting any work. Linux Node24 `pnpm gate` was actually run and exited 1 at `tsc: not found`; the test suite/build were not reached. Dependency installation was twice blocked by automatic approval review for unknown telemetry egress; an offline, scripts-disabled attempt exited 1 for a missing pinned tarball. Node22.19.0 and pnpm10.17.1 are available, but product acceptance remains blocked on a complete approved dependency tree. [Commands, independent read-only findings and unblock owner/condition](../docs/reports/2026-10-20-cloud-validation.md). No runtime changes or product pass claimed. [Work 2 interface/test plan](../docs/superpowers/plans/2026-10-20-conversation-tools.md) is prepared but unimplemented; C3 and subsequent slices remain pending. Next: supply an exact-lockfile offline cache or resolve the egress approval, then run the report's next command.
 

@@ -1,9 +1,19 @@
 # Status matrix (Developer Preview)
 
+## Conversation reference recovery accepted locally (2026-10-20)
+
+After P1 acceptance, P2 delivered an explicitly host-bound, read-only recovery session through the actual Pi tools. Saved current/suspended references receive a fresh focus generation; each status request re-reads bounded selected facts. All recovery execution is refused. Saved references do not prove an unrecorded execution never began. [Accepted bounded plan](superpowers/plans/2026-10-20-conversation-recovery.md) and [exact final evidence](reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20): focused36/36, typecheck/lint, independent specification/quality reviews; final Windows Node24 gate3995/0/48 conditional skips plus build, security26/Pi4 pass. Durable writable recovery, broader C3, P3/P4/P5 and other-platform qualification remain open.
+## Pi conversation tools accepted locally (2026-10-20)
+
+P1 now has an explicitly configured host factory and actual Pi conversation/focus handlers. Current focused verification: **28 pass / 0 fail / 0 skip**, typecheck/lint and independent specification/quality reviews pass. An actual offline Anthropic request regression found and closed R1 parameter loss; its RED and first interrupted gate remain recorded. Final serial gate passes: 3987/0/48 conditional skips plus build; security26/Pi4 pass. P1 was accepted locally before P2 began; P2 has its separate final acceptance above. [Current evidence](reports/2026-10-20-conversation-tools.md). The following sync-only and cloud entries are historical stages, not the current implementation state.
+## Local sync and planning correction (2026-10-20)
+
+Current source is 26808ad2 on the matching local/remote continuation branch; the two new commits contain documentation only. Fresh Windows Node24 conversation/native-loader regression: **19 pass / 0 fail / 0 skip**. No new full gate, feature wiring or recovery acceptance is claimed. [Evidence](reports/2026-10-20-sync-next.md) and [sequence](superpowers/plans/2026-10-20-sync-next.md) separate executable local conversation work from the earlier cloud Linux dependency/matrix blocker. The cloud section below describes that earlier environment attempt, not missing dependencies in this Windows checkout. Conversation tools/C3 remain planned; public managed dispatch still requires containment qualification.
+
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
-## Current cloud candidate verification (2026-10-20)
+## Earlier cloud candidate verification (2026-10-20)
 
 Source `d6a3032a` is present on the requested continuation branch. Current Linux Node24 `pnpm gate` exits 1 at missing `tsc`, after workflow passes and before product tests/build. Dependency installation is blocked by automatic approval review for unknown telemetry egress; an offline/scripts-disabled alternative fails for a missing locked tarball. Node22.19.0 is available but product verification is NOT RUN; Windows is unavailable. No current full-gate, probe, packed-consumer or new implementation acceptance follows. [Exact commands, independent investigation and unblock condition](reports/2026-10-20-cloud-validation.md). Historical scoped results below remain historical.
 

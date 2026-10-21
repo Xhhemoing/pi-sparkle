@@ -1,6 +1,32 @@
 # Active checklist
 
-## Current cloud attempt (2026-10-20)
+## Accepted local P1/P2 continuation (2026-10-20)
+
+P1 was accepted before P2 began. P2 is now accepted locally: focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build, security26/Pi4. Recovery restores selected references and fresh facts with a new focus generation; it never restores execution authority. [Precise accepted scope](../docs/superpowers/plans/2026-10-20-conversation-recovery.md) · [exact evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). P3 is the next planned slice; P3/P4/P5 and other-platform qualification remain unaccepted. Lower sync/cloud sections preserve earlier stages, not current local implementation status.
+
+- [x] P2 real-process/loader RED then GREEN; references and fresh read-only facts, no restored execution authority; focused36/36 in the linked evidence.
+- [x] P2 focused GREEN, independent spec/quality review, final serial gate3995/0/48+build and security26/Pi4; usage/status reconciled in the linked evidence.
+
+## Conversation tools implementation (2026-10-20)
+
+- [x] P1 real-loader RED, trusted factory/tools and lifecycle implementation; [accepted evidence](../docs/reports/2026-10-20-conversation-tools.md).
+- [x] P1 focused28/28, independent spec/quality review, gate3987/0/48+build, security26/Pi4; [evidence](../docs/reports/2026-10-20-conversation-tools.md).
+- [x] P1 usage docs independently checked and evidence reconciled before P2 began; P2 is now accepted above.
+- Evidence: [current record](../docs/reports/2026-10-20-conversation-tools.md).
+
+## Local sync and next development (2026-10-20)
+
+[Plan](../docs/superpowers/plans/2026-10-20-sync-next.md) · [actual evidence](../docs/reports/2026-10-20-sync-next.md).
+
+- [x] Fetch/sync to 26808ad2 on a matching tracking branch; preserve the old branch and main.
+- [x] Current conversation/native-loader regressions: 19 pass / 0 fail / 0 skip; distinguish historical Windows gate from cloud Linux dependency failure.
+- [x] Workflow, 371 relative links, diff check and independent planning review pass; [record](../docs/reports/2026-10-20-sync-next.md).
+- [x] P1: trusted host factory, actual Pi handlers/lifecycle, RED/GREEN and full local acceptance; [evidence](../docs/reports/2026-10-20-conversation-tools.md).
+- [x] P2: read-only recovery of host-selected references/current facts; refuse all recovery execution; [focused36/36, review and final gate/probes](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20).
+- [ ] P3: controlled-driver held-tool/deferred-agent-end combination coverage; serialize internal builds.
+- [ ] P4/P5: bounded repair and C4 plan changes after precise slice plans/dependencies; Linux matrix/containment remain open.
+
+## Earlier cloud attempt (2026-10-20)
 
 - [x] Verify target branch at `d6a3032a`, clean intake, source ancestry and pinned toolchain; read repository authority and focused interfaces. [Evidence](../docs/reports/2026-10-20-cloud-validation.md).
 - [ ] Work 1 BLOCKED: actual Node24 `pnpm gate` exit 1 (`tsc: not found`); dependencies incomplete after automatic approval rejected unknown telemetry egress. Offline install exit 1 for missing pinned Pi tarball. Owner: user/environment policy owner; unblock with a complete trusted offline store or reviewed explicit egress authorization.
