@@ -2,6 +2,9 @@
 
 This directory contains the active execution state. Historical plans and accepted slices belong under `tasks/archive/`.
 
+## Current project entry (2026-10-21)
+
+Start with [current acceptance/publication](../docs/reports/2026-10-21-acceptance-publication.md), [active plan](plan.md), [checklist](todo.md), then [migration slices](migration-todo.md). P1/P2/P3 are the latest locally accepted slices; P4/P5 and the explicitly retained platform/policy obligations remain open. The [workspace inventory](../docs/reports/2026-10-21-acceptance-publication.md#workspace-organization) explains where evidence and generated files belong. Repeated SoL/Grok delivery summaries moved to the [dated archive](archive/2026-10-21-delivery-history.md); open obligations remain in the active entries.
 ## Authoritative Files
 
 - [`migration-todo.md`](migration-todo.md): current ADR-009 migration slices,
