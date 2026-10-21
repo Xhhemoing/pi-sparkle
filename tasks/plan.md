@@ -1,5 +1,16 @@
 # Active implementation plan
 
+## Current acceptance and publication (2026-10-21)
+
+TASK-20261021-acceptance-publication: [plan](../docs/superpowers/plans/2026-10-21-acceptance-publication.md) · [verification and workspace inventory](../docs/reports/2026-10-21-acceptance-publication.md). Existing P1/P2/P3 source is committed through f0519e23; fresh focused70/70, full gate3997/0/48 conditional skips plus build, security26/Pi4 and independent source/organization reviews passed. Documentation is reconciled; GitHub delivery is pending final commit/push. This section is the current entry; older dated entries below retain their historical environment and publication status. P4/P5 need precise plans before implementation. No platform, production, experiment or main-merge gate is closed.
+
+## Retained obligations from archived delivery history
+
+- [ ] SCM/xhh: supply PR #36 per-stage independent PASS artifacts and the original owner authorization source; [historical delivery evidence](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md).
+- [ ] Custodian/SCM/owner: resolve F6 100+15 custody, contamination ruling, SM95 metadata/separation, pricing bind, runner readiness and seal; [readiness evidence](../docs/reports/2026-09-18-delivery-gate-unblock.md). No live adaptation or Outcome-supported acceptance follows.
+- [ ] Framework/review owner: retain independent re-review of registration/routing/projection and R10/R11 evaluator/apply boundaries; [original review context](../docs/reports/2026-09-20-native-apply-registration.md). Existing newer scoped acceptance does not blanket-close these obligations.
+
+
 ## Accepted local P3 controlled-driver combinations (2026-10-21)
 
 User requested committing current P1/P2 changes first, then P3 tests, validation and independent review. Commit 683c620a completed with a clean worktree before P3 edits. [Precise plan](../docs/superpowers/plans/2026-10-21-controlled-combinations.md) · [actual evidence](../docs/reports/2026-10-21-controlled-combinations.md).
@@ -10,7 +21,7 @@ User requested committing current P1/P2 changes first, then P3 tests, validation
 
 ## Accepted local P1/P2 continuation (2026-10-20)
 
-P1 was accepted before P2 began. P2 is now accepted locally: focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build, security26/Pi4. Recovery restores selected references and fresh facts with a new focus generation; it never restores execution authority. [Precise accepted scope](../docs/superpowers/plans/2026-10-20-conversation-recovery.md) · [exact evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). P3 is the next planned slice; P3/P4/P5 and other-platform qualification remain unaccepted. Lower sync/cloud sections preserve earlier stages, not current local implementation status.
+P1 was accepted before P2 began. P2 is now accepted locally: focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build, security26/Pi4. Recovery restores selected references and fresh facts with a new focus generation; it never restores execution authority. [Precise accepted scope](../docs/superpowers/plans/2026-10-20-conversation-recovery.md) · [exact evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). P3 was subsequently accepted locally on 2026-10-21 in the linked P3 record above; P4/P5 and other-platform qualification remain open. Lower sync/cloud sections preserve earlier stages, not current local implementation status.
 
 - [x] P2 real-process/loader RED then GREEN; references and fresh read-only facts, no restored execution authority; focused36/36 in the linked evidence.
 - [x] P2 focused GREEN, independent spec/quality review, final serial gate3995/0/48+build and security26/Pi4; usage/status reconciled in the linked evidence.
@@ -215,44 +226,16 @@ The earlier timeout/incorrect-assumption entry recorded owner approval as pendin
 
 ## Historical delivery record — SoL-Pi efficiency line (merged 2026-09-12/13)
 
-Merged via PR #36 into remote main. Facts and per-slice scope (from the `grok/sol-efficiency` delivery):
-
-- **PR-A harness-efficiency**: offline JSONL aggregator + thin CLI (`scripts/analyze-harness-efficiency.ts`). Does not touch the runtime CLI, ExecutionEvent, or observation store (PR-B).
-- **PR-B observation store + offline projection**: the original PR-B delivery was a run-scoped content-addressed observation archive plus pure projection/recall; its original scope had no live Pi executor/CLI main wiring. Privacy class `run-observation` registered; `deleteRunRecords` cascade covers the archive via the run subtree rm. Native live wiring was delivered separately on 2026-09-20 and is recorded in the current Native Pi section above.
-- **PS-HOTFIX provider failure attribution** (`ed9a6e9`): provider/env failures synthesize `verification: UNOBSERVED` + `failure.category: PROVIDER_ERROR` (FailureClass `provider`) so they never enter deterministic `taskSuccess` FAIL / model bandit poisoning. Real agent-reported FAILED-with-evidence remains model-attributable. NOTE: this repo's hotfix line (`5256339` on `cursor/ps-hotfix-provider-fail-attribution`) is an independent fix of the same issue; see the merge-commit reconciliation.
-- **PS-P3 real closed loop** (`950b9ef`): isolated worktree + worktree-scoped coding tools + independent command check + run-scoped loop artifacts + acceptance that fails closed on self-report alone. Tool injection at `createConfiguredPiExecutor` / `PiAgentExecutor` `options.tools` (not prompt-only).
-- **PS-P4 trusted experiments (F6 hard gate)** (`d84cfc0`): equivalent R0/R1 taskSpec compile, freeze, observation-ledger dedupe, independent oracle, evidence retention keep-raw. No F6 promotion.
-- **PS-P5 efficiency** (`4804d4c`): incremental checkpoint replay, event aggregation, duty splits.
-
-The original PR-A/B/HOTFIX/P3/P4/P5 scope and merge-hash record above are retained as dated historical evidence; later native live wiring is not retroactively attributed to PR-B.
-
-Delivery evidence: [delivery status](../docs/reports/2026-09-13-sol-efficiency-delivery-status.md). Independent Reviewer room PASS artifacts are not on the GitHub reviews API (see G0 report). Do not reimplement the merged chain. F6 seal/holdout, extension/live-adaptation and Outcome-supported remain separately gated.
-
+Archived in the [dated delivery history](archive/2026-10-21-delivery-history.md).
 
 ## Delivery gate coordination — historical evidence (closed 2026-09-20)
 
-**All three delivery PRs merged on 2026-09-20:** #42 (`b1f2ee8`; independent review by luna-fast found the RUN_CREATED payload identity P1, fixed in `928995d`, delta PASS), #43 (`7bdc591`; owner-completed human conflict review per the packet), #44 (`bb62d792`; native Pi integration, independent review PASS after process/hygiene fixes). Post-merge cleanup 2026-09-20: 18 merged local branches deleted (merge-base verified), 19 worktrees removed (r-fix dirty draft archived at `.agent_workspace/archived/r-fix-draft-5357163-2026-09-20.patch`), review worktrees disposed. **PR #45 (`fix/apply-head-drift-rollback`) merged 2026-09-20 as `abbf4461`** with owner authorization given in session; luna-fast review PASS and hosted CI green preceded the merge. Same-day remote cleanup: the 8 remaining merged remote branches (`cursor/*`, `grok/trusted-execution-g*`, `sota-persistent-opt-83a1`) deleted after merge-base verification — remote now has only `main`. Remaining open: SCM/xhh #36 evidence request (unresolved), F6 prerequisites (parked). This paragraph is historical evidence, not a current action.
-
-Progress 2026-09-20: PR #42 independent review **executed** (owner-designated luna-fast): full review of `aeb4993` returned REQUEST CHANGES on exactly one P1 (RUN_CREATED payload identity gap in `assertRunPresent`); fix `928995d` implemented RED→GREEN, delta re-review **PASS** (evidence: [review record](../docs/reports/2026-09-20-rr-review-luna.md)). Owner authorized push; remote PR #42 head was `928995d` before the recorded merge.
-
-`TASK-20260918-delivery-gate-unblock`: [plan](../docs/superpowers/plans/2026-09-18-delivery-gate-unblock.md), [evidence and requests](../docs/reports/2026-09-18-delivery-gate-unblock.md). Its former open-PR, pre-merge, and pending-disposal wording is superseded by the dated merge record above; the linked evidence remains authoritative history. F6 preparation, custody, pricing, and seal remained separately gated. Three dirty temp trees were preserved pending PASS and approved disposal manifest; the later disposal record is retained and does not authorize new deletion.
+Archived in the [dated delivery history](archive/2026-10-21-delivery-history.md).
 
 ### Superseded 2026-09-18 delivery snapshot
 
-The original snapshot is retained as dated evidence; its open-PR, pending-disposal, and pre-merge wording was superseded by the 2026-09-20 merge record above:
-
-- [x] Live #42/#43 head/CI checks, PR requests, F6 census, and temp-tree inventory recorded (2026-09-18; [delivery gate record](../docs/reports/2026-09-18-delivery-gate-unblock.md)).
-- [x] Independent PASS on #42 `928995d` (delta re-review) and #44 (PASS after hygiene fix); #43 human conflict review was then pending owner completion. Later evidence preserves the merge hashes `b1f2ee8`, `7bdc591`, and `bb62d792`.
-- [ ] Custodian completes 100+15 materials off-repo; owner rules on public-draft contamination. Existing 115 drafts did not satisfy that gate.
-- [ ] SCM verifies SM95 key metadata/separation, binds existing ESTIMATE prices, and seals only after preregistration and G3 runner/readiness gates. No experiment run was claimed.
-- [ ] After review PASS, preserve dirty/ignored content and approve the exact three-temp-tree disposal manifest before cleanup; no deletion was authorized by this snapshot.
-
-Current open items are SCM/xhh’s unresolved PR #36 evidence request, F6 custody/readiness/seal prerequisites, independent review re-dispatch for the 2026-09-20 registration/routing/projection slices, and the R10/R11 evaluator/apply boundary. No PR merge, disposal, outage resolution, experiment, or production authorization is performed or claimed by this documentation slice.
+Archived in the [dated delivery history](archive/2026-10-21-delivery-history.md).
 
 ## Superseded historical record — Grok follow-up (2026-09-13–17)
 
-The dated review-repair record is retained for provenance. Its pre-merge wording is superseded by the 2026-09-20 delivery records above: PR #42–#45 merged, associated disposal evidence was recorded, and those are not current pending actions. The historical author-run evidence remains author verification, not blanket acceptance or independent review. F6 remains separately gated; no provider/holdout/seal run is claimed on this line.
-
-`TASK-20260913-grok-trusted-execution` / `TASK-20260913-grok-review-repair`: re-review 2026-09-14 returned REQUEST CHANGES on full local candidate `412230a`; all RR residuals (RR1/RR2/RR4) fixed 2026-09-16 and delivered as commit `aeb4993` (fast-forward onto PR #42, [review package](../docs/reports/2026-09-16-rr-fix-review-package.md)). PR #42 head `aeb4993` carried the full candidate; hosted CI green (rerun 2026-09-17). Author-run same-head evidence (5 old + 3 new regressions, focused 61, gate 2771, probes) completed 2026-09-17 on a fresh checkout; independent review dispatch failed on provider quota (402) and remained with the owner / Grok bot per the turnkey protocol. This is historical author evidence, not independent acceptance; F6 stayed NOT READY and no provider/holdout/seal run is claimed.
-
-The original G0–G3 scope is retained as historical evidence only: G0 reproducible workflow baseline/evidence reconciliation ([report](../docs/reports/2026-09-13-grok-g0-baseline.md)); G1A independent acceptance binding command/argv and candidate content; G1B tool/artifact boundaries; G2 real adapter plus local HTTP loopback without live LLM/default CLI; and G3 report-only F6 readiness/pollution inventory ([report](../docs/reports/2026-09-13-grok-g3-f6-readiness.md)), **NOT READY**, experiments not run. No new execution is authorized by this historical record.
+Archived in the [dated delivery history](archive/2026-10-21-delivery-history.md).
