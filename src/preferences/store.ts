@@ -11,7 +11,7 @@ import { createId } from "../domain/ids.js";
 import type { EpisodeId } from "../domain/ids.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { writeFileAtomicSync } from "../persist/atomic-file.js";
-import { adaptationRoot } from "../privacy/state-layout.js";
+import { adaptationRoot } from "../persist/state-layout.js";
 
 /**
  * This module is a process-global singleton with a synchronous API, and that
@@ -214,6 +214,20 @@ function sameSubject(a: PreferenceObservation, b: PreferenceObservation): boolea
  * never influences an effective value.
  */
 function rebuildViews(): void {
+  // Tombstones suppress every historical copy of an ID. Recurrence is derived
+  // from surviving history, so a deleted occurrence cannot keep a later row
+  // durable through its previously stored count (including after reload).
+  const recurrenceCounts = new Map<string, number>();
+  let survivingCount = 0;
+  for (const obs of observations) {
+    if (tombstones.has(obs.id)) continue;
+    const subject = JSON.stringify([obs.scope, obs.scopeKey, obs.key, obs.explicit]);
+    const recurrenceCount = (recurrenceCounts.get(subject) ?? 0) + 1;
+    recurrenceCounts.set(subject, recurrenceCount);
+    observations[survivingCount] = { ...obs, recurrenceCount };
+    survivingCount += 1;
+  }
+  observations.length = survivingCount;
   views.clear();
   const byPair = new Map<string, PreferenceObservation[]>();
   for (const obs of observations) {
@@ -291,6 +305,7 @@ function rebuildViews(): void {
 }
 
 function applyObservation(obs: PreferenceObservation): PreferenceObservation {
+  if (tombstones.has(obs.id)) return obs;
   // Recurrence counts comparable observations of the same kind: inferred
   // recurrences are behavioral evidence and must not borrow strength from an
   // explicit anchor (or vice versa).
@@ -377,7 +392,6 @@ export function deleteObservation(id: string): boolean {
   const index = observations.findIndex((o) => o.id === id);
   if (index < 0) return false;
   tombstones.add(id);
-  observations.splice(index, 1);
   rebuildViews();
   saveToDisk();
   return true;

@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any --
  * Pi tool schemas are generic; this file is inside the adapter/execution boundary. */
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { DomainValidationError } from "../domain/errors.js";
 import { resolveInsideRoot } from "../execution/paths.js";
 import { authorizeCommand, type CommandPolicy } from "../execution/command-policy.js";
-import { runAuthorizedCommand } from "../execution/command-runner.js";
+import { CommandCleanupIncompleteError, runAuthorizedCommand, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
+import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles } from "../execution/workspace-files.js";
+import { patchWorkspaceFile } from "../execution/workspace-patch.js";
 
 export interface WorktreeCodingToolsContext {
   /** Absolute isolated worktree root; all paths are bound here. */
@@ -20,6 +22,8 @@ export interface WorktreeCodingToolsContext {
    */
   readonly commandPolicy?: CommandPolicy;
   readonly signal?: AbortSignal;
+  /** Host receipt, delivered before the model-visible tool error. */
+  readonly onCommandCleanupUnsettled?: (result: AuthorizedCommandRunResult) => void;
 }
 
 function textResult(text: string): { content: Array<{ type: "text"; text: string }>; details: Record<string, never> } {
@@ -37,37 +41,26 @@ function textResult(text: string): { content: Array<{ type: "text"; text: string
  */
 export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): AgentTool<any>[] {
   const root = ctx.worktreeRoot;
-  const maxReadBytes = ctx.maxReadBytes ?? 1024 * 1024;
+  const toolContext = (signal?: AbortSignal) => ({
+    ...ctx,
+    ...(signal === undefined ? {} : { signal: ctx.signal === undefined ? signal : AbortSignal.any([ctx.signal, signal]) })
+  });
 
   return [
     {
       name: "sparkle_read_file",
       label: "Sparkle Read File",
       description:
-        "Read a UTF-8 file inside the isolated worktree. Paths are resolved against the worktree root; escape and out-of-root symlinks are refused.",
+        "Read UTF-8 text inside the isolated worktree; optional startLine/endLine are 1-based inclusive. Whole reads and excerpts are bounded. Escape and external symlinks are refused.",
       parameters: Type.Object({
-        path: Type.String()
+        path: Type.String(),
+        startLine: Type.Optional(Type.Integer({ minimum: 1 })),
+        endLine: Type.Optional(Type.Integer({ minimum: 1 }))
       }),
-      execute: async (_toolCallId: string, params: unknown) => {
-        const record = params as { path?: unknown };
-        if (typeof record.path !== "string" || record.path.trim() === "") {
-          throw new DomainValidationError("path must be a non-empty string");
-        }
-        const abs = resolveInsideRoot(root, record.path);
-        const canonicalRoot = await realpath(root);
-        const canonicalFile = await realpath(abs);
-        resolveInsideRoot(canonicalRoot, canonicalFile);
-        const resolvedPath = relative(canonicalRoot, canonicalFile).replaceAll("\\", "/");
-        const buf = await readFile(abs);
-        if (buf.byteLength > maxReadBytes) {
-          throw new DomainValidationError(
-            `file exceeds maxReadBytes (${buf.byteLength} > ${maxReadBytes}): ${record.path}`
-          );
-        }
-        return {
-          content: [{ type: "text" as const, text: buf.toString("utf8") }],
-          details: { resolvedPath }
-        };
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) => {
+        const result = await readWorkspaceFile(toolContext(signal), params as { path: string; startLine?: number; endLine?: number });
+        const { text, ...details } = result;
+        return { content: [{ type: "text" as const, text }], details };
       }
     },
     {
@@ -96,6 +89,30 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
       }
     },
     {
+      name: "sparkle_list_files",
+      label: "Sparkle List Files",
+      description: "List bounded candidate-relative file paths in lexical traversal order. Skips .git, node_modules and .agent_workspace, does not traverse symlinks, and discloses truncation. Optional path narrows discovery.",
+      parameters: Type.Object({ path: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }),
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) =>
+        textResult(JSON.stringify(await listWorkspaceFiles(toolContext(signal), params as { path?: string; limit?: number })))
+    },
+    {
+      name: "sparkle_search_files",
+      label: "Sparkle Search Files",
+      description: "Find a literal single-line query in bounded candidate UTF-8 files. Returns relative path, 1-based line and text; discloses incomplete scanning or results. No regex or shell execution.",
+      parameters: Type.Object({ query: Type.String({ minLength: 1 }), path: Type.Optional(Type.String()), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }),
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) =>
+        textResult(JSON.stringify(await searchWorkspaceFiles(toolContext(signal), params as { query: string; path?: string; limit?: number })))
+    },
+    {
+      name: "sparkle_patch_file",
+      label: "Sparkle Exact Patch",
+      description: "Replace exactly one unique occurrence of oldText in an existing candidate UTF-8 file. No fuzzy matching: absent or ambiguous text is refused without editing. Input and resulting file must fit the bounded read limit.",
+      parameters: Type.Object({ path: Type.String(), oldText: Type.String({ minLength: 1 }), newText: Type.String() }),
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) =>
+        textResult(JSON.stringify(await patchWorkspaceFile(toolContext(signal), params as { path: string; oldText: string; newText: string })))
+    },
+    {
       name: "sparkle_run_command",
       label: "Sparkle Run Command",
       description:
@@ -104,7 +121,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
         command: Type.String(),
         args: Type.Optional(Type.Array(Type.String()))
       }),
-      execute: async (_toolCallId: string, params: unknown) => {
+      execute: async (_toolCallId: string, params: unknown, signal?: AbortSignal) => {
         const record = params as { command?: unknown; args?: unknown };
         if (typeof record.command !== "string" || record.command.trim() === "") {
           throw new DomainValidationError("command must be a non-empty string");
@@ -118,6 +135,7 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
             })
           : [];
         const authorized = authorizeCommand(ctx.commandPolicy, record.command, args);
+        const commandSignal = toolContext(signal).signal;
         const result = await runAuthorizedCommand({
           executable: authorized.executable,
           args: authorized.args,
@@ -126,8 +144,12 @@ export function createWorktreeCodingTools(ctx: WorktreeCodingToolsContext): Agen
           timeoutMs: authorized.timeoutMs,
           maxStdoutBytes: authorized.maxStdoutBytes,
           maxStderrBytes: authorized.maxStderrBytes,
-          ...(ctx.signal === undefined ? {} : { signal: ctx.signal })
+          ...(commandSignal === undefined ? {} : { signal: commandSignal })
         });
+        if (result.cleanupUnsettled) {
+          ctx.onCommandCleanupUnsettled?.(result);
+          throw new CommandCleanupIncompleteError(result);
+        }
         if (result.status !== "completed") {
           throw new DomainValidationError(`command ${result.status}: ${result.errorMessage ?? "did not complete"}`);
         }

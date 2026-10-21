@@ -7,7 +7,7 @@ import {
   type FileLockOptions
 } from "../persist/file-lock.js";
 import { appendJsonlLine, readJsonlObjects, type JsonlRecovery } from "../persist/jsonl.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { validateInvocation, type ModelInvocation } from "./model-invocation.js";
 
 /**

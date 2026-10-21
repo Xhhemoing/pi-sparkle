@@ -2,7 +2,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock, type FileLockOptions } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { RunId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";

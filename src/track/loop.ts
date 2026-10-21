@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import {
   createEventId,
@@ -16,7 +16,7 @@ import type { RequirementContract } from "../domain/contract.js";
 import type { ProjectSnapshot } from "../domain/project.js";
 import { nowIso } from "../domain/timestamp.js";
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
-import { buildLiveCatalogConfig } from "../cli/model-catalog.js";
+import { buildLiveCatalogConfig } from "../routing/model-catalog.js";
 import { type TaskAssignment } from "../routing/assign.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { isAgentRole } from "../domain/roles.js";
@@ -41,7 +41,12 @@ import { acceptanceForRole } from "./plan.js";
 import { splitAndAssignForPrimary } from "./primary-split.js";
 import { applyPrecedence } from "../requirement/precedence.js";
 
+import type { RunEngineBinding } from "../domain/run-engine-binding.js";
+import { bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "../run/engine-binding.js";
+
 export interface TrackRunInput {
+  readonly signal?: AbortSignal;
+  readonly engineContext?: RunEngineContext;
   readonly projectRoot: string;
   readonly objective: string;
   readonly stateRoot: string;
@@ -94,15 +99,21 @@ export interface TrackRunOutcome extends RunOutcome {
 }
 
 export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOutcome> {
+  input = { ...input };
+  input.signal?.throwIfAborted();
+  const engineContext = captureRunEngineContext(input.engineContext);
+  const engineBinding = await bindingForNewRun(engineContext);
+  input.signal?.throwIfAborted();
   const clarify = await clarifyObjective({
     objective: input.objective,
     projectKey: input.projectRoot,
     assumeDefaults: input.assumeDefaults === true || input.answers !== undefined
   });
   const answers = input.answers ?? {};
+  input.signal?.throwIfAborted();
   const applied = applyAnswers(clarify.questions, answers);
   if (clarify.waiting && applied.unanswered.length > 0) {
-    return waitForClarification(input, clarify.candidate.contract, applied.unanswered);
+    return waitForClarification(input, clarify.candidate.contract, applied.unanswered, engineBinding);
   }
 
   const contract = applyPrecedence(clarify.candidate.contract, "user-first");
@@ -114,6 +125,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
     input.stateRoot
   );
   const learned = await loadLearnedRouting(input.stateRoot, input.projectRoot);
+  input.signal?.throwIfAborted();
   const split = splitAndAssignForPrimary({
     contract,
     catalog,
@@ -182,6 +194,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
   const outcome = await startFlowchartRun(
     {
       stateRoot: input.stateRoot,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      ...(engineContext !== undefined ? { engineContext } : {}),
       router: createModelRouter(catalog),
       executor: input.executor,
       registry,
@@ -201,6 +215,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
       ...(input.assumeDefaults === true ? { autoSelectDefaultApprovals: true } : {})
     }
   );
+  if (input.signal?.aborted) return { ...outcome, assignments, questions: [], split: { source: split.source } };
   const episodeId = episodeIdFromEvents(outcome.events);
   const adapt = await runAutoAdaptLoop({
     stateRoot: input.stateRoot,
@@ -244,7 +259,8 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
 async function waitForClarification(
   input: TrackRunInput,
   contract: RequirementContract,
-  questions: readonly { id: string; question: string }[]
+  questions: readonly { id: string; question: string }[],
+  engineBinding: RunEngineBinding | undefined
 ): Promise<TrackRunOutcome> {
   const generateId = input.generateId;
   const runId = createRunId(generateId);
@@ -256,7 +272,7 @@ async function waitForClarification(
   return withRunLifecycleLock(
     input.stateRoot,
     runId,
-    () => recordClarificationRun(input, contract, questions, runId, project),
+    () => recordClarificationRun(input, contract, questions, runId, project, engineBinding),
     input.runLock
   );
 }
@@ -266,8 +282,10 @@ async function recordClarificationRun(
   contract: RequirementContract,
   questions: readonly { id: string; question: string }[],
   runId: RunId,
-  project: ProjectSnapshot
+  project: ProjectSnapshot,
+  engineBinding: RunEngineBinding | undefined
 ): Promise<TrackRunOutcome> {
+  input.signal?.throwIfAborted();
   const generateId = input.generateId;
   const now = nowIso;
   const eventStore = new EventStore(input.stateRoot, runId);
@@ -290,6 +308,7 @@ async function recordClarificationRun(
   await append(
     make("RUN_CREATED", {
       run: {
+        ...(engineBinding !== undefined ? { engineBinding } : {}),
         id: runId,
         projectId: project.id,
         rootTaskId,

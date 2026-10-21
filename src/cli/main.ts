@@ -2,16 +2,13 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import {
   deleteRunRecords,
   deleteEpisodeRecords,
   RUN_RECORDS_SURVIVED_CODE
 } from "../privacy/deletion.js";
-import {
-  LOCK_TIMEOUT_CODE,
-  type FileLockOptions
-} from "../persist/file-lock.js";
+import { LOCK_TIMEOUT_CODE } from "../persist/file-lock.js";
 import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
 import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
 import {
@@ -23,18 +20,15 @@ import { CATALOG_OBSERVED_CORRUPT_CODE } from "../routing/catalog-observed.js";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { FakeExecutor } from "../testing/fake-executor.js";
-import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
 import type { CostGateEvent } from "../pi-adapter/pi-executor.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
-import { parseModelRef, tryParseModelRef, formatModelRef } from "../config/model-ref.js";
+import { tryParseModelRef, formatModelRef } from "../config/model-ref.js";
 import { isAgentRole } from "../domain/roles.js";
-import { parseRunId, parseEpisodeId, parseMessageId, createEventId, type ArtifactId, type EvidenceId, type MessageId, type RunId } from "../domain/ids.js";
+import { parseRunId, parseEpisodeId, parseMessageId, createEventId, type RunId } from "../domain/ids.js";
 import { nowIso } from "../domain/timestamp.js";
 import { defaultRunLimits } from "../domain/limits.js";
-import type { AgentExecutor, AgentExecutionRequest, ExecutionEvent } from "../execution/contract.js";
 import { startRun, type ClusterMailReport, type ClusterMailRoleCount } from "../run/coordinator.js";
 import type { ChildTaskInput } from "../run/child-coordinator.js";
 import { EventStore } from "../run/event-store.js";
@@ -63,6 +57,9 @@ import { readInvocationRecords, invocationsLogPath } from "../telemetry/invocati
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { EpisodeStore } from "../run/episode-store.js";
 import { bindPreferenceStore, prefCommand } from "./pref.js";
+import { lockWaitOptions, type CliIo } from "./options.js";
+// Preserve existing main helper/type deep imports during boundary migration.
+export { lockWaitOptions, type CliIo } from "./options.js";
 import { unblockCommand } from "./unblock.js";
 import {
   checkpointCarriesFlowchart,
@@ -108,163 +105,60 @@ import { migrateLegacyCommand } from "./migrate-legacy.js";
 import { piCompatCommand } from "./pi-compat.js";
 import { CLI_EXIT, cliFail, doctorJsonCommand, errorCodeOf } from "./errors.js";
 import { createFilePauseController } from "../run/pause-controller.js";
+import { captureRunEngineContext, type RunEngineContext } from "../run/engine-binding.js";
 import type { RunStatus } from "../domain/status.js";
 import { validateApprovalReplyAgainstPlan, type ApprovalReply } from "../domain/flowchart.js";
 
-export interface CliIo {
-  stdout(text: string): void;
-  stderr(text: string): void;
-}
+import { createCliExecutor as createExecutor, flowchartExecutorKind } from "./executor-factory.js";
+import {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  resolveThinkingLevel,
+  parseRunCostCeiling,
+  formatCostGateWarning,
+  describeResumeExecutorConfig
+} from "./run-options.js";
+// Keep the existing imported helper API while command assembly moves out.
+export {
+  resolveThinkingLevel,
+  parseRunCostCeiling,
+  formatCostGateWarning,
+  describeResumeExecutorConfig
+} from "./run-options.js";
 
 const defaultIo: CliIo = {
   stdout: (text) => process.stdout.write(text),
   stderr: (text) => process.stderr.write(text)
 };
 
-// Mirrors SparkleThinkingLevel on the adapter boundary (assignability is
-// checked where the level is passed to createConfiguredPiExecutor). Google
-// models silently clamp "xhigh"/"max" down; that is provider behaviour, not
-// something this CLI rewrites.
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-
-type CliThinkingLevel = (typeof THINKING_LEVELS)[number];
-
-function isThinkingLevel(value: string): value is CliThinkingLevel {
-  return (THINKING_LEVELS as readonly string[]).includes(value);
+/** Local host composition only; no command flag or environment variable enables it. */
+export interface CliRuntimeContext {
+  readonly engineContext?: RunEngineContext;
+  readonly signal?: AbortSignal;
+}
+interface CliCommandRuntime extends CliRuntimeContext {
+  readonly pendingWrites?: Set<Promise<void>>;
 }
 
-/**
- * Resolves the thinking level for one run: --thinking wins over
- * PI_THINKING_LEVEL, which wins over "off". Per-run only — Pi's TUI /thinking
- * selector is session-scoped and persisted there, and this flag never writes it.
- */
-export function resolveThinkingLevel(
-  flag: string | undefined,
-  env: string | undefined = process.env.PI_THINKING_LEVEL
-): CliThinkingLevel {
-  const requested = flag ?? env ?? "off";
-  if (!isThinkingLevel(requested)) {
-    const source = flag !== undefined ? "--thinking" : "PI_THINKING_LEVEL";
-    throw new DomainValidationError(`${source} must be one of ${THINKING_LEVELS.join(", ")}`);
-  }
-  return requested;
+function commandRuntimeDeps(runtime: CliRuntimeContext): CliRuntimeContext {
+  runtime.signal?.throwIfAborted();
+  return runtime;
 }
 
-/** Fake executor that speaks protocol v1: emits a terminal TASK_RESULT. */
-class ChildFakeExecutor implements AgentExecutor {
-  async *execute(
-    request: AgentExecutionRequest,
-    signal: AbortSignal
-  ): AsyncIterable<ExecutionEvent> {
-    if (signal.aborted) {
-      yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
-      return;
-    }
-    yield {
-      type: "MESSAGE",
-      message: {
-        protocolVersion: 1,
-        id: `msg_fake-${request.agentInstanceId}` as MessageId,
-        occurredAt: nowIso(),
-        runId: request.runId,
-        taskId: request.taskId,
-        from: request.agentInstanceId,
-        to: "SUPERVISOR",
-        type: "TASK_RESULT",
-        outcome: "SUCCESS",
-        summary: "fake child completed the task",
-        artifactIds: [`art_fake-${request.taskId}` as ArtifactId],
-        evidenceIds: [`evd_fake-${request.taskId}` as EvidenceId],
-        verification: { kind: "PASSED", evidenceIds: [`evd_fake-${request.taskId}` as EvidenceId] }
-      }
-    };
-    yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
-  }
+async function awaitCliHandle<T>(handle: { done: Promise<T>; cancel(): void }, signal?: AbortSignal): Promise<T> {
+  const stop = (): void => handle.cancel();
+  signal?.addEventListener("abort", stop, { once: true });
+  if (signal?.aborted) stop();
+  try { return await handle.done; }
+  finally { signal?.removeEventListener("abort", stop); }
+}
+
+function trackInvocationWrite(runtime: CliCommandRuntime, write: Promise<void>): void {
+  runtime.pendingWrites?.add(write);
 }
 
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
-}
-
-async function createExecutor(
-  kind: string,
-  stateRoot: string,
-  hooks?: {
-    onInvocation?: (invocation: import("../telemetry/model-invocation.js").ModelInvocation) => void;
-    onCostGate?: (event: CostGateEvent) => void;
-  },
-  /** Explicit --primary-model wins over ambient env vars and providers.json. */
-  modelOverride?: { readonly providerId: string; readonly modelId: string },
-  /** Already-resolved --thinking level; falls back to PI_THINKING_LEVEL here. */
-  thinkingLevel?: CliThinkingLevel,
-  /** Explicit --executor-model pins the pi executor to a concrete model. */
-  executorModelOverride?: { readonly providerId: string; readonly modelId: string }
-): Promise<AgentExecutor> {
-  if (kind === "fake") {
-    return new FakeExecutor([
-      { type: "TEXT_DELTA", text: "fake worker: objective received" },
-      { type: "TOOL_STARTED", toolCallId: "fake-1", toolName: "read_file" },
-      { type: "TOOL_FINISHED", toolCallId: "fake-1", isError: false, summary: "read project files" },
-      { type: "EXECUTION_FINISHED", outcome: "SUCCESS" }
-    ]);
-  }
-  if (kind === "fake-children") {
-    return new ChildFakeExecutor();
-  }
-  if (kind === "pi") {
-    const config = await loadProvidersConfig(stateRoot);
-    const envProvider = process.env.PI_PROVIDER;
-    const envModel = process.env.PI_MODEL;
-    const primary = config.primary !== undefined ? parseModelRef(config.primary) : undefined;
-    // Precedence: explicit --primary-model flag > env vars > providers.json.
-    // --executor-model is distinct from --primary-model: it pins only the
-    // executor's model, while --primary-model continues to drive the track
-    // router's premium alias. Explicit flag > env vars > providers.json.
-    const executorOverride = executorModelOverride ?? modelOverride;
-    const providerId = executorOverride?.providerId ?? envProvider ?? primary?.providerId;
-    const modelId = executorOverride?.modelId ?? envModel ?? primary?.modelId;
-    if (providerId === undefined || modelId === undefined) {
-      throw new DomainValidationError(
-        "--executor pi requires an enabled primary model (pi-sparkle models set-default) or PI_PROVIDER and PI_MODEL"
-      );
-    }
-    const requestedLevel = thinkingLevel ?? resolveThinkingLevel(undefined);
-    const fast = config.fast !== undefined ? parseModelRef(config.fast) : undefined;
-    const envRef = envProvider !== undefined && envModel !== undefined
-      ? { providerId: envProvider, modelId: envModel }
-      : undefined;
-    const effectiveRef = executorOverride ?? envRef;
-    const premiumAlias = primary && executorOverride === undefined ? primary : (effectiveRef ?? primary);
-    const cheapAlias = fast ?? premiumAlias;
-    return await createConfiguredPiExecutor({
-      stateRoot,
-      providerId,
-      modelId,
-      thinkingLevel: requestedLevel,
-      customProviders: config.customProviders,
-      ...(process.env.PI_API_KEY !== undefined ? { apiKey: process.env.PI_API_KEY } : {}),
-      ...(cheapAlias !== undefined || premiumAlias !== undefined
-        ? {
-            aliases: {
-              ...(cheapAlias !== undefined ? { cheap: cheapAlias } : {}),
-              ...(premiumAlias !== undefined ? { premium: premiumAlias } : {})
-            }
-          }
-        : {}),
-      ...(fast !== undefined && fast !== modelOverride ? { fallbackModels: [fast] } : {}),
-      ...(hooks?.onInvocation !== undefined ? { onInvocation: hooks.onInvocation } : {}),
-      // Only the real executor has a cost gate. The fakes above ignore a cap
-      // by design, so wiring the sink onto them would promise a warning that
-      // could never fire.
-      ...(hooks?.onCostGate !== undefined ? { onCostGate: hooks.onCostGate } : {})
-    });
-  }
-  throw new DomainValidationError(`Unknown executor "${kind}": expected "fake" or "pi"`);
-}
-
-/** Flowchart --executor fake must emit TASK_RESULT, same as --children. */
-function flowchartExecutorKind(kind: string): string {
-  return kind === "fake" ? "fake-children" : kind;
 }
 
 function packageVersion(): string {
@@ -290,6 +184,7 @@ Usage:
   pi-sparkle doctor [--state-root <dir>] [--project <path>] [--agents-dir <dir>] [--json]
   pi-sparkle pi-compat [--json] [--offline]
   pi-sparkle pi-compat --online [--json]
+  pi-sparkle develop init|status|next|candidates|run|batch|review|accept|reconcile|release --help
   pi-sparkle run --project <path> --objective <text> [--state-root <dir>] [--executor fake|pi] [--executor-model <provider/model>] [--thinking <level>] [--max-cost-usd <usd>] [--children <spec.json>] [--public-prior <file.json>] [--require-public-prior]
   pi-sparkle run --project <path> --objective <text> --track [--primary-model <id>] [--fast-model <id>] [--thinking <level>] [--public-prior <file.json>] [--require-public-prior] [--assume-defaults] [--answers <file.json>] [--executor fake|pi]
   pi-sparkle run --project <path> --objective <text> --flowchart <flowchart.json> [--results <results.json>] [--executor fake|pi] [--thinking <level>] [--state-root <dir>]
@@ -365,7 +260,7 @@ ChildNodeResult and wins over --executor for those nodes. Optional --executor
 fake|pi runs remaining RUNNING nodes (--executor fake uses the protocol child
 fake, same as --children). Without --results or --executor, leased nodes stall.
 Resume of a flowchart checkpoint continues resumeFlowchartRun (optional --results,
---executor, and --selected / --selected-ids). A run's executor configuration is
+--executor, and --selected / --selected-ids). A run's model/thinking configuration is
 not recorded, so resume takes --primary-model / --thinking again for the
 executor it rebuilds and prints one stderr line saying what it built (including
 when it fell back to defaults). --supervised still uses M2 DAG
@@ -426,59 +321,6 @@ feedback automatically after --track/--children; routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
-
-/**
- * `run --max-cost-usd <usd>` as the operator typed it.
- *
- * Absent stays absent: no layer invents a cap, so an omitted flag makes the
- * call the CLI made before the flag existed. What is present must be a plain
- * decimal — the `--lock-wait-ms` spelling discipline, for the same reason.
- * `1e4`, `0x10` and ` 5 ` all coerce to a number JavaScript is happy with and
- * an operator did not mean to type, and a budget is the wrong place to guess.
- */
-export function parseRunCostCeiling(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const parsed = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new DomainValidationError(
-      `--max-cost-usd must be a positive finite number of US dollars, got: ${raw}`
-    );
-  }
-  return parsed;
-}
-
-/**
- * The stderr line a requested-but-unenforceable ceiling owes the operator.
- *
- * A cap the gate could not arm is the dishonest case: the run continues with
- * no ceiling at all, and without this it does so with no trace on any record.
- * Every CLI custom provider without explicit rates is an unpriced model, so
- * this is the common outcome, not a corner.
- *
- * `stopped` prints nothing: a real ceiling stop already ends the transcript
- * visibly, and a second line would be a claim with no new fact behind it.
- * `no-cap` is unreachable — the executor emits `disarmed` only when a cap was
- * requested — and is handled here so the union stays exhaustive.
- */
-export function formatCostGateWarning(event: CostGateEvent): string | undefined {
-  if (event.kind === "stopped") return undefined;
-  switch (event.reason) {
-    case "unpriced-model":
-      return (
-        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
-        `requested ${event.maxCostUsd} USD, but the catalog quotes no usable price ` +
-        "for this model, so spend is unknowable; the run continues uncapped\n"
-      );
-    case "invalid-cap":
-      return (
-        `warning: cost ceiling not enforced for task ${event.taskId}: ` +
-        `requested ${event.maxCostUsd} USD is not a positive finite number of dollars; ` +
-        "the run continues uncapped\n"
-      );
-    case "no-cap":
-      return undefined;
-  }
-}
 
 async function smartChildPlan(
   children: ChildTaskInput[],
@@ -848,7 +690,7 @@ function flowchartContinuation(opts: {
   };
 }
 
-async function runCommand(args: string[], io: CliIo): Promise<number> {
+async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -960,7 +802,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
             stateRoot,
             {
               onInvocation: (invocation) => {
-                void invocationSink(invocation);
+                trackInvocationWrite(runtime, invocationSink(invocation));
               },
               onCostGate: reportCostGate
             },
@@ -971,6 +813,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
         : undefined;
     const outcome = await startFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause: createFilePauseController(stateRoot),
@@ -1022,7 +865,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     stateRoot,
     {
       onInvocation: (invocation) => {
-        void invocationSink(invocation);
+        trackInvocationWrite(runtime, invocationSink(invocation));
       },
       onCostGate: reportCostGate
     },
@@ -1075,6 +918,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     // that every command paid when track/loop was a direct static dependency.
     const { startTrackedRun } = await import("../track/loop.js");
     const outcome = await startTrackedRun({
+      ...commandRuntimeDeps(runtime),
       projectRoot,
       objective,
       stateRoot,
@@ -1188,6 +1032,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
     );
     const outcome = await startFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: createModelRouter(catalog),
         executor,
@@ -1237,7 +1082,7 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
       io.stdout(`  ${unverifiedSummary}\n`);
     }
     const episodeId = episodeIdFromEvents(outcome.events);
-    try {
+    if (!runtime.signal?.aborted) try {
       const adapt = await runAutoAdaptLoop({
         stateRoot,
         projectRoot,
@@ -1269,14 +1114,14 @@ async function runCommand(args: string[], io: CliIo): Promise<number> {
   // `input.limits` or nothing, so handing it a lone `maxCostUsd` would drop
   // every other default. Absent leaves the call the CLI has always made.
   const running = startRun(
-    { stateRoot, executor },
+    { stateRoot, executor, ...commandRuntimeDeps(runtime) },
     {
       projectRoot,
       objective,
       ...(maxCostUsd !== undefined ? { limits: { ...defaultRunLimits(), maxCostUsd } } : {})
     }
   );
-  const outcome = await running.done;
+  const outcome = await awaitCliHandle(running, runtime.signal);
   io.stdout(`Run ${outcome.runId}: ${outcome.status}\n`);
   io.stdout(`  project: ${outcome.project.rootPath}\n`);
   io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", outcome.runId, "events.jsonl")}\n`);
@@ -1813,57 +1658,7 @@ async function inspectCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-/**
- * Says what a resumed executor was actually built from.
- *
- * Nothing records the `--primary-model`/`--thinking` a run started with: no
- * event payload carries executor configuration, and `materializeCheckpoint`
- * derives `checkpoint.json` from the replayed log, so a field written there
- * would not survive the next rebuild. Resume therefore takes the flags again
- * (see `resumeCommand`) and discloses which configuration it built — including
- * the silent fallback to ambient defaults, which is the case that made a run
- * started on `--primary-model X --thinking high` continue on neither.
- *
- * `kind` is the executor resume is about to build, or undefined when it builds
- * none (a plain checkpoint rebuild, or a flowchart resume without --executor).
- */
-export function describeResumeExecutorConfig(input: {
-  readonly kind: string | undefined;
-  readonly primaryModelFlag: string | undefined;
-  readonly modelOverride: { readonly providerId: string; readonly modelId: string } | undefined;
-  readonly thinkingFlag: string | undefined;
-  readonly thinkingLevel: CliThinkingLevel;
-}): string | undefined {
-  const flagged = input.primaryModelFlag !== undefined || input.thinkingFlag !== undefined;
-  if (input.kind === undefined) {
-    return flagged
-      ? "warning: resume ignored --primary-model/--thinking: this resume rebuilds no executor (pass --executor to rebuild one)"
-      : undefined;
-  }
-  if (input.kind !== "pi") {
-    return flagged
-      ? `warning: resume ignored --primary-model/--thinking: they configure --executor pi, and this resume builds the ${input.kind} executor`
-      : undefined;
-  }
-  const model =
-    input.primaryModelFlag === undefined
-      ? "the default primary model"
-      : input.modelOverride === undefined
-        ? `primary model ${input.primaryModelFlag} (not a provider/model pair, so the default channel still applies)`
-        : `primary model ${input.modelOverride.providerId}/${input.modelOverride.modelId}`;
-  if (!flagged) {
-    return (
-      `warning: resume rebuilt the pi executor on defaults (${model}, thinking ${input.thinkingLevel}); ` +
-      "the run's own --primary-model/--thinking are not recorded, so pass them again if it did not start on defaults"
-    );
-  }
-  return (
-    `note: resume rebuilt the pi executor with ${model} and thinking ${input.thinkingLevel}; ` +
-    "the run's own executor configuration is not recorded, so this is what you asked for now, not what it started with"
-  );
-}
-
-async function resumeCommand(args: string[], io: CliIo): Promise<number> {
+async function resumeCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -1955,10 +1750,11 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
     discloseExecutorConfig(executorKind);
     const running = resumeSupervisedRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         executor: await createExecutor(executorKind, stateRoot, {
           onInvocation: (invocation) => {
-            void invocationSink(invocation);
+            trackInvocationWrite(runtime, invocationSink(invocation));
           },
           onCostGate: reportCostGate
         }, modelOverride, thinkingLevel, executorModelOverride),
@@ -1966,7 +1762,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       },
       runId
     );
-    const outcome = await running.done;
+    const outcome = await awaitCliHandle(running, runtime.signal);
     io.stdout(`Run ${runId}: resumed (${outcome.status})\n`);
     io.stdout(`  events: ${outcome.events.length} -> ${join(runtimeRoot(stateRoot), "runs", runId, "events.jsonl")}\n`);
     io.stdout(`  checkpoint: ${join(runtimeRoot(stateRoot), "runs", runId, "checkpoint.json")}\n`);
@@ -2003,13 +1799,14 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
       values.executor !== undefined
         ? await createExecutor(flowchartExecutorKind(values.executor), stateRoot, {
             onInvocation: (invocation) => {
-              void invocationSink(invocation);
+              trackInvocationWrite(runtime, invocationSink(invocation));
             },
             onCostGate: reportCostGate
           }, modelOverride, thinkingLevel, executorModelOverride)
         : undefined;
     const outcome = await resumeFlowchartRun(
       {
+        ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause,
@@ -2050,7 +1847,7 @@ async function resumeCommand(args: string[], io: CliIo): Promise<number> {
   return 0;
 }
 
-async function answerCommand(args: string[], io: CliIo): Promise<number> {
+async function answerCommand(args: string[], io: CliIo, runtime: CliCommandRuntime = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -2140,7 +1937,7 @@ async function answerCommand(args: string[], io: CliIo): Promise<number> {
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause },
+      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause, ...commandRuntimeDeps(runtime) },
       runId,
       flowchartContinuation({
         checkpoint,
@@ -2236,39 +2033,6 @@ disk than it found. A --run delete that got that far says so on stderr before
 it exits. Re-running the same delete once the lock is free is idempotent: it
 finishes the half that was refused.
 `;
-
-/**
- * Upper bound on `--lock-wait-ms`, in milliseconds (24 hours).
- *
- * The flag exists to let an operator wait out a long run, so the ceiling is
- * deliberately far above any real one. What it buys is that a typo — an extra
- * digit on an otherwise reasonable value — is refused at parse time instead of
- * presenting as a CLI that hung.
- */
-const MAX_LOCK_WAIT_MS = 86_400_000;
-
-/**
- * `--lock-wait-ms` as `withExclusiveFileLock` options, shared by `delete` and
- * the two locked `pref` mutators.
- *
- * An absent flag yields an empty object rather than an explicit default, so an
- * unflagged command makes exactly the call it made before this flag existed:
- * the 5s bound stays the lock's own, in one place, and cannot drift here.
- *
- * Only whole non-negative decimal milliseconds are accepted. `Number` would
- * also take `1e4`, `0x10` and ` 5 `; a command that waits a different amount
- * of time than the operator typed is worse than one that refuses the spelling.
- */
-export function lockWaitOptions(raw: string | undefined): FileLockOptions {
-  if (raw === undefined) return {};
-  const value = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
-  if (!Number.isSafeInteger(value) || value > MAX_LOCK_WAIT_MS) {
-    throw new DomainValidationError(
-      `--lock-wait-ms must be a whole number of milliseconds between 0 and ${MAX_LOCK_WAIT_MS}, got: ${raw}`
-    );
-  }
-  return { timeoutMs: value };
-}
 
 export async function deleteCommand(args: string[], io: CliIo): Promise<number> {
   const { values } = parseArgs({
@@ -2556,12 +2320,18 @@ function unknownCatalogModelNext(error: unknown): string | undefined {
   return undefined;
 }
 
-export async function main(argv: string[], io: CliIo = defaultIo): Promise<number> {
+export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliRuntimeContext): Promise<number> {
   const [command, ...rest] = argv;
+  const pendingWrites = new Set<Promise<void>>();
   try {
+    const engineContext = captureRunEngineContext(runtime?.engineContext);
+    const commandRuntime: CliCommandRuntime = { pendingWrites,
+      ...(runtime?.signal === undefined ? {} : { signal: runtime.signal }),
+      ...(engineContext === undefined ? {} : { engineContext }) };
+    commandRuntime.signal?.throwIfAborted();
     switch (command) {
       case "run":
-        return await runCommand(rest, io);
+        return await runCommand(rest, io, commandRuntime);
       case "validate":
         return await validateCommand(rest, io);
       case "list":
@@ -2571,12 +2341,16 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":
-        return await resumeCommand(rest, io);
+        return await resumeCommand(rest, io, commandRuntime);
       case "answer":
-        return await answerCommand(rest, io);
+        return await answerCommand(rest, io, commandRuntime);
       // One-shot subcommand handlers are loaded at their dispatch site
       // (S4-I pattern): each module subtree is dead weight for every other
       // command, and the ESM cache keeps the singleton identical.
+      case "develop": {
+        const { developmentCommand } = await import("./development.js");
+        return await developmentCommand(rest, io);
+      }
       case "auth": {
         const { authCommand } = await import("./auth.js");
         return await authCommand(rest, io);
@@ -2651,6 +2425,8 @@ export async function main(argv: string[], io: CliIo = defaultIo): Promise<numbe
       message: error instanceof Error ? error.message : String(error),
       next: commandFailureNext(error, rest)
     });
+  } finally {
+    await Promise.allSettled([...pendingWrites]);
   }
 }
 

@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 /**
  * Adaptation-plane isolation, enforced over the union value-import closure.
@@ -10,7 +11,7 @@ import { fileURLToPath } from "node:url";
  * This is deliberately a fail-closed regex walker. It does not remove comments,
  * so comment text that looks like a value import is treated as an edge. It sees
  * literal `from "x"` and `import("x")` specifiers, but not `import(expr)`;
- * the repository-wide watchlist below rejects every such computed import.
+ * the repository-wide watchlist below rejects every unlisted computed import.
  */
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -33,7 +34,10 @@ const RUNTIME_PREFIXES = [
   "src/cli/"
 ] as const;
 
-const RUNTIME_EXACT_MODULES = ["src/routing/cost-calibration.ts"] as const;
+const RUNTIME_EXACT_MODULES = [
+  "src/routing/cost-calibration.ts",
+  "src/routing/model-catalog.ts"
+] as const;
 
 interface RuntimeAllowance {
   readonly module: string;
@@ -78,7 +82,28 @@ const TYPE_ONLY_IMPORT_PATTERN =
 const SPECIFIER_PATTERN =
   /\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3/g;
 
-const COMPUTED_IMPORT_PATTERN = /\bimport\s*\(\s*(?!["'])/;
+/** Methods named import are not dynamic imports; only ImportKeyword calls are. */
+function computedImportArguments(source: string): string[] {
+  const file = ts.createSourceFile("module.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const argumentsFound: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const argument = node.arguments[0];
+      // Exempt only this call's literal prefix in the retained value walker's
+      // syntax. A match elsewhere in a comment is not the actual import.
+      // Escapes must decode to the same specifier the regex walker will use.
+      const literalPrefix = /^import\s*\(\s*(["'])([^"']+)\1/.exec(node.getText(file));
+      const visibleLiteral = argument !== undefined && ts.isStringLiteral(argument) &&
+        literalPrefix?.[2] === argument.text;
+      if (!visibleLiteral) {
+        argumentsFound.push(argument?.getText(file) ?? "");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return argumentsFound;
+}
 const FILESYSTEM_ACCESS_PATTERN = /node:fs|\breadFile\b|\bwriteFile\b|\bappendFile\b/;
 
 function toPosix(path: string): string {
@@ -187,6 +212,10 @@ test("value walker erases import type declarations but keeps runtime import form
   ]);
 });
 
+test("runtime catalog configuration does not become shared policy by leaving CLI", () => {
+  assert.equal(isRuntimeModule("src/routing/model-catalog.ts"), true);
+});
+
 test("adaptation value closure reaches only explicitly allowed runtime modules", () => {
   const actual = [...ADAPTATION_VALUE_CLOSURE.members].filter(isRuntimeModule).sort();
   const allowed = ALLOWED_RUNTIME_MODULES.map((entry) => entry.module).sort();
@@ -226,18 +255,69 @@ test("model-router value subtree has no filesystem record access", () => {
   );
 });
 
-test("all dynamic imports in src use string-literal arguments", () => {
+test("computed-import detection distinguishes dynamic calls from methods and literal imports", () => {
+  const source = [
+    'class Importer { async import(input: unknown) { return input; } }',
+    'const method = { import(input: unknown) { return input; } };',
+    'method.import("value");',
+    'const literal = import("./literal.js");',
+    "const single = import('./single.js');",
+    'const variable = import(selected);',
+    'const template = import(`./${name}.js`);',
+    'const whitespace = import(\n  selectedAfterNewline\n);'
+  ].join("\n");
+  assert.deepEqual(computedImportArguments(source), [
+    "selected", "`./${name}.js`", "selectedAfterNewline"
+  ]);
+});
+
+test("dynamic literals hidden from the value walker remain computed imports", async (t) => {
+  const sources = [
+    ["block comment after parenthesis", 'import(/* loading hint */ "../run/coordinator.js")'],
+    ["line comment after parenthesis", 'import(// loading hint\n "../run/coordinator.js")'],
+    ["comment before parenthesis", 'import /* loading hint */ ("../run/coordinator.js")'],
+    ["decoy import in comment", 'import(/* import("../run/coordinator.js") */ "../run/coordinator.js")']
+  ] as const;
+  for (const [name, source] of sources) {
+    await t.test(name, () => {
+      if (name !== "decoy import in comment") {
+        assert.deepEqual(importSpecifiers(source), [], "the retained literal walker cannot see this call");
+      }
+      assert.deepEqual(computedImportArguments(source), ['"../run/coordinator.js"'],
+        "a real import invisible to the literal walker must stay on the computed watchlist");
+    });
+  }
+});
+test("escaped literal specifiers cannot disappear behind raw value-import spelling", () => {
+  const source = String.raw`import("\u002e\u002e/run/coordinator.js")`;
+  assert.deepEqual(importSpecifiers(source), [String.raw`\u002e\u002e/run/coordinator.js`]);
+  assert.deepEqual(computedImportArguments(source), [String.raw`"\u002e\u002e/run/coordinator.js"`]);
+});
+test("computed imports remain confined to justified runtime loaders outside adaptation", () => {
   const computedImportModules = listTs("src").filter((module) =>
-    COMPUTED_IMPORT_PATTERN.test(readModule(module))
+    computedImportArguments(readModule(module)).length > 0
   );
+  const allowed = [
+    // Caller-selected provider data subpath; published pi-ai exports reject
+    // unknown ids, then the loader falls back to the literal all-provider table.
+    "src/pi-adapter/listed-model-lazy.ts",
+    // A fresh child validates the physical generation, installed versions and
+    // dist entry before importing it under lifetime resolution/loading hooks.
+    // The generic contained entry is selected by qualification or driver code.
+    "src/pi-adapter/managed/bootstrap.ts"
+  ];
   assert.deepEqual(
     computedImportModules,
-    // listed-model-lazy resolves `@earendil-works/pi-ai/providers/<id>.models`
-    // from a caller-supplied provider id: the computed specifier is the whole
-    // point of the per-provider lazy table (S7-I-1). Safety comes from pi-ai's
-    // published subpath exports — an unknown id fails module resolution and
-    // falls back to providers/all — not from anything the walker could see.
-    ["src/pi-adapter/listed-model-lazy.ts"],
-    "computed import(expr) is invisible to the closure walker and must be justified before allowlisting"
+    allowed,
+    "computed import(expr) is invisible to the value walker and requires a justified runtime exception"
+  );
+  for (const module of allowed) {
+    assert.equal(ADAPTATION_VALUE_CLOSURE.members.has(module), false,
+      `${module} must remain outside the adaptation value-import closure`);
+  }
+  assert.deepEqual(
+    computedImportArguments(readModule("src/pi-adapter/managed/bootstrap.ts")),
+    ["pathToFileURL(entry).href"],
+    "the bootstrap exception covers only its validated contained entry"
   );
 });

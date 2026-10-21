@@ -1,5 +1,7 @@
 # Verification Record Template
 
+Use this content in the PR description. Detailed logs belong in CI artifacts; a separate Markdown report is not required. Preserve actual failures, skips and not-run checks.
+
 ## Identity
 
 - Task/commit:
@@ -17,7 +19,7 @@
 - Changed behavior:
 - Regression covered by:
 - Independent verification source, if any:
-- Artifact/revision/hash, if applicable:
+- CI run/artifact and verified revision:
 
 ## Risks and Gates
 
@@ -28,4 +30,4 @@
 ## Handoff
 
 - Next action:
-- Durable record links:
+- Active plan / PR / CI artifact links:

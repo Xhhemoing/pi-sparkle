@@ -1,5 +1,7 @@
 # Task Plan Template
 
+Use these fields within the existing active plan for non-trivial work; do not create a file per slice. Omit irrelevant fields. Verification results belong in the PR description and CI artifacts.
+
 ## Identity
 
 - ID: `TASK-YYYYMMDD-short-name`
@@ -39,7 +41,7 @@
 
 - Human/policy gate:
 - Rollback or abort condition:
-- Required durable records:
+- Active plan / PR links:
 - Next command after handoff:
 
 ## Closeout

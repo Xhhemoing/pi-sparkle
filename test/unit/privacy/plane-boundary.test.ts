@@ -28,8 +28,9 @@ const ADAPTATION_DIRS = [
  * to disk, so both are runtime surfaces even though the original list only named
  * the record-bearing directories. `../routing/` stays deliberately narrow —
  * routing is a shared policy library, and the adaptation plane legitimately
- * imports its pure scoring helpers; only `cost-calibration` carries runtime cost
- * records.
+ * imports its pure scoring helpers. `cost-calibration` reads runtime cost
+ * records; `model-catalog` loads runtime provider configuration and calibrates
+ * from those records, even though its canonical path no longer lives in CLI.
  */
 const RUNTIME_MODULES = [
   "../run/",
@@ -39,7 +40,8 @@ const RUNTIME_MODULES = [
   "../pi-adapter/",
   "../supervisor/",
   "../cli/",
-  "../routing/cost-calibration"
+  "../routing/cost-calibration",
+  "../routing/model-catalog"
 ] as const;
 
 interface Exception {
@@ -292,6 +294,17 @@ test("transitive walker rejects a simulated runtime edge and fails closed on com
     assert.AssertionError,
     "a synthetic transitive runtime import must make the guard go red"
   );
+});
+
+test("catalog construction remains a runtime boundary outside its old CLI path", () => {
+  const sources = new Map<string, string>([
+    ["adaptation/root.ts", 'import { buildLiveCatalogConfig } from "../routing/model-catalog.js";'],
+    ["routing/model-catalog.ts", 'import { loadProvidersConfig } from "../config/providers-config.js";'],
+    ["config/providers-config.ts", "export const loadProvidersConfig = () => ({});"]
+  ]);
+  const closure = buildValueImportClosure(["adaptation/root.ts"], sources);
+  assert.deepEqual(runtimeIngresses(closure), ["adaptation/root.ts -> routing/model-catalog.ts"]);
+  assert.throws(() => assertOnlyAllowedRuntimeIngresses(closure, []), assert.AssertionError);
 });
 
 test("the allowlisted model router remains free of filesystem record access", () => {

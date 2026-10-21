@@ -54,7 +54,7 @@ function executorFactory(
           yield { type: "EXECUTION_FINISHED", outcome: "CANCELLED" };
           return;
         }
-        assert.deepEqual(tools.map((tool) => tool.name).sort(), ["sparkle_read_file", "sparkle_write_file"]);
+        assert.deepEqual(tools.map((tool) => tool.name).sort(), ["sparkle_list_files", "sparkle_patch_file", "sparkle_read_file", "sparkle_search_files", "sparkle_write_file"]);
         const write = tools.find((tool) => tool.name === "sparkle_write_file");
         assert.ok(write, "write session must inject the candidate-scoped write tool");
         await write.execute("test-write", { path: "value.ts", contents: AFTER });

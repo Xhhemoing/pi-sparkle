@@ -19,6 +19,7 @@ import { defaultRunLimits } from "../../../src/domain/limits.js";
 import { parseIsoTimestamp } from "../../../src/domain/timestamp.js";
 import { makeEvent } from "../../../test/helpers/event-factory.js";
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
+import { prepareTrustedVerification } from "../../../src/execution/trusted-verification.js";
 
 function git(cwd: string, args: readonly string[]): void {
   const result = spawnSync("git", [...args], { cwd, encoding: "utf8", windowsHide: true });
@@ -69,6 +70,39 @@ const CHECK_ARGS = [
   "-e",
   "const fs=require('fs'); const t=fs.readFileSync('src/app.txt','utf8'); process.exit(t.includes('version=2')?0:1);"
 ] as const;
+
+test("closed loop opt-in binds exact host evidence and persists metadata only", async () => {
+  const sourceRepo = await makeSourceRepo();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "sparkle-exact-sandbox-"));
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "sparkle-exact-state-"));
+  const runId = createRunId();
+  const session = await openClosedLoop({ sourceRepo, sandboxRoot: sandbox });
+  try {
+    await seedDurableRun(stateRoot, runId);
+    const args = ["-e", "process.exit(0)"];
+    const trustedVerification = prepareTrustedVerification({ command: process.execPath, args,
+      snapshotManifest: { includePrefixes: ["src"] } });
+    const result = await runClosedLoopCheck({ session, stateRoot, runId, command: process.execPath, args, trustedVerification });
+    assert.equal(result.acceptance.accepted, true);
+    assert.equal(result.check.trustedVerification?.ok, true);
+    const persisted = await readFile(result.artifact.path, "utf8");
+    assert.equal(persisted.includes("version=1"), false);
+    assert.equal(persisted.includes('"type": "Buffer"'), false);
+    const changedArgs = ["-e", "require('node:fs').writeFileSync('src/app.txt','version=2\\n')"];
+    const changedVerifier = prepareTrustedVerification({ command: process.execPath, args: changedArgs });
+    const changed = await runClosedLoopCheck({ session, stateRoot, runId, command: process.execPath,
+      args: changedArgs, trustedVerification: changedVerifier });
+    assert.equal(changed.check.exitCode, 0);
+    assert.equal(changed.acceptance.accepted, false);
+    assert.equal(changed.check.trustedVerification?.ok, false);
+    assert.equal(await readFile(path.join(sourceRepo, "src/app.txt"), "utf8"), "version=1\n");
+  } finally {
+    await closeClosedLoop(session);
+    await rm(sourceRepo, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
+    await rm(stateRoot, { recursive: true, force: true });
+  }
+});
 
 test("closed loop: edit in worktree → independent test sees it → artifact → acceptance", async () => {
   const sourceRepo = await makeSourceRepo();

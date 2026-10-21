@@ -61,7 +61,15 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        # Some historical-review regressions intentionally patch a prototype
+        # for one read window; serialize the full suite so that host-level
+        # evidence remains isolated across test files.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/tests.log
+          exit $LASTEXITCODE
 
       - name: Build
         run: pnpm build
@@ -78,8 +86,19 @@ jobs:
       - name: Built CLI version
         run: node dist/cli/main.js --version
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-node-${{ matrix.node-version }}
+          path: .agent_workspace/ci/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
   cli-smoke:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         node-version: [22.19.x]
@@ -108,6 +127,37 @@ jobs:
       - name: Fake children and doctor
         run: pnpm test -- test/integration/m1/cli-children.test.ts test/unit/cli/doctor.test.ts
 
+      - name: Development queue and controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $developmentTests = @(
+            'test/integration/cli/development.test.ts',
+            'test/integration/cli/development-batch-review.test.ts',
+            'test/integration/development/controller.test.ts',
+            'test/integration/development/controller-admission.test.ts',
+            'test/integration/development/controller-cancellation.test.ts',
+            'test/integration/development/scoped-readiness.test.ts',
+            'test/integration/development/start-task.test.ts',
+            'test/integration/development/process-ownership.test.ts',
+            'test/integration/development/work-item-cancellation.test.ts',
+            'test/integration/development/batch.test.ts',
+            'test/integration/development/source-integration.test.ts',
+            'test/integration/development/recipe-limits.test.ts',
+            'test/integration/development/candidate-review.test.ts',
+            'test/integration/native/apply-registration-inputs.test.ts',
+            'test/integration/native/trusted-apply.test.ts',
+            'test/unit/development/batch.test.ts',
+            'test/unit/development/action-admission.test.ts',
+            'test/unit/architecture/boundary-cleanup.test.ts',
+            'test/unit/architecture/compatibility-exports.test.ts',
+            'test/unit/execution/loop-artifact-bounds.test.ts',
+            'test/unit/execution/exact-git-tree.test.ts'
+          )
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 @developmentTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/development.log
+          exit $LASTEXITCODE
+
       - name: Native reliability and bounded persistence
         shell: pwsh
         run: |
@@ -127,5 +177,31 @@ jobs:
             'test/unit/persist/jsonl.test.ts',
             'test/unit/persist/jsonl-offset.test.ts'
           )
-          pnpm test -- --test-concurrency=1 @focusedTests
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 @focusedTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/native.log
           exit $LASTEXITCODE
+
+      - name: Conversation tools, recovery and controlled driver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          $conversationTests = @(
+            'test/unit/native/extension.test.ts',
+            'test/unit/conversation/',
+            'test/integration/conversation/',
+            'test/integration/pi-adapter/managed-driver.test.ts',
+            'test/integration/pi-adapter/managed-qualification.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @conversationTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/conversation.log
+          exit $LASTEXITCODE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: .agent_workspace/ci/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

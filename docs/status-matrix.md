@@ -1,7 +1,157 @@
 # Status matrix (Developer Preview)
 
+> Current direction (2026-10-21): pi-sparkle serves AIstudy development. The [active plan](../tasks/plan.md) prioritizes branch integration and hosted CI, then a 15-task comparison with direct Pi. P4/P5 and new experiments/adaptation/learning features are frozen pending the A/B decision; safety maintenance remains allowed. This matrix preserves historical scoped capability and approval claims. Generated [STATUS](../STATUS.md) reports observations without granting outcome support or approval.
+
+## P3 controlled-driver combinations accepted locally (2026-10-21)
+
+The user-requested P1/P2 commit is 683c620a; fresh precommit focused36/36 and workflow/diff checks passed, with a clean postcommit worktree. P3 now adds held-tool and deferred-agent-end composition through the actual fixed driver/CLI/Agent with loopback, using explicitly instrumented private staged candidates. Current [plan](superpowers/plans/2026-10-21-controlled-combinations.md) and [evidence](reports/2026-10-21-controlled-combinations.md). Final focused34/34, independent spec/quality reviews, gate3997/0/48 conditional skips plus build and security26/Pi4 pass. The two new cases passed again in the full gate. Earlier fixture failures and one unconfirmed historical missing-aborted timeout remain in the report. No expanded containment follows; P4/P5 remain separate. Entries below retain their earlier dated stage evidence.
+
+## Conversation reference recovery accepted locally (2026-10-20)
+
+After P1 acceptance, P2 delivered an explicitly host-bound, read-only recovery session through the actual Pi tools. Saved current/suspended references receive a fresh focus generation; each status request re-reads bounded selected facts. All recovery execution is refused. Saved references do not prove an unrecorded execution never began. [Accepted bounded plan](superpowers/plans/2026-10-20-conversation-recovery.md) and [exact final evidence](reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20): focused36/36, typecheck/lint, independent specification/quality reviews; final Windows Node24 gate3995/0/48 conditional skips plus build, security26/Pi4 pass. P3 was subsequently accepted locally in the 2026-10-21 record above. Durable writable recovery, broader C3, P4/P5 and other-platform qualification remain open.
+## Pi conversation tools accepted locally (2026-10-20)
+
+P1 now has an explicitly configured host factory and actual Pi conversation/focus handlers. Current focused verification: **28 pass / 0 fail / 0 skip**, typecheck/lint and independent specification/quality reviews pass. An actual offline Anthropic request regression found and closed R1 parameter loss; its RED and first interrupted gate remain recorded. Final serial gate passes: 3987/0/48 conditional skips plus build; security26/Pi4 pass. P1 was accepted locally before P2 began; P2 has its separate final acceptance above. [Current evidence](reports/2026-10-20-conversation-tools.md). The following sync-only and cloud entries are historical stages, not the current implementation state.
+## Local sync and planning correction (2026-10-20)
+
+Current source is 26808ad2 on the matching local/remote continuation branch; the two new commits contain documentation only. Fresh Windows Node24 conversation/native-loader regression: **19 pass / 0 fail / 0 skip**. No new full gate, feature wiring or recovery acceptance is claimed. [Evidence](reports/2026-10-20-sync-next.md) and [sequence](superpowers/plans/2026-10-20-sync-next.md) separate executable local conversation work from the earlier cloud Linux dependency/matrix blocker. The cloud section below describes that earlier environment attempt, not missing dependencies in this Windows checkout. Conversation tools/C3 remain planned; public managed dispatch still requires containment qualification.
+
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
+
+## Earlier cloud candidate verification (2026-10-20)
+
+Source `d6a3032a` is present on the requested continuation branch. Current Linux Node24 `pnpm gate` exits 1 at missing `tsc`, after workflow passes and before product tests/build. Dependency installation is blocked by automatic approval review for unknown telemetry egress; an offline/scripts-disabled alternative fails for a missing locked tarball. Node22.19.0 is available but product verification is NOT RUN; Windows is unavailable. No current full-gate, probe, packed-consumer or new implementation acceptance follows. [Exact commands, independent investigation and unblock condition](reports/2026-10-20-cloud-validation.md). Historical scoped results below remain historical.
+
+## Staged ADR-009 implementation (2026-10-19)
+
+Final local acceptance (2026-10-20), runtime 3d3dcdc5: pinned gate3978 pass/0 fail/48 conditional skips and build PASS; security26/Pi4/kernel3 and two actual packed SDK consumers PASS. [Exact commands, reviews and limits](reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). The following scoped slices are locally verified; whole M0-M7 and external conditions are not accepted by this result.
+
+[Current evidence](reports/2026-10-19-staged-continuation.md) separates source, command checks and independent review. M1-C task context is now wired through native/direct/conversation host entry to the final executor prompt. Root integrated focused checks: 57/57; independent service/integration specification and quality reviews PASS. Two explicitly authorized synthetic real-provider tasks accepted exact candidate edits while leaving source unchanged. This is basic execution smoke, not comparative model benefit. Final local gate/probes passed; selected source may contain private data and is sent only under host selection.
+M2-B now supplies additive `sdk/host.js` and `sdk/testing.js` entries, bounded lazy read-only contributions and actual packed consumers. Integrated 32/32 and consumer compile/run pass; independent spec/quality reviews pass. Same-process plugins remain trusted code. No automatic native registration or broad stability claim; final local gate/probes passed. See [SDK guide](sdk.md).
+
+M3-A exposes historical revision/generation-bound findings from actual trusted checks. M3-B now adds host-opted bounded single-flight advisory analysis with per-attempt history and supported ordinary-Promise settlement ownership. Root26/26, independent spec/quality27/27 each and architecture11/11 pass. Unsupported async metadata remains host-owned; there is no sandbox or hard timeout. Analysis does not change repair/acceptance authority. Final local gate/probes passed; automatic correction remains separate. See [findings guide](check-findings.md).
+
+M4-B reported usage coverage includes all outcomes, missing usage/prices and identity conflicts. Integrated 20/20, typecheck/lint and independent spec/quality reviews pass; final local gate/probes passed. Known-cost subsets are not settled bills. See [usage guide](usage-coverage.md).
+
+M4-C preference replay now ignores deleted IDs and recomputes recurrence from surviving history after load/delete. Root45/45 and independent spec/quality PASS (including128 snapshot combinations). Original snapshot format, writer lock and unreadable-data behavior remain; raw diagnostic snapshots do not become sanitized exports. Final local gate/probes passed.
+
+M5-A now stages a fresh build and physical runtime dependency graph into distinct opaque directories, with a builtin-only fresh-child loading boundary. Root/spec19/19, quality17/17 and independent boundary/lifecycle probes pass; architecture11/11 passes. Windows/Node24 actual copied Pi Agent execution is verified, not OS containment or Node22/other-platform qualification. Candidate metadata is not qualification. M5-B now executes five actual copied-runtime scenarios and validates bounded process observations before private issuance; root/spec/quality20/20 each pass. Input snapshots and credential-free isolated attempt state are verified. M5-C now persists retained qualification before locked approved selection and preserves ambiguity on failed restoration; root/spec/quality17/17 each and author A/B/C52/52 pass. M5-D1 now validates, snapshots and propagates durable run binding with event-authoritative resume refusal and metadata-only exceptions; root36/36, independent154 pass/1 existing Windows skip, typecheck/lint0 and architecture9/9. M5-D2 controlled offline driver is now independently reviewed after the cancellation repair: root104/104 adjacent and14/14 actual process tests, independent63/63 plus5 filesystem-window probes. Final combined gate/probes passed; public real-project containment acceptance remains pending. [Guide](managed-pi.md).
+
+M6-A thin project continuation now delegates one operation to the existing controller with detached progress and cancellation settlement. Root 10/10 and independent spec/quality reviews pass; final local gate/probes passed. [Usage](advance-project.md). M6-B now supplies opt-in read-only GitHub current-fact drafts and separate bounded transport receipts; author/root/independent22/22, typecheck/lint0. Actual loopback and unrelated local runNext coexistence pass. No remote requests/writes or background activation; final combined gate/probes passed. [Connector guide](github-drafts.md).
+
+M7-A legacy replay now excludes partial/cancelled results and stale model-version bindings. Root and independent reviewers each ran 54 pass / 1 existing Windows skip. This preserves historical self-report provenance; the actual host publisher is now independently reviewed and integrated20/20. One corrected live smoke confirms unknown-version exclusion after retained timeout/harness failures. Offline preparation is now integrated28/28 with independent spec/quality PASS, preserving genuine usage and task-disjoint temporal splits. Final local gate/probes passed. [Host attribution usage](host-attribution.md).
+
+M0-D planned-item readiness now skips unresolved overlapping effects while selecting disjoint work through existing atomic claims. Root22/22, independent quality68/68 and2 actual lock/cancellation probes pass. Post-claim checks and final atomic admission remain authoritative; queue-to-ledger metadata locks retain their existing ownership. Final integrated gate passed. Scoped fresh-ledger archival is locally accepted; containment remains open. [Usage](advance-project.md).
+
+## Generic command-tool uncertainty follow-up (2026-10-19)
+
+[Plan](superpowers/plans/2026-10-19-command-uncertainty.md) and [verification](reports/2026-10-19-command-uncertainty.md): host-wired generic tools notify Native before model-visible cleanup errors; sticky uncertainty retains existing effectsSettled/ledger/claim fencing. Focused 23/23 and independent specification/quality reviews pass; build, security 26 and Pi 4 pass. Fresh full gate: 3646 pass / 1 Windows fixture-cleanup EPERM / 48 skip. The cleanup failure was reproduced and corrected without relaxing product assertions; affected file 25 pass / 0 fail / 2 platform skips. The later final integrated gate passed; see the current staged acceptance above. Arbitrary host effects, OS containment, arbitrary old writers, existing-root migration, publication and production/outcome acceptance remain open.
+
+## Conversation host/focus and task presentation (2026-10-18)
+
+[Bounded plan](superpowers/plans/2026-10-18-conversation-presentation.md) and
+[actual verification](reports/2026-10-18-conversation-presentation.md) track the
+experimental structured host facade, generation/revision focus, direct-request
+dedupe/fencing and per-task presentation-only overlay. Focus/session 17/17 and
+presentation/native adjacent 46/46 passed; independent combined source review
+PASS with 63/63; actual pinned full gate 3,689 pass / 0 fail / 2 conditional
+skips plus build. No natural-language frontend, persistent focus,
+CodeMap, policy activation, live-provider benefit or main integration is inferred.
+GitHub publication remains separately blocked by automatic approval review.
+
+## Latest direction / M1-B candidate tools (2026-10-18)
+
+[Adjusted roadmap](superpowers/plans/2026-10-18-direction-completion.md) continues
+ADR-009 from PR #60, keeping #61 and main integration separate. Candidate tools
+are implemented in host-neutral execution services, wrapped by Pi, and wired to
+direct/native/strict-development entries. [Dated evidence](reports/2026-10-18-direction-completion.md) records author
+focused 83/83, controller 16/16, independent source review PASS with 90/90, and
+actual pinned full gate 3,657 pass / 0 fail / 2 conditional skips plus build.
+This is source/local validation, not real-model benefit or production acceptance.
+Task-local CodeMap, C1/C2 conversation/focus, presentation preference overlays,
+stable SDK/Pi generations and measured policy improvement remain follow-ups.
+No new model-benefit or production claim follows from file-tool validation.
+
+## Framework migration continuation (2026-10-17)
+
+Current task entry: [migration checklist](../tasks/migration-todo.md).
+Implementation boundaries and current commands: [dated verification](reports/2026-10-17-framework-migration.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| M0-A cooperative process ownership | Published PR #60 `e6f6a5b`, tree `73e74bc2` | Existing command/recipe/native/controller paths | Prior exact-tree full gate and probes; current publication readback | no |
+| M0-B atomic effect admission/scoped readiness | PR #60 `51cf50d` | Existing ActionLedger/WorkItemStore/controller, schema 1 | Focused 49 real controller/process and 61 final adjacent tests; integrated gate 3630 pass / 0 fail / 2 skip | no |
+| M1-A direct task entry | Experimental `development/start-task` module on PR #60 | One NativeWriteSession, inherited verifier/repair/cancel/evidence | Six real temporary Git/scripted-executor tests plus integrated gate; no provider used | no |
+| M2-A module boundaries | Canonical CLI options/routing catalog/persist layout, old import forwarding | Native/track and existing layout consumers | 98 focused tests, integrated gate; exact moved bytes and export/error identity guards | no |
+
+The earlier M0-A publication rejection below is historical: the user explicitly
+authorized pushes and the exact tested tree has now been read back from GitHub.
+Full M0 containment/Windows qualification, old-writer isolation, command-tool
+uncertainty and terminal-ledger archival remain open. Shared roots must exclude
+old controller binaries using the previous non-atomic admission path. Remaining M1
+context, stable SDK, main/PR #61 integration and existing policy/live/production
+gates remain separate. Current test results are not model-benefit evidence.
+
+## Current architecture design and explanation (2026-10-16)
+
+The user accepted the lightweight adaptive **design**, now maintained in
+[ADR-009](decisions/0009-lightweight-adaptive-framework.md), the
+[framework](framework.md), [algorithm contracts](architecture-algorithms.md),
+[migration plan](architecture-migration.md) and [interactive HTML](architecture.html).
+The documentation source baseline is PR #60 `7407674`; main is `44db4b1`, and
+PR #61 remains a separate unmerged candidate. Earlier sections below retain their
+dated evidence; the framework link now points to the maintained explanation.
+
+| Scope | Current state | Evidence / next condition |
+|---|---|---|
+| Lightweight architecture, four responsibilities and optional extensions | Accepted design; this delivery changes documentation only | User design acceptance; [documentation verification](reports/2026-10-16-current-architecture-guide.md) |
+| Light entry, dynamic findings, managed Pi generations, stable plugin facade and preference overlay | Migration targets; existing pieces are mapped separately | Bounded M0–M7 slices in the migration plan; no new runtime wiring claimed |
+| Routing, cost optimization and long-term learning | Existing proposal/shadow paths retained; new policy and settlement work planned | No live-model benefit, strict root dollar guarantee or Outcome-supported claim |
+
+**Reliability correction:** the earlier bounded-verifier-cleanup row does not prove
+whole-process-tree settlement. A POSIX nested detached-runner reproduction can
+continue writing after the outer timeout has settled; this is an open P0. The evidence is
+an equivalent nested-runner experiment, not a real `develop` end-to-end run.
+The subsequent [M0-A implementation](reports/2026-10-16-process-ownership.md)
+now reproduces this on the real develop path and addresses cooperative nested
+groups plus unresolved-effect ownership. That dated evidence supersedes the
+equivalent-only reproduction boundary; full containment and platform acceptance
+remain open and must not be inferred from signal delivery or pipe closure.
+M0 must verify the real path, complete descendant settlement and prevent lease or
+workspace reuse while effects remain unresolved before adding parallel writers or
+the process-based Pi backend. Existing tests remain scoped evidence.
+
+Design acceptance does not close S0-min, R10/R11, F6/F-PROD, shared root budgets,
+live-provider, independent implementation review, production or outcome gates.
+Explicit task preference overlays do not mutate active learned-resource snapshots,
+runtime generations, authority or checker bindings. ADR-008's opaque versioned IDs
+and exact bytes continue to govern identity; no replacement hash is introduced.
+
+## M0-A cooperative process ownership (2026-10-16)
+
+| Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|
+| Local source checkpoint `482dabb` (tested runtime `ed97692`) plus final evidence/comment correction | Command runner, internal recipe checker, strict/native verification, controller check/write action fences | Linux real develop abort/repeated abort/deadline/grandchild, retained source view, escaped uncertainty and parent crash/replay; full gate 3594 pass / 0 fail / 2 skip, security/Pi/kernel probes PASS | no |
+
+[Plan](superpowers/plans/2026-10-16-process-ownership.md) · [full evidence and publication block](reports/2026-10-16-process-ownership.md). Existing strict successes and repair semantics retain their tests. Interrupted trees are conservatively unconfirmed; they retain ownership rather than granting acceptance/replay. Main and separate PR #61 are unchanged. Hosted/Windows qualification, OS containment, old-writer isolation, concurrent checker admission, terminal-check archival and the remaining M0/production/experimental gates remain open. The prepared GitHub push was rejected by automatic approval review and was not retried through another endpoint.
+
+## Framework and host verifier limits (2026-10-16)
+
+Current source baseline: PR #60 `167a5404`; main remains `44db4b1`. The [framework map](framework.md)
+distinguishes merged foundations, the DP/B3/TA candidate and separate PR #61. The [RL plan](superpowers/plans/2026-10-16-development-recipe-limits.md)
+and [report](reports/2026-10-16-development-recipe-limits.md) govern this continuation.
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host recipe timeout/output limits and immutable recipe set | RL source candidate | WorkItemRecipe/prepareWorkItemRecipes, recipe-check and DevelopmentController; validator included in trusted checker dependencies | RED 7 pass / 8 fail; focused 52/52 PASS, including real >5-second / >2-KiB commands and Git run/review/accept | no |
+
+Defaults remain 5000 ms and 2048 bytes per stream. Optional timeouts are 1..40000 ms, with all
+effective recipe timeouts together at most 40000 ms; optional stream caps are 1..1048576 bytes each.
+Legacy omitted fields retain their serialized shape. Invalid complete definitions refuse before any
+checker runs. Existing outer 60000 ms check windows and unavailable-versus-functional-failure meanings remain unchanged.
+This is author verification; current aggregate/hosted results are in the dated report, and independent
+review, main integration, live effectiveness, root cost settlement and production remain separate.
 
 ## Architecture and development candidate (2026-10-15)
 
@@ -36,6 +186,20 @@ These additions do not wire native writing into the default CLI, resume a
 repair loop after a crash, apply a candidate automatically, settle a
 cross-attempt dollar budget or enable adaptive live routing. Existing
 R10/R11, S0-min, F6/F-PROD and production/outcome boundaries remain separate.
+
+## Host development control plane and continuation (2026-10-15)
+
+The original four architecture rows above describe stage one. Stage two is independently reviewed and saved at PR #60 `726e5e55`; stage-three batch/review continues on the same source candidate. These are PR capabilities, not main integration, production approval or model benefit. [Stage-two verification](reports/2026-10-15-development-control-plane.md) · [stage-three plan](superpowers/plans/2026-10-15-development-batch-review.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Host work queue and durable action reconciliation | PR #60 | WorkItemStore/ActionLedger and explicit develop CLI | queue/persistence/concurrent-process/crash-window integrations and independent review | no |
+| Named native criteria and exact bounded verification | PR #60 | NativeWriteSession and host development controller | real commands, same-length changes, protected checker, authentic descriptor and independent review | no |
+| Candidate historical review | stage-three candidate | reviewDevelopmentCandidate / develop review | bounded reads, real one/two-attempt artifacts, stale/corrupt/contradictory refs, read-only regressions and independent review | no |
+| Finite serial development batch | stage-three candidate | runDevelopmentBatch / develop batch | independent candidates, no auto-accept/dependency bypass, shared cooperative deadline, first-failure/unknown-effect stops and independent review | no |
+| Selection/claim/publication cancellation | stage-three candidate | optional operation signal plus controller await fences | committed-token preservation, resolver-tail settlement, inherited-signal refusal and independent review | no |
+
+Batch serialization applies within one invocation; there is no new global lifecycle lock or cross-worker cost quota. The deadline requests cooperative cancellation and waits for actual settlement; synchronous Git and cleanup/persistence tails may overrun it. No dollar ceiling or automatic source integration is added. Review reports historical observations with reverified=false, not fresh acceptance authority. Legacy receipts without new refs remain unavailable; explicit invalid refs refuse. [Continuation guide](development-agent-loop.md). LIVE-01 still requires configured model/provider and a host trial budget; real model effectiveness remains unobserved.
 
 ## SHA-256 removal gate (2026-09-21)
 
@@ -132,7 +296,7 @@ See [native Pi plan](superpowers/plans/2026-09-18-native-pi.md).
 | Auto-loop collect + propose | yes | after `--track` / `--children` | yes | no | Never CAS-promotes. `adapt promote --approve` (with `--candidate --expected --content-file --review-file`) required. Bandit/avoid consume model-attributed taskSuccess only (a FAIL needs `failureClass: model`); `failureClass` is derived, never accepted from extraSignals, and extraSignals prose can only exculpate — 429/transport and TASK_TIMEOUT stay out of the posterior. Kill switch (R3): `SPARKLE_AUTO_ADAPT=0` collects and diagnoses only — observation continues, everything that *learns* stops: no `bandit.json` update, no candidate proposal (`src/learning/auto-loop.ts:101–114`; the result reports `banditUpdated: false`). |
 | Promotion CAS + rollback | yes | CLI | unit tests | no | Proposal-first. |
 | Redaction as transform | yes | `appendFeedback` (every adaptation-plane feedback write) | unit + privacy + integration (`feedback/redaction`, `privacy/redaction`, `m3/redaction`, `feedback/store`) | no | 2026-08-24: value-removing transform, not label-only — secrets (PEM, Bearer, vendor keys, JWT, keyed assignments), email/IPv4/phone/Luhn-valid cards, home/UNC paths replaced with stable placeholders; ReDoS-hardened; oversized bodies dropped to reference-only. R3: the per-class decision is now **persisted** as `redactionClasses` on the record (`src/feedback/types.ts:54`, written at `src/feedback/store.ts`); the closed vocabulary is validated on read and an unknown class fails the read closed. Three states are distinct by design: `undefined` = legacy row (unknown, not "clean"), a list without `secret` = pass ran and found none, `secret`/`path`/`oversized` present = value found and removed. Known limits: `pii` in the list still means "the PII pass ran"; prompt-injection class deliberately unused. |
-| Preferences + tombstones | yes | `pref` CLI | yes | no | Dataset export lists tombstone ids and drops payloads; authorized export omits tombstones unless `includeTombstones` (integration redaction chain). |
+| Preferences + tombstones | yes | `pref` CLI | yes | no | Deleted-ID ingestion is ignored; adopted history/conflicts/views and recurrence exclude tombstoned rows (2026-10-19 focused45/45 and independent reviews). Dataset export lists tombstone ids and drops payloads; authorized export omits tombstones unless `includeTombstones`. Raw diagnostic reader preserves stored bytes; cooperative writer lock remains required. |
 | Requirement provenance + critic | yes | extraction + critique path | unit + integration (`checkpoint-d`) | no | Every deliverable/constraint/criterion sourced or assumed; critic reports omissions and is immutability-tested; never mutates the accepted contract. |
 | Context packet fidelity + grounding query | yes | packet compile path | unit + integration (`packet-fidelity`, `checkpoint-d`) | no | Mandatory items keep full fidelity under adequate budget; `queryPacketGrounding` answers from the packet without the parent transcript. |
 | Run-scoped observation store + offline projection (PR-B) | yes | library origin; live native wiring is tracked separately in the Native Pi delegation row | unit + integration (`observation-store`, `observation-projection`, `observation-lifecycle`) | no | Opaque-id archive under `runtime/runs/<runId>/observations/objects/` (`obs_v2_` locators, exact-byte dedupe, byteLength-only recall per ADR-008); `delete --run` cascade clears it. The original PR-B slice was library-only; native live wiring landed separately on 2026-09-20 and remains default-off. |
@@ -159,3 +323,7 @@ Current F6 prerequisite reconciliation: [2026-09-18 delivery gate record](report
 | Checkpoint G Outcome-supported | routing | F-PROD | Held-out benefit without guardrail regression | Forbidden until F |
 
 Live R1, bandit, and topology stay off the execution path until F-PROD closes.
+
+## Fresh-ledger completed-check archival (2026-10-20)
+
+Explicit host-only schema2 mode is integrated and independently reviewed. Root27 pass/1 existing Windows skip includes actual1026 filesystem check lifecycles; exact historical-source publication tests pass. Full records and unresolved effects remain, with finite1024/4096/8MiB bounds. No automatic migration, arbitrary-old-host isolation or containment claim. Final integrated gate/probes and packed consumers passed; see the dated final local acceptance. [Guide](check-archive.md) · [Evidence](reports/2026-10-19-staged-continuation.md).

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runtimeRoot } from "../privacy/state-layout.js";
+import { runtimeRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";

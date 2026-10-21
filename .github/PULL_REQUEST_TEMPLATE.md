@@ -1,45 +1,29 @@
 ## Summary
-Brief description of the changes.
 
-## Type of Change
-- [ ] Bug fix (non-breaking change fixing an issue)
-- [ ] New feature (non-breaking change adding functionality)
-- [ ] Breaking change (fix or feature causing existing functionality to break)
-- [ ] Documentation update
-- [ ] Refactor / chore
+Describe the concrete problem, resulting behavior, scope/non-goals and relevant acceptance criteria. Link the active task plan; a separate report is not required.
 
-## Related Issues
-Closes #(issue number)
+## Verification
 
-## Quality Gates
+Record the current revision and environment. Paste exact commands/results below and link CI runs/artifacts for detailed logs. Distinguish PASS, FAIL, SKIPPED and NOT RUN; do not reuse historical success as current evidence.
 
-Before selecting the checks below, update the task plan and test-first record described in [`docs/development-workflow.md`](../docs/development-workflow.md).
-- [ ] `pnpm workflow:check` passes
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm lint` passes
-- [ ] `pnpm test` passes
-- [ ] `pnpm build` passes
+| Command / review | Outcome | CI run or artifact |
+|---|---|---|
+| Focused check | | |
+| `pnpm workflow:check` | | |
+| Applicable `pnpm gate` / probes | | |
+| Independent review when required | | |
 
-- [ ] Verification record/state/checklist updated with exact outcomes
-- [ ] `pnpm gate` output pasted or linked for merge-ready changes
+Documentation-only changes require workflow and targeted link/content checks. Code changes use the existing development workflow. A remote branch and current green CI are required for delivery; no per-slice report or receipt-only follow-up commit is needed.
 
-## Checklist
-- [ ] Code follows project style guidelines
-- [ ] Self-review completed
-- [ ] Comments added for complex logic
-- [ ] Documentation updated if needed
-- [ ] No new warnings introduced
+## Risks and Follow-up
 
-## AI-Assisted / Automated Merge Landings (skip if fully hand-written)
-- [ ] A human read every auto-resolved conflict hunk line-by-line (no blind
-      "take branch code" resolutions)
-- [ ] `pnpm gate` output for the merged HEAD is pasted or linked below
-- [ ] Frozen contracts touched (event types, `--summary-json`/`doctor --json`
-      shapes, CLI error strings, status-matrix claims) were diffed against
-      their pinning tests
-- [ ] Working artifacts (triage CSVs, scan dumps, loop logs) were kept out of
-      the commit or archived under `.agent_workspace/`
+State compatibility/privacy impact, unresolved conditions, owner and next action. Keep active todo entries limited to unfinished work. Human/experimental approval is separate from tests and source review.
 
-Gate evidence / conflict-resolution notes:
+## AI-Assisted / Automated Merge Landings
 
-<!-- paste here -->
+- [ ] A human read every auto-resolved conflict hunk line-by-line (not applicable if none).
+- [ ] Current merged candidate gate output is pasted or linked above.
+- [ ] Changed frozen CLI/event/JSON contracts and status claims were reviewed against their pinning tests.
+- [ ] No credentials, private transcripts or temporary work artifacts are committed/uploaded.
+
+Conflict-resolution notes and applicable approval links:
