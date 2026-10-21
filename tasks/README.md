@@ -1,52 +1,27 @@
 # Task Management
 
-This directory contains the active execution state. Historical plans and accepted slices belong under `tasks/archive/`.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Current acceptance is pi-sparkle branch integration, hosted CI and workflow reduction; no AIstudy audit or run starts in this session. Integration comes first, then the 15-task AIstudy A/B, then only improvements justified by its results. P4/P5 and new experiments/adaptation/learning features are frozen; safety maintenance remains allowed.
 
-## Current project entry (2026-10-21)
-
-Start with [current acceptance/publication](../docs/reports/2026-10-21-acceptance-publication.md), [active plan](plan.md), [checklist](todo.md), then [migration slices](migration-todo.md). P1/P2/P3 are the latest locally accepted slices; P4/P5 and the explicitly retained platform/policy obligations remain open. The [workspace inventory](../docs/reports/2026-10-21-acceptance-publication.md#workspace-organization) explains where evidence and generated files belong. Repeated SoL/Grok delivery summaries moved to the [dated archive](archive/2026-10-21-delivery-history.md); open obligations remain in the active entries.
 ## Authoritative Files
 
-- [`migration-todo.md`](migration-todo.md): current ADR-009 migration slices,
-  delivery checks and next conditions.
-- [`plan.md`](plan.md): active scope, dependencies, and links to detailed plans.
-- [`todo.md`](todo.md): current checklist, human gates, and completion evidence.
-- [`adaptive-plan.md`](adaptive-plan.md): detailed adaptive-loop contract and remaining implementation constraints.
-- [`adaptive-todo.md`](adaptive-todo.md): adaptive-loop checklist and acceptance notes.
+- [`plan.md`](plan.md): current scope, order, acceptance criteria and handoff links.
+- [`todo.md`](todo.md): unfinished work only, at most 25 lines.
+- [`migration-todo.md`](migration-todo.md): historical slice details and retained constraints; its old next steps do not override the active freeze.
+- [`adaptive-plan.md`](adaptive-plan.md) and [`adaptive-todo.md`](adaptive-todo.md): preserved adaptive-loop constraints; paused pending the A/B decision.
+- [Previous plan](archive/2026-10-21-pre-integration-plan.md) and [previous checklist](archive/2026-10-21-pre-integration-checklist.md): full pre-integration history, including unresolved obligations.
 
-When these files appear inconsistent, do not silently choose a checkbox. Resolve the conflict in `docs/status-matrix.md`, an accepted ADR, or a dated report, then update both active task files and link the evidence.
+Accepted ADRs and explicit owner decisions govern scope and approval. [Status-matrix](../docs/status-matrix.md) retains scoped capability/human-policy claims; generated STATUS summarizes observations, not authorization. Resolve conflicting current claims in the existing active plan or relevant decision record, without creating another receipt report.
 
 ## Required Task Record
 
-Every new task or slice records:
+Update the existing active plan for non-trivial work: owner/state, problem, scope/non-goals, observable acceptance, affected files/dependencies, test-first approach, verification commands, risks and next action. The [plan template](../docs/templates/task-plan.md) is a content guide, not a requirement for a new file per slice.
 
-- ID and owner;
-- problem, scope, and non-goals;
-- acceptance criteria;
-- exact files/symbols and dependencies;
-- test-first plan and verification commands;
-- risks, human gates, and rollback/abort condition;
-- current state: `planned`, `in-progress`, `blocked`, `ready-for-review`, `accepted`, or `archived`;
-- last verified commit/date and evidence links.
-
-Use [`docs/templates/task-plan.md`](../docs/templates/task-plan.md) for detailed work and [`docs/templates/verification-record.md`](../docs/templates/verification-record.md) for closeout evidence.
+Put exact verification outcomes and independent review in the PR description using the [verification template](../docs/templates/verification-record.md); detailed logs belong in CI artifacts or temporary `.agent_workspace/` output. Preserve the PR/artifact links needed to resume. Do not create per-slice reports or `docs: record receipt` commits. [Existing reports](../docs/reports/README.md) remain an archive at their original paths.
 
 ## State Rules
 
-- `[ ]` means not accepted, even if code exists.
-- `[x]` requires a dated evidence link or command result beside the item.
-- `blocked` requires a reason and the condition that removes it.
-- `accepted` means the stated acceptance criteria passed; it does not imply production readiness or outcome support.
-- Do not rewrite historical records to make old claims look current; add a dated correction.
-
-## Report-driven slices (2026-09-27)
-
-`TASK-20260927-report-improvements`: [original plan](../docs/superpowers/plans/2026-09-27-report-driven-improvements.md), [dedicated checklist](report-improvement-todo.md), and [historical A1/A2 verification](../docs/reports/2026-09-27-report-improvements.md).
-
-`TASK-20260927-report-continuation`: [staged A0-root/B1 plan](../docs/superpowers/plans/2026-09-27-report-continuation.md), [current verification and handoff](../docs/reports/2026-09-27-report-continuation.md), and [native contract usage](../docs/native-task-contract.md). Runtime head `a1c32daa` passed the full hosted quality job and both Windows/Linux smoke and focused root/contract jobs. The earlier no-hosted-verification/Windows-blocked snapshot is superseded by this dated evidence, not retroactively rewritten. New independent review, main merge, remaining reliability ownership, host-outcome/production gates and the rest of the A-E roadmap remain open. This is not acceptance of all Stage A or Stage B.
-
-## Report execution (2026-09-29)
-
-`TASK-20260929-report-execution`: [reconciled plan](../docs/superpowers/plans/2026-09-29-report-execution.md), [bounded slice contracts](../docs/superpowers/plans/2026-09-29-report-slice-contracts.md), [execution checklist](report-execution-todo.md), and [dated verification/handoff](../docs/reports/2026-09-29-report-execution.md). The original report baseline is reconciled against merged A1/A2/A0-root/B1 rather than reimplemented. C2 mandatory-context admission and D1-learning stratification/deduplication have source candidates on `codex/report-execution-20260929` (PR #47); source publication and automated checks are separate from independent acceptance and main merge.
-
-The whole A-E roadmap stays open. Existing D1 evidence-gap projection is not D1-learning. S0-min is implemented/source-reviewed but not owner-FROZEN; B2/L1/L2, retained O02/O03 ownership, root budgets, scoped decision memory, evidence invalidation, typed method candidates, authorized experiments and production/outcome gates retain their explicit dependencies. See the current checklist rather than interpreting an older unchecked or checked snapshot as new authority.
+- `[ ]` means unfinished; remove completed entries from the active checklist after the PR/CI records their outcome.
+- `blocked` names the blocker and owner/condition to remove it; `accepted` applies only to the stated verified scope.
+- A local pass, remote publication, hosted CI, independent review, human approval and outcome benefit are separate facts.
+- Archived unchecked items remain unresolved. Old publication blockers and test results are dated history, not current observations.
+- Preserve historical records and existing safety boundaries. Do not claim production readiness or outcome support without the required real evidence and approval.

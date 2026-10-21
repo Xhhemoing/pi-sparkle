@@ -64,7 +64,12 @@ jobs:
         # Some historical-review regressions intentionally patch a prototype
         # for one read window; serialize the full suite so that host-level
         # evidence remains isolated across test files.
-        run: pnpm test -- --test-concurrency=1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/tests.log
+          exit $LASTEXITCODE
 
       - name: Build
         run: pnpm build
@@ -80,6 +85,16 @@ jobs:
 
       - name: Built CLI version
         run: node dist/cli/main.js --version
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-node-${{ matrix.node-version }}
+          path: .agent_workspace/ci/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
 
   cli-smoke:
     strategy:
@@ -138,7 +153,8 @@ jobs:
             'test/unit/execution/loop-artifact-bounds.test.ts',
             'test/unit/execution/exact-git-tree.test.ts'
           )
-          pnpm test -- --test-concurrency=1 @developmentTests
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 @developmentTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/development.log
           exit $LASTEXITCODE
 
       - name: Native reliability and bounded persistence
@@ -160,5 +176,31 @@ jobs:
             'test/unit/persist/jsonl.test.ts',
             'test/unit/persist/jsonl-offset.test.ts'
           )
-          pnpm test -- --test-concurrency=1 @focusedTests
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          pnpm test -- --test-concurrency=1 @focusedTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/native.log
           exit $LASTEXITCODE
+
+      - name: Conversation tools, recovery and controlled driver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
+          $conversationTests = @(
+            'test/unit/native/extension.test.ts',
+            'test/unit/conversation/',
+            'test/integration/conversation/',
+            'test/integration/pi-adapter/managed-driver.test.ts',
+            'test/integration/pi-adapter/managed-qualification.test.ts'
+          )
+          pnpm test -- --test-concurrency=1 @conversationTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/conversation.log
+          exit $LASTEXITCODE
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: .agent_workspace/ci/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,5 +1,7 @@
 # Status matrix (Developer Preview)
 
+> Current direction (2026-10-21): pi-sparkle serves AIstudy development. The [active plan](../tasks/plan.md) prioritizes branch integration and hosted CI, then a 15-task comparison with direct Pi. P4/P5 and new experiments/adaptation/learning features are frozen pending the A/B decision; safety maintenance remains allowed. This matrix preserves historical scoped capability and approval claims. Generated [STATUS](../STATUS.md) reports observations without granting outcome support or approval.
+
 ## P3 controlled-driver combinations accepted locally (2026-10-21)
 
 The user-requested P1/P2 commit is 683c620a; fresh precommit focused36/36 and workflow/diff checks passed, with a clean postcommit worktree. P3 now adds held-tool and deferred-agent-end composition through the actual fixed driver/CLI/Agent with loopback, using explicitly instrumented private staged candidates. Current [plan](superpowers/plans/2026-10-21-controlled-combinations.md) and [evidence](reports/2026-10-21-controlled-combinations.md). Final focused34/34, independent spec/quality reviews, gate3997/0/48 conditional skips plus build and security26/Pi4 pass. The two new cases passed again in the full gate. Earlier fixture failures and one unconfirmed historical missing-aborted timeout remain in the report. No expanded containment follows; P4/P5 remain separate. Entries below retain their earlier dated stage evidence.

@@ -4,7 +4,7 @@ This document is the project-level process for planning, implementing, testing, 
 
 ## 1. Intake and Classification
 
-Before code changes, capture the request in the active task record or a dated plan under `docs/superpowers/plans/`:
+Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Follow its order: branch integration and hosted CI, the 15-task AIstudy A/B, then improvements justified by the result. P4/P5 and new experiments/adaptation/learning features are frozen until that decision; safety maintenance remains allowed. Capture:
 
 - problem and user outcome;
 - in-scope and explicitly out-of-scope behavior;
@@ -22,11 +22,11 @@ Use sources in this order when records disagree:
 1. accepted ADR/spec and explicit owner decision;
 2. `docs/status-matrix.md` for present/wired/exercised/outcome-supported status;
 3. `tasks/plan.md` and `tasks/todo.md` for active scope and checklist status;
-4. focused implementation reports under `docs/reports/`;
+4. current PR verification summaries and CI artifacts; `docs/reports/` is an archive of historical evidence;
 5. `docs/agent-progress.md` and `docs/agent-decisions.md` for historical decisions and loop notes;
 6. chat, scratch notes, and generated graphs are not authoritative.
 
-Update the appropriate repository record immediately when a decision, blocker, test result, or scope change occurs. Use `.agent_workspace/` for high-volume temporary material and promote only the conclusion and evidence links into tracked docs. Do not put secrets, raw credentials, or unredacted user data in tracked records.
+Update the existing active plan when scope, decisions or blockers change. Record exact validation results in the PR description and CI artifacts, with only necessary handoff links in the plan. Use `.agent_workspace/` for temporary logs. Do not put secrets, raw credentials or unredacted user data in tracked records or uploaded artifacts. Generated `STATUS.md` summarizes repository observations; it does not infer authorization, current CI success or outcome benefit.
 
 ## 3. Plan Before Implementation
 
@@ -71,7 +71,7 @@ Choose the smallest sufficient check, then expand according to risk:
 | Experiment/holdout | pre-registration and eligibility tests | dedicated evidence package; keep live adaptation off until gate closes |
 | Preview/release | full gate and probes | `pnpm prerelease` |
 
-The final record must distinguish pass, fail, skipped, not-run, and not-applicable. Include environment, commit, and command output summary. A green local test run does not close a human policy gate.
+The PR verification summary must distinguish pass, fail, skipped, not-run and not-applicable. Include environment, commit, commands and results; link CI artifacts for detailed output, including failed runs. A green local test run does not close a human policy gate. Preserve existing checks; do not add a gate merely to enforce reporting format.
 
 ## 6. Review and Delivery
 
@@ -88,7 +88,7 @@ Agent-authored or auto-resolved changes require line-by-line human review of con
 
 ## 7. Closeout and Handoff
 
-At closeout, update the active checklist and one durable record: a report, decision, progress entry, or status-matrix row. State what remains open. Archive completed plans rather than deleting them. The next contributor should be able to identify the current task, next command, blockers, and evidence links without reading the chat transcript.
+At closeout, put verification and review results in the PR description and CI artifacts. Remove completed work from `tasks/todo.md`, keep it within 25 lines, and leave the next action plus necessary PR links in `tasks/plan.md`. Do not create per-slice reports or receipt-only commits such as `docs: record receipt`. Existing `docs/reports/` contents are archived at their original paths; unresolved historical obligations remain open. A candidate is delivered only when its remote branch and current green CI exist. The next contributor must be able to resume from the active plan and PR without reading chat history.
 
 ## 8. Process Health
 
