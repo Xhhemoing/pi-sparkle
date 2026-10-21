@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Current acceptance is pi-sparkle branch integration, hosted CI and workflow reduction; no AIstudy audit or run starts in this session. Integration comes first, then the 15-task AIstudy A/B, then only improvements justified by its results. P4/P5 and new experiments/adaptation/learning features are frozen; safety maintenance remains allowed.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Integration through PR #62 is complete. Current work removes completed low-value documentation, reconciles project management and trials existing capabilities on an isolated Soul test slice. Original Soul code/data stay untouched; only synthetic inputs are used. The broader 15-task comparison is deferred. P4/P5 and new experiments/adaptation/learning features remain frozen; safety maintenance remains allowed.
 
 ## Authoritative Files
 
@@ -16,7 +16,7 @@ Accepted ADRs and explicit owner decisions govern scope and approval. [Status-ma
 
 Update the existing active plan for non-trivial work: owner/state, problem, scope/non-goals, observable acceptance, affected files/dependencies, test-first approach, verification commands, risks and next action. The [plan template](../docs/templates/task-plan.md) is a content guide, not a requirement for a new file per slice.
 
-Put exact verification outcomes and independent review in the PR description using the [verification template](../docs/templates/verification-record.md); detailed logs belong in CI artifacts or temporary `.agent_workspace/` output. Preserve the PR/artifact links needed to resume. Do not create per-slice reports or `docs: record receipt` commits. [Existing reports](../docs/reports/README.md) remain an archive at their original paths.
+Put exact verification outcomes and independent review in the PR description using the [verification template](../docs/templates/verification-record.md); detailed logs belong in CI artifacts or temporary `.agent_workspace/` output. Preserve the PR/artifact links needed to resume. Do not create per-slice reports or `docs: record receipt` commits. [Retained reports](../docs/reports/README.md) preserve historical evidence; removed redundant material remains in published Git history.
 
 ## State Rules
 

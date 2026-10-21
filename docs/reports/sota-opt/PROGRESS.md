@@ -1,5 +1,7 @@
 # 进度
 
+> 历史记录：本优化线已退休；下文“不停轮”等旧指令不是当前执行授权。第 8–39 轮已完成的重复空枚举报告已从工作树删除，链接保留至已发布 Git 历史；第 1–7 轮、排除表及第 40 轮未完成状态仍保留。重启须具名负责人和明确目标，当前工作以 [活动计划](../../../tasks/plan.md) 为准。
+
 更新规则：每轮派出前写计划；子代理回传后记结论；合适时把子代理分支快进合并进 `cursor/sota-persistent-opt-83a1`。
 
 ## 基线
@@ -22,38 +24,38 @@
 | 5 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S5-C / S5-F / S5-I-1；其余区报告收口。见 [round-05/PLAN.md](./round-05/PLAN.md) |
 | 6 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S6-C / S6-F-1；其余区报告收口。见 [round-06/PLAN.md](./round-06/PLAN.md) |
 | 7 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 落地 S7-C / S7-F-1 / S7-F-2 / S7-I-1；其余区报告收口。见 [round-07/PLAN.md](./round-07/PLAN.md) |
-| 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](./round-08/PLAN.md) |
-| 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](./round-09/PLAN.md) |
-| 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](./round-10/PLAN.md) |
-| 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](./round-11/PLAN.md) |
-| 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](./round-12/PLAN.md) |
-| 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](./round-13/PLAN.md) |
-| 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](./round-14/PLAN.md) |
-| 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](./round-15/PLAN.md) |
-| 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](./round-16/PLAN.md) |
-| 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](./round-17/PLAN.md) |
-| 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](./round-18/PLAN.md) |
-| 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](./round-19/PLAN.md) |
-| 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](./round-20/PLAN.md) |
-| 21 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-21/PLAN.md](./round-21/PLAN.md) |
-| 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](./round-22/PLAN.md) |
-| 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](./round-23/PLAN.md) |
-| 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](./round-24/PLAN.md) |
-| 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](./round-25/PLAN.md) |
-| 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](./round-26/PLAN.md) |
-| 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](./round-27/PLAN.md) |
-| 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](./round-28/PLAN.md) |
-| 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](./round-29/PLAN.md) |
-| 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](./round-30/PLAN.md) |
-| 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](./round-31/PLAN.md) |
-| 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](./round-32/PLAN.md) |
-| 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](./round-33/PLAN.md) |
-| 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](./round-34/PLAN.md) |
-| 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](./round-35/PLAN.md) |
-| 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](./round-36/PLAN.md) |
-| 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](./round-37/PLAN.md) |
-| 38 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-38/PLAN.md](./round-38/PLAN.md) |
-| 39 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-39/PLAN.md](./round-39/PLAN.md) |
+| 8 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-08/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-08/PLAN.md) |
+| 9 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-09/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-09/PLAN.md) |
+| 10 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-10/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-10/PLAN.md) |
+| 11 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-11/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-11/PLAN.md) |
+| 12 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-12/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-12/PLAN.md) |
+| 13 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（B 淘汰 S13-B-1；其余区空枚举）。见 [round-13/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-13/PLAN.md) |
+| 14 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-14/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-14/PLAN.md) |
+| 15 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-15/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-15/PLAN.md) |
+| 16 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-16/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-16/PLAN.md) |
+| 17 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-17/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-17/PLAN.md) |
+| 18 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-18/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-18/PLAN.md) |
+| 19 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-19/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-19/PLAN.md) |
+| 20 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-20/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-20/PLAN.md) |
+| 21 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-21/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-21/PLAN.md) |
+| 22 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-22/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-22/PLAN.md) |
+| 23 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-23/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-23/PLAN.md) |
+| 24 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-24/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-24/PLAN.md) |
+| 25 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-25/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-25/PLAN.md) |
+| 26 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-26/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-26/PLAN.md) |
+| 27 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-27/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-27/PLAN.md) |
+| 28 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-28/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-28/PLAN.md) |
+| 29 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-29/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-29/PLAN.md) |
+| 30 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-30/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-30/PLAN.md) |
+| 31 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地（J 铸造 **MODEX**，plan-ban 不入表）。见 [round-31/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-31/PLAN.md) |
+| 32 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-32/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-32/PLAN.md) |
+| 33 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-33/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-33/PLAN.md) |
+| 34 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-34/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-34/PLAN.md) |
+| 35 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-35/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-35/PLAN.md) |
+| 36 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-36/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-36/PLAN.md) |
+| 37 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-37/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-37/PLAN.md) |
+| 38 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-38/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-38/PLAN.md) |
+| 39 | 完成 | 10 / 10 | claude-fable-5-thinking-xhigh | 报告收口，无新落地。见 [round-39/PLAN.md](https://github.com/Xhhemoing/pi-sparkle/blob/3058626e7051b81bc60335c4b20686729d8575fb/docs/reports/sota-opt/round-39/PLAN.md) |
 | 40 | 第 8 波进行中 | 9 / 10（A–I 已合入；J 本波派出） | claude-fable-5-thinking-xhigh | [round-40/PLAN.md](./round-40/PLAN.md) |
 
 ### Round 1 波次

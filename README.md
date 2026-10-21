@@ -7,7 +7,9 @@ installation is unsupported. The fake-executor CLI (`run` / `inspect` /
 and adaptive routing are opt-in / proposal-first and are **not**
 Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
 
-`pi-sparkle` is a project-development multi-agent runtime built on Pi. It coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing.
+`pi-sparkle` is an internal development tool built on Pi. The immediate trial uses Soul's isolated research/test version, with synthetic inputs and the original project preserved. Its value is measured by accepted task results, elapsed time, cost coverage and human effort; a successful smoke test is not proof of benefit over direct Pi. See the [active plan](tasks/plan.md) for scope and remaining work.
+
+The runtime coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing. New experiments/adaptation/learning features and P4/P5 remain frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them.
 
 Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
 
