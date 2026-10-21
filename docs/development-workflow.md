@@ -4,7 +4,7 @@ This document is the project-level process for planning, implementing, testing, 
 
 ## 1. Intake and Classification
 
-Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Follow its order: branch integration and hosted CI, the 15-task AIstudy A/B, then improvements justified by the result. P4/P5 and new experiments/adaptation/learning features are frozen until that decision; safety maintenance remains allowed. Capture:
+Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Integration is complete. The current order is completed-document cleanup, state reconciliation, then a bounded trial on Soul's isolated test version. Keep original Soul code/data untouched and use synthetic inputs. The broader comparison remains deferred; P4/P5 and new experiments/adaptation/learning features stay frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them. Safety maintenance remains allowed. Capture:
 
 - problem and user outcome;
 - in-scope and explicitly out-of-scope behavior;
@@ -88,7 +88,7 @@ Agent-authored or auto-resolved changes require line-by-line human review of con
 
 ## 7. Closeout and Handoff
 
-At closeout, put verification and review results in the PR description and CI artifacts. Remove completed work from `tasks/todo.md`, keep it within 25 lines, and leave the next action plus necessary PR links in `tasks/plan.md`. Do not create per-slice reports or receipt-only commits such as `docs: record receipt`. Existing `docs/reports/` contents are archived at their original paths; unresolved historical obligations remain open. A candidate is delivered only when its remote branch and current green CI exist. The next contributor must be able to resume from the active plan and PR without reading chat history.
+At closeout, put verification and review results in the PR description and CI artifacts. Remove completed work from `tasks/todo.md`, keep it within 25 lines, and leave the next action plus necessary PR links in `tasks/plan.md`. Do not create per-slice reports or receipt-only commits such as `docs: record receipt`. Keep historical evidence and unresolved obligations; owner-authorized deletion of completed redundant reports must preserve necessary references through published Git history. Generate STATUS after updating the checklist; its commit is a generation-time observation, not a completion claim. A pi-sparkle candidate is delivered only when its remote branch and current green CI exist. Soul's isolated trial does not authorize committing, publishing or applying changes to the original project. The next contributor must be able to resume from the active plan and PR without reading chat history.
 
 ## 8. Process Health
 

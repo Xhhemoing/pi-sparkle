@@ -1,6 +1,6 @@
 # Status matrix (Developer Preview)
 
-> Current direction (2026-10-21): pi-sparkle serves AIstudy development. The [active plan](../tasks/plan.md) prioritizes branch integration and hosted CI, then a 15-task comparison with direct Pi. P4/P5 and new experiments/adaptation/learning features are frozen pending the A/B decision; safety maintenance remains allowed. This matrix preserves historical scoped capability and approval claims. Generated [STATUS](../STATUS.md) reports observations without granting outcome support or approval.
+> Current direction (2026-10-21): integration through PR #62 is complete. The [active plan](../tasks/plan.md) now prioritizes completed-document cleanup and an isolated Soul test-version pilot with synthetic inputs; original Soul remains untouched. The broader 15-task comparison is deferred. P4/P5 and new experiments/adaptation/learning features remain frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them. Historical scoped claims and unresolved safety/approval conditions remain binding.
 
 ## P3 controlled-driver combinations accepted locally (2026-10-21)
 
