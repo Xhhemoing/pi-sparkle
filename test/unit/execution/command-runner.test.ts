@@ -326,7 +326,7 @@ async function withNaturallySettlingDescendant(
     controller.abort();
     if (pids === undefined) {
       try { pids = JSON.parse(await readFile(readyPath, "utf8")) as typeof pids; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      catch { /* Preserve the original failure; an unready fixture self-expires. */ }
     }
     if (pids !== undefined) {
       killFixture(-pids.leader);
