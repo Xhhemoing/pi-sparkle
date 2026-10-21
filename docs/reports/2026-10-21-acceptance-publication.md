@@ -54,5 +54,14 @@ Independent final organization review by space_audit compared all 14 archived se
 
 ## Handoff
 
-- Current next action: final documentation checks, commit and push this existing branch, then verify remote SHA and clean worktree. Current focused/gate/build/probes and independent source/organization reviews have passed within their stated scopes.
-- Publication: PENDING. No new hosted CI success is claimed.
+- Next development owner: host/framework maintainer; define precise P4/P5 plans before implementation. Preserve separate platform, writable recovery, production and experimental conditions. Current focused/gate/build/probes and independent source/organization reviews passed within their stated scopes.
+- Publication: verified at 447ceb1944e798d397055766b47d19f3e54c11a1 on the existing branch; receipt below. No new hosted CI success is claimed.
+
+## Publication receipt (2026-10-21)
+
+- `git commit -m 'docs: accept delivery and organize task history'`: exit0, commit `447ceb1944e798d397055766b47d19f3e54c11a1`, nine documentation files. This follows existing P1/P2 `683c620a` and P3 `f0519e23`.
+- `git push origin HEAD:refs/heads/codex/cloud-continuation-20261020`: exit0, remote advanced `26808ad2..447ceb19`.
+- `git ls-remote origin refs/heads/codex/cloud-continuation-20261020`: exit0; exact remote commit equals local HEAD, verified 2026-10-21T12:12:22.6972766Z. `git status -sb` then showed a clean synchronized worktree. Raw receipt: `.agent_workspace/acceptance-20261021/publication-receipt.json`.
+- Published [source and acceptance commit](https://github.com/Xhhemoing/pi-sparkle/commit/447ceb1944e798d397055766b47d19f3e54c11a1); [continuation branch](https://github.com/Xhhemoing/pi-sparkle/tree/codex/cloud-continuation-20261020). No new PR, main merge, tag or release was created. Existing CI workflow runs on main pushes or pull requests; this branch push is not hosted-CI evidence.
+- Independent final evidence review by space_audit matched all four result JSON files, focused/gate totals, build completion, security/Pi outputs and P3 timings to this report; two read-only commands exited0. It did not rerun product tests.
+- This receipt and active-state reconciliation are a documentation-only follow-up commit. Final workflow/diff checks and remote readback are performed for that commit; its identity is available in Git history rather than recursively embedded in itself.
