@@ -2,7 +2,7 @@
 
 ## Current acceptance and publication (2026-10-21)
 
-TASK-20261021-acceptance-publication: [plan](../docs/superpowers/plans/2026-10-21-acceptance-publication.md) · [verification and workspace inventory](../docs/reports/2026-10-21-acceptance-publication.md). Existing P1/P2/P3 source is committed through f0519e23; fresh focused70/70, full gate3997/0/48 conditional skips plus build, security26/Pi4 and independent source/organization reviews passed. Documentation is reconciled; GitHub delivery is pending final commit/push. This section is the current entry; older dated entries below retain their historical environment and publication status. P4/P5 need precise plans before implementation. No platform, production, experiment or main-merge gate is closed.
+TASK-20261021-acceptance-publication: [plan](../docs/superpowers/plans/2026-10-21-acceptance-publication.md) · [verification and workspace inventory](../docs/reports/2026-10-21-acceptance-publication.md). Existing P1/P2/P3 source is committed through f0519e23; fresh focused70/70, full gate3997/0/48 conditional skips plus build, security26/Pi4 and independent source/organization reviews passed. Documentation is reconciled and published as 447ceb19 on codex/cloud-continuation-20261020 with exact remote readback and a clean worktree; the linked record contains the publication receipt. This section is the current entry; older dated entries below retain their historical environment and publication status. P4/P5 need precise plans before implementation. No platform, production, experiment or main-merge gate is closed.
 
 ## Retained obligations from archived delivery history
 

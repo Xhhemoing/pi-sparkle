@@ -4,7 +4,7 @@
 
 - ID: TASK-20261021-acceptance-publication
 - Owner: root; independent read-only source and workspace reviewers.
-- State: ready-for-review; local acceptance verified, publication pending
+- State: accepted; bounded local acceptance, organization and branch publication verified
 - Date opened: 2026-10-21 America/Los_Angeles.
 - Source: f0519e23 on codex/cloud-continuation-20261020; intake clean, two commits ahead of tracking ref.
 - Authority: [ADR-009](../../decisions/0009-lightweight-adaptive-framework.md), [status matrix](../../status-matrix.md).
@@ -23,7 +23,7 @@ Out of scope: P4/P5 implementation, main merge, release/tag/npm publication, pai
 - [x] Existing pnpm gate, security:probe and pi:probe complete, with skips and failures explicitly recorded.
 - [x] Active plan/checklist state agrees with current P1/P2/P3 evidence; historical summaries remain accessible; changed local Markdown targets resolve.
 - [x] pnpm workflow:check and git diff --check pass after reconciliation.
-- [ ] Explicitly scoped documentation commit and existing source commits are pushed; remote branch SHA equals local HEAD and worktree is clean.
+- [x] Explicitly scoped documentation commit and existing source commits are pushed; remote branch SHA equals local HEAD and worktree is clean.
 
 ## Implementation Slice
 
@@ -46,3 +46,6 @@ Independent read-only reviewers inspect actual source/diff and document evidence
 - Verified commit/date: runtime/test source f0519e23, 2026-10-21; only the reviewed documentation delta follows.
 - Commands and outcomes: focused70/70; unchanged full gate3997 pass / 0 fail / 48 conditional skips plus build; security26/Pi4; independent source and organization review without blocking findings. Exact evidence in the linked verification record.
 - Open risks/follow-ups: P4/P5 precise planning; platform containment and other OS/Node qualification; live/production/experimental decisions remain open.
+
+
+- Publication: 447ceb1944e798d397055766b47d19f3e54c11a1 pushed and read back exactly on the existing branch; clean worktree confirmed. Documentation-only receipt follows. See the verification record for the command receipt and retained boundaries.
