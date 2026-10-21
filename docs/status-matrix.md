@@ -1,5 +1,9 @@
 # Status matrix (Developer Preview)
 
+## P3 controlled-driver combinations accepted locally (2026-10-21)
+
+The user-requested P1/P2 commit is 683c620a; fresh precommit focused36/36 and workflow/diff checks passed, with a clean postcommit worktree. P3 now adds held-tool and deferred-agent-end composition through the actual fixed driver/CLI/Agent with loopback, using explicitly instrumented private staged candidates. Current [plan](superpowers/plans/2026-10-21-controlled-combinations.md) and [evidence](reports/2026-10-21-controlled-combinations.md). Final focused34/34, independent spec/quality reviews, gate3997/0/48 conditional skips plus build and security26/Pi4 pass. The two new cases passed again in the full gate. Earlier fixture failures and one unconfirmed historical missing-aborted timeout remain in the report. No expanded containment follows; P4/P5 remain separate. Entries below retain their earlier dated stage evidence.
+
 ## Conversation reference recovery accepted locally (2026-10-20)
 
 After P1 acceptance, P2 delivered an explicitly host-bound, read-only recovery session through the actual Pi tools. Saved current/suspended references receive a fresh focus generation; each status request re-reads bounded selected facts. All recovery execution is refused. Saved references do not prove an unrecorded execution never began. [Accepted bounded plan](superpowers/plans/2026-10-20-conversation-recovery.md) and [exact final evidence](reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20): focused36/36, typecheck/lint, independent specification/quality reviews; final Windows Node24 gate3995/0/48 conditional skips plus build, security26/Pi4 pass. Durable writable recovery, broader C3, P3/P4/P5 and other-platform qualification remain open.

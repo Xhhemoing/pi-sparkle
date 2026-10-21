@@ -1,5 +1,13 @@
 # Active implementation plan
 
+## Accepted local P3 controlled-driver combinations (2026-10-21)
+
+User requested committing current P1/P2 changes first, then P3 tests, validation and independent review. Commit 683c620a completed with a clean worktree before P3 edits. [Precise plan](../docs/superpowers/plans/2026-10-21-controlled-combinations.md) · [actual evidence](../docs/reports/2026-10-21-controlled-combinations.md).
+
+- [x] Commit accepted P1/P2 after fresh focused36/36 and workflow/diff checks; evidence above.
+- [x] Actual driver+held-tool/deferred-agent-end combinations, pending responsibility, no post-cancel dispatch and engine identity: focused34/34 and independent spec/quality reviews; linked P3 evidence.
+- [x] Final focused34/34, independent spec/quality reviews, gate3997/0/48 conditional skips plus build, security26/Pi4; usage/status reconciled. [Exact final evidence](../docs/reports/2026-10-21-controlled-combinations.md#final-local-acceptance-2026-10-21). P4/P5 and public containment remain separate.
+
 ## Accepted local P1/P2 continuation (2026-10-20)
 
 P1 was accepted before P2 began. P2 is now accepted locally: focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build, security26/Pi4. Recovery restores selected references and fresh facts with a new focus generation; it never restores execution authority. [Precise accepted scope](../docs/superpowers/plans/2026-10-20-conversation-recovery.md) · [exact evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). P3 is the next planned slice; P3/P4/P5 and other-platform qualification remain unaccepted. Lower sync/cloud sections preserve earlier stages, not current local implementation status.
