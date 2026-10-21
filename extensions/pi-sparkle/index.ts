@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ConversationRecoveryOptions, ReadonlyConversationSession } from "../../src/conversation/recovery.js";
+import type { ConversationSession, ConversationSessionOptions } from "../../src/conversation/session.js";
 import type { NativeSession } from "../../src/native/session.js";
 
 /**
@@ -19,10 +21,85 @@ interface IssuedCandidateHandle {
   readonly candidatePath: string;
 }
 
-export default function sparkleExtension(pi: ExtensionAPI): void {
+export interface SparkleExtensionOptions {
+  readonly conversation?: ConversationSessionOptions;
+  readonly conversationRecovery?: ConversationRecoveryOptions;
+}
+
+/** Trusted host entry. Model requests cannot supply bindings or execution authority. */
+export function createSparkleExtension(options: SparkleExtensionOptions = {}): (pi: ExtensionAPI) => void {
+  return (pi) => initializeSparkleExtension(pi, options);
+}
+
+export default createSparkleExtension();
+
+function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionOptions): void {
   if (process.env.SPARKLE_NATIVE === "0") return;
   let session: NativeSession | undefined;
   let closed = false;
+  const abort = new AbortController();
+  const pending = new Set<Promise<unknown>>();
+  let shutdown: Promise<void> | undefined;
+  if (options.conversation !== undefined && options.conversationRecovery !== undefined) throw new Error("Choose conversation or conversationRecovery, not both");
+  if (options.conversation !== undefined || options.conversationRecovery !== undefined) {
+    const configuration = options.conversation;
+    const recovery = options.conversationRecovery;
+    let conversation: Promise<ConversationSession | ReadonlyConversationSession> | undefined;
+    function enter<T>(signal: AbortSignal | undefined, operation: (session: ConversationSession | ReadonlyConversationSession, signal: AbortSignal) => Promise<T>): Promise<T> {
+      if (closed) return Promise.reject(new Error("Sparkle session is shut down"));
+      const combined = signal === undefined ? abort.signal : AbortSignal.any([signal, abort.signal]);
+      const running = (async () => {
+        combined.throwIfAborted();
+        conversation ??= recovery === undefined
+          ? import("../../src/conversation/session.js").then(({ ConversationSession }) => new ConversationSession(configuration!))
+          : import("../../src/conversation/recovery.js").then(({ ReadonlyConversationSession }) => ReadonlyConversationSession.load(recovery));
+        const current = await conversation;
+        combined.throwIfAborted();
+        return operation(current, combined);
+      })();
+      pending.add(running);
+      // Register both settlement handlers, avoiding an unobserved rejected finally promise.
+      void running.then(() => pending.delete(running), () => pending.delete(running));
+      return running;
+    }
+    const ref = Type.String({ minLength: 1, maxLength: 128 });
+    const target = Type.Object({ projectRef: ref, taskRef: Type.Optional(ref) }, { additionalProperties: false });
+    const base = {
+      messageRef: Type.String({ minLength: 1, maxLength: 256 }),
+      focus: Type.Object({ generation: ref, revision: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })
+    };
+    pi.registerTool({
+      name: "sparkle_conversation_focus", label: "Sparkle Conversation Focus",
+      description: "Read current conversation focus/token and permitted project/task references. Host execution bindings are not exposed.",
+      parameters: Type.Object({}, { additionalProperties: false }),
+      execute: (_id, params, signal) => enter(signal, async (current) => {
+        const { conversationRecord } = await import("../../src/conversation/focus.js");
+        conversationRecord(params, [], "focus parameters");
+        const details = { refs: current.refs(), focus: current.focus() };
+        return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+      })
+    });
+    pi.registerTool({
+      name: "sparkle_conversation", label: "Sparkle Conversation",
+      description: recovery === undefined
+        ? "Submit a question/status/focus/restore request, or run a task already authorized by the host. Use only registered references and a current focus token. Direct work retains a checked candidate; it does not apply it or issue apply authority."
+        : "Read-only recovered conversation: question/status/focus/restore inspect host-selected references and fresh facts. Use a current focus token. run-direct is unavailable and always refused; recovery does not restore execution or apply authority.",
+      // Provider adapters require root properties; the session parser enforces each closed branch.
+      parameters: Type.Object({
+        ...base,
+        kind: Type.Union([Type.Literal("question"), Type.Literal("status"), Type.Literal("focus"), Type.Literal("restore"), Type.Literal("run-direct")]),
+        projectRef: Type.Optional(Type.String({ ...ref, description: "Optional project reference for status only." })),
+        target: Type.Optional(Type.Object(target.properties, { additionalProperties: false, description: "Required for focus and run-direct; forbidden for other kinds." })),
+        temporary: Type.Optional(Type.Boolean({ description: "Optional for focus only; suspend the current mainline." })),
+        requestId: Type.Optional(Type.String({ ...ref, description: "Required for run-direct only; unique within this session." }))
+      }, { additionalProperties: false }),
+      execute: (_id, params, signal) => enter(signal, async (current, combined) => {
+        // Pass the original object to the closed-shape parser: never spread/read model accessors.
+        const details = await current.handle(params, combined);
+        return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+      })
+    });
+  }
   const issuedCandidates = new Map<string, IssuedCandidateHandle>();
   const contractText = Type.String({ minLength: 1, maxLength: 512 });
   const taskContract = Type.Object({
@@ -216,5 +293,17 @@ export default function sparkleExtension(pi: ExtensionAPI): void {
       if (ctx.hasUI) ctx.ui.notify(`Sparkle: ${session?.activeCount ?? 0} active delegated runs; read-only workers; quality-first preferred model.`, "info");
     }
   });
-  pi.on("session_shutdown", async () => { closed = true; await session?.shutdown(); });
+  pi.on("session_shutdown", () => {
+    if (shutdown !== undefined) return shutdown;
+    closed = true;
+    abort.abort(new Error("Sparkle session is shut down"));
+    shutdown = (async () => {
+      // Start native cancellation immediately; a failed conversation must not skip it.
+      const native = session?.shutdown();
+      const results = await Promise.allSettled([...pending, ...(native === undefined ? [] : [native])]);
+      const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failures.length > 0) throw new AggregateError(failures.map((result) => result.reason), "Sparkle shutdown observed failed operations");
+    })();
+    return shutdown;
+  });
 }

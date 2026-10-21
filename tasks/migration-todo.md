@@ -1,5 +1,8 @@
 # Current framework migration
 
+**2026-10-20 local P1/P2 acceptance:** P1 tools passed focused28/28, independent reviews, gate3987/0/48+build and security26/Pi4 before P2 began; [P1 evidence](../docs/reports/2026-10-20-conversation-tools.md). P2 now passes focused36/36, independent spec/quality reviews, gate3995/0/48 conditional skips plus build and security26/Pi4; [P2 evidence](../docs/reports/2026-10-20-conversation-recovery.md#final-local-p2-acceptance-2026-10-20). It restores host-selected references/current facts, always refuses execution, and does not accept all C3. P3/P4/P5 remain planned. The sync-only and cloud paragraphs below describe preceding environment-specific stages.
+**2026-10-20 local continuation:** source synced to 26808ad2; current conversation/native-loader tests 19/19. [Next plan](../docs/superpowers/plans/2026-10-20-sync-next.md) prioritizes P1 actual conversation handlers, P2 read-only recovery and independent P3 controlled-driver combination coverage. This request is planning only; no new slice is accepted. The earlier dependency blocker remains specific to its cloud Linux attempt, and does not block local P1 with executable dependencies. [Commands and limits](../docs/reports/2026-10-20-sync-next.md).
+
 Authority: [ADR-009](../docs/decisions/0009-lightweight-adaptive-framework.md).
 Design: [M0–M7 plan](../docs/architecture-migration.md).
 Current delivery: [2026-10-17 integration plan](../docs/superpowers/plans/2026-10-17-framework-migration.md).
@@ -8,7 +11,7 @@ Evidence: [dated verification](../docs/reports/2026-10-17-framework-migration.md
 This checklist tracks bounded implementation slices. Passing a slice does not
 accept its entire M-number or any production/live/experimental gate.
 
-**2026-10-20 current cloud correction:** `d6a3032a` actual Linux Node24 gate exits 1 before tests (`tsc` unavailable). Dependency bootstrap is blocked by automatic approval for unknown telemetry egress; offline cache is incomplete. Node22 runtime is installed but not verified against the product. Cloud Linux gate/probes/pack/SDK and C1/C2 tool wiring/C3 remain open. [Evidence and exact unblock/next command](../docs/reports/2026-10-20-cloud-validation.md). The separate local Windows acceptance below is not cloud Linux acceptance.
+**2026-10-20 earlier cloud correction:** `d6a3032a` actual Linux Node24 gate exits 1 before tests (`tsc` unavailable). Dependency bootstrap is blocked by automatic approval for unknown telemetry egress; offline cache is incomplete. Node22 runtime is installed but not verified against the product. Cloud Linux gate/probes/pack/SDK and C1/C2 tool wiring/C3 remain open. [Evidence and exact unblock/next command](../docs/reports/2026-10-20-cloud-validation.md). The separate local Windows acceptance below is not cloud Linux acceptance.
 
 2026-10-20 final local evidence for runtime3d3dcdc5: gate3978 pass/0 fail/48 conditional skips + build; security26/Pi4/kernel3 and two actual packed consumers PASS. [Commands/reviews/limits](../docs/reports/2026-10-19-staged-continuation.md#final-local-acceptance-2026-10-20). Platform, public execution and later conversation/repair work remain separate.
 
@@ -26,6 +29,8 @@ accept its entire M-number or any production/live/experimental gate.
 | M3-A trusted check findings | Independently reviewed / locally verified | [Usage](../docs/check-findings.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root 15/15, reviewers each 7/7; optional analysis has the separate reviewed row below; automatic correction remains separate |
 | M3-B optional finding analysis | Independently reviewed / locally verified | [Usage](../docs/check-findings.md), [evidence](../docs/reports/2026-10-19-staged-continuation.md): root26/26, independent spec/quality27/27 each, architecture11/11; supported-Promise lifecycle, final local gate/probes passed |
 | C1/C2-A structured conversation host and focus | Source reviewed / local gate verified | [Plan](../docs/superpowers/plans/2026-10-18-conversation-presentation.md), focus/session 17/17; no NL registration or persistent focus |
+| C1/C2-B actual Pi conversation tools | Independently reviewed / locally accepted | [P1 evidence](../docs/reports/2026-10-20-conversation-tools.md): real loader/provider-schema and lifecycle regression28/28; gate3987/0/48+build and security26/Pi4 before P2 |
+| C3-A host-bound read-only reference recovery | Independently reviewed / locally accepted | [P2 evidence](../docs/reports/2026-10-20-conversation-recovery.md): actual two-process restart, current/suspended focus and fresh facts, recovery dispatch always refused; focused36/36, gate3995/0/48+build and security26/Pi4; writable recovery remains open |
 | M4-A explicit task presentation | Source reviewed / local gate verified | Pure scoped language/detail/format + native/direct profile wiring; adjacent 46/46 |
 | M4-B all-outcome usage coverage | Independently reviewed / locally verified | [Guide](../docs/usage-coverage.md); root and independent reviews 20/20, final local gate/probes passed; routing/preferences remain separate |
 | M4-C deleted preference replay | Independently reviewed / locally verified | [Evidence](../docs/reports/2026-10-19-staged-continuation.md): root45/45, spec36+9 and quality45 plus128 snapshot combinations; final local gate/probes passed |

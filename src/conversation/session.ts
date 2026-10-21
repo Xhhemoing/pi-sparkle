@@ -92,7 +92,7 @@ function snapshotTask(input: unknown): Omit<StartDevelopmentTaskInput, "signal">
   });
 }
 
-function request(input: unknown): ConversationRequest {
+export function parseConversationRequest(input: unknown): ConversationRequest {
   const common = ["kind", "messageRef", "focus"];
   // Read kind only from an ordinary own field before selecting the closed shape.
   if (input === null || typeof input !== "object") fail("request must be a plain object");
@@ -120,6 +120,7 @@ export class ConversationSession {
   private readonly projects = new Map<string, (() => Promise<ProjectStatus>) | undefined>();
   private readonly tasks = new Map<string, Omit<StartDevelopmentTaskInput, "signal">>();
   private readonly pointers: ConversationFocus;
+  private readonly references: readonly ConversationTarget[];
   private readonly maxRequests: number;
   private readonly consumedRequests = new Set<string>();
   private readonly consumedMessages = new Set<string>();
@@ -148,13 +149,17 @@ export class ConversationSession {
       this.tasks.set(key, snapshotTask(binding.input));
       targets.push(target);
     }
+    this.references = Object.freeze(targets);
     this.pointers = new ConversationFocus(targets);
   }
 
+  /** Detached, immutable model-visible references; never host bindings. */
+  refs(): readonly ConversationTarget[] { return this.references; }
+
   focus(): ConversationFocusSnapshot { return this.pointers.snapshot(); }
 
-  async handle(input: ConversationRequest, signal?: AbortSignal): Promise<ConversationResponse> {
-    const operation = request(input);
+  async handle(input: unknown, signal?: AbortSignal): Promise<ConversationResponse> {
+    const operation = parseConversationRequest(input);
     if (signal !== undefined && !(signal instanceof AbortSignal)) fail("signal must be a host AbortSignal");
     if (operation.kind === "run-direct") {
       // Consumed provenance wins over a now-stale focus token. Never evict it.

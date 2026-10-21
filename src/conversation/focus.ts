@@ -60,14 +60,26 @@ export class ConversationFocus {
   private readonly known = new Set<string>();
   private state: ConversationFocusSnapshot;
 
-  constructor(targets: readonly ConversationTarget[]) {
+  constructor(targets: readonly ConversationTarget[], initial?: Pick<ConversationFocusSnapshot, "current" | "suspended">) {
     if (!Array.isArray(targets) || targets.length > 256) fail("known targets must be an array of at most 256 entries");
     for (const target of targets) {
       const key = conversationTargetKey(conversationTarget(target));
       if (this.known.has(key)) fail("known targets contain duplicate references");
       this.known.add(key);
     }
-    this.state = Object.freeze({ token: Object.freeze({ generation: `focus_v1_${randomUUID()}`, revision: 0 }) });
+    const locations: { current?: ConversationFocusLocation; suspended?: ConversationFocusLocation } = {};
+    if (initial !== undefined) {
+      const input = conversationRecord(initial, ["current", "suspended"], "initial focus");
+      for (const field of ["current", "suspended"] as const) {
+        if (input[field] === undefined) continue;
+        const value = conversationRecord(input[field], ["projectRef", "taskRef", "runId"], "initial location");
+        const target = conversationTarget({ projectRef: value.projectRef, ...(value.taskRef === undefined ? {} : { taskRef: value.taskRef }) });
+        if (!this.known.has(conversationTargetKey(target))) fail("unknown initial target reference");
+        locations[field] = Object.freeze({ ...target, ...(value.runId === undefined ? {} : { runId: parseRunId(value.runId as string) }) });
+      }
+      if (locations.suspended !== undefined && locations.current === undefined) fail("suspended focus requires current focus");
+    }
+    this.state = Object.freeze({ ...locations, token: Object.freeze({ generation: `focus_v1_${randomUUID()}`, revision: 0 }) });
   }
 
   snapshot(): ConversationFocusSnapshot { return this.state; }
