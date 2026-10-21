@@ -4,15 +4,15 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/soul-comparison-20261021
-- Commit: c40e0607571bb5972bde6a56e1545b82cb961295
+- Commit: 9d17bcca3e5185e1517d3c0754f6b97fb7d6af61
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
 
 ## Open work
 
-- [ ] Maintainer: review the comparison branch/PR verification, including failed runs, independent review and current hosted CI.
-- [ ] Owner: inspect the retained Soul candidates; applying them to original Soul remains outside this trial.
-- [ ] Owner: decide whether to expand the matched task sample using recorded completion, elapsed time, tokens and interventions; one pair does not complete the 15-task evaluation.
-- [ ] Maintainer, only after explicit owner decision based on comparative evidence: retain useful paths and split relevant hotspots; P4/P5 and new experiments/adaptation/learning remain frozen.
+- [ ] Maintainer: review/merge PR #64 with current hosted CI; retain initial failures, replication and the post-hoc quality finding.
+- [ ] Owner, before adopting a Soul candidate: inspect the patches; the second direct candidate needs kill-error/successful-reap behavior corrected and retested. Original Soul application remains outside this trial.
+- [ ] Owner: decide the next independent real task from measured value and quality; repeated runs of this one task do not complete the deferred 15-task evaluation.
+- [ ] Maintainer, only after an explicit evidence-based owner decision: retain useful paths and split relevant hotspots; P4/P5 and new experiments/adaptation/learning remain frozen.
 - [ ] Existing owners: retain [earlier unresolved obligations](tasks/archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production approval.

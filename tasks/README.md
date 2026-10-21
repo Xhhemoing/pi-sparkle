@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Integration and documentation cleanup through PR #63 are merged. Current work compares direct Pi with pi-sparkle on one matched real development task in isolated Soul test copies. Original Soul code/data stay untouched; only synthetic inputs are used. This exploratory pair does not complete the broader 15-task evaluation. P4/P5 and new experiments/adaptation/learning features remain frozen; safety maintenance remains allowed.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Integration and documentation cleanup through PR #63 are merged. The initial comparison and one replication on an isolated Soul task are recorded in the active plan and PR #64. The native timeout did not recur; the second direct candidate has an independently verified cleanup-branch regression. Next work depends on the recorded decision and candidate review, not functional test counts alone. Original Soul code/data stay untouched; only synthetic inputs are used. This exploratory pair does not complete the broader 15-task evaluation. P4/P5 and new experiments/adaptation/learning features remain frozen; safety maintenance remains allowed.
 
 ## Authoritative Files
 
