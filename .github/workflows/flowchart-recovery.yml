@@ -136,6 +136,12 @@ jobs:
           Set-Content .agent_workspace/diagnostic/batch-copies.mjs -Value $source -Encoding UTF8
           node .agent_workspace/diagnostic/batch-copies.mjs 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/diagnostic/batch-copies.log
           exit $LASTEXITCODE
+      - name: Command runner regressions
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm test -- --test-concurrency=1 test/unit/execution/command-runner.test.ts 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/diagnostic/runner.log
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
