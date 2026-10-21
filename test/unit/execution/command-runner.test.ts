@@ -395,3 +395,34 @@ test("a transient positive group probe after successful exit is rechecked before
     await within(running, 3_000);
   }
 });
+
+test("command deadline remains active after the leader closes while its group settles", {
+  ...posixOnly, timeout: 10_000
+}, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const realKill = process.kill.bind(process);
+  let groupProbes = 0;
+  t.mock.method(process, "kill", (pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid < 0 && signal === 0) {
+      if (++groupProbes === 1) {
+        // Advance the command deadline only after close has observed a group.
+        queueMicrotask(() => {
+          t.mock.timers.tick(policy.timeoutMs);
+          t.mock.timers.tick(policy.timeoutMs);
+        });
+      }
+      return true;
+    }
+    return realKill(pid, signal);
+  });
+  const result = await runAuthorizedCommand({
+    executable: process.execPath, args: ["-e", "process.exit(0)"],
+    cwd: process.cwd(), env: process.env, ...policy
+  });
+  assert.ok(groupProbes > 0, "deadline must expire after the close-time group probe");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.status, "timed_out", JSON.stringify(result));
+  assert.equal(result.errorMessage, `command exceeded ${policy.timeoutMs}ms`);
+  assert.equal(result.ok, false);
+  assert.equal(result.cleanupUnsettled, true);
+});
