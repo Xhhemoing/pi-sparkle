@@ -105,9 +105,41 @@ jobs:
           $ErrorActionPreference = 'Stop'
           pnpm test -- --test-concurrency=1 test/integration/cli/development-batch-review.test.ts 2>&1 | Tee-Object -FilePath .agent_workspace/diagnostic/batch.log
           exit $LASTEXITCODE
+      - name: Cold batch copies
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = @'
+          import { cp, mkdtemp, writeFile, symlink, rm } from 'node:fs/promises';
+          import { spawnSync } from 'node:child_process';
+          import { tmpdir } from 'node:os';
+          import { join, resolve } from 'node:path';
+          const repo = resolve('.');
+          const tsx = import.meta.resolve('tsx');
+          const root = await mkdtemp(join(tmpdir(), 'sparkle-cold-batch-'));
+          let failures = 0;
+          try {
+            for (let iteration = 0; iteration < 8; iteration++) {
+              const fixture = join(root, String(iteration));
+              await cp(join(repo, 'src'), join(fixture, 'src'), {recursive:true});
+              await cp(join(repo, 'test/integration/cli/development-batch-review.test.ts'), join(fixture, 'test/integration/cli/development-batch-review.test.ts'), {recursive:true});
+              await writeFile(join(fixture, 'package.json'), JSON.stringify({type:'module'}), 'utf8');
+              await symlink(join(repo, 'node_modules'), join(fixture, 'node_modules'), 'dir');
+              const result = spawnSync(process.execPath, ['--import', tsx, '--test', '--test-name-pattern=fake batch retains', join(fixture,'test/integration/cli/development-batch-review.test.ts')], {cwd:fixture,encoding:'utf8',timeout:90000,maxBuffer:1024*1024});
+              console.log(JSON.stringify({iteration,status:result.status,signal:result.signal,error:result.error?.message,stdout:result.stdout,stderr:result.stderr}));
+              if (result.status !== 0) failures++;
+            }
+            console.log(JSON.stringify({summary:{iterations:8,failures}}));
+            if (failures) process.exitCode = 1;
+          } finally { await rm(root, {recursive:true,force:true,maxRetries:3}); }
+          '@
+          Set-Content .agent_workspace/diagnostic/batch-copies.mjs -Value $source -Encoding UTF8
+          node .agent_workspace/diagnostic/batch-copies.mjs 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/diagnostic/batch-copies.log
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ubuntu-batch-diagnosis
           path: .agent_workspace/diagnostic/*.log
           retention-days: 14
+          include-hidden-files: true
