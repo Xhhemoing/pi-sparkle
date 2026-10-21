@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { stageManagedCandidate } from "../../../src/pi-adapter/managed/candidate.js";
 import { qualifyManagedCandidate } from "../../../src/pi-adapter/managed/qualification.js";
 import { ManagedGenerationStore } from "../../../src/pi-adapter/managed/generation-store.js";
@@ -13,6 +13,8 @@ import { authStorePath, FileCredentialStore } from "../../../src/pi-adapter/file
 import { EventStore } from "../../../src/run/event-store.js";
 import { parseRunId } from "../../../src/domain/ids.js";
 import { startLoopbackOpenAiProvider } from "../../helpers/loopback-openai-provider.js";
+
+import { boundedSettlement, installManagedSettlementFixture } from "../../helpers/managed-driver-settlement-fixture.js";
 
 type Driver = typeof import("../../../src/pi-adapter/managed/driver.js").startControlledManagedRun;
 async function driver(): Promise<Driver> {
@@ -66,7 +68,12 @@ test("actual fixed managed driver loads qualified applications and retains event
     return messages.some((message) => message.role === "tool") ? { text: "complete" }
       : { toolCalls: [{ name: "sparkle_report_task_result", arguments: { verification: "PASSED", summary: "offline controlled work complete" } }] };
   } });
-  t.after(async () => { await provider.close(); await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); });
+  let preserveRoot = false;
+  t.after(async () => {
+    await provider.close();
+    if (preserveRoot) t.diagnostic(`Unresolved instrumented child ownership; preserving ${root}`);
+    else await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
   // The root coordinator schedules this test serially; this is the mandatory
   // fresh build, not a reuse of potentially stale dist from another slice.
   freshBuild(root);
@@ -169,6 +176,114 @@ test("actual fixed managed driver loads qualified applications and retains event
       assert.equal(requests, 1);
     } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
   });
+  for (const mode of ["tool", "agent-end"] as const) {
+    await t.test(`instrumented actual driver waits for held ${mode} through cancellation`, async () => {
+      const heldState = path.join(root, `composition-${mode}`);
+      const stop = new AbortController();
+      const loopback = await startLoopbackOpenAiProvider({ modelIds: ["driver-1"], scriptedResponse: () =>
+        mode === "tool" ? { toolCalls: [{ name: "managed_settlement_hold", arguments: {} }] } : { text: "Listener settlement probe" }
+      });
+      // Only the private, selected B copy is instrumented. Real Agent, kernel,
+      // CLI and fixed driver entry still own dispatch and settlement.
+      const fixture = await installManagedSettlementFixture(b.appRoot, mode).catch(async (error: unknown) => { await loopback.close(); throw error; });
+      let running: ReturnType<Driver> | undefined;
+      let settled = 0;
+      let observed: unknown;
+      let failed = false;
+      const diagnose = async (phase: string) => {
+        t.diagnostic(JSON.stringify({ mode, phase, settled, driver: observed instanceof Error ? observed.stack : observed,
+          fixture: await fixture.diagnostics() }));
+      };
+      const requirePending = () => {
+        assert.equal(settled, 0, `driver settled before fixture observation: ${JSON.stringify(observed)}`);
+      };
+      try {
+        await configure(heldState, loopback.baseUrl);
+        preserveRoot = true;
+        running = start({ managerRoot, request: { ...run, stateRoot: heldState, children }, signal: stop.signal,
+          stopGraceMs: 25_000, timeoutMs: 40_000 });
+        void running.then((result) => { observed = result; settled++; }, (error: unknown) => { observed = error; settled++; });
+        const entered = JSON.parse(await fixture.wait("entered", () => {
+          assert.equal(settled, 0, `driver settled before fixture entry: ${JSON.stringify(observed)}`);
+        })) as { runId: string };
+        const directories = await readdir(path.join(heldState, "runtime/runs"), { withFileTypes: true });
+        const ids = directories.filter((entry) => entry.isDirectory() && entry.name.startsWith("run_")).map((entry) => entry.name);
+        assert.equal(ids.length, 2, "one actual root and one actual child own this operation");
+        assert.ok(ids.includes(entered.runId), "fixture executed inside the recorded child");
+        const snapshots = async () => Promise.all(ids.map(async (id) =>
+          (await new EventStore(heldState, parseRunId(id)).readAll()).events));
+        const terminalTypes = new Set(["RUN_COMPLETED", "RUN_FAILED", "RUN_CANCEL_REQUESTED"]);
+        const assertHeld = async (phase: "before" | "after") => {
+          await fixture.mark(`probe-${phase}`);
+          await fixture.wait(`held-${phase}`, requirePending);
+          assert.equal(settled, 0, `${mode} remains owned until explicit release (${phase} abort)`);
+          for (const events of await snapshots()) {
+            assert.equal(events.filter((event) => terminalTypes.has(event.type)).length, 0,
+              "no terminal run outcome while the owned operation is held");
+          }
+          assert.equal(loopback.requests.length, 1, "held operation cannot dispatch another provider request");
+        };
+        if (mode === "tool") {
+          const payload = loopback.requests[0]?.body as { tools?: Array<{ type?: string; function?: { name?: string; parameters?: unknown } }> };
+          const declared = payload.tools?.filter((tool) => tool.type === "function" && tool.function?.name === "managed_settlement_hold");
+          assert.equal(declared?.length, 1, "first real provider request declares the held Agent tool");
+          assert.deepEqual(declared![0]!.function!.parameters, { type: "object", properties: {}, required: [] });
+        }
+        await assertHeld("before");
+        stop.abort();
+        await fixture.wait("aborted", requirePending);
+        await assertHeld("after");
+        await fixture.mark("release");
+        const result = await boundedSettlement(running, `${mode} driver settlement`);
+        assert.equal(result.status, "cancelled", JSON.stringify(result));
+        assert.equal(result.settlement, "application-settled", JSON.stringify(result));
+        assert.equal(result.receipt?.stopped, true);
+        assert.equal(result.receipt?.generationId, b.generationId);
+        assert.equal(result.receipt?.root, b.root);
+        assert.equal(result.receipt?.entry, path.join(b.appRoot, "dist/pi-adapter/managed/driver-entry.js"));
+        assert.equal(settled, 1);
+        assert.equal(await fixture.wait("completed"), "completed\n", "operation completed exactly once after release");
+        assert.equal(loopback.requests.length, 1, "no provider dispatch after cancellation or release");
+        assert.equal(loopback.protocolErrors.length, 0);
+        const rootId = runId(result.stdout);
+        assert.notEqual(rootId, entered.runId, "held operation belongs to the child, not a synthetic root");
+        for (const events of await snapshots()) {
+          assert.equal(events.filter((event) => terminalTypes.has(event.type)).length, 1, "exactly one terminal outcome per run");
+          assert.equal(events.filter((event) => event.type === "RUN_CANCEL_REQUESTED").length, 1, "root and child cancelled");
+          assert.equal(events.find((event) => event.type === "RUN_CREATED")?.payload.run.engineBinding?.generationId, b.generationId);
+        }
+        const rootEvents = (await new EventStore(heldState, parseRunId(rootId)).readAll()).events;
+        const childEvents = rootEvents.filter((event) => event.type === "CHILD_RUN_CREATED");
+        assert.equal(childEvents.length, 1);
+        assert.equal(childEvents[0]!.payload.childRun.id, entered.runId);
+        assert.equal(childEvents[0]!.payload.childRun.engineBinding?.generationId, b.generationId);
+      } catch (error) {
+        failed = true;
+        await diagnose("assertion-failure");
+        throw error;
+      } finally {
+        // Never restore executable bytes while their child still owns work.
+        // Failure to settle is reported rather than disguised as clean teardown.
+        stop.abort();
+        await fixture.mark("release");
+        try {
+          if (running !== undefined) {
+            const cleanup = await boundedSettlement(running, `${mode} cleanup`, 30_000).catch(async (error: unknown) => {
+              await diagnose("cleanup-failure");
+              throw error;
+            });
+            if (failed) await diagnose("cleanup-result");
+            if (cleanup.settlement === "unknown") await diagnose("cleanup-unknown");
+            assert.ok(cleanup.settlement === "application-settled" || cleanup.settlement === "not-started",
+              `cannot restore candidate with unresolved child ownership: ${JSON.stringify(cleanup)}`);
+          }
+          await fixture.restore();
+          preserveRoot = false;
+        } finally { await loopback.close(); }
+      }
+    });
+    assert.equal(preserveRoot, false, "unresolved child ownership forbids subsequent use of candidate B");
+  }
   await t.test("finite forced startup deadline reports unknown effects rather than a retry", async () => {
     const result = await start({ managerRoot, request: run, timeoutMs: 1, stopGraceMs: 1 });
     assert.equal(result.status, "timed_out", JSON.stringify(result));
