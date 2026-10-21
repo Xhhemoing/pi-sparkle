@@ -1,59 +1,15 @@
-name: Flowchart recovery regression
-
+name: Ubuntu batch diagnosis
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/run/**'
-      - 'src/supervisor/**'
-      - 'src/protocol/**'
-      - 'src/domain/**'
-      - 'src/routing/**'
-      - 'src/agents/**'
-      - 'src/cli/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'test/unit/run/**'
-      - 'test/unit/tracking/**'
-      - 'test/integration/m2.5/**'
-      - 'test/integration/run/**'
-      - 'scripts/run-tests.mjs'
-      - '.github/workflows/flowchart-recovery.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/run/**'
-      - 'src/supervisor/**'
-      - 'src/protocol/**'
-      - 'src/domain/**'
-      - 'src/routing/**'
-      - 'src/agents/**'
-      - 'src/cli/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'test/unit/run/**'
-      - 'test/unit/tracking/**'
-      - 'test/integration/m2.5/**'
-      - 'test/integration/run/**'
-      - 'scripts/run-tests.mjs'
-      - '.github/workflows/flowchart-recovery.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
-concurrency:
-  group: flowchart-recovery-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  recovery:
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -63,24 +19,95 @@ jobs:
         with:
           node-version: 22.19.x
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Recovery, budgets, terminal ordering and checkpoint contracts
-        shell: pwsh
+      - run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm install --frozen-lockfile
+          exit $LASTEXITCODE
+      - name: Cold checker reproduction
         run: |
           $ErrorActionPreference = 'Stop'
-          $focusedTests = @(
-            'test/unit/run/flowchart-child-recovery.test.ts',
-            'test/unit/run/flowchart-terminal.test.ts',
-            'test/unit/run/replay.test.ts',
-            'test/unit/run/flowchart-run-abort.test.ts',
-            'test/unit/run/flowchart-checkpoint.test.ts',
-            'test/unit/run/flowchart-applyretry-absence.test.ts',
-            'test/unit/run/control-plane-single-writer.test.ts',
-            'test/unit/run/parent-terminal-refusal.test.ts',
-            'test/unit/run/terminal-replay-statuses-freeze.test.ts',
-            'test/unit/tracking/option-a-preconditions.test.ts',
-            'test/integration/m2.5/resume.test.ts',
-            'test/integration/run/unblock-flow.test.ts'
-          )
-          pnpm test -- --test-concurrency=1 @focusedTests
+          New-Item -ItemType Directory -Force .agent_workspace/diagnostic | Out-Null
+          $source = @'
+          // Diagnostic only. Run from repository root with node --import tsx <this-file>.
+          import { spawnSync } from 'node:child_process';
+          import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { dirname, join, resolve } from 'node:path';
+          import { pathToFileURL } from 'node:url';
+          const repo = resolve('.');
+          const { runAuthorizedCommand } = await import(pathToFileURL(join(repo, 'src/execution/command-runner.ts')).href);
+          if (process.platform !== 'linux') throw new Error('Linux is required for process-group diagnosis');
+          const tsx = import.meta.resolve('tsx');
+          const root = await mkdtemp(join(tmpdir(), 'sparkle-checker-repro-'));
+          const originalKill = process.kill;
+          const sources = [
+            'src/development/recipe-check.ts',
+            'src/development/work-items.ts',
+            'src/execution/command-runner.ts',
+            'src/domain/errors.ts'
+          ];
+          let observations = [];
+          let failures = 0;
+          let observationError;
+          function observeGroup(group) {
+            const ps = spawnSync('ps', ['-eo', 'pid,ppid,pgid,stat,comm'], {encoding:'utf8'});
+            if (ps.status !== 0) {
+              observationError ??= new Error(`ps failed: ${ps.status}: ${ps.stderr}`);
+              return {group, error: observationError.message};
+            }
+            const members = ps.stdout.trim().split('\n').slice(1).map(line => line.trim().split(/\s+/))
+              .filter(fields => Number(fields[2]) === group)
+              .map(([pid,parent,pgid,state,...command]) => ({pid:Number(pid),parent:Number(parent),group:Number(pgid),state,command:command.join(' ')}));
+            return {group,members};
+          }
+          function observedKill(pid, signal) {
+            // Observe only after the real probe succeeded. Never synthesize a result.
+            const result = originalKill.call(process, pid, signal);
+            if (pid < 0 && signal === 0) observations.push(observeGroup(-pid));
+            return result;
+          }
+          try {
+            for (let iteration = 0; iteration < 30; iteration++) {
+              const instrumented = iteration >= 5 && iteration < 25;
+              process.kill = instrumented ? observedKill : originalKill;
+              observations = [];
+              const fixture = await mkdtemp(join(root, 'cold-'));
+              for (const relative of sources) {
+                const destination = join(fixture, relative);
+                await mkdir(dirname(destination), {recursive:true});
+                await copyFile(join(repo, relative), destination);
+              }
+              await writeFile(join(fixture, 'package.json'), JSON.stringify({type:'module'}), 'utf8');
+              const recipes = [{id:'noop',command:process.execPath,args:['-e',''],verifierVersion:'diagnostic'}];
+              const result = await runAuthorizedCommand({
+                executable:process.execPath,
+                args:['--import',tsx,join(fixture,'src/development/recipe-check.ts'),JSON.stringify(recipes)],
+                cwd:fixture, env:{}, timeoutMs:10000, maxStdoutBytes:4096, maxStderrBytes:4096
+              });
+              if (!result.ok) failures++;
+              console.log(JSON.stringify({iteration,instrumented,result,observations}));
+              if (observationError) throw observationError;
+            }
+            console.log(JSON.stringify({summary:{iterations:30,failures,plainIterations:10,instrumentedIterations:20}}));
+            if (failures > 0) process.exitCode = 1;
+          } finally {
+            process.kill = originalKill;
+            // The sole deletion target is the path returned by this process's mkdtemp.
+            await rm(root, {recursive:true,force:true,maxRetries:3});
+          }
+          '@
+          Set-Content .agent_workspace/diagnostic/checker-repro.mjs -Value $source -Encoding UTF8
+          node --import tsx .agent_workspace/diagnostic/checker-repro.mjs 2>&1 | Tee-Object -FilePath .agent_workspace/diagnostic/checker.log
           exit $LASTEXITCODE
+      - name: Original batch tests
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm test -- --test-concurrency=1 test/integration/cli/development-batch-review.test.ts 2>&1 | Tee-Object -FilePath .agent_workspace/diagnostic/batch.log
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu-batch-diagnosis
+          path: .agent_workspace/diagnostic/*.log
+          retention-days: 14
