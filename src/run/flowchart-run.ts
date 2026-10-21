@@ -110,6 +110,7 @@ import {
   hasUnmatchedPause,
   materializeCheckpoint,
   replayRun,
+  replayedTerminalStatus,
   snapshotReplay,
   validateCheckpoint,
   type FlowchartCheckpointState,
