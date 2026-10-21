@@ -114,6 +114,7 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
     let timer: NodeJS.Timeout | undefined;
     let forceTimer: NodeJS.Timeout | undefined;
     let closeTimer: NodeJS.Timeout | undefined;
+    let settlementTimer: NodeJS.Timeout | undefined;
     let stopping = false;
     let closed = false;
     let cleanupUnsettled = false;
@@ -123,6 +124,7 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
       if (timer !== undefined) clearTimeout(timer);
       if (forceTimer !== undefined) clearTimeout(forceTimer);
       if (closeTimer !== undefined) clearTimeout(closeTimer);
+      if (settlementTimer !== undefined) clearTimeout(settlementTimer);
       input.signal?.removeEventListener("abort", onAbort);
       resolve({
         status, spawned: true, ok: status === "completed" && exitCode === 0,
@@ -135,6 +137,7 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
     const stop = (next: CommandRunStatus, reason?: string): void => {
       if (settled || stopping) return;
       stopping = true;
+      if (settlementTimer !== undefined) clearTimeout(settlementTimer);
       if (status === "completed") status = next;
       if (reason !== undefined) errorMessage = reason;
       if (timer !== undefined) clearTimeout(timer);
@@ -200,7 +203,24 @@ export function runAuthorizedCommand(input: AuthorizedCommandRunInput): Promise<
       // distinct status is the authoritative failure reason.
       if (status === "output_limit" && exitCode === null) exitCode = 0;
       if (!stopping && ownsGroup && processGroupExists(child)) {
-        stop("cancelled", "command exited while owned descendants remained");
+        // Source loaders can finish their service just after the leader closes.
+        // Accept only observed group disappearance, with abort/deadline still
+        // active. A persistent group keeps the existing fail-closed cleanup.
+        const settleBy = performance.now() + TERMINATION_GRACE_MS;
+        const awaitGroupExit = (): void => {
+          if (settled || stopping) return;
+          if (!processGroupExists(child)) { finish(); return; }
+          const remaining = settleBy - performance.now();
+          if (remaining <= 0) {
+            stop("cancelled", "command exited while owned descendants remained");
+            return;
+          }
+          settlementTimer = setTimeout(awaitGroupExit, Math.min(10, remaining));
+        };
+        // Keep this timer referenced: the child has closed and the command
+        // deadline alone is unref'ed, but settlement still needs an answer.
+        settlementTimer = setTimeout(awaitGroupExit, 10);
+        return;
       }
       if (!stopping || forceTimer === undefined || (ownsGroup && !processGroupExists(child))) finish();
     });
