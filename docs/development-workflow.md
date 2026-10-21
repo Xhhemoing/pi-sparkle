@@ -4,7 +4,7 @@ This document is the project-level process for planning, implementing, testing, 
 
 ## 1. Intake and Classification
 
-Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Integration is complete. The current order is completed-document cleanup, state reconciliation, then a bounded trial on Soul's isolated test version. Keep original Soul code/data untouched and use synthetic inputs. The broader comparison remains deferred; P4/P5 and new experiments/adaptation/learning features stay frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them. Safety maintenance remains allowed. Capture:
+Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Integration and completed-document cleanup are merged. The current step is a matched direct-Pi/pi-sparkle comparison on a real task in Soul's isolated test version. Keep original Soul code/data untouched and use synthetic inputs. Record the task, input, model, permissions, run order, acceptance and measurement boundaries before execution; retain failures and distinguish shared preparation, model execution and later review/rework. One pair does not complete the broader evaluation. P4/P5 and new experiments/adaptation/learning features stay frozen until an explicit owner decision based on comparative evidence. Safety maintenance remains allowed. Capture:
 
 - problem and user outcome;
 - in-scope and explicitly out-of-scope behavior;
