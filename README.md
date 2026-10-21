@@ -288,6 +288,8 @@ Real-provider execution is opt-in via `PI_*` environment variables and `--execut
 
 ## Documentation
 
+- [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
+- [Architecture review and continuous development queue (2026-10-15)](docs/reports/2026-10-15-architecture-agent-loop.md)
 - [Status matrix](docs/status-matrix.md)
 - [Real-provider acceptance runbook](docs/preview-acceptance.md)
 - [Data dictionary](docs/data-dictionary.md)

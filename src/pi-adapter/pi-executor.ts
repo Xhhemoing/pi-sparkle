@@ -454,6 +454,7 @@ interface RetriedRun {
   /** 1-based number of the attempt whose events are returned. */
   readonly attempt: number;
   readonly events: readonly ExecutionEvent[];
+  readonly streamedCount: number;
   readonly failure: ProviderFailure | undefined;
 }
 
@@ -643,7 +644,7 @@ export class PiAgentExecutor implements AgentExecutor {
   }
 
   /** Yield the portion of a final attempt that was not already streamed live. */
-  private *remainingAttemptEvents(run: AttemptRun): Generator<ExecutionEvent> {
+  private *remainingAttemptEvents(run: Pick<AttemptRun, "events" | "streamedCount">): Generator<ExecutionEvent> {
     for (let index = run.streamedCount; index < run.events.length; index += 1) {
       const event = run.events[index];
       if (event !== undefined) yield event;
@@ -668,7 +669,7 @@ export class PiAgentExecutor implements AgentExecutor {
     const policy = resolveRetryPolicy(options);
     const sleep = options?.sleep ?? sleepWithAbort;
     const random = options?.random ?? Math.random;
-    let latest: RetriedRun = { attempt: 1, events: [], failure: undefined };
+    let latest: RetriedRun = { attempt: 1, events: [], streamedCount: 0, failure: undefined };
     const steers: string[] = [];
     this.acceptedSteers.set(request.agentInstanceId, steers);
     try {
@@ -678,14 +679,12 @@ export class PiAgentExecutor implements AgentExecutor {
         // during it is delivered once by the kernel rather than twice.
         const run = yield* this.runAttempt(model, request, gate, signal, [...steers]);
         if (!run.failed || signal.aborted) {
-          yield* this.remainingAttemptEvents(run);
-          return { attempt, events: run.events, failure: undefined };
+          return { attempt, events: run.events, streamedCount: run.streamedCount, failure: undefined };
         }
         const failure = classifyProviderFailure(run.error, run.errorMessage);
-        latest = { attempt, events: run.events, failure };
+        latest = { attempt, events: run.events, streamedCount: run.streamedCount, failure };
         const decision = decideRetry(failure, attempt, policy, random);
         if (!decision.retry || gate.requestStopIfExceeded()) {
-          yield* this.remainingAttemptEvents(run);
           return latest;
         }
         options?.onRetry?.({
@@ -697,7 +696,6 @@ export class PiAgentExecutor implements AgentExecutor {
         });
         await sleep(decision.delayMs, signal);
         if (signal.aborted) {
-          yield* this.remainingAttemptEvents(run);
           return latest;
         }
       }
@@ -779,7 +777,9 @@ export class PiAgentExecutor implements AgentExecutor {
     }
 
     // Model chain: primary first, then fallbackModels in order. Each entry
-    // gets its own retry budget and cost gate. The first entry whose
+    // gets its own retry budget and model-priced gate. Known spend is carried
+    // into the next gate so changing models never refreshes the execution cap.
+    // The first entry whose
     // runWithRetry returns without a provider failure wins; the chain stops on
     // cancellation, a cost-gate stop, or exhaustion of the fallback list.
     const chain: Array<{ readonly identity: ModelRef; readonly model: Model<Api> }> = [resolved];
@@ -794,21 +794,45 @@ export class PiAgentExecutor implements AgentExecutor {
     let winningEvents: readonly ExecutionEvent[] = [];
     let winningFailure: ProviderFailure | undefined;
     let winningAttempt = 0;
+    let lastModelRun: RetriedRun | undefined;
     let stoppedGate: CostGate | undefined;
+    const costGates: CostGate[] = [];
+    const requestedCap = request.maxCostUsd ?? this.options.maxCostUsd;
+    const pricedSpend = (): number =>
+      costGates.reduce((sum, gate) => sum + (gate.spentUsd ?? 0), 0);
+    const executionLedger = (): CostGateLedger => {
+      const ledgers = costGates.map((gate) => gate.ledger);
+      return {
+        turns: ledgers.reduce((sum, ledger) => sum + ledger.turns, 0),
+        turnsWithoutUsage: ledgers.reduce((sum, ledger) => sum + ledger.turnsWithoutUsage, 0),
+        tokensIn: ledgers.reduce((sum, ledger) => sum + ledger.tokensIn, 0),
+        tokensOut: ledgers.reduce((sum, ledger) => sum + ledger.tokensOut, 0),
+        // Mixed/unpriced chains still cannot report a complete dollar figure.
+        spentUsd: ledgers.every((ledger) => ledger.spentUsd !== undefined)
+          ? Math.round(pricedSpend() * 1_000_000) / 1_000_000
+          : undefined
+      };
+    };
 
     for (const entry of chain) {
       if (signal.aborted) break;
-      const gate = this.buildCostGate(request, entry.model);
-      const { attempt, events: collected, failure } = yield* this.runWithRetry(
+      const gate = this.buildCostGate(request, entry.model, pricedSpend());
+      costGates.push(gate);
+      lastModelRun = yield* this.runWithRetry(
         entry.model,
         request,
         gate,
         signal
       );
+      const { attempt, events: collected, failure } = lastModelRun;
+      // Failed final attempts can bypass the loop's stop hook and the retry
+      // predicate. Their billed usage must still stop a subsequent fallback.
+      gate.requestStopIfExceeded();
       if (signal.aborted) {
         winningIdentity = entry.identity;
         winningEvents = collected;
         winningAttempt = attempt;
+        winningFailure = undefined;
         stoppedGate = gate;
         break;
       }
@@ -816,10 +840,13 @@ export class PiAgentExecutor implements AgentExecutor {
         winningIdentity = entry.identity;
         winningEvents = collected;
         winningAttempt = attempt;
+        winningFailure = undefined;
         stoppedGate = gate;
         break;
       }
-      // The entry failed; record its invocation and try the next fallback.
+      // Persist the actual failed model before deciding whether a different
+      // model may be tried. Auth, malformed requests and no-retry directives
+      // remain terminal even when a fallback list exists.
       const callOutcome: InvocationCallOutcome = callOutcomeForFailure(failure);
       this.reportInvocation(request, entry.identity, collected, startedAtMs, attempt, callOutcome);
       winningFailure = failure;
@@ -828,19 +855,22 @@ export class PiAgentExecutor implements AgentExecutor {
         this.options.onCostGate?.({
           kind: "stopped",
           taskId: request.taskId,
-          maxCostUsd: gateState.maxCostUsd,
-          ledger: gate.ledger
+          maxCostUsd: requestedCap ?? gateState.maxCostUsd,
+          ledger: executionLedger()
         });
         break;
       }
+      if (!failure.retryable) break;
     }
 
     if (winningIdentity === undefined) {
       // Every entry in the chain failed. Close the transcript with a FAILURE
       // terminal and the last provider failure so finish() can synthesize the
       // UNOBSERVED + PROVIDER_ERROR message that downstream attribution needs.
-      yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
-      yield* this.finish(request, [], "FAILURE", false, winningFailure);
+      const outcome = signal.aborted ? "CANCELLED" : "FAILURE";
+      // A failed transport's buffered verdict cannot authorize task success,
+      // even when it came from the final model in the chain.
+      yield* this.finish(request, [], outcome, false, signal.aborted ? undefined : winningFailure);
       return;
     }
 
@@ -856,14 +886,20 @@ export class PiAgentExecutor implements AgentExecutor {
         this.options.onCostGate?.({
           kind: "stopped",
           taskId: request.taskId,
-          maxCostUsd: gateState.maxCostUsd,
-          ledger: stoppedGate.ledger
+          maxCostUsd: requestedCap ?? gateState.maxCostUsd,
+          ledger: executionLedger()
         });
       }
     }
 
-    const outcome = signal.aborted ? "CANCELLED" : "SUCCESS";
-    yield* this.finish(request, winningEvents, outcome, stoppedGate?.stopRequested ?? false, winningFailure);
+    // Commit settlement once, before publishing buffered verdict events. An
+    // async-generator consumer can abort between yields, but cannot retract a
+    // verdict already published or cause finish() to synthesize a second one.
+    const cancelled = signal.aborted;
+    const outcome = cancelled ? "CANCELLED" : "SUCCESS";
+    const finalEvents = cancelled ? [] : winningEvents;
+    if (!cancelled && lastModelRun !== undefined) yield* this.remainingAttemptEvents(lastModelRun);
+    yield* this.finish(request, finalEvents, outcome, stoppedGate?.stopRequested ?? false, winningFailure);
   }
 
   private reportInvocation(
@@ -938,11 +974,22 @@ export class PiAgentExecutor implements AgentExecutor {
    * Build this execution's spend ceiling from the request (or executor
    * default) and the resolved model's catalog rates.
    */
-  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>): CostGate {
+  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>, priorPricedSpend = 0): CostGate {
     const maxCostUsd = request.maxCostUsd ?? this.options.maxCostUsd;
+    // Gates round observed dollars to microdollars. Subtract at that same
+    // scale: 0.8 - 0.1 in binary dollars is otherwise greater than the rounded
+    // $0.7 spend, permitting another call at an already-exhausted ceiling.
+    // Ceil keeps a positive sub-microdollar cap armed rather than rounding it
+    // to zero; observed spend can only cross it at the next microdollar.
+    const capMicros = maxCostUsd === undefined ? undefined : Math.ceil(maxCostUsd * 1_000_000);
+    const remainingCap = maxCostUsd !== undefined && Number.isFinite(maxCostUsd) && maxCostUsd > 0
+      ? capMicros !== undefined && Number.isSafeInteger(capMicros)
+        ? (capMicros - Math.round(priorPricedSpend * 1_000_000)) / 1_000_000
+        : maxCostUsd - priorPricedSpend
+      : maxCostUsd;
     const prices = catalogPrices(model.cost);
     const gate = new CostGate({
-      ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+      ...(remainingCap !== undefined ? { maxCostUsd: remainingCap } : {}),
       ...(prices !== undefined ? { prices } : {})
     });
     const state = gate.state;

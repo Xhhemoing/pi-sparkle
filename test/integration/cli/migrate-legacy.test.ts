@@ -146,7 +146,8 @@ test("a SIGKILLed --apply leaves no partial destination and the re-run finishes"
     const child = spawn(
       process.execPath,
       [
-        fileURLToPath(import.meta.resolve("tsx/cli")),
+        "--import",
+        import.meta.resolve("tsx"),
         join(repoRoot, "src/cli/main.ts"),
         "migrate-legacy",
         "--state-root",

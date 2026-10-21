@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 import {
   createAgentInstanceId,
   createEventId,
@@ -27,6 +28,10 @@ const AGENT = createAgentInstanceId(UUID);
 const TASK = createTaskId(UUID);
 const FLOWCHART_RUN_SOURCE = readFileSync(
   fileURLToPath(new URL("../../../src/run/flowchart-run.ts", import.meta.url)),
+  "utf8"
+);
+const FLOWCHART_TERMINAL_SOURCE = readFileSync(
+  fileURLToPath(new URL("../../../src/run/flowchart-terminal.ts", import.meta.url)),
   "utf8"
 );
 
@@ -137,29 +142,46 @@ test("RUN_BLOCKED is a terminal, so a RUN_FAILED after it is a second one", () =
 });
 
 test("all three flowchart terminal recorders refuse while replay names BLOCKED", () => {
-  const recorderBounds = [
-    ["persistBlocked", "persistCompleted"],
-    ["persistCompleted", "persistFailed"],
-    ["persistFailed", "finish"]
-  ] as const;
-
-  for (const [recorder, nextFunction] of recorderBounds) {
-    const start = FLOWCHART_RUN_SOURCE.indexOf(`async function ${recorder}(`);
-    const end = FLOWCHART_RUN_SOURCE.indexOf(`async function ${nextFunction}(`, start + 1);
-    assert.notEqual(start, -1, `${recorder} must remain a named terminal recorder`);
-    assert.notEqual(end, -1, `${recorder} source boundary must remain inspectable`);
+  const terminalOwner = ts.createSourceFile(
+    "flowchart-terminal.ts", FLOWCHART_TERMINAL_SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
+  );
+  const recorders = ["persistBlocked", "persistCompleted", "persistFailed"] as const;
+  for (const recorder of recorders) {
+    const declaration = terminalOwner.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) && statement.name?.text === recorder
+    );
+    assert.ok(declaration?.body, `${recorder} must remain a named, inspectable terminal recorder`);
     assert.match(
-      FLOWCHART_RUN_SOURCE.slice(start, end),
+      declaration.getText(terminalOwner),
       /if \(await alreadyTerminal\(ctx\)\) return;/,
       `${recorder} must refuse after RUN_BLOCKED until an explicit unblock contract lands`
     );
   }
 
   assert.match(
-    FLOWCHART_RUN_SOURCE,
-    /async function alreadyTerminal\(ctx: FlowchartLoopContext\): Promise<boolean> \{[\s\S]*?replayedTerminalStatus\(read\.events\) !== undefined;[\s\S]*?\}/,
+    FLOWCHART_TERMINAL_SOURCE,
+    /async function alreadyTerminal\(ctx: FlowchartTerminalContext\): Promise<boolean> \{[\s\S]*?replayedTerminalStatus\(read\.events\) !== undefined;[\s\S]*?\}/,
     "the three refusals must keep consulting replay's shared terminal definition"
   );
+
+  const orchestrator = ts.createSourceFile(
+    "flowchart-run.ts", FLOWCHART_RUN_SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
+  );
+  const importedRecorders = orchestrator.statements.flatMap((statement) => {
+    if (
+      !ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "./flowchart-terminal.js" ||
+      statement.importClause?.namedBindings === undefined ||
+      !ts.isNamedImports(statement.importClause.namedBindings)
+    ) return [];
+    return statement.importClause.namedBindings.elements.map((element) => element.name.text);
+  });
+  assert.deepEqual(importedRecorders.toSorted(), [...recorders].toSorted(), "the live orchestrator uses the pinned owner");
+  for (const recorder of recorders) {
+    assert.match(FLOWCHART_RUN_SOURCE, new RegExp(`await ${recorder}\\(ctx\\b`), `${recorder} remains called by the live loop`);
+    assert.doesNotMatch(FLOWCHART_RUN_SOURCE, new RegExp(`function ${recorder}\\(`), "no private recorder copy survives");
+  }
 });
 
 test("operator and scheduler signals other than RUN_UNBLOCKED cannot clear the terminal latch", () => {

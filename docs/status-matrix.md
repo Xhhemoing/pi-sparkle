@@ -3,6 +3,40 @@
 This is the executable map of what is implemented, wired, exercised, and
 outcome-supported. It is **not** a production readiness certificate.
 
+## Architecture and development candidate (2026-10-15)
+
+Additional isolated P2 candidate: pure child recovery extracted from
+`flowchart-run.ts` on `codex/continuous-quality-20261015`, based on PR #60
+`c2b802c`. No run/event/checkpoint/acceptance/budget contract changed.
+Independent review and actual pinned local `pnpm gate` PASS (3321/0/1),
+security/Pi/kernel probes PASS. Dedicated Ubuntu/Windows recovery checks are
+configured; hosted evidence and publication are recorded separately in the
+[recovery verification record](reports/2026-10-15-flowchart-recovery-refactor.md).
+
+The next bounded candidate separates normal terminal recording into
+`flowchart-terminal.ts`; finish, crash, checkpoint and writer-lock ownership
+remain in the orchestrator. Four runtime function bodies are unchanged; seven
+new awaited-order/refusal tests and transferred live-owner pins pass.
+Independent review and combined actual pinned gate PASS (3328/0/1), with
+security/Pi/kernel probes PASS. [Terminal evidence](reports/2026-10-15-flowchart-terminal-refactor.md).
+Neither extraction changes terminal vocabulary or claims new recovery semantics.
+
+[PR #60](https://github.com/Xhhemoing/pi-sparkle/pull/60) contains the reviewed
+candidate from main `44db4b1`; it is not a claim of main integration or
+production acceptance. [Architecture, research and verification](reports/2026-10-15-architecture-agent-loop.md).
+
+| Capability | Present | Wired | Exercised | Outcome-supported |
+|---|---|---|---|---|
+| Bounded native candidate repair | PR #60 | opt-in `NativeWriteSession.execute` SDK; one retained candidate, finite attempts/time, immutable check, failure feedback and explicit stop reasons | real Git/command integrations, scripted two-attempt demo and independent agent review | no |
+| Provider fallback correctness | PR #60 | existing Pi executor; retryable-only fallback, shared known-priced spend, one settled task result | focused retry/abort/attribution/cap regressions and independent review | no |
+| Bounded verifier cleanup | PR #60 | shared command runner; TERM/KILL/deadline; raw exit/signal evidence | stubborn-process regressions; Windows descendant containment remains outside scope | no |
+| Supervisor verdict and round settlement | PR #60 | existing supervised run/resume path | rejection/final-round regressions and independent review | no |
+
+These additions do not wire native writing into the default CLI, resume a
+repair loop after a crash, apply a candidate automatically, settle a
+cross-attempt dollar budget or enable adaptive live routing. Existing
+R10/R11, S0-min, F6/F-PROD and production/outcome boundaries remain separate.
+
 ## SHA-256 removal gate (2026-09-21)
 
 A repository-wide census found SHA-256 in runtime identity, persistence, integrity, evaluator/apply, holdout, migration, and active-contract surfaces. Removal is authorized by [ADR-008](decisions/0008-remove-sha256.md). All runtime removal groups are implemented on the uncommitted worktree with the G5 gate green as of 2026-09-22 (author-run; evidence: [removal report](reports/2026-09-21-remove-sha256.md), Session 5): zero active SHA-256 computations remain in runtime surfaces; only legacy-refusal detectors remain. Legacy SHA-bound records are quarantined historical/read-only evidence, never rehashed or reclassified. Migration execution, live-provider runs, production apply/rollout, holdout/F6, and independent review remain separate open gates.

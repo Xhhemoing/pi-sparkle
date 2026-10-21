@@ -19,8 +19,7 @@ interface CliResult {
 
 function runCli(args: readonly string[]): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const tsxCli = fileURLToPath(import.meta.resolve("tsx/cli"));
-    const child = spawn(process.execPath, [tsxCli, scriptPath, ...args], {
+    const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), scriptPath, ...args], {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"]
     });
