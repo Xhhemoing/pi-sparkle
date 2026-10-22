@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, mkdir, open } from "node:fs/promises";
 import { dirname, parse, resolve, sep } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
@@ -38,6 +38,12 @@ export interface WorkItemOperationOptions {
 }
 
 const MAX_QUEUE_BYTES = 1_048_576;
+const MAX_PUBLICATION_READ_ATTEMPTS = 3;
+/** Internal retry signal, only for an observed atomic-publication conflict. */
+class QueuePublicationConflict extends Error {}
+function sameFile(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
 function fail(reason: string): never { throw new DomainValidationError(`work item store: ${reason}`); }
 function code(error: unknown): unknown {
   return error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
@@ -113,14 +119,63 @@ export class WorkItemStore {
     }
   }
 
-  private async read(): Promise<WorkQueue> {
+  private async publicationReplaced(observed: Stats): Promise<boolean> {
+    let current: Stats;
+    try { current = await lstat(this.path); }
+    catch (error) {
+      if (code(error) === "ENOENT") return true;
+      throw error;
+    }
+    if (!current.isFile() || current.isSymbolicLink() || current.nlink > 1) fail("queue must be an unlinked regular file");
+    if (current.size > MAX_QUEUE_BYTES) fail("queue exceeds 1 MiB size limit or is not a regular file");
+    return current.nlink === 0 || !sameFile(observed, current);
+  }
+
+  private async read(signal?: AbortSignal): Promise<WorkQueue> {
+    for (let attempt = 0; attempt < MAX_PUBLICATION_READ_ATTEMPTS; attempt++) {
+      checkCancellation(signal);
+      try { return await this.readOnce(attempt > 0); }
+      catch (error) {
+        if (!(error instanceof QueuePublicationConflict)) throw error;
+        checkCancellation(signal);
+      }
+    }
+    fail("queue changed repeatedly during atomic publication");
+  }
+
+  private async readOnce(retryingPublication: boolean): Promise<WorkQueue> {
     await this.checkParent();
-    const entry = await lstat(this.path);
-    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1) fail("queue must be an unlinked regular file");
-    const handle = await open(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let entry: Stats;
+    try { entry = await lstat(this.path); }
+    catch (error) {
+      // A missing initial queue remains an error. Only a previously observed
+      // publication conflict can include the Windows move-aside gap.
+      if (retryingPublication && code(error) === "ENOENT") throw new QueuePublicationConflict();
+      throw error;
+    }
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink > 1) fail("queue must be an unlinked regular file");
+    if (entry.size > MAX_QUEUE_BYTES) fail("queue exceeds 1 MiB size limit or is not a regular file");
+    if (entry.nlink !== 1) {
+      if (entry.nlink === 0 && await this.publicationReplaced(entry)) throw new QueuePublicationConflict();
+      fail("queue must be an unlinked regular file");
+    }
+    let handle: Awaited<ReturnType<typeof open>>;
+    try { handle = await open(this.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
+    catch (error) {
+      if (code(error) === "ENOENT" && await this.publicationReplaced(entry)) throw new QueuePublicationConflict();
+      throw error;
+    }
     try {
       const before = await handle.stat();
-      if (!before.isFile() || before.nlink !== 1 || before.size > MAX_QUEUE_BYTES) fail("queue exceeds 1 MiB size limit or is not a regular file");
+      if (!before.isFile() || before.nlink > 1 || before.size > MAX_QUEUE_BYTES) fail("queue exceeds 1 MiB size limit or is not a regular file");
+      if (before.nlink !== 1) {
+        if (before.nlink === 0 && await this.publicationReplaced(before)) throw new QueuePublicationConflict();
+        fail("queue exceeds 1 MiB size limit or is not a regular file");
+      }
+      if (!sameFile(entry, before)) {
+        if (await this.publicationReplaced(entry)) throw new QueuePublicationConflict();
+        fail("queue changed before reading");
+      }
       const buffer = Buffer.alloc(before.size + 1);
       let used = 0;
       while (used < buffer.length) {
@@ -129,11 +184,19 @@ export class WorkItemStore {
         used += bytesRead;
       }
       const after = await handle.stat();
-      if (used !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) fail("queue changed while reading");
+      if (!after.isFile() || after.nlink > 1 || after.size > MAX_QUEUE_BYTES) fail("queue changed while reading");
+      // An observed byte/mtime change is never excused by a later replacement.
+      if (!sameFile(before, after) || used !== before.size || after.size !== before.size ||
+          after.mtimeMs !== before.mtimeMs) fail("queue changed while reading");
+      if (after.nlink !== 1 || after.ctimeMs !== before.ctimeMs) {
+        // Both unlink and Windows move-aside publication can change ctime;
+        // the latter retains nlink=1. Require a changed path identity.
+        if ((after.nlink === 0 || after.nlink === 1) && await this.publicationReplaced(after)) throw new QueuePublicationConflict();
+        fail("queue changed while reading");
+      }
       return validateWorkQueue(JSON.parse(buffer.subarray(0, used).toString("utf8")) as unknown);
     } finally { await handle.close(); }
   }
-
   private async write(queue: WorkQueue): Promise<void> {
     const body = `${JSON.stringify(validateWorkQueue(queue), null, 2)}\n`;
     if (Buffer.byteLength(body) > MAX_QUEUE_BYTES) fail("queue exceeds 1 MiB size limit");
@@ -262,7 +325,7 @@ export class WorkItemStore {
     const options = snapshotInput(input, ["signal"]);
     const signal = operationSignal(options.signal);
     checkCancellation(signal);
-    const queue = await this.read();
+    const queue = await this.read(signal);
     return this.selectVerified(queue, signal);
   }
 
@@ -272,7 +335,7 @@ export class WorkItemStore {
     const baseRevision = workItemBaseRevision(options.baseRevision);
     const signal = operationSignal(options.signal);
     return this.locked(async () => {
-      const queue = await this.read();
+      const queue = await this.read(signal);
       const item = await this.selectVerified(queue, signal);
       if (item === undefined) return undefined;
       const claim = freezeWorkItemValue({ token: randomUUID(), owner, baseRevision, startedAt: new Date().toISOString() });
@@ -298,7 +361,7 @@ export class WorkItemStore {
     workItemText(id, "item id", 64);
     workItemText(token, "claim token", 128);
     return this.locked(async () => {
-      const queue = await this.read();
+      const queue = await this.read(signal);
       checkCancellation(signal);
       const entry = queue.items.find((candidate) => candidate.definition.id === id);
       if (entry === undefined || entry.claim?.token !== token || !statuses.includes(entry.status)) fail("stale claim token or invalid transition");
