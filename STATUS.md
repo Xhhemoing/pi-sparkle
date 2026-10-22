@@ -4,7 +4,7 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/soul-large-task-results-20261022
-- Commit: 10898364dc3597c8e691397d7f6ae668da850f14
+- Commit: b01196623d127882de640f53d8fbd83b48b93bf5
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
@@ -15,6 +15,6 @@
 - [ ] Owner: review [PR #66](https://github.com/Xhhemoing/pi-sparkle/pull/66), its bounded short-task result and CI; keep early completion explicit pending broader evidence.
 - [ ] Owner: review [PR #65](https://github.com/Xhhemoing/pi-sparkle/pull/65), retaining initial failures and later interventions.
 - [ ] Before adopting the older direct helper candidate: correct and retest its kill-error/successful-reap regression; preserve the original Soul boundary.
-- [ ] Owner: decide the next independent task only after scope compatibility and diagnosable checks; the broader 15-task evaluation remains incomplete.
+- [ ] Owner: decide the next controlled comparison after correcting prompt-file/scope setup, making checks diagnosable and matching executor/prompt/worker deadline; the broader 15-task evaluation remains incomplete.
 - [ ] Maintainer, after an evidence-based owner decision: retain useful paths and split relevant hotspots; P4/P5 and new experiments/adaptation/learning remain frozen.
 - [ ] Existing owners: retain [earlier unresolved obligations](tasks/archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production approval.
