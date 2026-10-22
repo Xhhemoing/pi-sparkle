@@ -21,7 +21,7 @@ export async function installManagedSettlementFixture(appRoot: string, mode: "to
   const original = await readFile(executor);
   const source = original.toString("utf8");
   const opening = "SparkleKernel.fromFactory(() => new Agent({";
-  const closing = "}), gate.armed ? { stopAfterTurn:";
+  const closing = "}), gate.armed";
   assert.equal(source.split(opening).length, 2, "unique real Agent construction seam");
   assert.equal(source.split(closing).length, 2, "unique real Agent construction closing seam");
   await mkdir(signals);
@@ -78,7 +78,7 @@ export function decorate(agent, signal, request) {
     await writeFile(fixture, code, "utf8");
     await writeFile(executor, 'import { decorate as managedSettlementFixture } from "./managed-driver-settlement-fixture.mjs";\n' +
       source.replace(opening, "SparkleKernel.fromFactory(() => managedSettlementFixture(new Agent({")
-        .replace(closing, "}), signal, request), gate.armed ? { stopAfterTurn:"), "utf8");
+        .replace(closing, "}), signal, request), gate.armed"), "utf8");
   } catch (error) {
     await writeFile(executor, original);
     await rm(fixture, { force: true });
