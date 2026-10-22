@@ -74,8 +74,9 @@ test("one advance retains the original candidate result and detached review prog
 test("concurrent advances rely on atomic controller claims and execute one item only once", async () => fixture([item("a")], async ({ controller, other, calls }) => {
   const values = await Promise.all([advanceProject(controller), advanceProject(other)]);
   assert.deepEqual(calls(), ["a"]);
-  assert.equal(values.filter((value) => value.result?.status === "ready-for-review").length, 1);
-  assert.equal(values.filter((value) => value.result?.status === "no-ready-task").length, 1);
+  const resultDiagnostics = JSON.stringify(values.map((value) => value.result));
+  assert.equal(values.filter((value) => value.result?.status === "ready-for-review").length, 1, resultDiagnostics);
+  assert.equal(values.filter((value) => value.result?.status === "no-ready-task").length, 1, resultDiagnostics);
   assert.equal((await controller.ledger.list()).filter((action) => action.kind === "candidate-write").length, 1);
 }));
 

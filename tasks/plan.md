@@ -17,6 +17,8 @@ Deliver via the existing active plan/checklist and a new pi-sparkle PR; exact co
 
 ### Expansion result and decision
 
+Delivery follow-up: PR #65 head `ab114aec` passed both OS smoke jobs, but the complete Ubuntu suite twice returned 4,063 pass / 1 fail / 2 skip at `advance-project.test.ts:78`. Exactly-one-dispatch passed; the expected ready-for-review count was zero. An equivalent-source Windows targeted run passed 10/10. The existing assertions now include both result objects without weakening their criteria; that targeted test passed locally, and the diagnostic candidate's hosted quality job passed. This does not establish a fix or explain the earlier failures: runtime behavior is unchanged. The maintainer owns the unresolved concurrency/acceptance investigation; capture result.status/reason and related artifacts on recurrence before choosing a fix. Preserve all failed attempts and current-head hosted delivery status in PR #65. No runtime feature expansion or additional Soul model trials; the comparison results below remain unchanged.
+
 Both new pairs are complete, with no task-controlled model/build overlap, retries or in-run operator intervention. Numeric input reproduced three failures in seven external tests despite all 60 existing crate tests passing. Archive input's seven tests passed but omitted all eight required input classes; its red result was a test-coverage gap. The host checker and task scope received independent review before execution; the archive checker was corrected to distinguish all three nonfinite numbers and conserve the boundary fixture dataset before any measured run.
 
 | Task / arm | Measured elapsed | Input / cache-read / output tokens | Measured outcome | Extra post-run interventions | Final selected-scope quality |
