@@ -79,6 +79,50 @@ test("exact snapshot supports file include prefixes and refuses absent or exclud
   assert.throws(() => captureExactSnapshot(root, { includePrefixes: [".git"] }), /include|excluded/i);
 });
 
+test("optional include prefixes preserve absence and capture creation deletion and exact bytes", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "outside"), "unselected");
+  const manifest = { optionalIncludePrefixes: ["new.txt", "unused.txt"] };
+  const absent = captureExactSnapshot(root, manifest);
+  assert.equal(absent.fileCount, 0);
+  fs.writeFileSync(path.join(root, "outside"), "changed outside scope");
+  assert.equal(sameExactSnapshot(absent, captureExactSnapshot(root, manifest)), true);
+  fs.writeFileSync(path.join(root, "new.txt"), "good");
+  const created = captureExactSnapshot(root, manifest);
+  assert.equal(created.fileCount, 1);
+  assert.equal(sameExactSnapshot(absent, created), false);
+  fs.writeFileSync(path.join(root, "new.txt"), "evil");
+  assert.equal(sameExactSnapshot(created, captureExactSnapshot(root, manifest)), false);
+  fs.rmSync(path.join(root, "new.txt"));
+  assert.equal(sameExactSnapshot(created, captureExactSnapshot(root, manifest)), false);
+  assert.equal(sameExactSnapshot(absent, captureExactSnapshot(root, manifest)), true);
+});
+
+test("optional prefixes do not relax required paths exclusions or combined bounds", (t) => {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, "required"), "ok");
+  assert.equal(captureExactSnapshot(root, { includePrefixes: ["required"], optionalIncludePrefixes: ["missing"] }).fileCount, 1);
+  assert.throws(() => captureExactSnapshot(root, { includePrefixes: ["missing"], optionalIncludePrefixes: ["required"] }), /include|missing/i);
+  for (const prefix of ["../outside", "/absolute", "a/../b", "C:\\outside", "", "a\0b"]) {
+    assert.throws(() => captureExactSnapshot(root, { optionalIncludePrefixes: [prefix] }), /manifest|prefix|path/i);
+  }
+  assert.throws(() => captureExactSnapshot(root, { optionalIncludePrefixes: ["required"], excludePrefixes: ["required"] }), /include|excluded/i);
+  assert.throws(() => captureExactSnapshot(root, { optionalIncludePrefixes: [".git"] }), /include|excluded/i);
+  const optional = Array.from({ length: 256 }, (_, index) => `optional-${index}`);
+  assert.throws(() => captureExactSnapshot(root, { includePrefixes: ["required"], optionalIncludePrefixes: optional }), /prefix|bounded|limit/i);
+  assert.throws(() => captureExactSnapshot(root, { optionalIncludePrefixes: ["required"] }, { maxFiles: 1, maxBytes: 1 }), /byte.*limit|limit.*byte/i);
+  assert.equal(sameExactSnapshot(captureExactSnapshot(root), captureExactSnapshot(root, { optionalIncludePrefixes: [] })), true);
+  assert.equal(sameExactSnapshot(captureExactSnapshot(root, { includePrefixes: ["required"] }),
+    captureExactSnapshot(root, { optionalIncludePrefixes: ["required"] })), false);
+});
+
+test("optional include prefixes refuse linked ancestors", (t) => {
+  const root = fixture(t);
+  fs.mkdirSync(path.join(root, "actual"));
+  fs.symlinkSync(path.join(root, "actual"), path.join(root, "linked"), process.platform === "win32" ? "junction" : "dir");
+  assert.throws(() => captureExactSnapshot(root, { optionalIncludePrefixes: ["linked/missing"] }), /link|directory|include/i);
+});
+
 test("exact snapshot refuses nonempty allowed output directories", (t) => {
   const root = fixture(t);
   fs.mkdirSync(path.join(root, "out"));

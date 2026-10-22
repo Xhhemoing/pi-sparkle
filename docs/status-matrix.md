@@ -1,5 +1,11 @@
 # Status matrix (Developer Preview)
 
+## Current delivery reconciliation (2026-10-22)
+
+PRs #65/#66/#69 are merged at main `9f883e4100bef61782e3aaab54bfebf8f541eb3a`; merged-main [CI](https://github.com/Xhhemoing/pi-sparkle/actions/runs/39757666467) and [recovery regression](https://github.com/Xhhemoing/pi-sparkle/actions/runs/39757666477) passed. #67 remains open. This is delivery evidence, not adoption of a Soul candidate, a general outcome benefit or a freeze decision. Later dated sections below retain their original scoped evidence.
+
+The owner authorized bounded multi-stage blocker repairs and dependent-stage end-to-end verification. The [active plan](../tasks/plan.md) owns its acceptance and current results; prior failed native stages remain failures until this new candidate is independently verified. P4/P5, adaptation/learning, production and the broader 15-task evaluation remain open/frozen as applicable. Original Soul is outside the writable and trial-input boundary; this continuation uses retained isolated synthetic copies.
+
 > Current direction (2026-10-21): integration through PR #62 is complete. The [active plan](../tasks/plan.md) now prioritizes completed-document cleanup and an isolated Soul test-version pilot with synthetic inputs; original Soul remains untouched. The broader 15-task comparison is deferred. P4/P5 and new experiments/adaptation/learning features remain frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them. Historical scoped claims and unresolved safety/approval conditions remain binding.
 
 ## P3 controlled-driver combinations accepted locally (2026-10-21)

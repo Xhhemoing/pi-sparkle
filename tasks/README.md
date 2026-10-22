@@ -1,10 +1,12 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
+The owner-approved [project-agent roadmap](plan.md#project-agent-roadmap-2026-10-22) defines A–F: close current delivery, continuous milestone execution, safe recovery, project context, controlled planning, and outcome evaluation. [Stage A](plan.md#stage-a-close-existing-delivery) and [Stage B](plan.md#stage-b-continuous-milestone-delivery) include implementation steps, file ownership and verification commands. The owner has now authorized A/B execution: first reconcile the separately running A delivery, then implement B in a suitable isolated workspace. Until A is accepted, B is read-only preparation. C–F remain unstarted; existing P4/P5, adaptation/learning and experiment boundaries are not lifted.
+
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The current authorized work reconciles delivered status, repairs the recorded multi-stage blockers and verifies dependent-stage delivery on synthetic isolated copies. PRs #65/#66/#69 are merged and merged-main CI passed; #67 remains open. The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are retained as prior evidence. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
 
 ## Authoritative Files
 
-- [`plan.md`](plan.md): current scope, order, acceptance criteria and handoff links.
+- [`plan.md`](plan.md): approved roadmap, current scope, A/B steps and commands, acceptance criteria, dated runtime evidence and handoff links.
 - [`todo.md`](todo.md): unfinished work only, at most 25 lines.
 - [`migration-todo.md`](migration-todo.md): historical slice details and retained constraints; its old next steps do not override the active freeze.
 - [`adaptive-plan.md`](adaptive-plan.md) and [`adaptive-todo.md`](adaptive-todo.md): preserved adaptive-loop constraints; paused pending the A/B decision.

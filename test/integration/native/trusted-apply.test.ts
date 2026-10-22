@@ -85,7 +85,7 @@ test("trusted apply binds checked binary/empty/LF files to the source tree despi
     git(repo, ["config", "core.autocrlf", "true"]);
     let prepared = false;
     const applied = await new NativeApplySession().apply({
-      sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY),
+      sourceRepo: repo, result, trustedVerification: prepareTrustedVerification({ ...VERIFY, snapshotManifest: { optionalIncludePrefixes: [] } }),
       onPrepared: async (target) => {
         assert.equal(Object.isFrozen(target), true);
         assert.equal(target.sourceRevision, result.sourceRevision);
@@ -121,6 +121,7 @@ test("trusted apply refuses command mismatch and every partial manifest", async 
     const descriptors = [
       prepareTrustedVerification({ command: process.execPath, args: ["-e", "process.exit(0)"] }),
       prepareTrustedVerification({ ...VERIFY, snapshotManifest: { includePrefixes: ["value.txt"] } }),
+      prepareTrustedVerification({ ...VERIFY, snapshotManifest: { optionalIncludePrefixes: ["value.txt"] } }),
       prepareTrustedVerification({ ...VERIFY, snapshotManifest: { excludePrefixes: ["uncovered"] } })
     ];
     for (const trustedVerification of descriptors) {

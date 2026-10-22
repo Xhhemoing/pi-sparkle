@@ -42,7 +42,7 @@ async function fixture(body: (value: {root: string; sourceRepo: string; stateRoo
       yield* new ProtocolChildExecutor().execute(request, signal);
     } }) });
   await controller.store.create(createWorkQueue({ id: "integration", authorityRef: "host:test", items: recipes.map((recipe, index) => ({
-    id: recipe.id, goal: `Repair ${recipe.id}`, dependencies: index === 0 || !dependent ? [] : ["a"], allowedScope: [`${recipe.id}.txt`],
+    id: recipe.id, goal: `Repair ${recipe.id}`, dependencies: index === 0 || !dependent ? [] : ["a"], allowedScope: [`${recipe.id}.txt`, `optional-${recipe.id}.txt`],
     priority: 90-index, acceptance: [recipe]
   })) }));
   try { await body({ root, sourceRepo, stateRoot, queuePath, controller, recipes, calls: () => calls }); }
@@ -106,6 +106,30 @@ test("explicit host SDK integration lets a dependent task start only from the in
   assert.equal(value.calls(), 2); assert.equal(git(second.candidatePath!, ["rev-parse", "HEAD"]), applied.appliedRevision);
   assert.equal(await readFile(path.join(second.candidatePath!, "a.txt"), "utf8"), "after");
   assert.equal(await readFile(path.join(first.candidatePath!, "a.txt"), "utf8"), "after");
+  await value.controller.accept("b");
+  const secondInput = await hostApplyInput(value, second.actionId!);
+  const secondIntent = await value.controller.ledger.prepare({ idempotencyKey: `integration:${second.actionId}:apply`, kind: "candidate-apply",
+    input: { candidateActionId: second.actionId, sourceRevision: secondInput.result.sourceRevision, candidatePath: secondInput.result.candidatePath } });
+  let secondClaim = await value.controller.ledger.claim(secondIntent.actionId, secondIntent.version);
+  const secondApplied = await new NativeApplySession().apply({ ...secondInput, onPrepared: async (target) => {
+    assert.equal(git(value.sourceRepo, ["rev-parse", "HEAD"]), secondInput.result.sourceRevision);
+    secondClaim = await value.controller.ledger.checkpoint(secondClaim, { result: target,
+      evidence: { summary: "second target recorded before source mutation", references: [`git:${target.appliedRevision}`] } });
+  } });
+  await value.controller.ledger.complete(secondClaim, { result: secondApplied,
+    evidence: { summary: "second source revision observed", references: [`git:${git(value.sourceRepo, ["rev-parse", "HEAD"])}`] } });
+  assert.equal(secondApplied.status, "APPLIED");
+  assert.equal(secondApplied.reverified, true);
+  assert.equal(git(value.sourceRepo, ["rev-parse", "HEAD"]), secondApplied.appliedRevision);
+  assert.equal(git(value.sourceRepo, ["status", "--porcelain", "--ignored"]), "");
+  for (const id of ["a", "b"]) {
+    assert.equal(await readFile(path.join(value.sourceRepo, `${id}.txt`), "utf8"), "after");
+    await assert.rejects(readFile(path.join(value.sourceRepo, `optional-${id}.txt`)), /ENOENT/);
+    const final = spawnSync(process.execPath, [`check-${id}.mjs`], { cwd: value.sourceRepo, encoding: "utf8", windowsHide: true });
+    assert.equal(final.status, 0, final.stderr || final.stdout);
+  }
+  assert.equal((await value.controller.status()).queue.items.every((item) => item.status === "accepted"), true);
+  assert.equal((await value.controller.runNext()).status, "no-ready-task");
 }));
 
 
