@@ -456,7 +456,7 @@ export class NativeWriteSession {
       let assignment: TaskAssignment | undefined;
       if (staticRouting !== undefined && learned !== undefined) {
         try {
-          const prompt = formatChildPrompt({ ...task, acceptanceCriteria: task.acceptanceCriteria });
+          const prompt = formatChildPrompt(task);
           selected ??= selectStaticWriteModel(staticRouting, { taskId: task.taskId, objective: preflight.objective, prompt }, learned, remainingTime());
           assertStaticWriteAdmission(selected, prompt, remainingTime());
           const decision = selected.assignment.decision;
