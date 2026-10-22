@@ -138,6 +138,29 @@ test("direct task repairs in the same retained candidate only when bounded attem
   });
 });
 
+for (const { label, options, expectedBudgetMs } of [
+  { label: "default", options: {}, expectedBudgetMs: 300_000 },
+  { label: "attempts only", options: { maxAttempts: 2 }, expectedBudgetMs: 300_000 },
+  { label: "explicit smaller wall budget", options: { maxWallTimeMs: 30_000 }, expectedBudgetMs: 30_000 },
+  { label: "explicit larger wall budget", options: { maxWallTimeMs: 600_000 }, expectedBudgetMs: 600_000 }
+]) {
+  test(`direct task records the worker deadline for ${label}`, async () => {
+    await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
+      const result = await startDevelopmentTask({
+        stateRoot, sandboxRoot, sourceRepo: repo, objective: "Update value.ts", verification: checkValue(),
+        executorFactory: writer(), ...options
+      });
+      assert.equal(result.acceptance.accepted, true, result.reason);
+      const events = await new EventStore(stateRoot, result.runId).readAll();
+      const requests = events.events.flatMap((event) => event.type === "CHILD_MESSAGE" &&
+        event.payload.message.type === "TASK_REQUEST" ? [event.payload.message] : []);
+      assert.equal(requests.length, 1);
+      assert.deepEqual(requests[0]!.limits, { maxAttempts: 1, timeoutMs: expectedBudgetMs, maxWallTimeMs: expectedBudgetMs });
+      assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
+    });
+  });
+}
+
 test("direct task cancellation retains evidence and does not accept the candidate", async () => {
   await withRepo(async ({ repo, stateRoot, sandboxRoot }) => {
     const controller = new AbortController();
@@ -179,6 +202,9 @@ test("direct task refuses invalid limits and dirty source before executor alloca
       executorFactory: () => { calls++; throw new Error("factory must not be allocated"); }
     };
     await assert.rejects(startDevelopmentTask({ ...input, maxAttempts: 0 }), /maxAttempts/);
+    for (const maxWallTimeMs of [0, Infinity, 1_800_001]) {
+      await assert.rejects(startDevelopmentTask({ ...input, maxWallTimeMs }), /maxWallTimeMs/);
+    }
     await assert.rejects(startDevelopmentTask({ ...input, objective: " " }), /objective/);
     await writeFile(path.join(repo, "value.ts"), AFTER);
     await assert.rejects(startDevelopmentTask(input), /must be clean/);
@@ -193,7 +219,7 @@ test("direct task snapshots caller-owned roots, executor and verifier before asy
     let calls = 0;
     const input = {
       stateRoot, sandboxRoot, sourceRepo: repo, objective: "Update value.ts", verification: checkValue(),
-      executorFactory: writer(() => { calls++; })
+      executorFactory: writer(() => { calls++; }), maxWallTimeMs: 600_000
     };
     const pending = startDevelopmentTask(input);
     input.stateRoot = path.join(root, "redirected-state");
@@ -202,11 +228,17 @@ test("direct task snapshots caller-owned roots, executor and verifier before asy
     input.objective = "caller mutated objective";
     input.verification.args.splice(0, input.verification.args.length, "-e", "process.exit(1)");
     input.executorFactory = () => { throw new Error("caller replaced factory"); };
+    input.maxWallTimeMs = 1;
     const result = await pending;
     assert.equal(calls, 1);
     assert.equal(result.acceptance.accepted, true, result.reason);
     assert.equal(path.dirname(result.candidatePath), sandboxRoot);
     assert.ok(result.artifact.path.startsWith(`${stateRoot}${path.sep}`));
+    const events = await new EventStore(stateRoot, result.runId).readAll();
+    const request = events.events.flatMap((event) => event.type === "CHILD_MESSAGE" &&
+      event.payload.message.type === "TASK_REQUEST" ? [event.payload.message] : [])[0];
+    assert.equal(request?.limits.timeoutMs, 600_000);
+    assert.equal(request?.limits.maxWallTimeMs, 600_000);
     assert.equal(await readFile(path.join(repo, "value.ts"), "utf8"), BEFORE);
   });
 });

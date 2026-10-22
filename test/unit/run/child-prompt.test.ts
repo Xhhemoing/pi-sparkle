@@ -59,3 +59,17 @@ test("read-only roles are told they cannot write the workspace", () => {
   assert.match(prompt, /Write access: forbidden/);
   assert.match(prompt, /rubber-stamp|Reject missing tests/i);
 });
+
+test("child prompt defers callable tools to session schemas instead of advertising logical role names", () => {
+  const implementer = defaultAgentProfiles().find((profile) => profile.role === "implementer");
+  assert.ok(implementer);
+  const prompt = formatChildPrompt({ role: "implementer", objective: "Update the existing parser", profile: implementer });
+  assert.doesNotMatch(prompt, /Allowed tools:/);
+  for (const logicalName of implementer.allowedToolNames) {
+    assert.ok(!prompt.includes(logicalName), `logical tool ${logicalName} must not be advertised as callable`);
+  }
+  assert.match(prompt, /callable tools.*session/i);
+  assert.match(prompt, /schemas/i);
+  assert.match(prompt, /Write access: allowed/);
+  assert.match(prompt, /Role: implementer/);
+});

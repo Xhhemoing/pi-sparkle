@@ -1,6 +1,7 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Current work optimizes one existing short-task completion path: an explicit default-off executor option stops after a valid structured result and its complete turn. Four matched Soul archive runs passed host checks; the plan records observed time/reference-price differences and limits. Review caught and fixed loss of accepted steering before live runs. PR #65 remains open and its historical comparisons/quality findings remain evidence. Original Soul stays untouched; no patch application, automatic task classifier or writable `sparkle_delegate` is introduced. P4/P5 and unrelated runtime expansion stay frozen. This bounded experiment does not complete the deferred 15-task evaluation.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
+
 ## Authoritative Files
 
 - [`plan.md`](plan.md): current scope, order, acceptance criteria and handoff links.
