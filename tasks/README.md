@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Main includes #65/#66/#69. The directory-conflict task now has separate integration-test ownership, declared dependency visibility and identical complete worker/final acceptance in the retained private Soul test copy. Its four-attempt comparison produced one accepted candidate per path and one upstream-request failure per path; all failures and missing usage remain recorded. See the plan and delivery PR for verification and limits. Original Soul was neither read nor changed. The broader 15-task evaluation is deferred; P4/P5/controller expansion/adaptation/learning remain frozen.
 
 ## Authoritative Files
 

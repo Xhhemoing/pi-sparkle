@@ -1,5 +1,57 @@
 # Active implementation plan
 
+## Current result: fileplan acceptance configuration (2026-10-22)
+
+Owner: coordinating agent. Four registered attempts and independent reviews are complete; delivery requires the published branch and current green hosted CI linked from its PR. The user authorized syncing main, correcting directory-conflict task test paths, dependencies and complete acceptance, verification and independent review, then one small comparison using Soul's existing isolated synthetic copy. Original Soul was neither read nor changed. Main was fast-forwarded to `9f883e4100bef61782e3aaab54bfebf8f541eb3a`; #65/#66/#69 are merged. [#67](https://github.com/Xhhemoing/pi-sparkle/pull/67), [#68](https://github.com/Xhhemoing/pi-sparkle/pull/68) and [#70](https://github.com/Xhhemoing/pi-sparkle/pull/70) remain separate owner decisions. This series uses main, not those open branches.
+
+Delivery branch: [codex/fileplan-acceptance-20261022](https://github.com/Xhhemoing/pi-sparkle/tree/codex/fileplan-acceptance-20261022). Exact commands, review conclusions and current CI belong in its PR. Historical sections below retain their original context; their old open-PR wording does not override this reconciliation.
+
+### Configuration and acceptance
+
+The earlier directory-conflict task allowed writing fixtures only in production source, while the original safety test scans every source file, including `cfg(test)`. The old worker entry ran external tests but omitted original acceptance. The same fixed candidate passed the old external entry (8/8) and failed the old final entry on the original no-write test. The earliest checker also lacked declared test dependencies; the inherited checker already supplied `soul_testkit`, `tempfile` and `uuid`, which are not claimed as new fixes.
+
+The corrected configuration lives in the retained private `.agent_workspace/fileplan-acceptance/`:
+
+- Exactly two writable paths: `crates/soul-fileplan/src/plan.rs` and `crates/soul-fileplan/tests/destination_feasibility.rs`. Synthetic writing fixtures belong only in the latter. The precreated test is empty; production input retains the actual bug. Input commit: `4e29de3da74c22bd6692baf81c057e9f24c23ee5`.
+- Worker `run_candidate_tests` and the independent final verifier both invoke the complete final entry: eight external tests against the actual library, 18 actual crate units, all six original integration suites (48 Windows tests), candidate integration tests, rustfmt on both paths and before/after protected-file comparisons. The original safety, authorization and preview-only assertions remain unchanged.
+- The host-owned integration executable includes the original sources unchanged and supplies all already-declared normal and dev dependencies. A real `hex` dependency test failed with E0433 before the correction and passed unchanged afterward. No manifest, lockfile, runtime or public contract changed.
+- Preserve partial stdout/stderr on timeout. Existing limits remain 55 seconds inside the checker and 60 seconds outside. Actual final checks in the series took 34.318–45.589 seconds. There is no new process-containment claim.
+
+Completed acceptance:
+
+- [x] Retain old worker/final disagreement and source-fixture rejection; relocate the same fixture into the assigned integration file and obtain GREEN.
+- [x] Original defect RED; compliant correction GREEN (8 external + 18 units + 49 integration); source-write, protected edit, failing added test and both formatting negative controls reject; normal-dependency RED/GREEN succeeds (8+18+50).
+- [x] Real native zero-model preflight invokes complete worker/final verification and rejects an incorrect PASSED self-report; cleanup has no unresolved state. The `effectsSettled` field was absent, not explicitly true.
+- [x] Independent specification and quality reviews close after fixing preflight cleanup-state propagation; registered series runs without configuration changes or favorable reruns.
+- [x] Retain all four outcomes and complete independent candidate/evidence review. Host acceptance, independent review and owner adoption remain distinct.
+
+### Registered comparison and observations
+
+Serial order was direct/native/native/direct, one attempt each; same known task and input, configured `mine/gpt-6.1-sol/high`, 8192 output tokens, 300-second whole-arm/provider budgets, zero provider retries/fallbacks, `NODE_USE_ENV_PROXY=1`. Both use the real SDK prompt/tool path; native additionally uses its existing report/grounding protocol and `stopAfterTaskResult`. Existing native snapshot options allow 512 files/16 MiB for the 444-file input. No controller expansion or new mechanism was added. An idle interval separated the first three attempts from the fourth; that idle interval is excluded from arm times, and these are not simultaneous measurements.
+
+| Lane | Path | Full acceptance | Arm seconds | Request usage | Worker reference USD |
+|---|---|---|---:|---:|---:|
+| 01 | direct | PASS; independent review passed; 8+18+54 tests | 236.029 | 11/11 | 0.1243756, complete |
+| 02 | native | PASS; independent review passed; 8+18+53 tests | 206.086 | 10/10 | 0.1049380, complete |
+| 03 | native | FAIL; HTTP 502 before any source/test change | 57.875 | 2/3 | 0.0206544 known subtotal |
+| 04 | direct | FAIL; upstream HTTP/2 stream failure after production edit | 105.108 | 3/4 | 0.0466392 known subtotal |
+
+Both paths delivered one accepted candidate in two attempts. The two successful candidates repair all eight category-directory conflicts and add six/five independent regressions respectively. Lane 03 retained the original 6-pass/2-fail external result; lane 04 passed external8, units18 and original integration48 but never added required regressions. Both failed lanes retained the original empty test's CRLF formatting failure. A working partial production edit is not complete task delivery. Upstream failure causes are not established, and these failures do not demonstrate native or direct coding inferiority.
+
+All four final checks preserved 442 protected files out of 444, with zero extras; all four request meters and cleanup settled. The total measured arm time is 605.098 seconds. Usage is present for 26/28 requests; the known worker reference subtotal is USD 0.2966072, and the total is unknown. Registered rates are USD 2/0.1/10 per million uncached input/cache-read/output tokens, not verified relay billing; reasoning is not double-counted. Actual relay charges and coordinator/reviewer costs are unknown, not zero.
+
+Preparation is excluded from arm clocks: 14 recorded validation scenarios total 371.286 seconds; the real native zero-model preflight took 79.286 seconds; the direct-child timeout probe took 0.643 seconds. These do not account for all preparation/debugging/review effort. Previous failed attempts remain unchanged. One successful sample per path on a known task cannot establish a general cost/speed benefit, causality, reliability advantage or a 15-task result.
+
+### Verification, privacy and next action
+
+Private evidence remains in the attached `fileplan-acceptance` worktree: `validation/*.json` plus stdout/stderr, `preparation-summary.json`, `fileplan/protocol.json`, `fileplan/lanes/01..04/result.json`, per-lane independent reviews, `fileplan/checks/*.json` and `analysis.json`. Preserve this worktree and the earlier `soul-pilot-cleanup` evidence. Private scripts, copied source, candidates and transcripts are not published; the repository diff is the active plan/checklist/README and generated STATUS only.
+
+Commands: `python -B validate_config.py --phase initial|legacy-entry|configuration|runtime` (each phase separately), `python -B validation/relocate_fixture.py`, `python -B validation/normal_dependencies.py --phase red|green` (separately), `python -B validation/timeout_output.py`; then from the pi-sparkle worktree `pnpm exec tsx .agent_workspace/fileplan-acceptance/run.ts fileplan --native-preflight` and individual lanes `01`, `02`, `03`, `04`; finally `python -B .agent_workspace/fileplan-acceptance/analyze.py`. The Windows Python 3.13 and Rust 1.83 toolchains use existing copied build artifacts. No dependencies were installed in original Soul. The pi-sparkle worktree used `pnpm install --offline --frozen-lockfile --ignore-scripts` with no lockfile change.
+
+Run `pnpm status`, `pnpm workflow:check`, `git diff --check` and targeted Markdown link/content review for the tracked documentation. Hosted CI validates that repository revision, not the private model trials. No local full gate or prerelease run is claimed for this documentation-only diff.
+
+Next owner action: review this configuration and the two accepted isolated candidates before deciding what to retain. Applying to original Soul, merging open PRs, release and deployment remain outside this task. The broader 15-task comparison is deferred. P4/P5, controller expansion and new adaptation/learning features remain frozen pending explicit owner decision. Retain the older helper's unresolved kill-error/successful-reap defect and other checklist obligations.
+
 ## Current result: single-task execution parity (2026-10-22)
 
 Delivery: [PR #69](https://github.com/Xhhemoing/pi-sparkle/pull/69). Owner: coordinating agent. Two execution defects are fixed and the registered four-run Soul test-copy comparison is complete. The observed successful candidates have similar cost and quality; this does not prove a general advantage. Original Soul was not accessed or changed during this follow-up. Work is based on reviewed but unmerged #66 (`95c7970c`); #65/#66/#67 remain separate owner decisions. Keep P4/P5, controller expansion and adaptation/learning frozen.
