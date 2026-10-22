@@ -6,6 +6,8 @@ import {
   isRunId,
   isTaskId,
   isEpisodeId,
+  isResourceVersionId,
+  type ResourceVersionId,
   type AgentInstanceId,
   type EventId,
   type MessageId,
@@ -240,6 +242,7 @@ export interface ModelRoutedPayload {
   /** Cold-start lookup score. Not a calibrated probability. */
   confidence: ConfidenceScore;
   coldStartRoutingScore?: ConfidenceScore;
+  routingPolicyResourceVersionId?: ResourceVersionId | null;
   approvalPlan: ApprovalPlan;
   statusAfterRoute: "RUNNING" | "WAITING_FOR_USER";
   policyVersion: string;
@@ -528,6 +531,7 @@ export function routingContextFields(source: {
   readonly behaviorDistribution: Readonly<Record<string, number>>;
   readonly agentRole?: AgentRole | undefined;
   readonly coldStartRoutingScore?: ConfidenceScore | undefined;
+  readonly routingPolicyResourceVersionId?: ResourceVersionId | null | undefined;
 }): Pick<
   ModelRoutedPayload,
   | "family"
@@ -538,8 +542,9 @@ export function routingContextFields(source: {
   | "rejections"
   | "behaviorDistribution"
 > &
-  Partial<Pick<ModelRoutedPayload, "agentRole" | "coldStartRoutingScore">> {
+  Partial<Pick<ModelRoutedPayload, "agentRole" | "coldStartRoutingScore" | "routingPolicyResourceVersionId">> {
   return {
+    ...(source.routingPolicyResourceVersionId === undefined ? {} : { routingPolicyResourceVersionId: source.routingPolicyResourceVersionId }),
     family: source.family,
     featureVersion: source.featureVersion,
     modelVersion: source.modelVersion,
@@ -821,6 +826,10 @@ function payloadError(type: M0EventType, payload: unknown): string | undefined {
       return undefined;
     }
     case "MODEL_ROUTED": {
+      if (payload.routingPolicyResourceVersionId !== undefined && payload.routingPolicyResourceVersionId !== null &&
+          !isResourceVersionId(payload.routingPolicyResourceVersionId)) {
+        return "payload.routingPolicyResourceVersionId must be a ResourceVersionId or null";
+      }
       if (!isTaskId(payload.taskId)) return "payload.taskId must be a valid TaskId";
       if (!["actor", "critic", "router", "judge", "tool", "human"].includes(String(payload.role))) {
         return "payload.role must be a known flowchart role";

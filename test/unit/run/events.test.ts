@@ -1,3 +1,5 @@
+import { assignTasks } from "../../../src/routing/assign.js";
+import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -182,4 +184,20 @@ test("TRACKING_ASSESSMENT fail-closed when assessmentHash does not match hashAss
       ),
     /assessmentHash|mismatch/
   );
+});
+
+test("MODEL_ROUTED validates nullable resource provenance without inventing missing historical evidence", () => {
+  const decision = assignTasks({ catalog: catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" }),
+    tasks: [{ taskId: createTaskId(UUID), role: "implementer", objective: "Implement cache" }] })[0]!.decision;
+  for (const version of [undefined, null, "rsv_test"]) {
+    const event = makeEvent("MODEL_ROUTED", { ...decision,
+      ...(version === undefined ? {} : { routingPolicyResourceVersionId: version }) });
+    const parsed = validateEvent(JSON.parse(JSON.stringify(event)));
+    assert.deepEqual(parsed, event);
+    if (version === undefined) assert.equal("routingPolicyResourceVersionId" in parsed.payload, false);
+  }
+  for (const version of ["", "current", 12, {}, []]) {
+    assert.throws(() => validateEvent(makeEvent("MODEL_ROUTED", { ...decision,
+      routingPolicyResourceVersionId: version })), /routingPolicyResourceVersionId/);
+  }
 });

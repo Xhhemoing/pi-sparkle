@@ -8,7 +8,7 @@ import { GatedExecutor, ProtocolChildExecutor } from "../../../src/testing/fake-
 import { EventStore } from "../../../src/run/event-store.js";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../../../src/execution/contract.js";
 import type { MessageId } from "../../../src/domain/ids.js";
-import { createRunId } from "../../../src/domain/ids.js";
+import { createRunId, createResourceVersionId } from "../../../src/domain/ids.js";
 import { createObservationProjector } from "../../../src/pi-adapter/observation-tools.js";
 
 async function roots(body: (root: string) => Promise<void>) {
@@ -116,6 +116,7 @@ test("per-task routing: catalog + learned avoid routes the second task to a diff
     const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
     const routed = events.filter((e) => e.type === "MODEL_ROUTED");
     assert.ok(routed.length === 2, `expected per-task MODEL_ROUTED rows, got ${routed.length}`);
+    assert.ok(routed.every((event) => event.payload.routingPolicyResourceVersionId === undefined));
     const routedModels = new Set(routed.map((e) => (e.payload as unknown as { model: string }).model));
     assert.deepEqual(routedModels, new Set([primary, secondary]));
     await session.shutdown();
@@ -138,6 +139,7 @@ test("native routing canonicalizes cheap policy aliases before and after assignm
       prefer: [{ family: "review", modelId: "cheap" }],
       assignments: [{ role: "reviewer", family: "review", model: "cheap" }]
     }));
+    const resourceVersionId = createResourceVersionId();
     const seen: string[] = [];
     const executor: AgentExecutor = {
       supportedModelIds: [primary, secondary],
@@ -154,7 +156,7 @@ test("native routing canonicalizes cheap policy aliases before and after assignm
       model: { provider: "provider-a", id: "primary" },
       tasks: [{ role: "reviewer", objective: "Review this boundary" }],
       executor,
-      routing: { catalog, learned },
+      routing: { catalog, learnedSnapshot: { policy: learned, resourceVersionId } },
       onProgress: (message) => progress.push(message)
     });
     assert.equal(result.status, "COMPLETED");
@@ -164,6 +166,7 @@ test("native routing canonicalizes cheap policy aliases before and after assignm
     const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
     const routed = events.filter((event) => event.type === "MODEL_ROUTED");
     assert.deepEqual(routed.map((event) => (event.payload as { model: string }).model), [secondary]);
+    assert.deepEqual(routed.map((event) => event.payload.routingPolicyResourceVersionId), [resourceVersionId]);
     assert.deepEqual(routed.map((event) => (event.payload as { eligibleModels: readonly string[] }).eligibleModels), [[primary, secondary]]);
     await session.shutdown();
   });

@@ -8,7 +8,7 @@ import {
   type ModelPolicy,
   type TaskComplexity
 } from "../domain/flowchart.js";
-import type { TaskId } from "../domain/ids.js";
+import { isResourceVersionId, type ResourceVersionId, type TaskId } from "../domain/ids.js";
 import type { AgentRole } from "../domain/roles.js";
 import type { PrivacyClass } from "../routing/capability-registry.js";
 import { catalogModel, oneHotDistribution, type CatalogModel, type CatalogModelInput } from "../routing/catalog-model.js";
@@ -46,6 +46,7 @@ export interface RouteTaskInput {
   readonly family?: string;
   readonly featureVersion?: string;
   readonly agentRole?: AgentRole;
+  readonly routingPolicyResourceVersionId?: ResourceVersionId | null | undefined;
   readonly requiredCapabilities?: readonly string[];
   readonly privacyRequired?: PrivacyClass;
   readonly contextNeeded?: number;
@@ -78,6 +79,8 @@ export interface RoutingDecision {
   readonly rejections: readonly RoutingRefusal[];
   readonly behaviorDistribution: Readonly<Record<string, number>>;
   readonly agentRole?: AgentRole | undefined;
+  /** Missing is historical/unobserved; null is an observed absence of active policy. */
+  readonly routingPolicyResourceVersionId?: ResourceVersionId | null | undefined;
   readonly preferredConstraint?: string | undefined;
 }
 
@@ -158,6 +161,10 @@ function validateConfig(config: ModelRouterConfig): readonly CatalogModel[] {
 }
 
 function validateInput(input: RouteTaskInput): void {
+  if (input.routingPolicyResourceVersionId !== undefined && input.routingPolicyResourceVersionId !== null &&
+      !isResourceVersionId(input.routingPolicyResourceVersionId)) {
+    throw new DomainValidationError("routingPolicyResourceVersionId must be a ResourceVersionId or null");
+  }
   if (!Array.isArray(input.modelPolicy.allowedModels) || input.modelPolicy.allowedModels.length === 0 ||
       !input.modelPolicy.allowedModels.every((id) => typeof id === "string" && id.trim() !== "")) {
     throw new DomainValidationError("Route modelPolicy.allowedModels must be a non-empty string array");
@@ -297,6 +304,7 @@ function buildDecision(
     approvalPlan: makeApprovalPlan(input.taskId, selected),
     statusAfterRoute,
     policyVersion,
+    ...(input.routingPolicyResourceVersionId === undefined ? {} : { routingPolicyResourceVersionId: input.routingPolicyResourceVersionId }),
     estimatedCostUsd: selected.estimatedCostUsd,
     estimatedDurationMs: selected.estimatedDurationMs,
     family: resolved.family,

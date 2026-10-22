@@ -1,3 +1,6 @@
+import { ResourceRegistry } from "../../../src/adaptation/registry.js";
+import { saveAdaptationRegistry } from "../../../src/adaptation/promotion.js";
+import { routingPolicyIdentity, routingPolicyContent } from "../../../src/learning/learned-routing.js";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -219,6 +222,11 @@ test("unblock clears the gate's block and resume re-executes the reopened node t
     const generateId = sequenceGenerator();
     const { runId, blockedEventId } = await blockedRun(stateRoot, projectRoot, generateId);
 
+    const registry = new ResourceRegistry();
+    const version = registry.registerBaseline({ identity: routingPolicyIdentity(projectRoot),
+      content: routingPolicyContent({ primaryModelId: "premium", avoid: [], prefer: [] }),
+      author: { kind: "human", identity: "host" } });
+    await saveAdaptationRegistry(stateRoot, registry);
     const afterUnblock = executorYielding(passingResult);
     const unblocked = await unblockFlowchartRun(
       { stateRoot, router: router(), now: () => TS, generateId, executor: afterUnblock },
@@ -252,6 +260,8 @@ test("unblock clears the gate's block and resume re-executes the reopened node t
     assert.deepEqual(afterUnblock.taskIds, [NODE], "the node the block named executed exactly once more");
     assert.equal(resumed.status, "COMPLETED", "the run that could never end now ends");
     assert.equal(resumed.snapshot.nodes[NODE]?.state, "COMPLETED");
+    assert.deepEqual(resumed.snapshot.decisions.map((decision) => decision.routingPolicyResourceVersionId), [null, version.versionId]);
+    assert.deepEqual(resumed.events.filter((event) => event.type === "MODEL_ROUTED").map((event) => event.payload.routingPolicyResourceVersionId), [null, version.versionId]);
 
     // One log, both terminals, in order, and no anomaly anywhere in it.
     assert.deepEqual(terminals(resumed.events), ["RUN_BLOCKED", "RUN_COMPLETED"]);

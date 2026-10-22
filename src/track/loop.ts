@@ -21,7 +21,7 @@ import { type TaskAssignment } from "../routing/assign.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
 import { isAgentRole } from "../domain/roles.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
-import { loadLearnedRouting } from "../learning/learned-routing.js";
+import { loadLearnedRoutingSnapshot } from "../learning/learned-routing.js";
 import type { PublicPriorSnapshot } from "../routing/public-prior.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { withRunLifecycleLock, type RunOutcome } from "../run/coordinator.js";
@@ -124,7 +124,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
     }),
     input.stateRoot
   );
-  const learned = await loadLearnedRouting(input.stateRoot, input.projectRoot);
+  const learnedSnapshot = await loadLearnedRoutingSnapshot(input.stateRoot, input.projectRoot);
   input.signal?.throwIfAborted();
   const split = splitAndAssignForPrimary({
     contract,
@@ -132,7 +132,7 @@ export async function startTrackedRun(input: TrackRunInput): Promise<TrackRunOut
     habits: clarify.habits,
     answers: applied.resolved,
     ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
-    ...(learned !== undefined ? { learned } : {}),
+    learnedSnapshot,
     ...(input.prior !== undefined ? { prior: input.prior } : {})
   });
   const planned = split.children;

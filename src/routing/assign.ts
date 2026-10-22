@@ -1,3 +1,4 @@
+import { DomainValidationError } from "../domain/errors.js";
 import type { AgentRole } from "../domain/roles.js";
 import type { TaskId } from "../domain/ids.js";
 import { flowchartRoleForAgentRole } from "../graph/compile-children.js";
@@ -9,7 +10,7 @@ import {
   type RoutingLimits
 } from "../supervisor/model-router.js";
 import { analyzeTask, type TaskAnalysis } from "./analyze-task.js";
-import { applyLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import { applyLearnedRouting, type LearnedRoutingPolicy, type LearnedRoutingSnapshot } from "../learning/learned-routing.js";
 import {
   pickPreferredModel,
   planAssignmentPolicy,
@@ -42,6 +43,7 @@ export interface AssignTasksInput {
   readonly remainingTimeMs?: number;
   readonly remainingCostUsd?: number;
   readonly learned?: LearnedRoutingPolicy | undefined;
+  readonly learnedSnapshot?: LearnedRoutingSnapshot | undefined;
   readonly prior?: PublicPriorSnapshot | undefined;
 }
 
@@ -59,6 +61,9 @@ const DEFAULT_LIMITS: RoutingLimits = {
  * preferred-model tiers) is computed once per batch, not once per task.
  */
 export function assignTasks(input: AssignTasksInput): readonly TaskAssignment[] {
+  if (input.learned !== undefined && input.learnedSnapshot !== undefined) {
+    throw new DomainValidationError("supply learnedSnapshot or legacy learned, not both");
+  }
   const router = createModelRouter(input.catalog);
   const catalogIds = input.catalog.models.map((model) => model.id);
   const plan = planAssignmentPolicy(router.config.models, catalogIds);
@@ -67,7 +72,7 @@ export function assignTasks(input: AssignTasksInput): readonly TaskAssignment[] 
     ...(input.remainingCostUsd !== undefined ? { remainingCostUsd: input.remainingCostUsd } : {})
   };
   return input.tasks.map((task) =>
-    assignPlanned(router, plan, task, limits, input.learned, input.prior)
+    assignPlanned(router, plan, task, limits, input.learned, input.prior, input.learnedSnapshot)
   );
 }
 
@@ -77,10 +82,11 @@ export function assignOne(
   task: AssignableTask,
   limits: RoutingLimits = DEFAULT_LIMITS,
   learned?: LearnedRoutingPolicy,
-  prior?: PublicPriorSnapshot
+  prior?: PublicPriorSnapshot,
+  learnedSnapshot?: LearnedRoutingSnapshot
 ): TaskAssignment {
   const plan = planAssignmentPolicy(router.config.models, catalogIds);
-  return assignPlanned(router, plan, task, limits, learned, prior);
+  return assignPlanned(router, plan, task, limits, learned, prior, learnedSnapshot);
 }
 
 function assignPlanned(
@@ -89,8 +95,12 @@ function assignPlanned(
   task: AssignableTask,
   limits: RoutingLimits,
   learned?: LearnedRoutingPolicy,
-  prior?: PublicPriorSnapshot
+  prior?: PublicPriorSnapshot,
+  learnedSnapshot?: LearnedRoutingSnapshot
 ): TaskAssignment {
+  if (learned !== undefined && learnedSnapshot !== undefined) {
+    throw new DomainValidationError("supply learnedSnapshot or legacy learned, not both");
+  }
   const analysis = analyzeTask(task.objective, task.role, {
     ...(task.contractRisk !== undefined ? { contractRisk: task.contractRisk } : {}),
     ...(task.contextTokens !== undefined ? { contextTokens: task.contextTokens } : {}),
@@ -98,6 +108,7 @@ function assignPlanned(
   });
   let allowedModels: readonly string[] = [...plan.allowedIds];
   let preferredModel = pickPreferredModel(plan, analysis, prior);
+  learned = learnedSnapshot === undefined ? learned : learnedSnapshot.policy;
   if (learned !== undefined) {
     const applied = applyLearnedRouting(analysis.family, allowedModels, preferredModel, learned);
     allowedModels = [...applied.allowedModels];
@@ -112,6 +123,7 @@ function assignPlanned(
     highRisk: analysis.highRisk,
     family: analysis.family,
     featureVersion: ASSIGN_FEATURE_VERSION,
+    ...(learnedSnapshot === undefined ? {} : { routingPolicyResourceVersionId: learnedSnapshot.resourceVersionId }),
     agentRole: task.role,
     requiredCapabilities: analysis.requiredCapabilities,
     privacyRequired: analysis.privacyRequired,

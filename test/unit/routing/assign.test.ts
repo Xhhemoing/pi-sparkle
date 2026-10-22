@@ -1,7 +1,8 @@
+import { createModelRouter } from "../../../src/supervisor/model-router.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { catalogFromPrimary } from "../../../src/routing/primary-catalog.js";
-import { assignTasks } from "../../../src/routing/assign.js";
+import { assignTasks, assignOne } from "../../../src/routing/assign.js";
 import { parsePublicPriorSnapshot } from "../../../src/routing/public-prior.js";
 import { parseTaskId } from "../../../src/domain/ids.js";
 
@@ -167,4 +168,14 @@ test("local-only work refuses a cloud-general catalog", () => {
       }),
     /No allowed model|privacy/i
   );
+});
+
+test("assignOne refuses contradictory legacy content and an observed no-active snapshot", () => {
+  const catalog = catalogFromPrimary({ primaryModelId: "premium", fastModelId: "cheap" });
+  const task = { taskId: parseTaskId("tsk_provenance"), role: "implementer" as const, objective: "Implement cache" };
+  const legacy = { primaryModelId: "premium", avoid: [{ modelId: "cheap", reason: "avoid" }], prefer: [] };
+  const snapshot = { policy: undefined, resourceVersionId: null } as const;
+  assert.throws(() => assignOne(createModelRouter(catalog), ["premium", "cheap"], task,
+    { remainingTimeMs: 10_000 }, legacy, undefined, snapshot), /learnedSnapshot or legacy learned/);
+  assert.throws(() => assignTasks({ catalog, tasks: [], learned: legacy, learnedSnapshot: snapshot }), /learnedSnapshot or legacy learned/);
 });

@@ -11,7 +11,7 @@ import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { runtimeRoot } from "../persist/state-layout.js";
 import type { NativeRoutingCatalog } from "./routing-catalog.js";
-import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import type { LearnedRoutingPolicy, LearnedRoutingSnapshot } from "../learning/learned-routing.js";
 import { prepareNativeTaskContract, type NativeTaskContractInput } from "./task-contract.js";
 
 export interface NativeModel { readonly provider: string; readonly id: string }
@@ -35,6 +35,7 @@ export interface NativeRoutingInput {
   readonly catalog: NativeRoutingCatalog;
   /** Project learned routing policy (same registry the CLI path loads). */
   readonly learned?: LearnedRoutingPolicy | undefined;
+  readonly learnedSnapshot?: LearnedRoutingSnapshot | undefined;
 }
 
 export interface NativeDelegateInput {
@@ -82,6 +83,11 @@ function canonicalLearnedPolicy(
       assignments: learned.assignments.map((entry) => ({ ...entry, model: canonicalModel(catalog, entry.model) }))
     } : {})
   };
+}
+
+function canonicalLearnedSnapshot(catalog: NativeRoutingCatalog, snapshot: LearnedRoutingSnapshot): LearnedRoutingSnapshot {
+  if (snapshot.policy === undefined) return snapshot;
+  return { policy: canonicalLearnedPolicy(catalog, snapshot.policy)!, resourceVersionId: snapshot.resourceVersionId };
 }
 
 function canonicalAssignment(catalog: NativeRoutingCatalog, assignment: TaskAssignment): TaskAssignment {
@@ -138,6 +144,9 @@ export class NativeSession {
           catalog: input.routing.catalog.config,
           ...(input.routing.learned !== undefined ? {
             learned: canonicalLearnedPolicy(input.routing.catalog, input.routing.learned)
+          } : {}),
+          ...(input.routing.learnedSnapshot !== undefined ? {
+            learnedSnapshot: canonicalLearnedSnapshot(input.routing.catalog, input.routing.learnedSnapshot)
           } : {})
         }).map((assignment) => canonicalAssignment(input.routing!.catalog, assignment));
     const routedModelId = (index: number): string =>
