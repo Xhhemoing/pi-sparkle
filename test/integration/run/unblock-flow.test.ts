@@ -2,7 +2,7 @@ import { ResourceRegistry } from "../../../src/adaptation/registry.js";
 import { saveAdaptationRegistry } from "../../../src/adaptation/promotion.js";
 import { routingPolicyIdentity, routingPolicyContent } from "../../../src/learning/learned-routing.js";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -152,7 +152,8 @@ function executorYielding(result: (request: AgentExecutionRequest) => ExecutionE
 
 async function withRoots(body: (stateRoot: string, projectRoot: string) => Promise<void>): Promise<void> {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-unblock-state-"));
-  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-unblock-proj-"));
+  // Policy identities use the same canonical root that discoverProject persists.
+  const projectRoot = await realpath(await mkdtemp(join(tmpdir(), "pi-sparkle-unblock-proj-")));
   try {
     await body(stateRoot, projectRoot);
   } finally {
