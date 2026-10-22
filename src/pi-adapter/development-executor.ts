@@ -2,6 +2,7 @@ import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import type { NativeWriteExecutorFactory, NativeWriteTool } from "../native/write-session.js";
 import { createConfiguredPiExecutor } from "./runtime.js";
+import { parseModelRef } from "../config/model-ref.js";
 
 export type DevelopmentPiExecutorOptions = Omit<Parameters<typeof createConfiguredPiExecutor>[0], "tools">;
 
@@ -22,10 +23,17 @@ export function createDevelopmentPiExecutorFactory(
   options: DevelopmentPiExecutorOptions,
   createExecutor: (input: Parameters<typeof createConfiguredPiExecutor>[0]) => Promise<AgentExecutor> = createConfiguredPiExecutor
 ): NativeWriteExecutorFactory {
-  return (context) => createExecutor({ ...options, tools: developmentPiTools(context.tools),
-    onInvocation: (invocation) => {
-      context.onInvocation(invocation);
-      options.onInvocation?.(invocation);
-    }
-  });
+  return (context) => {
+    const routed = context.routingDecision === undefined ? undefined : parseModelRef(context.routingDecision.model);
+    const { apiKey, ...configured } = options;
+    return createExecutor({ ...configured,
+      ...(routed === undefined ? (apiKey === undefined ? {} : { apiKey }) : { ...routed, aliases: {}, fallbackModels: [],
+        ...(routed.providerId === options.providerId && apiKey !== undefined ? { apiKey } : {}) }),
+      tools: developmentPiTools(context.tools),
+      onInvocation: (invocation) => {
+        context.onInvocation(invocation);
+        options.onInvocation?.(invocation);
+      }
+    });
+  };
 }

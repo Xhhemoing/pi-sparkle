@@ -2,7 +2,6 @@
 
 See [plan](plan.md) for the 2026-10-22 scoped authorization. Only unfinished work belongs here.
 
-- [ ] Coordinator: finish A host integration, B policy-version provenance and C opt-in static write routing in order; record focused RED/GREEN and independent reviews.
 - [ ] Coordinator: run applicable existing gates/probes serially, publish the branch/PR and obtain current green hosted CI; no automatic merge.
 - [ ] Coordinator: keep current scope, compatibility, exclusions and handoff evidence in the existing plan and PR; preserve todo <=25 lines.
 - [ ] Owner, before adopting a Soul candidate: inspect the retained patches; the second direct candidate needs kill-error/successful-reap corrected and retested. Original Soul application remains outside this work.

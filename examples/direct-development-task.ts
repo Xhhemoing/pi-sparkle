@@ -20,7 +20,7 @@ export async function runDirectDevelopmentTask(input: DirectDevelopmentTaskInput
   // spread: copying first would invoke a getter or erase an inherited field.
   const protectedProperties: PropertyDescriptorMap = {};
   for (const [field, label] of [["presentation", "task presentation"], ["taskContext", "task context"],
-    ["hostEvaluator", "host evaluator"], ["checkFindingAnalysis", "check finding analysis"]] as const) {
+    ["hostEvaluator", "host evaluator"], ["checkFindingAnalysis", "check finding analysis"], ["staticRouting", "static routing"]] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(input, field);
     if ((descriptor === undefined && field in input) || (descriptor !== undefined && !("value" in descriptor))) {
       throw new DomainValidationError(`${label} must be an own data property`);

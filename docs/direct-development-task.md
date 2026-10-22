@@ -62,6 +62,57 @@ worker output and repair feedback do not grant command authority.
 If an explicit sink throws or rejects, the example drains all pending writes and
 reports an `AggregateError` whose `cause` holds the retained task result. An
 original task exception remains the primary error.
+
+## Opt into static model selection
+
+The exported host function also accepts `staticRouting`; the command-line example
+continues to use its explicit `--model`. Supply a host-owned catalog and policy:
+
+```ts
+const staticRouting = {
+  catalog: hostCatalog,
+  modelPolicy: { allowedModels: ["provider/small", "provider/large"] },
+  inputTokenReserve: 2048,
+  outputTokens: 1024,
+  privacyRequired: "cloud-approved" as const,
+  requiredCapabilities: ["tool-use"],
+};
+// Add staticRouting to the runDirectDevelopmentTask input above.
+```
+
+`hostCatalog` uses the existing `ModelRouterConfig` shape. Every model must declare
+its canonical `provider/model` id, matching provider, version, roles, maximum
+complexity, capabilities, provider policy, privacy class, context window, maximum
+output tokens, input/output prices, latency and fixed cost/duration estimates.
+Missing or nonfinite metadata is refused rather than replaced with defaults.
+Explicit zero prices are allowed; unknown prices are not zero. Populate metadata
+from sources the host has verified. `preferredModel` is an optional preference;
+a singleton `allowedModels` list is the strict pin.
+
+The host analyzes the original objective, retaining inferred risk, capability
+and privacy requirements. An approved routing resource for the canonical source
+project is read once and applied within the host allow-list, with its observed
+version included in `MODEL_ROUTED`. Repairs retain that model and resource
+version; later logical tasks read the current resource. Missing legacy provenance
+remains unknown. A route requiring human approval refuses before model dispatch;
+this entry does not add an approval workflow.
+
+Each attempt checks the current formatted prompt, reserved overhead and output
+against the selected model's capacity, and estimated latency against remaining
+time. The actual grounded executor request is checked again before dispatch.
+This is a character-based estimate, not an exact tokenizer, enforced generation
+limit or guarantee that the provider will accept the request. Catalog prices
+and estimates support selection and diagnostics; this option creates no monetary
+cap or total-cost guarantee.
+
+Insufficient capacity, cancellation or provider failure never upgrades or switches
+the selected model. Routed calls disable alias redirection and configured fallback
+models. An explicit API key for a different original provider is omitted, so the
+selected provider uses its own existing credentials. Ordinary fixed model calls
+retain their existing behavior.
+
+## Candidate and tool boundaries
+
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 

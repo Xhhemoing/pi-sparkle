@@ -158,7 +158,7 @@ test("executable host entry handles SIGINT and removes its signal listeners afte
 test("host refuses own and inherited protected accessors without invoking them", async () => {
   const { runDirectDevelopmentTask } = await loadHost();
   await fixture(async (paths) => {
-    for (const field of ["presentation", "taskContext", "hostEvaluator", "checkFindingAnalysis"]) {
+    for (const field of ["presentation", "taskContext", "hostEvaluator", "checkFindingAnalysis", "staticRouting"]) {
       for (const inherited of [false, true]) {
         let reads = 0;
         const descriptor = { enumerable: true, get: () => { reads++; throw new Error("getter must not execute"); } };
@@ -176,7 +176,7 @@ test("host refuses own and inherited protected accessors without invoking them",
 test("host preserves validation of non-enumerable protected data before dispatch", async () => {
   const { runDirectDevelopmentTask } = await loadHost();
   await fixture(async (paths) => {
-    for (const field of ["presentation", "taskContext", "hostEvaluator", "checkFindingAnalysis"]) {
+    for (const field of ["presentation", "taskContext", "hostEvaluator", "checkFindingAnalysis", "staticRouting"]) {
       const input = { ...paths, objective: "Never dispatched", verification: { command: process.execPath },
         pi: { providerId: "unused", modelId: "unused", customProviders: [] } };
       Object.defineProperty(input, field, { value: "invalid" });

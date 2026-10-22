@@ -9,6 +9,7 @@ import {
 import { DomainValidationError } from "../domain/errors.js";
 import { snapshotTaskPresentation, type TaskPresentationInput } from "../preferences/task-presentation.js";
 import { snapshotNativeHostEvaluator, type NativeHostEvaluator } from "../native/host-outcome.js";
+import { snapshotStaticWriteRouting, type StaticWriteRoutingInput } from "../routing/write-routing.js";
 
 /** Experimental host input; no queue, budget or automatic source application. */
 export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, NativeWriteSessionInput {}
@@ -32,6 +33,11 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("task context must be an own data property");
   }
   const taskContext = contextDescriptor?.value === undefined ? undefined : snapshotTaskContext(contextDescriptor.value as TaskContextInput);
+  const routingDescriptor = Object.getOwnPropertyDescriptor(input, "staticRouting");
+  if ((routingDescriptor === undefined && "staticRouting" in input) || (routingDescriptor !== undefined && !("value" in routingDescriptor))) {
+    throw new DomainValidationError("static routing must be an own data property");
+  }
+  const staticRouting = snapshotStaticWriteRouting(routingDescriptor?.value as StaticWriteRoutingInput | undefined);
   const evaluatorDescriptor = Object.getOwnPropertyDescriptor(input, "hostEvaluator");
   if ((evaluatorDescriptor === undefined && "hostEvaluator" in input) || (evaluatorDescriptor !== undefined && !("value" in evaluatorDescriptor))) {
     throw new DomainValidationError("host evaluator must be an own data property");
@@ -44,14 +50,14 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
   }
   const checkFindingAnalysis = snapshotCheckFindingAnalysis(analysisDescriptor?.value as CheckFindingAnalysisOptions | undefined);
   const { stateRoot, executorFactory, sandboxRoot, hostEvaluator: _hostEvaluator, checkFindingAnalysis: _analysis,
-    presentation: _presentation, taskContext: _taskContext, ...task } = input;
+    presentation: _presentation, taskContext: _taskContext, staticRouting: _staticRouting, ...task } = input;
   const session = new NativeWriteSession({ stateRoot, executorFactory,
     ...(hostEvaluator === undefined ? {} : { hostEvaluator }),
     ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
     return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }),
-      ...(taskContext === undefined ? {} : { taskContext }) });
+      ...(taskContext === undefined ? {} : { taskContext }), ...(staticRouting === undefined ? {} : { staticRouting }) });
   } finally {
     await session.shutdown();
   }
