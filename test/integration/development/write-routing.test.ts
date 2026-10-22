@@ -45,7 +45,7 @@ async function fixture(body: (paths: { sourceRepo: string; stateRoot: string; sa
 }
 const verification = { command: process.execPath, args: ["-e", "process.exit(require('node:fs').readFileSync('value.txt','utf8').startsWith('after-') ? 0 : 1)"] };
 
-test("opt-in host uses approved routing snapshot for actual provider, isolated key, event and invocation", async () => fixture(async (paths) => {
+for (const stopAfterTaskResult of [false, true]) test(`opt-in host routes actual calls and preserves deadline with stop-after-report=${stopAfterTaskResult}`, async () => fixture(async (paths) => {
   const alpha = await startLoopbackOpenAiProvider({ modelIds: ["high"], scriptedResponse: response });
   const beta = await startLoopbackOpenAiProvider({ modelIds: ["low"], scriptedResponse: response });
   const previous = process.env.SPARKLE_STATIC_TEST_KEY;
@@ -57,7 +57,9 @@ test("opt-in host uses approved routing snapshot for actual provider, isolated k
       author: { kind: "human", identity: "test-host" } });
     await saveAdaptationRegistry(paths.stateRoot, registry);
     const input = { ...paths, objective: "Update value.txt", verification,
+      ...(stopAfterTaskResult ? { maxWallTimeMs: 600_000 } : {}),
       staticRouting: routing(), pi: { providerId: "alpha", modelId: "high", apiKey: "alpha-key", retry: { maxAttempts: 1 },
+        ...(stopAfterTaskResult ? { stopAfterTaskResult: true } : {}),
         aliases: { low: { providerId: "alpha", modelId: "high" } },
         customProviders: [{ id: "alpha", baseUrl: alpha.baseUrl, models: [{ id: "high" }] },
           { id: "beta", baseUrl: beta.baseUrl, envVar: "SPARKLE_STATIC_TEST_KEY", models: [{ id: "low" }] }] }
@@ -66,9 +68,14 @@ test("opt-in host uses approved routing snapshot for actual provider, isolated k
     const result = await runDirectDevelopmentTask(input);
     assert.equal(result.acceptance.accepted, true, result.reason);
     assert.equal(alpha.requests.length, 0, "default provider must not receive the routed task");
-    assert.ok(beta.requests.length > 0);
+    assert.equal(beta.requests.length, stopAfterTaskResult ? 2 : 3);
     assert.ok(beta.requests.every((request) => request.authorization === "Bearer beta-key"));
     const events = (await new EventStore(paths.stateRoot, result.runId).readAll()).events;
+    const requests = events.flatMap((event) => event.type === "CHILD_MESSAGE" &&
+      event.payload.message.type === "TASK_REQUEST" ? [event.payload.message] : []);
+    assert.equal(requests.length, 1);
+    const expectedBudgetMs = stopAfterTaskResult ? 600_000 : 300_000;
+    assert.deepEqual(requests[0]!.limits, { maxAttempts: 1, timeoutMs: expectedBudgetMs, maxWallTimeMs: expectedBudgetMs });
     const routed = events.filter((event) => event.type === "MODEL_ROUTED");
     assert.equal(routed.length, 1);
     assert.equal(routed[0]!.payload.model, "beta/low");

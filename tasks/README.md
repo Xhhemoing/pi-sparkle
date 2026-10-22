@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). On 2026-10-22 the owner approved sequential host integration, policy-version provenance and opt-in static write routing, lifting only those scopes from the freeze. The plan defines acceptance and preserved behavior. Agent strategy optimization and framework-code improvement remain future frozen phases. PR #64 is merged; its bounded Soul comparison does not establish general benefit or complete the deferred 15-task evaluation. Original Soul code/data remain untouched; existing safety, experiment and production approvals remain binding.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). A/B/C host integration, policy provenance and static write routing are explicitly authorized; the PR #68 integration with main 9f883e41 has human conflict-review approval; current-head CI and delivery are tracked in that PR. Main includes PR #69's bounded single-task tool/deadline fixes and four-run comparison; its limited successful cost/quality results do not establish general superiority. Earlier short/large-task results and unfinished owner decisions remain in the plan and PRs #65-#67. Original Soul application, D/E, other P4/P5, controller expansion and adaptation/learning remain outside this scope; the broader 15-task evaluation is unfinished.
 
 ## Authoritative Files
 

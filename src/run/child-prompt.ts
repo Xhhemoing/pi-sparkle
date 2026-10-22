@@ -32,7 +32,7 @@ export function formatChildPrompt(input: ChildPromptInput): string {
   lines.push(input.profile.systemInstruction.trim());
   lines.push("");
   lines.push(`Write access: ${input.profile.canWriteWorkspace ? "allowed" : "forbidden"}`);
-  lines.push(`Allowed tools: ${input.profile.allowedToolNames.join(", ")}`);
+  lines.push("Use the callable tools provided in this session; their schemas describe the available operations.");
   if (input.assignedModel !== undefined) {
     lines.push(`Assigned model: ${input.assignedModel}`);
   }
