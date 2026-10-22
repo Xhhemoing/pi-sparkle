@@ -65,6 +65,7 @@ function frozenManifest(input: SnapshotManifest = {}): SnapshotManifest {
     return Object.freeze([...new Set(normalized)].sort());
   };
   return Object.freeze({ includePrefixes: copy(input.includePrefixes), excludePrefixes: copy(input.excludePrefixes),
+    ...(input.optionalIncludePrefixes === undefined ? {} : { optionalIncludePrefixes: copy(input.optionalIncludePrefixes) }),
     allowedOutputDirs: copy(input.allowedOutputDirs) });
 }
 

@@ -106,6 +106,41 @@ test("forged descriptor, changed args or manifest cannot run", async () => {
   });
 });
 
+test("optional snapshot scope is frozen and cannot be overridden or widen to the whole candidate", async () => {
+  await fixture(async (cwd) => {
+    const args = ["-e", "process.exit(0)"];
+    const manifest = { optionalIncludePrefixes: ["missing"] };
+    const trustedVerification = prepareTrustedVerification({ command: process.execPath, args, snapshotManifest: manifest });
+    manifest.optionalIncludePrefixes.push("value.txt");
+    assert.deepEqual(trustedVerification.snapshotManifest.optionalIncludePrefixes, ["missing"]);
+    assert.equal(Object.isFrozen(trustedVerification.snapshotManifest.optionalIncludePrefixes), true);
+    writeFileSync(path.join(cwd, "value.txt"), "unselected dirty file");
+    const check = await runIndependentCheck({ cwd, command: process.execPath, args, trustedVerification });
+    assert.equal(check.ok, true);
+    assert.equal(check.trustedVerification?.candidateFileCount, 0);
+    assert.deepEqual(check.contentFingerprintBefore.entries, []);
+    await assert.rejects(runIndependentCheck({ cwd, command: process.execPath, args, trustedVerification,
+      snapshotManifest: { optionalIncludePrefixes: ["value.txt"] } }), /manifest/);
+    const legacy = prepareTrustedVerification({ command: process.execPath, args });
+    assert.equal(Object.hasOwn(legacy.snapshotManifest, "optionalIncludePrefixes"), false);
+  });
+});
+
+test("trusted optional scope detects checker creation and same-length changes", async () => {
+  await fixture(async (cwd) => {
+    for (const contents of ["good", "evil"]) {
+      const args = ["-e", `require('node:fs').writeFileSync('new.txt',${JSON.stringify(contents)})`];
+      const trustedVerification = prepareTrustedVerification({ command: process.execPath, args,
+        snapshotManifest: { optionalIncludePrefixes: ["new.txt", "unused"] } });
+      const check = await runIndependentCheck({ cwd, command: process.execPath, args, trustedVerification });
+      assert.equal(check.exitCode, 0);
+      assert.equal(check.ok, false);
+      assert.equal(check.trustedVerification?.ok, false);
+      assert.equal(readFileSync(path.join(cwd, "new.txt"), "utf8"), contents);
+    }
+  });
+});
+
 test("candidate-owned checker and oversized candidate snapshots fail closed before execution", async () => {
   await fixture(async (cwd) => {
     const checker = path.join(cwd, "check.cjs"); writeFileSync(checker, "process.exit(0)");

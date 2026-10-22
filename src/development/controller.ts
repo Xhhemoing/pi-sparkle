@@ -157,7 +157,7 @@ function verification(item: WorkItemDefinition) {
     checkerFiles: [checker, fileURLToPath(new URL(`../execution/command-runner${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`./work-items${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`../domain/errors${suffix}`, import.meta.url))],
-    snapshotManifest: { includePrefixes: [...new Set([...item.allowedScope, ...protectedPaths(item)])] },
+    snapshotManifest: { includePrefixes: protectedPaths(item), optionalIncludePrefixes: item.allowedScope },
     maxSnapshotFiles: 1024, maxSnapshotBytes: 16 * 1024 * 1024 });
   return { command, args, trustedVerification, unsettledExitCodes: [UNSETTLED_RECIPE_EXIT_CODE] };
 }

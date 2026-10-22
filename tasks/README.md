@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The current authorized work reconciles delivered status, repairs the recorded multi-stage blockers and verifies dependent-stage delivery on synthetic isolated copies. PRs #65/#66/#69 are merged and starting-main CI passed; #67 remains open. Previous single-task and large-task results, failures and cost gaps remain in the active plan. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
 
 ## Authoritative Files
 

@@ -6,8 +6,10 @@ import { readWorktreeRevision } from "./worktree.js";
 
 /** Host-fixed candidate scope for fingerprinting. Model cannot reshape this. */
 export interface SnapshotManifest {
-  /** Relative path prefixes included (empty = whole worktree except .git). */
+  /** Required relative path prefixes included (both include lists empty = whole worktree except .git). */
   readonly includePrefixes?: readonly string[];
+  /** Included relative prefixes that may be absent; appearance/deletion still changes the snapshot. */
+  readonly optionalIncludePrefixes?: readonly string[];
   /** Relative path prefixes excluded (always includes .git). */
   readonly excludePrefixes?: readonly string[];
   /**
@@ -57,7 +59,7 @@ function isExcluded(rel: string, manifest: SnapshotManifest): boolean {
   for (const pref of prefixes) {
     if (n === pref.slice(0, -1) || n.startsWith(pref)) return true;
   }
-  const includes = manifest.includePrefixes ?? [];
+  const includes = [...(manifest.includePrefixes ?? []), ...(manifest.optionalIncludePrefixes ?? [])];
   if (includes.length === 0) return false;
   return !includes.some((pref) => {
     const p = pref.endsWith("/") ? pref : `${pref}/`;

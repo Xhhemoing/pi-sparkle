@@ -34,7 +34,13 @@ async function executeRecipes(recipes: readonly WorkItemRecipe[], inheritProcess
   process.stdout.write(`${JSON.stringify({ results: results.map(({ stdoutText: _out, stderrText: _err, ...row }) => row),
     unobserved: fixedRecipes.slice(results.length).map((recipe) => recipe.id) })}\n`);
   for (const result of results.filter((row) => !row.ok)) {
-    const excerpt = (text: string) => Buffer.from(text).subarray(0, 256).toString("utf8");
+    // Compiler/setup chatter often precedes the actionable final error. Keep
+    // both ends within a fixed excerpt; the criterion summary stays first.
+    const excerpt = (text: string): string => {
+      const bytes = Buffer.from(text);
+      if (bytes.length <= 1024) return text;
+      return `${bytes.subarray(0, 256).toString("utf8")}\n... output omitted ...\n${bytes.subarray(-768).toString("utf8")}`;
+    };
     process.stdout.write(`${JSON.stringify({ recipeId: result.recipeId, stdoutText: excerpt(result.stdoutText), stderrText: excerpt(result.stderrText) })}\n`);
   }
   return { outcome: unavailable ? "unavailable" : accepted ? "accepted" : "failed", cleanupUnsettled };
