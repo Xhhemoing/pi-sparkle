@@ -1,8 +1,50 @@
 # Active implementation plan
 
-## Follow-up: interpret and replicate the Soul comparison (2026-10-21)
+## Current: host integration, policy provenance and static write routing (2026-10-22)
 
-Owner: coordinating agent. The user requested durable interpretation plus further verification/analysis. [PR #64](https://github.com/Xhhemoing/pi-sparkle/pull/64) contains the first corrected pair and its raw-metric reconciliation; head `9d17bcca` passed quality and Ubuntu/Windows CI (4,064 pass, 0 fail, 2 skip). PR #63 is merged; #64 remains open.
+ID: TASK-20261022-host-routing-foundation. Owner: coordinating agent; implementation is sequential A -> B -> C, with independent scope and code review. State: in-progress. Starting revision: main `10898364`. The owner explicitly approved the reviewed plan and implementation of these three areas on 2026-10-22, and lifted the freeze only for their bounded scope. This decision does not infer comparative benefit from the Soul sample. PR #64 is merged; its failed, repeated and post-hoc observations below remain historical evidence.
+
+### Scope, dependencies and authority
+
+- A: provide a runnable direct-development Pi host example preserving the supplied candidate tools, host verification, cancellation and invocation ownership. Extract adapter assembly only where CLI and a real host/example consume it; no generic plugin framework or session/ledger rewrite.
+- B: carry the approved routing resource version from the same registry read as its content into actual routing decisions and existing persisted records. Preserve algorithm `policyVersion` meaning, current resume/unblock selection semantics and old checkpoint/event compatibility. Use an optional provenance field: a resource ID identifies the observed version, null records a fresh read with no active policy, and absence preserves unknown historical provenance.
+- C: opt-in host-side deterministic model selection for write tasks, using existing eligibility/static routing and factory paths. Select once per logical task, keep that model through repair, and do not add implicit cross-model fallback. Record selection and actual invocation identity. Existing CLI/model/fallback defaults stay unchanged. C needs B provenance and a real host seam, not a new general helper.
+- The approved implementation and tests use local fixtures and HTTP loopback only. No new real-provider run, external project/data access, benchmark, holdout, production apply, merge, package/release publication, live R1/bandit/topology, automatic upgrade/promotion or in-flight self-modification is authorized by these slices.
+- Existing F6/F-PROD, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production-approval obligations remain open where previously open. D/E below and all other P4/P5/runtime expansion remain frozen. No new hash, baseline, frozen contract or gate is introduced; existing safety and pinning checks remain.
+
+### Implementation slices and observable acceptance
+
+| Slice / owner | Files and interfaces | Acceptance / test-first cases |
+| --- | --- | --- |
+| A / host implementer | `src/cli/development.ts`, Pi adapter assembly if shared, runnable `examples/` host, `docs/direct-development-task.md`; reuse `NativeWriteExecutorFactoryInput` and `createConfiguredPiExecutor` | Actual candidate writes and independent host checks work through the documented host path; original source unchanged; exact supplied scoped tool closures retained; invocation collector and optional durable sink each receive once; sink completion awaited; default exposes no command tool; cancel/unsettled effects retain current behavior. RED tests exercise the real assembly/loopback path before implementation. |
+| B / routing implementer | `src/learning/learned-routing.ts`, `src/routing/assign.ts`, router/flowchart event and snapshot paths, relevant CLI/track callers | Approved resource content/version are read atomically as one snapshot; A decision made with policy V1 retains V1 after promotion/resume while new decisions record V2; rollback records actual selected version; canonical project scopes do not mix; legacy records remain readable and never acquire guessed provenance. Frozen optional event/JSON additions receive implementation and pinning-test review. |
+| C / coordinator or write-routing implementer | host-side write-routing factory/adapter, existing `src/routing/` selection, direct host example; change native interfaces only if necessary | Opt-in only; actual loopback provider/model matches decision; forbidden providers, missing capability/privacy/context refuse before dispatch; fixed selection throughout repair; cancellation starts no alternate model; unknown price is not zero or a hard-cap guarantee; no quality escalation; old host behavior stays compatible. RED covers real dispatch plus refusal/repair/telemetry. |
+
+### Verification and execution order
+
+1. Install the pinned dependencies in the isolated worktree using `pnpm install --frozen-lockfile`; no lockfile updates. Establish current focused behavior before each slice.
+2. A focused: `pnpm test --test-concurrency=1 test/integration/development/start-task.test.ts test/integration/cli/development.test.ts test/unit/cli/executor-factory.test.ts`, plus the new executable-host tests. Review scope first, then code and lifetime handling, before B.
+3. B focused: `pnpm test --test-concurrency=1 test/unit/learning/active-routing.test.ts test/unit/run/flowchart-learned-routing.test.ts test/unit/run/events.test.ts test/unit/run/event-row-fuzz.test.ts test/unit/run/checkpoint-store.test.ts test/unit/run/flowchart-checkpoint.test.ts test/integration/m2.5/resume.test.ts test/integration/run/unblock-flow.test.ts`. Add provenance failures to these existing paths; preserve the characterized resume test. Review persisted compatibility and pinning before C.
+4. C focused: existing routing eligibility/static-selection tests plus `test/integration/native/write-session.test.ts`, `test/integration/native/write-loop.test.ts`, `test/integration/native/host-outcome.test.ts` and new loopback write-routing integration. Verify legacy CLI fallback separately rather than changing its meaning.
+5. Coordinator serializes `pnpm gate`, applicable `pnpm security:probe` and `pnpm pi:probe`, then independent final review. Remote branch and current green hosted CI are required for delivery. Merge is not automatic. Keep exact RED/GREEN/fail/skip results and review in the PR and detailed logs under `.agent_workspace/`/CI artifacts; no separate receipt report.
+6. Documentation: `pnpm workflow:check`, `git diff --check`, changed-link checks and open-only todo <=25 lines. Do not hand-edit generated STATUS. Stop the affected slice for a newly required authority/contract decision; continue independent authorized work. Unknown effects retain ownership; do not retry by clearing state.
+
+### Subsequent stages (planned, not unfrozen)
+
+| Stage | Dependency and deliverable | Acceptance / release condition |
+| --- | --- | --- |
+| D1: scoped context strategy consumer | A host path and explicit resource-use binding; not dependent on adaptive model routing. Start with organization of already-authorized context in one project/task family, fixed model/tools/checker. | Unapproved content is not consumed; mandatory requirements and read authority cannot be changed; scope isolation, actual version attribution and next-run rollback verified. Requires a separate scoped learning/consumer unfreeze. |
+| D2: proposals and independent comparison | D1 plus provenance, redacted negative cases and trusted evaluation. Reuse registry/promotion/rollback. | Predeclare a meaningful improvement target, task eligibility, budget and stopping/inconclusive criteria; do not invent a fixed sample count or count retries as independent tasks. Preserve discovery/evaluation separation, invalidated evidence and unknown cost. Real provider/data/holdout scope needs its existing approval. No automatic promotion. |
+| D3: adoption monitoring | A genuinely adopted strategy and observable regression criterion. | Demonstrate observation-to-rollback on later runs before discussing bounded automation; task-mix drift alone is not deterioration. Remains frozen. |
+| E: framework-code improvement | Reliable isolated development and independent evaluation; does not require D or learned routing. Agent proposes a reproducible defect/bottleneck work item and ordinary candidate patch. | Trusted host owns this attempt's evaluator; author cannot self-approve or weaken it. Real-path regression/measurement, independent review and current Git/CI precede authorized adoption in a later code version. No auto-merge/apply or in-flight rewriting; code revert is not rollback of external effects. Remains a future phase. |
+
+### Current handoff
+
+A is implemented and locally reviewed: the runnable Pi host and shared CLI assembly preserve candidate tools, input descriptors, cancellation and telemetry completion. Focused existing regressions passed 29/29; seven new loopback/negative cases passed after retained RED evidence and independent scope/quality review. This is not full delivery or outcome benefit. Next: B policy-version provenance, then C static write routing; final gates and current hosted CI remain required. Detailed commands and failed fixture attempts are retained in `.agent_workspace/host-foundation/` for the delivery PR. Broader value evaluation and original Soul candidate adoption remain separate unfinished work.
+
+## Historical: interpret and replicate the Soul comparison (2026-10-21)
+
+Owner: coordinating agent. The user requested durable interpretation plus further verification/analysis. [PR #64](https://github.com/Xhhemoing/pi-sparkle/pull/64) contains the first corrected pair and its raw-metric reconciliation; head `9d17bcca` passed quality and Ubuntu/Windows CI (4,064 pass, 0 fail, 2 skip). PR #63 and #64 are merged; #64 merged as `10898364` on 2026-10-21.
 
 Interpretation before replication: both paths produced a usable helper, but only direct Pi completed the first corrected run's functional acceptance within 300 seconds (88.3 seconds versus native cancellation at 300.2 seconds). Native tokens are lower bounds because the interrupted request has no final usage. Direct required later formatting; native required later acceptance takeover. This supports a bounded workflow-completion concern, not a universal speed/cost/product ranking. The 69.7-second compilation overlap, one task and provider/cache variability prevent a causal speed claim. No production Soul defect, full race coverage or overall readiness was established.
 
@@ -33,7 +75,7 @@ Earlier native timing: about 3.2s preparation, about 1s expected missing-module 
 
 Decision: keep P4/P5 frozen; do not raise timeouts or redesign runtime based on this single task. Direct Pi showed less elapsed time/context usage here, but its review defect prevents a quality-superiority claim. Native completed the repeat with more context/tool activity; added workflow cost still needs demonstrated benefit on independent tasks. This bounded replication is finished; the broader 15-task campaign remains deferred. If a retained Soul patch is adopted later, resolve the reported defect and include the new edge case before application. Original Soul received zero task writes; raw results and the unchanged candidates remain local under `.agent_workspace/soul-comparison/replication/`. Exact commands, failed probe, review and current hosted CI belong in [PR #64](https://github.com/Xhhemoing/pi-sparkle/pull/64).
 
-## Current work: matched Soul development comparison (2026-10-21)
+## Historical: matched Soul development comparison (2026-10-21)
 
 Owner: coordinating agent. The user explicitly authorized review/merge of PR #63 and a direct-Pi versus pi-sparkle development comparison in disposable Soul copies. PR #63 was independently reviewed with no remaining blocker and merged as `c40e0607`; candidate `e053eb66` had all three hosted checks green (4,064 pass / 0 fail / 2 skip). Original Soul remains outside the write/apply/publish scope. The comparison PR's verification section owns current execution outcomes, failures, usage and review; the protocol below does not itself claim a successful outcome.
 

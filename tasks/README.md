@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Integration and documentation cleanup through PR #63 are merged. The initial comparison and one replication on an isolated Soul task are recorded in the active plan and PR #64. The native timeout did not recur; the second direct candidate has an independently verified cleanup-branch regression. Next work depends on the recorded decision and candidate review, not functional test counts alone. Original Soul code/data stay untouched; only synthetic inputs are used. This exploratory pair does not complete the broader 15-task evaluation. P4/P5 and new experiments/adaptation/learning features remain frozen; safety maintenance remains allowed.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). On 2026-10-22 the owner approved sequential host integration, policy-version provenance and opt-in static write routing, lifting only those scopes from the freeze. The plan defines acceptance and preserved behavior. Agent strategy optimization and framework-code improvement remain future frozen phases. PR #64 is merged; its bounded Soul comparison does not establish general benefit or complete the deferred 15-task evaluation. Original Soul code/data remain untouched; existing safety, experiment and production approvals remain binding.
 
 ## Authoritative Files
 
