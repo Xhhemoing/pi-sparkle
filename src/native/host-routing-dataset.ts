@@ -1,7 +1,7 @@
 import { DomainValidationError } from "../domain/errors.js";
-import { prepareHostAttribution, type HostAttributionReferences } from "../native/host-attribution.js";
-import type { NativeHostObservation } from "../native/host-outcome.js";
-import { isNativeHostObservation } from "../native/write-session.js";
+import { prepareHostAttribution, type HostAttributionReferences } from "./host-attribution.js";
+import type { NativeHostObservation } from "./host-outcome.js";
+import { isNativeHostObservation } from "./write-session.js";
 import { summarizeUsageCoverage, type UsageCoverageSummary } from "../telemetry/usage-coverage.js";
 
 export interface HostRoutingCaseDeclaration {

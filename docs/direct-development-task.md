@@ -278,7 +278,7 @@ actual final-prompt tests and the separately authorized two-case provider smoke.
 
 ## Capture offline routing data
 
-The experimental `src/learning/host-routing-dataset.ts` entry captures an
+The experimental `src/native/host-routing-dataset.ts` entry captures an
 allowlisted task/candidate declaration before execution, then projects the
 original host observation through `prepareHostAttribution`. It does not change
 model selection, acceptance or resource promotion.

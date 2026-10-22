@@ -10,7 +10,7 @@ import { prepareTrustedVerification } from "../../../src/execution/trusted-verif
 import { NativeWriteSession } from "../../../src/native/write-session.js";
 import type { NativeHostObservation } from "../../../src/native/host-outcome.js";
 import type { ModelInvocation } from "../../../src/telemetry/model-invocation.js";
-import { runHostRoutingCase, prepareHostRoutingDataset, type HostRoutingCaseDeclaration } from "../../../src/learning/host-routing-dataset.js";
+import { runHostRoutingCase, prepareHostRoutingDataset, type HostRoutingCaseDeclaration } from "../../../src/native/host-routing-dataset.js";
 
 const evaluator = { evaluatorId: "node-checker", evaluatorVersion: "1", rubricId: "good", rubricVersion: "1",
   evaluatorDefinitionCanonicalJson: '{"accept":"exit 0","modelFailure":[1]}', modelFailureExitCodes: [1] };
