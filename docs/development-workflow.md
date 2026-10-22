@@ -4,7 +4,7 @@ This document is the project-level process for planning, implementing, testing, 
 
 ## 1. Intake and Classification
 
-Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Follow its current explicit owner decision and scoped unfreeze. The 2026-10-22 decision authorizes host integration, policy-version provenance and opt-in static write routing in sequence; strategy optimization and framework-code improvement remain future stages. Integration, documentation cleanup and the bounded Soul comparison are historical evidence, not broad benefit or production approval. Real-provider/data/holdout work retains its separate opt-in conditions, and original Soul code/data stay untouched. Safety maintenance remains allowed. Capture:
+Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Follow its current explicit owner decision and scoped unfreeze. The 2026-10-22 decision authorizes host integration, policy-version provenance and opt-in static write routing in sequence; the subsequent bounded routing-data continuation authorizes offline capture/export and synthetic execution only. Live strategy optimization and framework-code improvement remain future stages. Integration, documentation cleanup and the bounded Soul comparison are historical evidence, not broad benefit or production approval. Real-provider/data/holdout work retains its separate opt-in conditions, and original Soul code/data stay untouched. Safety maintenance remains allowed. Capture:
 
 - problem and user outcome;
 - in-scope and explicitly out-of-scope behavior;

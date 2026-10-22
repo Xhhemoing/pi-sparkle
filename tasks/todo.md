@@ -2,6 +2,8 @@
 
 See [plan](plan.md). Only unfinished work belongs here.
 
+- [ ] Owner: review the [offline routing data candidate](https://github.com/Xhhemoing/pi-sparkle/tree/codex/routing-training-data-20261022) after current CI; real comparisons need confirmed channel prices, and neural routing benefit remains unverified.
+
 - [ ] Owner: review current-head CI and decide whether to merge [PR #68](https://github.com/Xhhemoing/pi-sparkle/pull/68); conflict review and integration commit/push are approved, but final PR merge remains a separate decision.
 - [ ] Owner: evaluate [PR #69](https://github.com/Xhhemoing/pi-sparkle/pull/69)'s bounded single-task result; its merge does not establish general benefit or authorize original Soul application.
 - [ ] Owner: review the large-task result and retained direct candidate; three-stage native integration remains unverified after the recorded failures, and original Soul application is outside this work.

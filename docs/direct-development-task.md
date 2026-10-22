@@ -275,3 +275,81 @@ snapshots it; model requests cannot supply their own context selection.
 M1-C implementation and verification are recorded in the
 [staged continuation report](reports/2026-10-19-staged-continuation.md), including
 actual final-prompt tests and the separately authorized two-case provider smoke.
+
+## Capture offline routing data
+
+The experimental `src/learning/host-routing-dataset.ts` entry captures an
+allowlisted task/candidate declaration before execution, then projects the
+original host observation through `prepareHostAttribution`. It does not change
+model selection, acceptance or resource promotion.
+
+```ts
+const captured = await runHostRoutingCase({
+  declaration: {
+    caseId: "parser-case-01-small",
+    problemId: "parser-case-01",
+    templateId: "parser-boundary-v1",
+    predecision: {
+      taskFamily: "coding",
+      features: { estimatedInputTokens: 1200, needsTools: true },
+    },
+    candidate: {
+      candidateId: "small-effort-low",
+      provider: "configured-provider",
+      model: "configured-model",
+      modelVersion: "provider-pinned-version",
+      effort: "low",
+      toolProfileId: "scoped-files-v1",
+      maxAttempts: 2,
+      maxWallTimeMs: 300000,
+    },
+  },
+  execute: () => runDirectDevelopmentTask(hostTask),
+});
+const dataset = prepareHostRoutingDataset({
+  cases: [captured],
+  evidenceMode: "observed",
+  cutoff: evaluationCutoff,
+});
+```
+
+Import the two functions from the experimental entry. `hostTask` must supply
+its host-owned evaluator and checker, configured executor and bounded source
+scope as above. The declaration must describe that actual configuration.
+This wrapper does not configure the executor from a candidate declaration.
+The CLI `--checker` alone does not supply a model-quality evaluator; do not
+infer model-failure exit codes from an arbitrary command.
+
+Only original in-process captures and observations supply labels. Declared
+provider/model/version must match the invocation evidence; unknown actual
+versions stay unknown. Effort, tool profile, limits, family and numeric/boolean
+features remain host declarations, not invocation-verified facts. Use short
+non-sensitive IDs and feature names: the allowlist prevents arbitrary payloads,
+not secrets accidentally placed inside a permitted string. Raw objectives,
+answers, checker output, credentials and source paths are not dataset fields.
+
+Each logical task contributes one final label, with all repair attempts and
+reported usage retained. An independently evaluated failure is a negative label;
+unavailable evidence is excluded, not relabeled as failure. Cost summaries
+cover recorded usage at snapshot prices, not a provider bill. Unknown prices or
+usage are not zero, and invocation-latency sums are not end-to-end task latency.
+Cases sharing a problem **or** template belong to one connected group. A group
+crossing the time cutoff is excluded from both training and test. The host owns
+these semantic IDs; the exporter cannot detect undeclared near duplicates.
+
+The JSON projection can be saved for offline analysis. It has no reader that
+restores host authority, and parsing it does not create promotion evidence.
+Historical task-result claims cannot be retroactively upgraded by this path.
+For a zero-provider-cost executable example using only a synthetic repository:
+
+```sh
+pnpm exec tsx examples/host-routing-dataset.ts
+```
+
+The example writes its JSON below `.agent_workspace/` and prints a compact
+summary. It executes success, checked failure, repaired success, provider error and unavailable
+version scenarios through real native sessions and a host checker. Its scripted
+executors are explicitly `faux`: those outputs test the data path, not model
+quality, neural-router accuracy or cost savings. Real paired comparisons still
+need chosen usable model configurations, a bounded budget, common tasks/checkers
+and independent evaluation before training or adoption.

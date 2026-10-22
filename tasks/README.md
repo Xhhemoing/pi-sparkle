@@ -1,5 +1,7 @@
 # Task Management
 
+Current bounded continuation: build and exercise offline routing training-data capture/export with synthetic executors only; see the first section of the active plan. Live learning remains outside scope. The separately authorized USD 30 configured-model comparison is skipped this run because actual channel prices could not be verified, as permitted by the owner; see the active plan.
+
 Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). A/B/C host integration, policy provenance and static write routing are explicitly authorized; the PR #68 integration with main 9f883e41 has human conflict-review approval; current-head CI and delivery are tracked in that PR. Main includes PR #69's bounded single-task tool/deadline fixes and four-run comparison; its limited successful cost/quality results do not establish general superiority. Earlier short/large-task results and unfinished owner decisions remain in the plan and PRs #65-#67. Original Soul application, D/E, other P4/P5, controller expansion and adaptation/learning remain outside this scope; the broader 15-task evaluation is unfinished.
 
 ## Authoritative Files
