@@ -157,7 +157,7 @@ function failedAcceptance(
   };
 }
 
-function implementerTask(objective: string, registry: ReturnType<typeof createAgentProfileRegistry>, criteria?: readonly NativeWriteAcceptanceCriterion[], presentation?: ResolvedTaskPresentation): ChildTaskInput {
+function implementerTask(objective: string, registry: ReturnType<typeof createAgentProfileRegistry>, workerTimeoutMs: number, criteria?: readonly NativeWriteAcceptanceCriterion[], presentation?: ResolvedTaskPresentation): ChildTaskInput {
   const baseProfile = registry.resolve("implementer");
   const profile = presentation === undefined ? baseProfile : {
     ...baseProfile, systemInstruction: `${baseProfile.systemInstruction}\n\n${formatTaskPresentation(presentation)}`
@@ -170,7 +170,7 @@ function implementerTask(objective: string, registry: ReturnType<typeof createAg
     inputArtifactIds: [],
     acceptanceCriteria: (criteria ?? []).map((criterion) => ({ id: criterion.id,
       description: `${criterion.description}; check: ${criterion.observableCheck}` })),
-    limits: { maxAttempts: 1, timeoutMs: 300_000, maxWallTimeMs: 300_000 }
+    limits: { maxAttempts: 1, timeoutMs: workerTimeoutMs, maxWallTimeMs: workerTimeoutMs }
   };
 }
 
@@ -241,6 +241,7 @@ export class NativeWriteSession {
     }
 
     let limits: NativeWriteLoopLimits;
+    let workerTimeoutMs: number;
     let presentation: ResolvedTaskPresentation | undefined;
     let taskContext: TaskContextInput | undefined;
     try {
@@ -256,7 +257,15 @@ export class NativeWriteSession {
         throw new DomainValidationError("task context must be an own data property");
       }
       taskContext = contextDescriptor?.value === undefined ? undefined : snapshotTaskContext(contextDescriptor.value as TaskContextInput);
-      limits = prepareNativeWriteLoopLimits(input);
+      const maxAttempts = input.maxAttempts;
+      const maxWallTimeMs = input.maxWallTimeMs;
+      limits = prepareNativeWriteLoopLimits({
+        ...(maxAttempts === undefined ? {} : { maxAttempts }),
+        ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs })
+      });
+      // The explicit host deadline also bounds a worker. Attempts-only opt-in
+      // keeps the historical worker default; the outer timer never renews.
+      workerTimeoutMs = maxWallTimeMs === undefined ? 300_000 : limits.maxWallTimeMs;
     } catch (error) { return Promise.reject(error); }
     const controller = new AbortController();
     if (input.signal?.aborted) controller.abort();
@@ -288,7 +297,7 @@ export class NativeWriteSession {
     timer?.unref();
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
-    const operation = this.executeInternal(input, combinedSignal, active, limits, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+    const operation = this.executeInternal(input, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
       if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
       if (collector === undefined) return { ...result, logicalTaskId };
       let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
@@ -343,6 +352,7 @@ export class NativeWriteSession {
     signal: AbortSignal,
     active: ActiveWrite,
     limits: NativeWriteLoopLimits,
+    workerTimeoutMs: number,
     timedOut: () => boolean,
     presentation: ResolvedTaskPresentation | undefined,
     taskContext: TaskContextInput | undefined,
@@ -427,7 +437,7 @@ export class NativeWriteSession {
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, attempt, presentation, objective, preparedContext, collector);
+      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
@@ -480,6 +490,7 @@ export class NativeWriteSession {
     session: ClosedLoopSession,
     signal: AbortSignal,
     active: ActiveWrite,
+    workerTimeoutMs: number,
     attempt: NativeWriteAttemptContext | undefined,
     presentation: ResolvedTaskPresentation | undefined,
     objective: string,
@@ -526,7 +537,7 @@ export class NativeWriteSession {
     }
 
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
-    const task = implementerTask(objective, registry, preflight.acceptanceCriteria, presentation);
+    const task = implementerTask(objective, registry, workerTimeoutMs, preflight.acceptanceCriteria, presentation);
     const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(executor) ?? executor }, {
       projectRoot: session.worktree.cwd,
       objective,

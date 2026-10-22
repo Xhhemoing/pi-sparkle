@@ -74,9 +74,66 @@ test("one advance retains the original candidate result and detached review prog
 test("concurrent advances rely on atomic controller claims and execute one item only once", async () => fixture([item("a")], async ({ controller, other, calls }) => {
   const values = await Promise.all([advanceProject(controller), advanceProject(other)]);
   assert.deepEqual(calls(), ["a"]);
-  assert.equal(values.filter((value) => value.result?.status === "ready-for-review").length, 1);
-  assert.equal(values.filter((value) => value.result?.status === "no-ready-task").length, 1);
+  const resultDiagnostics = JSON.stringify(values.map((value) => value.result));
+  assert.equal(values.filter((value) => value.result?.status === "ready-for-review").length, 1, resultDiagnostics);
+  const winner = values.find((value) => value.result?.status === "ready-for-review")!.result!;
+  const loser = values.find((value) => value.result?.status !== "ready-for-review")!.result;
+  if (loser?.status !== "no-ready-task") assert.deepEqual(loser, {
+    status: "needs-reconciliation", itemId: winner.itemId, actionId: winner.actionId,
+    reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay"
+  }, resultDiagnostics);
   assert.equal((await controller.ledger.list()).filter((action) => action.kind === "candidate-write").length, 1);
+}));
+
+test("concurrent advance preserves the active-effect fence after reading a stale planned snapshot", async () => fixture([item("a")], async ({ controller, other, calls, useExecutor }) => {
+  let snapshotRead!: () => void; const staleSnapshot = new Promise<void>((resolve) => { snapshotRead = resolve; });
+  let allowRead!: () => void; const readAllowed = new Promise<void>((resolve) => { allowRead = resolve; });
+  let entered!: () => void; const workerStarted = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void; const workerReleased = new Promise<void>((resolve) => { release = resolve; });
+  let selecting = false;
+  const next = other.store.next.bind(other.store);
+  other.store.next = async (options) => {
+    selecting = true;
+    try { return await next(options); } finally { selecting = false; }
+  };
+  const list = other.ledger.list.bind(other.ledger);
+  other.ledger.list = async () => {
+    // next has read the planned queue; pause only its real eligibility read.
+    if (selecting) { snapshotRead(); await readAllowed; }
+    return list();
+  };
+  useExecutor(({ tools }) => ({ async *execute(request, signal) {
+    entered(); await workerReleased;
+    await tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "a.txt", contents: "after" }, signal);
+    yield* new ProtocolChildExecutor().execute(request, signal);
+  } }));
+  const losingAdvance = advanceProject(other);
+  let winningAdvance: ReturnType<typeof advanceProject> | undefined;
+  try {
+    await Promise.race([staleSnapshot, losingAdvance.then(() => { throw new Error("loser finished before eligibility read"); })]);
+    winningAdvance = advanceProject(controller);
+    await Promise.race([workerStarted, winningAdvance.then(() => { throw new Error("winner finished before worker entry"); })]);
+    const [active] = await controller.ledger.list();
+    assert.equal(active!.state, "running");
+    allowRead();
+    const loser = await losingAdvance;
+    assert.deepEqual(loser.result, {
+      status: "needs-reconciliation", itemId: "a", actionId: active!.actionId,
+      reason: "an earlier effect remains running or uncertain; releasing a task claim does not authorize replay"
+    });
+    assert.equal(loser.after.queue.running, 1);
+    assert.deepEqual(calls(), ["a"]);
+    release();
+    const winner = await winningAdvance;
+    assert.equal(winner.result?.status, "ready-for-review", JSON.stringify(winner.result));
+    assert.equal(winner.result?.actionId, active!.actionId);
+    assert.equal(winner.after.queue.readyForReview, 1);
+    assert.deepEqual(calls(), ["a"]);
+    assert.equal((await controller.ledger.list()).filter((action) => action.kind === "candidate-write").length, 1);
+  } finally {
+    allowRead(); release();
+    await Promise.allSettled([losingAdvance, ...(winningAdvance === undefined ? [] : [winningAdvance])]);
+  }
 }));
 
 test("host acceptance of an unintegrated prerequisite cannot release dependent execution", async () => fixture([item("a"), item("b", ["a"])], async ({ controller, source, calls }) => {

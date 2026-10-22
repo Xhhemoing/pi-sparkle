@@ -40,6 +40,37 @@ verification; worker output and repair feedback do not grant command authority.
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
+For a bounded subtask inside a larger project, the host can use this same entry
+with one Pi worker; a separate project queue or recursive planner is unnecessary.
+Choose this path when the objective, permitted edits and independent check are
+already clear. Task size does not waive authorization or verification. The
+`sparkle_delegate` extension remains a read-only inspection/review tool.
+
+When the structured task result is the worker's complete handoff, a host using
+`createConfiguredPiExecutor` may explicitly set `stopAfterTaskResult: true` in
+its executor factory. This skips the additional model response after a valid
+report. The whole report turn, including its tools and usage, still completes;
+the host then performs the usual independent candidate check. An invalid report
+does not stop execution, and a report never proves acceptance by itself. The
+option defaults to off. If the execution has accepted steering, it keeps normal
+continuation so the correction reaches the worker; cost limits and cancellation
+still apply. Put the complete findings and unresolved work in the report rather
+than relying on a later prose response. This is an experimental host option,
+not automatic task classification or a new writable extension tool.
+
+`PiAgentExecutor` uses Pi's core agent loop; it does not automatically load the
+Coding SDK's system prompt, project context or skills. For a host that needs the
+same coding instructions as a direct Pi session, construct a Pi Coding SDK
+session with the same candidate directory, registered tools and resource-loader
+settings, read its public `session.systemPrompt`, dispose it without calling
+`prompt`, and pass that text through `createConfiguredPiExecutor({ systemPrompt,
+... })`. Keep this preparation inside measured setup time when comparing paths.
+Do not copy another candidate's working directory or import private SDK prompt
+builders. Actual registered tool schemas determine callable operations; role
+profiles are not an executable tool inventory. This configuration aligns coding
+instructions, but the native task-result protocol and host acceptance still
+differ from a direct SDK session and must be measured separately.
+
 The source must be the clean physical Git toplevel, including no ignored or
 untracked entries. Use state and sandbox directories outside that source.
 `sandboxRoot` is optional; a supplied directory must exist and satisfy the
@@ -85,7 +116,7 @@ protected-verifier checks before editing; discovery does not grant write authori
 | `acceptanceCriteria` | Optional host-authored requirement definitions; descriptive checks are not executable authority or per-criterion verdicts |
 | Default limits | One worker attempt; no repair loop metadata or extra orchestration calls |
 | `maxAttempts` | Optional integer 1–5; repair reuses the same candidate after a qualifying failed host check |
-| `maxWallTimeMs` | Optional cooperative cancellation deadline, 1–1,800,000 ms; opting into loop limits defaults to `min(maxAttempts × 360000, 1800000)` |
+| `maxWallTimeMs` | Optional cooperative cancellation deadline, 1–1,800,000 ms; opting into loop limits defaults to `min(maxAttempts × 360000, 1800000)`. An explicit value also bounds the worker; the overall timer includes setup, all attempts and verification and never renews. Without an explicit value, the worker keeps its 300,000 ms default. |
 | `signal` | Optional host cancellation; the factory and executor must cooperate |
 | `candidatePath` | Retained detached Git worktree after success or a completed failed/cancelled run |
 | `artifact`, `runId` | Existing persisted evidence, readable after function shutdown |

@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). Integration and documentation cleanup through PR #63 are merged. The initial comparison and one replication on an isolated Soul task are recorded in the active plan and PR #64. The native timeout did not recur; the second direct candidate has an independently verified cleanup-branch regression. Next work depends on the recorded decision and candidate review, not functional test counts alone. Original Soul code/data stay untouched; only synthetic inputs are used. This exploratory pair does not complete the broader 15-task evaluation. P4/P5 and new experiments/adaptation/learning features remain frozen; safety maintenance remains allowed.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
 
 ## Authoritative Files
 
