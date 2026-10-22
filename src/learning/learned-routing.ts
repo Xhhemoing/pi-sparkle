@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { adaptationRoot } from "../persist/state-layout.js";
 import { DomainValidationError } from "../domain/errors.js";
-import { parseProjectId } from "../domain/ids.js";
+import { parseProjectId, type ResourceVersionId } from "../domain/ids.js";
 import { hash32 } from "../domain/hash.js";
 import { isRecord } from "../domain/record.js";
 import { hashCandidateContent } from "../adaptation/candidate.js";
@@ -21,6 +21,12 @@ export interface LearnedPrefer {
   readonly family: string;
   readonly modelId: string;
 }
+
+/** Content and provenance from one registry read: null is no active pointer;
+ * undefined is legacy active metadata whose policy content is unavailable. */
+export type LearnedRoutingSnapshot =
+  | { readonly policy: LearnedRoutingPolicy; readonly resourceVersionId: ResourceVersionId }
+  | { readonly policy: undefined; readonly resourceVersionId: null | undefined };
 
 export interface LearnedRoutingPolicy {
   readonly primaryModelId: string;
@@ -138,21 +144,31 @@ export async function loadLearnedRouting(
   stateRoot: string,
   projectRoot: string
 ): Promise<LearnedRoutingPolicy | undefined> {
+  return (await loadLearnedRoutingSnapshot(stateRoot, projectRoot)).policy;
+}
+
+export async function loadLearnedRoutingSnapshot(
+  stateRoot: string,
+  projectRoot: string
+): Promise<LearnedRoutingSnapshot> {
   let registry;
   try {
     registry = await loadAdaptationRegistry(stateRoot);
   } catch (error) {
     if (error instanceof DomainValidationError && /no registry snapshot/.test(error.message)) {
-      return undefined;
+      return { policy: undefined, resourceVersionId: null };
     }
     throw error;
   }
-  const active = registry.getActiveContent(routingPolicyIdentity(projectRoot));
-  if (active === undefined) return undefined;
+  const identity = routingPolicyIdentity(projectRoot);
+  const active = registry.getActiveContent(identity);
+  if (active === undefined) {
+    return { policy: undefined, resourceVersionId: registry.getActiveVersion(identity) === undefined ? null : undefined };
+  }
   if (hashCandidateContent(active.content) !== active.version.contentHash) {
     throw new DomainValidationError("active routing-policy content hash mismatch");
   }
-  return parseLearnedRoutingPolicy(active.content);
+  return { policy: parseLearnedRoutingPolicy(active.content), resourceVersionId: active.version.versionId };
 }
 
 /** @deprecated Live policy is the registry pointer. Writing routing.json is refused. */

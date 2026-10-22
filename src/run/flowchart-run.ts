@@ -42,7 +42,7 @@ import {
 } from "../domain/flowchart.js";
 import {
   applyLearnedRouting,
-  loadLearnedRouting,
+  loadLearnedRoutingSnapshot,
   type LearnedRoutingPolicy
 } from "../learning/learned-routing.js";
 import { discoverProject } from "../project/discovery.js";
@@ -1267,10 +1267,20 @@ function applyLearnedToFlowchart(
 async function flowchartForSupervisor(
   stateRoot: string,
   projectRoot: string,
-  flowchart: Flowchart
-): Promise<Flowchart> {
-  const learned = await loadLearnedRouting(stateRoot, projectRoot);
-  return applyLearnedToFlowchart(flowchart, learned);
+  flowchart: Flowchart,
+  router: ModelRouter
+): Promise<{ flowchart: Flowchart; router: ModelRouter }> {
+  const snapshot = await loadLearnedRoutingSnapshot(stateRoot, projectRoot);
+  return {
+    flowchart: applyLearnedToFlowchart(flowchart, snapshot.policy),
+    router: {
+      config: router.config,
+      route: (input) => ({
+        ...router.route({ ...input, routingPolicyResourceVersionId: snapshot.resourceVersionId }),
+        routingPolicyResourceVersionId: snapshot.resourceVersionId
+      })
+    }
+  };
 }
 
 export async function startFlowchartRun(
@@ -1367,8 +1377,7 @@ async function startLockedFlowchartRun(
   };
 
   const supervisor = createFlowchartSupervisor({
-    flowchart: await flowchartForSupervisor(deps.stateRoot, project.rootPath, input.flowchart),
-    router: deps.router,
+    ...await flowchartForSupervisor(deps.stateRoot, project.rootPath, input.flowchart, deps.router),
     limits: resolved.flowchart,
     ...(input.objective !== undefined ? { objective: input.objective } : {}),
     runId,
@@ -1535,8 +1544,7 @@ async function restoreCheckpointedSupervisor(input: {
 }): Promise<FlowchartSupervisor> {
   const { definition, snapshot, limits } = input.flowchart;
   const config = {
-    flowchart: await flowchartForSupervisor(input.deps.stateRoot, input.projectRoot, definition),
-    router: input.deps.router,
+    ...await flowchartForSupervisor(input.deps.stateRoot, input.projectRoot, definition, input.deps.router),
     limits,
     runId: input.runId,
     ...(input.generateId !== undefined ? { generateId: input.generateId } : {}),
@@ -2192,8 +2200,7 @@ async function unblockLockedFlowchartRun(
   }
 
   const config = {
-    flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
-    router: deps.router,
+    ...await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition, deps.router),
     limits,
     runId,
     ...(generateId !== undefined ? { generateId } : {}),

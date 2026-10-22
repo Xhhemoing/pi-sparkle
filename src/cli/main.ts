@@ -84,7 +84,7 @@ import { assignTasks } from "../routing/assign.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
 import { type PublicPriorSnapshot } from "../routing/public-prior.js";
 import { loadPublicPriorSnapshot } from "../routing/public-prior-store.js";
-import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import { loadLearnedRoutingSnapshot, type LearnedRoutingSnapshot } from "../learning/learned-routing.js";
 import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import {
   isTrackClarificationWait,
@@ -327,7 +327,7 @@ async function smartChildPlan(
   primaryModelId: string,
   fastModelId: string,
   stateRoot: string,
-  learned?: LearnedRoutingPolicy,
+  learnedSnapshot?: LearnedRoutingSnapshot,
   prior?: PublicPriorSnapshot
 ): Promise<{
   children: ChildTaskInput[];
@@ -359,7 +359,7 @@ async function smartChildPlan(
   const assignments = assignTasks({
     tasks: assignable,
     catalog,
-    ...(learned !== undefined ? { learned } : {}),
+    ...(learnedSnapshot !== undefined ? { learnedSnapshot } : {}),
     ...(prior !== undefined ? { prior } : {})
   });
   const routed = children.map((child) => {
@@ -978,14 +978,14 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
   }
 
   const childrenSpec = values.children;
-  const learned = await loadLearnedRouting(stateRoot, projectRoot);
+  const learnedSnapshot = await loadLearnedRoutingSnapshot(stateRoot, projectRoot);
   if (childrenSpec !== undefined) {
     const planned = await smartChildPlan(
       await parseChildSpec(childrenSpec),
       primaryModelId,
       fastModelId,
       stateRoot,
-      learned,
+      learnedSnapshot,
       publicPrior
     );
     const pinnedChildren = planned.children.filter((child) => child.pinnedModel !== undefined);

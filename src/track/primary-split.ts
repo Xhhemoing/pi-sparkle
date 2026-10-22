@@ -1,6 +1,6 @@
 import type { RequirementContract } from "../domain/contract.js";
 import type { IdGenerator } from "../domain/ids.js";
-import type { LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import type { LearnedRoutingPolicy, LearnedRoutingSnapshot } from "../learning/learned-routing.js";
 import { assignTasks, type TaskAssignment } from "../routing/assign.js";
 import type { PublicPriorSnapshot } from "../routing/public-prior.js";
 import type { HeuristicHabits } from "../requirement/heuristic.js";
@@ -22,6 +22,7 @@ export interface SplitAndAssignInput {
   readonly answers?: Readonly<Record<string, string>>;
   readonly generateId?: IdGenerator;
   readonly learned?: LearnedRoutingPolicy;
+  readonly learnedSnapshot?: LearnedRoutingSnapshot;
   readonly prior?: PublicPriorSnapshot;
 }
 
@@ -46,6 +47,7 @@ export function splitAndAssignForPrimary(input: SplitAndAssignInput): PrimarySpl
     })),
     catalog: input.catalog,
     ...(input.learned !== undefined ? { learned: input.learned } : {}),
+    ...(input.learnedSnapshot !== undefined ? { learnedSnapshot: input.learnedSnapshot } : {}),
     ...(input.prior !== undefined ? { prior: input.prior } : {})
   });
   return { source: "primary-schema", children, assignments };

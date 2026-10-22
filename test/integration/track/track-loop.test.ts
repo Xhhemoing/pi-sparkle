@@ -80,6 +80,8 @@ test("tracked run with assumed defaults plans, routes, and executes without inve
     assert.equal(outcome.status, "COMPLETED");
     assert.equal(outcome.split?.source, "primary-schema");
     assert.ok(outcome.assignments.length >= 2);
+    assert.ok(outcome.assignments.every((assignment) => assignment.decision.routingPolicyResourceVersionId === null));
+    assert.ok(outcome.events.filter((event) => event.type === "MODEL_ROUTED").every((event) => event.payload.routingPolicyResourceVersionId === null));
     const plannerRouted = outcome.events.find(
       (event) => event.type === "MODEL_ROUTED" && event.payload.agentRole === "planner"
     );

@@ -147,7 +147,7 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
       // catalog row so per-task assignment (static policy + learned routing)
       // can spread tasks across models instead of pinning one model.
       const routing = eligible.length > 1 ? await (async () => {
-        const [{ buildNativeRoutingCatalog }, { loadLearnedRouting }] = await Promise.all([
+        const [{ buildNativeRoutingCatalog }, { loadLearnedRoutingSnapshot }] = await Promise.all([
           import("../../src/native/routing-catalog.js"),
           import("../../src/learning/learned-routing.js")
         ]);
@@ -161,8 +161,8 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
           })),
           { primary: `${model.provider}/${model.id}` }
         );
-        const learned = await loadLearnedRouting(stateRoot, ctx.cwd);
-        return { catalog, ...(learned !== undefined ? { learned } : {}) };
+        const learnedSnapshot = await loadLearnedRoutingSnapshot(stateRoot, ctx.cwd);
+        return { catalog, learnedSnapshot };
       })() : undefined;
       // Opt-in context efficiency (TASK-20260920-native-observation-projection):
       // the projector is run-scoped. The runId is minted here so the projector

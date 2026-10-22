@@ -214,6 +214,7 @@ const EVENT_SEEDS = {
     rejections: [],
     behaviorDistribution: { "fuzz-model": 1 },
     agentRole: "tester",
+    routingPolicyResourceVersionId: "rsv_fuzz",
     coldStartRoutingScore: 1
   }),
   RUN_BLOCKED: makeEvent("RUN_BLOCKED", {

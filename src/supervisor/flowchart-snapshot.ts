@@ -7,7 +7,7 @@ import {
   type FlowchartNodeRole,
   type TaskComplexity
 } from "../domain/flowchart.js";
-import { isEventId, isTaskId } from "../domain/ids.js";
+import { isEventId, isTaskId, isResourceVersionId } from "../domain/ids.js";
 import { isRecord } from "../domain/record.js";
 import { isIsoTimestamp } from "../domain/timestamp.js";
 import { validateAgentMessage, type AgentQuestion } from "../protocol/v1.js";
@@ -142,6 +142,10 @@ function validateRoutingDecision(value: unknown, index: number): RoutingDecision
   if (!isRecord(value)) throw snapshotError(`decisions[${index}] must be an object`);
   if (value.eventType !== "MODEL_ROUTED") {
     throw snapshotError(`decisions[${index}].eventType must be MODEL_ROUTED`);
+  }
+  if (value.routingPolicyResourceVersionId !== undefined && value.routingPolicyResourceVersionId !== null &&
+      !isResourceVersionId(value.routingPolicyResourceVersionId)) {
+    throw snapshotError(`decisions[${index}].routingPolicyResourceVersionId must be a ResourceVersionId or null`);
   }
   if (!isTaskId(value.taskId)) throw snapshotError(`decisions[${index}].taskId must be a valid TaskId`);
   if (!isOneOf(ROLES, value.role)) throw snapshotError(`decisions[${index}].role must be a known flowchart role`);

@@ -11,32 +11,108 @@ task presentation](conversation-host.md); its actual verification state is
 recorded separately from the original M1 task entry.
 
 This is the first bounded M1 slice under [ADR-009](decisions/0009-lightweight-adaptive-framework.md),
-not a stable package SDK export. After `pnpm build`, a host in this repository can
-use the experimental deep module import:
+not a stable package SDK export. The runnable Pi example supplies the actual
+adapter assembly, keeps the five host-scoped file tools, and waits for invocation
+telemetry writes before returning. From this repository, run:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+pnpm exec tsx examples/direct-development-task.ts --source C:/work/clean-source --state-root C:/work/pi-state --sandbox-root C:/work/candidates --objective "Implement the declared behavior" --model provider/model --checker node --checker-arg=checks/accept.cjs --max-wall-time-ms 300000
+```
+
+Use an existing sandbox directory and a clean source repository. The explicit
+`provider/model` uses provider definitions and credentials in the supplied state
+root (and the provider's normal credential environment). For custom providers,
+configure their `envVar` and provide that environment variable. The executable does not
+select an alternative model. Repeat `--checker-arg=<arg>` to pass separate checker
+arguments; the checker runs in the candidate directory. SIGINT/SIGTERM request
+cooperative cancellation; the 300-second default deadline is also cooperative,
+so cleanup can exceed it. A nonzero exit means the candidate was not accepted.
+The JSON result contains retained candidate and evidence paths, including for
+completed failed or cancelled runs.
+
+An embedding host running TypeScript can use the same tested example function:
 
 ```ts
-import { startDevelopmentTask } from "./dist/development/start-task.js";
+import { runDirectDevelopmentTask } from "./examples/direct-development-task.js";
 
-const result = await startDevelopmentTask({
-  stateRoot,
-  sandboxRoot,
-  sourceRepo,
+const result = await runDirectDevelopmentTask({
+  stateRoot: "C:/work/pi-state",
+  sandboxRoot: "C:/work/candidates",
+  sourceRepo: "C:/work/clean-source",
   objective: "Implement the declared behavior",
-  verification: { command: trustedChecker, args: trustedArguments },
-  executorFactory: async ({ tools, signal, attempt }) => {
-    return buildExecutor({ tools, signal, attempt });
-  },
-  signal
+  verification: { command: "node", args: ["checks/accept.cjs"] },
+  pi: { providerId: "provider", modelId: "model" },
+  maxWallTimeMs: 300_000,
 });
 
 console.log(result.status, result.reason, result.candidatePath, result.artifact);
 ```
 
-`buildExecutor`, `trustedChecker`, `trustedArguments` and the other host variables
-are integration placeholders. The factory returns the existing `AgentExecutor`
-contract and preserves the supplied candidate-scoped tools and cancellation
-signal. It must not execute edits against the source checkout. The host chooses
-verification; worker output and repair feedback do not grant command authority.
+Replace the example paths/model/checker with your host-owned configuration.
+The lower-level `startDevelopmentTask` still accepts an `executorFactory` returning
+the existing `AgentExecutor` contract. The CLI and example share
+`createDevelopmentPiExecutorFactory` from `src/pi-adapter/development-executor.ts`:
+it preserves supplied candidate-scoped tool objects, combines the native invocation
+collector with an optional configured callback, and introduces no command tools,
+environment selection, routing or implicit fallback. The example owns its durable
+sink (or accepts an explicit `invocationSink`) and awaits pending writes. A host may
+pass an `AbortSignal` as `signal` for cancellation. The host chooses verification;
+worker output and repair feedback do not grant command authority.
+If an explicit sink throws or rejects, the example drains all pending writes and
+reports an `AggregateError` whose `cause` holds the retained task result. An
+original task exception remains the primary error.
+
+## Opt into static model selection
+
+The exported host function also accepts `staticRouting`; the command-line example
+continues to use its explicit `--model`. Supply a host-owned catalog and policy:
+
+```ts
+const staticRouting = {
+  catalog: hostCatalog,
+  modelPolicy: { allowedModels: ["provider/small", "provider/large"] },
+  inputTokenReserve: 2048,
+  outputTokens: 1024,
+  privacyRequired: "cloud-approved" as const,
+  requiredCapabilities: ["tool-use"],
+};
+// Add staticRouting to the runDirectDevelopmentTask input above.
+```
+
+`hostCatalog` uses the existing `ModelRouterConfig` shape. Every model must declare
+its canonical `provider/model` id, matching provider, version, roles, maximum
+complexity, capabilities, provider policy, privacy class, context window, maximum
+output tokens, input/output prices, latency and fixed cost/duration estimates.
+Missing or nonfinite metadata is refused rather than replaced with defaults.
+Explicit zero prices are allowed; unknown prices are not zero. Populate metadata
+from sources the host has verified. `preferredModel` is an optional preference;
+a singleton `allowedModels` list is the strict pin.
+
+The host analyzes the original objective, retaining inferred risk, capability
+and privacy requirements. An approved routing resource for the canonical source
+project is read once and applied within the host allow-list, with its observed
+version included in `MODEL_ROUTED`. Repairs retain that model and resource
+version; later logical tasks read the current resource. Missing legacy provenance
+remains unknown. A route requiring human approval refuses before model dispatch;
+this entry does not add an approval workflow.
+
+Each attempt checks the current formatted prompt, reserved overhead and output
+against the selected model's capacity, and estimated latency against remaining
+time. The actual grounded executor request is checked again before dispatch.
+This is a character-based estimate, not an exact tokenizer, enforced generation
+limit or guarantee that the provider will accept the request. Catalog prices
+and estimates support selection and diagnostics; this option creates no monetary
+cap or total-cost guarantee.
+
+Insufficient capacity, cancellation or provider failure never upgrades or switches
+the selected model. Routed calls disable alias redirection and configured fallback
+models. An explicit API key for a different original provider is omitted, so the
+selected provider uses its own existing credentials. Ordinary fixed model calls
+retain their existing behavior.
+
+## Candidate and tool boundaries
+
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
@@ -143,10 +219,13 @@ The focused offline integration suite uses real temporary Git repositories and
 scripted executors, with no provider credentials:
 
 ```sh
-pnpm test -- --test-concurrency=1 test/integration/development/start-task.test.ts
+pnpm test -- --test-concurrency=1 test/integration/development/start-task.test.ts test/integration/development/pi-host.test.ts
 ```
 
-Implementation plan and verification: [M1-A task record](superpowers/plans/2026-10-17-direct-development-task.md).
+The Pi host tests use a real local HTTP provider fixture and real file tools,
+with independent acceptance/rejection, cancellation and invocation-sink flushing.
+They make no live provider calls. Current work: [active task plan](../tasks/plan.md).
+Historical implementation: [M1-A task record](superpowers/plans/2026-10-17-direct-development-task.md).
 M1-B implementation and current checks: [latest direction plan](superpowers/plans/2026-10-18-direction-completion.md)
 and [verification](reports/2026-10-18-direction-completion.md). Task-local context
 selection is described below; SDK exports and packaged consumers have separate migration evidence.

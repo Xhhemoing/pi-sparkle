@@ -6,6 +6,7 @@ import { test } from "node:test";
 import type { RoutingEvalReport } from "../../../src/adaptation/eval-routing.js";
 import { hashCandidateContent } from "../../../src/adaptation/candidate.js";
 import {
+  loadAdaptationRegistry,
   promoteWithRegistry,
   saveAdaptationRegistry,
   type PromoteInput
@@ -161,12 +162,11 @@ function promoteInput(
   };
 }
 
-async function promoteAvoidCheap(stateRoot: string, projectRoot: string): Promise<void> {
+async function promoteAvoidCheap(stateRoot: string, projectRoot: string, registry = new ResourceRegistry()): Promise<void> {
   const identity = routingPolicyIdentity(projectRoot);
   const baselineContent = routingPolicyContent(emptyPolicy());
   const promotedContent = routingPolicyContent(avoidCheap());
-  const registry = new ResourceRegistry();
-  const baseline = registry.registerBaseline({
+  const baseline = registry.getActiveVersion(identity) ?? registry.registerBaseline({
     identity,
     content: baselineContent,
     author: { kind: "detector", identity: "test" }
@@ -274,6 +274,10 @@ test("after a promoted routing-policy avoid, a flowchart node does not select th
 
 test("resume leases new flowchart nodes with the current active routing-policy", async () => {
   await withTempState(async (stateRoot, projectRoot) => {
+    const registry = new ResourceRegistry();
+    const baseline = registry.registerBaseline({ identity: routingPolicyIdentity(projectRoot),
+      content: routingPolicyContent(emptyPolicy()), author: AUTHOR });
+    await saveAdaptationRegistry(stateRoot, registry);
     const first = await startFlowchartRun(deps(stateRoot), {
       projectRoot,
       flowchart: sequentialFlowchart(),
@@ -282,11 +286,13 @@ test("resume leases new flowchart nodes with the current active routing-policy",
 
     assert.equal(first.status, "WAITING_FOR_USER");
     assert.equal(routedModel(first.events, "first"), "cheap");
+    const firstRoute = first.checkpoint.flowchart!.snapshot.decisions[0]!;
+    assert.equal(firstRoute.routingPolicyResourceVersionId, baseline.versionId);
     assert.equal(routedModel(first.events, "second"), undefined);
     const pending = first.pendingApproval;
     assert.ok(pending);
 
-    await promoteAvoidCheap(stateRoot, projectRoot);
+    await promoteAvoidCheap(stateRoot, projectRoot, registry);
 
     const continued = await resumeFlowchartRun(deps(stateRoot), first.runId, {
       approvalReply: { approvalPlanId: pending.plan.id, selectedActionIds: [pending.plan.items[0]!.id] },
@@ -296,6 +302,13 @@ test("resume leases new flowchart nodes with the current active routing-policy",
     assert.equal(continued.status, "COMPLETED");
     assert.equal(routedModel(continued.events, "first"), "cheap");
     assert.equal(routedModel(continued.events, "second"), "premium");
+    const active = (await loadAdaptationRegistry(stateRoot)).getActiveVersion(routingPolicyIdentity(projectRoot))!;
+    const decisions = continued.checkpoint.flowchart!.snapshot.decisions;
+    assert.equal(decisions[0]!.routingPolicyResourceVersionId, first.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId);
+    assert.equal(decisions[1]!.routingPolicyResourceVersionId, active.versionId);
+    const routed = continued.events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.equal(routed[0]!.payload.routingPolicyResourceVersionId, first.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId);
+    assert.equal(routed[1]!.payload.routingPolicyResourceVersionId, active.versionId);
     const storedSecond =
       continued.checkpoint.flowchart?.definition.nodes.find((entry) => entry.id === "second")
         ?.modelPolicy.allowedModels;
@@ -336,5 +349,40 @@ test("start and resume load the routing-policy identity of canonical project.roo
     assert.equal(continued.status, "COMPLETED");
     assert.equal(routedModel(continued.events, "first"), "premium");
     assert.equal(routedModel(continued.events, "second"), "premium");
+    const active = (await loadAdaptationRegistry(stateRoot)).getActiveVersion(routingPolicyIdentity(projectRoot))!;
+    const decisions = continued.checkpoint.flowchart!.snapshot.decisions;
+    assert.equal(decisions[0]!.routingPolicyResourceVersionId, first.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId);
+    assert.equal(decisions[1]!.routingPolicyResourceVersionId, active.versionId);
+    const routed = continued.events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.equal(routed[0]!.payload.routingPolicyResourceVersionId, first.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId);
+    assert.equal(routed[1]!.payload.routingPolicyResourceVersionId, active.versionId);
+  });
+});
+
+test("fresh flowchart without an active policy persists explicit absence", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const outcome = await startFlowchartRun(deps(stateRoot), {
+      projectRoot, flowchart: oneNodeFlowchart(), childResults: { work: fakeResult(0.9, "evd_done") }
+    });
+    assert.equal(outcome.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId, null);
+    const event = outcome.events.find((entry) => entry.type === "MODEL_ROUTED")!;
+    assert.equal(event.payload.routingPolicyResourceVersionId, null);
+  });
+});
+test("flowchart persists unknown provenance for an active legacy registry without content", async () => {
+  await withTempState(async (stateRoot, projectRoot) => {
+    const registry = new ResourceRegistry();
+    registry.registerBaseline({ identity: routingPolicyIdentity(projectRoot),
+      content: routingPolicyContent(avoidCheap()), author: AUTHOR });
+    const { contents, ...metadata } = registry.snapshot();
+    assert.ok(contents?.length);
+    await saveAdaptationRegistry(stateRoot, ResourceRegistry.fromSnapshot(metadata));
+    const outcome = await startFlowchartRun(deps(stateRoot), {
+      projectRoot, flowchart: oneNodeFlowchart(), childResults: { work: fakeResult(0.9, "evd_done") }
+    });
+    const event = outcome.events.find((entry) => entry.type === "MODEL_ROUTED")!;
+    assert.equal(event.payload.model, "cheap");
+    assert.equal("routingPolicyResourceVersionId" in event.payload, false);
+    assert.equal(outcome.checkpoint.flowchart!.snapshot.decisions[0]!.routingPolicyResourceVersionId, undefined);
   });
 });

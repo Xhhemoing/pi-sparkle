@@ -1,5 +1,8 @@
+import { ResourceRegistry } from "../../../src/adaptation/registry.js";
+import { saveAdaptationRegistry } from "../../../src/adaptation/promotion.js";
+import { routingPolicyIdentity, routingPolicyContent } from "../../../src/learning/learned-routing.js";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -25,7 +28,8 @@ function capture(): { io: CliIo; out: string[]; err: string[] } {
 
 async function withRoots(run: (stateRoot: string, projectRoot: string) => Promise<void>) {
   const stateRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-m1-state-"));
-  const projectRoot = await mkdtemp(join(tmpdir(), "pi-sparkle-cli-m1-proj-"));
+  // Policy identities use the same canonical root that discoverProject persists.
+  const projectRoot = await realpath(await mkdtemp(join(tmpdir(), "pi-sparkle-cli-m1-proj-")));
   try {
     await writeFile(join(projectRoot, "package.json"), JSON.stringify({}), "utf8");
     await withIsolatedPiEnv(() => run(stateRoot, projectRoot));
@@ -605,5 +609,25 @@ test("run --children refuses a pin naming a model the catalog does not expose", 
     assert.equal(code, 1, "an unknown pin must fail before any run starts");
     assert.deepEqual(await runDirectoryNames(stateRoot), [], "no run directory is created");
     assert.match(err.join(""), /pinned model "openai\/gpt-4o-mini" is not in the live catalog/);
+  });
+});
+
+test("CLI child assignment and flowchart events carry the selected policy resource", async () => {
+  await withRoots(async (stateRoot, projectRoot) => {
+    const registry = new ResourceRegistry();
+    const version = registry.registerBaseline({ identity: routingPolicyIdentity(projectRoot),
+      content: routingPolicyContent({ primaryModelId: "premium", avoid: [], prefer: [] }),
+      author: { kind: "human", identity: "host" } });
+    await saveAdaptationRegistry(stateRoot, registry);
+    const specPath = join(projectRoot, "children.json");
+    await writeFile(specPath, JSON.stringify(CHILD_SPEC), "utf8");
+    const { io, out, err } = capture();
+    assert.equal(await main(["run", "--project", projectRoot, "--objective", "Implement parser", "--children", specPath, "--state-root", stateRoot], io), 0, err.join(""));
+    const events = await readEventLog(stateRoot, requireCompletedRunId(out, err));
+    const routes = events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.equal(routes.length, 4, "two initial assignments plus two actual flowchart routes");
+    for (const route of routes) {
+      assert.equal((route.payload as { routingPolicyResourceVersionId: string }).routingPolicyResourceVersionId, version.versionId);
+    }
   });
 });

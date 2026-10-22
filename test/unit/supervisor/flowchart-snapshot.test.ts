@@ -394,3 +394,17 @@ test("validateFlowchartSupervisorSnapshot rejects pendingApproval without a wait
     /at most one WAITING_FOR_USER/
   );
 });
+
+test("routing provenance preserves legacy unknown and explicit none, rejects malformed ids", () => {
+  const { snapshot } = liveSnapshot();
+  for (const version of [undefined, null, "rsv_test"]) {
+    const decision = { ...snapshot.decisions[0], ...(version === undefined ? {} : { routingPolicyResourceVersionId: version }) };
+    const candidate = { ...snapshot, decisions: [decision] };
+    assert.deepEqual(validateFlowchartSupervisorSnapshot(candidate), candidate);
+  }
+  for (const version of ["", "current", 12, {}, []]) {
+    assert.throws(() => validateFlowchartSupervisorSnapshot({ ...snapshot,
+      decisions: [{ ...snapshot.decisions[0], routingPolicyResourceVersionId: version }]
+    }), /routingPolicyResourceVersionId/);
+  }
+});

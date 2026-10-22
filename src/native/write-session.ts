@@ -9,6 +9,12 @@ import { createTaskId, type RunId, type TaskId } from "../domain/ids.js";
 import type { ModelInvocation } from "../telemetry/model-invocation.js";
 import { NativeHostOutcomeCollector, snapshotNativeHostEvaluator, type NativeHostEvaluator, type NativeHostObservation } from "./host-outcome.js";
 import type { AgentExecutor } from "../execution/contract.js";
+import type { RoutingDecision } from "../supervisor/model-router.js";
+import type { TaskAssignment } from "../routing/assign.js";
+import { loadLearnedRoutingSnapshot } from "../learning/learned-routing.js";
+import { assertStaticWriteAdmission, selectStaticWriteModel, snapshotStaticWriteRouting,
+  type StaticWriteRoutingInput, type StaticWriteRouting, type StaticWriteSelection } from "../routing/write-routing.js";
+import { formatChildPrompt } from "../run/child-prompt.js";
 import { CommandCleanupIncompleteError, type AuthorizedCommandRunResult } from "../execution/command-runner.js";
 import {
   closeClosedLoop,
@@ -55,6 +61,8 @@ export interface NativeWriteExecutorFactoryInput {
   readonly onCommandCleanupUnsettled: (result: AuthorizedCommandRunResult) => void;
   /** Host-only synchronous reference telemetry, forwarded to the Pi runtime. */
   readonly onInvocation: (invocation: ModelInvocation) => void;
+  /** Present only for the host's explicit static-routing opt-in. */
+  readonly routingDecision?: RoutingDecision;
 }
 
 export type NativeWriteExecutorFactory =
@@ -84,6 +92,8 @@ export interface NativeWriteSessionInput {
   readonly presentation?: TaskPresentationInput;
   /** Explicit host-selected candidate files; copied before asynchronous work. */
   readonly taskContext?: TaskContextInput;
+  /** Explicit host policy; snapshotted per logical task, never shared across calls. */
+  readonly staticRouting?: StaticWriteRoutingInput;
 }
 
 export interface NativeWriteSessionResult {
@@ -244,6 +254,7 @@ export class NativeWriteSession {
     let workerTimeoutMs: number;
     let presentation: ResolvedTaskPresentation | undefined;
     let taskContext: TaskContextInput | undefined;
+    let staticRouting: StaticWriteRouting | undefined;
     try {
       // Read only the own data property, before spreading input or awaiting any
       // work. A task cannot smuggle side effects through a presentation getter.
@@ -257,6 +268,11 @@ export class NativeWriteSession {
         throw new DomainValidationError("task context must be an own data property");
       }
       taskContext = contextDescriptor?.value === undefined ? undefined : snapshotTaskContext(contextDescriptor.value as TaskContextInput);
+      const routingDescriptor = Object.getOwnPropertyDescriptor(input, "staticRouting");
+      if ((routingDescriptor === undefined && "staticRouting" in input) || (routingDescriptor !== undefined && !("value" in routingDescriptor))) {
+        throw new DomainValidationError("static routing must be an own data property");
+      }
+      staticRouting = snapshotStaticWriteRouting(routingDescriptor?.value as StaticWriteRoutingInput | undefined);
       const maxAttempts = input.maxAttempts;
       const maxWallTimeMs = input.maxWallTimeMs;
       limits = prepareNativeWriteLoopLimits({
@@ -297,7 +313,7 @@ export class NativeWriteSession {
     timer?.unref();
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
-    const operation = this.executeInternal(input, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+    const operation = this.executeInternal(input, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector, staticRouting).then(async (result): Promise<NativeWriteSessionResult> => {
       if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
       if (collector === undefined) return { ...result, logicalTaskId };
       let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
@@ -356,14 +372,18 @@ export class NativeWriteSession {
     timedOut: () => boolean,
     presentation: ResolvedTaskPresentation | undefined,
     taskContext: TaskContextInput | undefined,
-    collector: NativeHostOutcomeCollector | undefined
+    collector: NativeHostOutcomeCollector | undefined,
+    staticRouting: StaticWriteRouting | undefined
   ): Promise<ExecutionResult> {
+    const deadline = Date.now() + limits.maxWallTimeMs;
+    const remainingTime = () => Math.max(0, deadline - Date.now());
     const preflightInput: NativeWritePreflightInput = { ...input, signal };
     const preflight = prepareNativeWrite(preflightInput);
     const beforeWorktreeStop = stopReason(this.closed, signal);
     if (beforeWorktreeStop !== undefined) {
       throw new DomainValidationError(`native write ${beforeWorktreeStop}`);
     }
+    const learned = staticRouting === undefined ? undefined : await loadLearnedRoutingSnapshot(this.options.stateRoot, preflight.sourceRepo);
 
     const session = await openClosedLoop({
       sourceRepo: preflight.sourceRepo,
@@ -403,6 +423,25 @@ export class NativeWriteSession {
     let previous: NativeWriteFeedback | undefined;
     let previousSnapshot: NativeCandidateSnapshot | undefined;
     let previousResult: ExecutionResult | undefined;
+    let selected: StaticWriteSelection | undefined;
+    const admissionFailure = async (label: string, error: unknown): Promise<ExecutionResult> => {
+      if (previousResult === undefined) {
+        await this.disposeBeforeRun(session);
+        throw error;
+      }
+      const reason = `${label} admission failed: ${error instanceof Error ? error.message : "read failed"}`;
+      collector?.exclude(`run-failure: ${label} admission failed`);
+      const failure = await this.failureResult(preflight, session, reason, {
+        runId: previousResult.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: []
+      });
+      const contextStop = signal.aborted ? timedOut() ? "time-budget" : "cancelled" : "executor-failed";
+      const loop = { maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: contextStop } as const;
+      const artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: previousResult.runId,
+        body: { kind: "native-write-loop", schemaVersion: 1, sourceRevision: preflight.revision,
+          candidatePath: session.worktree.cwd, verification: preflight.verification, ...loop } });
+      return { ...failure, taskId: previousResult.taskId, executionEvents: previousResult.executionEvents,
+        ...(previousResult.taskContract === undefined ? {} : { taskContract: previousResult.taskContract }), loop: { ...loop, artifact } };
+    };
     for (let number = 1; number <= limits.maxAttempts; number++) {
       const attempt = limits.enabled ? Object.freeze({ number, maxAttempts: limits.maxAttempts,
         ...(previous === undefined ? {} : { previous }) }) : undefined;
@@ -418,26 +457,26 @@ export class NativeWriteSession {
             acceptanceMetadata: (preflight.acceptanceCriteria ?? []).map((criterion) => JSON.stringify(criterion)),
             input: taskContext, signal });
         } catch (error) {
-          if (previousResult === undefined) {
-            await this.disposeBeforeRun(session);
-            throw error;
-          }
-          const reason = `task context admission failed: ${error instanceof Error ? error.message : "read failed"}`;
-          collector?.exclude("run-failure: task context admission failed");
-          const failure = await this.failureResult(preflight, session, reason, {
-            runId: previousResult.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: []
-          });
-          const contextStop = signal.aborted ? timedOut() ? "time-budget" : "cancelled" : "executor-failed";
-          const loop = { maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: contextStop } as const;
-          const artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: previousResult.runId,
-            body: { kind: "native-write-loop", schemaVersion: 1, sourceRevision: preflight.revision,
-              candidatePath: session.worktree.cwd, verification: preflight.verification, ...loop } });
-          return { ...failure, taskId: previousResult.taskId, executionEvents: previousResult.executionEvents,
-            ...(previousResult.taskContract === undefined ? {} : { taskContract: previousResult.taskContract }), loop: { ...loop, artifact } };
+          return admissionFailure("task context", error);
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector);
+      const registry = createAgentProfileRegistry(defaultAgentProfiles());
+      const task = implementerTask(objective, registry, workerTimeoutMs, preflight.acceptanceCriteria, presentation);
+      let assignment: TaskAssignment | undefined;
+      if (staticRouting !== undefined && learned !== undefined) {
+        try {
+          const prompt = formatChildPrompt(task);
+          selected ??= selectStaticWriteModel(staticRouting, { taskId: task.taskId, objective: preflight.objective, prompt }, learned, remainingTime());
+          assertStaticWriteAdmission(selected, prompt, remainingTime());
+          const decision = selected.assignment.decision;
+          assignment = { ...selected.assignment, taskId: task.taskId, decision: Object.freeze({ ...decision, taskId: task.taskId,
+            approvalPlan: { ...decision.approvalPlan, id: `approval:${task.taskId}:${decision.model}` } }) };
+          task.assignedModel = decision.model;
+        } catch (error) { return admissionFailure("static routing", error); }
+      }
+      const result = await this.runAttempt(preflight, session, signal, active, attempt, objective, preparedContext, collector,
+        task, assignment, selected, remainingTime);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
@@ -490,12 +529,14 @@ export class NativeWriteSession {
     session: ClosedLoopSession,
     signal: AbortSignal,
     active: ActiveWrite,
-    workerTimeoutMs: number,
     attempt: NativeWriteAttemptContext | undefined,
-    presentation: ResolvedTaskPresentation | undefined,
     objective: string,
     preparedContext: TaskContext | undefined,
-    collector: NativeHostOutcomeCollector | undefined
+    collector: NativeHostOutcomeCollector | undefined,
+    task: ChildTaskInput,
+    assignment: TaskAssignment | undefined,
+    selected: StaticWriteSelection | undefined,
+    remainingTime: () => number
   ): Promise<ExecutionResult> {
     active.analysis?.setCurrent(undefined);
     const hostAttempt = collector?.beginAttempt();
@@ -517,6 +558,7 @@ export class NativeWriteSession {
         signal,
         onCommandCleanupUnsettled,
         onInvocation: hostAttempt?.onInvocation ?? (() => undefined),
+        ...(assignment === undefined ? {} : { routingDecision: assignment.decision }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
         ...(attempt === undefined ? {} : { attempt }),
         ...(preflight.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: preflight.acceptanceCriteria })
@@ -536,12 +578,25 @@ export class NativeWriteSession {
       executor = failedExecutor(factoryStop);
     }
 
-    const registry = createAgentProfileRegistry(defaultAgentProfiles());
-    const task = implementerTask(objective, registry, workerTimeoutMs, preflight.acceptanceCriteria, presentation);
+    if (selected !== undefined) {
+      const underlying = executor;
+      executor = {
+        ...(underlying.supportedModelIds === undefined ? {} : { supportedModelIds: underlying.supportedModelIds }),
+        ...(underlying.steerText === undefined ? {} : { steerText: underlying.steerText.bind(underlying) }),
+        async *execute(request, requestSignal) {
+          if (!requestSignal.aborted) {
+            if (`${request.providerId}/${request.modelId}` !== selected.model.id) throw new DomainValidationError("static routing request identity differs from the selected model");
+            assertStaticWriteAdmission(selected, `Working directory: ${request.workingDirectory}\n\n${request.prompt}`, remainingTime());
+          }
+          yield* underlying.execute(request, requestSignal);
+        }
+      };
+    }
     const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(executor) ?? executor }, {
       projectRoot: session.worktree.cwd,
       objective,
-      children: [task]
+      children: [task],
+      ...(assignment === undefined ? {} : { assignments: [assignment] })
     });
     active.analysis?.setCurrent({ runId: running.runId, revision: preflight.revision, generation: running.runId });
     active.running = running;
