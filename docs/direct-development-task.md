@@ -40,6 +40,24 @@ verification; worker output and repair feedback do not grant command authority.
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
+For a bounded subtask inside a larger project, the host can use this same entry
+with one Pi worker; a separate project queue or recursive planner is unnecessary.
+Choose this path when the objective, permitted edits and independent check are
+already clear. Task size does not waive authorization or verification. The
+`sparkle_delegate` extension remains a read-only inspection/review tool.
+
+When the structured task result is the worker's complete handoff, a host using
+`createConfiguredPiExecutor` may explicitly set `stopAfterTaskResult: true` in
+its executor factory. This skips the additional model response after a valid
+report. The whole report turn, including its tools and usage, still completes;
+the host then performs the usual independent candidate check. An invalid report
+does not stop execution, and a report never proves acceptance by itself. The
+option defaults to off. If the execution has accepted steering, it keeps normal
+continuation so the correction reaches the worker; cost limits and cancellation
+still apply. Put the complete findings and unresolved work in the report rather
+than relying on a later prose response. This is an experimental host option,
+not automatic task classification or a new writable extension tool.
+
 The source must be the clean physical Git toplevel, including no ignored or
 untracked entries. Use state and sandbox directories outside that source.
 `sandboxRoot` is optional; a supplied directory must exist and satisfy the

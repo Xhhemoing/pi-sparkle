@@ -2,6 +2,7 @@
 
 See [plan](plan.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
 
+- [ ] Owner: review [PR #66](https://github.com/Xhhemoing/pi-sparkle/pull/66), its four-run quality/cost comparison and current hosted CI; keep the option explicit pending broader evidence.
 - [ ] Owner: review PR #65's measured comparison and current-head CI, retaining initial failures and post-run interventions.
 - [ ] Owner, before adopting a Soul candidate: inspect retained patches; the earlier second direct helper candidate needs its kill-error/successful-reap regression corrected and retested. Original Soul application remains outside these trials.
 - [ ] Owner: decide later independent tasks from measured value and quality; this two-task expansion does not complete the deferred 15-task evaluation.

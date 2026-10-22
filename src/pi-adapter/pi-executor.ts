@@ -78,6 +78,11 @@ export interface PiExecutorOptions {
   modelId: string;
   systemPrompt?: string;
   thinkingLevel?: SparkleThinkingLevel;
+  /**
+   * Opt in to completing after a valid task report, once its whole turn settles.
+   * Default off. Executions with accepted steering retain normal continuation.
+   */
+  stopAfterTaskResult?: boolean;
   tools?: AgentTool<any>[];
   apiKey?: string;
   /** Injected Models collection. Tests and the configured factory pass this. */
@@ -543,12 +548,14 @@ export class PiAgentExecutor implements AgentExecutor {
     const events: ExecutionEvent[] = [];
     const queue = new AsyncEventQueue<ExecutionEvent>();
     let streamPrefixOpen = true;
+    let taskResultReported = false;
     let streamedCount = 0;
     const clusterTools = request.cluster !== undefined ? createClusterTools(request.cluster) : [];
     // Built per attempt: a verdict from an attempt that is retried must not
     // survive into the final transcript.
     const reportTaskResult = createTaskResultTool(request, (event) => {
       streamPrefixOpen = false;
+      taskResultReported = true;
       events.push(event);
     });
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
@@ -573,7 +580,19 @@ export class PiAgentExecutor implements AgentExecutor {
                 : {})
             })
         }),
-      gate.armed ? { stopAfterTurn: () => gate.requestStopIfExceeded() } : {}
+      gate.armed || this.options.stopAfterTaskResult === true ? {
+        stopAfterTurn: () => {
+          // Always observe spend, even when a valid report also completes the run.
+          // Pi invokes this after tool settlement and turn_end (including usage).
+          const costStop = gate.requestStopIfExceeded();
+          // The stop hook precedes Pi's steering poll. Keep the normal loop for
+          // the whole execution once any steer was accepted, including retries,
+          // so completion never silently drops a queued or replayed correction.
+          const hasAcceptedSteering = replay.length > 0 ||
+            (this.acceptedSteers.get(request.agentInstanceId)?.length ?? 0) > 0;
+          return costStop || (this.options.stopAfterTaskResult === true && taskResultReported && !hasAcceptedSteering);
+        }
+      } : {}
     );
 
     this.liveKernels.set(request.agentInstanceId, kernel);
