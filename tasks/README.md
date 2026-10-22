@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
+Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). PR #69 is merged. Eight new Soul test-copy attempts are recorded: three complete acceptances, four complete-acceptance failures and one host interruption. URL successful samples are comparable; file-plan failures expose a shared task/test-placement conflict, plus one corrected checker defect. Keep failures and unknown costs. Original Soul remains untouched; improve task/verification configuration before further comparisons, and keep runtime expansion frozen. The broader 15-task evaluation and dependent-task integration remain incomplete.
 
 ## Authoritative Files
 
