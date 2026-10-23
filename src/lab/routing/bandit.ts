@@ -1,4 +1,6 @@
 import { DomainValidationError } from "../../domain/errors.js";
+import type { BanditState } from "../../persist/bandit-state.js";
+export type { BanditState } from "../../persist/bandit-state.js";
 
 /** Observable, versioned task features — anything outside this schema is rejected. */
 export const OBSERVABLE_FEATURE_KEYS = [
@@ -43,15 +45,6 @@ export interface BanditConfig {
   readonly explorationBudget: number;
   /** Probability of an exploratory draw while budget remains. */
   readonly epsilon: number;
-}
-
-export interface BanditState {
-  readonly arms: readonly string[];
-  readonly pulls: Record<string, number>;
-  readonly rewardSum: Record<string, number>;
-  readonly explorationsUsed: number;
-  /** Must always remain zero — high-risk tasks never explore. */
-  readonly highRiskExplorations: number;
 }
 
 export function createBanditState(arms: readonly string[]): BanditState {

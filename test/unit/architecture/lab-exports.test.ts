@@ -30,6 +30,24 @@ test("old shadow path forwards every export with the same identity", async () =>
   sameExports(await import("../../../src/routing/shadow.js"), await import("../../../src/lab/routing/shadow.js"));
 });
 
+const relocatedGroups = {
+  learning: ["attribution", "auto-loop", "bandit-store", "diagnostics", "eval-dataset", "from-episode",
+    "learned-routing", "observation-ledger", "patterns", "signals", "signatures", "task-success"],
+  adaptation: ["active-pointer", "approval-profile", "candidate", "eval-routing", "monitor", "mutate", "pareto",
+    "promotion-rules", "promotion", "reflection", "registry", "resource", "retirement", "rollback"],
+  experiments: ["arm-outcome", "attribution-report", "canary", "comparison-report", "dataset", "evaluation-card",
+    "freeze", "gated-comparison", "holdout", "isolation", "manifest", "plan", "readonly-evaluator-manifest",
+    "replay", "shadow-compare", "shadow", "simulation-holdout", "task-spec", "threshold-calibration"],
+  routing: ["assign", "r1", "r1-shadow-report", "posterior", "offline-types", "offline-logit", "offline-prob-add", "lin-alg", "propensity"],
+  evaluation: ["adapters", "check-adapter", "delivery-adapter", "diff-adapter", "invalidation", "ownership", "precedence"]
+} as const;
+
+for (const [group, names] of Object.entries(relocatedGroups)) {
+  for (const name of names) test(`old ${group}/${name} forwards all canonical runtime exports`, async () => {
+    sameExports(await import(`../../../src/${group}/${name}.js`), await import(`../../../src/lab/${group}/${name}.js`));
+  });
+}
+
 for (const entry of ["lab/cli.ts", "src/lab/cli.ts"]) test(`${entry} source launcher executes help once`, () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", entry, "--help"], {
     cwd: root, encoding: "utf8", timeout: 20_000

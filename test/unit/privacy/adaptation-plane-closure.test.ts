@@ -21,8 +21,37 @@ const ADAPTATION_DIRS = [
   "learning",
   "preferences",
   "experiments",
-  "feedback"
+  "feedback",
+  "lab/adaptation",
+  "lab/learning",
+  "lab/experiments",
+  "lab/routing",
+  "lab/evaluation"
 ] as const;
+
+
+// Scan exact old research forwards too, without classifying mixed core directories as research.
+const RESEARCH_COMPAT_MODULES: readonly string[] = [
+  "src/routing/assign.ts",
+  "src/routing/bandit.ts",
+  "src/routing/drift.ts",
+  "src/routing/shadow.ts",
+  "src/routing/r1.ts",
+  "src/routing/r1-shadow-report.ts",
+  "src/routing/posterior.ts",
+  "src/routing/offline-types.ts",
+  "src/routing/offline-logit.ts",
+  "src/routing/offline-prob-add.ts",
+  "src/routing/lin-alg.ts",
+  "src/routing/propensity.ts",
+  "src/evaluation/adapters.ts",
+  "src/evaluation/check-adapter.ts",
+  "src/evaluation/delivery-adapter.ts",
+  "src/evaluation/diff-adapter.ts",
+  "src/evaluation/invalidation.ts",
+  "src/evaluation/ownership.ts",
+  "src/evaluation/precedence.ts"
+];
 
 const RUNTIME_PREFIXES = [
   "src/run/",
@@ -67,7 +96,7 @@ const ALLOWED_RUNTIME_MODULES: readonly RuntimeAllowance[] = [
   },
   {
     module: "src/supervisor/model-router.ts",
-    because: "offline routing replay reaches the filesystem-free router through routing/assign"
+    because: "offline routing replay reaches the filesystem-free router through routing/assign and static-assign"
   }
 ];
 
@@ -79,8 +108,9 @@ const ALLOWED_RUNTIME_MODULES: readonly RuntimeAllowance[] = [
 const TYPE_ONLY_IMPORT_PATTERN =
   /\bimport\s+type\s+(?:\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?)\s+from\s*(["'])[^"']+\1\s*;?/g;
 
+const TYPE_ONLY_EXPORT_PATTERN = /\bexport\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+[A-Za-z_$][\w$]*)?)\s+from\s*(["'])[^"']+\1\s*;?/g;
 const SPECIFIER_PATTERN =
-  /\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3/g;
+  /\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3|^\s*import\s*(["'])([^"']+)\5/gm;
 
 /** Methods named import are not dynamic imports; only ImportKeyword calls are. */
 function computedImportArguments(source: string): string[] {
@@ -129,10 +159,10 @@ function listTs(relativeDir: string): string[] {
 }
 
 function importSpecifiers(source: string): string[] {
-  const valueSource = source.replace(TYPE_ONLY_IMPORT_PATTERN, "");
+  const valueSource = source.replace(TYPE_ONLY_IMPORT_PATTERN, "").replace(TYPE_ONLY_EXPORT_PATTERN, "");
   const out: string[] = [];
   for (const match of valueSource.matchAll(SPECIFIER_PATTERN)) {
-    const specifier = match[2] ?? match[4];
+    const specifier = match[2] ?? match[4] ?? match[6];
     if (specifier !== undefined) out.push(specifier);
   }
   return out;
@@ -157,7 +187,7 @@ interface Closure {
   readonly reachedFrom: ReadonlyMap<string, string>;
 }
 
-function buildValueClosure(entries: readonly string[]): Closure {
+function buildValueClosure(entries: readonly string[], overrides: ReadonlyMap<string, string> = new Map()): Closure {
   const members = new Set(entries);
   const reachedFrom = new Map<string, string>();
   const pending = [...entries];
@@ -165,7 +195,7 @@ function buildValueClosure(entries: readonly string[]): Closure {
   while (pending.length > 0) {
     const current = pending.pop();
     if (current === undefined) break;
-    for (const specifier of importSpecifiers(readModule(current))) {
+    for (const specifier of importSpecifiers(overrides.get(current) ?? readModule(current))) {
       const target = resolveRelative(current, specifier);
       if (target === undefined || members.has(target)) continue;
       members.add(target);
@@ -194,21 +224,24 @@ function isRuntimeModule(module: string): boolean {
   );
 }
 
-const ADAPTATION_ENTRY_POINTS = ADAPTATION_DIRS.flatMap((dir) => listTs(`src/${dir}`));
+const ADAPTATION_ENTRY_POINTS = [...ADAPTATION_DIRS.flatMap((dir) => listTs(`src/${dir}`)), ...RESEARCH_COMPAT_MODULES];
 const ADAPTATION_VALUE_CLOSURE = buildValueClosure(ADAPTATION_ENTRY_POINTS);
 
 test("value walker erases import type declarations but keeps runtime import forms", () => {
   const source = `
     import type { Erased } from "./erased.js";
     import type * as ErasedNamespace from "./erased-namespace.js";
+    export type { ErasedExport } from "./erased-export.js";
     import { type KeptInline } from "./inline-type.js";
     export { value } from "./re-export.js";
     const lazy = import("./lazy.js");
+    import "./side-effect.js";
   `;
   assert.deepEqual(importSpecifiers(source), [
     "./inline-type.js",
     "./re-export.js",
-    "./lazy.js"
+    "./lazy.js",
+    "./side-effect.js"
   ]);
 });
 
@@ -216,21 +249,20 @@ test("runtime catalog configuration does not become shared policy by leaving CLI
   assert.equal(isRuntimeModule("src/routing/model-catalog.ts"), true);
 });
 
-test("adaptation value closure reaches only explicitly allowed runtime modules", () => {
-  const actual = [...ADAPTATION_VALUE_CLOSURE.members].filter(isRuntimeModule).sort();
+function assertAllowedRuntimeModules(closure: Closure): void {
+  const actual = [...closure.members].filter(isRuntimeModule).sort();
   const allowed = ALLOWED_RUNTIME_MODULES.map((entry) => entry.module).sort();
-  const unallowlisted = actual
-    .filter((module) => !allowed.includes(module))
-    .map((module) => importChain(ADAPTATION_VALUE_CLOSURE, module));
-  const stale = allowed.filter((module) => !actual.includes(module));
-
-  assert.deepEqual(
-    unallowlisted,
-    [],
-    "a runtime module entered the adaptation value closure; the reported path is its import chain"
-  );
-  assert.deepEqual(stale, [], "a runtime allowance is stale; remove or re-derive it");
+  const unallowlisted = actual.filter((module) => !allowed.includes(module)).map((module) => importChain(closure, module));
+  assert.deepEqual(unallowlisted, [], "a runtime module entered the adaptation value closure; the reported path is its import chain");
+  assert.deepEqual(allowed.filter((module) => !actual.includes(module)), [], "a runtime allowance is stale; remove or re-derive it");
   assert.deepEqual(actual, allowed);
+}
+
+test("adaptation value closure reaches only explicitly allowed runtime modules", () => {
+  assertAllowedRuntimeModules(ADAPTATION_VALUE_CLOSURE);
+  for (const dir of ADAPTATION_DIRS) {
+    for (const module of listTs("src/" + dir)) assert.ok(ADAPTATION_VALUE_CLOSURE.members.has(module), module);
+  }
 });
 
 test("every runtime allowance is unique and states its justification", () => {
@@ -320,4 +352,12 @@ test("computed imports remain confined to justified runtime loaders outside adap
     ["pathToFileURL(entry).href"],
     "the bootstrap exception covers only its validated contained entry"
   );
+});
+
+for (const importer of ["src/learning/signals.ts", "src/lab/learning/signals.ts", "src/evaluation/check-adapter.ts", "src/lab/evaluation/check-adapter.ts"]) test(importer + " cannot bypass the runtime closure through a side-effect import", () => {
+  const relative = importer.startsWith("src/lab/") ? "../../" : "../";
+  const source = readModule(importer) + '\nimport "' + relative + 'config/providers-config.js";';
+  const closure = buildValueClosure(ADAPTATION_ENTRY_POINTS, new Map([[importer, source]]));
+  assert.ok(closure.members.has("src/config/providers-config.ts"), "the mutated source must actually enter the runtime closure");
+  assert.throws(() => assertAllowedRuntimeModules(closure), assert.AssertionError);
 });

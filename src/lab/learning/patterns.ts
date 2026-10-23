@@ -1,0 +1,169 @@
+import type { EpisodeSignature, EpisodeSignatureKind } from "./signatures.js";
+import { findNegativeControlMarker } from "./attribution.js";
+
+export interface Pattern {
+  readonly key: string;
+  readonly kind: EpisodeSignatureKind;
+  readonly count: number;
+  readonly avgSimilarity: number;
+  readonly negativeControl: boolean;
+  readonly boundary: string;
+  /**
+   * True for a single (count = 1) explicit severe safety event: surfaced as a
+   * one-off readiness finding instead of being dropped by the default
+   * two-episode recurrence rule.
+   */
+  readonly oneOffReadiness: boolean;
+}
+
+/** Feature key that marks an explicit severe safety event on a signature. */
+export const SEVERE_SAFETY_FEATURE = "severeSafety";
+
+export function isSevereSafetySignature(sig: EpisodeSignature): boolean {
+  return sig.features[SEVERE_SAFETY_FEATURE] === true;
+}
+
+export interface PatternDetectorOptions {
+  readonly minCount?: number;
+  readonly minSimilarity?: number;
+}
+
+const DEFAULT_MIN_COUNT = 2;
+const DEFAULT_MIN_SIM = 0.6;
+
+export function detectRepeatedPatterns(
+  signatures: readonly EpisodeSignature[],
+  options: PatternDetectorOptions = {}
+): Pattern[] {
+  const minCount = options.minCount ?? DEFAULT_MIN_COUNT;
+  const minSim = options.minSimilarity ?? DEFAULT_MIN_SIM;
+
+  const byKind = new Map<EpisodeSignatureKind, EpisodeSignature[]>();
+  for (const sig of signatures) {
+    const arr = byKind.get(sig.kind) ?? [];
+    arr.push(sig);
+    byKind.set(sig.kind, arr);
+  }
+
+  const patterns: Pattern[] = [];
+
+  [...byKind.keys()].sort(compareText).forEach((kind) => {
+    const sigs = byKind.get(kind)!;
+    // Kinds below the recurrence floor are skipped unless they carry an
+    // explicit severe safety event, which must surface as a one-off finding.
+    if (sigs.length < minCount && !sigs.some(isSevereSafetySignature)) return;
+
+    const clusters = clusterSignatures(sigs, minSim);
+    clusters.forEach((cluster, idx) => {
+      if (cluster.length >= minCount) {
+        patterns.push({
+          key: `${kind}:cluster-${idx}`,
+          kind,
+          count: cluster.length,
+          avgSimilarity: averageSimilarity(cluster),
+          // Negative controls come from the signatures' own features, never
+          // from the cluster key: a uniform benign-cause marker (read-only
+          // noise, missing instrumentation, gate block, unrelated failure)
+          // demotes the pattern so it cannot surface as an improvement.
+          negativeControl: findNegativeControlMarker(cluster) !== undefined,
+          boundary: kind,
+          oneOffReadiness: false,
+        });
+        return;
+      }
+      // M4-T6: a single explicit severe safety event must not be silently
+      // dropped by the recurrence rule — it surfaces as a one-off readiness
+      // finding, and an explicit severe marker wins over benign-cause labels.
+      for (const sig of cluster) {
+        if (isSevereSafetySignature(sig)) {
+          patterns.push({
+            key: `${kind}:one-off:${sig.hash}`,
+            kind,
+            count: 1,
+            avgSimilarity: 1,
+            negativeControl: false,
+            boundary: kind,
+            oneOffReadiness: true,
+          });
+        }
+      }
+    });
+  });
+
+  return patterns;
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function canonicalSignatureContent(sig: EpisodeSignature): string {
+  const features = Object.keys(sig.features).sort(compareText).map((key) => {
+    const value = sig.features[key]!;
+    // Type tags and numeric strings preserve primitive distinctions, including
+    // non-finite numbers that JSON.stringify would otherwise turn into null.
+    return [key, typeof value, Object.is(value, -0) ? "-0" : String(value)];
+  });
+  return JSON.stringify([features, sig.createdAt, sig.hash]);
+}
+
+function clusterSignatures(
+  signatures: readonly EpisodeSignature[],
+  threshold: number
+): EpisodeSignature[][] {
+  // Stable exact content breaks episode-id ties; the existing hash is only a
+  // final field tie-break, never a substitute for comparing feature content.
+  const sigs = [...signatures].sort((a, b) =>
+    compareText(a.episodeId, b.episodeId) ||
+    compareText(canonicalSignatureContent(a), canonicalSignatureContent(b))
+  );
+  const clusters: EpisodeSignature[][] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < sigs.length; i++) {
+    if (used.has(i)) continue;
+    const cluster: EpisodeSignature[] = [sigs[i]!];
+    used.add(i);
+
+    for (let j = i + 1; j < sigs.length; j++) {
+      if (used.has(j)) continue;
+      const candidate = sigs[j]!;
+      // Complete-link admission prevents an intermediate signature from
+      // bridging endpoints whose similarity is below the threshold.
+      if (cluster.every((member) => computeFeatureSim(member, candidate) >= threshold)) {
+        cluster.push(candidate);
+        used.add(j);
+      }
+    }
+
+    clusters.push(cluster);
+  }
+
+  return clusters;
+}
+
+function computeFeatureSim(a: EpisodeSignature, b: EpisodeSignature): number {
+  const keySet = new Set<string>();
+  Object.keys(a.features).forEach((k) => keySet.add(k));
+  Object.keys(b.features).forEach((k) => keySet.add(k));
+  const keys: string[] = [];
+  keySet.forEach((k) => keys.push(k));
+  let matches = 0;
+  for (const k of keys) {
+    if (a.features[k] === b.features[k]) matches++;
+  }
+  return keys.length > 0 ? matches / keys.length : 0;
+}
+
+function averageSimilarity(cluster: EpisodeSignature[]): number {
+  if (cluster.length < 2) return 1.0;
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < cluster.length; i++) {
+    for (let j = i + 1; j < cluster.length; j++) {
+      sum += computeFeatureSim(cluster[i]!, cluster[j]!);
+      n++;
+    }
+  }
+  return n > 0 ? sum / n : 1.0;
+}

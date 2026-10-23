@@ -17,11 +17,11 @@ import { fileURLToPath } from "node:url";
  * Two learned-routing modules are reachable today. Both are pinned below with
  * the exact importer that pulls them in, so the allowlist cannot silently grow:
  *
- *   - `src/routing/bandit.ts` — reached through `src/learning/bandit-store.ts`,
+ *   - `src/lab/routing/bandit.ts` — reached through `src/lab/learning/bandit-store.ts`,
  *     which the post-run adaptation loop uses to *write* per-project reward
  *     counters. Only the constructor/writer symbols are imported; `selectArm`
  *     (the exploratory selector) has no caller in the closure. The stored state is
- *     read back by `bandit-store.ts` itself and by `src/cli/doctor.ts`, which calls
+ *     read through `src/persist/bandit-state.ts` by the lab writer and `src/cli/doctor.ts`, which calls
  *     `loadProjectBanditByKey` for the read-only `learnedState` inventory (R6-4;
  *     parent sign-off: read-only inventory, never a selector — doctor never feeds
  *     routing). No other live module may read the stored state back.
@@ -48,6 +48,12 @@ const LIVE_ENTRY_POINTS = [
   "src/track/loop.ts"
 ] as const;
 
+// The ordinary core keeps every possible literal loader except the two explicit
+// CLI research commands. Track remains separately exercised in LIVE_CLOSURE.
+const DEFAULT_ENTRY_POINTS = [
+  "src/cli/main.ts", "src/run/flowchart-run.ts", "src/run/supervisor.ts", "src/native/core-session.ts"
+] as const;
+
 /**
  * Files the previous per-file version of this test guarded directly. They must
  * stay inside the closure, otherwise the entry-point list has drifted and the
@@ -70,9 +76,14 @@ const PINNED_LIVE_MODULES = [
 const FORBIDDEN_MODULES = [
   "src/experiments/shadow-compare.ts",
   "src/experiments/simulation-holdout.ts",
+  "src/lab/experiments/shadow-compare.ts",
+  "src/lab/experiments/simulation-holdout.ts",
   "src/routing/r1-shadow-report.ts",
   "src/routing/r1.ts",
-  "src/routing/shadow.ts"
+  "src/lab/routing/r1-shadow-report.ts",
+  "src/lab/routing/r1.ts",
+  "src/routing/shadow.ts",
+  "src/lab/routing/shadow.ts"
 ] as const;
 
 interface Allowance {
@@ -86,8 +97,8 @@ interface Allowance {
 /** Pinned exceptions. Adding one requires a conscious edit here. */
 const ALLOWED_LEARNED_MODULES: readonly Allowance[] = [
   {
-    module: "src/routing/bandit.ts",
-    importers: ["src/learning/bandit-store.ts"],
+    module: "src/lab/routing/bandit.ts",
+    importers: ["src/lab/learning/bandit-store.ts"],
     because:
       "adaptation-plane reward writer only; the exploratory selectArm path is not reachable"
   },
@@ -105,14 +116,17 @@ const ALLOWED_LEARNED_MODULES: readonly Allowance[] = [
  */
 const WATCHED_MODULES: readonly string[] = [
   ...FORBIDDEN_MODULES,
+  "src/routing/bandit.ts", // Old compatibility path cannot create a second live ingress.
   ...ALLOWED_LEARNED_MODULES.map((entry) => entry.module)
 ];
 
 /** Symbols `bandit-store.ts` may import from the bandit module. */
 const ALLOWED_BANDIT_SYMBOLS = new Set(["BanditState", "createBanditState", "recordReward"]);
 
-const SPECIFIER_PATTERN =
-  /\bfrom\s*"([^"]+)"|\bimport\s*\(\s*"([^"]+)"\s*\)|^\s*import\s+"([^"]+)"/gm;
+const TYPE_ONLY_IMPORT_PATTERN =
+  /\bimport\s+type\s+(?:\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?)\s+from\s*(["'])[^"']+\1\s*;?/g;
+const TYPE_ONLY_EXPORT_PATTERN = /\bexport\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+[A-Za-z_$][\w$]*)?)\s+from\s*(["'])[^"']+\1\s*;?/g;
+const SPECIFIER_PATTERN = /\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3|^\s*import\s*(["'])([^"']+)\5/gm;
 
 function toPosix(path: string): string {
   return path.split("\\").join("/");
@@ -137,13 +151,18 @@ function listTypeScriptModules(relativeDirectory: string): string[] {
   return modules.sort();
 }
 
-function importSpecifiers(source: string): string[] {
-  const out: string[] = [];
-  for (const match of source.matchAll(SPECIFIER_PATTERN)) {
-    const specifier = match[1] ?? match[2] ?? match[3];
-    if (specifier !== undefined) out.push(specifier);
+function importEdges(source: string): Array<{ specifier: string; dynamic: boolean }> {
+  const valueSource = source.replace(TYPE_ONLY_IMPORT_PATTERN, "").replace(TYPE_ONLY_EXPORT_PATTERN, "");
+  const out: Array<{ specifier: string; dynamic: boolean }> = [];
+  for (const match of valueSource.matchAll(SPECIFIER_PATTERN)) {
+    const specifier = match[2] ?? match[4] ?? match[6];
+    if (specifier !== undefined) out.push({ specifier, dynamic: match[4] !== undefined });
   }
   return out;
+}
+
+function importSpecifiers(source: string): string[] {
+  return importEdges(source).map((edge) => edge.specifier);
 }
 
 /** Resolve a relative NodeNext specifier (`./x.js`) to its `.ts` source file. */
@@ -166,7 +185,7 @@ interface Closure {
   readonly reachedFrom: ReadonlyMap<string, string>;
 }
 
-function buildClosure(entries: readonly string[]): Closure {
+function buildClosure(entries: readonly string[], overrides: ReadonlyMap<string, string> = new Map(), includeExplicitResearch = true): Closure {
   const members = new Set<string>(entries);
   const importersOf = new Map<string, Set<string>>();
   const reachedFrom = new Map<string, string>();
@@ -175,9 +194,11 @@ function buildClosure(entries: readonly string[]): Closure {
   while (pending.length > 0) {
     const current = pending.pop();
     if (current === undefined) break;
-    for (const specifier of importSpecifiers(readModule(current))) {
+    for (const { specifier, dynamic } of importEdges(overrides.get(current) ?? readModule(current))) {
       const target = resolveRelative(current, specifier);
       if (target === undefined) continue;
+      if (!includeExplicitResearch && dynamic && current === "src/cli/main.ts" &&
+        (target === "src/track/loop.ts" || target === "src/cli/adapt.ts")) continue;
       const importers = importersOf.get(target) ?? new Set<string>();
       importers.add(current);
       importersOf.set(target, importers);
@@ -202,10 +223,11 @@ function importChain(closure: Closure, module: string): string {
 }
 
 const LIVE_CLOSURE = buildClosure(LIVE_ENTRY_POINTS);
+const DEFAULT_CLOSURE = buildClosure(DEFAULT_ENTRY_POINTS, new Map(), false);
 const SRC_MODULES = listTypeScriptModules("src");
 
 test("every entry point and watched module path still exists", () => {
-  const missing = [...LIVE_ENTRY_POINTS, ...WATCHED_MODULES].filter(
+  const missing = [...LIVE_ENTRY_POINTS, ...DEFAULT_ENTRY_POINTS, ...WATCHED_MODULES].filter(
     (module) => !existsSync(resolve(REPO_ROOT, module))
   );
   assert.deepEqual(missing, [], "a pinned path was renamed; this guard would be vacuous");
@@ -220,26 +242,39 @@ test("live entry points reach every module the per-file isolation check used to 
   );
 });
 
-test("live import closure never reaches R1, shadow, or holdout simulation routers", () => {
-  const reachable = FORBIDDEN_MODULES.filter((module) => LIVE_CLOSURE.members.has(module)).map(
-    (module) => importChain(LIVE_CLOSURE, module)
-  );
-  assert.deepEqual(reachable, [], "a learned/shadow router entered the live execution plane");
+function assertNoForbiddenRouters(closure: Closure): void {
+  const reachable = FORBIDDEN_MODULES.filter((module) => closure.members.has(module)).map((module) => importChain(closure, module));
+  assert.deepEqual(reachable, [], "a canonical or compatibility learned/shadow router entered the live execution plane");
+}
+
+function assertAllowedLearnedModules(closure: Closure): void {
+  const reachable = WATCHED_MODULES.filter((module) => closure.members.has(module)).sort();
+  assert.deepEqual(reachable, ALLOWED_LEARNED_MODULES.map((entry) => entry.module).sort());
+  for (const entry of ALLOWED_LEARNED_MODULES) {
+    const actual = [...(closure.importersOf.get(entry.module) ?? new Set<string>())].sort();
+    assert.deepEqual(actual, [...entry.importers].sort(), entry.module + " gained or lost a live importer; re-justify the allowlist entry");
+  }
+}
+
+function assertStaticDefault(closure: Closure): void {
+  const research = [...closure.members].filter((module) => /^src\/(?:lab|learning|adaptation|experiments)\//.test(module) || module === "src/routing/assign.ts");
+  assert.deepEqual(research, [], "ordinary core must not load research; explicit track/adapt are checked separately");
+}
+
+test("ordinary core value closure stays static while explicit track retains its research composition", () => {
+  assertStaticDefault(DEFAULT_CLOSURE);
+  assert.equal(DEFAULT_CLOSURE.members.has("src/track/loop.ts"), false);
+  assert.equal(DEFAULT_CLOSURE.members.has("src/cli/adapt.ts"), false);
+  assert.ok(LIVE_CLOSURE.members.has("src/track/loop.ts"));
+  assert.ok(LIVE_CLOSURE.members.has("src/lab/learning/bandit-store.ts"));
 });
 
-test("learned-routing modules inside the live closure match the pinned allowlist", () => {
-  const reachable = WATCHED_MODULES.filter((module) => LIVE_CLOSURE.members.has(module)).sort();
-  const allowed = ALLOWED_LEARNED_MODULES.map((entry) => entry.module).sort();
-  assert.deepEqual(reachable, allowed);
+test("live import closure never reaches canonical or compatibility R1/shadow/holdout routers", () => {
+  assertNoForbiddenRouters(LIVE_CLOSURE);
+});
 
-  for (const entry of ALLOWED_LEARNED_MODULES) {
-    const actual = [...(LIVE_CLOSURE.importersOf.get(entry.module) ?? new Set<string>())].sort();
-    assert.deepEqual(
-      actual,
-      [...entry.importers].sort(),
-      `${entry.module} gained or lost a live importer; re-justify the allowlist entry`
-    );
-  }
+test("learned-routing modules inside the explicit research closure match the pinned allowlist", () => {
+  assertAllowedLearnedModules(LIVE_CLOSURE);
 });
 
 test("every allowlisted learned-routing exception states its justification", () => {
@@ -249,64 +284,46 @@ test("every allowlisted learned-routing exception states its justification", () 
   }
 });
 
-test("bandit reaches the live closure as a reward writer, never as a selector", () => {
-  const storeSource = readModule("src/learning/bandit-store.ts");
-  const banditImport = /import\s*\{([^}]*)\}\s*from\s*"\.\.\/routing\/bandit\.js"/.exec(
-    storeSource
-  );
-  assert.ok(banditImport !== null, "bandit-store must import the bandit module by name");
-  const symbols = (banditImport[1] ?? "")
-    .split(",")
-    .map((part) => part.replace(/^\s*type\s+/, "").trim())
-    .filter((part) => part !== "");
-  const unexpected = symbols.filter((symbol) => !ALLOWED_BANDIT_SYMBOLS.has(symbol));
-  assert.deepEqual(unexpected, [], "bandit-store may only import bandit constructor/writer symbols");
+function assertBanditWriter(source: string): void {
+  const banditImport = /import\s*\{([^}]*)\}\s*from\s*"\.\.\/routing\/bandit\.js"/.exec(source);
+  assert.ok(banditImport !== null, "canonical bandit-store must import the canonical bandit module by name");
+  const symbols = (banditImport[1] ?? "").split(",").map((part) => part.replace(/^\s*type\s+/, "").trim()).filter((part) => part !== "");
+  assert.deepEqual(symbols.filter((symbol) => !ALLOWED_BANDIT_SYMBOLS.has(symbol)), [], "bandit-store may only import bandit constructor/writer symbols");
+}
 
-  const selectors = [...LIVE_CLOSURE.members]
-    .filter((module) => module !== "src/routing/bandit.ts")
-    .filter((module) => /\bselectArm\b/.test(readModule(module)))
-    .sort();
-  assert.deepEqual(selectors, [], "selectArm gained a caller inside the live execution plane");
+function selectorUsers(modules: readonly string[], overrides: ReadonlyMap<string, string> = new Map()): string[] {
+  return modules.filter((module) => {
+    let source = overrides.get(module) ?? readModule(module);
+    // Exempt exactly the canonical declaration name, never the complete file:
+    // an added reference/call in that implementation must still be rejected.
+    if (module === "src/lab/routing/bandit.ts") source = source.replace(/\bfunction\s+selectArm\b/, "function selectorDeclaration");
+    return /\bselectArm\b/.test(source);
+  }).sort();
+}
 
-  // R7-8 narrowed the exception: doctor now reaches the stored state through the
-  // keyed reader instead of inverting the project-key hash, so the symbol this pin
-  // requires moved with it. The sign-off it encodes is unchanged — read-only
-  // inventory, never a selector.
-  assert.match(
-    readModule("src/cli/doctor.ts"),
-    /\bloadProjectBanditByKey\b/,
-    "doctor's signed-off exception is the learnedState inventory reader, not a selector"
-  );
-  const readers = [...LIVE_CLOSURE.members]
-    .filter((module) => module !== "src/learning/bandit-store.ts")
-    .filter((module) => module !== "src/cli/doctor.ts")
-    .filter((module) => /\bloadProjectBandit(?:ByKey)?\b/.test(readModule(module)))
-    .sort();
-  assert.deepEqual(
-    readers,
-    [],
-    "live execution must not read learned bandit state back (doctor inventory is the signed-off diagnostic exception)"
-  );
+function assertNoUnexpectedReaders(closure: Closure, overrides: ReadonlyMap<string, string> = new Map()): void {
+  const allowed = new Set(["src/lab/learning/bandit-store.ts", "src/persist/bandit-state.ts", "src/cli/doctor.ts"]);
+  const readers = [...closure.members].filter((module) => !allowed.has(module))
+    .filter((module) => /\bloadProjectBandit(?:ByKey)?\b/.test(overrides.get(module) ?? readModule(module))).sort();
+  assert.deepEqual(readers, [], "only the existing lab reward writer, canonical read implementation and doctor inventory may read bandit state");
+}
+
+function assertSelectorAndDeletedReaderIsolation(overrides: ReadonlyMap<string, string> = new Map()): void {
+  assert.deepEqual(selectorUsers(SRC_MODULES, overrides), ["src/lab/routing/shadow.ts"], "selectArm's only src user must remain canonical shadow, including all old forwards");
+  const deletedReaderUsers = SRC_MODULES.filter((module) => /\bloadProjectBandit\b/.test(overrides.get(module) ?? readModule(module)));
+  assert.deepEqual(deletedReaderUsers, [], "the deleted root-keyed reader cannot revive in a canonical or compatibility module");
+}
+
+test("bandit reaches explicit track as a reward writer, never as a selector", () => {
+  assertBanditWriter(readModule("src/lab/learning/bandit-store.ts"));
+  assert.deepEqual(selectorUsers([...LIVE_CLOSURE.members]), [], "selectArm gained a reference inside live execution");
+  assert.match(readModule("src/cli/doctor.ts"), /\bloadProjectBanditByKey\b/);
+  assert.match(readModule("src/cli/doctor.ts"), /from "\.\.\/persist\/bandit-state\.js"/, "doctor must use the core inventory reader, not load the research writer");
+  assertNoUnexpectedReaders(LIVE_CLOSURE);
 });
 
 test("selectArm stays shadow-only and R8-9's root-keyed reader stays deleted", () => {
-  const selectArmCallers = SRC_MODULES.filter(
-    (module) => module !== "src/routing/bandit.ts" && /\bselectArm\b/.test(readModule(module))
-  );
-  assert.deepEqual(
-    selectArmCallers,
-    ["src/routing/shadow.ts"],
-    "selectArm's only src caller must remain the shadow router outside the live closure"
-  );
-
-  const deletedReaderUsers = SRC_MODULES.filter((module) =>
-    /\bloadProjectBandit\b/.test(readModule(module))
-  );
-  assert.deepEqual(
-    deletedReaderUsers,
-    [],
-    "R8-9 deleted the root-keyed loadProjectBandit export/call; only the keyed reader may remain"
-  );
+  assertSelectorAndDeletedReaderIsolation();
 });
 
 test("DAG supervisor parks topology routing instead of calling it per round", () => {
@@ -331,4 +348,60 @@ test("live ModelRouter may import R0 eligibility helpers but not R1/bandit/shado
   assert.doesNotMatch(text, /routing\/bandit/, "model-router must not import bandit");
   assert.doesNotMatch(text, /routing\/shadow/, "model-router must not import shadow");
   assert.match(text, /evaluateLiveCandidate/);
+});
+
+
+test("type-only declarations stay erased but inline type imports remain module edges", () => {
+  assert.deepEqual(importSpecifiers([
+    'import type { Gone } from "./gone.js";',
+    'export type { Gone } from "./gone-export.js";',
+    'import { type Kept } from "./kept.js";',
+    '// import { Comment } from "./comment.js";',
+    'import "./side-effect.js";'
+  ].join("\n")), ["./kept.js", "./comment.js", "./side-effect.js"]);
+});
+
+test("a research import added to ordinary main is rejected", () => {
+  const module = "src/cli/main.ts";
+  const overrides = new Map([[module, readModule(module) + '\nimport "../lab/learning/learned-routing.js";']]);
+  const closure = buildClosure(DEFAULT_ENTRY_POINTS, overrides, false);
+  assert.ok(closure.members.has("src/lab/learning/learned-routing.ts"));
+  assert.throws(() => assertStaticDefault(closure), assert.AssertionError);
+});
+
+for (const target of ["src/experiments/shadow-compare.ts", "src/lab/experiments/shadow-compare.ts"]) test(target + " cannot enter explicit track through a forward or canonical import", () => {
+  const module = "src/track/loop.ts";
+  const specifier = target.replace(/^src\//, "../").replace(/\.ts$/, ".js");
+  const overrides = new Map([[module, readModule(module) + '\nimport "' + specifier + '";']]);
+  const closure = buildClosure(LIVE_ENTRY_POINTS, overrides);
+  assert.ok(closure.members.has(target), "the mutation must actually reach the selected path");
+  assert.throws(() => assertNoForbiddenRouters(closure), assert.AssertionError);
+});
+
+for (const module of ["src/routing/bandit.ts", "src/lab/routing/bandit.ts"]) test(module + " cannot hide a selector reference behind a forward or definition", () => {
+  const overrides = new Map([[module, readModule(module) + '\nvoid selectArm;']]);
+  assert.throws(() => assertSelectorAndDeletedReaderIsolation(overrides), assert.AssertionError);
+});
+
+for (const module of ["src/learning/bandit-store.ts", "src/lab/learning/bandit-store.ts"]) test(module + " cannot revive the deleted root-keyed reader", () => {
+  const overrides = new Map([[module, readModule(module) + '\nexport const loadProjectBandit = () => undefined;']]);
+  assert.throws(() => assertSelectorAndDeletedReaderIsolation(overrides), assert.AssertionError);
+});
+
+test("the canonical reward writer cannot import the selector or grant another reader", () => {
+  const module = "src/lab/learning/bandit-store.ts", original = readModule(module);
+  const changed = original.replace("createBanditState, recordReward", "createBanditState, recordReward, selectArm");
+  assert.notEqual(changed, original);
+  assert.throws(() => assertBanditWriter(changed), assert.AssertionError);
+  const unauthorized = "src/track/loop.ts";
+  const overrides = new Map([[unauthorized, readModule(unauthorized) + '\nloadProjectBanditByKey("synthetic", "synthetic");']]);
+  assert.throws(() => assertNoUnexpectedReaders(LIVE_CLOSURE, overrides), assert.AssertionError);
+});
+
+for (const specifier of ["../track/loop.js", "./adapt.js"]) test("the explicit dynamic exception cannot conceal a static import of " + specifier, () => {
+  const module = "src/cli/main.ts";
+  const overrides = new Map([[module, readModule(module) + '\nimport "' + specifier + '";']]);
+  const closure = buildClosure(DEFAULT_ENTRY_POINTS, overrides, false);
+  assert.ok(closure.members.has(specifier.startsWith("../track") ? "src/track/loop.ts" : "src/cli/adapt.ts"));
+  assert.throws(() => assertStaticDefault(closure), assert.AssertionError);
 });

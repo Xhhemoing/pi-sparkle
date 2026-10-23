@@ -199,10 +199,15 @@ test("a temp abandoned by a crashed writer is neither adopted nor truncated", as
 });
 
 test("the bandit store publishes through the shared atomic writer, not a private copy", () => {
+  assert.equal(
+    readFileSync(new URL("../../../src/learning/bandit-store.ts", import.meta.url), "utf8"),
+    'export * from "../lab/learning/bandit-store.js";\n'
+  );
   const source = readFileSync(
-    new URL("../../../src/learning/bandit-store.ts", import.meta.url),
+    new URL("../../../src/lab/learning/bandit-store.ts", import.meta.url),
     "utf8"
   );
+  assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/\.\.\/persist\/atomic-file\.js";/);
   assert.match(source, /writeFileAtomic\(path, /);
   assert.doesNotMatch(source, /\bwriteFile\(/, "the plain writer would publish a tearable file");
   assert.doesNotMatch(source, /\brename(Sync)?\(/, "no private temp+rename copy may reappear");

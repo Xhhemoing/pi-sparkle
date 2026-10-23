@@ -431,8 +431,12 @@ describe("M6-T5: compare-and-swap promotion", () => {
   });
 
   it("registry publishing delegates cleanup and collision handling to the shared writer", async () => {
-    const source = await readFile("src/adaptation/promotion.ts", "utf8");
-    assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/persist\/atomic-file\.js";/);
+    assert.equal(
+      await readFile("src/adaptation/promotion.ts", "utf8"),
+      'export * from "../lab/adaptation/promotion.js";\n'
+    );
+    const source = await readFile("src/lab/adaptation/promotion.ts", "utf8");
+    assert.match(source, /import \{ writeFileAtomic \} from "\.\.\/\.\.\/persist\/atomic-file\.js";/);
     assert.match(source, /await writeFileAtomic\(path, serialized\);/);
     assert.doesNotMatch(source, /\b(?:open|rename)\(/);
     assert.doesNotMatch(source, /tempPath|randomUUID|`[^`]*\.tmp`/);

@@ -1,5 +1,5 @@
 /** Repository-local research composition; the default runtime does not import it. */
-import { applyLearnedRouting, loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
+import { applyLearnedRouting, loadLearnedRouting, type LearnedRoutingPolicy } from "./learning/learned-routing.js";
 import { analyzeTask } from "../routing/analyze-task.js";
 import { mappedAgentRole } from "../run/flowchart-child-recovery.js";
 import * as core from "../run/flowchart-run.js";

@@ -3,9 +3,9 @@
 import { pathToFileURL } from "node:url";
 import { main as coreMain, type CliIo, type CliRuntimeContext } from "../cli/main.js";
 import type { CliLabBehavior } from "../cli/lab-behavior.js";
-import { assignTasks } from "../routing/assign.js";
-import { loadLearnedRouting } from "../learning/learned-routing.js";
-import { runAutoAdaptLoop } from "../learning/auto-loop.js";
+import { assignTasks } from "./routing/assign.js";
+import { loadLearnedRouting } from "./learning/learned-routing.js";
+import { runAutoAdaptLoop } from "./learning/auto-loop.js";
 import { withLearnedFlowchartRouting } from "./flowchart.js";
 
 export const cliLabBehavior: CliLabBehavior = {

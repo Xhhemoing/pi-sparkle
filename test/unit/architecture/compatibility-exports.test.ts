@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as cliCatalog from "../../../src/cli/model-catalog.js";
 import * as routingCatalog from "../../../src/routing/model-catalog.js";
@@ -21,6 +21,38 @@ import { HOST_TERMINAL_OUTCOME_SCHEMA } from "../../../src/native/host-outcome-t
 import { createRunId } from "../../../src/domain/ids.js";
 import { runIndependentCheck } from "../../../src/execution/independent-check.js";
 import { prepareTrustedVerification } from "../../../src/execution/trusted-verification.js";
+import { stableProjectKey as oldProjectKey } from "../../../src/learning/learned-routing.js";
+import * as oldBanditState from "../../../src/learning/bandit-store.js";
+
+test("legacy project key exports the core implementation", async () => {
+  const core = await import("../../../src/persist/project-key.js");
+  assert.equal(oldProjectKey, core.stableProjectKey);
+});
+
+test("legacy bandit writer and core reader share paths, state and corruption errors", async () => {
+  const core = await import("../../../src/persist/bandit-state.js");
+  assert.equal(oldBanditState.projectBanditPath, core.projectBanditPath);
+  assert.equal(oldBanditState.loadProjectBanditByKey, core.loadProjectBanditByKey);
+  assert.equal(oldBanditState.BanditStateUnreadableError, core.BanditStateUnreadableError);
+  assert.equal(oldBanditState.BANDIT_STATE_UNREADABLE_CODE, core.BANDIT_STATE_UNREADABLE_CODE);
+  const root = await mkdtemp(join(tmpdir(), "bandit-core-compat-"));
+  try {
+    const projectRoot = join(root, "Project");
+    const key = oldProjectKey(projectRoot);
+    assert.equal(await core.loadProjectBanditByKey(root, key), undefined);
+    const written = await oldBanditState.updateProjectBandit(root, projectRoot, []);
+    assert.deepEqual(await core.loadProjectBanditByKey(root, key), written);
+    const path = core.projectBanditPath(root, key);
+    assert.equal(await readFile(path, "utf8"), `${JSON.stringify(written, null, 2)}\n`);
+    await writeFile(path, "{", "utf8");
+    await assert.rejects(core.loadProjectBanditByKey(root, key), (error: unknown) => {
+      assert.ok(error instanceof core.BanditStateUnreadableError);
+      assert.ok(error instanceof oldBanditState.BanditStateUnreadableError);
+      return true;
+    });
+    assert.equal(await readFile(path, "utf8"), "{");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("old model catalog path forwards every runtime export with the same identity", () => {
   assert.deepEqual(Object.keys(cliCatalog), Object.keys(routingCatalog));

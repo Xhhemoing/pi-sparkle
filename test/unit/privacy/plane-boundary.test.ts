@@ -17,7 +17,12 @@ const ADAPTATION_DIRS = [
   "learning",
   "preferences",
   "experiments",
-  "feedback"
+  "feedback",
+  "lab/adaptation",
+  "lab/learning",
+  "lab/experiments",
+  "lab/routing",
+  "lab/evaluation"
 ] as const;
 
 /**
@@ -32,6 +37,30 @@ const ADAPTATION_DIRS = [
  * records; `model-catalog` loads runtime provider configuration and calibrates
  * from those records, even though its canonical path no longer lives in CLI.
  */
+
+// Scan exact old research forwards too, without classifying mixed core directories as research.
+const RESEARCH_COMPAT_MODULES: readonly string[] = [
+  "routing/assign.ts",
+  "routing/bandit.ts",
+  "routing/drift.ts",
+  "routing/shadow.ts",
+  "routing/r1.ts",
+  "routing/r1-shadow-report.ts",
+  "routing/posterior.ts",
+  "routing/offline-types.ts",
+  "routing/offline-logit.ts",
+  "routing/offline-prob-add.ts",
+  "routing/lin-alg.ts",
+  "routing/propensity.ts",
+  "evaluation/adapters.ts",
+  "evaluation/check-adapter.ts",
+  "evaluation/delivery-adapter.ts",
+  "evaluation/diff-adapter.ts",
+  "evaluation/invalidation.ts",
+  "evaluation/ownership.ts",
+  "evaluation/precedence.ts"
+];
+
 const RUNTIME_MODULES = [
   "../run/",
   "../episode/",
@@ -53,22 +82,27 @@ interface Exception {
 
 /** Allowed adaptation -> runtime imports, each with its justification. */
 const ALLOWED: ReadonlyArray<Exception> = [
-  // Type-only import of the runtime event shape; no data access.
-  { module: "learning/auto-loop.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
-  { module: "learning/signals.ts -> ../run/events.js", because: "type-only Event shape", typeOnly: true },
   {
-    module: "learning/eval-dataset.ts -> ../run/events.js",
+    module: "lab/routing/assign.ts -> supervisor/model-router.ts",
+    because: "existing legacy assignment facade uses only erased ModelRouter/RoutingLimits types; execution stays in static-assign",
+    typeOnly: true
+  },
+  // Type-only import of the runtime event shape; no data access.
+  { module: "lab/learning/auto-loop.ts -> run/events.ts", because: "type-only Event shape", typeOnly: true },
+  { module: "lab/learning/signals.ts -> run/events.ts", because: "type-only Event shape", typeOnly: true },
+  {
+    module: "lab/learning/eval-dataset.ts -> run/events.ts",
     because: "type-only Event shape; the CLI reads the log and hands the events in",
     typeOnly: true
   },
   // Derived-signal pipe: extracts taskSuccess PASS/FAIL only, never text.
-  { module: "learning/from-episode.ts -> ../run/event-store.js", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
-  { module: "learning/from-episode.ts -> ../run/events.js", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },
+  { module: "lab/learning/from-episode.ts -> run/event-store.ts", because: "sanctioned derived-signal reader (PASS/FAIL only)" },
+  { module: "lab/learning/from-episode.ts -> run/events.ts", because: "type-only Event/ModelRoutedPayload shapes", typeOnly: true },
   // The direct model-router import is type-only, but eval-routing value-imports
-  // routing/assign, which value-imports and loads model-router at runtime.
+  // routing/assign and static-assign, which loads model-router at runtime.
   // model-router has no filesystem or record access.
   {
-    module: "adaptation/eval-routing.ts -> ../supervisor/model-router.js",
+    module: "lab/adaptation/eval-routing.ts -> supervisor/model-router.ts",
     because: "type-only ModelRouterConfig shape for offline routing replay",
     typeOnly: true
   }
@@ -86,11 +120,11 @@ interface ValueRuntimeAllowance {
  */
 const ALLOWED_VALUE_RUNTIME_EDGES: readonly ValueRuntimeAllowance[] = [
   {
-    edge: "learning/from-episode.ts -> run/event-store.ts",
+    edge: "lab/learning/from-episode.ts -> run/event-store.ts",
     because: "sanctioned derived-signal reader extracts routed task PASS/FAIL only"
   },
   {
-    edge: "routing/assign.ts -> supervisor/model-router.ts",
+    edge: "routing/static-assign.ts -> supervisor/model-router.ts",
     because: "offline routing replay uses the filesystem-free deterministic model router"
   }
 ];
@@ -115,8 +149,15 @@ function listTs(dir: string): string[] {
   return out;
 }
 
-const VALUE_IMPORT_PATTERN =
-  /\bimport\s+(?!type\b)[^;]*?\bfrom\s*"([^"]+)"|\bexport\s+(?!type\b)[^;]*?\bfrom\s*"([^"]+)"|\bimport\s*\(\s*"([^"]+)"\s*\)|^\s*import\s*"([^"]+)"/gm;
+// Preserve the fail-closed comment behavior while erasing only whole type declarations.
+const TYPE_ONLY_IMPORT_PATTERN =
+  /\bimport\s+type\s+(?:\{[^}]*\}|\*\s+as\s+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*(?:\s*,\s*\{[^}]*\})?)\s+from\s*(["'])[^"']+\1\s*;?/g;
+const TYPE_ONLY_EXPORT_PATTERN = /\bexport\s+type\s+(?:\{[^}]*\}|\*(?:\s+as\s+[A-Za-z_$][\w$]*)?)\s+from\s*(["'])[^"']+\1\s*;?/g;
+const SPECIFIER_PATTERN = /\bfrom\s*(["'])([^"']+)\1|\bimport\s*\(\s*(["'])([^"']+)\3|^\s*import\s*(["'])([^"']+)\5/gm;
+
+function allImportSpecifiers(source: string): string[] {
+  return [...source.matchAll(SPECIFIER_PATTERN)].map((match) => match[2] ?? match[4] ?? match[6]!);
+}
 
 interface ImportEdge {
   readonly importer: string;
@@ -129,12 +170,7 @@ interface ValueImportClosure {
 }
 
 function valueImportSpecifiers(source: string): string[] {
-  const specifiers: string[] = [];
-  for (const match of source.matchAll(VALUE_IMPORT_PATTERN)) {
-    const specifier = match[1] ?? match[2] ?? match[3] ?? match[4];
-    if (specifier !== undefined) specifiers.push(specifier);
-  }
-  return specifiers;
+  return allImportSpecifiers(source.replace(TYPE_ONLY_IMPORT_PATTERN, "").replace(TYPE_ONLY_EXPORT_PATTERN, ""));
 }
 
 function resolveRelativeModule(
@@ -212,23 +248,44 @@ function loadSourceTable(): ReadonlyMap<string, string> {
   );
 }
 
-test("adaptation plane does not import runtime modules outside the allowlist", () => {
+function adaptationEntries(sources: ReadonlyMap<string, string>): string[] {
+  return [...sources.keys()].filter((file) => ADAPTATION_DIRS.some((dir) => file.startsWith(dir + "/")) || RESEARCH_COMPAT_MODULES.includes(file));
+}
+
+function assertAllowedDirectImports(sources: ReadonlyMap<string, string>): void {
   const violations: string[] = [];
-  for (const dir of ADAPTATION_DIRS) {
-    for (const file of listTs(dir)) {
-      const src = readSrc(file);
-      for (const match of src.matchAll(/from "([^"]+)"/g)) {
-        const target = match[1];
-        const hitsRuntime = RUNTIME_MODULES.some((prefix) => (target ?? "").startsWith(prefix));
-        if (!hitsRuntime) continue;
-        const key = `${file.split("\\").join("/")} -> ${target}`;
-        if (!ALLOWED.some((allowed) => allowed.module === key)) {
-          violations.push(key);
-        }
-      }
+  for (const file of adaptationEntries(sources)) {
+    for (const specifier of allImportSpecifiers(sources.get(file)!)) {
+      if (!specifier.startsWith(".")) continue;
+      // Missing runtime files must not hide a forbidden dependency from this
+      // direct boundary check merely because module resolution cannot find it.
+      const normalized = posix.normalize(posix.join(posix.dirname(file), specifier)).replace(/\.js$/, ".ts");
+      const target = resolveRelativeModule(file, specifier, sources) ?? normalized;
+      if (!isRuntimeModule(target)) continue;
+      const key = file + " -> " + target;
+      if (!ALLOWED.some((allowed) => allowed.module === key)) violations.push(key);
     }
   }
-  assert.deepEqual(violations, []);
+  assert.deepEqual(violations, [], "adaptation direct imports crossed the runtime boundary");
+}
+
+function assertTypeOnlyAllowances(sources: ReadonlyMap<string, string>): void {
+  for (const entry of ALLOWED) {
+    const [file, target] = entry.module.split(" -> ");
+    assert.ok(file !== undefined && target !== undefined, entry.module);
+    const source = sources.get(file);
+    assert.ok(source !== undefined, entry.module);
+    const imports = allImportSpecifiers(source).map((specifier) => resolveRelativeModule(file, specifier, sources));
+    assert.ok(imports.includes(target), "stale allowlisted import: " + entry.module);
+    if (entry.typeOnly === true) {
+      const values = valueImportSpecifiers(source).map((specifier) => resolveRelativeModule(file, specifier, sources));
+      assert.equal(values.includes(target), false, "allowlisted type-only import became a value import: " + entry.module);
+    }
+  }
+}
+
+test("adaptation plane scans canonical lab modules and old forwards for unauthorized runtime imports", () => {
+  assertAllowedDirectImports(loadSourceTable());
 });
 
 test("every allowlisted exception states its justification", () => {
@@ -238,30 +295,12 @@ test("every allowlisted exception states its justification", () => {
 });
 
 test("every allowlisted exception still exists and type-only ones stay erased", () => {
-  const stale: string[] = [];
-  const valueImports: string[] = [];
-  for (const entry of ALLOWED) {
-    const [file, target] = entry.module.split(" -> ");
-    assert.ok(file !== undefined && target !== undefined, entry.module);
-    const src = readSrc(file);
-    const quoted = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (!new RegExp(`from "${quoted}"`).test(src)) {
-      stale.push(entry.module);
-      continue;
-    }
-    if (entry.typeOnly === true && !new RegExp(`import\\s+type\\s[^;]*from "${quoted}"`).test(src)) {
-      valueImports.push(entry.module);
-    }
-  }
-  assert.deepEqual(stale, [], "allowlisted import no longer exists; drop the exception");
-  assert.deepEqual(valueImports, [], "allowlisted type-only import became a value import");
+  assertTypeOnlyAllowances(loadSourceTable());
 });
 
 test("adaptation value-import closure enters runtime only through sanctioned readers", () => {
   const sources = loadSourceTable();
-  const entries = ADAPTATION_DIRS.flatMap((dir) =>
-    listTs(dir).map((file) => file.split("\\").join("/"))
-  );
+  const entries = adaptationEntries(sources);
   const closure = buildValueImportClosure(entries, sources);
 
   assertOnlyAllowedRuntimeIngresses(closure, ALLOWED_VALUE_RUNTIME_EDGES);
@@ -315,4 +354,44 @@ test("the allowlisted model router remains free of filesystem record access", ()
     /node:fs|\breadFile\b|\bwriteFile\b|\bappendFile\b/,
     "model-router must remain free of filesystem record access"
   );
+});
+
+for (const importer of ["learning/signals.ts", "lab/learning/signals.ts", "evaluation/check-adapter.ts", "lab/evaluation/check-adapter.ts"]) test(importer + " runtime bypass is rejected through canonical and compatibility roots", () => {
+  const sources = new Map(loadSourceTable());
+  const relative = importer.startsWith("lab/") ? "../../" : "../";
+  sources.set(importer, sources.get(importer)! + '\nimport { loadProvidersConfig } from "' + relative + 'config/providers-config.js";');
+  assert.throws(() => assertAllowedDirectImports(sources), assert.AssertionError);
+  assert.throws(() => assertOnlyAllowedRuntimeIngresses(buildValueImportClosure(adaptationEntries(sources), sources), ALLOWED_VALUE_RUNTIME_EDGES), assert.AssertionError);
+});
+
+test("an otherwise unreferenced canonical lab module remains an adaptation root", () => {
+  const sources = new Map(loadSourceTable());
+  sources.set("lab/learning/orphan.ts", 'import { EventStore } from "../../run/event-store.js";');
+  assert.throws(() => assertAllowedDirectImports(sources), assert.AssertionError);
+  assert.throws(() => assertOnlyAllowedRuntimeIngresses(buildValueImportClosure(adaptationEntries(sources), sources), ALLOWED_VALUE_RUNTIME_EDGES), assert.AssertionError);
+});
+
+test("canonical type-only permission cannot be upgraded to a runtime import", () => {
+  const sources = new Map(loadSourceTable());
+  const file = "lab/learning/signals.ts", original = sources.get(file)!;
+  const changed = original.replace('import type { Event } from "../../run/events.js"', 'import { Event } from "../../run/events.js"');
+  assert.notEqual(changed, original);
+  sources.set(file, changed);
+  assert.throws(() => assertTypeOnlyAllowances(sources), assert.AssertionError);
+});
+
+test("a missing runtime target does not bypass the direct canonical boundary", () => {
+  const sources = new Map(loadSourceTable());
+  sources.set("lab/learning/orphan.ts", 'import { hidden } from "../../run/not-present.js";');
+  assert.throws(() => assertAllowedDirectImports(sources), assert.AssertionError);
+});
+
+test("the moved assignment facade retains only its erased router type permission", () => {
+  const sources = new Map(loadSourceTable());
+  const file = "lab/routing/assign.ts", original = sources.get(file)!;
+  const changed = original.replace("import type { ModelRouter, RoutingLimits }", "import { ModelRouter, RoutingLimits }");
+  assert.notEqual(changed, original);
+  sources.set(file, changed);
+  assert.throws(() => assertTypeOnlyAllowances(sources), assert.AssertionError);
+  assert.throws(() => assertOnlyAllowedRuntimeIngresses(buildValueImportClosure(adaptationEntries(sources), sources), ALLOWED_VALUE_RUNTIME_EDGES), assert.AssertionError);
 });
