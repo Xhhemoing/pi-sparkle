@@ -112,7 +112,7 @@ async function fixture(t: TestContext) {
   let dispatches = 0;
   let authReads = 0;
   const ctx = {
-    cwd: root, model, scopedModels: [{ model }],
+    cwd: root, getSystemPrompt: () => "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off", model, scopedModels: [{ model }],
     modelRegistry: {
       getAvailable: () => faux.models,
       getApiKeyAndHeaders: async () => { authReads++; throw new Error("host bridge owns credentials"); },
@@ -211,6 +211,7 @@ test("actual SDK-host usage crosses the app native executor into TURN_FINISHED e
     // store drops TURN_FINISHED usage. Observe the real app executor's event
     // boundary separately, still dispatching through the SDK-local host AI.
     const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
       projectRoot: f.root, defaultModel: f.model, models: [f.model], streamSimple: f.streamSimple
     });
     const events: ExecutionEvent[] = [];

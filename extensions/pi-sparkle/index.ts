@@ -1,3 +1,4 @@
+import { prepareApprovedResources, type ApprovedResourcesProvider } from "../../src/pi-adapter/approved-resources.js";
 import { join } from "node:path";
 import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
@@ -22,6 +23,8 @@ interface IssuedCandidateHandle {
 }
 
 export interface SparkleExtensionOptions {
+  /** Synchronous trusted host selection; never populated from model tool parameters. */
+  readonly approvedResources?: ApprovedResourcesProvider;
   readonly conversation?: ConversationSessionOptions;
   readonly conversationRecovery?: ConversationRecoveryOptions;
 }
@@ -133,6 +136,13 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       signal?.throwIfAborted();
+      if (closed) throw new Error("Sparkle session is shut down");
+      // Sample host-owned scalars before imports/routing can yield. A later
+      // host turn must not change the context of this admitted delegation.
+      const effectiveSystemPrompt = ctx.getSystemPrompt();
+      const thinkingLevel = ctx.thinkingLevel ?? pi.getThinkingLevel();
+      const approvedResourcePayload = prepareApprovedResources(options.approvedResources?.({ cwd: ctx.cwd }));
+      if (typeof effectiveSystemPrompt !== "string") throw new Error("Sparkle requires an explicit effective host system prompt");
       const [{ NativeSession, resolveNativeModel }, { createNativeExecutor }] = await Promise.all([
         import("../../src/native/session.js"), import("../../src/pi-adapter/native-executor.js")
       ]);
@@ -176,6 +186,7 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
         return { projector: createObservationProjector({ enabled: true, toolName: "sparkle_read_file" }) };
       })() : undefined;
       const executor = createNativeExecutor({
+        effectiveSystemPrompt, thinkingLevel, approvedResourcePayload,
         projectRoot: ctx.cwd,
         defaultModel: model,
         models: eligible,

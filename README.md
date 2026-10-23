@@ -48,11 +48,15 @@ pi list
 
 Reload Pi after installing. In a normal session, ask the assistant to use
 `sparkle_delegate` for up to four read-only inspections/reviews. Workers use
-the host model catalogue/auth and actual file reads; `/sparkle-status` shows
+the host model catalogue/auth and actual file reads. Each delegation inherits
+the effective host system prompt and thinking level sampled at admission;
+request-time context or provider-payload transforms are not inherited. Parent
+transcripts and tool closures are not copied. `/sparkle-status` shows
 active runs. The default preference is `grok-4.7`; the tool accepts
 an explicit `provider/model` override and refuses unavailable/ambiguous models.
 The main conversation model is unchanged. Esc and session shutdown cancel
 workers. `SPARKLE_NATIVE=0` disables the extension at load time.
+A [trusted host wrapper](docs/how-to-adapt-to-pi.md#explicit-worker-resources) can supply selected context and skill bodies; the default package does not discover extra resource text.
 
 Delegated evidence lives in `.agent_workspace/pi-sparkle/` under the project;
 use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-sparkle`.

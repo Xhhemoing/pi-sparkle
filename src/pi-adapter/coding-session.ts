@@ -1,3 +1,4 @@
+import { assertApprovedResourcePayload } from "./approved-resources.js";
 import type { AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { InMemoryCredentialStore, createAssistantMessageEventStream, normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 import {
@@ -16,6 +17,7 @@ export interface ControlledCodingSessionOptions {
   model: Model<Api>;
   thinkingLevel: ThinkingLevel;
   systemPrompt: string;
+  approvedResourcePayload?: string | undefined;
   tools: AgentTool[];
   streamFn: StreamFn;
   shouldStopAfterTurn?: () => boolean | Promise<boolean>;
@@ -33,14 +35,21 @@ export interface ControlledCodingSession {
   readonly errorMessage: string | undefined;
 }
 
-function ownedResources(systemPrompt: string): ResourceLoader {
+function ownedResources(systemPrompt: string, approvedResourcePayload: string | undefined): ResourceLoader {
+  let supplied = false;
   // The SDK's customPrompt path appends cwd and replaces an empty prompt with
   // defaults. Its public before-agent-start override keeps host text opaque.
   // This one owned handler does not discover or execute project extensions.
   const promptOwner: Extension = {
     path: "<inline:sparkle-host-prompt>", resolvedPath: "<inline:sparkle-host-prompt>",
     sourceInfo: { path: "<inline:sparkle-host-prompt>", source: "inline", scope: "temporary", origin: "top-level" },
-    handlers: new Map([["before_agent_start", [async () => ({ systemPrompt })]]]),
+    handlers: new Map([["before_agent_start", [async () => {
+      const message = !supplied && approvedResourcePayload !== undefined
+        ? { customType: "sparkle-approved-resources", content: approvedResourcePayload, display: false }
+        : undefined;
+      supplied = true;
+      return { systemPrompt, ...(message !== undefined ? { message } : {}) };
+    }]]]),
     tools: new Map(), messageRenderers: new Map(), commands: new Map(), flags: new Map(), shortcuts: new Map()
   };
   const extensions = { extensions: [promptOwner], errors: [], runtime: createExtensionRuntime() };
@@ -61,6 +70,7 @@ function ownedResources(systemPrompt: string): ResourceLoader {
 
 /** Host-owned model transport and auth stay outside the SDK's model registry. */
 export async function createControlledCodingSession(options: ControlledCodingSessionOptions): Promise<ControlledCodingSession> {
+  assertApprovedResourcePayload(options.approvedResourcePayload);
   const { model } = options;
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null,
     refreshOnCreate: false, allowModelNetwork: false });
@@ -101,7 +111,7 @@ export async function createControlledCodingSession(options: ControlledCodingSes
     thinkingLevel: options.thinkingLevel,
     tools: options.tools.map((tool) => tool.name),
     customTools: options.tools,
-    resourceLoader: ownedResources(options.systemPrompt),
+    resourceLoader: ownedResources(options.systemPrompt, options.approvedResourcePayload),
     sessionManager: SessionManager.inMemory(options.cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false, provider: { maxRetries: 0 } },
       compaction: { enabled: false }, cacheWarming: "off", steeringMode: "all" })

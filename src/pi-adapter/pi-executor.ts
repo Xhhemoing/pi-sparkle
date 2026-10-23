@@ -79,6 +79,8 @@ export interface PiExecutorOptions {
   providerId: string;
   modelId: string;
   systemPrompt?: string;
+  /** Private prepared host-approved resource text; not model-controlled parameters. */
+  approvedResourcePayload?: string | undefined;
   thinkingLevel?: SparkleThinkingLevel;
   /**
    * Opt in to completing after a valid task report, once its whole turn settles.
@@ -663,6 +665,7 @@ export class PiAgentExecutor implements AgentExecutor {
     const kernel = await createControlledCodingSession({
       cwd: request.workingDirectory,
       systemPrompt: this.options.systemPrompt ?? "",
+      approvedResourcePayload: this.options.approvedResourcePayload,
       model,
       thinkingLevel,
       tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult],

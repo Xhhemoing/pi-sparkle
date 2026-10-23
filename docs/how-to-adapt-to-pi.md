@@ -53,6 +53,16 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
   override: SDK `customPrompt` alone appends cwd and substitutes defaults for empty
   text. Test provider-observed empty/nonempty text and tool schemas on each supported
   SDK layout. This handler does not enable ambient extension discovery.
+  The native delegate reads the public effective-prompt and thinking getters
+  synchronously at admission. Verify this through a real parent SDK tool call
+  after later before-agent-start handlers; a mocked tool context is insufficient.
+  The child keeps its own read/report tools and does not copy parent transcripts.
+  The getter re-renders SDK prompt options, not the final request. In Pi 1.2/1.4,
+  `context_with_system` can change the unforced provider-facing prompt; when
+  before-agent-start forces a prompt, SDK projection runs after that transform
+  and restores the forced text. Test both paths. Parent context handlers and
+  provider-payload hooks are not inherited; a matching effective prompt does
+  not establish final wire equivalence. Approved resource bodies are separate.
   Keep host transport/auth and explicitly selected thinking level; disable SDK
   retries, compaction and cache warming. Test actual prompt/steer delivery,
   cancellation during input preparation, held callbacks and early iterator closure.
@@ -128,6 +138,39 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
 - `CredentialStore` method signatures (`read`, `list`, `modify`, `delete`)
   implemented by `FileCredentialStore`.
 
+## Explicit worker resources
+
+A trusted Pi wrapper can select additional context and skill text for each
+`sparkle_delegate` call. The default package has no such provider. This option
+is host configuration, not a model tool argument:
+
+```ts
+import { createSparkleExtension } from "pi-sparkle/extensions/pi-sparkle/index.ts";
+
+export default createSparkleExtension({
+  approvedResources: ({ cwd }) => {
+    if (cwd !== "/absolute/path/to/approved-project") return undefined;
+    return {
+      contextFiles: [{ path: "PROJECT.md", text: "Use the repository's public interfaces." }],
+      skills: [{ name: "review", description: "Review guidance", body: "Check error handling and report concrete paths." }]
+    };
+  }
+});
+```
+
+The provider is synchronous and called once before delegation yields. Sparkle
+copies the selected strings into a JSON message; retries reuse that text and
+steering does not inject it again. Paths are labels, never instructions to read
+files. The worker receives only these bodies, its task and its own tool results.
+The inherited system prompt is kept separately and unchanged.
+
+The combined limit is 32 entries and 65,536 UTF-8 bytes for the rendered JSON,
+including labels and escaping. Missing bodies, malformed values, promises and
+oversized payloads are rejected before worker dispatch. Explicit empty strings
+are valid bodies. No configuration means no extra resource message. The SDK
+converts this custom message to user content; `display: false` affects UI only.
+It does not grant tool permissions, enable `/skill:` file expansion or inherit
+ambient files, parent history, context transforms or provider-payload hooks.
 ## The playbook
 
 ### 1. Read the changelogs for the delta from the pin
