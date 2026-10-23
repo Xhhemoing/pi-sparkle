@@ -1,7 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The current authorized work reconciles delivered status, repairs the recorded multi-stage blockers and verifies dependent-stage delivery on synthetic isolated copies. PRs #65/#66/#69 are merged and starting-main CI passed; #67 remains open. Previous single-task and large-task results, failures and cost gaps remain in the active plan. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
-
+Start with the [active Phase 0 plan](plan.md#evidence-bound-changes-for-pi-2026-10-22), [open checklist](todo.md), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). The owner authorized the revised evidence-bound core direction and implementation. This first slice reconciles current delivery, retains historical experiment outcomes and updates product/governance entrypoints; it does not implement the new worker or change Pi dependencies. Old A–F safety duties are explicitly mapped in the active plan. Original Soul and private evidence remain protected, live learning and general scheduler expansion remain frozen, and the original 15-task evaluation stays unfinished.
 ## Authoritative Files
 
 - [`plan.md`](plan.md): current scope, order, acceptance criteria and handoff links.

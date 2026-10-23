@@ -1,16 +1,12 @@
 # pi-sparkle
 
-**Developer Preview (0.1.0-preview.3; `private: true`).** This repository **will not
-publish to npm**. Clone the repository and use pnpm locally; npm/global/package
-installation is unsupported. The fake-executor CLI (`run` / `inspect` /
-`resume` / `--flowchart` / `--children`) is the supported path. Real providers
-and adaptive routing are opt-in / proposal-first and are **not**
-Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
+**Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
 
-`pi-sparkle` is an internal development tool built on Pi. The immediate trial uses Soul's isolated research/test version, with synthetic inputs and the original project preserved. Its value is measured by accepted task results, elapsed time, cost coverage and human effort; a successful smoke test is not proof of benefit over direct Pi. See the [active plan](tasks/plan.md) for scope and remaining work.
+**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The planned TaskSpec and unified coding-agent session are not yet implemented, and Pi 1.x compatibility is not yet verified.
 
-The runtime coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing. New experiments/adaptation/learning features and P4/P5 remain frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them.
+The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
 
+The isolated synthetic Soul trials remain evidence with failures and unknown costs, not proof of superiority. The original project remains protected. Research modules will leave the default dependency path; P4/P5 and live learning/promotion stay frozen. The future public comparison retains targets of at least 50% relative defective-delivery reduction and at most 1.3 times direct-Pi cost per correct delivery, with non-inferiority and uncertainty rules in ADR-010. These are targets, not achieved results. See the [capability status matrix](docs/status-matrix.md).
 Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
 
 The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.

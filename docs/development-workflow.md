@@ -4,7 +4,7 @@ This document is the project-level process for planning, implementing, testing, 
 
 ## 1. Intake and Classification
 
-Before code changes, update the existing `tasks/plan.md`; a separate dated plan or slice report is not required. Integration and completed-document cleanup are merged. The current owner-authorized step is status reconciliation, bounded repair of the recorded multi-stage blockers and dependent-stage end-to-end verification in Soul's retained isolated test version. The earlier direct-Pi/pi-sparkle comparisons remain historical evidence, not a general benefit claim. Keep original Soul code/data untouched and use synthetic inputs. Record the task, input, model, permissions, run order, acceptance and measurement boundaries before execution; retain failures and distinguish shared preparation, model execution and later review/rework. One pair does not complete the broader evaluation. P4/P5 and new experiments/adaptation/learning features stay frozen until an explicit owner decision based on comparative evidence. Safety maintenance remains allowed. Capture:
+Before code changes, update the existing `tasks/plan.md`; do not create a separate dated slice report. The owner has authorized Phase 0 of [ADR-010](decisions/0010-evidence-bound-changes.md): reconcile current delivery, establish the bounded core direction, verify Pi compatibility, then unify the worker and separate research dependencies. New general-purpose self-built scheduler/durability and lab features remain frozen; safety and compatibility maintenance remain allowed. Earlier A–F plans retain their safety and evidence obligations under the mapping in the active plan. Original Soul stays untouched, private inputs/transcripts stay private, and the old 15-task evaluation remains incomplete. Paid models, release and main merge require their existing explicit authorization; local or hosted checks cannot supply it. For any later experiment, record the input, actual model, permissions, order, independent acceptance and complete measurement boundaries before execution. Capture:
 
 - problem and user outcome;
 - in-scope and explicitly out-of-scope behavior;
@@ -75,7 +75,7 @@ The PR verification summary must distinguish pass, fail, skipped, not-run and no
 
 ## 6. Review and Delivery
 
-Before merge:
+Complex cross-module, authorization, security and data-correctness changes require independent read-only review. Simple low-impact changes use relevant checks. Before merge:
 
 - inspect the final diff, including generated or deleted files;
 - check for conflict markers, accidental secrets, and untracked work artifacts;
