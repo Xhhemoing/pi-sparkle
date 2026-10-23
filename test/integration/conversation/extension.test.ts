@@ -226,7 +226,7 @@ test("shutdown waits for every pending request even when another request rejects
   }]);
   const models = createModels(); models.setProvider(faux.provider);
   const native = api.extension.tools.get("sparkle_delegate")!.definition.execute("native", { tasks: [{ role: "scout", objective: "Inspect value.txt" }] }, undefined, undefined, {
-    cwd: value.sourceRepo, scopedModels: [],
+    cwd: value.sourceRepo, scopedModels: [], model: faux.getModel(), thinkingLevel: "off", getSystemPrompt: () => "EXPLICIT_SYNTHETIC_HOST_PROMPT",
     modelRegistry: { getAvailable: () => faux.models, streamSimple: models.streamSimple.bind(models) }
   });
   await nativeEntered.promise;
