@@ -26,24 +26,42 @@ The pins live in `package.json` `dependencies`:
 - `@earendil-works/pi-agent-core` — exact version, no range.
 - `@earendil-works/pi-ai` — exact version, matching agent-core.
 
-`@earendil-works/pi-coding-agent` is an exact development dependency and an
-optional peer, not a runtime dependency in this compatibility slice. Its releases still
-matter because `pi install` (the coding agent) consumes this package's skill
-and prompt manifest (`package.json#pi`), so skill-discovery rule changes land
-through it.
+`@earendil-works/pi-coding-agent` is an exact development dependency and a
+required compatible peer. The controlled worker uses its public session factory
+through `src/pi-adapter/coding-session.ts`; managed candidate staging copies the
+installed peer into its contained dependency graph. `pi install` also consumes
+the package's skill and prompt manifest (`package.json#pi`).
 
-Everything the adapter imports, by file — this is the diff surface for step 2:
+Key adapter imports, by file — this is the diff surface for step 2:
 
 | File | pi-agent-core symbols | pi-ai symbols |
 |---|---|---|
-| `src/pi-adapter/pi-executor.ts` | `Agent`, `AgentEvent`, `AgentTool`, `ThinkingLevel` | `createModels`, `fauxAssistantMessage`, `fauxProvider`, `Api`, `AssistantMessageEventStream`, `Context`, `FauxProviderHandle`, `Model`, `MutableModels`, `SimpleStreamOptions` |
+| `src/pi-adapter/pi-executor.ts` | `AgentEvent`, `AgentTool`, `ThinkingLevel` | `calculateCost`, `createModels`, `fauxAssistantMessage`, `fauxProvider`, `Api`, `AssistantMessageEventStream`, `Context`, `FauxProviderHandle`, `Model`, `MutableModels`, `SimpleStreamOptions` |
 | `src/pi-adapter/runtime.ts` | `ThinkingLevel` | `createProvider`, `envApiKeyAuth`, `Model`, `MutableModels`; `openAICompletionsApi` (from `api/openai-completions.lazy`); `builtinModels` (dynamic, from `providers/all`) |
 | `src/pi-adapter/listed-model.ts` | — | `Api`, `Model`; `getBuiltinModel`, `getBuiltinModels`, `getBuiltinProviders` (from `providers/all`) |
 | `src/pi-adapter/auth-session.ts` | — | `AuthInteraction`, `AuthType` |
 | `src/pi-adapter/file-credential-store.ts` | — | `AuthOperationOptions`, `Credential`, `CredentialInfo`, `CredentialStore` |
 | `src/pi-adapter/cluster-tools.ts` | `AgentTool` | `Type` |
 
+The dedicated `coding-session.ts` imports the public SDK session factory, ModelRuntime, memory managers, resource-loader and extension types. Its public Agent hooks and provider bridge are part of the compatibility surface.
+
 Behavioral (not just type-level) dependencies to re-verify each bump:
+
+- **Controlled SDK session.** The dedicated adapter uses `createAgentSession`,
+  `ModelRuntime`, an owned resource loader and in-memory session/settings/credentials.
+  Preserve the exact host system prompt with the owned public `before_agent_start`
+  override: SDK `customPrompt` alone appends cwd and substitutes defaults for empty
+  text. Test provider-observed empty/nonempty text and tool schemas on each supported
+  SDK layout. This handler does not enable ambient extension discovery.
+  Keep host transport/auth and explicitly selected thinking level; disable SDK
+  retries, compaction and cache warming. Test actual prompt/steer delivery,
+  cancellation during input preparation, held callbacks and early iterator closure.
+  Drain accepted steering before the next request and reject new input at terminal
+  settlement. A hard stop must also prevent SDK before-settle continuation.
+  `dispose()` does not substitute for awaiting prompt and abort settlement.
+  The host stream replaces SDK request construction; disabling session auto-retry
+  does not by itself configure provider-internal retries or inherit the parent's
+  cache/transport options. Treat those as explicit transport ownership concerns.
 
 - **Pi 1.x turn finalization.** `finishTurn` replaces `shouldStopAfterTurn`
   and returns `{ action: "end" }` or `undefined`. It runs after assistant/tool
@@ -55,7 +73,7 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
   tests; typechecking or the static compatibility probe cannot verify this.
 
 - **Mixed host/app versions.** The app pins core/AI while the coding-agent
-  host is an optional peer. Check the SDK-resolved host packages as well as
+  host is a required compatible peer. Check the SDK-resolved host packages as well as
   the app pins; overriding every package to the minimum version cannot
   establish mixed-host compatibility. The native callback accepts the
   public stream API, without requiring private class identity across
@@ -258,10 +276,10 @@ Deliberate non-goals. Revisit only with a new ADR, not during a routine bump:
   not report the TUI knob as drift of ours or vice versa.
 - **PowerShell tool.** Windows/coding-agent surface. The fake executor and
   the adapter tool set stay platform-neutral; do not add a fake PowerShell.
-- **Inbound extension events** (`session_compact_failed` and friends).
-  Requires registering a Pi extension, which ADR-006 (still Proposed)
-  forbids. `package.json` must not declare `pi.extensions` and
-  `@earendil-works/pi-coding-agent` must not become an import.
+- **Uncontrolled extension discovery.** ADR-006 permits the packaged inbound
+  extension. ADR-010 permits the dedicated SDK adapter after boundary review;
+  neither authorizes loading arbitrary user extensions/MCP servers or borrowing
+  parent tool closures into a candidate. Resource inheritance remains explicit.
 - **Coding-agent session/TUI state as product state.** Session transport is
   not episode closure (ADR-006); Pi session lifecycle changes never map to
   episode lifecycle changes here.

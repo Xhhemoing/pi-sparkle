@@ -72,9 +72,9 @@ test("actual staged five-case qualification issues only the launched, validated 
   assert.equal(priced.toolCompletions, 1);
   assert.deepEqual(priced.invocation, { outcome: "ok", tokensIn: 371, tokensOut: 4, cacheHit: false });
   const cancelled = result.record.observations[3]!;
-  assert.equal(cancelled.streamEntries, 2);
+  assert.equal(cancelled.streamEntries, 1);
   assert.equal(cancelled.providerDispatches, 1);
-  assert.deepEqual(cancelled.turns, [{ inputTokens: 374, outputTokens: 4 }, null]);
+  assert.deepEqual(cancelled.turns, [{ inputTokens: 374, outputTokens: 4 }]);
   assert.deepEqual(cancelled.invocation, { outcome: "cancelled", tokensIn: null, tokensOut: null, cacheHit: null });
   assert.deepEqual(cancelled.held, { runSettled: false, toolStarts: 1, toolCompletions: 0, toolSignalAborted: true, providerDispatches: 1, taskResults: 0, executionFinished: 0, invocations: 0 });
   const record = api.lookupIssuedManagedQualification(result, root);

@@ -144,6 +144,22 @@ test("managed candidate refuses missing required peers and records absent option
   assert.ok(manifest.packages.some((item) => item.name === "present_peer"));
 });
 
+test("managed application root peers are required and execute from the staged graph", async (t) => {
+  const { program, generations } = await fixture(t);
+  const manifestPath = path.join(program, "package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  await json(manifestPath, { ...manifest, peerDependencies: { controlled_sdk: "1" } });
+  await assert.rejects(stage(program, generations), /missing required package: controlled_sdk/);
+  assert.deepEqual(await readdir(generations), [], "missing required root peer must not allocate a candidate");
+  await packageAt(path.join(program, "node_modules/controlled_sdk"), { name: "controlled_sdk", version: "1.0.0" });
+  await writeFile(path.join(program, "dist/index.js"), 'export { present } from "controlled_sdk";', "utf8");
+  const candidate = await stage(program, generations);
+  const stagedRequire = createRequire(path.join(candidate.appRoot, "package.json"));
+  assert.ok(stagedRequire.resolve("controlled_sdk").startsWith(candidate.root + path.sep));
+  const entry = await import(pathToFileURL(path.join(candidate.appRoot, "dist/index.js")).href) as { present: boolean };
+  assert.equal(entry.present, true, "staged application must really load its root peer");
+});
+
 test("managed candidate refuses directory aliases, escaping packages and package file links", async (t) => {
   const { root, program, generations } = await fixture(t);
   const alias = path.join(root, "alias");

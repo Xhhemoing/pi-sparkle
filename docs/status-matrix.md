@@ -1,5 +1,11 @@
 # Status matrix (Developer Preview)
 
+## Controlled SDK worker candidate (2026-10-23)
+
+The [active plan](../tasks/plan.md#evidence-bound-changes-for-pi-2026-10-22) supersedes earlier implementation-order and package-version descriptions below. PR #75 delivered the revised direction and reconciled #67/#70/#71/#74; PR #76 has green hosted Pi 1.2, Pi 1.4 and mixed-host compatibility checks. Its interrupted Windows gate and failed complete rerun (4053 pass / 5 fail / 52 skip: four Git timeouts and one loopback resume failure) remain recorded; focused passing reruns do not establish the cause or complete acceptance.
+
+`PiAgentExecutor` now calls the real coding-agent session through one controlled adapter. Session/settings/credentials remain in memory; the host owns provider dispatch, tools, selected model/thinking, retries and cost accounting. SDK background retry/compaction/cache warming and default resource discovery are disabled. One owned public before-agent-start handler preserves the exact host prompt, including empty text; real 1.4 and mixed 1.2 regressions cover text and tool schemas. The installed SDK is a required peer copied into managed candidates under the existing module boundary. Lifecycle, steering, retry, budget, cancellation and observed delivery-boundary regressions pass locally. Independent review found and closed a retry/steer/cost-stop interaction and cached-cost omissions/underreporting. Budget references include cached usage and retain unknown pricing coverage; they are not provider bills. Complete candidate verification remains pending. Full host skill/context inheritance and equivalence to the user's complete Pi session are unfinished. These changes establish no outcome superiority or general shell/MCP containment.
+
 ## Current delivery reconciliation (2026-10-22)
 
 PRs #65/#66/#69 are merged at main `9f883e4100bef61782e3aaab54bfebf8f541eb3a`; merged-main [CI](https://github.com/Xhhemoing/pi-sparkle/actions/runs/39757666467) and [recovery regression](https://github.com/Xhhemoing/pi-sparkle/actions/runs/39757666477) passed. #67 remains open. This is delivery evidence, not adoption of a Soul candidate, a general outcome benefit or a freeze decision. Later dated sections below retain their original scoped evidence.

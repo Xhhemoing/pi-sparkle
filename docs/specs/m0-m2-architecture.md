@@ -366,6 +366,10 @@ An agent may emit many progress messages but exactly one terminal `TASK_RESULT`.
   the ceiling is reached; an executor that cannot price its own spend leaves the
   ceiling unenforced rather than inventing a dollar figure, so this stays a
   best-effort per-execution cap, not a cross-child run ledger.
+  Cached usage participates in this conservative budget reference. Missing or
+  contradictory pricing increases `turnsWithoutUsage`; known reference amounts
+  may still trigger a stop. This amount is not a supplier bill, and incomplete
+  coverage must not be presented as complete measured cost.
 - The run-level side of that tighter-of rule is declared by the caller and
   reaches both planes the same way. `startParentRun` takes it as
   `RunLimits.maxCostUsd`; `startFlowchartRun` takes it as its own optional

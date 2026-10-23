@@ -79,11 +79,6 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.2.0 <2"
   },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@eslint/js": "10.0.1",

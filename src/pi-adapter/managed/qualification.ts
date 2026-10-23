@@ -5,7 +5,7 @@ import { DomainValidationError } from "../../domain/errors.js";
 import { runAuthorizedCommand, type AuthorizedCommandRunResult } from "../../execution/command-runner.js";
 import { physicalDirectoryWithoutLinks } from "../../native/physical-directory.js";
 import type { ManagedCandidate, ManagedCandidateVersions } from "./candidate.js";
-import type { ExecutionObservation, QualificationObservation, UsageObservation } from "./qualification-scenarios.js";
+import type { ExecutionObservation, ProviderUsageObservation, QualificationObservation, UsageObservation } from "./qualification-scenarios.js";
 
 const WORKER = "pi-adapter/managed/qualification-worker.js";
 const MAX_OUTPUT = 64 * 1024;
@@ -99,11 +99,13 @@ function usageFromContext(value: unknown, output: string): UsageObservation {
 function validateExecution(raw: unknown, scenario: ExecutionObservation["scenario"]): void {
   const value = object(raw);
   equal(value.scenario, scenario, "scenario");
-  keys(value, ["scenario", "streamEntries", "streamAborted", "providerDispatches", "dispatchAborted", "providerHandlers", "modelLookups", "retries", "sleeps", "pendingResponses", "toolStarts", "toolCompletions", "toolErrors", "contexts", "turns", "invocations", "invocation", "taskResults", "executionFinished", "costEvents", "eventTypes", ...(scenario === "blocked-tool-cancel" ? ["held", "released"] : [])], "scenario fields");
+  // Retain readable pre-SDK records, but correlate each format's complete trace.
+  const sdk = Object.hasOwn(value, "providerUsage");
+  keys(value, ["scenario", "streamEntries", "streamAborted", "providerDispatches", "dispatchAborted", "providerHandlers", "modelLookups", "retries", "sleeps", "pendingResponses", "toolStarts", "toolCompletions", "toolErrors", "contexts", "turns", "invocations", "invocation", "taskResults", "executionFinished", "costEvents", "eventTypes", ...(sdk ? ["providerUsage"] : []), ...(scenario === "blocked-tool-cancel" ? ["held", "released"] : [])], "scenario fields");
   const pre = scenario === "preabort", cancelled = scenario === "blocked-tool-cancel", unpriced = scenario === "unpriced-cap";
   const calls = pre ? 0 : unpriced ? 2 : 1;
-  equal(value.streamEntries, cancelled ? 2 : calls, "stream entries");
-  equal(value.streamAborted, cancelled ? [false, true] : Array(calls).fill(false), "stream abort flags");
+  equal(value.streamEntries, cancelled && !sdk ? 2 : calls, "stream entries");
+  equal(value.streamAborted, cancelled && !sdk ? [false, true] : Array(calls).fill(false), "stream abort flags");
   equal(value.providerDispatches, calls, "provider dispatches");
   equal(value.dispatchAborted, Array(calls).fill(false), "provider dispatch abort flags");
   equal(value.providerHandlers, calls, "actual provider handlers");
@@ -115,19 +117,38 @@ function validateExecution(raw: unknown, scenario: ExecutionObservation["scenari
   equal(value.contexts.length, calls, "context count");
   const turns: Array<UsageObservation | null> = pre ? [] : [usageFromContext(value.contexts[0], "probe_tool:{}")];
   if (unpriced) turns.push(usageFromContext(value.contexts[1], "second turn completed"));
-  if (cancelled) turns.push(null);
+  if (sdk) {
+    const providerUsage: ProviderUsageObservation[] = [];
+    for (let index = 0; index < turns.length; index++) {
+      const turn = turns[index]!;
+      if (turn === null) throw new DomainValidationError("missing fixed faux turn");
+      const current = value.contexts[index] as string;
+      const previous = index === 0 ? "" : value.contexts[index - 1] as string;
+      let common = 0;
+      while (common < Math.min(previous.length, current.length) && previous[common] === current[common]) common++;
+      const cacheReadTokens = Math.ceil(common / 4);
+      const inputTokens = Math.max(0, turn.inputTokens - cacheReadTokens);
+      providerUsage.push({ inputTokens, outputTokens: turn.outputTokens, cacheReadTokens,
+        cacheWriteTokens: Math.ceil((current.length - common) / 4) });
+      turns[index] = { inputTokens, outputTokens: turn.outputTokens, ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}) };
+    }
+    equal(value.providerUsage, providerUsage, "raw provider cache usage");
+  }
+  if (cancelled && !sdk) turns.push(null);
   equal(value.turns, turns, "actual turn usage");
   equal(value.invocations, 1, "invocations");
   const successful = !pre && !cancelled;
-  equal(value.invocation, { outcome: successful ? "ok" : "cancelled", tokensIn: successful ? turns.reduce((sum, turn) => sum + (turn?.inputTokens ?? 0), 0) : null, tokensOut: successful ? turns.reduce((sum, turn) => sum + (turn?.outputTokens ?? 0), 0) : null, cacheHit: successful ? false : null }, "invocation usage trust");
+  equal(value.invocation, { outcome: successful ? "ok" : "cancelled", tokensIn: successful ? turns.reduce((sum, turn) => sum + (turn?.inputTokens ?? 0), 0) : null, tokensOut: successful ? turns.reduce((sum, turn) => sum + (turn?.outputTokens ?? 0), 0) : null, cacheHit: successful ? sdk && unpriced : null }, "invocation usage trust");
   equal(value.taskResults, [successful ? "SUCCESS" : "CANCELLED"], "task terminal");
   equal(value.executionFinished, [successful ? "SUCCESS" : "CANCELLED"], "execution settlement");
   const first = turns[0];
-  const costs = scenario === "priced-stop" && first != null ? [{ kind: "stopped", maxCostUsd: 0.5, ledger: { turns: 1, turnsWithoutUsage: 0, tokensIn: first.inputTokens, tokensOut: first.outputTokens, spentUsd: first.inputTokens + first.outputTokens } }]
+  // The fixed faux model provides no cache price; only its input/output subtotal
+  // is known. Do not mistake placeholder cache cost zero for complete pricing.
+  const costs = scenario === "priced-stop" && first != null ? [{ kind: "stopped", maxCostUsd: 0.5, ledger: { turns: 1, turnsWithoutUsage: sdk ? 1 : 0, tokensIn: first.inputTokens, tokensOut: first.outputTokens, spentUsd: first.inputTokens + first.outputTokens } }]
     : unpriced ? [{ kind: "disarmed", maxCostUsd: 0.000001, reason: "unpriced-model" }] : [];
   equal(value.costEvents, costs, "cost cap observations");
   if (!Array.isArray(value.eventTypes) || !value.eventTypes.every((type) => typeof type === "string" && ["TEXT_DELTA", "TOOL_STARTED", "TOOL_FINISHED", "TURN_FINISHED", "MESSAGE", "EXECUTION_FINISHED"].includes(type))) throw new DomainValidationError("unexpected execution events");
-  equal(value.eventTypes.filter((type) => type !== "TEXT_DELTA"), pre ? ["MESSAGE", "EXECUTION_FINISHED"] : ["TOOL_STARTED", "TOOL_FINISHED", "TURN_FINISHED", ...(unpriced || cancelled ? ["TURN_FINISHED"] : []), "MESSAGE", "EXECUTION_FINISHED"], "execution event order");
+  equal(value.eventTypes.filter((type) => type !== "TEXT_DELTA"), pre ? ["MESSAGE", "EXECUTION_FINISHED"] : ["TOOL_STARTED", "TOOL_FINISHED", "TURN_FINISHED", ...(unpriced || cancelled && !sdk ? ["TURN_FINISHED"] : []), "MESSAGE", "EXECUTION_FINISHED"], "execution event order");
   if (cancelled) {
     equal(value.held, { runSettled: false, toolStarts: 1, toolCompletions: 0, toolSignalAborted: true, providerDispatches: 1, taskResults: 0, executionFinished: 0, invocations: 0 }, "blocked tool held after abort");
     equal(value.released, { runSettled: true, toolSignalAborted: true }, "blocked tool release settlement");
@@ -135,7 +156,11 @@ function validateExecution(raw: unknown, scenario: ExecutionObservation["scenari
 }
 function validatedObservations(raw: unknown): readonly QualificationObservation[] {
   if (!Array.isArray(raw) || raw.length !== 5) throw new DomainValidationError("managed qualification requires exactly five observations");
-  for (const [index, scenario] of (["priced-stop", "unpriced-cap", "preabort", "blocked-tool-cancel"] as const).entries()) validateExecution(raw[index], scenario);
+  const sdk = Object.hasOwn(object(raw[0]), "providerUsage");
+  for (const [index, scenario] of (["priced-stop", "unpriced-cap", "preabort", "blocked-tool-cancel"] as const).entries()) {
+    equal(Object.hasOwn(object(raw[index]), "providerUsage"), sdk, "execution observation format");
+    validateExecution(raw[index], scenario);
+  }
   const settled = object(raw[4]);
   equal(settled, { scenario: "deferred-agent-end", held: { promptSettled: false, agentIdleSettled: false, kernelIdleSettled: false, isStreaming: true, pendingTools: 0 }, released: { promptSettled: true, agentIdleSettled: true, kernelIdleSettled: true, isStreaming: false, pendingTools: 0, activeSignalAbsent: true }, agentEndCount: 1, providerHandlers: 1 }, "actual Agent awaited listener settlement");
   return raw as QualificationObservation[];

@@ -183,3 +183,41 @@ describe("SparkleKernel stop-after-turn", () => {
     assert.deepEqual(seen, [{ type: "asked" }]);
   });
 });
+
+describe("CostGate per-turn reference pricing", () => {
+  it("uses a complete catalog-derived turn amount without also charging token fallback", () => {
+    const gate = new CostGate({ maxCostUsd: 100, prices: PRICES });
+    gate.recordTurn({ inputTokens: 10, outputTokens: 1 }, { referenceUsd: 201, complete: true });
+    assert.equal(gate.spentUsd, 201);
+    assert.equal(gate.requestStopIfExceeded(), true);
+    assert.equal(gate.ledger.turnsWithoutUsage, 0);
+    assert.equal(gate.ledger.tokensIn, 10);
+  });
+
+  it("counts cache-only turns and carries incomplete reference subtotals across turns", () => {
+    const gate = new CostGate({ maxCostUsd: 10, prices: PRICES });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd: 2, complete: true });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd: 1, complete: false });
+    gate.recordTurn({ inputTokens: 1_000_000, outputTokens: 0 });
+    assert.deepEqual(gate.ledger, {
+      turns: 3, turnsWithoutUsage: 1, tokensIn: 1_000_000, tokensOut: 0, spentUsd: 6
+    });
+  });
+
+  it("rejects unusable reference amounts without manufacturing complete cost coverage", () => {
+    const gate = new CostGate({ maxCostUsd: 10, prices: PRICES });
+    for (const referenceUsd of [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd, complete: true });
+    }
+    assert.equal(gate.ledger.turnsWithoutUsage, 4);
+    assert.equal(gate.spentUsd, 0, "no amount was added; all four turns remain uncovered");
+    assert.equal(gate.exceeded, false);
+  });
+
+  it("does not arm an unpriced model from an SDK default cost block", () => {
+    const gate = new CostGate({ maxCostUsd: 1 });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 1 }, { referenceUsd: 201, complete: true });
+    assert.equal(gate.spentUsd, undefined);
+    assert.equal(gate.armed, false);
+  });
+});

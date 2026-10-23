@@ -55,7 +55,8 @@ async function configure(stateRoot: string, baseUrl: string): Promise<void> {
     customProviders: [{ id: "loopback", baseUrl, envVar: "PI_DRIVER_LOOPBACK_DUMMY", models: [{ id: "driver-1", contextWindow: 8192, maxTokens: 256, inputCostPerMTok: 0.25, outputCostPerMTok: 1 }] }] });
 }
 
-test("actual fixed managed driver loads qualified applications and retains event-bound selection", { timeout: 240_000 }, async (t) => {
+// Two complete SDK generations are physically copied; the Windows aggregate took 259s.
+test("actual fixed managed driver loads qualified applications and retains event-bound selection", { timeout: 360_000 }, async (t) => {
   const start = await driver();
   const parent = path.join(process.cwd(), ".agent_workspace/managed-driver-tests");
   await mkdir(parent, { recursive: true });
@@ -185,7 +186,7 @@ test("actual fixed managed driver loads qualified applications and retains event
       const loopback = await startLoopbackOpenAiProvider({ modelIds: ["driver-1"], scriptedResponse: () =>
         mode === "tool" ? { toolCalls: [{ name: "managed_settlement_hold", arguments: {} }] } : { text: "Listener settlement probe" }
       });
-      // Only the private, selected B copy is instrumented. Real Agent, kernel,
+      // Only the private, selected B copy is instrumented. Real SDK Agent/session,
       // CLI and fixed driver entry still own dispatch and settlement.
       const fixture = await installManagedSettlementFixture(b.appRoot, mode).catch(async (error: unknown) => { await loopback.close(); throw error; });
       let running: ReturnType<Driver> | undefined;

@@ -51,9 +51,9 @@ test("the pi-adapter boundary is the only Pi importer", async () => {
   assert.ok(importers.length >= 1, "src/pi-adapter must contain the adapter implementation");
 });
 
-// ADR-006 guardrail: the adapter may depend on the Pi runtime libraries only.
-// Adding any other @earendil-works package (e.g. the coding agent) requires an
-// explicit, reviewed change to this whitelist.
+// ADR-006 keeps Pi libraries at the adapter boundary. ADR-010 adds the public
+// coding session in its dedicated adapter; other modules cannot acquire SDK
+// resource discovery, persistence or lifecycle ownership through a new import.
 const PI_ADAPTER_PACKAGE_WHITELIST = new Set(["pi-agent-core", "pi-ai"]);
 
 test("src/pi-adapter imports only whitelisted @earendil-works packages", async () => {
@@ -64,7 +64,9 @@ test("src/pi-adapter imports only whitelisted @earendil-works packages", async (
     const content = await readFile(file, "utf8");
     for (const match of content.matchAll(/@earendil-works\/([A-Za-z0-9_.-]+)/g)) {
       const pkg = match[1] as string;
-      if (!PI_ADAPTER_PACKAGE_WHITELIST.has(pkg)) {
+      const controlledSessionImport = pkg === "pi-coding-agent" &&
+        file === join(SRC, "pi-adapter", "coding-session.ts");
+      if (!PI_ADAPTER_PACKAGE_WHITELIST.has(pkg) && !controlledSessionImport) {
         offenders.push(`${file}: @earendil-works/${pkg}`);
       }
     }
@@ -82,15 +84,19 @@ test("inbound Pi imports stay in the accepted extension directory", async () => 
   }
 });
 
-test("native extension is packaged while coding-agent stays out of runtime dependencies", async () => {
+test("native extension is packaged with the host coding-agent as a required peer", async () => {
   const raw = await readFile(join(REPO_ROOT, "package.json"), "utf8");
   const pkg = JSON.parse(raw) as {
     pi?: Record<string, unknown>;
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   };
   assert.deepEqual(pkg.pi?.extensions, ["./extensions/pi-sparkle/index.ts"]);
   const allDeps = Object.keys(pkg.dependencies ?? {});
   const codingAgent = allDeps.filter((name) => name.includes("pi-coding-agent"));
   assert.deepEqual(codingAgent, [], "pi-coding-agent must not be a dependency");
+  assert.ok(pkg.peerDependencies?.["@earendil-works/pi-coding-agent"], "the SDK must be a declared peer");
+  assert.notEqual(pkg.peerDependenciesMeta?.["@earendil-works/pi-coding-agent"]?.optional, true);
 });

@@ -16,14 +16,19 @@ export async function boundedSettlement<T>(promise: Promise<T>, label: string, m
 export async function installManagedSettlementFixture(appRoot: string, mode: "tool" | "agent-end") {
   const directory = path.join(appRoot, "dist/pi-adapter");
   const executor = path.join(directory, "pi-executor.js");
+  const codingSession = path.join(directory, "coding-session.js");
   const fixture = path.join(directory, "managed-driver-settlement-fixture.mjs");
   const signals = path.join(directory, "managed-driver-settlement-signals");
   const original = await readFile(executor);
   const source = original.toString("utf8");
-  const opening = "SparkleKernel.fromFactory(() => new Agent({";
-  const closing = "}), gate.armed";
-  assert.equal(source.split(opening).length, 2, "unique real Agent construction seam");
-  assert.equal(source.split(closing).length, 2, "unique real Agent construction closing seam");
+  const originalSession = await readFile(codingSession);
+  const sessionSource = originalSession.toString("utf8");
+  const opening = "const kernel = await createControlledCodingSession({";
+  const factory = "export async function createControlledCodingSession(options) {";
+  const closing = "return new ControlledSession(session, options);";
+  assert.equal(source.split(opening).length, 2, "unique controlled SDK construction seam");
+  assert.equal(sessionSource.split(factory).length, 2, "unique controlled SDK factory seam");
+  assert.equal(sessionSource.split(closing).length, 2, "unique real SDK session construction seam");
   await mkdir(signals);
   const code = `import { existsSync, writeFileSync, appendFileSync, renameSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -58,29 +63,39 @@ async function hold(signal, request) {
     throw error;
   } finally { signal?.removeEventListener("abort", onAbort); }
 }
-export function decorate(agent, signal, request) {
+export function prepareOptions(options) {
+  const runId = options.managedSettlementRunId;
+  if (typeof runId !== "string") throw new Error("fixture requires the actual child run id");
   if (mode === "tool") {
-    agent.state.tools = [...agent.state.tools, {
+    return { ...options, tools: [...options.tools, {
       name: "managed_settlement_hold", label: "Settlement hold", description: "Wait for test release",
       parameters: { type: "object", properties: {}, required: [] },
       execute: async (_id, _args, toolSignal) => {
-        await hold(toolSignal, request);
+        await hold(toolSignal, { runId });
         return { content: [{ type: "text", text: "released" }], details: {} };
       }
-    }];
-  } else {
-    agent.subscribe(async event => { if (event.type === "agent_end") await hold(signal, request); });
+    }] };
   }
-  return agent;
+  return options;
+}
+export function decorate(agent, options) {
+  if (mode === "agent-end") {
+    // Raw Agent listeners are awaited; SDK session subscribers are notifications only.
+    agent.subscribe(async (event, signal) => {
+      if (event.type === "agent_end") await hold(signal, { runId: options.managedSettlementRunId });
+    });
+  }
 }
 `;
   try {
     await writeFile(fixture, code, "utf8");
-    await writeFile(executor, 'import { decorate as managedSettlementFixture } from "./managed-driver-settlement-fixture.mjs";\n' +
-      source.replace(opening, "SparkleKernel.fromFactory(() => managedSettlementFixture(new Agent({")
-        .replace(closing, "}), signal, request), gate.armed"), "utf8");
+    await writeFile(executor, source.replace(opening, `${opening}\n            managedSettlementRunId: request.runId,`), "utf8");
+    await writeFile(codingSession,
+      'import { prepareOptions as managedSettlementOptions, decorate as managedSettlementFixture } from "./managed-driver-settlement-fixture.mjs";\n' +
+      sessionSource.replace(factory, `${factory}\n    options = managedSettlementOptions(options);`)
+        .replace(closing, `managedSettlementFixture(session.agent, options);\n    ${closing}`), "utf8");
   } catch (error) {
-    await writeFile(executor, original);
+    await Promise.all([writeFile(executor, original), writeFile(codingSession, originalSession)]);
     await rm(fixture, { force: true });
     await rm(signals, { recursive: true, force: true });
     throw error;
@@ -112,8 +127,9 @@ export function decorate(agent, signal, request) {
     },
     async mark(name: string): Promise<void> { await writeFile(path.join(signals, name), "release", "utf8"); },
     async restore(): Promise<void> {
-      await writeFile(executor, original);
+      await Promise.all([writeFile(executor, original), writeFile(codingSession, originalSession)]);
       assert.deepEqual(await readFile(executor), original, "staged executor restored byte for byte");
+      assert.deepEqual(await readFile(codingSession), originalSession, "staged SDK session restored byte for byte");
       await rm(fixture, { force: true });
       await rm(signals, { recursive: true, force: true });
     }

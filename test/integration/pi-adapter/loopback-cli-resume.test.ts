@@ -89,6 +89,57 @@ async function invocationRowCount(stateRoot: string): Promise<number> {
   return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
+async function assertSupervisedProviderRequestCount(
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string,
+  runId: RunId
+): Promise<void> {
+  try {
+    assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+  } catch (assertionError) {
+    // Read only after the assertion fails, before the synthetic fixture is removed.
+    // Select diagnostic fields rather than logging provider requests or credentials.
+    const diagnostics: unknown[] = [];
+    const runIds = new Set([runId]);
+    for (const currentRunId of runIds) {
+      try {
+        const { events } = await new EventStore(stateRoot, currentRunId).readAll();
+        for (const event of events) {
+          if (event.type === "CHILD_RUN_CREATED") runIds.add(event.payload.childRun.id);
+          if (event.type === "RUN_FAILED" || event.type === "RUN_BLOCKED") {
+            diagnostics.push({ runId: currentRunId, type: event.type, reason: event.payload.reason });
+          }
+          if (event.type === "CHILD_MESSAGE" && event.payload.message.type === "TASK_RESULT") {
+            const { taskId, outcome, summary, failure } = event.payload.message;
+            diagnostics.push({ runId: currentRunId, type: "TASK_RESULT", taskId, outcome, summary, failure });
+          }
+        }
+      } catch (error) {
+        diagnostics.push({
+          runId: currentRunId,
+          diagnosticError: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    try {
+      const rows = await loadInvocationsFromStateRoot(stateRoot);
+      diagnostics.push({
+        invocations: rows
+          .filter((row) => runIds.has(row.runId))
+          .map(({ runId, taskId, callOutcome, config }) => ({
+            runId, taskId, callOutcome, provider: config.provider, model: config.model
+          }))
+      });
+    } catch (error) {
+      diagnostics.push({ invocationDiagnosticError: error instanceof Error ? error.message : String(error) });
+    }
+    if (assertionError instanceof Error) {
+      assertionError.message += `\nPersisted supervised-resume diagnostics: ${JSON.stringify(diagnostics)}`;
+    }
+    throw assertionError;
+  }
+}
+
 async function waitForInvocationRows(stateRoot: string, expected: number): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if ((await invocationRowCount(stateRoot)) === expected) return;
@@ -461,7 +512,7 @@ test("supervised resume overrides a distinct configured default on the HTTP requ
       );
 
       assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
-      assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+      await assertSupervisedProviderRequestCount(provider, stateRoot, interrupted.runId);
       const request = provider.requests[0]!;
       assert.equal(request.method, "POST");
       assert.equal(request.url, "/v1/chat/completions");

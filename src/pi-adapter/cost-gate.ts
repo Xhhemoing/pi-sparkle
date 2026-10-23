@@ -7,12 +7,12 @@
  * apart from the executor so the rule it encodes can be read, and tested, on
  * its own.
  *
- * The rule: a cap is enforced only against money that can be accounted for.
- * That means provider-reported token counts (never an estimate from prompt
- * length) priced with the catalog entry the rest of sparkle already quotes
- * (never a guessed rate). Miss either input and the gate disarms and says so.
- * An unenforced cap the operator is told about is honest; a cap that looks
- * enforced but rests on invented prices is not.
+ * The cap uses a conservative budget reference, not a provider bill: reported
+ * usage priced by the catalog, or a higher validated SDK amount. Missing or
+ * contradictory observations retain incomplete coverage, not a free turn or
+ * a claim that this reference is a lower bound on actual charges. No usable
+ * model price disarms the gate; missing usage leaves a priced gate armed but
+ * its budget coverage incomplete.
  */
 
 /** Catalog rates in USD per million tokens, as `listed-model.ts` reports them. */
@@ -25,6 +25,13 @@ export interface CostGatePrices {
 export interface CostGateUsage {
   readonly inputTokens?: number | undefined;
   readonly outputTokens?: number | undefined;
+}
+
+/** Internal per-turn conservative budget reference; not a provider billing receipt. */
+export interface CostGatePricingObservation {
+  /** Usable reference amount or subtotal. Missing remains uncovered, never a free turn. */
+  readonly referenceUsd?: number | undefined;
+  readonly complete: boolean;
 }
 
 export type CostGateDisarmedReason =
@@ -44,13 +51,14 @@ export interface CostGateLedger {
   /** Finished turns the gate was shown. */
   readonly turns: number;
   /**
-   * Turns whose provider reported no usable usage. Every one of these is spend
-   * the ceiling could not see, so a nonzero count means `spentUsd` is a floor.
+   * Turns without complete, consistent usage/pricing coverage. A nonzero
+   * count means `spentUsd` is an incomplete conservative budget reference,
+   * not a complete cost, actual bill, or guaranteed lower bound on charges.
    */
   readonly turnsWithoutUsage: number;
   readonly tokensIn: number;
   readonly tokensOut: number;
-  /** Priced spend for the reported usage; undefined while the gate is unpriced. */
+  /** Conservative budget reference; undefined while the model is unpriced. */
   readonly spentUsd: number | undefined;
 }
 
@@ -83,9 +91,9 @@ export function catalogPrices(
  * departure from `sumUsage`'s cost-eligibility rule. That rule drops non-`ok`
  * calls to keep per-token averages from being dragged toward zero by error
  * payloads; a ceiling asks a different question. Tokens a provider reported
- * before a stream failed are tokens it will still bill, and excluding them
- * makes the cap under-enforce. All-zero usage never reaches here — the
- * translator drops it — so an error payload's zeroed block adds nothing.
+ * before a stream failed still contribute to the reference, and excluding them
+ * makes the cap under-enforce. The raw SDK observer retains cache-only turns;
+ * wholly zeroed usage remains unknown and adds no invented reference amount.
  */
 export class CostGate {
   /** The ceiling as asked for, kept so an unusable one can be named as such. */
@@ -97,6 +105,7 @@ export class CostGate {
   private tokensIn = 0;
   private tokensOut = 0;
   private stopped = false;
+  private referenceUsd = 0;
 
   constructor(input: {
     readonly maxCostUsd?: number | undefined;
@@ -126,13 +135,10 @@ export class CostGate {
     return this.stopped;
   }
 
-  /** Priced spend so far; undefined while no price is known. */
+  /** Conservative budget reference so far; undefined while no model price is known. */
   get spentUsd(): number | undefined {
     if (this.prices === undefined) return undefined;
-    return roundUsd(
-      (this.tokensIn / USD_PER_MTOK) * this.prices.inputUsdPerMTok +
-        (this.tokensOut / USD_PER_MTOK) * this.prices.outputUsdPerMTok
-    );
+    return Number.isFinite(this.referenceUsd) ? roundUsd(this.referenceUsd) : undefined;
   }
 
   /** True when the gate is armed and observed spend has reached the ceiling. */
@@ -157,18 +163,30 @@ export class CostGate {
    * and a turn that contributed nothing is recorded as unseen spend rather
    * than as zero spend.
    */
-  recordTurn(usage: CostGateUsage | undefined): void {
+  recordTurn(usage: CostGateUsage | undefined, pricing?: CostGatePricingObservation): void {
     this.turns += 1;
     const inputTokens = tokenCount(usage?.inputTokens);
     const outputTokens = tokenCount(usage?.outputTokens);
+    this.tokensIn += inputTokens ?? 0;
+    this.tokensOut += outputTokens ?? 0;
+    if (pricing !== undefined) {
+      const amount = usdRate(pricing.referenceUsd);
+      if (!pricing.complete || amount === undefined) this.turnsWithoutUsage += 1;
+      if (amount !== undefined) this.referenceUsd += amount;
+      return;
+    }
     if (inputTokens === undefined && outputTokens === undefined) {
       this.turnsWithoutUsage += 1;
       return;
     }
-    this.tokensIn += inputTokens ?? 0;
-    this.tokensOut += outputTokens ?? 0;
+    // Existing in-process callers supply only the two legacy token fields.
+    // Raw Pi messages use the explicit observation above, including cache.
+    if (this.prices !== undefined) {
+      this.referenceUsd +=
+        ((inputTokens ?? 0) / USD_PER_MTOK) * this.prices.inputUsdPerMTok +
+        ((outputTokens ?? 0) / USD_PER_MTOK) * this.prices.outputUsdPerMTok;
+    }
   }
-
   /**
    * The predicate handed to the agent loop: true asks it to finish this turn
    * and stop before the next provider request. Latches, so the caller can tell
