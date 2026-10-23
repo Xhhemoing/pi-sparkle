@@ -264,6 +264,15 @@ pnpm cli run \
 
 State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 
+Default `run`, `--children`, and flowchart start, resume, pause, inject and unblock
+use the existing static model policy and explicit pins. They do not read learned
+routing state or run post-task adaptation. The `src/lab` implementation retains
+the explicit research composition through the same command implementation;
+`lab/cli.ts` is its repository launcher, not an npm bin. Inspect that entry with
+`pnpm exec tsx lab/cli.ts --help`. Lab source and compiled modules remain in the
+same package for compatibility. Existing explicit `--track` and `adapt` commands
+retain their research behavior and approval rules.
+
 ## What it does
 
 - Executes Pi agents (or deterministic fakes) with structured event emission
@@ -276,7 +285,7 @@ State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
   through the explicit, dry-run-first `retain --apply` command
 - `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start. Plain `--children` is a skip-contract start (`skipContract: true`) — no coverage gate on that path
 - Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
-- Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
+- Keeps adaptive R1/bandit/topology off the live loop; in the explicit research composition, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
 
 ## Project Status
 

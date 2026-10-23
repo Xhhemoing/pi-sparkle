@@ -6,16 +6,12 @@ import { episodeIdFromEvents } from "../run/episode-bind.js";
 import { runtimeRoot } from "../persist/state-layout.js";
 import type { NativeRoutingCatalog } from "./routing-catalog.js";
 import {
-  CoreNativeSession, resolveNativeModel as resolveCoreNativeModel,
-  type NativeModel, type NativeCoreDelegateInput, type NativeDelegateResult
+  CoreNativeSession, type NativeCoreDelegateInput, type NativeDelegateResult
 } from "./core-session.js";
 
 export type { NativeModel, NativeTask, NativeDelegateResult } from "./core-session.js";
-
-/** Legacy compatibility default; the product entry uses an explicit host ref. */
-export function resolveNativeModel<T extends NativeModel>(available: readonly T[], preferred = "grok-4.7"): T {
-  return resolveCoreNativeModel(available, preferred);
-}
+// Both core and legacy callers must supply the host-selected model explicitly.
+export { resolveNativeModel } from "./core-session.js";
 export interface NativeRoutingInput {
   readonly catalog: NativeRoutingCatalog;
   readonly learned?: LearnedRoutingPolicy | undefined;

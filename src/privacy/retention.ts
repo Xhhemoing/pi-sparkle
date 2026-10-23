@@ -17,7 +17,7 @@ import {
   assertRawEvidenceDeletionAllowed,
   DEFAULT_HOLDOUT_EVIDENCE_RETENTION,
   type EvidenceRetentionPolicy
-} from "../experiments/evidence-retention.js";
+} from "./evidence-retention.js";
 
 export {
   assertRawEvidenceDeletionAllowed,

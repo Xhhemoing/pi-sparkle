@@ -3,9 +3,8 @@
 See [Phase 0 plan](plan.md#evidence-bound-changes-for-pi-2026-10-22), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
 
 - [ ] Owner: review #73 runtime and retained failures; main merge and original Soul application are not authorized by Phase 0 implementation.
-- [ ] Coordinator / Phase 0.3: reproduce and repair Pi 1.4 stop/lifecycle compatibility, verify actual supported versions, preserve candidate identity and ownership checks.
-- [ ] Coordinator / Phase 0.4: unify the Pi session worker with explicit resource/tool/persistence boundaries and real acceptance/settlement tests.
-- [ ] Coordinator / Phase 0.5–0.6: remove lab from the default dependency path and private-project/model defaults; retain all current safety checks and unresolved duties.
+- [ ] Coordinator / Phase 0.3–0.4: complete current Windows worker/core acceptance; retain prior failures and the verified Pi 1.2/1.4 hosted evidence, then close remaining worker-equivalence limits explicitly.
+- [ ] Coordinator / Phase 0.5–0.6: finish integrated CLI/core/lab validation and remaining physical research relocation; keep static policy, safety checks and old-path compatibility.
 - [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; preserve #72 offline synthetic evidence as draft/lab material, without enabling learning.
 - [ ] Maintainer: carry old B authorization, cumulative budget, cancellation/settlement, effect-admission and crash-reconciliation requirements into the new worker/apply path; defer new general orchestration.
 - [ ] Owner: retain the unfinished 15-task evaluation, old C–F requirements and all-outcome cost/quality evidence; approve paid calibration separately after real channel prices are known.

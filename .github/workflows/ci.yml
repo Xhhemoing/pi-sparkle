@@ -99,6 +99,12 @@ jobs:
       - name: Workflow contract
         run: pnpm workflow:check
 
+      - name: Report source import closures
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/import-closure.mjs
       - name: Type check
         run: pnpm typecheck
 

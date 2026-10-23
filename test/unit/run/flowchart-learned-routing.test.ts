@@ -24,7 +24,7 @@ import {
   stableProjectKey,
   type LearnedRoutingPolicy
 } from "../../../src/learning/learned-routing.js";
-import { resumeFlowchartRun, startFlowchartRun } from "../../../src/run/flowchart-run.js";
+import { resumeFlowchartRun, startFlowchartRun } from "../../../lab/flowchart.js";
 import { createModelRouter, type ModelRouter } from "../../../src/supervisor/model-router.js";
 import type { ChildNodeResult } from "../../../src/supervisor/flowchart-supervisor.js";
 import {

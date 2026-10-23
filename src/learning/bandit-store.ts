@@ -1,9 +1,10 @@
+import { BANDIT_STATE_UNREADABLE_CODE } from "../persist/corruption-codes.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { isRecord } from "../domain/record.js";
 import { adaptationRoot } from "../persist/state-layout.js";
-import { createBanditState, recordReward, type BanditState } from "../routing/bandit.js";
+import { createBanditState, recordReward, type BanditState } from "../lab/routing/bandit.js";
 import { writeFileAtomic } from "../persist/atomic-file.js";
 import { withExclusiveFileLock } from "../persist/file-lock.js";
 import { stableProjectKey } from "./learned-routing.js";
@@ -22,7 +23,7 @@ function banditPath(stateRoot: string, projectRoot: string): string {
   return projectBanditPath(stateRoot, stableProjectKey(projectRoot));
 }
 
-export const BANDIT_STATE_UNREADABLE_CODE = "BANDIT_STATE_UNREADABLE" as const;
+export { BANDIT_STATE_UNREADABLE_CODE } from "../persist/corruption-codes.js";
 
 /**
  * `bandit.json` exists but cannot be read as this project's bandit state.

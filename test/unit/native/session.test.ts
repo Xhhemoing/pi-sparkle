@@ -44,11 +44,15 @@ test("projector setup failure settles the run before rejecting and removes activ
   });
 });
 
+test("native resolver refuses an omitted model reference instead of choosing a personal default", () => {
+  assert.throws(() => Reflect.apply(native.resolveNativeModel, undefined, [models]), /unavailable/);
+});
+
 test("preferred model must resolve uniquely; explicit provider pin wins", () => {
-  assert.deepEqual(native.resolveNativeModel(models), models[0]);
-  assert.throws(() => native.resolveNativeModel([]), /unavailable/);
+  assert.deepEqual(native.resolveNativeModel(models, "grok-4.7"), models[0]);
+  assert.throws(() => native.resolveNativeModel([], "grok-4.7"), /unavailable/);
   const ambiguous = [...models, { provider: "other", id: models[0]!.id }];
-  assert.throws(() => native.resolveNativeModel(ambiguous), /ambiguous/);
+  assert.throws(() => native.resolveNativeModel(ambiguous, "grok-4.7"), /ambiguous/);
   assert.deepEqual(native.resolveNativeModel(ambiguous, "xhh-grok/grok-4.7"), models[0]);
 });
 

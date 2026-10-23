@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CheckFindingAnalysisOwner, snapshotCheckFindingAnalysis,
-  type CheckFindingAnalysis, type CheckFindingAnalysisOptions, type CheckFindingAnalysisProjection } from "../evaluation/check-finding-analysis.js";
-import { findingsFromIndependentCheck, type BoundCheckFinding } from "../evaluation/check-findings.js";
+  type CheckFindingAnalysis, type CheckFindingAnalysisOptions, type CheckFindingAnalysisProjection } from "./check-finding-analysis.js";
+import { findingsFromIndependentCheck, type BoundCheckFinding } from "../execution/check-findings.js";
 import { buildTaskContext, snapshotTaskContext, type TaskContext, type TaskContextInput } from "../context/task-context.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { createAgentProfileRegistry, defaultAgentProfiles } from "../agents/registry.js";

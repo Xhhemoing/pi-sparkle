@@ -9,7 +9,7 @@ import {
   RUN_RECORDS_SURVIVED_CODE
 } from "../privacy/deletion.js";
 import { LOCK_TIMEOUT_CODE } from "../persist/file-lock.js";
-import { BANDIT_STATE_UNREADABLE_CODE } from "../learning/bandit-store.js";
+import { BANDIT_STATE_UNREADABLE_CODE } from "../persist/corruption-codes.js";
 import { PREFERENCE_SNAPSHOT_UNREADABLE_CODE } from "../preferences/store.js";
 import {
   DEFAULT_RETENTION_POLICY,
@@ -37,6 +37,7 @@ import { CheckpointStore } from "../run/checkpoint-store.js";
 import {
   resumeFlowchartRun,
   startFlowchartRun,
+  type FlowchartRunDeps,
   type FlowchartContinuation,
   type FlowchartRunOutcome
 } from "../run/flowchart-run.js";
@@ -80,12 +81,11 @@ import { DEFAULT_FAST_MODEL_ID, DEFAULT_PRIMARY_MODEL_ID } from "../routing/prim
 import { calibrateCatalogFromState } from "../routing/cost-calibration.js";
 import { createInvocationSink } from "../telemetry/invocation-log.js";
 import { compileChildrenToFlowchart } from "../graph/compile-children.js";
-import { assignTasks } from "../routing/assign.js";
+import { assignStaticTasks } from "../routing/static-assign.js";
+import { composeCliFlowchartDeps, type CliLabBehavior } from "./lab-behavior.js";
 import { liveCascadePlanFromAssignment } from "../routing/live-cascade.js";
 import { type PublicPriorSnapshot } from "../routing/public-prior.js";
 import { loadPublicPriorSnapshot } from "../routing/public-prior-store.js";
-import { loadLearnedRouting, type LearnedRoutingPolicy } from "../learning/learned-routing.js";
-import { runAutoAdaptLoop } from "../learning/auto-loop.js";
 import {
   isTrackClarificationWait,
   readTrackClarification,
@@ -133,6 +133,7 @@ const defaultIo: CliIo = {
 
 /** Local host composition only; no command flag or environment variable enables it. */
 export interface CliRuntimeContext {
+  readonly labBehavior?: CliLabBehavior;
   readonly engineContext?: RunEngineContext;
   readonly signal?: AbortSignal;
 }
@@ -142,7 +143,12 @@ interface CliCommandRuntime extends CliRuntimeContext {
 
 function commandRuntimeDeps(runtime: CliRuntimeContext): CliRuntimeContext {
   runtime.signal?.throwIfAborted();
-  return runtime;
+  return { ...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
+    ...(runtime.engineContext === undefined ? {} : { engineContext: runtime.engineContext }) };
+}
+
+function flowchartRuntimeDeps(runtime: CliRuntimeContext, deps: FlowchartRunDeps): FlowchartRunDeps {
+  return composeCliFlowchartDeps(deps, runtime.labBehavior?.flowchartRouting);
 }
 
 async function awaitCliHandle<T>(handle: { done: Promise<T>; cancel(): void }, signal?: AbortSignal): Promise<T> {
@@ -316,8 +322,9 @@ writing to is never reported as a run that stopped. It requires --follow.
 status on stderr. --follow is incompatible with --summary-json and unavailable
 for --episode.
 episode close/events provide the acceptance-gated closure and event views.
-adapt collects user and subagent
-feedback automatically after --track/--children; routing-policy candidates stay
+adapt collects user and subagent feedback automatically after --track.
+Default --children uses static routing without automatic adaptation; the repository-local
+lab/cli.ts composition retains research routing and feedback. Routing-policy candidates stay
 proposed until adapt promote --approve. Other kinds stay proposal-first. CAS promotion and
 rollback remain available on the CLI.
 `;
@@ -327,11 +334,12 @@ async function smartChildPlan(
   primaryModelId: string,
   fastModelId: string,
   stateRoot: string,
-  learned?: LearnedRoutingPolicy,
+  projectRoot: string,
+  runtime: CliRuntimeContext,
   prior?: PublicPriorSnapshot
 ): Promise<{
   children: ChildTaskInput[];
-  assignments: ReturnType<typeof assignTasks>;
+  assignments: ReturnType<typeof assignStaticTasks>;
   /** The calibrated catalog the assignments were routed against; callers reuse it instead of rebuilding. */
   catalog: ModelRouterConfig;
 }> {
@@ -356,12 +364,11 @@ async function smartChildPlan(
       ? [{ taskId: child.taskId, role: child.role, objective: child.objective }]
       : []
   );
-  const assignments = assignTasks({
-    tasks: assignable,
-    catalog,
-    ...(learned !== undefined ? { learned } : {}),
-    ...(prior !== undefined ? { prior } : {})
-  });
+  const assignmentInput = { tasks: assignable, catalog, ...(prior !== undefined ? { prior } : {}) };
+  // A trusted async planner can retain and mutate its returned objects. Own the
+  // entire plain plan before deriving children, events, cascades and output.
+  const assignments = runtime.labBehavior === undefined ? assignStaticTasks(assignmentInput)
+    : structuredClone(await runtime.labBehavior.assignChildren({ ...assignmentInput, stateRoot, projectRoot }));
   const routed = children.map((child) => {
     if (child.pinnedModel !== undefined) {
       // Pinned: exact model, no cascade — escalating off an operator's pin on
@@ -812,7 +819,7 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
           )
         : undefined;
     const outcome = await startFlowchartRun(
-      {
+      flowchartRuntimeDeps(runtime, {
         ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
@@ -828,7 +835,7 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
           io.stderr(coverageGateSkippedWarning(runId));
         },
         ...(executor !== undefined ? { executor } : {})
-      },
+      }),
       {
         projectRoot,
         flowchart,
@@ -978,14 +985,14 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
   }
 
   const childrenSpec = values.children;
-  const learned = await loadLearnedRouting(stateRoot, projectRoot);
   if (childrenSpec !== undefined) {
     const planned = await smartChildPlan(
       await parseChildSpec(childrenSpec),
       primaryModelId,
       fastModelId,
       stateRoot,
-      learned,
+      projectRoot,
+      runtime,
       publicPrior
     );
     const pinnedChildren = planned.children.filter((child) => child.pinnedModel !== undefined);
@@ -1031,7 +1038,7 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
       { flowchartId: "children", allowedModels: catalogIds, preferredModel: preferredFast }
     );
     const outcome = await startFlowchartRun(
-      {
+      flowchartRuntimeDeps(runtime, {
         ...commandRuntimeDeps(runtime),
         stateRoot,
         router: createModelRouter(catalog),
@@ -1048,7 +1055,7 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
         onCoverageGateSkipped: (runId) => {
           io.stderr(coverageGateSkippedWarning(runId));
         }
-      },
+      }),
       {
         projectRoot,
         flowchart,
@@ -1082,8 +1089,8 @@ async function runCommand(args: string[], io: CliIo, runtime: CliCommandRuntime 
       io.stdout(`  ${unverifiedSummary}\n`);
     }
     const episodeId = episodeIdFromEvents(outcome.events);
-    if (!runtime.signal?.aborted) try {
-      const adapt = await runAutoAdaptLoop({
+    if (runtime.labBehavior !== undefined && !runtime.signal?.aborted) try {
+      const adapt = await runtime.labBehavior.afterChildren({
         stateRoot,
         projectRoot,
         projectId: outcome.project.id,
@@ -1805,13 +1812,13 @@ async function resumeCommand(args: string[], io: CliIo, runtime: CliCommandRunti
           }, modelOverride, thinkingLevel, executorModelOverride)
         : undefined;
     const outcome = await resumeFlowchartRun(
-      {
+      flowchartRuntimeDeps(runtime, {
         ...commandRuntimeDeps(runtime),
         stateRoot,
         router: await createCalibratedCliModelRouter(stateRoot),
         pause,
         ...(executor !== undefined ? { executor } : {})
-      },
+      }),
       runId,
       flowchartContinuation({
         checkpoint,
@@ -1937,7 +1944,7 @@ async function answerCommand(args: string[], io: CliIo, runtime: CliCommandRunti
       throw new DomainValidationError("run is paused; pass --unpause to continue");
     }
     const outcome = await resumeFlowchartRun(
-      { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause, ...commandRuntimeDeps(runtime) },
+      flowchartRuntimeDeps(runtime, { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause, ...commandRuntimeDeps(runtime) }),
       runId,
       flowchartContinuation({
         checkpoint,
@@ -2326,6 +2333,7 @@ export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliR
   try {
     const engineContext = captureRunEngineContext(runtime?.engineContext);
     const commandRuntime: CliCommandRuntime = { pendingWrites,
+      ...(runtime?.labBehavior === undefined ? {} : { labBehavior: runtime.labBehavior }),
       ...(runtime?.signal === undefined ? {} : { signal: runtime.signal }),
       ...(engineContext === undefined ? {} : { engineContext }) };
     commandRuntime.signal?.throwIfAborted();
@@ -2381,14 +2389,14 @@ export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliR
       }
       case "pause": {
         const { pauseCommand } = await import("./pause.js");
-        return await pauseCommand(rest, io);
+        return await pauseCommand(rest, io, commandRuntime.labBehavior?.flowchartRouting);
       }
       case "inject": {
         const { injectCommand } = await import("./inject.js");
-        return await injectCommand(rest, io);
+        return await injectCommand(rest, io, commandRuntime.labBehavior?.flowchartRouting);
       }
       case "unblock":
-        return await unblockCommand(rest, io);
+        return await unblockCommand(rest, io, commandRuntime.labBehavior?.flowchartRouting);
       case "doctor": {
         const { doctorCommand: runDoctor } = await import("./doctor.js");
         return await runDoctor(rest, io);
