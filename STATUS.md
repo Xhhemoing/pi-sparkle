@@ -4,7 +4,7 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/multistage-delivery-verified-20261022
-- Commit: b607fb8d6985fe8a105c636d5998f04693e30518
+- Commit: bedd7192ce99d6258429336ae06583d9a1b6ba3f
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
