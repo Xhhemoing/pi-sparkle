@@ -1,4 +1,4 @@
-import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessageEventStream, Model, MutableModels } from "@earendil-works/pi-ai";
 import { formatModelRef } from "../config/model-ref.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -13,7 +13,11 @@ export interface NativeExecutorInput {
   /** Default requested model; must be a member of models. */
   readonly defaultModel: Model<Api>;
   /** Host registry dispatch. It owns provider lookup and request-time auth. */
-  readonly streamSimple: MutableModels["streamSimple"];
+  // The host and app may load different supported Pi versions. Their stream
+  // classes have distinct private identities, but this boundary only relies
+  // on the public API and returns the original host-owned stream unchanged.
+  readonly streamSimple: (...args: Parameters<MutableModels["streamSimple"]>) =>
+    Pick<AssistantMessageEventStream, keyof AssistantMessageEventStream>;
   /** Opt-in context efficiency: wrap read results through the observation projector. */
   readonly observationProjector?: ObservationProjector | undefined;
 }

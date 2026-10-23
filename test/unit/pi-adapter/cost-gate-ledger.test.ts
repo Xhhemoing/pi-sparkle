@@ -125,7 +125,7 @@ describe("CostGate accounting", () => {
 class StopHookAgent implements SparkleKernelAgent {
   sessionId?: string;
   state = { isStreaming: false };
-  shouldStopAfterTurn?: ((...args: never[]) => boolean | Promise<boolean>) | undefined;
+  finishTurn?: SparkleKernelAgent["finishTurn"];
 
   subscribe(): () => void {
     return () => undefined;
@@ -139,8 +139,8 @@ class StopHookAgent implements SparkleKernelAgent {
   followUp(_message: SparkleKernelUserMessage): void {}
 
   /** Stand-in for the loop's post-turn call, which passes a turn context. */
-  askAfterTurn(): boolean | Promise<boolean> | undefined {
-    return this.shouldStopAfterTurn?.(...([{ type: "turn_end" }] as unknown as never[]));
+  askAfterTurn(): ReturnType<NonNullable<SparkleKernelAgent["finishTurn"]>> {
+    return this.finishTurn?.(...([{ message: { stopReason: "toolUse" } }] as unknown as never[]));
   }
 }
 
@@ -150,9 +150,9 @@ describe("SparkleKernel stop-after-turn", () => {
     let stop = false;
     SparkleKernel.fromFactory(() => agent, { stopAfterTurn: () => stop });
 
-    assert.equal(agent.askAfterTurn(), false);
+    assert.equal(agent.askAfterTurn(), undefined);
     stop = true;
-    assert.equal(agent.askAfterTurn(), true, "the predicate is re-read, not snapshotted");
+    assert.deepEqual(agent.askAfterTurn(), { action: "end" }, "the predicate is re-read, not snapshotted");
   });
 
   it("replaces and removes an installed predicate", () => {
@@ -161,10 +161,10 @@ describe("SparkleKernel stop-after-turn", () => {
     assert.equal(agent.askAfterTurn(), undefined, "no predicate unless one is asked for");
 
     kernel.setStopAfterTurn(() => true);
-    assert.equal(agent.askAfterTurn(), true);
+    assert.deepEqual(agent.askAfterTurn(), { action: "end" });
 
     kernel.setStopAfterTurn(undefined);
-    assert.equal(agent.shouldStopAfterTurn, undefined);
+    assert.equal(agent.finishTurn, undefined);
     assert.equal(agent.askAfterTurn(), undefined);
   });
 

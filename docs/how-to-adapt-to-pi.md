@@ -11,9 +11,13 @@ Policy anchors (do not re-litigate them per bump):
   No other source module may import `@earendil-works/*` types.
 - **ADR-004 (Accepted):** adaptation is proposal-first. A version bump is a
   reviewed dependency change, not a live-run mutation.
-- **ADR-006 (Proposed):** this repo registers **no** Pi extension and does not
-  declare `package.json#pi.extensions`. Inbound extension events (for example
-  `session_compact_failed`) stay out of scope until that ADR is Accepted.
+- **ADR-006 (Accepted):** the packaged inbound extension stays in
+  `extensions/pi-sparkle/`; host authority and private credentials remain
+  outside model-supplied requests.
+- **ADR-010 (Accepted):** version compatibility and coding-agent session
+  migration are separate slices. A dedicated SDK adapter is allowed only
+  after its context, tools, persistence, retry and settlement boundaries are
+  verified; a version bump does not establish session equivalence.
 
 ## The pinned surface
 
@@ -22,7 +26,8 @@ The pins live in `package.json` `dependencies`:
 - `@earendil-works/pi-agent-core` — exact version, no range.
 - `@earendil-works/pi-ai` — exact version, matching agent-core.
 
-`@earendil-works/pi-coding-agent` is **not** a dependency. Its releases still
+`@earendil-works/pi-coding-agent` is an exact development dependency and an
+optional peer, not a runtime dependency in this compatibility slice. Its releases still
 matter because `pi install` (the coding agent) consumes this package's skill
 and prompt manifest (`package.json#pi`), so skill-discovery rule changes land
 through it.
@@ -40,6 +45,23 @@ Everything the adapter imports, by file — this is the diff surface for step 2:
 
 Behavioral (not just type-level) dependencies to re-verify each bump:
 
+- **Pi 1.x turn finalization.** `finishTurn` replaces `shouldStopAfterTurn`
+  and returns `{ action: "end" }` or `undefined`. It runs after assistant/tool
+  finalization but before `turn_end`, including error and aborted responses.
+  Keep success-only stop predicates off those hard exits. The adapter records
+  assistant usage at `message_end`, before the new hook, exactly once;
+  `TURN_FINISHED` and steering replay still follow the real `turn_end`.
+  Re-run actual task-result, budget-stop, error/abort and managed-settlement
+  tests; typechecking or the static compatibility probe cannot verify this.
+
+- **Mixed host/app versions.** The app pins core/AI while the coding-agent
+  host is an optional peer. Check the SDK-resolved host packages as well as
+  the app pins; overriding every package to the minimum version cannot
+  establish mixed-host compatibility. The native callback accepts the
+  public stream API, without requiring private class identity across
+  versions, and returns the original host-owned stream. CI exercises actual
+  loader/dispatch, usage and cancellation with host 1.2 / app 1.4 in addition
+  to the complete 1.2 and 1.4 suites.
 - **Pi ≥ 0.86: transcript-carried prompt/tools.** `StreamFn`/provider
   `stream*` now receive a branded `TranscriptContext` whose system prompt and
   tool declarations live in the transcript's system messages

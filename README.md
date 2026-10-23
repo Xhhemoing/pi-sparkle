@@ -2,7 +2,7 @@
 
 **Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
 
-**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The planned TaskSpec and unified coding-agent session are not yet implemented, and Pi 1.x compatibility is not yet verified.
+**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The planned TaskSpec and unified coding-agent session are not yet implemented. App core/AI are pinned to Pi 1.4.0 with an optional coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
 
 The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
 
@@ -59,7 +59,7 @@ use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-spar
 Results are bounded child reports, not independently verified acceptance.
 The initial slice does not write files or execute shell commands in workers.
 Terminal analysis proposes candidates without automatically applying them.
-The loader was checked on Pi 0.84.4, 0.85.1, and 0.86.1; live-provider behavior is not
+Offline checks exercise the actual Pi 1.2/1.4 loaders, host dispatch, usage and cancellation, including the mixed host/app installation. Earlier 0.84.4/0.85.1/0.86.1 results remain historical. Live-provider behavior is not
 established by the offline loopback tests.
 
 `/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also

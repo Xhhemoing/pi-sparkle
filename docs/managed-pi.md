@@ -10,7 +10,7 @@ The generations parent must already exist as a physical directory.
 const candidate = await stageManagedCandidate({
   programRoot,
   generationsRoot,
-  expectedVersions: { core: "0.86.1", ai: "0.86.1" }
+  expectedVersions: { core: "1.4.0", ai: "1.4.0" }
 });
 console.log(candidate.generationId, candidate.root);
 ```

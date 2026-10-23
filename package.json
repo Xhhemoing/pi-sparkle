@@ -60,7 +60,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "gate": "pnpm workflow:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "gate": "pnpm workflow:check && pnpm typecheck && pnpm lint && pnpm test -- --test-concurrency=1 && pnpm build",
     "invocation:probe": "node scripts/invocation-lock-probe.mjs",
     "security:probe": "node scripts/security-probe.mjs",
     "crash:probe": "node scripts/crash-probe.mjs",
@@ -73,11 +73,11 @@
     "prepublishOnly": "pnpm prerelease"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.86.1",
-    "@earendil-works/pi-ai": "0.86.1"
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.84.4 <0.87.0"
+    "@earendil-works/pi-coding-agent": ">=1.2.0 <2"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -85,7 +85,7 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@eslint/js": "10.0.1",
     "@types/node": "26.2.0",
     "@typescript-eslint/eslint-plugin": "8.67.0",

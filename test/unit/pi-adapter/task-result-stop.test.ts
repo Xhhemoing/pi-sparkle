@@ -160,3 +160,36 @@ test("opt-in preserves accepted steering replayed after a failed attempt reports
   assert.equal(results(events).length, 1);
   assert.deepEqual(events.at(-1), { type: "EXECUTION_FINISHED", outcome: "SUCCESS" });
 });
+
+test("report completion waits for another tool in the same turn to settle", { timeout: 5000 }, async () => {
+  let entered!: () => void;
+  const toolEntered = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let settled = false;
+  const f = fixture([fauxAssistantMessage([report(), fauxToolCall("held_tool", {})]), fauxAssistantMessage("unused")], {
+    stopAfterTaskResult: true,
+    tools: [{ name: "held_tool", label: "Held tool", description: "Hold tool settlement", parameters: Type.Object({}),
+      execute: async () => {
+        entered();
+        await held;
+        settled = true;
+        return { content: [{ type: "text", text: "settled" }], details: {} };
+      } }]
+  });
+  let finished = false;
+  const running = drain(f.executor).then((events) => { finished = true; return events; });
+  try {
+    await toolEntered;
+    assert.equal(finished, false);
+    assert.equal(settled, false);
+  } finally {
+    release();
+  }
+  const events = await running;
+  assert.equal(settled, true);
+  assert.equal(f.faux.state.callCount, 1);
+  assert.equal(events.filter((event) => event.type === "TOOL_FINISHED" && !event.isError).length, 2);
+  assert.equal(events.filter((event) => event.type === "TURN_FINISHED").length, 1);
+  assert.deepEqual(events.at(-1), { type: "EXECUTION_FINISHED", outcome: "SUCCESS" });
+});

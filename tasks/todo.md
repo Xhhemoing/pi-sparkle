@@ -2,7 +2,6 @@
 
 See [Phase 0 plan](plan.md#evidence-bound-changes-for-pi-2026-10-22), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
 
-- [ ] Coordinator / Phase 0.1–0.2: deliver v1.2, reconcile public evidence and roadmap, independently review the new direction/entrypoints, and publish current green CI before superseding redundant PRs.
 - [ ] Owner: review #73 runtime and retained failures; main merge and original Soul application are not authorized by Phase 0 implementation.
 - [ ] Coordinator / Phase 0.3: reproduce and repair Pi 1.4 stop/lifecycle compatibility, verify actual supported versions, preserve candidate identity and ownership checks.
 - [ ] Coordinator / Phase 0.4: unify the Pi session worker with explicit resource/tool/persistence boundaries and real acceptance/settlement tests.

@@ -2,7 +2,7 @@
  * Spend ceiling for a live agent run.
  *
  * `RunLimits.maxCostUsd` was validated and then enforced nowhere: the loop had
- * no way to stop itself part-way through a task. Pi's `shouldStopAfterTurn` is
+ * no way to stop itself part-way through a task. Pi's completed-turn hook is
  * that way, and this module is the arithmetic behind the predicate — kept
  * apart from the executor so the rule it encodes can be read, and tested, on
  * its own.

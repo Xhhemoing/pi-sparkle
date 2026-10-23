@@ -163,42 +163,46 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         isError: event.isError,
         summary: event.isError ? `tool error: ${event.toolName}` : `tool finished: ${event.toolName}`
       };
-    case "turn_end": {
-      // Usage flows on the assistant message; without it cost telemetry is
-      // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
-      const message = event.message as {
-        role?: string;
-        usage?: { input?: number; output?: number; cacheRead?: number };
-      };
-      const usage = message.role === "assistant" ? message.usage : undefined;
-      const rawInput = usageCount(usage?.input);
-      const rawOutput = usageCount(usage?.output);
-      const rawCacheRead = usageCount(usage?.cacheRead);
-      // All-zero usage is what error payloads and stub providers report;
-      // recording it would fabricate cost data ("undefined, never zero").
-      const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
-      const allZero = reported.length > 0 && reported.every((value) => value === 0);
-      const inputTokens = allZero ? undefined : rawInput;
-      const outputTokens = allZero ? undefined : rawOutput;
-      if (inputTokens === undefined && outputTokens === undefined) {
-        return { type: "TURN_FINISHED" };
-      }
-      return {
-        type: "TURN_FINISHED",
-        usage: {
-          ...(inputTokens !== undefined ? { inputTokens } : {}),
-          ...(outputTokens !== undefined ? { outputTokens } : {}),
-          // Cache reads ride along so the invocation can record cacheHit —
-          // F6 paired blocks treat an undetected cache hit as contamination.
-          ...(rawCacheRead !== undefined && rawCacheRead > 0
-            ? { cacheReadTokens: rawCacheRead }
-            : {})
-        }
-      };
-    }
+    case "turn_end":
+      return translateTurnFinished(event.message);
     default:
       return undefined;
   }
+}
+
+/** Normalize one assistant response identically for the ledger and turn event. */
+function translateTurnFinished(rawMessage: unknown): Extract<ExecutionEvent, { type: "TURN_FINISHED" }> {
+  // Usage flows on the assistant message; without it cost telemetry is
+  // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
+  const message = rawMessage as {
+    role?: string;
+    usage?: { input?: number; output?: number; cacheRead?: number };
+  };
+  const usage = message.role === "assistant" ? message.usage : undefined;
+  const rawInput = usageCount(usage?.input);
+  const rawOutput = usageCount(usage?.output);
+  const rawCacheRead = usageCount(usage?.cacheRead);
+  // All-zero usage is what error payloads and stub providers report;
+  // recording it would fabricate cost data ("undefined, never zero").
+  const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
+  const allZero = reported.length > 0 && reported.every((value) => value === 0);
+  const inputTokens = allZero ? undefined : rawInput;
+  const outputTokens = allZero ? undefined : rawOutput;
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return { type: "TURN_FINISHED" };
+  }
+  return {
+    type: "TURN_FINISHED",
+    usage: {
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      // Cache reads ride along so the invocation can record cacheHit —
+      // F6 paired blocks treat an undetected cache hit as contamination.
+      ...(rawCacheRead !== undefined && rawCacheRead > 0
+        ? { cacheReadTokens: rawCacheRead }
+        : {})
+    }
+  };
 }
 
 /**
@@ -583,7 +587,8 @@ export class PiAgentExecutor implements AgentExecutor {
       gate.armed || this.options.stopAfterTaskResult === true ? {
         stopAfterTurn: () => {
           // Always observe spend, even when a valid report also completes the run.
-          // Pi invokes this after tool settlement and turn_end (including usage).
+          // Pi invokes finishTurn after tool settlement, before turn_end; usage
+          // has already been accounted for by the assistant message_end listener.
           const costStop = gate.requestStopIfExceeded();
           // The stop hook precedes Pi's steering poll. Keep the normal loop for
           // the whole execution once any steer was accepted, including retries,
@@ -604,10 +609,16 @@ export class PiAgentExecutor implements AgentExecutor {
     if (signal.aborted) kernel.abort();
     let replayPending = replay.length > 0;
     const unsubscribe = kernel.subscribe((event) => {
-      const translated = translatePiEvent(event as AgentEvent);
+      const piEvent = event as AgentEvent;
+      // finishTurn precedes turn_end in Pi 1.x. Count each response at its
+      // message_end, including failed/aborted usage, before consulting the cap.
+      // Tool-result messages and the later turn_end must not count it twice.
+      if (piEvent.type === "message_end" && piEvent.message.role === "assistant") {
+        gate.recordTurn(translateTurnFinished(piEvent.message).usage);
+      }
+      const translated = translatePiEvent(piEvent);
       if (translated === undefined) return;
       if (translated.type === "TURN_FINISHED") {
-        gate.recordTurn(translated.usage);
         if (replayPending) {
           replayPending = false;
           // Queued after this attempt's first turn, not folded into its

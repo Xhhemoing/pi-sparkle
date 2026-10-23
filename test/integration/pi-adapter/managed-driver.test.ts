@@ -1,3 +1,4 @@
+import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -77,7 +78,8 @@ test("actual fixed managed driver loads qualified applications and retains event
   // The root coordinator schedules this test serially; this is the mandatory
   // fresh build, not a reuse of potentially stale dist from another slice.
   freshBuild(root);
-  const versions = { core: "0.86.1", ai: "0.86.1" };
+  const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+  const versions = { core: pins.agentCore, ai: pins.ai };
   const a = await stageManagedCandidate({ programRoot: process.cwd(), generationsRoot: path.join(managerRoot, "generations"), expectedVersions: versions });
   const b = await stageManagedCandidate({ programRoot: process.cwd(), generationsRoot: path.join(managerRoot, "generations"), expectedVersions: versions });
   const issuedA = await qualifyManagedCandidate({ managerRoot, candidate: a });

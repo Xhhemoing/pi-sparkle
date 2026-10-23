@@ -28,7 +28,8 @@ export interface SparkleKernelUserMessage {
 }
 
 /**
- * Consulted after each completed turn. Returning true asks the loop to stop
+ * Consulted after each successful turn and its tool settlement, before
+ * turn_end. Returning true asks the loop to stop
  * before it starts another provider request: the turn that just ran, including
  * its tool calls, finishes normally, and queued steering is not polled. It is
  * a request for a graceful stop, not an abort.
@@ -54,12 +55,13 @@ export interface SparkleKernelAgent {
   steer(message: SparkleKernelUserMessage): void;
   followUp(message: SparkleKernelUserMessage): void;
   /**
-   * The loop's post-turn stop hook. Declared over arguments this facade never
-   * reads: the agent passes its turn context here, and naming that context
-   * would put a Pi type on an exported signature. A hook that ignores its
-   * arguments satisfies the richer signature the agent declares.
+   * The loop's completed-turn decision hook. Its arguments remain opaque
+   * on the facade surface: the agent passes its turn context here, and naming that context
+   * would put a Pi type on an exported signature. The installed hook only
+   * inspects the structural message stop reason.
    */
-  shouldStopAfterTurn?: ((...args: never[]) => boolean | Promise<boolean>) | undefined;
+  finishTurn?: ((...args: never[]) =>
+    { action: "end" | "continue" } | void | Promise<{ action: "end" | "continue" } | void>) | undefined;
 }
 
 /** Builds the agent a kernel wraps. Called once, when the kernel is created. */
@@ -204,12 +206,18 @@ export class SparkleKernel {
    * Stop the run after the first turn for which `shouldStop` returns true.
    * Pass undefined to remove a predicate already installed.
    *
-   * The predicate is consulted once per completed turn, so it must be cheap
+   * The predicate is consulted once per successful turn, so it must be cheap
    * and must not throw: the agent loop offers no recovery from a hook that
    * rejects, and would tear down without its usual event sequence.
    */
   setStopAfterTurn(shouldStop: SparkleKernelStopAfterTurn | undefined): void {
-    this.agent.shouldStopAfterTurn = shouldStop === undefined ? undefined : () => shouldStop();
+    this.agent.finishTurn = shouldStop === undefined ? undefined :
+      (turn: { readonly message: { readonly stopReason: string } }) => {
+        // Pi 1.x calls finishTurn for failed/aborted responses as well. Those
+        // remain hard exits, rather than successful graceful completions.
+        if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return;
+        return shouldStop() ? { action: "end" } : undefined;
+      };
   }
 
   get sessionId(): string | undefined {

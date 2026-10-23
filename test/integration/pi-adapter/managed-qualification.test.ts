@@ -1,3 +1,4 @@
+import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -7,7 +8,8 @@ import { pathToFileURL } from "node:url";
 import { stageManagedCandidate, type ManagedCandidate } from "../../../src/pi-adapter/managed/candidate.js";
 
 const repository = process.cwd();
-const versions = { core: "0.86.1", ai: "0.86.1" };
+const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+const versions = { core: pins.agentCore, ai: pins.ai };
 interface QualificationModule {
   qualifyManagedCandidate(options: { managerRoot: string; candidate: ManagedCandidate; signal?: AbortSignal; timeoutMs?: number }): Promise<Result>;
   lookupIssuedManagedQualification(result: unknown, managerRoot: string): Record<string, unknown>;
@@ -46,9 +48,9 @@ async function freshBuild(root: string): Promise<void> {
 async function controlCandidate(root: string, code: string): Promise<ManagedCandidate> {
   const program = await mkdtemp(path.join(root, "program-"));
   await mkdir(path.join(program, "dist/pi-adapter/managed"), { recursive: true });
-  await json(path.join(program, "package.json"), { name: "qualification-control", version: "1.0.0", type: "module", dependencies: { "@earendil-works/pi-agent-core": "0.86.1", "@earendil-works/pi-ai": "0.86.1" } });
+  await json(path.join(program, "package.json"), { name: "qualification-control", version: "1.0.0", type: "module", dependencies: { "@earendil-works/pi-agent-core": versions.core, "@earendil-works/pi-ai": versions.ai } });
   for (const name of ["@earendil-works/pi-agent-core", "@earendil-works/pi-ai"]) {
-    await json(path.join(program, "node_modules", name, "package.json"), { name, version: "0.86.1", type: "module" });
+    await json(path.join(program, "node_modules", name, "package.json"), { name, version: name === "@earendil-works/pi-agent-core" ? versions.core : versions.ai, type: "module" });
   }
   await writeFile(path.join(program, "dist/pi-adapter/managed/bootstrap.js"), await readFile(path.join(repository, "dist/pi-adapter/managed/bootstrap.js"), "utf8"), "utf8");
   await writeFile(path.join(program, "dist/pi-adapter/managed/qualification-worker.js"), code, "utf8");
