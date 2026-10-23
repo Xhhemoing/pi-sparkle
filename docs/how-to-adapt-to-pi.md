@@ -140,6 +140,14 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
 
 ## Explicit worker resources
 
+The default delegate captures the host model reference, working directory,
+effective system prompt and thinking level before invoking the resource provider
+or yielding. Each child uses that model unless the delegate explicitly selects
+an available, unambiguous override. Static eligibility rules may refuse the
+selected model; they cannot fall back to another model. The default path does
+not load learned policies or start post-run adaptation. Existing legacy research
+callers keep those opt-in composition paths separately.
+
 A trusted Pi wrapper can select additional context and skill text for each
 `sparkle_delegate` call. The default package has no such provider. This option
 is host configuration, not a model tool argument:

@@ -4,7 +4,7 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/host-context-phase0-20261023
-- Commit: 3fb4b6d388bb91bd872e85b2e312c0e8b549f57d
+- Commit: 18edd401a182a6b91431d9a9825ce96610c0f4c7
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)

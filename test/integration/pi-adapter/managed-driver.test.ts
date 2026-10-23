@@ -71,9 +71,31 @@ test("actual fixed managed driver loads qualified applications and retains event
       : { toolCalls: [{ name: "sparkle_report_task_result", arguments: { verification: "PASSED", summary: "offline controlled work complete" } }] };
   } });
   let preserveRoot = false;
+  // Failure evidence is independent of the temporary instrumented ownership bit.
+  let preserveFailure = false;
+  const diagnoseUnexpectedExit = (phase: "root-A" | "approval-wait", exitCode: number | null) => {
+    if (exitCode === 0) return;
+    preserveFailure = true;
+    const models = provider.requests.slice(0, 8).map((request) => {
+      const body = request.body;
+      return body !== null && typeof body === "object" && "model" in body && body.model === "driver-1" ? "driver-1" : "unknown";
+    });
+    // Raw protocol errors can contain request URLs. Classify them instead of
+    // printing URLs, headers, authorization, request bodies or arbitrary text.
+    const protocolErrors = provider.protocolErrors.slice(0, 8).map((error) => {
+      if (error === "request body was not valid JSON") return "invalid-json";
+      if (error.startsWith("expected POST /v1/chat/completions, received ")) return "unexpected-method-or-path";
+      if (error === "request did not contain the configured model and stream=true") return "invalid-model-or-stream";
+      if (/^loopback request cap exceeded \(\d+\)$/.test(error)) return "request-cap-exceeded";
+      return "unknown";
+    });
+    t.diagnostic(JSON.stringify({ phase, exitCode, root, requestCount: provider.requests.length, models,
+      protocolErrorCount: provider.protocolErrors.length, protocolErrors }));
+  };
   t.after(async () => {
     await provider.close();
     if (preserveRoot) t.diagnostic(`Unresolved instrumented child ownership; preserving ${root}`);
+    else if (preserveFailure) t.diagnostic(`Unexpected managed application exit; preserving ${root}`);
     else await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   // The root coordinator schedules this test serially; this is the mandatory
@@ -101,6 +123,7 @@ test("actual fixed managed driver loads qualified applications and retains event
   });
   await t.test("actual main/Pi root and child execute in A and identity is physical", async () => {
     const result = await start({ managerRoot, request: { ...run, children } });
+    diagnoseUnexpectedExit("root-A", result.exitCode);
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.settlement, "application-settled", JSON.stringify(result));
     assert.equal(result.receipt?.root, a.root);
@@ -119,6 +142,7 @@ test("actual fixed managed driver loads qualified applications and retains event
     id, taskId: `tsk_${id}`, role: "actor", objective: id, modelPolicy: { allowedModels: ["loopback/driver-1"] }, confidenceThreshold: 0.7, approvalRequired: index === 1
   })), edges: [{ from: "prepare", to: "deliver", condition: { type: "success", expected: true } }] }), "utf8");
   const waiting = await start({ managerRoot, request: { ...run, flowchart } });
+  diagnoseUnexpectedExit("approval-wait", waiting.exitCode);
   assert.equal(waiting.exitCode, 0, JSON.stringify(waiting));
   assert.match(waiting.stdout, /WAITING_FOR_USER/);
   const originalId = runId(waiting.stdout);

@@ -295,6 +295,7 @@ test("native delegation persists multiple child results and discloses self-repor
     assert.match(result.text, /not independently verified/);
     const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
     assert.ok(events.some((e) => e.type === "RUN_COMPLETED"));
+    assert.equal(events.some((e) => e.type === "MODEL_ROUTED"), false, "legacy calls without routing retain their original event behavior");
     assert.ok(progress.length > 0);
     assert.equal(session.activeCount, 0);
     await session.shutdown();

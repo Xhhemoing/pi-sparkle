@@ -52,8 +52,11 @@ the host model catalogue/auth and actual file reads. Each delegation inherits
 the effective host system prompt and thinking level sampled at admission;
 request-time context or provider-payload transforms are not inherited. Parent
 transcripts and tool closures are not copied. `/sparkle-status` shows
-active runs. The default preference is `grok-4.7`; the tool accepts
+active runs. Workers default to the host model captured at admission; the tool
+accepts
 an explicit `provider/model` override and refuses unavailable/ambiguous models.
+Static eligibility checks can refuse that selection but cannot route to a
+different model.
 The main conversation model is unchanged. Esc and session shutdown cancel
 workers. `SPARKLE_NATIVE=0` disables the extension at load time.
 A [trusted host wrapper](docs/how-to-adapt-to-pi.md#explicit-worker-resources) can supply selected context and skill bodies; the default package does not discover extra resource text.
@@ -62,7 +65,8 @@ Delegated evidence lives in `.agent_workspace/pi-sparkle/` under the project;
 use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-sparkle`.
 Results are bounded child reports, not independently verified acceptance.
 The initial slice does not write files or execute shell commands in workers.
-Terminal analysis proposes candidates without automatically applying them.
+The default delegate does not load learned routing or run post-task adaptation.
+The legacy research session remains available separately.
 Offline checks exercise the actual Pi 1.2/1.4 loaders, host dispatch, usage and cancellation, including the mixed host/app installation. Earlier 0.84.4/0.85.1/0.86.1 results remain historical. Live-provider behavior is not
 established by the offline loopback tests.
 

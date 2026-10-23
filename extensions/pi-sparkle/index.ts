@@ -5,7 +5,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConversationRecoveryOptions, ReadonlyConversationSession } from "../../src/conversation/recovery.js";
 import type { ConversationSession, ConversationSessionOptions } from "../../src/conversation/session.js";
-import type { NativeSession } from "../../src/native/session.js";
+import type { CoreNativeSession } from "../../src/native/core-session.js";
 
 /**
  * Session-scoped issued-candidate handles. The apply tool never accepts a
@@ -38,7 +38,7 @@ export default createSparkleExtension();
 
 function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionOptions): void {
   if (process.env.SPARKLE_NATIVE === "0") return;
-  let session: NativeSession | undefined;
+  let session: CoreNativeSession | undefined;
   let closed = false;
   const abort = new AbortController();
   const pending = new Set<Promise<unknown>>();
@@ -131,49 +131,45 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
         objective: Type.String({ minLength: 1, maxLength: 8000 }),
         contract: Type.Optional(taskContract)
       }), { minItems: 1, maxItems: 4 }),
-      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to grok-4.7" })),
+      model: Type.Optional(Type.String({ description: "Exact provider/model or unique model ID; defaults to the selected host model" })),
       contextEfficiency: Type.Optional(Type.Boolean({ description: "Archive large read results after two full sends and expose sparkle_recall_observation to workers (default off)" }))
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       signal?.throwIfAborted();
       if (closed) throw new Error("Sparkle session is shut down");
+      const projectRoot = ctx.cwd;
       // Sample host-owned scalars before imports/routing can yield. A later
       // host turn must not change the context of this admitted delegation.
       const effectiveSystemPrompt = ctx.getSystemPrompt();
       const thinkingLevel = ctx.thinkingLevel ?? pi.getThinkingLevel();
-      const approvedResourcePayload = prepareApprovedResources(options.approvedResources?.({ cwd: ctx.cwd }));
+      const hostModel = ctx.model;
+      const capturedHostModel = hostModel === undefined ? undefined : { provider: hostModel.provider, id: hostModel.id };
+      const preferredModel = params.model;
+      if (preferredModel === undefined && capturedHostModel === undefined) throw new Error("Sparkle host model is required without an explicit model override");
+      const approvedResourcePayload = prepareApprovedResources(options.approvedResources?.({ cwd: projectRoot }));
       if (typeof effectiveSystemPrompt !== "string") throw new Error("Sparkle requires an explicit effective host system prompt");
-      const [{ NativeSession, resolveNativeModel }, { createNativeExecutor }] = await Promise.all([
-        import("../../src/native/session.js"), import("../../src/pi-adapter/native-executor.js")
+      const [{ CoreNativeSession, resolveNativeModel }, { createNativeExecutor }, { buildNativeRoutingCatalog }, { assignHostPinnedTasks }] = await Promise.all([
+        import("../../src/native/core-session.js"), import("../../src/pi-adapter/native-executor.js"),
+        import("../../src/native/routing-catalog.js"), import("../../src/native/host-assignment.js")
       ]);
       if (closed) throw new Error("Sparkle session is shut down");
-      session ??= new NativeSession();
       const available = ctx.modelRegistry.getAvailable();
       const scoped = ctx.scopedModels;
       const eligible = scoped.length === 0 ? available : available.filter((model) =>
         scoped.some((entry) => entry.model.id === model.id && entry.model.provider === model.provider));
-      const model = resolveNativeModel(eligible, params.model);
-      // Quality-first routing bridge: every eligible host model becomes a
-      // catalog row so per-task assignment (static policy + learned routing)
-      // can spread tasks across models instead of pinning one model.
-      const routing = eligible.length > 1 ? await (async () => {
-        const [{ buildNativeRoutingCatalog }, { loadLearnedRouting }] = await Promise.all([
-          import("../../src/native/routing-catalog.js"),
-          import("../../src/learning/learned-routing.js")
-        ]);
-        const stateRoot = join(ctx.cwd, ".agent_workspace", "pi-sparkle");
-        const catalog = buildNativeRoutingCatalog(
-          eligible.map((candidate) => ({
-            ref: `${candidate.provider}/${candidate.id}`,
-            preferred: candidate.provider === model.provider && candidate.id === model.id,
-            contextWindow: candidate.contextWindow ?? undefined,
-            maxOutputTokens: candidate.maxTokens ?? undefined
-          })),
-          { primary: `${model.provider}/${model.id}` }
-        );
-        const learned = await loadLearnedRouting(stateRoot, ctx.cwd);
-        return { catalog, ...(learned !== undefined ? { learned } : {}) };
-      })() : undefined;
+      // An absent override means the exact captured host identity, never a
+      // unique-id lookup that could collide with another provider's model id.
+      const model = preferredModel !== undefined
+        ? resolveNativeModel(eligible, preferredModel)
+        : resolveNativeModel(eligible.filter((candidate) => candidate.provider === capturedHostModel!.provider && candidate.id === capturedHostModel!.id),
+            `${capturedHostModel!.provider}/${capturedHostModel!.id}`);
+      const selectedRef = `${model.provider}/${model.id}`;
+      const catalog = buildNativeRoutingCatalog([{
+        ref: selectedRef, preferred: true,
+        contextWindow: model.contextWindow ?? undefined,
+        maxOutputTokens: model.maxTokens ?? undefined
+      }], { primary: selectedRef, fast: selectedRef });
+      session ??= new CoreNativeSession();
       // Opt-in context efficiency (TASK-20260920-native-observation-projection):
       // the projector is run-scoped. The runId is minted here so the projector
       // can be bound before the coordinator starts the run; the run then uses
@@ -187,16 +183,16 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
       })() : undefined;
       const executor = createNativeExecutor({
         effectiveSystemPrompt, thinkingLevel, approvedResourcePayload,
-        projectRoot: ctx.cwd,
+        projectRoot,
         defaultModel: model,
-        models: eligible,
+        models: [model],
         streamSimple: (selected, context, options) =>
           ctx.modelRegistry.streamSimple(selected, context, options),
         ...(observation !== undefined ? { observationProjector: observation.projector } : {})
       });
       const result = await session.delegate({
-        projectRoot: ctx.cwd,
-        stateRoot: join(ctx.cwd, ".agent_workspace", "pi-sparkle"),
+        projectRoot,
+        stateRoot: join(projectRoot, ".agent_workspace", "pi-sparkle"),
         model, executor,
         tasks: params.tasks.map((task) => {
           if (task.role !== "scout" && task.role !== "reviewer") throw new Error("Unsupported native role");
@@ -205,9 +201,8 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
         }),
         ...(signal !== undefined ? { signal } : {}),
         onProgress: (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }),
-        ...(routing !== undefined ? { routing } : {}),
         ...(observation !== undefined ? { observationProjector: observation.projector } : {})
-      });
+      }, { plan: (tasks) => assignHostPinnedTasks({ tasks, catalog, pinnedModelId: selectedRef }) });
       return { content: [{ type: "text", text: result.text }], details: result };
     }
   });

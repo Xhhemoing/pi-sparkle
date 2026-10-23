@@ -126,6 +126,7 @@ jobs:
               'test/unit/pi-adapter/managed-qualification-record.test.ts',
               'test/integration/pi-adapter/sdk-session-lifecycle.test.ts',
               'test/integration/pi-adapter/native-host-context.test.ts',
+              'test/integration/pi-adapter/native-host-model.test.ts',
               'test/integration/pi-adapter/steer-retry.test.ts',
               'test/integration/pi-adapter/stream-options.test.ts',
               'test/integration/pi-adapter/cost-stop.test.ts',
