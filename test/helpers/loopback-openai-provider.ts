@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { listenOnLoopbackForFetch } from "./loopback-http-listener.js";
 
 export interface LoopbackProviderRequest {
   readonly method: string | undefined;
@@ -291,22 +292,10 @@ export async function startLoopbackOpenAiProvider(
     sendCompletion(response, requests.length, body.model, body, options);
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error): void => reject(error);
-    server.once("error", onError);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", onError);
-      resolve();
-    });
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    server.close();
-    throw new Error("loopback provider did not bind a TCP port");
-  }
+  const port = await listenOnLoopbackForFetch(server);
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
     protocolErrors,
     close: () =>

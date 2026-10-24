@@ -14,6 +14,7 @@ import { authStorePath, FileCredentialStore } from "../../../src/pi-adapter/file
 import { EventStore } from "../../../src/run/event-store.js";
 import { parseRunId } from "../../../src/domain/ids.js";
 import { startLoopbackOpenAiProvider } from "../../helpers/loopback-openai-provider.js";
+import { listenOnLoopbackForFetch } from "../../helpers/loopback-http-listener.js";
 
 import { boundedSettlement, installManagedSettlementFixture } from "../../helpers/managed-driver-settlement-fixture.js";
 
@@ -186,7 +187,7 @@ test("actual fixed managed driver loads qualified applications and retains event
       requests++;
       stop.abort();
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await listenOnLoopbackForFetch(server);
     const address = server.address(); assert.ok(address !== null && typeof address !== "string");
     const heldState = path.join(root, "held-state");
     await configure(heldState, `http://127.0.0.1:${address.port}/v1`);

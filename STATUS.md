@@ -4,7 +4,7 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/sdk-bypass-acceptance-20261023
-- Commit: cba66b99b2a5a741cfc7200493b75c4a399e1ac0
+- Commit: 583d63855316bba95486c9102cdd63a11ffabb34
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
