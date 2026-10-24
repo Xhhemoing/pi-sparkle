@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { types } from "node:util";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { parseDevelopmentTaskSpec } from "../development/task-spec.js";
+import { parseDevelopmentTaskDocument } from "../development/task-spec-document.js";
 import { DomainValidationError } from "../domain/errors.js";
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
 import { prepareApprovedResources, type ApprovedResourcesProvider } from "./approved-resources.js";
@@ -122,7 +122,9 @@ export async function runNativeTaskCommand(input: { readonly args: string; reado
   readonly session: TaskSpecSession; readonly signal: AbortSignal }) {
   input.signal.throwIfAborted();
   const { sourceRepo, host } = input.admission;
-  const spec = parseDevelopmentTaskSpec(await readTaskFile(taskPath(input.args, sourceRepo)));
+  const file = taskPath(input.args, sourceRepo);
+  const format = [".yaml", ".yml"].includes(path.extname(file).toLowerCase()) ? "yaml" : "json";
+  const spec = parseDevelopmentTaskDocument(await readTaskFile(file), format);
   input.signal.throwIfAborted();
   const { createNativeWriteExecutorFactory } = await import("./native-write-executor.js");
   return input.session.run({ sourceRepo, spec, signal: input.signal, executorFactory: createNativeWriteExecutorFactory(host) });

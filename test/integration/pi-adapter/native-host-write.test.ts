@@ -5,6 +5,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
+import { stringify } from "yaml";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, getCurrentSystemPrompt, getCurrentTools,
   type Context, type Model, type Api, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createEventBus, createExtensionRuntime, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -26,7 +27,7 @@ function definition(maxAttempts = 1): DevelopmentTaskSpec {
     worker: { model: "inherit", maxAttempts }, budget: { totalSeconds: 30, prepareSeconds: 5, checkSeconds: 5, workerSeconds: 10 } };
 }
 async function fixture(config: { prompt?: string; resources?: boolean; repair?: boolean; refuseWrites?: boolean; thinkingBudgets?: boolean;
-  paths?: "source-state" | "source-sandbox" } = {}) {
+  paths?: "source-state" | "source-sandbox"; format?: "yaml" } = {}) {
   const parent = path.join(process.cwd(), ".agent_workspace", "phase1-host-task");
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, "command-"));
@@ -42,8 +43,8 @@ async function fixture(config: { prompt?: string; resources?: boolean; repair?: 
   git(sourceRepo, ["config", "user.name", "Host fixture"]); git(sourceRepo, ["config", "user.email", "fixture@example.invalid"]);
   git(sourceRepo, ["add", "."]); git(sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "fixture"]);
   const revision = git(sourceRepo, ["rev-parse", "HEAD"]);
-  const specPath = path.join(root, "task with spaces.json");
-  await writeFile(specPath, JSON.stringify(definition(config.repair ? 2 : 1)), "utf8");
+  const specPath = path.join(root, config.format === "yaml" ? "task with spaces.YML" : "task with spaces.json");
+  await writeFile(specPath, (config.format === "yaml" ? stringify : JSON.stringify)(definition(config.repair ? 2 : 1)), "utf8");
   const faux = fauxProvider({ provider: "host-write", models: [{ id: "A", reasoning: true }, { id: "B", reasoning: true }] });
   const a = faux.getModel("A")!, b = faux.getModel("B")!, models = createModels(); models.setProvider(faux.provider);
   const wires: { context: Context; options: SimpleStreamOptions | undefined; model: Model<Api> }[] = [];
@@ -129,8 +130,8 @@ for (const prompt of [HOST, ""]) test(`actual extension command executes an owne
   } finally { await f.shutdown(); }
 });
 
-test("actual user commands apply then discard only a held candidate without further model dispatch", { timeout: 120000 }, async () => {
-  const f = await fixture({ resources: true });
+for (const format of [undefined, "yaml"] as const) test(`actual user commands apply then discard only a held candidate without further model dispatch${format === undefined ? "" : " from YAML"}`, { timeout: 120000 }, async () => {
+  const f = await fixture({ resources: true, ...(format === undefined ? {} : { format }) });
   try {
     await f.run();
     const run = JSON.parse((f.messages.at(-1) as { content: string }).content);

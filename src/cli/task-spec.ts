@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
-import { parseDevelopmentTaskSpec, snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../development/task-spec.js";
+import { snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../development/task-spec.js";
+import { parseDevelopmentTaskDocument } from "../development/task-spec-document.js";
 import { preflightDevelopmentTaskSpec } from "../development/start-task-spec.js";
 import { resolveInsideRoot } from "../execution/paths.js";
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
@@ -16,6 +17,7 @@ export const TASK_PREFLIGHT_USAGE = `pi-sparkle preflight — execute zero-model
 Usage:
   pi-sparkle preflight <task.json> --project <repo> [--state-root <dir>] [--json]
 
+Files ending in .yaml or .yml use YAML 1.2; other paths keep strict JSON parsing.
 Executes trusted host commands in an isolated candidate and stores private host
 evidence. This is not static validation or an OS sandbox. No provider is loaded
 and no source change is applied. State defaults to ~/.pi-sparkle and must be
@@ -82,6 +84,10 @@ async function boundedFile(file: string): Promise<string> {
     catch { return fail(`file must contain valid UTF-8: ${file}`); }
   } finally { await handle.close(); }
 }
+export async function readTaskSpecFile(file: string): Promise<DevelopmentTaskSpec> {
+  const format = [".yaml", ".yml"].includes(path.extname(file).toLowerCase()) ? "yaml" : "json";
+  return parseDevelopmentTaskDocument(await boundedFile(file), format);
+}
 function rejectDuplicates(tokens: readonly { readonly kind: string; readonly name?: string }[]): void {
   const seen = new Set<string>();
   for (const token of tokens) if (token.kind === "option" && token.name !== undefined) {
@@ -103,7 +109,7 @@ export async function taskSpecPreflightCommand(args: string[], io: TaskSpecCliIo
     const stateRoot = path.resolve(values["state-root"] === undefined ? path.join(homedir(), ".pi-sparkle") : required(values["state-root"], "--state-root"));
     stage = "validation";
     runtime.signal?.throwIfAborted();
-    const spec = parseDevelopmentTaskSpec(await boundedFile(file));
+    const spec = await readTaskSpecFile(file);
     stage = "execute";
     const result = await preflightDevelopmentTaskSpec({ sourceRepo, stateRoot, spec,
       ...(runtime.signal === undefined ? {} : { signal: runtime.signal }) });

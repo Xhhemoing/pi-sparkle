@@ -1,7 +1,7 @@
 # Run a TaskSpec with zero-model preparation
 
 These experimental source APIs and CLI commands are in the Phase 1 candidate,
-not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings and explicit model overrides are rejected. Full
+not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON or YAML `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings and explicit model overrides are rejected. Full
 Phase 1 acceptance remains unfinished; the installed four-language examples have bounded Windows mechanism evidence.
 
 A TaskSpec selects the same host checks for the base preflight and final
@@ -9,6 +9,14 @@ acceptance. Preflight actually runs preparation and those checks without a
 model. A task run prepares the candidate it will give to the worker, preserving
 ordinary ignored build caches within that invocation. A separate standalone
 preflight creates its own candidate; it does not reserve a cache for a later run.
+
+Files ending in `.yaml` or `.yml` (case insensitive) select YAML 1.2; all other
+paths retain strict JSON parsing. Both produce the same validated TaskSpec.
+YAML accepts one UTF-8 document of at most 64 KiB with ordinary scalar/string
+keys, comments, block strings and collections. Duplicate keys, extra documents,
+aliases, merges, custom tags, complex keys, nonfinite numbers and fields outside
+the schema refuse before execution. Shell expansion and automatic JSON-to-YAML
+fallback are not supported. Parser diagnostics omit private YAML source values.
 
 ## Generate a draft and run preflight
 
@@ -70,14 +78,40 @@ provider configuration and never applies source changes. Its standalone
 candidate is not reused by a later task invocation.
 
 Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
-CLI task execution and cross-platform qualification remain unfinished. The bounded source API supports host integration, and the installed four-language examples below have actual Windows mechanism evidence.
+The configured CLI and current Pi host entries below share the same TaskSpec checks and lifecycle. Complete current-candidate and cross-platform qualification remain unfinished; the installed four-language examples have earlier Windows mechanism evidence.
+## Run with configured Pi from the CLI
+
+```text
+pnpm cli task run task.yaml --project <repo> --state-root <private-dir> --executor pi --review --json
+```
+
+The command uses the existing CLI provider/model/credential configuration and
+thinking level (`providers.json`, its state-root credentials, or supported
+`PI_*` environment values). It supplies fresh declared task context and scoped
+candidate tools; it does not inherit an interactive parent's prompt, skills or
+hooks. Normal configured providers may incur charges. Optional `budget.usd`
+uses the same strict task-wide reference-usage pool as the host command.
+
+The default retains the candidate and returns its acceptance/evidence summary.
+Use `--review` to keep this process alive for one explicit `apply`, `discard` or
+`retain` decision. EOF also retains. Prompts go to stderr; `--json` emits a safe
+execution JSON line and, when selected, a separate action line. Apply requires
+acceptance and fresh verification; discard can remove a settled refused
+candidate. Neither outcome prints hidden checker output.
+
+After the process exits, its run ID and saved JSON cannot restore the live
+verifier or remaining budget pools. `task resume` explicitly refuses that
+reconstruction. The older top-level `resume` still continues supervised and
+flowchart runs; ordinary runs rebuild their checkpoint without resuming a
+worker. Cooperative cancellation waits for owned settlement and retains unknown
+effects. A forced OS termination has no such observed settlement guarantee.
 ## Run from the current Pi host
 
 The experimental `/sparkle-task <task.json>` user command captures the current
 Pi model, effective prompt, thinking level, custom thinking budgets and approved resource bodies, then
 runs the task in an isolated candidate with the supplied scoped write tools.
 Quote a complete task-file path containing spaces. The file must be bounded,
-regular UTF-8 JSON with no linked parent or leaf. Host configuration may select
+regular UTF-8 JSON or explicitly selected YAML with no linked parent or leaf. Host configuration may select
 external state/candidate directories; defaults use `~/.pi-sparkle` outside the
 source repository.
 
