@@ -197,6 +197,8 @@ Usage:
   pi-sparkle validate --children <spec.json> | --flowchart <flowchart.json> [--state-root <dir>] [--json]
   pi-sparkle list [--runs | --episodes] [--status <RunStatus>] [--state-root <dir>] [--json]
   pi-sparkle init [--dir <path>] [--force] [--json]
+  pi-sparkle init --task [--dir <path>] [--force] [--json]
+  pi-sparkle preflight <task.json> --project <path> [--state-root <dir>] [--json]
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json | --status-json]
   pi-sparkle inspect --run <runId> --follow [--json] [--idle-timeout-ms <ms>] [--state-root <dir>]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
@@ -2344,8 +2346,18 @@ export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliR
         return await validateCommand(rest, io);
       case "list":
         return await listCommand(rest, io);
-      case "init":
+      case "init": {
+        if (rest.includes("--task")) {
+          const { initTaskSpecCommand } = await import("./task-spec.js");
+          const taskIndex = rest.indexOf("--task");
+          return await initTaskSpecCommand([...rest.slice(0, taskIndex), ...rest.slice(taskIndex + 1)], io);
+        }
         return await initExamplesCommand(rest, io);
+      }
+      case "preflight": {
+        const { taskSpecPreflightCommand } = await import("./task-spec.js");
+        return await taskSpecPreflightCommand(rest, io, commandRuntime.signal === undefined ? {} : { signal: commandRuntime.signal });
+      }
       case "inspect":
         return await inspectCommand(rest, io);
       case "resume":

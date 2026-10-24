@@ -1,7 +1,7 @@
 # Run a TaskSpec with zero-model preparation
 
-This is an experimental source API in the Phase 1 candidate. It is not yet a
-published SDK export or a new CLI command. It currently supports literal path
+These experimental source APIs and CLI commands are in the Phase 1 candidate,
+not a published package or stable SDK export. They currently support literal path
 prefixes, JSON `command`/`args`, and one worker attempt. Glob patterns, shell
 `run` strings, explicit model overrides and USD budgets are rejected. Full
 Phase 1 acceptance and four-language installation examples remain unfinished.
@@ -12,6 +12,36 @@ model. A task run prepares the candidate it will give to the worker, preserving
 ordinary ignored build caches within that invocation. A separate standalone
 preflight creates its own candidate; it does not reserve a cache for a later run.
 
+## Generate a draft and run preflight
+
+From the pi-sparkle checkout, `pnpm cli init --task --dir <repo>` writes
+`sparkle.task.json`. This initial generator supports only Node packages whose
+existing test script explicitly names existing JavaScript test files, such as
+`node --test test/value.test.cjs`. It requires a detected `src` or `lib`
+directory. Quoting, shell syntax, implicit test discovery, other runners and
+ambiguous language detection produce a diagnostic instead of a guessed check.
+It does not execute tests, install dependencies or invoke a model.
+
+Review the draft's objective, writable/protected paths, checks and time limits,
+then commit the intended task inputs so the source meets the existing clean
+repository requirement. The generated draft expects a passing base; use the
+explicit assertion convention below for a target regression. Existing files
+are preserved unless `--force` is supplied; linked or nonregular targets are
+refused even with that option. Plain `init` keeps its existing children and
+flowchart example behavior.
+
+Run `pnpm cli preflight <task.json> --project <repo> --state-root <private-dir>`
+to execute the actual preparation and base checks. `--json` returns the host
+artifact locator and settlement/disposal summary, without raw command output.
+Omitting `--state-root` uses the existing generic `~/.pi-sparkle` state root;
+the root must remain outside the source and candidate. Preflight needs no
+provider configuration and never applies source changes. Its standalone
+candidate is not reused by a later task invocation.
+
+Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
+CLI task execution, Verdict presentation and the Python/Rust/Go generators are
+still unfinished; the one-worker source API described below is available for
+host integration.
 ## Define the task
 
 `parseDevelopmentTaskSpec(text)` in `src/development/task-spec.ts` accepts at
