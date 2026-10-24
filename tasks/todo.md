@@ -1,6 +1,6 @@
 # Active checklist
 
-See [Phase 1 plan](plan.md#phase-1-fixed-check-plan-and-visible-repair-feedback-2026-10-23), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
+See [Phase 1 plan](plan.md#phase-1-executable-taskspec-and-zero-model-preflight-2026-10-24), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
 
 - [ ] Coordinator / Phase 1: finish full gate/probes and current-head PR/CI for shared scope and check-plan; continue TaskSpec/init, zero-model preflight, cumulative budgets and four-language end-to-end examples.
 - [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; retain deferred #72 branch/slice for lab evaluation, without treating it as implemented or enabling learning.

@@ -282,3 +282,8 @@ snapshots it; model requests cannot supply their own context selection.
 M1-C implementation and verification are recorded in the
 [staged continuation report](reports/2026-10-19-staged-continuation.md), including
 actual final-prompt tests and the separately authorized two-case provider smoke.
+
+
+Experimental JSON TaskSpec preparation and one-worker integration are described in
+[TaskSpec and zero-model preflight](taskspec.md). They reuse this entry's candidate,
+check and explicit-application boundaries.

@@ -66,7 +66,7 @@ export function prepareScopedDevelopmentVerification(
 export function snapshotDevelopmentVerification(input: NativeWriteVerificationInput): NativeWriteVerificationInput {
   if (input === null || typeof input !== "object" || Array.isArray(input) ||
       (Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null)) fail("verification must be a plain object");
-  const fields = ["command", "args", "trustedVerification", "repairableExitCodes", "unsettledExitCodes"];
+  const fields = ["command", "args", "timeoutMs", "trustedVerification", "repairableExitCodes", "unsettledExitCodes"];
   if (Reflect.ownKeys(input).some((key) => typeof key !== "string" || !fields.includes(key)) ||
       Object.values(Object.getOwnPropertyDescriptors(input)).some((property) => !("value" in property))) {
     fail("verification must contain ordinary own fields");

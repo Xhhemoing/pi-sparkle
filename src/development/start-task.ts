@@ -1,4 +1,4 @@
-import { prepareNativeCheckPlanInput } from "../native/write-preflight.js";
+import { prepareNativeCheckPlanInput, prepareNativeWorkerTimeout } from "../native/write-preflight.js";
 import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
 import { snapshotCheckFindingAnalysis, type CheckFindingAnalysisOptions } from "../native/check-finding-analysis.js";
 import {
@@ -48,6 +48,7 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("check finding analysis must be an own data property");
   }
   const checkFindingAnalysis = snapshotCheckFindingAnalysis(analysisDescriptor?.value as CheckFindingAnalysisOptions | undefined);
+  const workerTimeoutMs = prepareNativeWorkerTimeout(input);
   const plannedCheck = prepareNativeCheckPlanInput(input);
   const checkPlan = plannedCheck?.checkPlan;
   const scopeDescriptor = Object.getOwnPropertyDescriptor(input, "scopePolicy");
@@ -68,7 +69,7 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
-    return await session.execute({ ...task, verification, ...(checkPlan === undefined ? {} : { checkPlan }), ...(presentation === undefined ? {} : { presentation }),
+    return await session.execute({ ...task, verification, ...(workerTimeoutMs === undefined ? {} : { workerTimeoutMs }), ...(checkPlan === undefined ? {} : { checkPlan }), ...(presentation === undefined ? {} : { presentation }),
       ...(taskContext === undefined ? {} : { taskContext }) });
   } finally {
     await session.shutdown();

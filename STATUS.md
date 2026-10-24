@@ -4,7 +4,7 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/taskspec-policy-phase1
-- Commit: 2fe99acb96a7d71b319ae6e77af9e36ed3e82abf
+- Commit: b6fc7a7fb5a4ba8a5a33301f18f053c47158275f
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)

@@ -32,7 +32,7 @@ import {
   type NativeWriteFeedback, type NativeWriteLoopLimits, type NativeWriteLoopResult, type NativeWriteStopReason
 } from "./write-loop.js";
 import {
-  prepareNativeWrite, prepareNativeCheckPlanInput,
+  prepareNativeWrite, prepareNativeCheckPlanInput, prepareNativeWorkerTimeout,
   type NativeWritePreflight,
   type NativeWritePreflightInput,
   type NativeWriteVerificationInput
@@ -81,6 +81,8 @@ export interface NativeWriteSessionInput {
   readonly maxAttempts?: number;
   /** Cooperative cancellation deadline; maximum 30 minutes. */
   readonly maxWallTimeMs?: number;
+  /** Explicit per-attempt worker deadline; preparation remains in the total budget. */
+  readonly workerTimeoutMs?: number;
   readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[];
   /** Explicit reporting preferences, copied per execute call; no global preference writes. */
   readonly presentation?: TaskPresentationInput;
@@ -271,7 +273,7 @@ export class NativeWriteSession {
       });
       // The explicit host deadline also bounds a worker. Attempts-only opt-in
       // keeps the historical worker default; the outer timer never renews.
-      workerTimeoutMs = maxWallTimeMs === undefined ? 300_000 : limits.maxWallTimeMs;
+      workerTimeoutMs = prepareNativeWorkerTimeout(input) ?? (maxWallTimeMs === undefined ? 300_000 : limits.maxWallTimeMs);
     } catch (error) { return Promise.reject(error); }
     const controller = new AbortController();
     if (input.signal?.aborted) controller.abort();
@@ -626,6 +628,7 @@ export class NativeWriteSession {
         runId: outcome.runId,
         command: preflight.verification.command,
         args: preflight.verification.args,
+        ...(preflight.verification.timeoutMs === undefined ? {} : { timeoutMs: preflight.verification.timeoutMs }),
         ...(preflight.verification.trustedVerification === undefined ? {} : { trustedVerification: preflight.verification.trustedVerification }),
         ...(preflight.verification.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: preflight.verification.unsettledExitCodes }),
         requireSettledEffects: true,

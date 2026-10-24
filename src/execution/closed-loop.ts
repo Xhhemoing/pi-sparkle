@@ -59,6 +59,7 @@ export interface RunClosedLoopCheckInput {
   readonly requireSettledEffects?: boolean;
   /** Explicit bounded host evidence retention; worker projection is separate. */
   readonly storedStreamMaxBytes?: number;
+  readonly timeoutMs?: number;
 }
 
 export interface ClosedLoopResult {
@@ -85,6 +86,7 @@ export async function runClosedLoopCheck(input: RunClosedLoopCheckInput): Promis
     ...(input.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: input.unsettledExitCodes }),
     ...(input.requireSettledEffects === undefined ? {} : { requireSettledEffects: input.requireSettledEffects }),
     ...(input.storedStreamMaxBytes === undefined ? {} : { storedStreamMaxBytes: input.storedStreamMaxBytes }),
+    ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.signal !== undefined ? { signal: input.signal } : {})
   });
 

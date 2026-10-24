@@ -7,11 +7,19 @@ import { DomainValidationError } from "../domain/errors.js";
 import { prepareNativeWriteCriteria, type NativeWriteAcceptanceCriterion } from "./write-criteria.js";
 import { assertTrustedVerificationDescriptor, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 
-export interface NativeWriteVerificationInput { readonly command: string; readonly args?: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[]; }
+export interface NativeWriteVerificationInput { readonly command: string; readonly args?: readonly string[]; readonly timeoutMs?: number; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[]; }
 export interface NativeWritePreflightInput { readonly sourceRepo: string; readonly objective: string; readonly verification: NativeWriteVerificationInput; readonly signal?: AbortSignal; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; readonly checkPlan?: DevelopmentCheckPlan; }
-export interface NativeWritePreflight { readonly sourceRepo: string; readonly objective: string; readonly verification: { readonly command: string; readonly args: readonly string[]; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[] }; readonly revision: string; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; readonly checkPlan?: DevelopmentCheckPlan; }
+export interface NativeWritePreflight { readonly sourceRepo: string; readonly objective: string; readonly verification: { readonly command: string; readonly args: readonly string[]; readonly timeoutMs?: number; readonly trustedVerification?: TrustedVerificationDescriptor; readonly repairableExitCodes?: readonly number[]; readonly unsettledExitCodes?: readonly number[] }; readonly revision: string; readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[]; readonly checkPlan?: DevelopmentCheckPlan; }
 
 function fail(message: string): never { throw new DomainValidationError(message); }
+export function prepareNativeWorkerTimeout(input: object): number | undefined {
+  const property = Object.getOwnPropertyDescriptor(input, "workerTimeoutMs");
+  if ((property === undefined && "workerTimeoutMs" in input) || (property !== undefined && !("value" in property))) fail("worker timeout must be an own data property");
+  const value: unknown = property?.value;
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_800_000) fail("worker timeout must be an integer from 1 to 1800000 ms");
+  return value;
+}
 function exitCodes(input: unknown, name: string): readonly number[] | undefined {
   if (input === undefined) return undefined;
   if (!Array.isArray(input) || input.length > 255) fail(`${name} must be an array of unique integer exit codes from 1 to 255`);
@@ -59,6 +67,8 @@ export function prepareNativeWrite(input: NativeWritePreflightInput): NativeWrit
   if (typeof verification.command !== "string" || verification.command.trim() === "") fail("verification command is required");
   const args = verification.args === undefined ? [] : verification.args;
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) fail("verification args must be strings");
+  const timeoutMs = verification.timeoutMs;
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1_800_000)) fail("check timeout must be an integer from 1 to 1800000 ms");
   const trustedVerification = verification.trustedVerification;
   const repairableExitCodes = exitCodes(verification.repairableExitCodes, "repairableExitCodes");
   const unsettledExitCodes = exitCodes(verification.unsettledExitCodes, "unsettledExitCodes");
@@ -73,6 +83,7 @@ export function prepareNativeWrite(input: NativeWritePreflightInput): NativeWrit
   if (status !== "") fail("source repository must be clean");
   const revision = git(root, ["rev-parse", "HEAD"]);
   const output = { sourceRepo: root, objective: input.objective.trim(), verification: { command: verification.command, args: [...args],
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(trustedVerification === undefined ? {} : { trustedVerification }),
     ...(repairableExitCodes === undefined ? {} : { repairableExitCodes }),
     ...(unsettledExitCodes === undefined ? {} : { unsettledExitCodes }) }, revision,
