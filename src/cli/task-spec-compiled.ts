@@ -28,7 +28,7 @@ async function exists(file: string): Promise<boolean> {
   try { await lstat(file); return true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 }
-function compiler(name: "cargo" | "go"): string {
+function compiler(name: "cargo" | "go" | "cc"): string {
   for (const directory of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
     const absolute = directory.replace(/^"|"$/g, "");
     if (!path.isAbsolute(absolute)) continue;
@@ -108,7 +108,11 @@ async function rustDefinition(input: CompiledDraftInput, cachePath: string): Pro
   await refuseInputs(root, ["src/bin"]);
   const tests = await filesUnder(root, "tests");
   if (!source.some((file) => file === "src/lib.rs" || file === "src/main.rs") || !tests.some((file) => file.endsWith(".rs"))) fail("Rust requires src/lib.rs or src/main.rs and existing external integration tests under tests");
-  return { command: process.execPath, args: ["-e", COMPILED_CHECK_WRAPPER, "rust", compiler("cargo"), cachePath, "{}"], allow: ["src"],
+  const cargo = compiler("cargo");
+  // POSIX rustup/cargo needs a searchable system linker. Carry only the two
+  // selected executable directories, not the host environment or whole PATH.
+  const env = process.platform === "win32" ? {} : { PATH: [...new Set([path.dirname(cargo), path.dirname(compiler("cc"))])].join(path.delimiter) };
+  return { command: process.execPath, args: ["-e", COMPILED_CHECK_WRAPPER, "rust", cargo, cachePath, JSON.stringify(env)], allow: ["src"],
     protect: ["Cargo.toml", "Cargo.lock", "tests", input.taskFilename], context: ["Cargo.toml", "Cargo.lock"] };
 }
 function simpleGoModule(text: string): void {
@@ -143,7 +147,7 @@ const COMPILED_CHECK_WRAPPER = `const f=require('node:fs'),p=require('node:path'
 const [lang,exe,parent,win]=process.argv.slice(1);
 function dir(d){let at=p.parse(d).root;for(const part of [null,...p.resolve(d).slice(at.length).split(p.sep).filter(Boolean)]){if(part!==null)at=p.join(at,part);let s;try{s=f.lstatSync(at)}catch(e){if(e.code!=='ENOENT')throw e;try{f.mkdirSync(at)}catch(e){if(e.code!=='EEXIST')throw e}s=f.lstatSync(at)}if(s.isSymbolicLink()||!s.isDirectory())throw Error('compiler output parent contains a link or non-directory')}}
 dir(parent);const out=f.mkdtempSync(p.join(parent,'check-'));dir(out);let env={},args;
-if(lang==='rust')args=['test','--offline','--locked','--target-dir',out];else{const temp=p.join(out,'temp');dir(temp);env={...JSON.parse(win),CGO_ENABLED:'0',GOTOOLCHAIN:'local',GOPROXY:'off',GOSUMDB:'off',GOWORK:'off',GOENV:'off',GOCACHE:p.join(out,'build'),GOMODCACHE:p.join(out,'mod'),GOPATH:p.join(out,'path'),TEMP:temp,TMP:temp,TMPDIR:temp};args=['test','-count=1','./...']}
+if(lang==='rust'){env=JSON.parse(win);args=['test','--offline','--locked','--target-dir',out]}else{const temp=p.join(out,'temp');dir(temp);env={...JSON.parse(win),CGO_ENABLED:'0',GOTOOLCHAIN:'local',GOPROXY:'off',GOSUMDB:'off',GOWORK:'off',GOENV:'off',GOCACHE:p.join(out,'build'),GOMODCACHE:p.join(out,'mod'),GOPATH:p.join(out,'path'),TEMP:temp,TMP:temp,TMPDIR:temp};args=['test','-count=1','./...']}
 const child=spawn(exe,args,{cwd:process.cwd(),env,shell:false,windowsHide:true,stdio:'inherit'});
 child.on('error',e=>{console.error('Compiler spawn failed: '+e.message);process.exitCode=1});child.on('close',code=>{process.exitCode=code===0?0:code>0?code:1});`;
 

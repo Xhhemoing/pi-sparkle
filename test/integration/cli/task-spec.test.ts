@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -141,6 +142,32 @@ test("TaskSpec compiled profiles refuse missing compilers and source-aliased sta
   assert.match(nested.stderr, /state.*outside|state.*source|link/i);
   assert.equal(await readFile(target, "utf8"), "keep");
 }));
+
+test("TaskSpec POSIX Rust init refuses a missing cc linker before writing a draft", { skip: process.platform === "win32" }, async (t) => {
+  let cargo: string | undefined;
+  for (const directory of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!path.isAbsolute(directory)) continue;
+    const candidate = path.join(directory, "cargo");
+    try {
+      if (!(await stat(candidate)).isFile()) continue;
+      await access(candidate, constants.X_OK);
+      cargo = candidate; break;
+    } catch { /* Only a genuinely available host compiler can set up this case. */ }
+  }
+  if (cargo === undefined) { t.skip("real host cargo unavailable; POSIX missing-linker admission remains unverified"); return; }
+  const selectedCargo = cargo;
+  await fixture(async (repo, root) => {
+    await compiledFixture(repo, "Rust");
+    const bin = path.join(root, "cargo-only-bin");
+    await mkdir(bin);
+    await symlink(selectedCargo, path.join(bin, "cargo"), "file");
+    const result = entrypoint(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")], [], { env: { ...process.env, PATH: bin } });
+    assert.equal(result.code, 1, result.stdout);
+    assert.match(result.stderr, /cc executable not found in host PATH/);
+    await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+    await assert.rejects(lstat(path.join(root, "state")), { code: "ENOENT" });
+  });
+});
 
 test("TaskSpec compiled profiles refuse dependency declarations, missing lockfiles and linked inputs", async () => fixture(async (repo, root) => {
   await compiledFixture(repo, "Rust");
