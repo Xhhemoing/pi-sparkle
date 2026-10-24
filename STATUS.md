@@ -4,14 +4,14 @@
 
 - Version: 0.1.0-preview.3 (private: true)
 - Branch: codex/taskspec-policy-phase1
-- Commit: 2f87ca313fdf372897bc0119116f0accabb9ff3e
+- Commit: 2fe99acb96a7d71b319ae6e77af9e36ed3e82abf
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
 
 ## Open work
 
-- [ ] Coordinator / Phase 1: finish the reviewed shared scope candidate full gate/probes and current-head PR/CI; continue TaskSpec/check-plan, zero-model preflight and cumulative budgets.
+- [ ] Coordinator / Phase 1: finish full gate/probes and current-head PR/CI for shared scope and check-plan; continue TaskSpec/init, zero-model preflight, cumulative budgets and four-language end-to-end examples.
 - [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; retain deferred #72 branch/slice for lab evaluation, without treating it as implemented or enabling learning.
 - [ ] Maintainer: carry old B authorization, cumulative budget, cancellation/settlement, effect-admission and crash-reconciliation requirements into the new worker/apply path; defer new general orchestration.
 - [ ] Owner: retain the unfinished 15-task evaluation, old C–F requirements and all-outcome cost/quality evidence; approve paid calibration separately after real channel prices are known.

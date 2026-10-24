@@ -75,6 +75,57 @@ the caller's verifier. Calls without `scopePolicy` keep their existing
 workspace-root tool behavior. These deep imports are experimental; this is not
 the complete TaskSpec, preparation or budget interface.
 
+For one fixed set of host checks, the experimental check-plan helper also selects
+which diagnostics the worker may receive:
+
+```ts
+import { prepareDevelopmentCheckPlan } from "./dist/development/check-plan.js";
+
+const { checkPlan, verification } = prepareDevelopmentCheckPlan({
+  scopePolicy,
+  checks: [
+    { id: "unit", command: process.execPath, args: ["checks/unit.mjs"],
+      verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: true },
+    { id: "host-only", command: process.execPath, args: ["checks/host-only.mjs"],
+      verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: false }
+  ]
+});
+const result = await startDevelopmentTask({
+  stateRoot, sandboxRoot, sourceRepo, objective, scopePolicy,
+  checkPlan, verification, executorFactory, maxAttempts: 2, signal
+});
+```
+
+Visibility defaults to true. The same snapshotted check list supplies the actual
+host verifier, visible commands and visible acceptance criteria. Do not provide
+separate `acceptanceCriteria` with a plan. A mismatched command, argv, original
+verifier or declared protection is refused before worker allocation. The helper
+requires every recipe-declared protected prefix to be covered by the selected
+required verifier scope; it does not silently expand that scope.
+
+On a repair attempt, plan calls expose `attempt.checkFeedback` with visible
+check results and a generic `not-accepted` outcome. They omit the legacy
+`attempt.previous`, including its host run/artifact references and aggregate
+output lengths. Hidden check IDs, commands and diagnostics do not enter this
+projection, the objective, acceptance metadata or prepared context. A plan with
+only hidden checks can reject a candidate and provide generic feedback without
+revealing those checks. Visible failures still drive the requested repair loop.
+Calls without a plan keep their existing repair feedback.
+
+Host artifacts retain every attempted check's bounded structured result,
+including hidden diagnostics and unobserved checks. Plan calls explicitly select
+up to 256 KiB of evidence storage per stream; other independent checks keep the
+4 KiB default. Existing recipe time/output limits still apply, and a plan whose
+combined configured output cannot fit the structured report is rejected.
+Incomplete, truncated or unavailable results cannot authorize a repair attempt.
+
+This controls product feedback channels. Source-contained scripts may remain
+readable through the worker's other tools; it is not an OS secrecy boundary.
+Benchmark held-out scoring belongs in a separate evaluator and must never be
+included in this host check list or used for repairs. The complete TaskSpec/glob
+interface, zero-model preparation/preflight and cumulative budgets are separate
+Phase 1 work.
+
 For a bounded subtask inside a larger project, the host can use this same entry
 with one Pi worker; a separate project queue or recursive planner is unnecessary.
 Choose this path when the objective, permitted edits and independent check are
