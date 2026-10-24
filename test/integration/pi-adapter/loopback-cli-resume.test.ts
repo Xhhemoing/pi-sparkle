@@ -89,18 +89,26 @@ async function invocationRowCount(stateRoot: string): Promise<number> {
   return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
-async function assertSupervisedProviderRequestCount(
+async function appendPersistedFailureDiagnostics(
+  assertionError: unknown,
   provider: LoopbackOpenAiProvider,
   stateRoot: string,
-  runId: RunId
+  phase: "flowchart-start" | "flowchart-resume" | "supervised-resume",
+  runId: RunId | undefined
 ): Promise<void> {
+  // Read only after an assertion fails, before the synthetic fixture is removed.
+  // Select diagnostic fields rather than logging provider requests or credentials.
+  const diagnostics: unknown[] = [];
   try {
-    assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
-  } catch (assertionError) {
-    // Read only after the assertion fails, before the synthetic fixture is removed.
-    // Select diagnostic fields rather than logging provider requests or credentials.
-    const diagnostics: unknown[] = [];
-    const runIds = new Set([runId]);
+    diagnostics.push({
+      phase,
+      providerPort: new URL(provider.baseUrl).port,
+      requestCount: provider.requests.length,
+      protocolErrorCount: provider.protocolErrors.length
+    });
+    const runIds = new Set<RunId>();
+    if (runId === undefined) diagnostics.push({ diagnosticError: "run id unavailable in command output" });
+    else runIds.add(runId);
     for (const currentRunId of runIds) {
       try {
         const { events } = await new EventStore(stateRoot, currentRunId).readAll();
@@ -133,9 +141,39 @@ async function assertSupervisedProviderRequestCount(
     } catch (error) {
       diagnostics.push({ invocationDiagnosticError: error instanceof Error ? error.message : String(error) });
     }
-    if (assertionError instanceof Error) {
-      assertionError.message += `\nPersisted supervised-resume diagnostics: ${JSON.stringify(diagnostics)}`;
-    }
+  } catch (error) {
+    diagnostics.push({ diagnosticError: error instanceof Error ? error.message : String(error) });
+  }
+  if (assertionError instanceof Error) {
+    assertionError.message += `\nPersisted ${phase} diagnostics: ${JSON.stringify(diagnostics)}`;
+  }
+}
+
+async function assertFlowchartExitCode(
+  code: number,
+  output: ReturnType<typeof capture>,
+  phase: "flowchart-start" | "flowchart-resume",
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string
+): Promise<void> {
+  try {
+    assert.equal(code, 0, output.err.join(""));
+  } catch (assertionError) {
+    const runId = output.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1] as RunId | undefined;
+    await appendPersistedFailureDiagnostics(assertionError, provider, stateRoot, phase, runId);
+    throw assertionError;
+  }
+}
+
+async function assertSupervisedProviderRequestCount(
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string,
+  runId: RunId
+): Promise<void> {
+  try {
+    assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+  } catch (assertionError) {
+    await appendPersistedFailureDiagnostics(assertionError, provider, stateRoot, "supervised-resume", runId);
     throw assertionError;
   }
 }
@@ -390,7 +428,7 @@ test("flowchart resume sends flagged executor config to the offline provider", a
       ],
       started.io
     );
-    assert.equal(startCode, 0, started.err.join(""));
+    await assertFlowchartExitCode(startCode, started, "flowchart-start", provider, stateRoot);
     assert.equal(stripSkipContractWarning(started.err.join("")), "");
     assert.match(started.out.join(""), /WAITING_FOR_USER/);
     const runId = parseRunId(started.out.join(""));
@@ -415,7 +453,7 @@ test("flowchart resume sends flagged executor config to the offline provider", a
       ],
       resumed.io
     );
-    assert.equal(resumeCode, 0, resumed.err.join(""));
+    await assertFlowchartExitCode(resumeCode, resumed, "flowchart-resume", provider, stateRoot);
     // R4-6: this was the pinned default-rebuild warning from 74daff3. Adding
     // flags intentionally changes that sole allowed stderr line to disclosure.
     assert.equal(
