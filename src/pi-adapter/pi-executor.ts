@@ -21,6 +21,8 @@ import {
   type SimpleStreamOptions
 } from "@earendil-works/pi-ai";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
+import { ExecutionCostObservation, type ExecutionCostReport } from "./execution-cost.js";
+export type { ExecutionCostReport } from "./execution-cost.js";
 import type { ModelRef } from "../config/model-ref.js";
 import { tryParseModelRef } from "../config/model-ref.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -125,6 +127,8 @@ export interface PiExecutorOptions {
    * ceiling could not be enforced and when one stopped a run.
    */
   onCostGate?: (event: CostGateEvent) => void;
+  /** Once after real execute settlement, including failure/cancellation/iterator return. */
+  onExecutionCost?: (report: ExecutionCostReport) => void;
 }
 
 /** What the spend ceiling did on one execution. */
@@ -646,7 +650,8 @@ export class PiAgentExecutor implements AgentExecutor {
     request: AgentExecutionRequest,
     gate: CostGate,
     signal: AbortSignal,
-    replay: readonly string[]
+    replay: readonly string[],
+    costs: ExecutionCostObservation
   ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
     const queue = new AsyncEventQueue<ExecutionEvent>();
@@ -662,6 +667,7 @@ export class PiAgentExecutor implements AgentExecutor {
       events.push(event);
     });
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
+    costs.openingSession();
     const kernel = await createControlledCodingSession({
       cwd: request.workingDirectory,
       systemPrompt: this.options.systemPrompt ?? "",
@@ -675,8 +681,12 @@ export class PiAgentExecutor implements AgentExecutor {
         options?: SimpleStreamOptions
       ): AssistantMessageEventStream => {
         signal.throwIfAborted();
+        costs.dispatched();
         return this.models.streamSimple(streamModel, context, {
           ...options,
+          // Sparkle owns bounded provider retry/fallback; custom transports
+          // receive the same explicit no-inner-retry intent as the SDK config.
+          maxRetries: 0,
           ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
             ? { apiKey: this.options.apiKey }
             : {})
@@ -769,6 +779,7 @@ export class PiAgentExecutor implements AgentExecutor {
         this.liveKernels.delete(request.agentInstanceId);
       }
       kernel.dispose();
+      costs.settledSession();
     }
     const errorMessage = kernel.errorMessage;
     return {
@@ -800,7 +811,8 @@ export class PiAgentExecutor implements AgentExecutor {
     model: Model<Api>,
     request: AgentExecutionRequest,
     gate: CostGate,
-    signal: AbortSignal
+    signal: AbortSignal,
+    costs: ExecutionCostObservation
   ): AsyncGenerator<ExecutionEvent, RetriedRun> {
     const options = this.options.retry;
     const policy = resolveRetryPolicy(options);
@@ -814,7 +826,7 @@ export class PiAgentExecutor implements AgentExecutor {
         if (signal.aborted) return latest;
         // Snapshotted before the attempt starts, so a steer accepted live
         // during it is delivered once by the kernel rather than twice.
-        const run = yield* this.runAttempt(model, request, gate, signal, [...steers]);
+        const run = yield* this.runAttempt(model, request, gate, signal, [...steers], costs);
         if (!run.failed || signal.aborted) {
           return { attempt, events: run.events, streamedCount: run.streamedCount, failure: undefined };
         }
@@ -898,6 +910,10 @@ export class PiAgentExecutor implements AgentExecutor {
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     const startedAtMs = Date.now();
+    const costs = new ExecutionCostObservation();
+    const onExecutionCost = this.options.onExecutionCost;
+    const costIdentity = { runId: request.runId, taskId: request.taskId, agentInstanceId: request.agentInstanceId };
+    try {
 
     // A pre-aborted request never constructs an Agent or opens a provider
     // stream, but still records honest cancelled telemetry.
@@ -933,7 +949,7 @@ export class PiAgentExecutor implements AgentExecutor {
     let winningAttempt = 0;
     let lastModelRun: RetriedRun | undefined;
     let stoppedGate: CostGate | undefined;
-    const costGates: CostGate[] = [];
+    const costGates = costs.gates;
     const requestedCap = request.maxCostUsd ?? this.options.maxCostUsd;
     const pricedSpend = (): number =>
       costGates.reduce((sum, gate) => sum + (gate.spentUsd ?? 0), 0);
@@ -959,7 +975,8 @@ export class PiAgentExecutor implements AgentExecutor {
         entry.model,
         request,
         gate,
-        signal
+        signal,
+        costs
       );
       const { attempt, events: collected, failure } = lastModelRun;
       // Failed final attempts can bypass the loop's stop hook and the retry
@@ -1037,6 +1054,9 @@ export class PiAgentExecutor implements AgentExecutor {
     const finalEvents = cancelled ? [] : winningEvents;
     if (!cancelled && lastModelRun !== undefined) yield* this.remainingAttemptEvents(lastModelRun);
     yield* this.finish(request, finalEvents, outcome, stoppedGate?.stopRequested ?? false, winningFailure);
+    } finally {
+      onExecutionCost?.(costs.report(costIdentity));
+    }
   }
 
   private reportInvocation(

@@ -61,6 +61,7 @@ export async function createConfiguredPiExecutor(input: {
    * case here: every custom provider without explicit rates is unpriced.
    */
   readonly onCostGate?: (event: CostGateEvent) => void;
+  readonly onExecutionCost?: (report: import("./execution-cost.js").ExecutionCostReport) => void;
   /**
    * Real tools injected at the execution boundary (e.g. worktree-scoped coding
    * tools from `createWorktreeCodingTools`). Merged ahead of cluster + report
@@ -90,6 +91,7 @@ export async function createConfiguredPiExecutor(input: {
     ...(input.retry !== undefined ? { retry: input.retry } : {}),
     ...(input.onInvocation !== undefined ? { onInvocation: input.onInvocation } : {}),
     ...(input.onCostGate !== undefined ? { onCostGate: input.onCostGate } : {}),
+    ...(input.onExecutionCost !== undefined ? { onExecutionCost: input.onExecutionCost } : {}),
     ...(input.tools !== undefined ? { tools: input.tools } : {})
   });
 }
