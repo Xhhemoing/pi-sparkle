@@ -1,6 +1,7 @@
 import type { Api, AssistantMessageEventStream, Model, MutableModels } from "@earendil-works/pi-ai";
 import { formatModelRef } from "../config/model-ref.js";
 import { DomainValidationError } from "../domain/errors.js";
+import { captureThinkingBudgets, type SparkleThinkingBudgets } from "./thinking-budgets.js";
 import type { SparkleThinkingLevel } from "./pi-executor.js";
 
 /** Host-only configuration. Dispatch retains request-time host authentication. */
@@ -8,6 +9,7 @@ export interface NativeHostContextInput {
   readonly effectiveSystemPrompt: string;
   readonly approvedResourcePayload?: string | undefined;
   readonly thinkingLevel: SparkleThinkingLevel;
+  readonly thinkingBudgets?: SparkleThinkingBudgets | undefined;
   readonly models: readonly Model<Api>[];
   readonly defaultModel: Model<Api>;
   readonly streamSimple: (...args: Parameters<MutableModels["streamSimple"]>) =>
@@ -17,6 +19,7 @@ export interface CapturedNativeHostContext {
   readonly effectiveSystemPrompt: string;
   readonly approvedResourcePayload: string | undefined;
   readonly thinkingLevel: SparkleThinkingLevel;
+  readonly thinkingBudgets?: SparkleThinkingBudgets | undefined;
   readonly defaultModel: Model<Api>;
   readonly models: MutableModels;
   readonly supportedModelIds: readonly string[];
@@ -50,6 +53,7 @@ function immutableModelSnapshot(model: Model<Api>): Model<Api> {
 
 /** Reuse host model objects and host stream dispatch; credentials never cross this bridge. */
 export function captureNativeHostContext(input: NativeHostContextInput): CapturedNativeHostContext {
+  const thinkingBudgets = captureThinkingBudgets(input);
   if (typeof input.effectiveSystemPrompt !== "string") {
     throw new DomainValidationError("native executor requires an explicit effective host system prompt");
   }
@@ -110,6 +114,7 @@ export function captureNativeHostContext(input: NativeHostContextInput): Capture
     }
   } as MutableModels;
   return Object.freeze({ effectiveSystemPrompt: input.effectiveSystemPrompt, thinkingLevel: input.thinkingLevel,
+    ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }),
     approvedResourcePayload: input.approvedResourcePayload, defaultModel, models,
     supportedModelIds: Object.freeze([...byRef.keys()]) });
 }

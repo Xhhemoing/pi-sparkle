@@ -74,7 +74,7 @@ CLI task execution and cross-platform qualification remain unfinished. The bound
 ## Run from the current Pi host
 
 The experimental `/sparkle-task <task.json>` user command captures the current
-Pi model, effective prompt, thinking level and approved resource bodies, then
+Pi model, effective prompt, thinking level, custom thinking budgets and approved resource bodies, then
 runs the task in an isolated candidate with the supplied scoped write tools.
 Quote a complete task-file path containing spaces. The file must be bounded,
 regular UTF-8 JSON with no linked parent or leaf. Host configuration may select
@@ -83,9 +83,28 @@ source repository.
 
 The result identifies the retained candidate and evidence and separates
 acceptance from application. The command does not trigger a follow-up model
-turn or apply changes. TaskSpec apply with fresh host verification is still
-pending; the older issued-candidate command does not recreate its trusted
-verifier from JSON. Cancellation and shutdown wait for owned work to settle.
+turn or apply changes. In that same live Pi session, choose explicitly:
+
+```text
+/sparkle-task-apply <runId>
+/sparkle-task-discard <runId>
+```
+
+Apply requires an accepted, settled candidate. It rechecks the original source
+branch/revision, managed candidate identity, whole contents/index and task scope,
+then reruns the original trusted verification. The host persists its prepared
+application target before changing source and records completion afterward.
+A failed or ambiguous effect/receipt requires reconciliation; repeating the
+command cannot replay an uncertain application.
+
+Discard accepts a settled candidate retained by this session, including a
+refused task. It removes only that unchanged managed worktree; changed, replaced,
+locked or missing candidates refuse automatic disposal. It retains private
+artifacts. After apply, discard uses the original prepared candidate identity,
+not a newly adopted snapshot. Neither command runs a model or accepts a JSON
+record as authority. A run ID from another session or after restart is not a
+recoverable handle. Shutdown waits for owned work to settle and retains any
+remaining candidate; it does not silently apply or remove it.
 The controlled child uses its own tools and persistence; this is not a claim of
 arbitrary parent-session tool, transcript, shell/MCP or OS containment equivalence.
 
@@ -99,7 +118,7 @@ evidence and remaining differences are:
 | Skills | Copies explicitly approved skill bodies once. Parent skill discovery and arbitrary resource loaders are not inherited. |
 | Tools | Uses five supplied scoped file tools. Ordinary Pi shell, MCP/custom tools, names and editing algorithms are not equivalent to that set. |
 | Context | Uses declared task files and approved context in a fresh owned session. Parent conversation history and hidden acceptance output are excluded. |
-| Budget | Uses explicit task deadlines and bounded attempts. A local fake-wire comparison also reproduces missing custom parent `thinkingBudgets` despite an equal thinking level; that difference still needs repair. |
+| Budget | Uses explicit task deadlines, bounded attempts and optional task-wide reference USD. Captures the SDK's optional `minimal/low/medium/high` thinking-budget values before resource callbacks and preserves the snapshot across turns and repairs. Actual fake-wire checks cover custom values and mutation; provider interpretation and billing remain with Pi. |
 
 A comparison against direct Pi must run both arms with an explicitly shared
 supported configuration and observe their actual requests and stopping behavior.

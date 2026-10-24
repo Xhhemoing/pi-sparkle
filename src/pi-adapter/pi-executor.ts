@@ -22,6 +22,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { AgentExecutionRequest, AgentExecutor, ExecutionEvent } from "../execution/contract.js";
 import { ExecutionCostObservation, type ExecutionCostReport } from "./execution-cost.js";
+import { captureThinkingBudgets, type SparkleThinkingBudgets } from "./thinking-budgets.js";
 export type { ExecutionCostReport } from "./execution-cost.js";
 import type { ModelRef } from "../config/model-ref.js";
 import { tryParseModelRef } from "../config/model-ref.js";
@@ -84,6 +85,7 @@ export interface PiExecutorOptions {
   /** Private prepared host-approved resource text; not model-controlled parameters. */
   approvedResourcePayload?: string | undefined;
   thinkingLevel?: SparkleThinkingLevel;
+  thinkingBudgets?: SparkleThinkingBudgets | undefined;
   /**
    * Opt in to completing after a valid task report, once its whole turn settles.
    * Default off. Executions with accepted steering retain normal continuation.
@@ -689,7 +691,8 @@ export class PiAgentExecutor implements AgentExecutor {
     gate: CostGate,
     signal: AbortSignal,
     replay: readonly string[],
-    costs: ExecutionCostObservation
+    costs: ExecutionCostObservation,
+    thinkingBudgets: SparkleThinkingBudgets | undefined
   ): AsyncGenerator<ExecutionEvent, AttemptRun> {
     const events: ExecutionEvent[] = [];
     const queue = new AsyncEventQueue<ExecutionEvent>();
@@ -712,6 +715,7 @@ export class PiAgentExecutor implements AgentExecutor {
       approvedResourcePayload: this.options.approvedResourcePayload,
       model,
       thinkingLevel,
+      ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }),
       tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult],
       streamFn: (
         streamModel: Model<Api>,
@@ -853,7 +857,8 @@ export class PiAgentExecutor implements AgentExecutor {
     request: AgentExecutionRequest,
     gate: CostGate,
     signal: AbortSignal,
-    costs: ExecutionCostObservation
+    costs: ExecutionCostObservation,
+    thinkingBudgets: SparkleThinkingBudgets | undefined
   ): AsyncGenerator<ExecutionEvent, RetriedRun> {
     const options = this.options.retry;
     const policy = resolveRetryPolicy(options);
@@ -867,7 +872,7 @@ export class PiAgentExecutor implements AgentExecutor {
         if (signal.aborted) return latest;
         // Snapshotted before the attempt starts, so a steer accepted live
         // during it is delivered once by the kernel rather than twice.
-        const run = yield* this.runAttempt(model, request, gate, signal, [...steers], costs);
+        const run = yield* this.runAttempt(model, request, gate, signal, [...steers], costs, thinkingBudgets);
         if (!run.failed || signal.aborted) {
           return { attempt, events: run.events, streamedCount: run.streamedCount, failure: undefined };
         }
@@ -967,6 +972,8 @@ export class PiAgentExecutor implements AgentExecutor {
       return;
     }
 
+    const thinkingBudgets = captureThinkingBudgets(this.options);
+
     const resolved = this.resolveModel(request);
     if (resolved === undefined) {
       yield { type: "EXECUTION_FINISHED", outcome: "FAILURE" };
@@ -1020,7 +1027,8 @@ export class PiAgentExecutor implements AgentExecutor {
         request,
         gate,
         signal,
-        costs
+        costs,
+        thinkingBudgets
       );
       const { attempt, events: collected, failure } = lastModelRun;
       // Failed final attempts can bypass the loop's stop hook and the retry

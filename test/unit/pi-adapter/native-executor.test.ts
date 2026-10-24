@@ -59,6 +59,7 @@ test("native worker reuses host transport/auth and extension honors a non-empty 
     const loaderUrl = new URL("./core/extensions/loader.js", import.meta.resolve("@earendil-works/pi-coding-agent"));
     const { loadExtensions } = await import(loaderUrl.href);
     const loaded = await loadExtensions([join(process.cwd(), "extensions/pi-sparkle/index.ts")], root);
+    loaded.runtime.getSettings = () => ({});
     assert.deepEqual(loaded.errors, []);
     const tool = loaded.extensions[0].tools.get("sparkle_delegate").definition;
     let registryAuthReads = 0;
@@ -194,6 +195,7 @@ test("native extension pins the selected host model without reading a corrupt le
     const loaderUrl = new URL("./core/extensions/loader.js", import.meta.resolve("@earendil-works/pi-coding-agent"));
     const { loadExtensions } = await import(loaderUrl.href);
     const loaded = await loadExtensions([join(process.cwd(), "extensions/pi-sparkle/index.ts")], root);
+    loaded.runtime.getSettings = () => ({});
     assert.deepEqual(loaded.errors, []);
     const tool = loaded.extensions[0].tools.get("sparkle_delegate").definition;
     const dispatched: string[] = [];

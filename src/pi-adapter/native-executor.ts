@@ -1,6 +1,7 @@
 import { captureNativeHostContext } from "./native-host-context.js";
 import type { Api, AssistantMessageEventStream, Model, MutableModels } from "@earendil-works/pi-ai";
 import type { AgentExecutor } from "../execution/contract.js";
+import type { SparkleThinkingBudgets } from "./thinking-budgets.js";
 import { PiAgentExecutor, type SparkleThinkingLevel } from "./pi-executor.js";
 import { createWorktreeCodingTools } from "./worktree-coding-tools.js";
 import { createRecallTool, type ObservationProjector } from "./observation-tools.js";
@@ -13,6 +14,7 @@ export interface NativeExecutorInput {
   readonly approvedResourcePayload?: string | undefined;
   /** Host selection sampled when delegation is admitted. */
   readonly thinkingLevel: SparkleThinkingLevel;
+  readonly thinkingBudgets?: SparkleThinkingBudgets | undefined;
   /** Exact eligible host-registry snapshot used to build the routing catalog. */
   readonly models: readonly Model<Api>[];
   /** Default requested model; must be a member of models. */
@@ -28,7 +30,7 @@ export interface NativeExecutorInput {
 }
 
 export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor {
-  const { models, defaultModel, supportedModelIds } = captureNativeHostContext(input);
+  const { models, defaultModel, supportedModelIds, thinkingBudgets } = captureNativeHostContext(input);
   const readTools = createWorktreeCodingTools({ worktreeRoot: input.projectRoot, maxReadBytes: 32_000 })
     .filter((tool) => tool.name === "sparkle_read_file");
   const projector = input.observationProjector;
@@ -83,6 +85,7 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
     providerId: defaultModel.provider, modelId: defaultModel.id, models,
     systemPrompt: input.effectiveSystemPrompt,
     thinkingLevel: input.thinkingLevel,
+    ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }),
     approvedResourcePayload: input.approvedResourcePayload,
     tools: projector === undefined
       ? wrappedRead

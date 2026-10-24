@@ -10,6 +10,7 @@ export function createNativeWriteExecutorFactory(host: CapturedNativeHostContext
     const executor = new PiAgentExecutor({
     providerId: host.defaultModel.provider, modelId: host.defaultModel.id, models: host.models,
     systemPrompt: host.effectiveSystemPrompt, thinkingLevel: host.thinkingLevel,
+    ...(host.thinkingBudgets === undefined ? {} : { thinkingBudgets: host.thinkingBudgets }),
     approvedResourcePayload: host.approvedResourcePayload,
     tools: developmentPiTools(context.tools), onInvocation: context.onInvocation,
     stopAfterTaskResult: true,

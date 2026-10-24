@@ -10,6 +10,8 @@ import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
 import { prepareApprovedResources, type ApprovedResourcesProvider } from "./approved-resources.js";
 import { captureNativeHostContext, type CapturedNativeHostContext, type NativeHostContextInput } from "./native-host-context.js";
 import type { SparkleThinkingLevel } from "./pi-executor.js";
+import type { SparkleThinkingBudgets } from "./thinking-budgets.js";
+import type { TaskSpecSession } from "../development/task-session.js";
 
 export interface NativeTaskCommandOptions {
   readonly stateRoot: string;
@@ -52,7 +54,7 @@ export function snapshotNativeTaskCommandOptions(input: NativeTaskCommandOptions
 
 /** Synchronous admission: a resource callback or later turn cannot reselect the task. */
 export function captureNativeTaskCommand(ctx: NativeTaskHostContext, thinkingLevel: SparkleThinkingLevel,
-  approvedResources?: ApprovedResourcesProvider): NativeTaskCommandAdmission {
+  approvedResources?: ApprovedResourcesProvider, thinkingBudgets?: SparkleThinkingBudgets): NativeTaskCommandAdmission {
   const sourceRepo = ctx.cwd;
   const effectiveSystemPrompt = ctx.getSystemPrompt();
   const selected = ctx.model;
@@ -65,7 +67,8 @@ export function captureNativeTaskCommand(ctx: NativeTaskHostContext, thinkingLev
     entry.model.provider === model.provider && entry.model.id === model.id));
   const model = eligible.find((entry) => entry.provider === provider && entry.id === id);
   if (model === undefined) throw new DomainValidationError("selected host model is unavailable or outside the session scope");
-  const captured = captureNativeHostContext({ effectiveSystemPrompt, thinkingLevel, defaultModel: model, models: [model], streamSimple });
+  const captured = captureNativeHostContext({ effectiveSystemPrompt, thinkingLevel, defaultModel: model, models: [model], streamSimple,
+    ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }) });
   const approvedResourcePayload = prepareApprovedResources(approvedResources?.({ cwd: sourceRepo }));
   return Object.freeze({ sourceRepo, host: Object.freeze({ ...captured, approvedResourcePayload }) });
 }
@@ -107,27 +110,20 @@ async function readTaskFile(file: string): Promise<string> {
   } finally { await handle.close(); }
 }
 
+export async function createNativeTaskSession(options?: NativeTaskCommandOptions): Promise<TaskSpecSession> {
+  const selected = snapshotNativeTaskCommandOptions(options);
+  const stateRoot = path.resolve(selected?.stateRoot ?? path.join(homedir(), ".pi-sparkle"));
+  const { TaskSpecSession } = await import("../development/task-session.js");
+  return new TaskSpecSession({ stateRoot, ...(selected?.sandboxRoot === undefined ? {} : { sandboxRoot: selected.sandboxRoot }) });
+}
+
 /** User-command authority only. A model tool must never forward its JSON here. */
 export async function runNativeTaskCommand(input: { readonly args: string; readonly admission: NativeTaskCommandAdmission;
-  readonly options?: NativeTaskCommandOptions; readonly signal: AbortSignal }) {
+  readonly session: TaskSpecSession; readonly signal: AbortSignal }) {
   input.signal.throwIfAborted();
   const { sourceRepo, host } = input.admission;
-  const stateRoot = path.resolve(input.options?.stateRoot ?? path.join(homedir(), ".pi-sparkle"));
-  const sandboxRoot = path.resolve(input.options?.sandboxRoot ?? path.join(stateRoot, "candidates"));
   const spec = parseDevelopmentTaskSpec(await readTaskFile(taskPath(input.args, sourceRepo)));
   input.signal.throwIfAborted();
-  const [{ startDevelopmentTaskSpec }, { createNativeWriteExecutorFactory }, { assertTaskSpecStateOutside }] = await Promise.all([
-    import("../development/start-task-spec.js"), import("./native-write-executor.js"), import("../development/task-preflight.js")
-  ]);
-  assertTaskSpecStateOutside(sourceRepo, stateRoot);
-  assertTaskSpecStateOutside(sourceRepo, sandboxRoot);
-  const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot, spec, signal: input.signal,
-    executorFactory: createNativeWriteExecutorFactory(host) });
-  const execution = result.execution;
-  // No raw check output, worker prose, command, prompt or resource bodies leave this projection.
-  return Object.freeze({ type: "TASKSPEC_EXECUTION" as const, status: execution.status,
-    accepted: execution.acceptance.accepted, effectsSettled: execution.effectsSettled !== false,
-    runId: execution.runId, taskId: execution.taskId, artifactId: execution.artifact.id, artifactPath: execution.artifact.path,
-    candidatePath: execution.candidatePath, sourceRevision: execution.sourceRevision, stateRoot,
-    ...(result.preflight === undefined ? {} : { preflightArtifactPath: result.preflight.artifactPath }) });
+  const { createNativeWriteExecutorFactory } = await import("./native-write-executor.js");
+  return input.session.run({ sourceRepo, spec, signal: input.signal, executorFactory: createNativeWriteExecutorFactory(host) });
 }

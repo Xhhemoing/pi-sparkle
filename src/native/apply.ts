@@ -552,6 +552,15 @@ export class NativeApplySession {
    * never applied through this session (foreign or already disposed).
    */
   async dispose(candidatePath: string): Promise<NativeDisposeResult> {
+    return this.disposeManaged(candidatePath, false);
+  }
+
+  /** New live-user disposal refuses missing registrations instead of reconciling or pruning them. */
+  async disposeStrict(candidatePath: string): Promise<NativeDisposeResult> {
+    return this.disposeManaged(candidatePath, true);
+  }
+
+  private async disposeManaged(candidatePath: string, strictMissing: boolean): Promise<NativeDisposeResult> {
     if (this.closed) fail("native apply session is shut down");
     if (typeof candidatePath !== "string" || candidatePath.trim() === "") fail("candidate path is required");
     const resolved = path.resolve(candidatePath);
@@ -562,7 +571,7 @@ export class NativeApplySession {
     const disposed = await this.disposeAuthorized({
       ...authorization,
       candidatePath: resolved
-    });
+    }, strictMissing);
     this.managed.delete(resolved);
     return disposed;
   }
@@ -574,7 +583,7 @@ export class NativeApplySession {
    * revision before removing it. It never recursively removes a replacement
    * path when Git refuses the worktree removal.
    */
-  async disposeAuthorized(input: NativeDisposeAuthorization & { readonly candidatePath: string }): Promise<NativeDisposeResult> {
+  async disposeAuthorized(input: NativeDisposeAuthorization & { readonly candidatePath: string }, strictMissing = false): Promise<NativeDisposeResult> {
     if (this.closed) fail("native apply session is shut down");
     if (typeof input !== "object" || input === null) fail("dispose authorization is required");
     if (typeof input.sourceRepo !== "string" || input.sourceRepo.trim() === "") fail("source repository is required");
@@ -593,6 +602,7 @@ export class NativeApplySession {
     try {
       candidate = candidateIdentity(resolved, sourceIdentity, input.sourceRevision);
     } catch (error) {
+      if (strictMissing) throw error;
       const missingNow = lstatSync(resolved, { throwIfNoEntry: false }) === undefined;
       if (!missingNow) throw error;
       // A successful `git worktree remove` deletes both the candidate path and
