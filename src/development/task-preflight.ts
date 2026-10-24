@@ -21,6 +21,17 @@ export interface TaskPreflightInput {
   readonly checkTimeRemainingMs?: number;
   readonly onChecksElapsed?: (milliseconds: number) => void;
 }
+export interface TaskPreflightResources {
+  /** The existing allow/protect/check-input observation, not whole-system usage. */
+  readonly snapshot: { readonly scope: "task-inputs"; readonly fileCount: number; readonly byteLength: number } | null;
+  readonly preparation: TaskPreflightPhaseResources;
+  readonly checks: TaskPreflightPhaseResources;
+}
+export interface TaskPreflightPhaseResources {
+  readonly budgetMs: number;
+  readonly elapsedMs: number | null;
+  readonly budgetRatio: number | null;
+}
 export interface TaskPreflightResult {
   readonly ok: boolean;
   readonly reason: string;
@@ -28,6 +39,7 @@ export interface TaskPreflightResult {
   readonly artifactPath: string;
   readonly preparationMs: number;
   readonly checksMs: number;
+  readonly resources: TaskPreflightResources;
   readonly unsettledCommand?: AuthorizedCommandRunResult;
 }
 /** Resolve existing ancestors before checking native path containment (including Windows case aliases). */
@@ -92,6 +104,17 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const checks: PreflightCommand[] = [];
   let preparationMs = 0;
   let checksMs = 0;
+  let snapshotResources: TaskPreflightResources["snapshot"] = null;
+  let preparationObserved = false;
+  let checksObserved = false;
+  const preparationLimitMs = spec.budget.prepareSeconds * 1000;
+  const checkPhaseLimit = Math.min(spec.budget.checkSeconds * 1000, (spec.budget.checkTotalSeconds ?? Infinity) * 1000, input.checkTimeRemainingMs ?? Infinity);
+  const phaseResources = (budgetMs: number, elapsedMs: number, observed: boolean): TaskPreflightPhaseResources => Object.freeze({
+    budgetMs, elapsedMs: observed ? elapsedMs : null, budgetRatio: observed && budgetMs > 0 ? elapsedMs / budgetMs : null
+  });
+  const resources = (): TaskPreflightResources => Object.freeze({ snapshot: snapshotResources,
+    preparation: phaseResources(preparationLimitMs, preparationMs, preparationObserved),
+    checks: phaseResources(checkPhaseLimit, checksMs, checksObserved) });
   let unsettledCommand: AuthorizedCommandRunResult | undefined;
   let reason = "expected base checks observed";
   let ok = false;
@@ -109,6 +132,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       ...spec.checks.flatMap((check) => check.protectedPaths ?? [])])] };
     const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
     const before = captureExactSnapshot(candidate, manifest, limits);
+    snapshotResources = Object.freeze({ scope: "task-inputs", fileCount: before.fileCount, byteLength: before.byteLength });
     const unchanged = (): void => {
       const current = captureWorktreeFingerprint(candidate);
       if (current.headRevision !== input.sourceRevision || current.entries.length !== 0 ||
@@ -129,6 +153,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       }
       return { result, durationMs: performance.now() - commandStart };
     };
+    preparationObserved = true;
     const preparationStart = performance.now();
     try {
       for (const command of spec.prepare) {
@@ -139,8 +164,8 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
         unchanged();
       }
     } finally { preparationMs = performance.now() - preparationStart; }
+    checksObserved = true;
     const checksStart = performance.now();
-    const checkPhaseLimit = Math.min(spec.budget.checkSeconds * 1000, (spec.budget.checkTotalSeconds ?? Infinity) * 1000, input.checkTimeRemainingMs ?? Infinity);
     try {
       for (const check of spec.checks) {
         const observed = await run(check, Math.min(check.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS,
@@ -162,7 +187,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const record = () => ({ kind: "development-preflight", sourceRevision: input.sourceRevision,
     candidatePath: candidate, ok, reason, effectsSettled: unsettledCommand === undefined,
     preparation, checks, unobservedChecks: spec.checks.slice(checks.length).map((check) => check.id),
-    preparationMs, checksMs, totalMs: performance.now() - started, modelInvocations: 0, costUsd: null });
+    preparationMs, checksMs, resources: resources(), totalMs: performance.now() - started, modelInvocations: 0, costUsd: null });
   const correctExpired = (): void => {
     if (ok && expired()) { ok = false; reason = "preflight cancelled or total time budget exhausted during persistence"; }
   };
@@ -176,7 +201,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
       await writeFile(artifactPath, `${JSON.stringify({ ...record(), supersedesArtifactPath }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     }
-    return Object.freeze({ ok, reason, effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs,
+    return Object.freeze({ ok, reason, effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(),
       ...(unsettledCommand === undefined ? {} : { unsettledCommand }) });
   } catch (error) {
     // Persistence failure must not erase the runner's unresolved effects.

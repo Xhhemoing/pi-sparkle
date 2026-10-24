@@ -109,7 +109,7 @@ export async function taskSpecPreflightCommand(args: string[], io: TaskSpecCliIo
       ...(runtime.signal === undefined ? {} : { signal: runtime.signal }) });
     // Keep diagnostics in the host artifact. This projection never prints check output.
     const output = { type: "TASKSPEC_PREFLIGHT", preview: true, ok: result.ok, effectsSettled: result.effectsSettled,
-      artifactPath: result.artifactPath, preparationMs: result.preparationMs, checksMs: result.checksMs,
+      artifactPath: result.artifactPath, preparationMs: result.preparationMs, checksMs: result.checksMs, resources: result.resources,
       candidatePath: result.candidatePath, candidateDisposition: result.candidateDisposition };
     if (values.json) io.stdout(`${JSON.stringify(output)}\n`);
     else io.stdout(`TaskSpec preflight ${result.ok ? "accepted the expected base" : "refused the base"}.\nHost evidence: ${result.artifactPath}\nEffects settled: ${result.effectsSettled}\nCandidate: ${result.candidateDisposition} (${result.candidatePath})\n`);
