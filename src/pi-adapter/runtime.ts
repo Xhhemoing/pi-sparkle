@@ -46,6 +46,7 @@ export async function createConfiguredPiExecutor(input: {
   readonly thinkingLevel?: SparkleThinkingLevel;
   /** Complete after a valid task report and its whole turn; omitted preserves normal continuation. */
   readonly stopAfterTaskResult?: boolean;
+  readonly strictReferenceBudget?: true;
   readonly apiKey?: string;
   readonly aliases?: Readonly<Record<string, ModelRef>>;
   /** Ordered alternatives after retryable provider failures exhaust retries. */
@@ -84,6 +85,7 @@ export async function createConfiguredPiExecutor(input: {
     models,
     ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
     ...(input.stopAfterTaskResult !== undefined ? { stopAfterTaskResult: input.stopAfterTaskResult } : {}),
+    ...(input.strictReferenceBudget !== undefined ? { strictReferenceBudget: input.strictReferenceBudget } : {}),
     ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
     ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
     ...(input.fallbackModels !== undefined ? { fallbackModels: input.fallbackModels } : {}),

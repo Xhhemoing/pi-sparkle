@@ -122,6 +122,8 @@ export interface PiExecutorOptions {
    * carry its own. See {@link AgentExecutionRequest.maxCostUsd}.
    */
   maxCostUsd?: number;
+  /** Opt-in: require a priced model, complete prior dispatch usage and remaining reference allowance before every dispatch. */
+  strictReferenceBudget?: true;
   /**
    * Optional sink for what the spend ceiling did. Fires when a requested
    * ceiling could not be enforced and when one stopped a run.
@@ -129,6 +131,19 @@ export interface PiExecutorOptions {
   onCostGate?: (event: CostGateEvent) => void;
   /** Once after real execute settlement, including failure/cancellation/iterator return. */
   onExecutionCost?: (report: ExecutionCostReport) => void;
+}
+
+// Only the real execute finalizer registers these process-local report objects.
+// Serialized data cannot recreate a callback's identity or assert strict policy.
+const issuedCostReports = new WeakMap<object, {
+  readonly sink: (report: ExecutionCostReport) => void;
+  readonly strict: boolean;
+}>();
+export function isPiExecutionCostReportFor(value: unknown, sink: (report: ExecutionCostReport) => void,
+  options?: { readonly requireStrict?: true }): value is ExecutionCostReport {
+  if (value === null || typeof value !== "object") return false;
+  const issued = issuedCostReports.get(value);
+  return issued !== undefined && issued.sink === sink && (options?.requireStrict !== true || issued.strict);
 }
 
 /** What the spend ceiling did on one execution. */
@@ -179,7 +194,7 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
 }
 
 /** Account from raw SDK usage without changing the public TURN_FINISHED shape. */
-function recordPiTurnCost(gate: CostGate, rawUsage: unknown, model: Model<Api>): void {
+function recordPiTurnCost(gate: CostGate, rawUsage: unknown, model: Model<Api>): CostGatePricingObservation | undefined {
   const raw = rawUsage !== null && typeof rawUsage === "object"
     ? rawUsage as Record<string, unknown>
     : {};
@@ -264,6 +279,7 @@ function recordPiTurnCost(gate: CostGate, rawUsage: unknown, model: Model<Api>):
     ...(input !== undefined ? { inputTokens: input } : {}),
     ...(output !== undefined ? { outputTokens: output } : {})
   }, pricing);
+  return pricing;
 }
 
 function validBudgetAmount(value: unknown): value is number {
@@ -681,6 +697,8 @@ export class PiAgentExecutor implements AgentExecutor {
         options?: SimpleStreamOptions
       ): AssistantMessageEventStream => {
         signal.throwIfAborted();
+        const refusal = costs.dispatchRefusal(catalogPrices(streamModel.cost) !== undefined);
+        if (refusal !== undefined) throw new DomainValidationError(`strict reference budget refused dispatch: ${refusal}`);
         costs.dispatched();
         return this.models.streamSimple(streamModel, context, {
           ...options,
@@ -692,12 +710,12 @@ export class PiAgentExecutor implements AgentExecutor {
             : {})
         });
       },
-      ...(gate.armed || this.options.stopAfterTaskResult === true ? {
+      ...(gate.armed || this.options.strictReferenceBudget === true || this.options.stopAfterTaskResult === true ? {
         shouldStopAfterTurn: () => {
           // Always observe spend, even when a valid report also completes the run.
           // Pi invokes finishTurn after tool settlement, before turn_end; usage
           // has already been accounted for by the assistant message_end listener.
-          const costStop = gate.requestStopIfExceeded();
+          const costStop = costs.requestStop(gate, catalogPrices(model.cost) !== undefined);
           // The stop hook precedes Pi's steering poll. Keep the normal loop for
           // the whole execution once any steer was accepted, including retries,
           // so completion never silently drops a queued or replayed correction.
@@ -722,7 +740,7 @@ export class PiAgentExecutor implements AgentExecutor {
       // message_end, including failed/aborted usage, before consulting the cap.
       // Tool-result messages and the later turn_end must not count it twice.
       if (piEvent.type === "message_end" && piEvent.message.role === "assistant") {
-        recordPiTurnCost(gate, piEvent.message.usage, model);
+        costs.recordReference(recordPiTurnCost(gate, piEvent.message.usage, model));
       }
       const translated = translatePiEvent(piEvent);
       if (translated === undefined) return;
@@ -731,7 +749,7 @@ export class PiAgentExecutor implements AgentExecutor {
           (piEvent.message.stopReason === "error" || piEvent.message.stopReason === "aborted");
         // Failed turns and host budget/cancel stops close SDK admission. Keep
         // the real stop reason rather than masking it with a late steer error.
-        if (replayPending && !failedTurn && !gate.stopRequested && !signal.aborted) {
+        if (replayPending && !failedTurn && !gate.stopRequested && costs.strictDispatchRefusal === undefined && !signal.aborted) {
           replayPending = false;
           // Queued after this attempt's first turn, not folded into its
           // opening prompt: the loop polls its steering queue once a turn
@@ -832,8 +850,9 @@ export class PiAgentExecutor implements AgentExecutor {
         }
         const failure = classifyProviderFailure(run.error, run.errorMessage);
         latest = { attempt, events: run.events, streamedCount: run.streamedCount, failure };
+        if (costs.dispatchRefusal(catalogPrices(model.cost) !== undefined) !== undefined) return latest;
         const decision = decideRetry(failure, attempt, policy, random);
-        if (!decision.retry || gate.requestStopIfExceeded()) {
+        if (!decision.retry || costs.requestStop(gate, catalogPrices(model.cost) !== undefined)) {
           return latest;
         }
         options?.onRetry?.({
@@ -910,7 +929,9 @@ export class PiAgentExecutor implements AgentExecutor {
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     const startedAtMs = Date.now();
-    const costs = new ExecutionCostObservation();
+    const strictReferenceBudget = this.options.strictReferenceBudget === true;
+    const costs = new ExecutionCostObservation(strictReferenceBudget
+      ? { maxCostUsd: request.maxCostUsd ?? this.options.maxCostUsd } : undefined);
     const onExecutionCost = this.options.onExecutionCost;
     const costIdentity = { runId: request.runId, taskId: request.taskId, agentInstanceId: request.agentInstanceId };
     try {
@@ -969,7 +990,7 @@ export class PiAgentExecutor implements AgentExecutor {
 
     for (const entry of chain) {
       if (signal.aborted) break;
-      const gate = this.buildCostGate(request, entry.model, pricedSpend());
+      const gate = this.buildCostGate(request, entry.model, strictReferenceBudget ? costs.knownReferenceUsd() ?? 0 : pricedSpend(), strictReferenceBudget);
       costGates.push(gate);
       lastModelRun = yield* this.runWithRetry(
         entry.model,
@@ -981,7 +1002,7 @@ export class PiAgentExecutor implements AgentExecutor {
       const { attempt, events: collected, failure } = lastModelRun;
       // Failed final attempts can bypass the loop's stop hook and the retry
       // predicate. Their billed usage must still stop a subsequent fallback.
-      gate.requestStopIfExceeded();
+      costs.requestStop(gate, catalogPrices(entry.model.cost) !== undefined);
       if (signal.aborted) {
         winningIdentity = entry.identity;
         winningEvents = collected;
@@ -1014,6 +1035,7 @@ export class PiAgentExecutor implements AgentExecutor {
         });
         break;
       }
+      if (costs.strictDispatchRefusal !== undefined) break;
       if (!failure.retryable) break;
     }
 
@@ -1028,9 +1050,10 @@ export class PiAgentExecutor implements AgentExecutor {
       return;
     }
 
+    const strictFailure = costs.strictDispatchRefusal !== undefined && costs.strictDispatchRefusal !== "exhausted";
     const callOutcome: InvocationCallOutcome = signal.aborted
       ? "cancelled"
-      : "ok";
+      : strictFailure ? "error" : "ok";
 
     this.reportInvocation(request, winningIdentity, winningEvents, startedAtMs, winningAttempt, callOutcome);
 
@@ -1050,12 +1073,16 @@ export class PiAgentExecutor implements AgentExecutor {
     // async-generator consumer can abort between yields, but cannot retract a
     // verdict already published or cause finish() to synthesize a second one.
     const cancelled = signal.aborted;
-    const outcome = cancelled ? "CANCELLED" : "SUCCESS";
-    const finalEvents = cancelled ? [] : winningEvents;
-    if (!cancelled && lastModelRun !== undefined) yield* this.remainingAttemptEvents(lastModelRun);
+    const outcome = cancelled ? "CANCELLED" : strictFailure ? "FAILURE" : "SUCCESS";
+    const finalEvents = cancelled || strictFailure ? [] : winningEvents;
+    if (!cancelled && !strictFailure && lastModelRun !== undefined) yield* this.remainingAttemptEvents(lastModelRun);
     yield* this.finish(request, finalEvents, outcome, stoppedGate?.stopRequested ?? false, winningFailure);
     } finally {
-      onExecutionCost?.(costs.report(costIdentity));
+      if (onExecutionCost !== undefined) {
+        const report = costs.report(costIdentity);
+        issuedCostReports.set(report, { sink: onExecutionCost, strict: strictReferenceBudget });
+        onExecutionCost(report);
+      }
     }
   }
 
@@ -1131,7 +1158,7 @@ export class PiAgentExecutor implements AgentExecutor {
    * Build this execution's spend ceiling from the request (or executor
    * default) and the resolved model's catalog rates.
    */
-  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>, priorPricedSpend = 0): CostGate {
+  private buildCostGate(request: AgentExecutionRequest, model: Model<Api>, priorPricedSpend = 0, strictReferenceBudget = false): CostGate {
     const maxCostUsd = request.maxCostUsd ?? this.options.maxCostUsd;
     // Gates round observed dollars to microdollars. Subtract at that same
     // scale: 0.8 - 0.1 in binary dollars is otherwise greater than the rounded
@@ -1139,7 +1166,9 @@ export class PiAgentExecutor implements AgentExecutor {
     // Ceil keeps a positive sub-microdollar cap armed rather than rounding it
     // to zero; observed spend can only cross it at the next microdollar.
     const capMicros = maxCostUsd === undefined ? undefined : Math.ceil(maxCostUsd * 1_000_000);
-    const remainingCap = maxCostUsd !== undefined && Number.isFinite(maxCostUsd) && maxCostUsd > 0
+    const remainingCap = strictReferenceBudget && maxCostUsd !== undefined
+      ? maxCostUsd - priorPricedSpend
+      : maxCostUsd !== undefined && Number.isFinite(maxCostUsd) && maxCostUsd > 0
       ? capMicros !== undefined && Number.isSafeInteger(capMicros)
         ? (capMicros - Math.round(priorPricedSpend * 1_000_000)) / 1_000_000
         : maxCostUsd - priorPricedSpend
