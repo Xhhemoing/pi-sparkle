@@ -1,4 +1,6 @@
 import { prepareApprovedResources, type ApprovedResourcesProvider } from "../../src/pi-adapter/approved-resources.js";
+import { captureNativeTaskCommand, runNativeTaskCommand, snapshotNativeTaskCommandOptions,
+  type NativeTaskCommandOptions } from "../../src/pi-adapter/native-task-command.js";
 import { join } from "node:path";
 import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
@@ -25,6 +27,8 @@ interface IssuedCandidateHandle {
 export interface SparkleExtensionOptions {
   /** Synchronous trusted host selection; never populated from model tool parameters. */
   readonly approvedResources?: ApprovedResourcesProvider;
+  /** Trusted command storage paths; never model-supplied TaskSpec fields. */
+  readonly task?: NativeTaskCommandOptions;
   readonly conversation?: ConversationSessionOptions;
   readonly conversationRecovery?: ConversationRecoveryOptions;
 }
@@ -43,6 +47,7 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
   const abort = new AbortController();
   const pending = new Set<Promise<unknown>>();
   let shutdown: Promise<void> | undefined;
+  const taskOptions = snapshotNativeTaskCommandOptions(options.task);
   if (options.conversation !== undefined && options.conversationRecovery !== undefined) throw new Error("Choose conversation or conversationRecovery, not both");
   if (options.conversation !== undefined || options.conversationRecovery !== undefined) {
     const configuration = options.conversation;
@@ -104,6 +109,26 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
     });
   }
   const issuedCandidates = new Map<string, IssuedCandidateHandle>();
+  pi.registerCommand("sparkle-task", {
+    description: "Run a host-reviewed TaskSpec using the selected Pi model in an isolated candidate; never applies source changes",
+    handler: async (args, ctx) => {
+      if (closed) throw new Error("Sparkle session is shut down");
+      let output: unknown;
+      try {
+        const signal = ctx.signal === undefined ? abort.signal : AbortSignal.any([ctx.signal, abort.signal]);
+        signal.throwIfAborted();
+        // Capture every host selection before a callback, import or file read can yield.
+        const admission = captureNativeTaskCommand(ctx, ctx.thinkingLevel ?? pi.getThinkingLevel(), options.approvedResources);
+        const operation = runNativeTaskCommand({ args, admission, signal, ...(taskOptions === undefined ? {} : { options: taskOptions }) });
+        pending.add(operation);
+        try { output = await operation; }
+        finally { pending.delete(operation); }
+      } catch (error) {
+        output = { type: "TASKSPEC_REFUSED", status: "refused", reason: error instanceof Error ? error.message : "TaskSpec command refused" };
+      }
+      pi.sendMessage({ customType: "sparkle-task-result", content: JSON.stringify(output), display: true }, { triggerTurn: false });
+    }
+  });
   const contractText = Type.String({ minLength: 1, maxLength: 512 });
   const taskContract = Type.Object({
     scope: Type.Optional(Type.Array(contractText, { maxItems: 8 })),
