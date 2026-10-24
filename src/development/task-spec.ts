@@ -93,7 +93,7 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
   const objective = text(raw.objective, 4096);
   const context = raw.context === undefined ? [] : prefixes(raw.context, 32);
   const write = record(raw.write, ["allow", "protect"]);
-  const scope = snapshotDevelopmentScopePolicy({ allowedScope: prefixes(write.allow, 32, 1), protectedPaths: prefixes(write.protect, 128) });
+  const scope = snapshotDevelopmentScopePolicy({ allowedScope: array(write.allow, 32, 1), protectedPaths: array(write.protect, 128) });
   const prepare = (raw.prepare === undefined ? [] : array(raw.prepare, 8)).map((value) => {
     const command = record(value, ["id", "command", "args"]);
     const id = text(command.id, 64);

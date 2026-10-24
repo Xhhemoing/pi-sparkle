@@ -96,7 +96,7 @@ for (const [name, mutate] of [
   ["USD budget", (v) => ({ ...v, budget: { ...v.budget, maxUsd: 1 } })],
   ["unknown nested budget", (v) => ({ ...v, budget: { ...v.budget, timeout: 1 } })],
   ["empty writable scope", (v) => ({ ...v, write: { ...v.write, allow: [] } })],
-  ["glob writable scope", (v) => ({ ...v, write: { ...v.write, allow: ["src/**/*.ts"] } })],
+  ["unsupported glob syntax", (v) => ({ ...v, write: { ...v.write, allow: ["src/**/*.{js,ts}"] } })],
   ["context glob", (v) => ({ ...v, context: ["src/*.ts"] })],
   ["context escape", (v) => ({ ...v, context: ["../outside"] })],
   ["absolute context", (v) => ({ ...v, context: ["C:/outside"] })],

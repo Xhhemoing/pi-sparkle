@@ -279,3 +279,16 @@ test("trusted apply refuses active attributes introduced by an ORIG_HEAD hook", 
     assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), AFTER);
   });
 });
+
+test("trusted apply rejects pattern-only descriptors before staging source changes", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    for (const snapshotManifest of [{ includePatterns: ["**"] }, { optionalIncludePatterns: ["**"] }]) {
+      const descriptor = prepareTrustedVerification({ ...VERIFY, snapshotManifest });
+      let prepared = false;
+      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: descriptor,
+        onPrepared: () => { prepared = true; } }), /whole-candidate descriptor without manifest exceptions/);
+      assert.equal(prepared, false);
+      await assertUnapplied(repo, result);
+    }
+  });
+});

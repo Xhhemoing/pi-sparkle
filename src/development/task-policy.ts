@@ -9,9 +9,11 @@ import { assertTrustedVerificationDescriptor, prepareTrustedVerification,
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import type { NativeWriteVerificationInput } from "../native/write-preflight.js";
 import type { NativeWriteExecutorFactory } from "../native/write-session.js";
+import { hasPathPattern, matchesPathSelector, normalizePathSelector } from "../execution/path-selector.js";
+import type { SnapshotManifest } from "../execution/worktree-snapshot.js";
 import { workItemScope } from "./work-items.js";
 
-/** Experimental host-only literal prefixes; not a public TaskSpec schema. */
+/** Experimental host-only path selectors; not a public TaskSpec schema. */
 export interface DevelopmentScopePolicy {
   readonly allowedScope: readonly string[];
   readonly protectedPaths: readonly string[];
@@ -20,7 +22,7 @@ export interface DevelopmentScopePolicy {
 // Preserve existing Controller refusal wording for its current callers.
 function fail(reason: string): never { throw new DomainValidationError(`development controller: ${reason}`); }
 function under(relative: string, prefixes: readonly string[]): boolean {
-  return prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
+  return relative !== ".git" && !relative.startsWith(".git/") && prefixes.some((prefix) => hasPathPattern(prefix) ? matchesPathSelector(relative, prefix) : relative === prefix || relative.startsWith(`${prefix}/`));
 }
 function paths(value: unknown, name: string, minimum: number, maximum: number): readonly string[] {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) fail(`invalid ${name} path list`);
@@ -28,7 +30,8 @@ function paths(value: unknown, name: string, minimum: number, maximum: number): 
   for (let index = 0; index < value.length; index++) {
     const property = Object.getOwnPropertyDescriptor(value, index);
     if (property === undefined || !("value" in property)) fail(`${name} paths must be ordinary values`);
-    const relative = workItemScope(property.value);
+    const entry: unknown = property.value;
+    const relative = typeof entry === "string" && hasPathPattern(entry) ? normalizePathSelector(entry) : workItemScope(entry);
     if (result.includes(relative)) fail(`${name} paths must be unique`);
     result.push(relative);
   }
@@ -48,6 +51,16 @@ export function snapshotDevelopmentScopePolicy(value: unknown): DevelopmentScope
     protectedPaths: paths(own("protectedPaths"), "protected", 0, 128) });
 }
 
+/** Keep legacy literal fields literal; patterns are re-evaluated at every observation. */
+export function developmentScopeManifest(policy: DevelopmentScopePolicy): SnapshotManifest {
+  const required = policy.protectedPaths.filter((entry) => !hasPathPattern(entry));
+  const optional = policy.allowedScope.filter((entry) => !hasPathPattern(entry));
+  const requiredPatterns = policy.protectedPaths.filter(hasPathPattern);
+  const optionalPatterns = policy.allowedScope.filter(hasPathPattern);
+  return { includePrefixes: required, optionalIncludePrefixes: optional,
+    ...(requiredPatterns.length === 0 ? {} : { includePatterns: requiredPatterns }),
+    ...(optionalPatterns.length === 0 ? {} : { optionalIncludePatterns: optionalPatterns }) };
+}
 /** Issue the existing host verifier explicitly; execution never rewrites one. */
 export function prepareScopedDevelopmentVerification(
   input: Omit<TrustedVerificationInput, "snapshotManifest"> & { readonly scopePolicy: DevelopmentScopePolicy }
@@ -58,7 +71,7 @@ export function prepareScopedDevelopmentVerification(
     ...(input.checkerFiles === undefined ? {} : { checkerFiles: input.checkerFiles }),
     ...(input.maxSnapshotBytes === undefined ? {} : { maxSnapshotBytes: input.maxSnapshotBytes }),
     ...(input.maxSnapshotFiles === undefined ? {} : { maxSnapshotFiles: input.maxSnapshotFiles }),
-    snapshotManifest: { includePrefixes: policy.protectedPaths, optionalIncludePrefixes: policy.allowedScope } });
+    snapshotManifest: developmentScopeManifest(policy) });
   return Object.freeze({ command: descriptor.command, args: descriptor.args, trustedVerification: descriptor });
 }
 
@@ -96,7 +109,9 @@ function matchingDescriptor(policy: DevelopmentScopePolicy, verification: Native
     return a.length === b.length && a.every((entry, index) => entry === b[index]);
   };
   const manifest = descriptor.snapshotManifest;
-  if (!equal(manifest.includePrefixes, policy.protectedPaths) || !equal(manifest.optionalIncludePrefixes, policy.allowedScope) ||
+  const expected = developmentScopeManifest(policy);
+  if (!equal(manifest.includePrefixes, expected.includePrefixes ?? []) || !equal(manifest.optionalIncludePrefixes, expected.optionalIncludePrefixes ?? []) ||
+      !equal(manifest.includePatterns, expected.includePatterns ?? []) || !equal(manifest.optionalIncludePatterns, expected.optionalIncludePatterns ?? []) ||
       (manifest.excludePrefixes?.length ?? 0) !== 0 || (manifest.allowedOutputDirs?.length ?? 0) !== 0) {
     fail("host verifier manifest does not match the selected scope policy");
   }
@@ -149,10 +164,14 @@ export function assertDevelopmentScope(candidate: string, policy: DevelopmentSco
     fail("candidate changed paths outside task scope or inside protected verifier dependencies");
   }
   if (policy.protectedPaths.length === 0) return;
-  const ignored = spawnSync("git", ["--literal-pathspecs", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...policy.protectedPaths],
+  const anchors = [...new Set(policy.protectedPaths.map((selector) => {
+    const parts = selector.split("/"); const patternAt = parts.findIndex(hasPathPattern);
+    return patternAt < 0 ? selector : parts.slice(0, patternAt).join("/") || ".";
+  }))];
+  const ignored = spawnSync("git", ["--literal-pathspecs", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...anchors],
     { cwd: candidate, encoding: "utf8", windowsHide: true, timeout: 10_000 });
   if (ignored.error !== undefined || ignored.status !== 0) fail("protected ignored paths could not be verified");
-  if (ignored.stdout !== "") fail("candidate changed paths outside task scope or inside protected verifier dependencies");
+  if (ignored.stdout.split("\0").filter(Boolean).some((relative) => under(relative, policy.protectedPaths))) fail("candidate changed paths outside task scope or inside protected verifier dependencies");
 }
 
 /** One invocation owns one protected observation across all repair attempts. */
@@ -166,12 +185,12 @@ export function scopedDevelopmentExecutorFactory(
   let protectedBefore: ExactSnapshot | undefined;
   const checkProtected = (cwd: string): void => {
     if (protectedBefore !== undefined && !sameExactSnapshot(protectedBefore,
-      captureExactSnapshot(cwd, { includePrefixes: policy.protectedPaths }, limits))) fail("protected candidate bytes changed during execution");
+      captureExactSnapshot(cwd, developmentScopeManifest({ allowedScope: [], protectedPaths: policy.protectedPaths }), limits))) fail("protected candidate bytes changed during execution");
   };
   return async (context) => {
     if (candidate === undefined) {
       candidate = context.candidatePath;
-      if (policy.protectedPaths.length > 0) protectedBefore = captureExactSnapshot(candidate, { includePrefixes: policy.protectedPaths }, limits);
+      if (policy.protectedPaths.length > 0) protectedBefore = captureExactSnapshot(candidate, developmentScopeManifest({ allowedScope: [], protectedPaths: policy.protectedPaths }), limits);
     } else {
       if (candidate !== context.candidatePath) fail("scoped repair cannot replace its candidate");
       checkProtected(candidate);

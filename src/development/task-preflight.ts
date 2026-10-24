@@ -1,3 +1,4 @@
+import { developmentScopeManifest } from "./task-policy.js";
 import { realpathSync, lstatSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -97,7 +98,10 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     if (initial.headRevision !== input.sourceRevision || initial.entries.length !== 0) throw new DomainValidationError("preflight requires the unchanged candidate base revision");
     await buildTaskContext({ candidatePath: candidate, sourceRevision: input.sourceRevision, objective: spec.objective,
       acceptanceMetadata: [], input: { requiredFiles: spec.context, expectedSourceRevision: input.sourceRevision, tokenBudget: 16000 }, signal });
-    const manifest = { includePrefixes: spec.write.protect, optionalIncludePrefixes: spec.write.allow };
+    const selected = developmentScopeManifest({ protectedPaths: spec.write.protect, allowedScope: spec.write.allow });
+    // Broad protection does not establish that each declared checker input exists.
+    const manifest = { ...selected, includePrefixes: [...new Set([...(selected.includePrefixes ?? []),
+      ...spec.checks.flatMap((check) => check.protectedPaths ?? [])])] };
     const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
     const before = captureExactSnapshot(candidate, manifest, limits);
     const unchanged = (): void => {

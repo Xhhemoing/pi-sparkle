@@ -14,7 +14,7 @@ import { scopedDevelopmentExecutorFactory, snapshotDevelopmentVerification, type
 
 /** Experimental host input; no queue, budget or automatic source application. */
 export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, NativeWriteSessionInput {
-  /** Host-selected literal scope, with a matching original trusted verifier. */
+  /** Host-selected path scope, with a matching original trusted verifier. */
   readonly scopePolicy?: DevelopmentScopePolicy;
 }
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { captureExactSnapshot, sameExactSnapshot, type ExactSnapshot } from "./exact-snapshot.js";
 import type { SnapshotManifest } from "./worktree-snapshot.js";
+import { normalizePathSelector } from "./path-selector.js";
 
 export interface TrustedVerificationInput {
   readonly command: string;
@@ -64,8 +65,14 @@ function frozenManifest(input: SnapshotManifest = {}): SnapshotManifest {
     });
     return Object.freeze([...new Set(normalized)].sort());
   };
+  const patterns = (values: readonly string[]): readonly string[] => {
+    if (!Array.isArray(values) || values.length > 256) fail("manifest patterns must be bounded arrays");
+    return Object.freeze([...new Set(values.map(normalizePathSelector))].sort());
+  };
   return Object.freeze({ includePrefixes: copy(input.includePrefixes), excludePrefixes: copy(input.excludePrefixes),
     ...(input.optionalIncludePrefixes === undefined ? {} : { optionalIncludePrefixes: copy(input.optionalIncludePrefixes) }),
+    ...(input.includePatterns === undefined ? {} : { includePatterns: patterns(input.includePatterns) }),
+    ...(input.optionalIncludePatterns === undefined ? {} : { optionalIncludePatterns: patterns(input.optionalIncludePatterns) }),
     allowedOutputDirs: copy(input.allowedOutputDirs) });
 }
 

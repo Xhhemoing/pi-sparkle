@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DomainValidationError } from "../domain/errors.js";
+import { matchesPathSelector } from "../execution/path-selector.js";
 import type { IndependentCheckRecord } from "../execution/independent-check.js";
 import { assertTrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import type { NativeWriteAcceptanceCriterion } from "../native/write-criteria.js";
@@ -100,7 +101,8 @@ export function assertDevelopmentCheckPlanVerification(plan: DevelopmentCheckPla
   const under = (relative: string, prefix: string): boolean => relative === prefix || relative.startsWith(`${prefix}/`);
   const manifest = descriptor.snapshotManifest;
   for (const protectedPath of plan.checks.flatMap((check) => check.protectedPaths ?? [])) {
-    if (!(manifest.includePrefixes ?? []).some((prefix) => under(protectedPath, prefix)) ||
+    if (!((manifest.includePrefixes ?? []).some((prefix) => under(protectedPath, prefix)) ||
+        (manifest.includePatterns ?? []).some((selector) => matchesPathSelector(protectedPath, selector))) ||
         (manifest.excludePrefixes ?? []).some((prefix) => under(protectedPath, prefix) || under(prefix, protectedPath))) {
       fail("declared protected check dependencies are not covered by the selected verifier scope");
     }

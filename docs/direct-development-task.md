@@ -40,7 +40,7 @@ verification; worker output and repair feedback do not grant command authority.
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
-An optional host `scopePolicy` shares the Controller's literal path rules:
+An optional host `scopePolicy` enforces writable and protected paths:
 
 ```ts
 import { prepareScopedDevelopmentVerification } from "./dist/development/task-policy.js";
@@ -56,8 +56,7 @@ const result = await startDevelopmentTask({
 });
 ```
 
-The policy uses repository-relative literal prefixes, without glob or shell
-expansion. Both arrays are snapshotted before asynchronous work. The host must
+The policy uses repository-relative literal prefixes or the bounded `*`, `?`, `**` patterns described in [TaskSpec](taskspec.md#select-writable-and-protected-paths). Controller queue definitions remain literal; no shell expansion is performed. Both arrays are snapshotted before asynchronous work. The host must
 list all protected checker dependencies; these must exist before the executor
 factory is called. Allowed paths may be absent. Actual owned write/patch tools
 refuse outside or protected paths before changing bytes. An existing exact
@@ -69,11 +68,13 @@ observed scope, or detect a transient change restored before observation.
 
 The helper explicitly issues the existing trusted verification capability. A
 caller may supply its own original capability with the same required protected
-and optional allowed prefixes, without exclusions or allowed output directories.
+and optional allowed selectors, without exclusions or allowed output directories. Pattern selectors use the manifest's explicit pattern fields; literal fields keep their existing meaning.
 Verifier fields must be ordinary own data values and are copied once for policy matching and execution. Mismatched or copied descriptors are rejected; the task never silently replaces
 the caller's verifier. Calls without `scopePolicy` keep their existing
 workspace-root tool behavior. These deep imports are experimental; this is not
 the complete TaskSpec, preparation or budget interface.
+
+For direct check-plan calls, the host must ensure each declared literal checker dependency exists; semantic coverage by a broader protected path alone does not establish this. TaskSpec preflight performs that required-input check.
 
 For one fixed set of host checks, the experimental check-plan helper also selects
 which diagnostics the worker may receive:
@@ -122,7 +123,7 @@ Incomplete, truncated or unavailable results cannot authorize a repair attempt.
 This controls product feedback channels. Source-contained scripts may remain
 readable through the worker's other tools; it is not an OS secrecy boundary.
 Benchmark held-out scoring belongs in a separate evaluator and must never be
-included in this host check list or used for repairs. The complete TaskSpec/glob
+included in this host check list or used for repairs. The complete TaskSpec
 interface, zero-model preparation/preflight and cumulative budgets are separate
 Phase 1 work.
 

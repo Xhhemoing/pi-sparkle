@@ -308,6 +308,8 @@ function prepareExactVerification(
   const manifest = descriptor.snapshotManifest;
   if ((manifest.includePrefixes?.length ?? 0) !== 0
     || (manifest.optionalIncludePrefixes?.length ?? 0) !== 0
+    || (manifest.includePatterns?.length ?? 0) !== 0
+    || (manifest.optionalIncludePatterns?.length ?? 0) !== 0
     || (manifest.excludePrefixes?.length ?? 0) !== 0
     || (manifest.allowedOutputDirs?.length ?? 0) !== 0) {
     fail("trusted apply requires a whole-candidate descriptor without manifest exceptions");
