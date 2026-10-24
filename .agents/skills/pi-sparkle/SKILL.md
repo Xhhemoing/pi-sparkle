@@ -1,213 +1,81 @@
 ---
 name: pi-sparkle
-description: Use when auditing pi agent operations, detecting skill bloat/performance degradation, analyzing evidence boundary gaps, cross-project knowledge isolation, missing meta-skills, verification discipline execution gaps, reliable-delivery bottlenecks, skill routing observability, negative case capture, agent config drift, and prompt optimization (avoid over/under-fitting via scenario similarity). Trigger for pi self-review, harness health checks, or when user reports pi feels slow or skills are proliferating.
+description: Diagnose Pi instruction, skill-routing, agent-configuration, or delivery friction when a user requests a Pi self-review or reports repeated work, slow progress, or configuration drift. Use current task evidence to propose a scoped correction; ordinary application work does not require a harness audit.
 license: MIT
-compatibility: Pi coding agent. Diagnostic overlay only; does not register extensions.
 ---
 
 # Pi Sparkle
 
-Pi agent self-diagnosis, optimization, and harness evolution skill.
+Use this skill for a directed diagnosis tied to the user's intended result.
+Loading this skill or the `/sparkle [focus]` prompt template grants no runtime,
+configuration, or deployment permissions.
 
-This is a **diagnostic overlay** (ADR-006 Proposed), not a control plane. It
-does not subscribe to session events, register `/sparkle` as an extension
-command, or authorize auto-promotion.
+## Diagnose the current problem
 
-## In Pi
+- Reuse the user's goal, constraints, authorization, and acceptance conditions.
+  Select a concrete result if the request is broad; ask only when the missing
+  choice materially changes scope, cost, or an irreversible outcome.
+- Read applicable instructions and the current authoritative state needed for
+  that result. In a repository, use its existing active plan and relevant
+  accepted decisions when present. An installed package may not include
+  `docs/` or `tasks/`; do not require absent repository files or copy another
+  project's state into the diagnosis.
+- Establish current facts from relevant source, manifests, available command
+  help, and task evidence. Keep historical notes separate from current
+  behavior. Check the installed command/environment before interpreting a
+  missing executable as a product defect. A clone can use `pnpm cli`; a
+  built clone can use `node dist/cli/main.js`; use the installed entrypoint
+  when available. Do not build or install merely to start an instruction audit.
+- Inspect only the evidence needed to distinguish plausible causes. Load at
+  most 1–2 relevant references below, and none when the entrypoint suffices.
+  Skill counts, prompt length, or missing logs alone do not prove performance
+  loss, non-use, or a routing defect. Do not invent usage, costs, route outcomes,
+  or persist skill `USED` markers; missing observations remain unknown.
+- Separate necessary work from unproductive repetition. Reproduction, a changed
+  candidate, a new failure, or an unresolved safety concern can justify another
+  check. Repeating the same scan or check without new evidence does not establish
+  progress. Prefer correcting when and how existing rules apply before adding
+  instructions, templates, skills, routing mechanisms, or enforcement.
+- Propose the smallest correction supported by the evidence, including leaving
+  the configuration unchanged when the cause is unproven. Do not add hashes,
+  frozen contracts, baselines, gates, or learning systems by default. Respect
+  existing safety measures and project freezes.
 
-- `/skill:pi-sparkle` — load this skill
-- `/sparkle [focus]` — prompt template that forces the same workflow
-- Then load **at most 1–2** references below. Keep analysis evidence-based;
-  do not invent usage data or persist skill `USED`.
-- The `pi-sparkle` bin is only on `PATH` if the package was globally linked.
-  From a clone, run `pnpm cli <command>` (or `node dist/cli/main.js <command>`
-  after `pnpm build`) — the same convention doctor's own `next:` lines use. Do
-  not report "command not found" as a product defect; report it as this note. 
+## Scope and stopping
 
-## Core Findings Recorded (from local multi-project survey)
+Diagnosis is read-only by default. Apply changes only within explicit user
+or existing task authorization; a suggested fix is not execution permission.
+Preserve existing edits. Keep evidence in the project's existing task surfaces
+and designated private workspace when authorized; do not create routine reports
+or collect unrelated projects, private chats, credentials, or provider data.
 
-### 1. Skill Proliferation & Performance
-- 21 skills in ~/.agents/skills (scenario-skill-router caps at 2 per task)
-- No prune/usage-audit mechanism; no bloat detection
-- Subagent runs in .pi/subagents/runs/ show agent-not-found failures when project agents drift
+Real-provider, crash, benchmark, and holdout runs remain opt-in. Do not
+self-authorize promotion, adaptation, learning, credential changes, permission
+changes, or wider tool allowlists. Preserve synthetic-data and isolated-copy
+requirements wherever they apply. Never persist thinking text.
 
-### 2. Evidence Boundary Problem
-- Better-harness reports: 80%+ dimensions "not observed in this boundary"
-- Root: no structured logging of skill activation, routing success/failure, or delivery events (PRs outside agent context)
-- Negative cases (should-route-but-did-not) never captured
-- Opt-in helper now exists (`scripts/log-skill-route.mjs` → `.pi/logs/skill-routes.jsonl`); `doctor --project` reports enabled/line count; empty until explicitly enabled
+Report concrete findings, evidence, the proposed or authorized change, checks
+actually run, and what remains unknown. Distinguish static review, reproduction,
+command verification, independent review, delivery, and owner acceptance. A
+single self-review or successful task does not prove a performance benefit.
+Stop when the requested result has sufficient evidence; do not restart a broad
+audit without a new question, candidate, failure, or unresolved concern.
 
-### 3. Cross-Project Silos
-- One surveyed project had 4 agents, 2 skills, 5 prompts, and two rounds of harness reports
-- Another had custom agents, a project-specific data-import skill, and subagent runs
-- A harness-focused project had 4 meta-skills and detailed agent instructions
-- Pi core: no .pi/, no self-review harness, skills only at user level
+## References when relevant
 
-No sharing path existed for reusable project workflow and data-import assets.
-
-### 4. Missing Meta-Skill
-- No harness-friction-analyzer that ingests multi-project reports and proposes global fixes
-- scenario-skill-router observability is opt-in JSONL (see evidence-loop.md); still no session listener
-
-### 5. Verification & Delivery Gaps
-- AGENTS.md contains failure→cause→fix→recheck + delivery discipline, but no enforcement template or lint
-- reliable-delivery stuck at 45 because PR/acceptance happens in GitHub, not agent context
-- No 4-step evidence chain in completion reports
-
-### 6. Prompt Optimization Risks
-- No dynamic section add/remove based on scenario similarity
-- Overfit risk: project-specific agents (worker.md tool lists vary)
-- Underfit risk: generic prompts ignore package-level AGENTS.md
-- No versioning/A-B for prompt variants
-
-## Health Check 2026-08-21 (evidence-based; refreshed after install verification)
-
-- 80 installed skills (all trees); bloat threshold (>20) breached ~4x. Skill
-  counts are volatile point-in-time readings — always re-run
-  `scripts/skill-audit.mjs` for the live number instead of trusting this line.
-- Route logging was enabled (marker) in 5 active project roots.
-  `skill-audit.mjs` now classifies per-project logging state and **withholds**
-  `neverActivated`/`topActivated` when no scanned project has logging on —
-  absence of logs is not evidence of non-use.
-- Helper copied next to installed router (`~/.pi/agent/skills/scenario-skill-router/log-skill-route.mjs`) so projects without this package can still log
-- 3 of 4 recorded subagent runs failed (agent `researcher`, exitCode 1, ~360s, no root-cause field captured)
-- usage frontmatter deliberately NOT hand-written: JSONL is the single source of truth (router forbids auto-persisting USED); use `scripts/skill-audit.mjs` for top/never-activated reports
-- New scripts: `scripts/doctor.mjs` (logging status + line count, corrupt lines fail closed), `scripts/skill-audit.mjs` (cross-project aggregation, alias detection, scenario affinity, scope recommendations; `--skills-roots` audits non-default skill trees), `scripts/skill-prune.mjs` (evidence-gated pruning: dry-run lists confirmed aliases only; `--apply <skill>` moves ONE confirmed alias to skills-backup/<date>/ — `--backup-root` overrides the backup destination, and a refused `--apply` exits 1 so automation sees the evidence gate)
-- Verified 2026-08-21 after `pi install /absolute/path/to/pi-sparkle`: package skill
-  discoverable globally (outside the project), `/sparkle` template expands via
-  `--prompt-template`, end-to-end audit run succeeded.
-- Pruned 2026-08-21: `~/.pi/agent/skills/jailbreak-engineering/` (self-declared
-  pure routing alias for `llm-security`) moved to
-  `~/.pi/agent/skills-backup/2026-08-21/`; installed count 80 → 79, verified by
-  script and by live session probe. Audit correction: `malware-triage` is NOT a
-  duplicate — the `malware-analysis` name it references was never installed.
-  Remaining flagged overlaps need an owner preference call, not evidence-based
-  pruning: `reverse-flow` vs `reverse-engineering` (both comprehensive RE
-  workflows), `browser` (CDP) vs `browser-automation` (Playwright),
-  `understand` vs `graphify`, `scenario-skill-router` vs `using-superpowers`.
-- Verified: append, kill switch (PI_SKILL_ROUTE_LOG=0), doctor ok/corrupt paths, audit aggregation
-
-## Pi 0.84.3 Adaptation (2026-08-24)
-
-Superseded by 0.84.4 — see the next section. Latest published Pi as of
-2026-08-24 was **0.84.3**. Do not trust prose for the
-live pin — read `package.json` (`@earendil-works/pi-agent-core` /
-`@earendil-works/pi-ai`) or run the shipped commands:
-
-- `pi-sparkle pi-compat [--json]` — offline by default (pins + adapter
-  source probe). `--online` also reads npm dist-tags and fails closed: an
-  unreachable registry means status `unknown`, exit 0. Exit 1 is reserved
-  for a broken adapter contract (legacy `GoogleThinkingLevel`, no thinking
-  levels, unreadable pin) and is blocking.
-- `pi-sparkle doctor` — its `pi-packages` check prints both pins and its
-  `pi-compat` check embeds the offline report. A FAIL on either is blocking,
-  same as pi-compat exit 1.
-- `node scripts/pi-latest-check.mjs` — pins vs npm dist-tags for agent-core,
-  ai, and `pi-coding-agent`; `--offline` prints pins only, `--strict` turns
-  behind/unknown into exit 1 for automation.
-
-Behavior changes in 0.84.3 that matter to this overlay:
-
-- **Nested skill discovery:** Markdown skills inside `.agents/skills/`
-  grouping directories are now discovered. Our flat layout
-  (`.agents/skills/pi-sparkle/SKILL.md`) is unchanged and still discovered.
-  Do not split this overlay into nested sub-skills, and never park a
-  demo/fixture skill under `.agents/skills/` to "prove" discovery — both
-  read as skill bloat, not adaptation. The discovery proof belongs in test
-  data: `test/fixtures/pi-0843-skills/` (a grouping dir with a nested
-  `SKILL.md` plus root `README.md` / `AGENTS.md` without frontmatter).
-- **Root Markdown no longer "broken skills":** `README.md` / `AGENTS.md` at
-  the root of a skill directory are no longer reported as broken skills
-  unless they declare skill frontmatter. Any audit finding on Pi ≥ 0.84.3
-  that flags such files as broken is stale — re-probe before reporting it.
-- **Thinking level — three knobs, never conflated:**
-  1. Pi TUI `/thinking` — session-scoped selector; Ctrl+S saves it. Owned by
-     the Pi TUI, invisible to this package's runtime.
-  2. `PI_THINKING_LEVEL` — this package's runtime env var
-     (off|minimal|low|medium|high|xhigh|max; default off).
-  3. `run --thinking <level>` — landed CLI flag, listed in the
-     `pi-sparkle help` USAGE. Precedence: flag > `PI_THINKING_LEVEL` >
-     `off`. Per-run only — it never persists, unlike the TUI `/thinking`
-     selector (knob 1), which is session-scoped and saved with Ctrl+S.
-  Do not report one knob as drift of another.
-- **Still no extension:** ADR-006 remains Proposed. `/sparkle` stays a prompt
-  template; this overlay registers no extension commands or session
-  listeners, so 0.84.3 extension-event additions (e.g.
-  `session_compact_failed`) are out of scope here.
-
-On any Pi version bump, run the checklist in references/pi-version-adapt.md
-(it counts toward the 1–2 reference cap).
-
-## Pi 0.84.4 Adaptation (2026-09-01)
-
-Superseded by 0.85.1 — see the 0.85.x section above. Latest published Pi as
-of 2026-09-01 was **0.84.4** (2026-08-28). Verified live:
-`scripts/pi-latest-check.mjs` (npm dist-tags), tarball CHANGELOG review, and
-`pi-sparkle pi-compat` after the pin bump. Do not trust prose for the live
-pin — re-run the shipped commands.
-
-- **Pins bumped** 0.84.3 → 0.84.4 (agent-core + ai). Changelog: patch release,
-  no breaking changes, no skill/prompt discovery changes, no thinking-level
-  renames; additive export `detectSupportedImageMimeTypeFromFile()`. The
-  0.84.3 adapter contract checks (legacy `GoogleThinkingLevel` absent,
-  thinking levels present) re-probed OK on 0.84.4.
-- **Extension surface grew** (`ui_prompt_start`/`ui_prompt_end`, RPC
-  `clear_queue`) — still out of scope: ADR-006 remains Proposed, this overlay
-  registers nothing.
-- **Thinking knobs unchanged** — the three knobs from the 0.84.3 section
-  still apply; 0.84.4's thinking fix (visibility toggle clearing Bash output)
-  is TUI-internal.
-- **doctor `project` check** now accepts `pyproject.toml` as a project marker
-  alongside `package.json` (Python projects no longer false-positive FAIL).
-
-## Pi 0.85.x Adaptation (2026-09-05)
-
-Pins remain agent-core / pi-ai **0.85.1**. `pi-coding-agent` is **not** a
-dependency of this package; npm `latest` for it is **0.85.1** (verified
-2026-09-18 via `node scripts/pi-latest-check.mjs`). The 2026-09-05 write-up
-recorded coding-agent **0.85.0** — that line is now false. Do not trust this
-prose for the live pin — re-run the shipped commands. Historical verification
-on 2026-09-05: changelog review, adapter-contract probe (`pnpm pi:probe`),
-typecheck, and the then-current suite (2561 tests, 0 fail).
-
-- **Adapter contract holds on 0.85.1:** `ThinkingLevel` unchanged
-  (`off|minimal|low|medium|high|xhigh|max`), legacy `GoogleThinkingLevel`
-  still absent from adapter sources. pi-ai 0.85.1 exports a NEW
-  `GoogleApiThinkingLevel` / `ResolvedGoogleThinkingLevel` pair — not the
-  legacy symbol; the probe's `\bGoogleThinkingLevel\b` word boundary does not
-  match it. Do not report this as a legacy-symbol regression.
-- **Loop order re-verified:** `shouldStopAfterTurn` still runs immediately
-  after `turn_end`, before the steering-queue poll (`dist/agent-loop.js`).
-  The "cost stop outranks a queued steer" contract in
-  `references/kernel-reuse.md` is unchanged.
-- **Behavior changes that matter to this overlay:**
-  - `ctx.cwd` fix (#8627): `bash`/`edit`/`find`/`grep`/`ls`/`read`/`write`
-    tools no longer ignore `ctx.cwd`. Executor working-directory behavior is
-    now trustworthy across all file tools — re-verify any audit finding that
-    assumed cwd slippage.
-  - Skills availability fix (#8552): skills no longer unavailable when Bash
-    is the only enabled tool. Retract any stale "skills missing" finding
-    from that configuration.
-  - Persistent Claude thinking effort: Anthropic transports preserve
-    per-turn effort. The three thinking knobs (TUI `/thinking`,
-    `PI_THINKING_LEVEL`, `run --thinking`) are unchanged and still not to be
-    conflated.
-  - `SessionManager.inMemory()` (SDK) restores externally managed session
-    entries — relevant to a future extension (ADR-006 still Proposed), not
-    to this diagnostic overlay.
-- **Extension surface:** no new extension-event additions affecting this
-  overlay; ADR-006 remains Proposed, nothing registered.
-
-## Routing to References
-
-- references/skill-bloat.md — detection, pruning, usage metrics
-- references/evidence-loop.md — closing "not observed" gaps, negative-case logging
-- references/cross-project.md — sharing strategy, sync command proposal
-- references/meta-skill.md — harness-friction-analyzer spec
-- references/prompt-tuning.md — scenario-similarity router, dynamic composition, fit guardrails
-- references/agent-config.md — drift detection, tool-allowlist enforcement, subagent error patterns
-- references/pi-version-adapt.md — checklist for Pi version bumps (changelog, pin vs `pi --version`, skill discovery, doctor/pi-compat)
-- references/kernel-reuse.md — extender checklist for the slim-kernel facade: build on SparkleKernel not Agent, consume live events, never persist thinking text, pin stays 0.84.3
-
-## Activation Rule
-Only load 1-2 references per invocation. After analysis, propose the smallest durable fix (new reference, router update, or meta-skill) rather than one-off patches.
+- [Prompt tuning](references/prompt-tuning.md): repeated or conflicting
+  instructions and prompt changes supported by task evidence.
+- [Agent configuration](references/agent-config.md): missing declared agents,
+  dispatch errors, and role/tool configuration differences.
+- [Skill audit](references/skill-bloat.md) and
+  [evidence loop](references/evidence-loop.md): historical audit procedures;
+  verify current tools and assumptions before using them. Logging and pruning
+  remain separately authorized actions, not prerequisites for diagnosis.
+- [Cross-project notes](references/cross-project.md) and
+  [meta-skill proposal](references/meta-skill.md): historical designs, only for
+  an explicitly scoped evaluation; their existence does not authorize new work.
+- [Pi version adaptation](references/pi-version-adapt.md) and
+  [kernel reuse](references/kernel-reuse.md): historical adaptation material,
+  only when the task concerns those interfaces. Verify every version, API,
+  architecture, and ADR assumption against current authoritative sources;
+  these notes do not describe the current SDK architecture by default.
