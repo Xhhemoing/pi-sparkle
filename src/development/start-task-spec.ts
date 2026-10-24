@@ -13,7 +13,7 @@ export interface StartDevelopmentTaskSpecInput {
   readonly spec: DevelopmentTaskSpec; readonly executorFactory: NativeWriteExecutorFactory; readonly signal?: AbortSignal;
 }
 export interface DevelopmentTaskSpecResult { readonly execution: NativeWriteSessionResult; readonly preflight?: TaskPreflightResult; }
-/** Experimental one-worker TaskSpec path; accepts a candidate, never applies it. */
+/** Experimental bounded TaskSpec repair path; accepts a candidate, never applies it. */
 export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecInput): Promise<DevelopmentTaskSpecResult> {
   const started = performance.now();
   input = snapshotTaskSpecHostInput(input, ["sourceRepo", "stateRoot", "sandboxRoot", "spec", "executorFactory", "signal"]);
@@ -40,11 +40,16 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
     const execution = await startDevelopmentTask({ sourceRepo, stateRoot, ...(sandboxRoot === undefined ? {} : { sandboxRoot }),
       objective: spec.objective, scopePolicy, checkPlan: planned.checkPlan, verification, signal,
       maxWallTimeMs: remainingMs, workerTimeoutMs: Math.round(spec.budget.workerSeconds * 1000),
+      maxAttempts: spec.worker.maxAttempts ?? 1,
+      ...((spec.budget.workerTotalSeconds === undefined && spec.budget.checkTotalSeconds === undefined) ? {} : { phaseTimeLimits: {
+        ...(spec.budget.workerTotalSeconds === undefined ? {} : { workerTotalMs: Math.round(spec.budget.workerTotalSeconds * 1000) }),
+        ...(spec.budget.checkTotalSeconds === undefined ? {} : { checkTotalMs: Math.round(spec.budget.checkTotalSeconds * 1000) }) } }),
       taskContext: { requiredFiles: spec.context, expectedSourceRevision: base.revision, tokenBudget: 16000 },
       executorFactory: async (context) => {
-        if (preflight !== undefined) throw new DomainValidationError("experimental TaskSpec runs exactly one worker attempt");
-        preflight = await runTaskSpecPreflight({ candidatePath: context.candidatePath, sourceRevision: context.sourceRevision,
-          stateRoot, spec, signal: context.signal, onCommandCleanupUnsettled: context.onCommandCleanupUnsettled });
+        if (preflight === undefined) preflight = await runTaskSpecPreflight({ candidatePath: context.candidatePath, sourceRevision: context.sourceRevision,
+          stateRoot, spec, signal: context.signal, onCommandCleanupUnsettled: context.onCommandCleanupUnsettled,
+          ...(context.baseCheckBudget === undefined ? {} : { checkTimeRemainingMs: context.baseCheckBudget.remainingMs,
+            onChecksElapsed: context.baseCheckBudget.recordElapsedMs }) });
         if (preflight.unsettledCommand !== undefined) {
           context.onCommandCleanupUnsettled(preflight.unsettledCommand);
           throw new CommandCleanupIncompleteError(preflight.unsettledCommand);

@@ -1,7 +1,7 @@
 # Run a TaskSpec with zero-model preparation
 
 These experimental source APIs and CLI commands are in the Phase 1 candidate,
-not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and one worker attempt. Shell `run` strings, explicit model overrides and USD budgets are rejected. Full
+not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings, explicit model overrides and USD budgets are rejected. Full
 Phase 1 acceptance and four-language installation examples remain unfinished.
 
 A TaskSpec selects the same host checks for the base preflight and final
@@ -47,7 +47,7 @@ For Rust/Go, `--state-root <private-dir>` selects external compiler storage
 (default `~/.pi-sparkle`); Node and Python reject this init flag. Each actual
 check creates a fresh child output directory after checking its parent path.
 Go additionally disables successful test-result caching and module network
-access, and uses the local toolchain with CGO disabled. Outputs are retained for
+access, and uses the local toolchain with CGO disabled. On POSIX, Rust requires a discoverable `cc` linker and receives only an explicit PATH containing the selected cargo/cc directories; the Windows Rust environment remains empty. Outputs are retained for
 host-managed cleanup; init itself creates no compiler storage. This avoids
 reusing mutable test executables between checks, without claiming general OS
 process containment. Compiled checks request 40 seconds; Python's two checks
@@ -71,7 +71,7 @@ candidate is not reused by a later task invocation.
 
 Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
 CLI task execution, Verdict presentation and four-language installed examples are
-still unfinished; the one-worker source API described below is available for
+still unfinished; the bounded source API described below is available for
 host integration.
 ## Exercise an installed package
 
@@ -130,15 +130,28 @@ reject unknown fields, accessors, proxies and malformed values.
 | `budget.totalSeconds` | One overall deadline, including preparation, context, worker and final acceptance. It is not renewed after preparation. |
 | `budget.prepareSeconds` | One cumulative allowance for the preparation phase. |
 | `budget.checkSeconds` | Allowance for each base/final check phase, separate from preparation. Existing per-recipe limits still apply. |
-| `budget.workerSeconds` | Worker allowance for this one-attempt path, separate from preparation. |
+| `budget.workerSeconds` | Per-attempt worker allowance, separate from first-factory preparation and base checks. |
+| `budget.workerTotalSeconds` | Optional cumulative worker allowance across all attempts in this invocation. |
+| `budget.checkTotalSeconds` | Optional cumulative allowance for the first base checks and every final verification phase. Preparation is separate. |
 | `worker.model` | Only `inherit`; omitted worker configuration defaults to it. The host supplies the actual Pi executor factory. |
+| `worker.maxAttempts` | Optional integer from 1 to 5; defaults to 1. Repair reuses the same candidate, fixed check plan and original protected observation. |
 
-All four time fields are required, from 0.001 to 1800 seconds with whole
+The four original time fields are required; the two cumulative totals are optional. All durations range from 0.001 to 1800 seconds with whole
 millisecond precision. The earlier recipe default remains 5 seconds per check
 and at most 40 seconds of declared recipe time in total. A larger
-`checkSeconds` does not increase those recipe limits. This is not the complete
-future cumulative repair or monetary-budget interface. Unknown cost stays
-unknown; `budget.usd` is explicitly unsupported.
+`checkSeconds` does not increase those recipe limits. Task-wide monetary accounting and cross-process resume are not implemented. Unknown cost stays unknown; `budget.usd` is explicitly unsupported.
+
+Preparation and base checks execute once before the first real worker. Repair
+gets only worker-visible failure feedback and does not refresh the total
+deadline or either optional cumulative pool. Worker time covers the actual
+worker lifecycle; final verification time includes its existing evidence
+persistence. Base-check time is charged before preflight artifact persistence,
+so a failed write cannot refund it. Each phase uses the smaller remaining
+allowance and its existing per-phase limit. An over-budget successful check
+remains in the evidence while candidate delivery is refused. Exhausted pools
+prevent later workers/checks; unknown cleanup stops repair and retains the
+candidate. Omitting the totals preserves the prior per-attempt/per-phase
+behavior under the same overall deadline.
 
 Checks use `id`, `command`, `args`, `verifierVersion`, optional
 `protectedPaths`, `timeoutMs`, `maxStdoutBytes`, `maxStderrBytes` and

@@ -16,8 +16,9 @@ export interface DevelopmentTaskSpec {
   readonly write: { readonly allow: readonly string[]; readonly protect: readonly string[] };
   readonly prepare: readonly DevelopmentTaskPreparation[];
   readonly checks: readonly DevelopmentTaskCheck[];
-  readonly budget: { readonly totalSeconds: number; readonly prepareSeconds: number; readonly checkSeconds: number; readonly workerSeconds: number };
-  readonly worker: { readonly model: "inherit" };
+  readonly budget: { readonly totalSeconds: number; readonly prepareSeconds: number; readonly checkSeconds: number; readonly workerSeconds: number;
+    readonly workerTotalSeconds?: number; readonly checkTotalSeconds?: number };
+  readonly worker: { readonly model: "inherit"; readonly maxAttempts?: number };
 }
 
 const CHECK_FIELDS = ["id", "command", "args", "verifierVersion", "protectedPaths", "timeoutMs", "maxStdoutBytes", "maxStderrBytes", "visibleToWorker", "expect"];
@@ -110,14 +111,17 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
     return { recipe, expect };
   });
   const plan = snapshotDevelopmentCheckPlan({ checks: checked.map((check) => check.recipe) });
-  const budget = record(raw.budget, ["totalSeconds", "prepareSeconds", "checkSeconds", "workerSeconds"]);
-  const worker = raw.worker === undefined ? { model: "inherit" } : record(raw.worker, ["model"]);
+  const budget = record(raw.budget, ["totalSeconds", "prepareSeconds", "checkSeconds", "workerSeconds", "workerTotalSeconds", "checkTotalSeconds"]);
+  const worker = raw.worker === undefined ? { model: "inherit" } : record(raw.worker, ["model", "maxAttempts"]);
   if (worker.model !== "inherit") fail("worker model must inherit; explicit model selection is unsupported");
+  if (worker.maxAttempts !== undefined && (!Number.isSafeInteger(worker.maxAttempts) || Number(worker.maxAttempts) < 1 || Number(worker.maxAttempts) > 5)) fail("worker maxAttempts must be an integer from 1 to 5");
   return freeze({ version: 1, objective, context, write: { allow: scope.allowedScope, protect: scope.protectedPaths }, prepare,
     checks: plan.checks.map((check, index) => ({ ...check, expect: checked[index]!.expect })),
     budget: { totalSeconds: duration(budget.totalSeconds), prepareSeconds: duration(budget.prepareSeconds),
-      checkSeconds: duration(budget.checkSeconds), workerSeconds: duration(budget.workerSeconds) },
-    worker: { model: "inherit" } });
+      checkSeconds: duration(budget.checkSeconds), workerSeconds: duration(budget.workerSeconds),
+      ...(budget.workerTotalSeconds === undefined ? {} : { workerTotalSeconds: duration(budget.workerTotalSeconds) }),
+      ...(budget.checkTotalSeconds === undefined ? {} : { checkTotalSeconds: duration(budget.checkTotalSeconds) }) },
+    worker: { model: "inherit", ...(worker.maxAttempts === undefined ? {} : { maxAttempts: worker.maxAttempts as number }) } });
 }
 
 export function parseDevelopmentTaskSpec(text: string): DevelopmentTaskSpec {

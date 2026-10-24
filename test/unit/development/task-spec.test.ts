@@ -17,6 +17,31 @@ function invalid(mutate: (value: ReturnType<typeof valid>) => unknown): void {
   assert.throws(() => snapshotDevelopmentTaskSpec(mutate(value)), DomainValidationError);
 }
 
+test("TaskSpec preserves optional repair and cumulative time limits without changing phase limits", () => {
+  const original = valid();
+  const actual = snapshotDevelopmentTaskSpec({ ...original, worker: { model: "inherit", maxAttempts: 3 },
+    budget: { ...original.budget, workerTotalSeconds: 0.401, checkTotalSeconds: 80 } });
+  assert.equal(actual.worker.maxAttempts, 3);
+  assert.equal(actual.budget.workerTotalSeconds, 0.401);
+  assert.equal(actual.budget.checkTotalSeconds, 80);
+  assert.equal(actual.budget.checkSeconds, original.budget.checkSeconds);
+});
+
+test("TaskSpec validates optional cumulative durations and repair count as ordinary data", () => {
+  for (const count of [0, 6, 1.1, NaN, Infinity]) {
+    assert.throws(() => snapshotDevelopmentTaskSpec({ ...valid(), worker: { model: "inherit", maxAttempts: count } }));
+  }
+  for (const field of ["workerTotalSeconds", "checkTotalSeconds"] as const) {
+    for (const value of [0, -1, NaN, Infinity, 1800.001, 0.0001]) {
+      assert.throws(() => snapshotDevelopmentTaskSpec({ ...valid(), budget: { ...valid().budget, [field]: value } }));
+    }
+    let reads = 0;
+    const budget = Object.defineProperty(valid().budget, field, { get() { reads++; return 3; } });
+    assert.throws(() => snapshotDevelopmentTaskSpec({ ...valid(), budget }));
+    assert.equal(reads, 0);
+  }
+});
+
 test("valid TaskSpec preserves literal commands, expectation and nonrenewing budget values", () => {
   const value = valid();
   const actual = snapshotDevelopmentTaskSpec(value);

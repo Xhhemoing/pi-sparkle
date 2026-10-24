@@ -17,6 +17,9 @@ export interface TaskPreflightInput {
   readonly spec: DevelopmentTaskSpec;
   readonly signal?: AbortSignal;
   readonly onCommandCleanupUnsettled?: (result: AuthorizedCommandRunResult) => void;
+  /** Internal host accounting of base checks, settled before artifact persistence. */
+  readonly checkTimeRemainingMs?: number;
+  readonly onChecksElapsed?: (milliseconds: number) => void;
 }
 export interface TaskPreflightResult {
   readonly ok: boolean;
@@ -73,7 +76,9 @@ function expectedCheck(result: AuthorizedCommandRunResult, check: DevelopmentTas
 /** Actual zero-model commands in an already-owned candidate; never allocates a worker. */
 export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<TaskPreflightResult> {
   const started = performance.now();
-  input = snapshotTaskSpecHostInput(input, ["candidatePath", "sourceRevision", "stateRoot", "spec", "signal", "onCommandCleanupUnsettled"]);
+  input = snapshotTaskSpecHostInput(input, ["candidatePath", "sourceRevision", "stateRoot", "spec", "signal", "onCommandCleanupUnsettled", "checkTimeRemainingMs", "onChecksElapsed"]);
+  if (input.checkTimeRemainingMs !== undefined && (!Number.isSafeInteger(input.checkTimeRemainingMs) || input.checkTimeRemainingMs < 0 || input.checkTimeRemainingMs > 1_800_000)) throw new DomainValidationError("preflight check remaining time must be a nonnegative integer up to 1800000 ms");
+  if (input.onChecksElapsed !== undefined && typeof input.onChecksElapsed !== "function") throw new DomainValidationError("preflight check accounting must be a host callback");
   const spec = snapshotDevelopmentTaskSpec(input.spec);
   const candidate = path.resolve(input.candidatePath);
   const state = path.resolve(input.stateRoot);
@@ -135,17 +140,19 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       }
     } finally { preparationMs = performance.now() - preparationStart; }
     const checksStart = performance.now();
+    const checkPhaseLimit = Math.min(spec.budget.checkSeconds * 1000, (spec.budget.checkTotalSeconds ?? Infinity) * 1000, input.checkTimeRemainingMs ?? Infinity);
     try {
       for (const check of spec.checks) {
         const observed = await run(check, Math.min(check.timeoutMs ?? DEFAULT_RECIPE_TIMEOUT_MS,
-          spec.budget.checkSeconds * 1000 - (performance.now() - checksStart)),
+          checkPhaseLimit - (performance.now() - checksStart)),
         check.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES, check.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES);
         const expected = expectedCheck(observed.result, check);
         checks.push({ id: check.id, ...observed, expected });
         if (!expected) throw new DomainValidationError(`base check ${check.id} did not establish its expected ${check.expect.baseline} result`);
         unchanged();
       }
-    } finally { checksMs = performance.now() - checksStart; }
+    } finally { checksMs = performance.now() - checksStart; input.onChecksElapsed?.(checksMs); }
+    if (checkPhaseLimit - checksMs < 1) throw new DomainValidationError("preflight check phase or cumulative time budget exhausted");
     unchanged();
     ensureActive();
     ok = true;

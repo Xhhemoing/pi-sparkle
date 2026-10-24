@@ -85,6 +85,64 @@ test("missing mandatory context is refused before preparation can run", async ()
 
 import { preflightDevelopmentTaskSpec, startDevelopmentTaskSpec } from "../../../src/development/start-task-spec.js";
 import { GatedExecutor, ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
+
+for (const withTotals of [true, false]) {
+test(`cumulative TaskSpec repair prepares once and keeps the warm candidate and visible feedback (${withTotals ? "explicit totals" : "omitted totals"})`, async () => fixture(async (sourceRepo, stateRoot, revision) => {
+  const definition = spec("const f=require('node:fs');if(f.readFileSync('.cache/ready','utf8')!=='warm')throw Error('cold');if(f.readFileSync('value.txt','utf8')!=='fixed'){" + assertion + "process.exit(1)}", true);
+  const contexts: string[] = [];
+  const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"),
+    spec: { ...definition, worker: { model: "inherit", maxAttempts: 3 },
+      budget: { ...definition.budget, ...(withTotals ? { workerTotalSeconds: 4, checkTotalSeconds: 8 } : {}) },
+      checks: [{ ...definition.checks[0]!, visibleToWorker: true }, { id: "hidden", command: process.execPath,
+        args: ["-e", "console.error('HIDDEN_BUDGET_SECRET')"], verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: false, expect: { baseline: "pass" } }],
+      prepare: [{ id: "warm", command: process.execPath, args: ["-e", "const f=require('node:fs');f.mkdirSync('.cache');f.writeFileSync('.cache/ready','warm');"] }] },
+    executorFactory(context) {
+      contexts.push(context.candidatePath);
+      assert.equal(JSON.stringify(context).includes("HIDDEN_BUDGET_SECRET"), false);
+      if (contexts.length === 2) assert.ok(context.attempt?.checkFeedback);
+      return { async *execute(request, signal) {
+        assert.equal(await readFile(path.join(context.candidatePath, ".cache/ready"), "utf8"), "warm");
+        await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("repair", {
+          path: "value.txt", contents: contexts.length === 1 ? "needs repair" : "fixed" }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      } };
+    } });
+  assert.equal(result.execution.acceptance.accepted, true, result.execution.reason);
+  assert.equal(contexts.length, 2); assert.equal(contexts[0], contexts[1]);
+  assert.equal(JSON.parse(await readFile(result.preflight!.artifactPath, "utf8")).preparation.length, 1);
+  assert.equal(await readFile(path.join(sourceRepo, "value.txt"), "utf8"), "original");
+  assert.equal(await readFile(path.join(result.execution.candidatePath, "checks/guard.txt"), "utf8"), "protected");
+  assert.equal(git(sourceRepo, ["rev-parse", "HEAD"]), revision);
+  assert.equal(git(sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+}));
+}
+
+test("cumulative TaskSpec worker allowance excludes slow first-factory preparation", async () => fixture(async (sourceRepo, stateRoot) => {
+  const definition = spec("");
+  const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"),
+    spec: { ...definition, budget: { ...definition.budget, workerTotalSeconds: 1 },
+      prepare: [{ id: "slow", command: process.execPath, args: ["-e", "setTimeout(()=>{},1200)"] }] },
+    executorFactory: () => new ProtocolChildExecutor() });
+  assert.equal(result.preflight?.ok, true);
+  assert.equal(result.execution.acceptance.accepted, true, result.execution.reason);
+}));
+
+test("cumulative TaskSpec check pool charges base checks before its final phase", async () => fixture(async (sourceRepo, stateRoot) => {
+  const definition = spec("const value=require('node:fs').readFileSync('value.txt','utf8');setTimeout(()=>process.exit(0),value==='original'?300:2000)");
+  let factories = 0;
+  const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: path.join(path.dirname(sourceRepo), "candidates"),
+    spec: { ...definition, worker: { model: "inherit", maxAttempts: 3 }, budget: { ...definition.budget, checkTotalSeconds: 1.5 } },
+    executorFactory(context) { factories++; return { async *execute(request, signal) {
+      await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("change", { path: "value.txt", contents: "fixed" }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    } }; } });
+  assert.equal(result.preflight?.ok, true);
+  assert.ok(result.preflight.checksMs >= 300);
+  assert.equal(result.execution.acceptance.accepted, false);
+  assert.equal(factories, 1);
+  assert.equal(result.execution.loop?.stopReason, result.execution.effectsSettled === false ? "verification-unavailable" : "time-budget");
+  assert.equal(await readFile(path.join(sourceRepo, "value.txt"), "utf8"), "original");
+}));
 test("TaskSpec run prepares once then actual worker and final checker reuse the warm isolated candidate", async () => fixture(async (sourceRepo, stateRoot, revision) => {
   const definition = spec("const f=require('node:fs');if(f.readFileSync('.cache/ready','utf8')!=='ready')throw Error('cold');if(f.readFileSync('value.txt','utf8')==='original'){" + assertion + "process.exit(1)}", true);
   let calls = 0;
@@ -198,6 +256,33 @@ async function sandbox(stateRoot: string): Promise<string> {
   await mkdir(result, { recursive: true });
   return result;
 }
+
+test("cumulative TaskSpec retains actual unknown base-check cleanup before any repair factory", async () => fixture(async (sourceRepo, stateRoot, revision) => {
+  const slow = slowCommand(stateRoot, "cumulative-check");
+  const definition = spec(slow.code);
+  let factories = 0;
+  const pending = startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot: await sandbox(stateRoot),
+    spec: { ...definition, worker: { model: "inherit", maxAttempts: 3 },
+      budget: { ...definition.budget, checkTotalSeconds: 1.5, workerTotalSeconds: 2 } },
+    executorFactory: () => { factories++; return new ProtocolChildExecutor(); } });
+  await processReady(slow.readyPath);
+  const result = await pending;
+  assert.equal(factories, 0);
+  assert.equal(result.preflight?.ok, false);
+  assert.equal(result.execution.acceptance.accepted, false);
+  const report = JSON.parse(await readFile(result.preflight!.artifactPath, "utf8"));
+  assert.equal(report.checks[0].result.spawned, true);
+  assert.equal(report.checks[0].result.status, "timed_out");
+  if (process.platform === "win32" || result.execution.effectsSettled === false) {
+    assert.equal(result.execution.effectsSettled, false);
+    assert.equal(result.execution.loop?.stopReason, "verification-unavailable");
+    assert.match(result.execution.reason, /cleanup unsettled/i);
+    assert.ok((await stat(result.execution.candidatePath)).isDirectory());
+  } else assert.equal(result.execution.loop?.stopReason, "time-budget");
+  assert.equal(await readFile(path.join(sourceRepo, "value.txt"), "utf8"), "original");
+  assert.equal(git(sourceRepo, ["rev-parse", "HEAD"]), revision);
+  assert.equal(git(sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+}));
 
 test("persistence cancellation returns refused evidence and preserves the superseded successful artifact", async () => fixture(async (candidatePath, stateRoot, sourceRevision) => {
   const cancellation = new AbortController();

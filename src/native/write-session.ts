@@ -1,5 +1,6 @@
 import { DEVELOPMENT_CHECK_STORAGE_BYTES, assertDevelopmentCheckInputs, projectDevelopmentCheckFeedback, renderVisibleDevelopmentChecks,
   type DevelopmentCheckPlan, type VisibleCheckFeedback } from "../development/check-plan.js";
+import { NativeWriteTimeBudget, prepareNativePhaseTimeLimits, type NativeWritePhaseTimeLimits, type NativeBaseCheckBudget } from "./write-time-budget.js";
 import { randomUUID } from "node:crypto";
 import { CheckFindingAnalysisOwner, snapshotCheckFindingAnalysis,
   type CheckFindingAnalysis, type CheckFindingAnalysisOptions, type CheckFindingAnalysisProjection } from "./check-finding-analysis.js";
@@ -57,6 +58,8 @@ export interface NativeWriteExecutorFactoryInput {
   readonly onCommandCleanupUnsettled: (result: AuthorizedCommandRunResult) => void;
   /** Host-only synchronous reference telemetry, forwarded to the Pi runtime. */
   readonly onInvocation: (invocation: ModelInvocation) => void;
+  /** Host-only first-preflight accounting; never part of a worker request. */
+  readonly baseCheckBudget?: NativeBaseCheckBudget;
 }
 
 export type NativeWriteExecutorFactory =
@@ -83,6 +86,7 @@ export interface NativeWriteSessionInput {
   readonly maxWallTimeMs?: number;
   /** Explicit per-attempt worker deadline; preparation remains in the total budget. */
   readonly workerTimeoutMs?: number;
+  readonly phaseTimeLimits?: NativeWritePhaseTimeLimits | undefined;
   readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[];
   /** Explicit reporting preferences, copied per execute call; no global preference writes. */
   readonly presentation?: TaskPresentationInput;
@@ -251,7 +255,9 @@ export class NativeWriteSession {
     let presentation: ResolvedTaskPresentation | undefined;
     let taskContext: TaskContextInput | undefined;
     let plannedCheck: ReturnType<typeof prepareNativeCheckPlanInput>;
+    let phaseTimeLimits: NativeWritePhaseTimeLimits | undefined;
     try {
+      phaseTimeLimits = prepareNativePhaseTimeLimits(input);
       // Read only the own data property, before spreading input or awaiting any
       // work. A task cannot smuggle side effects through a presentation getter.
       const descriptor = Object.getOwnPropertyDescriptor(input, "presentation");
@@ -271,6 +277,7 @@ export class NativeWriteSession {
         ...(maxAttempts === undefined ? {} : { maxAttempts }),
         ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs })
       });
+      if (phaseTimeLimits !== undefined && !limits.enabled) limits = Object.freeze({ ...limits, enabled: true });
       // The explicit host deadline also bounds a worker. Attempts-only opt-in
       // keeps the historical worker default; the outer timer never renews.
       workerTimeoutMs = prepareNativeWorkerTimeout(input) ?? (maxWallTimeMs === undefined ? 300_000 : limits.maxWallTimeMs);
@@ -305,7 +312,7 @@ export class NativeWriteSession {
     timer?.unref();
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
-    const operation = this.executeInternal({ ...input, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+    const operation = this.executeInternal({ ...input, phaseTimeLimits, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
       if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
       if (collector === undefined) return { ...result, logicalTaskId };
       let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
@@ -408,6 +415,7 @@ export class NativeWriteSession {
     }
 
     const attempts: NativeWriteAttemptRecord[] = [];
+    const timeBudget = new NativeWriteTimeBudget(input.phaseTimeLimits);
     let previous: NativeWriteFeedback | undefined;
     let checkFeedback: VisibleCheckFeedback | undefined;
     let previousSnapshot: NativeCandidateSnapshot | undefined;
@@ -450,7 +458,7 @@ export class NativeWriteSession {
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector);
+      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector, timeBudget);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
@@ -468,16 +476,21 @@ export class NativeWriteSession {
         // durable. Preserve the completed attempt as historical evidence but
         // never return it as an accepted loop after cancellation. A corrective
         // summary explicitly supersedes the first one; do not silently edit it.
-        if (finalReason !== "cancelled" && finalReason !== "time-budget" && signal.aborted) {
+        if (finalReason !== "cancelled" && finalReason !== "time-budget" && signal.aborted &&
+            (input.phaseTimeLimits === undefined || result.effectsSettled !== false)) {
           finalReason = timedOut() ? "time-budget" : "cancelled";
           artifact = await persist(artifact.id);
         }
         const stopped = finalReason === "cancelled" || finalReason === "time-budget";
-        const finalResult: ExecutionResult = stopped ? { ...result, status: "CANCELLED", reason: finalReason,
-          acceptance: { ...result.acceptance, accepted: false, reason: finalReason } } : result;
+        const reasonText = finalReason === "time-budget" && !timedOut() && timeBudget.exhausted() !== undefined
+          ? `${timeBudget.exhausted()} cumulative time budget exhausted` : finalReason;
+        const finalResult: ExecutionResult = stopped ? { ...result, status: "CANCELLED", reason: reasonText,
+          acceptance: { ...result.acceptance, accepted: false, reason: reasonText } } : result;
         return { ...finalResult, loop: { ...detail(), artifact } };
       };
+      if (input.phaseTimeLimits !== undefined && result.effectsSettled === false) return finish("verification-unavailable");
       if (timedOut()) return finish("time-budget");
+      if (timeBudget.exhausted() !== undefined) return finish("time-budget");
       if (signal.aborted || result.status === "CANCELLED") return finish("cancelled");
       if (result.acceptance.accepted) return finish("accepted");
       const check = result.acceptance.independentCheck;
@@ -511,7 +524,8 @@ export class NativeWriteSession {
     presentation: ResolvedTaskPresentation | undefined,
     objective: string,
     preparedContext: TaskContext | undefined,
-    collector: NativeHostOutcomeCollector | undefined
+    collector: NativeHostOutcomeCollector | undefined,
+    timeBudget: NativeWriteTimeBudget
   ): Promise<ExecutionResult> {
     active.analysis?.setCurrent(undefined);
     const hostAttempt = collector?.beginAttempt();
@@ -525,7 +539,9 @@ export class NativeWriteSession {
     };
     let executor: AgentExecutor;
     try {
+      if (timeBudget.exhausted() !== undefined) throw new DomainValidationError(`${timeBudget.exhausted()} cumulative time budget exhausted before factory`);
       if (preflight.checkPlan !== undefined) assertDevelopmentCheckInputs(preflight.checkPlan, session.worktree.cwd, preflight.verification);
+      const baseCheckBudget = timeBudget.baseCheckBudget();
       executor = await this.options.executorFactory({
         candidatePath: session.worktree.cwd,
         sourceRevision: preflight.revision,
@@ -534,6 +550,7 @@ export class NativeWriteSession {
         signal,
         onCommandCleanupUnsettled,
         onInvocation: hostAttempt?.onInvocation ?? (() => undefined),
+        ...(baseCheckBudget === undefined ? {} : { baseCheckBudget }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
         ...(attempt === undefined ? {} : { attempt }),
         ...(preflight.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: preflight.acceptanceCriteria })
@@ -542,7 +559,7 @@ export class NativeWriteSession {
       if (error instanceof CommandCleanupIncompleteError) onCommandCleanupUnsettled(error.result);
       factoryError = error instanceof Error ? error.message : String(error);
       executor = failedExecutor(factoryError);
-    }
+    } finally { timeBudget.closeBaseCheckBudget(); }
     const factoryStop = stopReason(this.closed, signal);
     if (factoryStop !== undefined) {
       // Once a repair has prior evidence its candidate is never disposed.
@@ -554,7 +571,13 @@ export class NativeWriteSession {
     }
 
     const registry = createAgentProfileRegistry(defaultAgentProfiles());
-    const task = implementerTask(objective, registry, workerTimeoutMs, preflight.acceptanceCriteria, presentation);
+    const selectedWorkerMs = Math.min(workerTimeoutMs, timeBudget.remaining("worker"));
+    if (timeBudget.exhausted() !== undefined && factoryError === undefined) {
+      factoryError = `${timeBudget.exhausted()} cumulative time budget exhausted before worker`;
+      executor = failedExecutor(factoryError);
+    }
+    const task = implementerTask(objective, registry, Math.max(1, selectedWorkerMs), preflight.acceptanceCriteria, presentation);
+    const workerStarted = performance.now();
     const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(executor) ?? executor }, {
       projectRoot: session.worktree.cwd,
       objective,
@@ -564,7 +587,7 @@ export class NativeWriteSession {
     active.running = running;
     const startStop = stopReason(this.closed, signal);
     if (startStop !== undefined) running.cancel();
-    const outcome = await running.done;
+    const outcome = await running.done.finally(() => { if (factoryError === undefined) timeBudget.charge("worker", performance.now() - workerStarted); });
     hostAttempt?.complete(outcome, task.taskId);
     active.running = undefined;
     const taskContract = preflight.acceptanceCriteria === undefined ? undefined : Object.freeze({
@@ -585,6 +608,12 @@ export class NativeWriteSession {
         "command cleanup unsettled; host reconciliation required", {
           runId: outcome.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: outcome.events
         }, unsettledCommand));
+    }
+
+    if (!signal.aborted && timeBudget.exhausted() !== undefined) {
+      return bindContract(await this.failureResult(preflight, session, `${timeBudget.exhausted()} cumulative time budget exhausted`, {
+        runId: outcome.runId, status: "FAILED", events: outcome.events
+      }));
     }
 
     const terminalStop = stopReason(this.closed, signal);
@@ -622,14 +651,18 @@ export class NativeWriteSession {
     }
 
     let checked;
+    const checkStarted = performance.now();
     try {
+      try {
+      const checkTimeoutMs = Math.min(preflight.verification.timeoutMs ?? 60_000, timeBudget.remaining("check"));
+      if (checkTimeoutMs < 1) throw new DomainValidationError("check cumulative time budget exhausted before verification");
       checked = await runClosedLoopCheck({
         session,
         stateRoot: this.options.stateRoot,
         runId: outcome.runId,
         command: preflight.verification.command,
         args: preflight.verification.args,
-        ...(preflight.verification.timeoutMs === undefined ? {} : { timeoutMs: preflight.verification.timeoutMs }),
+        ...(preflight.verification.timeoutMs === undefined && timeBudget.remaining("check") === Infinity ? {} : { timeoutMs: checkTimeoutMs }),
         ...(preflight.verification.trustedVerification === undefined ? {} : { trustedVerification: preflight.verification.trustedVerification }),
         ...(preflight.verification.unsettledExitCodes === undefined ? {} : { unsettledExitCodes: preflight.verification.unsettledExitCodes }),
         requireSettledEffects: true,
@@ -637,6 +670,7 @@ export class NativeWriteSession {
         note: "native isolated write",
         signal
       });
+      } finally { timeBudget.charge("check", performance.now() - checkStarted); }
     } catch (error) {
       collector?.exclude("evaluator-unavailable");
       return bindContract(await this.failureResult(preflight, session, `${signal.aborted ? "cancelled; " : ""}independent verification failed: ${error instanceof Error ? error.message : String(error)}`, {
@@ -655,6 +689,8 @@ export class NativeWriteSession {
       }));
     }
     const result = acceptedResult(preflight, session, checked, outcome.runId, outcome.events.length);
+    if (timeBudget.exhausted() !== undefined) return bindContract({ ...result, status: "FAILED", reason: "check cumulative time budget exhausted",
+      acceptance: { ...result.acceptance, accepted: false, reason: "check cumulative time budget exhausted" } });
     const descriptor = preflight.verification.trustedVerification;
     if (descriptor === undefined) return bindContract(result);
     const projection = findingsFromIndependentCheck({ check: checked.check, trustedVerification: descriptor,
