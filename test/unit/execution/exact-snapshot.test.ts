@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { captureExactSnapshot, sameExactSnapshot } from "../../../src/execution/exact-snapshot.js";
+import { captureExactSnapshot, sameExactSnapshot, sameExactSnapshotContents } from "../../../src/execution/exact-snapshot.js";
 
 function fixture(t: { after(fn: () => void): void }): string {
   const root = fs.mkdtempSync(path.join(tmpdir(), "sparkle-exact-"));
@@ -248,4 +248,22 @@ test("parent replacement while reading fails closed", (t) => {
     return result;
   });
   assert.throws(() => captureExactSnapshot(root), /changed|identity|unstable/i);
+});
+
+test("cross-root content comparison keeps identity checks and exact scope/bytes distinct", (t) => {
+  const left = fixture(t);
+  const right = fixture(t);
+  for (const root of [left, right]) {
+    fs.mkdirSync(path.join(root, "checks"));
+    fs.writeFileSync(path.join(root, "checks", "guard"), "first\n", "utf8");
+  }
+  const manifest = { includePrefixes: ["checks"] };
+  const original = captureExactSnapshot(left, manifest);
+  const peer = captureExactSnapshot(right, manifest);
+  assert.equal(sameExactSnapshot(original, peer), false, "content equality cannot establish root identity");
+  assert.equal(sameExactSnapshotContents(original, peer), true);
+  assert.equal(sameExactSnapshotContents({ ...original }, peer), false, "serialized/copied handles are not observations");
+  assert.equal(sameExactSnapshotContents(original, captureExactSnapshot(right)), false, "scope remains part of equality");
+  fs.writeFileSync(path.join(right, "checks", "guard"), "first\r\n", "utf8");
+  assert.equal(sameExactSnapshotContents(original, captureExactSnapshot(right, manifest)), false);
 });

@@ -1,18 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { parseRunId } from "../domain/ids.js";
 import { loopArtifactPath, readLoopArtifact } from "../execution/loop-artifact.js";
-import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { runIndependentCheck } from "../execution/independent-check.js";
+import { captureExactSnapshot, sameExactSnapshotContents } from "../execution/exact-snapshot.js";
 import { CommandCleanupIncompleteError } from "../execution/command-runner.js";
-import { resolveInsideRoot } from "../execution/paths.js";
 import { createIsolatedWorktree, disposeIsolatedWorktree } from "../execution/worktree.js";
-import { prepareTrustedVerification } from "../execution/trusted-verification.js";
 import { NativeWriteSession, type NativeWriteExecutorFactory, type NativeWriteSessionInput } from "../native/write-session.js";
 import { prepareNativeWriteLoopLimits } from "../native/write-loop.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -23,6 +20,7 @@ import { canonicalizeStableJson } from "../domain/canonical-json.js";
 import { WorkItemStore, type WorkItemClaimResult, type WorkItemVerificationContext } from "./work-item-store.js";
 import { validateWorkItemEvidence, workItemScope, type WorkItemDefinition, type WorkItemEvidence, type WorkQueue } from "./work-items.js";
 import { UNSETTLED_RECIPE_EXIT_CODE } from "./recipe-check.js";
+import { assertDevelopmentScope, prepareScopedDevelopmentVerification, scopedDevelopmentExecutorFactory } from "./task-policy.js";
 
 export interface DevelopmentControllerOptions {
   readonly sourceRepo: string;
@@ -98,34 +96,6 @@ function unresolvedEffect(actions: readonly ActionRecord[], item: WorkItemDefini
 function protectedPaths(item: WorkItemDefinition): readonly string[] {
   return [...new Set(item.acceptance.flatMap((recipe) => recipe.protectedPaths ?? []))];
 }
-function canonicalMutationPath(candidate: string, relative: string): string {
-  const root = realpathSync(candidate);
-  let ancestor = resolveInsideRoot(candidate, relative);
-  const missing: string[] = [];
-  for (;;) {
-    try {
-      const canonical = path.resolve(realpathSync(ancestor), ...missing.reverse());
-      resolveInsideRoot(root, canonical);
-      return path.relative(root, canonical).replaceAll("\\", "/");
-    } catch (error) {
-      if (!(error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
-      const parent = path.dirname(ancestor);
-      if (parent === ancestor) throw error;
-      missing.push(path.basename(ancestor));
-      ancestor = parent;
-    }
-  }
-}
-function assertMutationScope(candidate: string, raw: unknown, item: WorkItemDefinition): void {
-  const relative = raw !== null && typeof raw === "object" && "path" in raw ? (raw as { path: unknown }).path : undefined;
-  if (typeof relative !== "string" || relative.includes("\\") || path.posix.isAbsolute(relative) ||
-      relative.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
-      !under(relative, item.allowedScope) || under(relative, protectedPaths(item))) fail("write outside task scope or into protected verifier dependency refused");
-  // Check existing targets and the nearest existing parent of new writes.
-  // Independent filesystem writers can still race this pre-mutation check.
-  const canonical = canonicalMutationPath(candidate, relative);
-  if (!under(canonical, item.allowedScope) || under(canonical, protectedPaths(item))) fail("write outside task scope or into protected verifier dependency refused");
-}
 function assertRecipePolicy(item: WorkItemDefinition): void {
   for (const recipe of item.acceptance) {
     const first = recipe.args[0];
@@ -141,10 +111,8 @@ function unchangedProtected(cwd: string, base: string, current: string, item: Wo
   return paths.length === 0 || spawnSync("git", ["diff", "--quiet", base, current, "--", ...paths],
     { cwd, windowsHide: true }).status === 0;
 }
-function assertScope(candidate: string, item: WorkItemDefinition): void {
-  if (captureWorktreeFingerprint(candidate).entries.some((entry) => !under(entry.path, item.allowedScope) || under(entry.path, protectedPaths(item)))) {
-    fail("candidate changed paths outside task scope or inside protected verifier dependencies");
-  }
+function assertScope(candidate: string, item: WorkItemDefinition, baseRevision: string): void {
+  assertDevelopmentScope(candidate, { allowedScope: item.allowedScope, protectedPaths: protectedPaths(item) }, baseRevision);
 }
 function verification(item: WorkItemDefinition) {
   assertRecipePolicy(item);
@@ -153,13 +121,13 @@ function verification(item: WorkItemDefinition) {
   const checker = fileURLToPath(new URL(`./recipe-check${suffix}`, import.meta.url));
   const args = [...(sourceMode ? ["--import", import.meta.resolve("tsx")] : []), checker, JSON.stringify(item.acceptance)];
   const command = process.execPath;
-  const trustedVerification = prepareTrustedVerification({ command, args,
+  const scopedVerification = prepareScopedDevelopmentVerification({ command, args,
     checkerFiles: [checker, fileURLToPath(new URL(`../execution/command-runner${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`./work-items${suffix}`, import.meta.url)),
       fileURLToPath(new URL(`../domain/errors${suffix}`, import.meta.url))],
-    snapshotManifest: { includePrefixes: protectedPaths(item), optionalIncludePrefixes: item.allowedScope },
+    scopePolicy: { protectedPaths: protectedPaths(item), allowedScope: item.allowedScope },
     maxSnapshotFiles: 1024, maxSnapshotBytes: 16 * 1024 * 1024 });
-  return { command, args, trustedVerification, unsettledExitCodes: [UNSETTLED_RECIPE_EXIT_CODE] };
+  return { ...scopedVerification, unsettledExitCodes: [UNSETTLED_RECIPE_EXIT_CODE] };
 }
 function parseReceipt(action: ActionRecord): EffectReceipt {
   if (action.resultCanonicalJson === undefined) fail("action has no completed effect receipt");
@@ -248,7 +216,7 @@ export class DevelopmentController {
       if (git(view.cwd, ["rev-parse", "HEAD"]) !== revision) return false;
       const check = await this.checkWorkspace(item, view.cwd, signal);
       checkCancellation(signal);
-      assertScope(view.cwd, item);
+      assertScope(view.cwd, item, revision);
       return check.ok && git(this.options.sourceRepo, ["rev-parse", "HEAD"]) === revision;
     } catch (error) {
       if (error instanceof CommandCleanupIncompleteError) {
@@ -288,11 +256,34 @@ export class DevelopmentController {
     // not unlock dependent work against an unchanged source checkout.
     if (currentSource !== context.claim.baseRevision) return this.verifyIntegrated(
       { ...context.item, acceptance: [context.recipe] }, currentSource, signal, context.claim.baseRevision);
-    assertScope(candidate, context.item);
-    const check = await this.checkWorkspace({ ...context.item, acceptance: [context.recipe] }, candidate, signal);
+    const paths = protectedPaths(context.item);
+    // Reconstruct from the existing claim revision, including after restart.
+    // Git status alone can hide byte changes behind clean/text normalization.
+    const referenceRoot = path.join(runtimeRoot(this.options.stateRoot), 'development', 'checks');
+    if (paths.length > 0) await mkdir(referenceRoot, { recursive: true });
     checkCancellation(signal);
-    assertScope(candidate, context.item);
-    return check.ok && git(source, ["rev-parse", "HEAD"]) === currentSource;
+    const reference = paths.length === 0 ? undefined : await createIsolatedWorktree({
+      sourceRepo: source, ref: context.claim.baseRevision, sandboxRoot: referenceRoot });
+    try {
+      checkCancellation(signal);
+      const manifest = { includePrefixes: paths };
+      const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
+      const original = reference === undefined ? undefined : captureExactSnapshot(reference.cwd, manifest, limits);
+      const assertProtected = (): void => {
+        if (original !== undefined && !sameExactSnapshotContents(original, captureExactSnapshot(candidate, manifest, limits))) {
+          fail("protected candidate bytes differ from the claimed source revision");
+        }
+      };
+      assertScope(candidate, context.item, context.claim.baseRevision);
+      assertProtected();
+      const check = await this.checkWorkspace({ ...context.item, acceptance: [context.recipe] }, candidate, signal);
+      checkCancellation(signal);
+      assertScope(candidate, context.item, context.claim.baseRevision);
+      assertProtected();
+      return check.ok && git(source, ["rev-parse", "HEAD"]) === currentSource;
+    } finally {
+      if (reference !== undefined) await disposeIsolatedWorktree(reference);
+    }
   }
 
   async runNext(input: Pick<NativeWriteSessionInput, "maxAttempts" | "maxWallTimeMs" | "signal"> = {}): Promise<DevelopmentResult> {
@@ -370,7 +361,8 @@ export class DevelopmentController {
       actionId = actionClaim.actionId;
       checkCancellation(options.signal);
       const checker = verification(selected.item);
-      const factory = this.options.executorFactory;
+      const factory = scopedDevelopmentExecutorFactory(this.options.executorFactory,
+        { allowedScope: selected.item.allowedScope, protectedPaths: protectedPaths(selected.item) }, checker);
       const session = new NativeWriteSession({ stateRoot: this.options.stateRoot,
         ...(this.options.sandboxRoot === undefined ? {} : { sandboxRoot: this.options.sandboxRoot }),
         executorFactory: async (context) => {
@@ -380,13 +372,7 @@ export class DevelopmentController {
             references: [candidatePath, context.sourceRevision] }, result: { candidatePath, sourceRevision: context.sourceRevision,
               itemId: selected.item.id, claimToken: selected.token } });
           checkCancellation(options.signal);
-          const tools = context.tools.map((tool) => tool.name !== "sparkle_write_file" && tool.name !== "sparkle_patch_file" ? tool : {
-            ...tool, execute: (id: string, raw: unknown, signal?: AbortSignal) => {
-              assertMutationScope(context.candidatePath, raw, selected.item);
-              return tool.execute(id, raw, signal);
-            }
-          });
-          const executor = await factory({ ...context, tools });
+          const executor = await factory(context);
           checkCancellation(options.signal);
           const guarded: AgentExecutor = {
             ...(executor.supportedModelIds === undefined ? {} : { supportedModelIds: executor.supportedModelIds }),
@@ -394,7 +380,7 @@ export class DevelopmentController {
             async *execute(request, signal) {
               checkCancellation(options.signal);
               yield* executor.execute(request, signal);
-              assertScope(context.candidatePath, selected.item);
+
             }
           };
           return guarded;
@@ -419,7 +405,7 @@ export class DevelopmentController {
         return { status: "needs-reconciliation", itemId: selected.item.id, actionId,
           candidatePath: result.candidatePath, reason };
       }
-      assertScope(result.candidatePath, selected.item);
+      assertScope(result.candidatePath, selected.item, selected.claim.baseRevision);
       const checkId = result.acceptance.independentCheck?.checkId;
       const evidence: WorkItemEvidence[] = result.acceptance.accepted && checkId !== undefined
         ? selected.item.acceptance.map((recipe) => ({ source: "host-command", workItemId: selected.item.id,

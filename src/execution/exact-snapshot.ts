@@ -443,8 +443,14 @@ export function captureExactSnapshot(
 export function sameExactSnapshot(a: ExactSnapshot, b: ExactSnapshot): boolean {
   const left = snapshots.get(a);
   const right = snapshots.get(b);
-  if (!left || !right || left.root !== right.root || left.scope !== right.scope
-    || left.entries.length !== right.entries.length) return false;
+  return !!left && !!right && left.root === right.root && sameExactSnapshotContents(a, b);
+}
+
+/** Compare selected bytes/modes across roots; does not establish worktree identity. */
+export function sameExactSnapshotContents(a: ExactSnapshot, b: ExactSnapshot): boolean {
+  const left = snapshots.get(a);
+  const right = snapshots.get(b);
+  if (!left || !right || left.scope !== right.scope || left.entries.length !== right.entries.length) return false;
   return left.entries.every((entry, index) => {
     const other = right.entries[index]!;
     return entry.relativePath === other.relativePath && entry.mode === other.mode

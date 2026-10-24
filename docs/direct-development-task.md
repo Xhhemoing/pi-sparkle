@@ -40,6 +40,41 @@ verification; worker output and repair feedback do not grant command authority.
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
+An optional host `scopePolicy` shares the Controller's literal path rules:
+
+```ts
+import { prepareScopedDevelopmentVerification } from "./dist/development/task-policy.js";
+
+const scopePolicy = { allowedScope: ["src", "test/new-case.ts"], protectedPaths: ["checks"] };
+const verification = prepareScopedDevelopmentVerification({
+  command: trustedChecker, args: trustedArguments,
+  checkerFiles: hostCheckerFiles, scopePolicy
+});
+const result = await startDevelopmentTask({
+  stateRoot, sandboxRoot, sourceRepo, objective,
+  scopePolicy, verification, executorFactory, signal
+});
+```
+
+The policy uses repository-relative literal prefixes, without glob or shell
+expansion. Both arrays are snapshotted before asynchronous work. The host must
+list all protected checker dependencies; these must exist before the executor
+factory is called. Allowed paths may be absent. Actual owned write/patch tools
+refuse outside or protected paths before changing bytes. An existing exact
+in-process observation of protected files is retained across repair attempts;
+final protected changes, including ignored additions and Git-normalized byte
+changes, refuse acceptance. Changes from the initial revision to candidate HEAD are checked alongside the working tree, so committing a changed file cannot remove it from scope validation. Valid in-scope commits remain allowed by this direct entry.
+This does not contain arbitrary filesystem, network or MCP effects outside the
+observed scope, or detect a transient change restored before observation.
+
+The helper explicitly issues the existing trusted verification capability. A
+caller may supply its own original capability with the same required protected
+and optional allowed prefixes, without exclusions or allowed output directories.
+Verifier fields must be ordinary own data values and are copied once for policy matching and execution. Mismatched or copied descriptors are rejected; the task never silently replaces
+the caller's verifier. Calls without `scopePolicy` keep their existing
+workspace-root tool behavior. These deep imports are experimental; this is not
+the complete TaskSpec, preparation or budget interface.
+
 For a bounded subtask inside a larger project, the host can use this same entry
 with one Pi worker; a separate project queue or recursive planner is unnecessary.
 Choose this path when the objective, permitted edits and independent check are

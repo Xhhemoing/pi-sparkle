@@ -9,9 +9,13 @@ import {
 import { DomainValidationError } from "../domain/errors.js";
 import { snapshotTaskPresentation, type TaskPresentationInput } from "../preferences/task-presentation.js";
 import { snapshotNativeHostEvaluator, type NativeHostEvaluator } from "../native/host-outcome.js";
+import { scopedDevelopmentExecutorFactory, snapshotDevelopmentVerification, type DevelopmentScopePolicy } from "./task-policy.js";
 
 /** Experimental host input; no queue, budget or automatic source application. */
-export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, NativeWriteSessionInput {}
+export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, NativeWriteSessionInput {
+  /** Host-selected literal scope, with a matching original trusted verifier. */
+  readonly scopePolicy?: DevelopmentScopePolicy;
+}
 
 /**
  * Run one isolated development task using the existing native-write authority.
@@ -43,14 +47,25 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     throw new DomainValidationError("check finding analysis must be an own data property");
   }
   const checkFindingAnalysis = snapshotCheckFindingAnalysis(analysisDescriptor?.value as CheckFindingAnalysisOptions | undefined);
+  const scopeDescriptor = Object.getOwnPropertyDescriptor(input, "scopePolicy");
+  if ((scopeDescriptor === undefined && "scopePolicy" in input) || (scopeDescriptor !== undefined && !("value" in scopeDescriptor))) {
+    throw new DomainValidationError("scope policy must be an own data property");
+  }
+  const scopePolicy = scopeDescriptor?.value as DevelopmentScopePolicy | undefined;
+  const verificationDescriptor = Object.getOwnPropertyDescriptor(input, "verification");
+  if (scopePolicy !== undefined && (verificationDescriptor === undefined || !("value" in verificationDescriptor))) {
+    throw new DomainValidationError("scoped verification must be an own data property");
+  }
   const { stateRoot, executorFactory, sandboxRoot, hostEvaluator: _hostEvaluator, checkFindingAnalysis: _analysis,
-    presentation: _presentation, taskContext: _taskContext, ...task } = input;
-  const session = new NativeWriteSession({ stateRoot, executorFactory,
+    presentation: _presentation, taskContext: _taskContext, scopePolicy: _scopePolicy, ...task } = input;
+  const verification = scopePolicy === undefined ? task.verification : snapshotDevelopmentVerification(task.verification);
+  const selectedFactory = scopePolicy === undefined ? executorFactory : scopedDevelopmentExecutorFactory(executorFactory, scopePolicy, verification);
+  const session = new NativeWriteSession({ stateRoot, executorFactory: selectedFactory,
     ...(hostEvaluator === undefined ? {} : { hostEvaluator }),
     ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
-    return await session.execute({ ...task, ...(presentation === undefined ? {} : { presentation }),
+    return await session.execute({ ...task, verification, ...(presentation === undefined ? {} : { presentation }),
       ...(taskContext === undefined ? {} : { taskContext }) });
   } finally {
     await session.shutdown();
