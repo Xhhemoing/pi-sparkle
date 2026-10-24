@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath } from "node:fs/promises";
+import { findPackageJSON } from "node:module";
 import path from "node:path";
 import { test } from "node:test";
-import { InMemoryCredentialStore, Type, createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, normalizeContext,
+import { pathToFileURL } from "node:url";
+import { InMemoryCredentialStore, Type, createModels, fauxAssistantMessage, fauxProvider, fauxToolCall,
   type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager, type ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createControlledCodingSession } from "../../../src/pi-adapter/coding-session.js";
@@ -14,6 +16,32 @@ import { createNativeExecutor } from "../../../src/pi-adapter/native-executor.js
 import { createWorktreeCodingTools } from "../../../src/pi-adapter/worktree-coding-tools.js";
 import type { AgentExecutor } from "../../../src/execution/contract.js";
 import type { NativeWriteExecutorFactoryInput } from "../../../src/native/write-session.js";
+
+type SdkProvider = Parameters<ModelRuntime["registerNativeProvider"]>[0];
+type SdkModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
+type SdkMessage = Awaited<ReturnType<ModelRuntime["completeSimple"]>>;
+type SdkStream = ReturnType<ModelRuntime["streamSimple"]>;
+// A public fixture ABI derived from the SDK's own types, including its nominal stream.
+// The module is resolved from that SDK's real dependency tree, never the app's AI import.
+interface HostAiBaseline {
+  fauxProvider(input: { provider: string; models: { id: string; reasoning: boolean }[] }): {
+    readonly provider: SdkProvider; readonly state: { readonly callCount: number };
+    getModel(id?: string): SdkModel | undefined; setResponses(responses: SdkMessage[]): void;
+  };
+  fauxAssistantMessage(content: string): SdkMessage;
+  AssistantMessageEventStream: new () => SdkStream;
+}
+async function publicPackage(specifier: string, base: string) {
+  const located = findPackageJSON(specifier, base); assert.ok(located);
+  const packageJson = await realpath(located);
+  const manifest = JSON.parse(await readFile(packageJson, "utf8")) as {
+    name: string; version: string; exports: Record<string, string | { import: string }>;
+  };
+  assert.equal(manifest.name, specifier);
+  const root = manifest.exports["."]; assert.ok(root);
+  const entry = await realpath(path.resolve(path.dirname(packageJson), typeof root === "string" ? root : root.import));
+  return { version: manifest.version, packageJson, entryUrl: pathToFileURL(entry).href };
+}
 
 function resources(): ResourceLoader {
   return { getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
@@ -43,19 +71,33 @@ async function drain(executor: AgentExecutor, root: string) {
     workingDirectory: root, prompt: "One synthetic local response" }, new AbortController().signal)) { /* Complete actual SDK settlement. */ }
 }
 
-test("direct SDK and controlled SDK preserve identical explicitly approved thinking budgets on the actual wire", async () => {
-  const root = await cwd(), f = local([fauxAssistantMessage("direct"), fauxAssistantMessage("controlled")]);
+test("direct SDK and controlled SDK preserve identical explicitly approved thinking budgets on the actual wire", async (t) => {
+  const root = await cwd(), f = local([fauxAssistantMessage("controlled")]);
   const budgets = { minimal: 0, low: -1, medium: 1.5, high: 1234 };
+  const sdkPackage = await publicPackage("@earendil-works/pi-coding-agent", import.meta.url);
+  const hostAiPackage = await publicPackage("@earendil-works/pi-ai", sdkPackage.entryUrl);
+  assert.equal(hostAiPackage.version, sdkPackage.version, "baseline AI must be the SDK-owned pinned family version");
+  t.diagnostic(JSON.stringify({ sdkPackage, hostAiPackage }));
+  const hostAi: HostAiBaseline = await import(hostAiPackage.entryUrl);
+  const directProvider = hostAi.fauxProvider({ provider: f.model.provider, models: [{ id: f.model.id, reasoning: true }] });
+  const directModel = directProvider.getModel(); assert.ok(directModel);
+  directProvider.setResponses([hostAi.fauxAssistantMessage("direct")]);
+  const directWires: { reasoning: SimpleStreamOptions["reasoning"]; thinkingBudgets: SimpleStreamOptions["thinkingBudgets"] }[] = [];
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false });
   const refresh = runtime.refresh.bind(runtime), registrations: ReturnType<ModelRuntime["refresh"]>[] = [];
-  runtime.refresh = (options = {}) => { const pending = refresh({ ...options, providers: [f.model.provider], allowNetwork: false }); registrations.push(pending); return pending; };
-  runtime.registerNativeProvider({ id: f.model.provider, name: "Local only", getModels: () => [f.model],
+  runtime.refresh = (options = {}) => { const pending = refresh({ ...options, providers: [directModel.provider], allowNetwork: false }); registrations.push(pending); return pending; };
+  runtime.registerNativeProvider({ id: directModel.provider, name: "Local only", getModels: () => [directModel],
     auth: { apiKey: { name: "Local", check: async () => ({ type: "api_key", source: "local" }), resolve: async () => ({ auth: {} }) } },
     stream: () => { throw Error("the independent SDK baseline must use its public simple-stream path"); },
-    streamSimple: (selected, context, options) => f.stream(selected, normalizeContext({ messages: context.messages }), options) });
+    streamSimple: (selected, context, options) => {
+      directWires.push({ reasoning: options?.reasoning, thinkingBudgets: options?.thinkingBudgets === undefined ? undefined : { ...options.thinkingBudgets } });
+      const stream = directProvider.provider.streamSimple(selected, context, options);
+      assert.ok(stream instanceof hostAi.AssistantMessageEventStream, "baseline must return the original SDK-owned AI stream");
+      return stream;
+    } });
   await Promise.all(registrations);
   // Independent baseline: only the public SDK factory/settings, with no Sparkle snapshot helper.
-  const { session: direct } = await createAgentSession({ cwd: root, modelRuntime: runtime, model: f.model, thinkingLevel: "high", tools: [],
+  const { session: direct } = await createAgentSession({ cwd: root, modelRuntime: runtime, model: directModel, thinkingLevel: "high", tools: [],
     resourceLoader: resources(), sessionManager: SessionManager.inMemory(root), settingsManager: SettingsManager.inMemory({ thinkingBudgets: budgets,
       retry: { enabled: false, provider: { maxRetries: 0 } }, compaction: { enabled: false }, cacheWarming: "off" }) });
   const controlled = await createControlledCodingSession({ cwd: root, model: f.model, thinkingLevel: "high", systemPrompt: "LOCAL THINKING CONFIGURATION",
@@ -63,8 +105,9 @@ test("direct SDK and controlled SDK preserve identical explicitly approved think
   try {
     await direct.prompt("One local response"); await direct.waitForIdle();
     await controlled.prompt("One local response"); await controlled.waitForIdle();
-    assert.equal(f.faux.state.callCount, 2); assert.equal(f.wires[0]!.reasoning, "high");
-    assert.deepEqual(f.wires[0]!.thinkingBudgets, budgets); assert.deepEqual(f.wires[1], f.wires[0]);
+    assert.equal(directProvider.state.callCount, 1); assert.equal(f.faux.state.callCount, 1);
+    assert.equal(directWires.length, 1); assert.equal(f.wires.length, 1); assert.equal(directWires[0]!.reasoning, "high");
+    assert.deepEqual(directWires[0]!.thinkingBudgets, budgets); assert.deepEqual(f.wires[0], directWires[0]);
   } finally { await direct.abort(); await direct.waitForIdle(); direct.dispose(); controlled.dispose(); }
 });
 
