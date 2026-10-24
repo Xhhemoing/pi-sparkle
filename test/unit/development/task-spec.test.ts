@@ -27,6 +27,19 @@ test("TaskSpec preserves optional repair and cumulative time limits without chan
   assert.equal(actual.budget.checkSeconds, original.budget.checkSeconds);
 });
 
+test("TaskSpec budget.usd preserves positive finite reference allowance including sub-microdollars", () => {
+  for (const usd of [1, 0.1, 1e-7, Number.MIN_VALUE]) {
+    const sample = { ...valid(), budget: { ...valid().budget, usd } };
+    const actual = snapshotDevelopmentTaskSpec(sample);
+    assert.equal((actual.budget as unknown as { usd: number }).usd, usd);
+    assert.deepEqual(parseDevelopmentTaskSpec(JSON.stringify(sample)), actual);
+  }
+  for (const usd of [0, -1, NaN, Infinity, "1", null]) invalid((value) => ({ ...value, budget: { ...value.budget, usd } }));
+  let reads = 0;
+  const accessor = Object.defineProperty(valid().budget, "usd", { get() { reads++; return 1; } });
+  assert.throws(() => snapshotDevelopmentTaskSpec({ ...valid(), budget: accessor })); assert.equal(reads, 0);
+});
+
 test("TaskSpec validates optional cumulative durations and repair count as ordinary data", () => {
   for (const count of [0, 6, 1.1, NaN, Infinity]) {
     assert.throws(() => snapshotDevelopmentTaskSpec({ ...valid(), worker: { model: "inherit", maxAttempts: count } }));

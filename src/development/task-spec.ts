@@ -17,7 +17,7 @@ export interface DevelopmentTaskSpec {
   readonly prepare: readonly DevelopmentTaskPreparation[];
   readonly checks: readonly DevelopmentTaskCheck[];
   readonly budget: { readonly totalSeconds: number; readonly prepareSeconds: number; readonly checkSeconds: number; readonly workerSeconds: number;
-    readonly workerTotalSeconds?: number; readonly checkTotalSeconds?: number };
+    readonly workerTotalSeconds?: number; readonly checkTotalSeconds?: number; readonly usd?: number };
   readonly worker: { readonly model: "inherit"; readonly maxAttempts?: number };
 }
 
@@ -29,7 +29,7 @@ function record(value: unknown, allowed: readonly string[]): Record<string, unkn
   const copied = Object.create(null) as Record<string, unknown>;
   for (const key of Reflect.ownKeys(value)) {
     const property = Object.getOwnPropertyDescriptor(value, key)!;
-    if (typeof key !== "string" || !allowed.includes(key)) fail(`unsupported field ${String(key)} (USD and shell run are unsupported)`);
+    if (typeof key !== "string" || !allowed.includes(key)) fail(`unsupported field ${String(key)} (shell run is unsupported)`);
     if (!("value" in property)) fail("fields must be own data properties, not accessors");
     copied[key] = property.value;
   }
@@ -129,7 +129,8 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
     return { recipe, expect };
   });
   const plan = snapshotDevelopmentCheckPlan({ checks: checked.map((check) => check.recipe) });
-  const budget = record(raw.budget, ["totalSeconds", "prepareSeconds", "checkSeconds", "workerSeconds", "workerTotalSeconds", "checkTotalSeconds"]);
+  const budget = record(raw.budget, ["totalSeconds", "prepareSeconds", "checkSeconds", "workerSeconds", "workerTotalSeconds", "checkTotalSeconds", "usd"]);
+  if (budget.usd !== undefined && (typeof budget.usd !== "number" || !Number.isFinite(budget.usd) || budget.usd <= 0)) fail("budget.usd must be positive and finite");
   const worker = raw.worker === undefined ? { model: "inherit" } : record(raw.worker, ["model", "maxAttempts"]);
   if (worker.model !== "inherit") fail("worker model must inherit; explicit model selection is unsupported");
   if (worker.maxAttempts !== undefined && (!Number.isSafeInteger(worker.maxAttempts) || Number(worker.maxAttempts) < 1 || Number(worker.maxAttempts) > 5)) fail("worker maxAttempts must be an integer from 1 to 5");
@@ -138,7 +139,8 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
     budget: { totalSeconds: duration(budget.totalSeconds), prepareSeconds: duration(budget.prepareSeconds),
       checkSeconds: duration(budget.checkSeconds), workerSeconds: duration(budget.workerSeconds),
       ...(budget.workerTotalSeconds === undefined ? {} : { workerTotalSeconds: duration(budget.workerTotalSeconds) }),
-      ...(budget.checkTotalSeconds === undefined ? {} : { checkTotalSeconds: duration(budget.checkTotalSeconds) }) },
+      ...(budget.checkTotalSeconds === undefined ? {} : { checkTotalSeconds: duration(budget.checkTotalSeconds) }),
+      ...(budget.usd === undefined ? {} : { usd: budget.usd as number }) },
     worker: { model: "inherit", ...(worker.maxAttempts === undefined ? {} : { maxAttempts: worker.maxAttempts as number }) } });
 }
 

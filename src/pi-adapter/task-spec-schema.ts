@@ -51,7 +51,8 @@ export const developmentTaskSpecSchema = Type.Object({
   checks: Type.Array(check, { minItems: 1, maxItems: 8 }),
   budget: Type.Object({
     totalSeconds: duration, prepareSeconds: duration, checkSeconds: duration, workerSeconds: duration,
-    workerTotalSeconds: Type.Optional(duration), checkTotalSeconds: Type.Optional(duration)
+    workerTotalSeconds: Type.Optional(duration), checkTotalSeconds: Type.Optional(duration),
+    usd: Type.Optional(Type.Number({ exclusiveMinimum: 0, description: "One positive finite model-reference USD allowance across all repair attempts in this invocation. Incomplete usage stops successors; this is not a provider bill or cross-process resume authority." }))
   }, { additionalProperties: false }),
   worker: Type.Optional(Type.Object({
     model: Type.Literal("inherit"), maxAttempts: Type.Optional(Type.Integer({ minimum: 1, maximum: 5, default: 1 }))
@@ -60,5 +61,5 @@ export const developmentTaskSpecSchema = Type.Object({
   $schema: "https://json-schema.org/draft/2020-12/schema",
   title: "pi-sparkle experimental TaskSpec v1 input",
   additionalProperties: false,
-  description: "JSON authoring aid only. Defaults are annotations; the parser performs normalization. The strict parser additionally enforces own-data objects/arrays, Proxy/getter/hole refusal, UTF-8 JSON input <=64 KiB, whole-millisecond precision, unique preparation/check ids, combined recipe timeout <=40000 ms and complete structured-output capacity. Runtime checks enforce actual files/context, links, protection coverage and unchanged bytes, source freshness and the named business failure assertion. This schema proves no filesystem access, command safety, resource settlement or execution authority. String bounds follow parser UTF-16 lengths; JSON Schema consumers may count Unicode characters differently. USD and shell run fields are unsupported."
+  description: "JSON authoring aid only. Defaults are annotations; the parser performs normalization. The strict parser additionally enforces own-data objects/arrays, Proxy/getter/hole refusal, UTF-8 JSON input <=64 KiB, whole-millisecond precision, unique preparation/check ids, combined recipe timeout <=40000 ms and complete structured-output capacity. Runtime checks enforce actual files/context, links, protection coverage and unchanged bytes, source freshness and the named business failure assertion. This schema proves no filesystem access, command safety, resource settlement or execution authority. String bounds follow parser UTF-16 lengths; JSON Schema consumers may count Unicode characters differently. Shell run fields are unsupported."
 });

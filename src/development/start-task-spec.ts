@@ -41,6 +41,7 @@ export async function startDevelopmentTaskSpec(input: StartDevelopmentTaskSpecIn
       objective: spec.objective, scopePolicy, checkPlan: planned.checkPlan, verification, signal,
       maxWallTimeMs: remainingMs, workerTimeoutMs: Math.round(spec.budget.workerSeconds * 1000),
       maxAttempts: spec.worker.maxAttempts ?? 1,
+      ...(spec.budget.usd === undefined ? {} : { referenceUsdBudget: spec.budget.usd }),
       ...((spec.budget.workerTotalSeconds === undefined && spec.budget.checkTotalSeconds === undefined) ? {} : { phaseTimeLimits: {
         ...(spec.budget.workerTotalSeconds === undefined ? {} : { workerTotalMs: Math.round(spec.budget.workerTotalSeconds * 1000) }),
         ...(spec.budget.checkTotalSeconds === undefined ? {} : { checkTotalMs: Math.round(spec.budget.checkTotalSeconds * 1000) }) } }),

@@ -1,7 +1,9 @@
 import { DEVELOPMENT_CHECK_STORAGE_BYTES, assertDevelopmentCheckInputs, projectDevelopmentCheckFeedback, renderVisibleDevelopmentChecks,
   type DevelopmentCheckPlan, type VisibleCheckFeedback } from "../development/check-plan.js";
 import { NativeWriteTimeBudget, prepareNativePhaseTimeLimits, type NativeWritePhaseTimeLimits, type NativeBaseCheckBudget } from "./write-time-budget.js";
+import { NativeWriteCostBudget, prepareNativeReferenceUsdBudget, type NativeExecutionCostBudget, type NativeWriteCostSummary } from "./write-cost-budget.js";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { CheckFindingAnalysisOwner, snapshotCheckFindingAnalysis,
   type CheckFindingAnalysis, type CheckFindingAnalysisOptions, type CheckFindingAnalysisProjection } from "./check-finding-analysis.js";
 import { findingsFromIndependentCheck, type BoundCheckFinding } from "../execution/check-findings.js";
@@ -60,6 +62,8 @@ export interface NativeWriteExecutorFactoryInput {
   readonly onInvocation: (invocation: ModelInvocation) => void;
   /** Host-only first-preflight accounting; never part of a worker request. */
   readonly baseCheckBudget?: NativeBaseCheckBudget;
+  /** Private, single-attempt cost callback and remaining logical-task reference allowance. */
+  readonly executionCostBudget?: NativeExecutionCostBudget;
 }
 
 export type NativeWriteExecutorFactory =
@@ -87,6 +91,8 @@ export interface NativeWriteSessionInput {
   /** Explicit per-attempt worker deadline; preparation remains in the total budget. */
   readonly workerTimeoutMs?: number;
   readonly phaseTimeLimits?: NativeWritePhaseTimeLimits | undefined;
+  /** Positive finite reference USD allowance shared by every repair in this execute call. */
+  readonly referenceUsdBudget?: number | undefined;
   readonly acceptanceCriteria?: readonly NativeWriteAcceptanceCriterion[];
   /** Explicit reporting preferences, copied per execute call; no global preference writes. */
   readonly presentation?: TaskPresentationInput;
@@ -117,6 +123,7 @@ export interface NativeWriteSessionResult {
   /** Absent on historical/settled results; false requires host reconciliation. */
   readonly effectsSettled?: false;
   readonly hostObservation?: NativeHostObservation;
+  readonly referenceCost?: NativeWriteCostSummary;
 }
 
 type AttemptResult = Omit<NativeWriteSessionResult, "taskId" | "logicalTaskId">;
@@ -256,8 +263,10 @@ export class NativeWriteSession {
     let taskContext: TaskContextInput | undefined;
     let plannedCheck: ReturnType<typeof prepareNativeCheckPlanInput>;
     let phaseTimeLimits: NativeWritePhaseTimeLimits | undefined;
+    let referenceUsdBudget: number | undefined;
     try {
       phaseTimeLimits = prepareNativePhaseTimeLimits(input);
+      referenceUsdBudget = prepareNativeReferenceUsdBudget(input);
       // Read only the own data property, before spreading input or awaiting any
       // work. A task cannot smuggle side effects through a presentation getter.
       const descriptor = Object.getOwnPropertyDescriptor(input, "presentation");
@@ -277,7 +286,7 @@ export class NativeWriteSession {
         ...(maxAttempts === undefined ? {} : { maxAttempts }),
         ...(maxWallTimeMs === undefined ? {} : { maxWallTimeMs })
       });
-      if (phaseTimeLimits !== undefined && !limits.enabled) limits = Object.freeze({ ...limits, enabled: true });
+      if ((phaseTimeLimits !== undefined || referenceUsdBudget !== undefined) && !limits.enabled) limits = Object.freeze({ ...limits, enabled: true });
       // The explicit host deadline also bounds a worker. Attempts-only opt-in
       // keeps the historical worker default; the outer timer never renews.
       workerTimeoutMs = prepareNativeWorkerTimeout(input) ?? (maxWallTimeMs === undefined ? 300_000 : limits.maxWallTimeMs);
@@ -311,13 +320,14 @@ export class NativeWriteSession {
     const timer = limits.enabled ? setTimeout(() => { timedOut = true; active.cancel(); }, limits.maxWallTimeMs) : undefined;
     timer?.unref();
     const collector = this.options.hostEvaluator === undefined ? undefined : new NativeHostOutcomeCollector(this.options.hostEvaluator);
+    const costBudget = referenceUsdBudget === undefined ? undefined : new NativeWriteCostBudget(referenceUsdBudget);
     const logicalTaskId = collector?.logicalTaskId ?? `logical_task_${randomUUID()}`;
-    const operation = this.executeInternal({ ...input, phaseTimeLimits, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector).then(async (result): Promise<NativeWriteSessionResult> => {
+    const operation = this.executeInternal({ ...input, phaseTimeLimits, referenceUsdBudget, ...(plannedCheck === undefined ? {} : plannedCheck) }, combinedSignal, active, limits, workerTimeoutMs, () => timedOut, presentation, taskContext, collector, costBudget).then(async (result): Promise<NativeWriteSessionResult> => {
       if (analysis !== undefined) result = { ...result, findingAnalyses: analysis.project(active.analysisHistory) };
-      if (collector === undefined) return { ...result, logicalTaskId };
-      let artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
+      if (collector === undefined && costBudget === undefined) return { ...result, logicalTaskId };
+      let artifact = collector === undefined ? undefined : await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: collector.references() });
       let terminalResult = result;
-      if ((combinedSignal.aborted || this.closed) && result.loop !== undefined &&
+      if (collector !== undefined && (combinedSignal.aborted || this.closed) && result.loop !== undefined &&
           result.loop.stopReason !== "cancelled" && result.loop.stopReason !== "time-budget") {
         const stopReason = timedOut ? "time-budget" as const : "cancelled" as const;
         const { artifact: previousArtifact, ...detail } = result.loop;
@@ -327,17 +337,45 @@ export class NativeWriteSession {
           verification: input.verification, ...corrected, supersedesArtifactId: previousArtifact.id } });
         terminalResult = { ...result, loop: { ...corrected, artifact: summary } };
       }
-      if (combinedSignal.aborted || this.closed || result.status === "CANCELLED") {
+      if (collector !== undefined && artifact !== undefined && (combinedSignal.aborted || this.closed || result.status === "CANCELLED")) {
         artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: {
           ...collector.references(), terminalState: "CANCELLED", reason: timedOut ? "time-budget" : "cancelled", supersedesArtifactId: artifact.id } });
+      }
+      if (costBudget !== undefined) {
+        const project = (): ExecutionResult => {
+          const referenceCost = costBudget.snapshot();
+          const cancelled = combinedSignal.aborted || this.closed || result.status === "CANCELLED";
+          const unsettled = result.effectsSettled === false || !referenceCost.settled;
+          const costStop = costBudget.stopReason(result.acceptance.accepted);
+          const override = unsettled ? "verification-unavailable" as const : cancelled ? timedOut ? "time-budget" as const : "cancelled" as const : costStop;
+          return { ...terminalResult, referenceCost, ...(unsettled ? { effectsSettled: false as const } : {}),
+            ...(override === undefined ? {} : { status: cancelled ? "CANCELLED" as const : "FAILED" as const,
+              reason: override, acceptance: { ...result.acceptance, accepted: false, reason: override } }),
+            ...(terminalResult.loop === undefined ? {} : { loop: { ...terminalResult.loop, referenceCost,
+              stopReason: override ?? terminalResult.loop.stopReason } }) };
+        };
+        let projected = project();
+        // Closed attempt receipts can only latch faults; cancellation can only latch once.
+        // Reconcile those finite state changes after every persistence await, then publish synchronously.
+        while (terminalResult.loop !== undefined && projected.loop !== undefined &&
+            (terminalResult.loop.stopReason !== projected.loop.stopReason || !isDeepStrictEqual(terminalResult.loop.referenceCost, projected.referenceCost))) {
+          const { artifact: previousArtifact, ...detail } = projected.loop;
+          const summary = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId, body: {
+            kind: "native-write-loop", schemaVersion: 1, sourceRevision: result.sourceRevision, candidatePath: result.candidatePath,
+            verification: input.verification, ...detail, supersedesArtifactId: previousArtifact.id } });
+          terminalResult = { ...projected, loop: { ...detail, artifact: summary } };
+          projected = project();
+        }
+        terminalResult = projected;
       }
       // Publication is after every loop/artifact await. Nothing asynchronous may
       // intervene between this cancellation check and issuance/returned identity.
       const cancelled = combinedSignal.aborted || this.closed || result.status === "CANCELLED";
-      const finalResult = cancelled ? { ...terminalResult, status: "CANCELLED" as const, reason: timedOut ? "time-budget" : "cancelled",
+      const finalResult = costBudget !== undefined ? terminalResult : cancelled ? { ...terminalResult, status: "CANCELLED" as const, reason: timedOut ? "time-budget" : "cancelled",
         acceptance: { ...result.acceptance, accepted: false, reason: timedOut ? "time-budget" : "cancelled" } } : result;
+      if (collector === undefined) return { ...finalResult, logicalTaskId };
       const hostObservation = collector.project({ runId: result.runId, taskId: result.taskId, sourceRevision: result.sourceRevision,
-        artifact, cancelled, timedOut, effectsSettled: result.effectsSettled !== false,
+        artifact: artifact!, cancelled, timedOut, effectsSettled: finalResult.effectsSettled !== false,
         accepted: finalResult.acceptance.accepted, terminalReason: finalResult.reason });
       issuedHostObservations.add(hostObservation);
       return { ...finalResult, logicalTaskId, hostObservation };
@@ -371,7 +409,8 @@ export class NativeWriteSession {
     timedOut: () => boolean,
     presentation: ResolvedTaskPresentation | undefined,
     taskContext: TaskContextInput | undefined,
-    collector: NativeHostOutcomeCollector | undefined
+    collector: NativeHostOutcomeCollector | undefined,
+    costBudget: NativeWriteCostBudget | undefined
   ): Promise<ExecutionResult> {
     const preflightInput: NativeWritePreflightInput = { ...input, signal };
     const preflight = prepareNativeWrite(preflightInput);
@@ -449,16 +488,18 @@ export class NativeWriteSession {
             runId: previousResult.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: []
           });
           const contextStop = signal.aborted ? timedOut() ? "time-budget" : "cancelled" : "executor-failed";
-          const loop = { maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: contextStop } as const;
+          const loop = { maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: contextStop,
+            ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }) } as const;
           const artifact = await saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: previousResult.runId,
             body: { kind: "native-write-loop", schemaVersion: 1, sourceRevision: preflight.revision,
               candidatePath: session.worktree.cwd, verification: preflight.verification, ...loop } });
           return { ...failure, taskId: previousResult.taskId, executionEvents: previousResult.executionEvents,
+            ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }),
             ...(previousResult.taskContract === undefined ? {} : { taskContract: previousResult.taskContract }), loop: { ...loop, artifact } };
         }
       }
       const objective = preparedContext === undefined ? baseObjective : `${baseObjective}\n\n${preparedContext.renderedContext}`;
-      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector, timeBudget);
+      const result = await this.runAttempt(preflight, session, signal, active, workerTimeoutMs, attempt, presentation, objective, preparedContext, collector, timeBudget, costBudget);
       previousResult = result;
       attempts.push({ number, runId: result.runId, artifact: result.artifact, accepted: result.acceptance.accepted,
         ...(result.taskContract === undefined ? {} : { taskContractArtifact: result.taskContract.artifact }) });
@@ -466,32 +507,41 @@ export class NativeWriteSession {
 
       const finish = async (reason: NativeWriteStopReason): Promise<ExecutionResult> => {
         let finalReason = reason;
-        const detail = () => ({ maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: finalReason });
+        const detail = () => ({ maxAttempts: limits.maxAttempts, maxWallTimeMs: limits.maxWallTimeMs, attempts, stopReason: finalReason,
+          ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }) });
         const persist = (supersedesArtifactId?: string) => saveLoopArtifact({ stateRoot: this.options.stateRoot, runId: result.runId,
           body: { kind: "native-write-loop", schemaVersion: 1, sourceRevision: preflight.revision,
             candidatePath: session.worktree.cwd, verification: preflight.verification, ...detail(),
             ...(supersedesArtifactId === undefined ? {} : { supersedesArtifactId }) } });
         let artifact = await persist();
+        const afterPersistenceCostStop = costBudget?.stopReason(result.acceptance.accepted);
+        if (finalReason === "accepted" && afterPersistenceCostStop !== undefined && !signal.aborted) {
+          finalReason = afterPersistenceCostStop;
+          artifact = await persist(artifact.id);
+        }
         // Cancellation can arrive while the terminal summary is being made
         // durable. Preserve the completed attempt as historical evidence but
         // never return it as an accepted loop after cancellation. A corrective
         // summary explicitly supersedes the first one; do not silently edit it.
         if (finalReason !== "cancelled" && finalReason !== "time-budget" && signal.aborted &&
-            (input.phaseTimeLimits === undefined || result.effectsSettled !== false)) {
+            ((input.phaseTimeLimits === undefined && costBudget === undefined) || result.effectsSettled !== false)) {
           finalReason = timedOut() ? "time-budget" : "cancelled";
           artifact = await persist(artifact.id);
         }
         const stopped = finalReason === "cancelled" || finalReason === "time-budget";
+        const costRefused = finalReason === "cost-budget" || finalReason === "cost-unavailable";
         const reasonText = finalReason === "time-budget" && !timedOut() && timeBudget.exhausted() !== undefined
           ? `${timeBudget.exhausted()} cumulative time budget exhausted` : finalReason;
-        const finalResult: ExecutionResult = stopped ? { ...result, status: "CANCELLED", reason: reasonText,
+        const finalResult: ExecutionResult = stopped || costRefused ? { ...result, status: stopped ? "CANCELLED" : "FAILED", reason: reasonText,
           acceptance: { ...result.acceptance, accepted: false, reason: reasonText } } : result;
-        return { ...finalResult, loop: { ...detail(), artifact } };
+        return { ...finalResult, ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }), loop: { ...detail(), artifact } };
       };
-      if (input.phaseTimeLimits !== undefined && result.effectsSettled === false) return finish("verification-unavailable");
+      if ((input.phaseTimeLimits !== undefined || costBudget !== undefined) && result.effectsSettled === false) return finish("verification-unavailable");
       if (timedOut()) return finish("time-budget");
       if (timeBudget.exhausted() !== undefined) return finish("time-budget");
       if (signal.aborted || result.status === "CANCELLED") return finish("cancelled");
+      const costStop = costBudget?.stopReason(result.acceptance.accepted);
+      if (costStop !== undefined) return finish(costStop);
       if (result.acceptance.accepted) return finish("accepted");
       const check = result.acceptance.independentCheck;
       if (check === undefined) return finish(result.reason.startsWith("independent verification failed") ? "verification-unavailable" : "executor-failed");
@@ -525,7 +575,8 @@ export class NativeWriteSession {
     objective: string,
     preparedContext: TaskContext | undefined,
     collector: NativeHostOutcomeCollector | undefined,
-    timeBudget: NativeWriteTimeBudget
+    timeBudget: NativeWriteTimeBudget,
+    costBudget?: NativeWriteCostBudget
   ): Promise<ExecutionResult> {
     active.analysis?.setCurrent(undefined);
     const hostAttempt = collector?.beginAttempt();
@@ -538,6 +589,7 @@ export class NativeWriteSession {
       if (result.cleanupUnsettled) unsettledCommand ??= result;
     };
     let executor: AgentExecutor;
+    const costAttempt = costBudget?.beginAttempt(attempt?.number ?? 1);
     try {
       if (timeBudget.exhausted() !== undefined) throw new DomainValidationError(`${timeBudget.exhausted()} cumulative time budget exhausted before factory`);
       if (preflight.checkPlan !== undefined) assertDevelopmentCheckInputs(preflight.checkPlan, session.worktree.cwd, preflight.verification);
@@ -550,11 +602,16 @@ export class NativeWriteSession {
         signal,
         onCommandCleanupUnsettled,
         onInvocation: hostAttempt?.onInvocation ?? (() => undefined),
+        ...(costAttempt === undefined ? {} : { executionCostBudget: costAttempt.handle }),
         ...(baseCheckBudget === undefined ? {} : { baseCheckBudget }),
         ...(preparedContext === undefined ? {} : { preparedContext }),
         ...(attempt === undefined ? {} : { attempt }),
         ...(preflight.acceptanceCriteria === undefined ? {} : { acceptanceCriteria: preflight.acceptanceCriteria })
       });
+      if (costAttempt !== undefined && !costAttempt.bound()) {
+        costAttempt.unsupported();
+        throw new DomainValidationError("reference USD budget requires an original strict Pi executor binding");
+      }
     } catch (error) {
       if (error instanceof CommandCleanupIncompleteError) onCommandCleanupUnsettled(error.result);
       factoryError = error instanceof Error ? error.message : String(error);
@@ -577,8 +634,10 @@ export class NativeWriteSession {
       executor = failedExecutor(factoryError);
     }
     const task = implementerTask(objective, registry, Math.max(1, selectedWorkerMs), preflight.acceptanceCriteria, presentation);
+    if (costAttempt !== undefined) task.limits = { ...task.limits, maxCostUsd: costAttempt.handle.remainingReferenceUsd };
     const workerStarted = performance.now();
-    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(executor) ?? executor }, {
+    const costExecutor = factoryError === undefined && costAttempt !== undefined ? costAttempt.wrap(executor) : executor;
+    const running = startParentRun({ stateRoot: this.options.stateRoot, executor: hostAttempt?.wrap(costExecutor) ?? costExecutor }, {
       projectRoot: session.worktree.cwd,
       objective,
       children: [task]
@@ -588,6 +647,7 @@ export class NativeWriteSession {
     const startStop = stopReason(this.closed, signal);
     if (startStop !== undefined) running.cancel();
     const outcome = await running.done.finally(() => { if (factoryError === undefined) timeBudget.charge("worker", performance.now() - workerStarted); });
+    costAttempt?.complete();
     hostAttempt?.complete(outcome, task.taskId);
     active.running = undefined;
     const taskContract = preflight.acceptanceCriteria === undefined ? undefined : Object.freeze({
@@ -601,13 +661,20 @@ export class NativeWriteSession {
       } })
     });
     const bindContract = (result: AttemptResult): ExecutionResult =>
-      ({ ...result, taskId: task.taskId, ...(taskContract === undefined ? {} : { taskContract }) });
+      ({ ...result, taskId: task.taskId, ...(taskContract === undefined ? {} : { taskContract }),
+        ...(costBudget === undefined ? {} : { referenceCost: costBudget.snapshot() }) });
 
     if (unsettledCommand !== undefined) {
       return bindContract(await this.failureResult(preflight, session,
         "command cleanup unsettled; host reconciliation required", {
           runId: outcome.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: outcome.events
         }, unsettledCommand));
+    }
+
+    if (costBudget?.effectsUnsettled()) {
+      return bindContract({ ...await this.failureResult(preflight, session, "execution settlement unavailable; host reconciliation required", {
+        runId: outcome.runId, status: signal.aborted ? "CANCELLED" : "FAILED", events: outcome.events
+      }), effectsSettled: false });
     }
 
     if (!signal.aborted && timeBudget.exhausted() !== undefined) {
@@ -628,6 +695,13 @@ export class NativeWriteSession {
           events: outcome.events
         }
       ));
+    }
+
+    const costStop = costBudget?.stopReason(true);
+    if (costStop !== undefined) {
+      return bindContract(await this.failureResult(preflight, session, costStop === "cost-budget" ? "reference USD budget exceeded" : "reference USD cost unavailable", {
+        runId: outcome.runId, status: "FAILED", events: outcome.events
+      }));
     }
 
     if (factoryError !== undefined || outcome.status !== "COMPLETED") {

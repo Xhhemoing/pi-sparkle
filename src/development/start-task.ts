@@ -1,5 +1,6 @@
 import { prepareNativeCheckPlanInput, prepareNativeWorkerTimeout } from "../native/write-preflight.js";
 import { prepareNativePhaseTimeLimits } from "../native/write-time-budget.js";
+import { prepareNativeReferenceUsdBudget } from "../native/write-cost-budget.js";
 import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
 import { snapshotCheckFindingAnalysis, type CheckFindingAnalysisOptions } from "../native/check-finding-analysis.js";
 import {
@@ -27,6 +28,7 @@ export interface StartDevelopmentTaskInput extends NativeWriteSessionOptions, Na
  */
 export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Promise<NativeWriteSessionResult> {
   const phaseTimeLimits = prepareNativePhaseTimeLimits(input);
+  const referenceUsdBudget = prepareNativeReferenceUsdBudget(input);
   // Validate before destructuring: a rest spread would invoke an accessor and
   // turn its return value into an ordinary data property before native preflight.
   const descriptor = Object.getOwnPropertyDescriptor(input, "presentation");
@@ -71,7 +73,7 @@ export async function startDevelopmentTask(input: StartDevelopmentTaskInput): Pr
     ...(checkFindingAnalysis === undefined ? {} : { checkFindingAnalysis }),
     ...(sandboxRoot === undefined ? {} : { sandboxRoot }) });
   try {
-    return await session.execute({ ...task, phaseTimeLimits, verification, ...(workerTimeoutMs === undefined ? {} : { workerTimeoutMs }), ...(checkPlan === undefined ? {} : { checkPlan }), ...(presentation === undefined ? {} : { presentation }),
+    return await session.execute({ ...task, phaseTimeLimits, referenceUsdBudget, verification, ...(workerTimeoutMs === undefined ? {} : { workerTimeoutMs }), ...(checkPlan === undefined ? {} : { checkPlan }), ...(presentation === undefined ? {} : { presentation }),
       ...(taskContext === undefined ? {} : { taskContext }) });
   } finally {
     await session.shutdown();

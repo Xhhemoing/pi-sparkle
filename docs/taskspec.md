@@ -1,7 +1,7 @@
 # Run a TaskSpec with zero-model preparation
 
 These experimental source APIs and CLI commands are in the Phase 1 candidate,
-not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings, explicit model overrides and USD budgets are rejected. Full
+not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings and explicit model overrides are rejected. Full
 Phase 1 acceptance remains unfinished; the installed four-language examples have bounded Windows mechanism evidence.
 
 A TaskSpec selects the same host checks for the base preflight and final
@@ -88,6 +88,23 @@ pending; the older issued-candidate command does not recreate its trusted
 verifier from JSON. Cancellation and shutdown wait for owned work to settle.
 The controlled child uses its own tools and persistence; this is not a claim of
 arbitrary parent-session tool, transcript, shell/MCP or OS containment equivalence.
+
+The Phase 1 configuration comparison has six separate requirements. Current
+evidence and remaining differences are:
+
+| Configuration | Current behavior and limit |
+|---|---|
+| Model | Captures the selected eligible model before asynchronous work and dispatches through the original host transport, retaining request-time host authentication. |
+| System prompt | Preserves the getter's exact text. Later parent `context_with_system` hooks can change the parent's final request and are not copied. |
+| Skills | Copies explicitly approved skill bodies once. Parent skill discovery and arbitrary resource loaders are not inherited. |
+| Tools | Uses five supplied scoped file tools. Ordinary Pi shell, MCP/custom tools, names and editing algorithms are not equivalent to that set. |
+| Context | Uses declared task files and approved context in a fresh owned session. Parent conversation history and hidden acceptance output are excluded. |
+| Budget | Uses explicit task deadlines and bounded attempts. A local fake-wire comparison also reproduces missing custom parent `thinkingBudgets` despite an equal thinking level; that difference still needs repair. |
+
+A comparison against direct Pi must run both arms with an explicitly shared
+supported configuration and observe their actual requests and stopping behavior.
+That can qualify the selected configuration; it cannot establish equivalence to
+every parent session or demonstrate the quality/cost targets.
 
 ## Read a historical Verdict
 
@@ -190,6 +207,7 @@ reject unknown fields, accessors, proxies and malformed values.
 | `budget.workerSeconds` | Per-attempt worker allowance, separate from first-factory preparation and base checks. |
 | `budget.workerTotalSeconds` | Optional cumulative worker allowance across all attempts in this invocation. |
 | `budget.checkTotalSeconds` | Optional cumulative allowance for the first base checks and every final verification phase. Preparation is separate. |
+| `budget.usd` | Optional positive finite reference-usage allowance shared across all worker attempts. Requires the strict, host-bound Pi cost callbacks. |
 | `worker.model` | Only `inherit`; omitted worker configuration defaults to it. The host supplies the actual Pi executor factory. |
 | `worker.maxAttempts` | Optional integer from 1 to 5; defaults to 1. Repair reuses the same candidate, fixed check plan and original protected observation. |
 
@@ -214,7 +232,30 @@ test placed in its allowed integration-test location passes the policy.
 The four original time fields are required; the two cumulative totals are optional. All durations range from 0.001 to 1800 seconds with whole
 millisecond precision. The earlier recipe default remains 5 seconds per check
 and at most 40 seconds of declared recipe time in total. A larger
-`checkSeconds` does not increase those recipe limits. Task-wide monetary accounting and cross-process resume are not implemented. Unknown cost stays unknown; `budget.usd` is explicitly unsupported. A host using the Pi executor can observe `onExecutionCost` after actual session settlement: it separates the known reference subtotal from complete/partial/unknown coverage and counts stream dispatches. This does not aggregate or enforce a TaskSpec allowance across attempts, measure underlying HTTP requests, include tool charges or establish a provider bill.
+`checkSeconds` does not increase those recipe limits. Cross-process resume is
+not implemented; persisted summaries do not restore execution authority.
+
+Optional `budget.usd` creates one reference-cost pool for the logical task. For
+example, after spending 0.6 of a 1.0 allowance, repair receives only 0.4. Each
+actual Pi stream dispatch checks that the pool remains usable; a successful
+attempt whose observed total exceeds the allowance is refused. Exact exhaustion
+can finish an otherwise accepted candidate but cannot fund another attempt.
+Cancellation and unknown settlement retain their existing precedence.
+
+The default host write factory binds the strict Pi executor, actual request
+identity and original settlement callback to that pool. A custom factory must
+use the same live `executionCostBudget` capability; unsupported executors refuse
+before execution. Missing, partial, unpriced, foreign, copied or duplicate
+receipts cannot create more allowance. Late faults are checked again after
+asynchronous evidence persistence and before returning acceptance.
+
+`referenceCost` on the Native result and loop evidence distinguishes the known
+reference subtotal, coverage, settlement and remaining allowance. Unknown
+coverage never means free work, and foreign request costs remain in their
+diagnostic record rather than this task's subtotal. This measures observed SDK
+reference usage and stream dispatches, not underlying HTTP retries, tool charges
+or a provider bill. An already admitted request can overrun the allowance; this
+is not a billing hard cap. Omitting `budget.usd` keeps the prior monetary policy.
 
 Preparation and base checks execute once before the first real worker. Repair
 gets only worker-visible failure feedback and does not refresh the total

@@ -52,6 +52,18 @@ test("input schema accepts optional defaults, all draft command shapes and whole
   }
 });
 
+test("input schema accepts only the positive finite budget.usd reference field", async () => {
+  const definition = await schema();
+  for (const usd of [1, 0.4, 1e-7]) {
+    const sample = { ...valid(), budget: { ...valid().budget, usd } };
+    check(definition, sample); snapshotDevelopmentTaskSpec(sample);
+  }
+  for (const usd of [0, -1, NaN, Infinity, "1", null]) {
+    const sample = { ...valid(), budget: { ...valid().budget, usd } };
+    assert.throws(() => check(definition, sample)); assert.throws(() => snapshotDevelopmentTaskSpec(sample));
+  }
+});
+
 test("input schema accepts the retained Python Rust and Go initializer draft shapes", async () => {
   const definition = await schema();
   const task = "sparkle.task.json";

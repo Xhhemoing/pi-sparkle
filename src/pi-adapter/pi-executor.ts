@@ -124,6 +124,8 @@ export interface PiExecutorOptions {
   maxCostUsd?: number;
   /** Opt-in: require a priced model, complete prior dispatch usage and remaining reference allowance before every dispatch. */
   strictReferenceBudget?: true;
+  /** Internal host admission closure, captured at construction; never supplied by task JSON. */
+  referenceBudgetAdmission?: () => void;
   /**
    * Optional sink for what the spend ceiling did. Fires when a requested
    * ceiling could not be enforced and when one stopped a run.
@@ -139,6 +141,16 @@ const issuedCostReports = new WeakMap<object, {
   readonly sink: (report: ExecutionCostReport) => void;
   readonly strict: boolean;
 }>();
+type ExecutorCostPolicy = { readonly strictReferenceBudget: true | undefined;
+  readonly onExecutionCost: PiExecutorOptions["onExecutionCost"]; readonly referenceBudgetAdmission: PiExecutorOptions["referenceBudgetAdmission"]; };
+const executorCostBindings = new WeakMap<object, () => ExecutorCostPolicy>();
+/** Process-local constructor identity, checked before Native starts any owned execution. */
+export function isPiExecutorCostBoundTo(value: unknown, sink: (report: ExecutionCostReport) => void, admission?: () => void): value is PiAgentExecutor {
+  if (value === null || typeof value !== "object") return false;
+  const options = executorCostBindings.get(value)?.();
+  return options !== undefined && options.strictReferenceBudget === true && options.onExecutionCost === sink &&
+    (admission === undefined || options.referenceBudgetAdmission === admission);
+}
 export function isPiExecutionCostReportFor(value: unknown, sink: (report: ExecutionCostReport) => void,
   options?: { readonly requireStrict?: true }): value is ExecutionCostReport {
   if (value === null || typeof value !== "object") return false;
@@ -587,6 +599,7 @@ interface RetriedRun {
 }
 
 export class PiAgentExecutor implements AgentExecutor {
+  private readonly nativeCostPolicy: ExecutorCostPolicy | undefined;
   private readonly models: MutableModels;
   private readonly faux?: FauxProviderHandle;
   /**
@@ -607,6 +620,15 @@ export class PiAgentExecutor implements AgentExecutor {
   private readonly acceptedSteers = new Map<AgentInstanceId, string[]>();
 
   constructor(private readonly options: PiExecutorOptions) {
+    this.nativeCostPolicy = options.referenceBudgetAdmission === undefined ? undefined : {
+      strictReferenceBudget: options.strictReferenceBudget, onExecutionCost: options.onExecutionCost,
+      referenceBudgetAdmission: options.referenceBudgetAdmission
+    };
+    executorCostBindings.set(this, () => {
+      const policy = this.nativeCostPolicy ?? options;
+      return { strictReferenceBudget: policy.strictReferenceBudget, onExecutionCost: policy.onExecutionCost,
+        referenceBudgetAdmission: policy.referenceBudgetAdmission };
+    });
     if (options.models !== undefined) {
       this.models = options.models;
       return;
@@ -697,6 +719,7 @@ export class PiAgentExecutor implements AgentExecutor {
         options?: SimpleStreamOptions
       ): AssistantMessageEventStream => {
         signal.throwIfAborted();
+        this.nativeCostPolicy?.referenceBudgetAdmission?.();
         const refusal = costs.dispatchRefusal(catalogPrices(streamModel.cost) !== undefined);
         if (refusal !== undefined) throw new DomainValidationError(`strict reference budget refused dispatch: ${refusal}`);
         costs.dispatched();
@@ -929,10 +952,10 @@ export class PiAgentExecutor implements AgentExecutor {
 
   async *execute(request: AgentExecutionRequest, signal: AbortSignal): AsyncIterable<ExecutionEvent> {
     const startedAtMs = Date.now();
-    const strictReferenceBudget = this.options.strictReferenceBudget === true;
+    const strictReferenceBudget = (this.nativeCostPolicy ?? this.options).strictReferenceBudget === true;
     const costs = new ExecutionCostObservation(strictReferenceBudget
       ? { maxCostUsd: request.maxCostUsd ?? this.options.maxCostUsd } : undefined);
-    const onExecutionCost = this.options.onExecutionCost;
+    const onExecutionCost = (this.nativeCostPolicy ?? this.options).onExecutionCost;
     const costIdentity = { runId: request.runId, taskId: request.taskId, agentInstanceId: request.agentInstanceId };
     try {
 
