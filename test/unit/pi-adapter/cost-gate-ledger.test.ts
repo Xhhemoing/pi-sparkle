@@ -125,7 +125,7 @@ describe("CostGate accounting", () => {
 class StopHookAgent implements SparkleKernelAgent {
   sessionId?: string;
   state = { isStreaming: false };
-  shouldStopAfterTurn?: ((...args: never[]) => boolean | Promise<boolean>) | undefined;
+  finishTurn?: SparkleKernelAgent["finishTurn"];
 
   subscribe(): () => void {
     return () => undefined;
@@ -139,8 +139,8 @@ class StopHookAgent implements SparkleKernelAgent {
   followUp(_message: SparkleKernelUserMessage): void {}
 
   /** Stand-in for the loop's post-turn call, which passes a turn context. */
-  askAfterTurn(): boolean | Promise<boolean> | undefined {
-    return this.shouldStopAfterTurn?.(...([{ type: "turn_end" }] as unknown as never[]));
+  askAfterTurn(): ReturnType<NonNullable<SparkleKernelAgent["finishTurn"]>> {
+    return this.finishTurn?.(...([{ message: { stopReason: "toolUse" } }] as unknown as never[]));
   }
 }
 
@@ -150,9 +150,9 @@ describe("SparkleKernel stop-after-turn", () => {
     let stop = false;
     SparkleKernel.fromFactory(() => agent, { stopAfterTurn: () => stop });
 
-    assert.equal(agent.askAfterTurn(), false);
+    assert.equal(agent.askAfterTurn(), undefined);
     stop = true;
-    assert.equal(agent.askAfterTurn(), true, "the predicate is re-read, not snapshotted");
+    assert.deepEqual(agent.askAfterTurn(), { action: "end" }, "the predicate is re-read, not snapshotted");
   });
 
   it("replaces and removes an installed predicate", () => {
@@ -161,10 +161,10 @@ describe("SparkleKernel stop-after-turn", () => {
     assert.equal(agent.askAfterTurn(), undefined, "no predicate unless one is asked for");
 
     kernel.setStopAfterTurn(() => true);
-    assert.equal(agent.askAfterTurn(), true);
+    assert.deepEqual(agent.askAfterTurn(), { action: "end" });
 
     kernel.setStopAfterTurn(undefined);
-    assert.equal(agent.shouldStopAfterTurn, undefined);
+    assert.equal(agent.finishTurn, undefined);
     assert.equal(agent.askAfterTurn(), undefined);
   });
 
@@ -181,5 +181,43 @@ describe("SparkleKernel stop-after-turn", () => {
     });
     agent.askAfterTurn();
     assert.deepEqual(seen, [{ type: "asked" }]);
+  });
+});
+
+describe("CostGate per-turn reference pricing", () => {
+  it("uses a complete catalog-derived turn amount without also charging token fallback", () => {
+    const gate = new CostGate({ maxCostUsd: 100, prices: PRICES });
+    gate.recordTurn({ inputTokens: 10, outputTokens: 1 }, { referenceUsd: 201, complete: true });
+    assert.equal(gate.spentUsd, 201);
+    assert.equal(gate.requestStopIfExceeded(), true);
+    assert.equal(gate.ledger.turnsWithoutUsage, 0);
+    assert.equal(gate.ledger.tokensIn, 10);
+  });
+
+  it("counts cache-only turns and carries incomplete reference subtotals across turns", () => {
+    const gate = new CostGate({ maxCostUsd: 10, prices: PRICES });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd: 2, complete: true });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd: 1, complete: false });
+    gate.recordTurn({ inputTokens: 1_000_000, outputTokens: 0 });
+    assert.deepEqual(gate.ledger, {
+      turns: 3, turnsWithoutUsage: 1, tokensIn: 1_000_000, tokensOut: 0, spentUsd: 6
+    });
+  });
+
+  it("rejects unusable reference amounts without manufacturing complete cost coverage", () => {
+    const gate = new CostGate({ maxCostUsd: 10, prices: PRICES });
+    for (const referenceUsd of [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      gate.recordTurn({ inputTokens: 0, outputTokens: 0 }, { referenceUsd, complete: true });
+    }
+    assert.equal(gate.ledger.turnsWithoutUsage, 4);
+    assert.equal(gate.spentUsd, 0, "no amount was added; all four turns remain uncovered");
+    assert.equal(gate.exceeded, false);
+  });
+
+  it("does not arm an unpriced model from an SDK default cost block", () => {
+    const gate = new CostGate({ maxCostUsd: 1 });
+    gate.recordTurn({ inputTokens: 0, outputTokens: 1 }, { referenceUsd: 201, complete: true });
+    assert.equal(gate.spentUsd, undefined);
+    assert.equal(gate.armed, false);
   });
 });

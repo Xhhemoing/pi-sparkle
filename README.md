@@ -1,16 +1,12 @@
 # pi-sparkle
 
-**Developer Preview (0.1.0-preview.3; `private: true`).** This repository **will not
-publish to npm**. Clone the repository and use pnpm locally; npm/global/package
-installation is unsupported. The fake-executor CLI (`run` / `inspect` /
-`resume` / `--flowchart` / `--children`) is the supported path. Real providers
-and adaptive routing are opt-in / proposal-first and are **not**
-Outcome-supported. See [status-matrix.md](docs/status-matrix.md).
+**Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
 
-`pi-sparkle` is an internal development tool built on Pi. The immediate trial uses Soul's isolated research/test version, with synthetic inputs and the original project preserved. Its value is measured by accepted task results, elapsed time, cost coverage and human effort; a successful smoke test is not proof of benefit over direct Pi. See the [active plan](tasks/plan.md) for scope and remaining work.
+**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; TaskSpec and full host resource inheritance remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
 
-The runtime coordinates parent/child agent runs, persists event logs and checkpoints, validates task DAGs, and resumes supervised workflows with stall detection and evidence-driven routing. New experiments/adaptation/learning features and P4/P5 remain frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them.
+The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
 
+The isolated synthetic Soul trials remain evidence with failures and unknown costs, not proof of superiority. The original project remains protected. Research modules will leave the default dependency path; P4/P5 and live learning/promotion stay frozen. The future public comparison retains targets of at least 50% relative defective-delivery reduction and at most 1.3 times direct-Pi cost per correct delivery, with non-inferiority and uncertainty rules in ADR-010. These are targets, not achieved results. See the [capability status matrix](docs/status-matrix.md).
 Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
 
 The [current framework and code map (中文)](docs/framework.md) explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
@@ -52,18 +48,26 @@ pi list
 
 Reload Pi after installing. In a normal session, ask the assistant to use
 `sparkle_delegate` for up to four read-only inspections/reviews. Workers use
-the host model catalogue/auth and actual file reads; `/sparkle-status` shows
-active runs. The default preference is `grok-4.7`; the tool accepts
+the host model catalogue/auth and actual file reads. Each delegation inherits
+the effective host system prompt and thinking level sampled at admission;
+request-time context or provider-payload transforms are not inherited. Parent
+transcripts and tool closures are not copied. `/sparkle-status` shows
+active runs. Workers default to the host model captured at admission; the tool
+accepts
 an explicit `provider/model` override and refuses unavailable/ambiguous models.
+Static eligibility checks can refuse that selection but cannot route to a
+different model.
 The main conversation model is unchanged. Esc and session shutdown cancel
 workers. `SPARKLE_NATIVE=0` disables the extension at load time.
+A [trusted host wrapper](docs/how-to-adapt-to-pi.md#explicit-worker-resources) can supply selected context and skill bodies; the default package does not discover extra resource text.
 
 Delegated evidence lives in `.agent_workspace/pi-sparkle/` under the project;
 use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-sparkle`.
 Results are bounded child reports, not independently verified acceptance.
 The initial slice does not write files or execute shell commands in workers.
-Terminal analysis proposes candidates without automatically applying them.
-The loader was checked on Pi 0.84.4, 0.85.1, and 0.86.1; live-provider behavior is not
+The default delegate does not load learned routing or run post-task adaptation.
+The legacy research session remains available separately.
+Offline checks exercise the actual Pi 1.2/1.4 loaders, host dispatch, usage and cancellation, including the mixed host/app installation. Earlier 0.84.4/0.85.1/0.86.1 results remain historical. Live-provider behavior is not
 established by the offline loopback tests.
 
 `/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also
@@ -260,6 +264,15 @@ pnpm cli run \
 
 State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
 
+Default `run`, `--children`, and flowchart start, resume, pause, inject and unblock
+use the existing static model policy and explicit pins. They do not read learned
+routing state or run post-task adaptation. The `src/lab` implementation retains
+the explicit research composition through the same command implementation;
+`lab/cli.ts` is its repository launcher, not an npm bin. Inspect that entry with
+`pnpm exec tsx lab/cli.ts --help`. Lab source and compiled modules remain in the
+same package for compatibility. Existing explicit `--track` and `adapt` commands
+retain their research behavior and approval rules.
+
 ## What it does
 
 - Executes Pi agents (or deterministic fakes) with structured event emission
@@ -272,7 +285,7 @@ State root defaults to `~/.pi-sparkle`. Use `--state-root` to override.
   through the explicit, dry-run-first `retain --apply` command
 - `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start. Plain `--children` is a skip-contract start (`skipContract: true`) — no coverage gate on that path
 - Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
-- Keeps adaptive R1/bandit/topology off the live loop; after a run, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
+- Keeps adaptive R1/bandit/topology off the live loop; in the explicit research composition, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
 
 ## Project Status
 

@@ -1,3 +1,4 @@
+import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -13,6 +14,7 @@ import { authStorePath, FileCredentialStore } from "../../../src/pi-adapter/file
 import { EventStore } from "../../../src/run/event-store.js";
 import { parseRunId } from "../../../src/domain/ids.js";
 import { startLoopbackOpenAiProvider } from "../../helpers/loopback-openai-provider.js";
+import { listenOnLoopbackForFetch } from "../../helpers/loopback-http-listener.js";
 
 import { boundedSettlement, installManagedSettlementFixture } from "../../helpers/managed-driver-settlement-fixture.js";
 
@@ -54,7 +56,8 @@ async function configure(stateRoot: string, baseUrl: string): Promise<void> {
     customProviders: [{ id: "loopback", baseUrl, envVar: "PI_DRIVER_LOOPBACK_DUMMY", models: [{ id: "driver-1", contextWindow: 8192, maxTokens: 256, inputCostPerMTok: 0.25, outputCostPerMTok: 1 }] }] });
 }
 
-test("actual fixed managed driver loads qualified applications and retains event-bound selection", { timeout: 240_000 }, async (t) => {
+// Two complete SDK generations are physically copied; the Windows aggregate took 259s.
+test("actual fixed managed driver loads qualified applications and retains event-bound selection", { timeout: 360_000 }, async (t) => {
   const start = await driver();
   const parent = path.join(process.cwd(), ".agent_workspace/managed-driver-tests");
   await mkdir(parent, { recursive: true });
@@ -69,15 +72,38 @@ test("actual fixed managed driver loads qualified applications and retains event
       : { toolCalls: [{ name: "sparkle_report_task_result", arguments: { verification: "PASSED", summary: "offline controlled work complete" } }] };
   } });
   let preserveRoot = false;
+  // Failure evidence is independent of the temporary instrumented ownership bit.
+  let preserveFailure = false;
+  const diagnoseUnexpectedExit = (phase: "root-A" | "approval-wait", exitCode: number | null) => {
+    if (exitCode === 0) return;
+    preserveFailure = true;
+    const models = provider.requests.slice(0, 8).map((request) => {
+      const body = request.body;
+      return body !== null && typeof body === "object" && "model" in body && body.model === "driver-1" ? "driver-1" : "unknown";
+    });
+    // Raw protocol errors can contain request URLs. Classify them instead of
+    // printing URLs, headers, authorization, request bodies or arbitrary text.
+    const protocolErrors = provider.protocolErrors.slice(0, 8).map((error) => {
+      if (error === "request body was not valid JSON") return "invalid-json";
+      if (error.startsWith("expected POST /v1/chat/completions, received ")) return "unexpected-method-or-path";
+      if (error === "request did not contain the configured model and stream=true") return "invalid-model-or-stream";
+      if (/^loopback request cap exceeded \(\d+\)$/.test(error)) return "request-cap-exceeded";
+      return "unknown";
+    });
+    t.diagnostic(JSON.stringify({ phase, exitCode, root, requestCount: provider.requests.length, models,
+      protocolErrorCount: provider.protocolErrors.length, protocolErrors }));
+  };
   t.after(async () => {
     await provider.close();
     if (preserveRoot) t.diagnostic(`Unresolved instrumented child ownership; preserving ${root}`);
+    else if (preserveFailure) t.diagnostic(`Unexpected managed application exit; preserving ${root}`);
     else await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   // The root coordinator schedules this test serially; this is the mandatory
   // fresh build, not a reuse of potentially stale dist from another slice.
   freshBuild(root);
-  const versions = { core: "0.86.1", ai: "0.86.1" };
+  const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+  const versions = { core: pins.agentCore, ai: pins.ai };
   const a = await stageManagedCandidate({ programRoot: process.cwd(), generationsRoot: path.join(managerRoot, "generations"), expectedVersions: versions });
   const b = await stageManagedCandidate({ programRoot: process.cwd(), generationsRoot: path.join(managerRoot, "generations"), expectedVersions: versions });
   const issuedA = await qualifyManagedCandidate({ managerRoot, candidate: a });
@@ -98,6 +124,7 @@ test("actual fixed managed driver loads qualified applications and retains event
   });
   await t.test("actual main/Pi root and child execute in A and identity is physical", async () => {
     const result = await start({ managerRoot, request: { ...run, children } });
+    diagnoseUnexpectedExit("root-A", result.exitCode);
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.settlement, "application-settled", JSON.stringify(result));
     assert.equal(result.receipt?.root, a.root);
@@ -116,6 +143,7 @@ test("actual fixed managed driver loads qualified applications and retains event
     id, taskId: `tsk_${id}`, role: "actor", objective: id, modelPolicy: { allowedModels: ["loopback/driver-1"] }, confidenceThreshold: 0.7, approvalRequired: index === 1
   })), edges: [{ from: "prepare", to: "deliver", condition: { type: "success", expected: true } }] }), "utf8");
   const waiting = await start({ managerRoot, request: { ...run, flowchart } });
+  diagnoseUnexpectedExit("approval-wait", waiting.exitCode);
   assert.equal(waiting.exitCode, 0, JSON.stringify(waiting));
   assert.match(waiting.stdout, /WAITING_FOR_USER/);
   const originalId = runId(waiting.stdout);
@@ -159,7 +187,7 @@ test("actual fixed managed driver loads qualified applications and retains event
       requests++;
       stop.abort();
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await listenOnLoopbackForFetch(server);
     const address = server.address(); assert.ok(address !== null && typeof address !== "string");
     const heldState = path.join(root, "held-state");
     await configure(heldState, `http://127.0.0.1:${address.port}/v1`);
@@ -183,7 +211,7 @@ test("actual fixed managed driver loads qualified applications and retains event
       const loopback = await startLoopbackOpenAiProvider({ modelIds: ["driver-1"], scriptedResponse: () =>
         mode === "tool" ? { toolCalls: [{ name: "managed_settlement_hold", arguments: {} }] } : { text: "Listener settlement probe" }
       });
-      // Only the private, selected B copy is instrumented. Real Agent, kernel,
+      // Only the private, selected B copy is instrumented. Real SDK Agent/session,
       // CLI and fixed driver entry still own dispatch and settlement.
       const fixture = await installManagedSettlementFixture(b.appRoot, mode).catch(async (error: unknown) => { await loopback.close(); throw error; });
       let running: ReturnType<Driver> | undefined;

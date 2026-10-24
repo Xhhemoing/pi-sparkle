@@ -10,6 +10,7 @@ import { INJECTION_KINDS, parseFactValue } from "../run/injection.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { FactValue } from "../supervisor/flowchart-supervisor.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
+import { composeCliFlowchartDeps, type CliLabBehavior } from "./lab-behavior.js";
 
 export interface InjectIo {
   stdout(text: string): void;
@@ -32,7 +33,7 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
-export async function injectCommand(args: string[], io: InjectIo): Promise<number> {
+export async function injectCommand(args: string[], io: InjectIo, flowchartRouting?: CliLabBehavior["flowchartRouting"]): Promise<number> {
   const first = args[0];
   if (first === "help" || first === "--help" || first === "-h") {
     io.stdout(INJECT_USAGE);
@@ -258,7 +259,7 @@ export async function injectCommand(args: string[], io: InjectIo): Promise<numbe
         : { confidence: 1 })
   };
   const outcome = await injectFlowchartRun(
-    { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause: createFilePauseController(stateRoot) },
+    composeCliFlowchartDeps({ stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause: createFilePauseController(stateRoot) }, flowchartRouting),
     runId,
     request
   );

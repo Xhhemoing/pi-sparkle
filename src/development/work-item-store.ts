@@ -140,6 +140,16 @@ export class WorkItemStore {
     await writeFileAtomic(this.path, body, { mode: 0o600 });
   }
 
+  private async readSnapshot(signal?: AbortSignal): Promise<WorkQueue> {
+    try { return await this.read(); }
+    catch {
+      // Atomic publication can unlink an opened snapshot or temporarily move
+      // its path. Retry once under the writer lock, with every check intact.
+      // Normal reads stay lock-free so locked host verifiers can inspect state.
+      return this.locked(() => this.read(), false, signal);
+    }
+  }
+
   private async locked<T>(operation: () => Promise<T>, create = false, signal?: AbortSignal): Promise<T> {
     checkCancellation(signal);
     await this.checkParent(create);
@@ -166,7 +176,7 @@ export class WorkItemStore {
   }
 
   /** Read-only state inspection; statuses here alone are never execution authority. */
-  load(): Promise<WorkQueue> { return this.read(); }
+  load(): Promise<WorkQueue> { return this.readSnapshot(); }
 
   private async verify(record: WorkItemRecord, signal?: AbortSignal): Promise<void> {
     checkCancellation(signal);
@@ -262,7 +272,7 @@ export class WorkItemStore {
     const options = snapshotInput(input, ["signal"]);
     const signal = operationSignal(options.signal);
     checkCancellation(signal);
-    const queue = await this.read();
+    const queue = await this.readSnapshot(signal);
     return this.selectVerified(queue, signal);
   }
 

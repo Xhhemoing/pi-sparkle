@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { DevelopmentController } from "../../../src/development/controller.js";
-import { createWorkQueue } from "../../../src/development/work-items.js";
+import { createWorkQueue, type WorkItemDefinition } from "../../../src/development/work-items.js";
 import { WorkItemStore } from "../../../src/development/work-item-store.js";
 import { ActionLedger } from "../../../src/development/action-ledger.js";
 import { canonicalizeStableJson } from "../../../src/domain/canonical-json.js";
@@ -33,6 +33,83 @@ async function fixture(body: (value: { root: string; sourceRepo: string; queuePa
   }] }));
   try { await body({ root, sourceRepo, queuePath, stateRoot }); }
   finally { await rm(root, { recursive: true, force: true }); }
+}
+
+async function redefineItem(queuePath: string, changes: Partial<WorkItemDefinition>): Promise<void> {
+  const store = new WorkItemStore(queuePath);
+  const queue = await store.load();
+  await rm(queuePath);
+  await store.create(createWorkQueue({ id: queue.id, authorityRef: queue.authorityRef,
+    items: [{ ...queue.items[0]!.definition, ...changes }] }));
+}
+
+test("optional writable files may remain absent through real checks and acceptance", async () => fixture(async (value) => {
+  await redefineItem(value.queuePath, { allowedScope: ["value.txt", "optional.txt"] });
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      await tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "after" }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "ready-for-review", result.reason ?? "optional paths must not be required outputs");
+  await controller.accept("change");
+  assert.equal((await controller.status()).queue.items[0]?.status, "accepted");
+  await assert.rejects(readFile(path.join(result.candidatePath!, "optional.txt")), /ENOENT/);
+  assert.equal(await readFile(path.join(value.sourceRepo, "value.txt"), "utf8"), "before");
+}));
+
+test("optional writable scope can start entirely absent and retain a legal new file", async () => fixture(async (value) => {
+  await redefineItem(value.queuePath, { allowedScope: ["created.txt", "optional.txt"], acceptance: [{
+    id: "contents", command: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('created.txt','utf8')!=='after') process.exit(1)"], verifierVersion: "v1"
+  }] });
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      await tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "created.txt", contents: "after" }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "ready-for-review", result.reason ?? "legal creation inside an initially absent scope must succeed");
+  await controller.accept("change");
+  assert.equal(await readFile(path.join(result.candidatePath!, "created.txt"), "utf8"), "after");
+  await assert.rejects(readFile(path.join(value.sourceRepo, "created.txt")), /ENOENT/);
+}));
+
+test("missing protected dependencies remain required beside optional writable files", async () => fixture(async (value) => {
+  const queue = await new WorkItemStore(value.queuePath).load();
+  await redefineItem(value.queuePath, { allowedScope: ["value.txt", "optional.txt"], acceptance: [{
+    ...queue.items[0]!.definition.acceptance[0]!, protectedPaths: ["missing-checker-dependency"]
+  }] });
+  const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+    async *execute(request, signal) {
+      await tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "after" }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    }
+  }) });
+  const result = await controller.runNext();
+  assert.equal(result.status, "blocked");
+  assert.match(result.reason ?? "", /required include prefix is missing/);
+}));
+
+for (const mode of ["create", "rewrite"] as const) {
+  test(`checker cannot ${mode} optional writable files and claim successful verification`, async () => fixture(async (value) => {
+    await redefineItem(value.queuePath, { allowedScope: ["value.txt", "created.txt", "optional.txt"], acceptance: [{
+      id: "contents", command: process.execPath, args: ["-e", "require('node:fs').writeFileSync('created.txt','evil')"], verifierVersion: "v1"
+    }] });
+    const controller = new DevelopmentController({ ...value, owner: "host", executorFactory: ({ tools }) => ({
+      async *execute(request, signal) {
+        const write = tools.find((tool) => tool.name === "sparkle_write_file")!;
+        await write.execute("write", { path: "value.txt", contents: "after" }, signal);
+        if (mode === "rewrite") await write.execute("new", { path: "created.txt", contents: "good" }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      }
+    }) });
+    const result = await controller.runNext({ maxAttempts: 1 });
+    assert.equal(result.status, "blocked");
+    assert.equal(await readFile(path.join(result.candidatePath!, "created.txt"), "utf8"), "evil", "the actual checker ran before exact evidence refused acceptance");
+    assert.equal(await readFile(path.join(value.sourceRepo, "value.txt"), "utf8"), "before");
+  }));
 }
 
 test("controller performs real candidate write/check and saves a review checkpoint", async () => fixture(async (value) => {

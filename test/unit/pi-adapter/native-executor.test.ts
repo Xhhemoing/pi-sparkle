@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { createProvider } from "@earendil-works/pi-ai";
+import { createModels, createProvider, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { createNativeExecutor } from "../../../src/pi-adapter/native-executor.js";
@@ -34,6 +34,7 @@ test("native worker reuses host transport/auth and extension honors a non-empty 
     } }, api: openAICompletionsApi() });
     let authCalls = 0;
     const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
       projectRoot: root,
       defaultModel: model,
       models: [model],
@@ -63,7 +64,7 @@ test("native worker reuses host transport/auth and extension honors a non-empty 
     let registryAuthReads = 0;
     const result = await tool.execute("call-native", { tasks: [{ role: "scout", objective: "Inspect example.txt" }], model: "host/native" },
       new AbortController().signal, undefined, {
-        cwd: root, scopedModels: [{ model }, { model: secondaryModel }], modelRegistry: {
+        cwd: root, getSystemPrompt: () => "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off", scopedModels: [{ model }, { model: secondaryModel }], modelRegistry: {
           getAvailable: () => [model, secondaryModel, outsideScopeModel], getProvider: () => provider,
           getApiKeyAndHeaders: async () => {
             registryAuthReads++;
@@ -105,6 +106,7 @@ test("native read wrapper never archives credential-like paths even after repeat
     } }, api: openAICompletionsApi() });
     const projector = createObservationProjector({ enabled: true, toolName: "sparkle_read_file" });
     const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
       projectRoot: root,
       defaultModel: model,
       models: [model],
@@ -157,6 +159,7 @@ test("native read wrapper classifies the canonical target of an in-root director
     } }, api: openAICompletionsApi() });
     const projector = createObservationProjector({ enabled: true, toolName: "sparkle_read_file" });
     const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
       projectRoot: root, defaultModel: model, models: [model], observationProjector: projector,
       streamSimple: (selected, context, options) =>
         provider.streamSimple(selected as typeof model, context as never, { ...options, apiKey: "loopback-only" })
@@ -177,52 +180,49 @@ test("native read wrapper classifies the canonical target of an in-root director
   }
 });
 
-test("native extension fails closed on a corrupt learned-routing registry before run or provider work", async () => {
+test("native extension pins the selected host model without reading a corrupt learned-routing registry", async () => {
   const root = await mkdtemp(join(tmpdir(), "native-corrupt-routing-"));
   const stateRoot = join(root, ".agent_workspace", "pi-sparkle");
   const registryPath = adaptationRegistryPath(stateRoot);
   await mkdir(dirname(registryPath), { recursive: true });
   await writeFile(registryPath, "{corrupt", "utf8");
   try {
-    const makeModel = (id: string): Model<"openai-completions"> => ({
-      id, provider: "host", name: id, api: "openai-completions",
-      baseUrl: "http://127.0.0.1/unused", reasoning: false, input: ["text"],
-      contextWindow: 8192, maxTokens: 512,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-    });
-    const primary = makeModel("primary");
-    const secondary = makeModel("secondary");
+    const faux = fauxProvider({ provider: "host", models: [{ id: "primary" }, { id: "secondary" }] });
+    faux.setResponses([fauxAssistantMessage("inspection finished")]);
+    const primary = faux.getModel("primary")!, secondary = faux.getModel("secondary")!;
+    const models = createModels(); models.setProvider(faux.provider);
     const loaderUrl = new URL("./core/extensions/loader.js", import.meta.resolve("@earendil-works/pi-coding-agent"));
     const { loadExtensions } = await import(loaderUrl.href);
     const loaded = await loadExtensions([join(process.cwd(), "extensions/pi-sparkle/index.ts")], root);
     assert.deepEqual(loaded.errors, []);
     const tool = loaded.extensions[0].tools.get("sparkle_delegate").definition;
-    let providerCalls = 0;
-    await assert.rejects(
-      () => tool.execute("corrupt-routing", {
-        tasks: [{ role: "scout", objective: "Inspect" }], model: "host/primary"
-      }, new AbortController().signal, undefined, {
-        cwd: root,
-        scopedModels: [{ model: primary }, { model: secondary }],
-        modelRegistry: {
-          getAvailable: () => [primary, secondary],
-          getProvider: () => undefined,
-          getApiKeyAndHeaders: async () => ({ ok: false as const, error: "unused" }),
-          streamSimple: () => {
-            providerCalls += 1;
-            throw new Error("provider must not start");
-          }
+    const dispatched: string[] = [];
+    const result = await tool.execute("corrupt-routing", {
+      tasks: [{ role: "scout", objective: "Inspect" }]
+    }, new AbortController().signal, undefined, {
+      cwd: root, model: primary, getSystemPrompt: () => "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
+      scopedModels: [{ model: primary }, { model: secondary }],
+      modelRegistry: {
+        getAvailable: () => [primary, secondary],
+        streamSimple: (selected: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
+          dispatched.push(`${selected.provider}/${selected.id}`);
+          return models.streamSimple(selected, context, options);
         }
-      }),
-      /invalid registry snapshot/
-    );
-    assert.equal(providerCalls, 0);
-    await assert.rejects(() => readdir(join(stateRoot, "runtime")), /ENOENT/);
+      }
+    });
+    assert.equal(result.details.status, "COMPLETED");
+    assert.equal(result.details.analysis, "skipped");
+    assert.deepEqual(dispatched, ["host/primary"]);
+    assert.equal(await readFile(registryPath, "utf8"), "{corrupt", "default delegation must not replace learned state");
+    const events = (await new EventStore(stateRoot, result.details.runId).readAll()).events;
+    const routed = events.filter((event) => event.type === "MODEL_ROUTED");
+    assert.equal(routed.length, 1);
+    assert.deepEqual(routed.map((event) => (event.payload as { model: string }).model), ["host/primary"]);
+    assert.ok(routed.every((event) => JSON.stringify(event.payload).includes('"eligibleModels":["host/primary"]')));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("cheap learned preference dispatches the canonical secondary through host streamSimple", async () => {
   const root = await mkdtemp(join(tmpdir(), "native-multi-model-"));
   const primaryServer = await startLoopbackOpenAiProvider({ modelIds: ["primary"] });
@@ -263,6 +263,7 @@ test("cheap learned preference dispatches the canonical secondary through host s
       headersFrozen: boolean;
     }> = [];
     const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
       projectRoot: root,
       defaultModel: primary,
       models: [primary, secondary],
@@ -351,6 +352,7 @@ test("native bridge rejects host model providers containing a slash", () => {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   };
   assert.throws(() => createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
     projectRoot: process.cwd(),
     defaultModel: malformed,
     models: [malformed],
@@ -370,6 +372,7 @@ test("native bridge does not read or clone host model headers while building its
     get() { throw new Error("headers must stay host-owned"); }
   });
   const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
     projectRoot: process.cwd(), defaultModel: model, models: [model],
     streamSimple: () => { throw new Error("unused"); }
   });
@@ -390,6 +393,7 @@ test("native bridge rejects non-canonical default model components even when the
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   };
   const create = (defaultModel: typeof eligible) => createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
     projectRoot: process.cwd(),
     defaultModel,
     models: [eligible],
@@ -414,6 +418,7 @@ test("native bridge converts a synchronous host streamSimple throw into executio
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   };
   const executor = createNativeExecutor({
+    effectiveSystemPrompt: "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off",
     projectRoot: process.cwd(),
     defaultModel: model,
     models: [model],
@@ -429,4 +434,22 @@ test("native bridge converts a synchronous host streamSimple throw into executio
   }, new AbortController().signal)) events.push(event);
 
   assert.ok(events.some((event) => event.type === "EXECUTION_FINISHED" && event.outcome === "FAILURE"));
+});
+
+test("native executor requires explicit host context and accepts an empty effective prompt", () => {
+  const model = fauxProvider().getModel();
+  const input = {
+    projectRoot: process.cwd(), defaultModel: model, models: [model],
+    effectiveSystemPrompt: "", thinkingLevel: "off" as const,
+    streamSimple: () => { throw new Error("validation must not dispatch"); }
+  };
+  assert.doesNotThrow(() => createNativeExecutor(input));
+  for (const effectiveSystemPrompt of [undefined, null, 1]) {
+    assert.throws(() => createNativeExecutor({ ...input, effectiveSystemPrompt } as unknown as Parameters<typeof createNativeExecutor>[0]),
+      /explicit effective host system prompt/);
+  }
+  for (const thinkingLevel of [undefined, null, "unknown"]) {
+    assert.throws(() => createNativeExecutor({ ...input, thinkingLevel } as unknown as Parameters<typeof createNativeExecutor>[0]),
+      /explicit valid host thinking level/);
+  }
 });

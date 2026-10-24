@@ -1,7 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), [open checklist](todo.md) and generated [STATUS](../STATUS.md). The single-task tool-guidance/time-budget fixes and four-run Soul numeric comparison are complete locally. Both native candidates and one direct candidate passed independent acceptance; the other direct request timed out with unknown cost. Successful cost/quality were similar, with no general superiority claim. See the current PR for hosted CI and delivery state. Earlier short/large-task results and failures remain in the plan and PRs #65–#67. Original Soul stays untouched; P4/P5/adaptation/learning remain frozen and the broader 15-task evaluation remains incomplete.
-
+Start with the [active Phase 0 plan](plan.md#evidence-bound-changes-for-pi-2026-10-22), [open checklist](todo.md), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). The owner authorized the revised evidence-bound core direction and implementation. The consolidated candidate in #77 includes the direction, Pi 1.2/1.4 compatibility, controlled SDK worker, default execution separation and research ownership under src/lab. Current hosted checks pass; complete local acceptance and owner adoption remain open, with earlier failed Windows runs retained. #73/#75/#76 are superseded and #72 is deferred with its source and unfinished capability preserved; #68 remains separate. Old A–F safety duties are explicitly mapped in the active plan. Original Soul and private evidence remain protected, live learning and general scheduler expansion remain frozen, and the original 15-task evaluation stays unfinished.
 ## Authoritative Files
 
 - [`plan.md`](plan.md): current scope, order, acceptance criteria and handoff links.

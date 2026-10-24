@@ -1,19 +1,29 @@
-import type { Api, Model, MutableModels } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessageEventStream, Model, MutableModels } from "@earendil-works/pi-ai";
 import { formatModelRef } from "../config/model-ref.js";
 import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
-import { PiAgentExecutor } from "./pi-executor.js";
+import { PiAgentExecutor, type SparkleThinkingLevel } from "./pi-executor.js";
 import { createWorktreeCodingTools } from "./worktree-coding-tools.js";
 import { createRecallTool, type ObservationProjector } from "./observation-tools.js";
 
 export interface NativeExecutorInput {
   readonly projectRoot: string;
+  /** Exact effective host prompt; an explicitly empty prompt is valid. */
+  readonly effectiveSystemPrompt: string;
+  /** Prepared host-approved resource text, reused by every attempt. */
+  readonly approvedResourcePayload?: string | undefined;
+  /** Host selection sampled when delegation is admitted. */
+  readonly thinkingLevel: SparkleThinkingLevel;
   /** Exact eligible host-registry snapshot used to build the routing catalog. */
   readonly models: readonly Model<Api>[];
   /** Default requested model; must be a member of models. */
   readonly defaultModel: Model<Api>;
   /** Host registry dispatch. It owns provider lookup and request-time auth. */
-  readonly streamSimple: MutableModels["streamSimple"];
+  // The host and app may load different supported Pi versions. Their stream
+  // classes have distinct private identities, but this boundary only relies
+  // on the public API and returns the original host-owned stream unchanged.
+  readonly streamSimple: (...args: Parameters<MutableModels["streamSimple"]>) =>
+    Pick<AssistantMessageEventStream, keyof AssistantMessageEventStream>;
   /** Opt-in context efficiency: wrap read results through the observation projector. */
   readonly observationProjector?: ObservationProjector | undefined;
 }
@@ -47,6 +57,12 @@ function immutableModelSnapshot(model: Model<Api>): Model<Api> {
 
 /** Reuse host model objects and host stream dispatch; credentials never cross this bridge. */
 export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor {
+  if (typeof input.effectiveSystemPrompt !== "string") {
+    throw new DomainValidationError("native executor requires an explicit effective host system prompt");
+  }
+  if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(input.thinkingLevel)) {
+    throw new DomainValidationError("native executor requires an explicit valid host thinking level");
+  }
   if (input.models.length === 0) {
     throw new DomainValidationError("native executor requires at least one eligible host model");
   }
@@ -152,7 +168,9 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
   }));
   const delegate = new PiAgentExecutor({
     providerId: defaultModel.provider, modelId: defaultModel.id, models,
-    systemPrompt: "You are a read-only project assistant. Inspect files and report findings with paths. Do not claim independent verification. Use sparkle_report_task_result to report the task outcome.",
+    systemPrompt: input.effectiveSystemPrompt,
+    thinkingLevel: input.thinkingLevel,
+    approvedResourcePayload: input.approvedResourcePayload,
     tools: projector === undefined
       ? wrappedRead
       : [...wrappedRead, createRecallTool(projector)]
@@ -160,7 +178,11 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
   const supportedModelIds = Object.freeze([...byRef.keys()]);
   return {
     supportedModelIds,
-    execute: (request, signal) => delegate.execute(request, signal),
+    execute: (request, signal) => delegate.execute({
+      ...request,
+      // Worker scope remains explicit without changing the inherited host prompt.
+      prompt: "You are a read-only project assistant. Inspect files and report findings with paths. Do not claim independent verification. Use sparkle_report_task_result to report the task outcome.\n\n" + request.prompt
+    }, signal),
     steerText: (text, agentInstanceId) => delegate.steerText(text, agentInstanceId)
   };
 }

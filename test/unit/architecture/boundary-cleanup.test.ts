@@ -83,9 +83,13 @@ test("preference commands consume shared options without loading main", () => {
 });
 
 test("native and tracking catalog consumers do not reach through CLI", () => {
-  for (const module of ["native/routing-catalog.ts", "track/loop.ts"]) {
+  const imports = [
+    ["native/routing-catalog.ts", /from "\.\.\/routing\/catalog-model\.js"/],
+    ["track/loop.ts", /from "\.\.\/routing\/model-catalog\.js"/]
+  ] as const;
+  for (const [module, sharedCatalog] of imports) {
     const text = source(module);
-    assert.match(text, /from "\.\.\/routing\/model-catalog\.js"/, module);
+    assert.match(text, sharedCatalog, module);
     assert.doesNotMatch(text, /from "\.\.\/cli\/model-catalog\.js"/, module);
   }
 });

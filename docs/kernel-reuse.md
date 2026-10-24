@@ -135,14 +135,15 @@ These are properties of the current adapter, not suggestions.
   requested during backoff is refused because that instance has no live
   kernel; it is never redirected to a sibling (`57ade59`). Follow-up messages
   and `sessionId` have no equivalent replay contract.
-- **A cost stop outranks a queued steer.** Pi's loop consults
-  `shouldStopAfterTurn` immediately after a turn settles and exits the loop
-  when it answers true; the steering queue is drained only after that check
-  declines, and the follow-up queue only after the loop would otherwise end
-  (verified in `@earendil-works/pi-agent-core` 0.84.3, `dist/agent-loop.js`:
-  the stop check returns from the loop before the `getSteeringMessages`
-  poll that follows it; re-verified unchanged on 0.85.1 — `shouldStopAfterTurn`
-  still runs and returns immediately after `turn_end`, before the steering poll). So text accepted by `steerText` during the turn
+- **A cost stop outranks a queued steer.** In Pi 1.4.0, `finishTurn` runs
+  after assistant/tool finalization and before `turn_end`; returning
+  `{ action: "end" }` ends after that event and before polling steering or
+  follow-up queues. The adapter accounts for assistant usage at `message_end`
+  so the decision includes the just-completed response, while emitting
+  `TURN_FINISHED` and replaying steers only at the actual `turn_end`.
+  Error and aborted responses retain their hard-exit semantics and do not
+  consult the facade's successful-turn predicate. This replaces the older
+  `shouldStopAfterTurn` integration used with Pi 0.86.1. So text accepted by `steerText` during the turn
   that crosses the cost ceiling stays in the discarded `Agent`'s queue and
   is never delivered. Know what the log means here: `STEER_INJECTED` records
   acceptance into the queue, not delivery to the model. A dropped steer is

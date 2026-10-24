@@ -165,14 +165,55 @@ function treeEntries(data: SnapshotData, repository: string, treeId: string): Gi
   return entries;
 }
 
-function readBlob(repository: string, object: string, maxBytes: number): Buffer {
-  const type = runGit(repository, ["cat-file", "-t", object], 128).toString("utf8").trim();
-  if (type !== "blob") fail("Git tree file object is not a blob");
-  const size = Number(runGit(repository, ["cat-file", "-s", object], 128).toString("utf8").trim());
-  if (!Number.isSafeInteger(size) || size < 0 || size > maxBytes) fail("Git blob exceeds the captured byte limit");
-  const bytes = runGit(repository, ["cat-file", "blob", object], Math.max(1, maxBytes + 1));
-  if (bytes.length > maxBytes) fail("Git blob exceeds the captured byte limit");
-  return bytes;
+const GIT_BATCH_SIZE = 64;
+interface GitObjectHeader { readonly object: string; readonly type: string; readonly size: number }
+
+function objectHeader(header: string, expectedObject: string): GitObjectHeader {
+  const fields = /^([0-9a-f]{40}) (blob|tree|commit|tag) (0|[1-9][0-9]*)$/.exec(header);
+  if (fields === null || fields[1] !== expectedObject) fail("Git batch object header or identity is invalid");
+  const size = Number(fields[3]);
+  if (!Number.isSafeInteger(size)) fail("Git batch object size is invalid");
+  return { object: fields[1]!, type: fields[2]!, size };
+}
+
+function objectInput(objects: readonly string[]): Buffer {
+  if (objects.length === 0 || objects.length > GIT_BATCH_SIZE || objects.some((object) => !TREE_ID.test(object))) {
+    fail("Git batch requires bounded complete object addresses");
+  }
+  return Buffer.from(`${objects.join("\n")}\n`, "ascii");
+}
+
+function objectHeaders(repository: string, objects: readonly string[]): GitObjectHeader[] {
+  const output = runGit(repository, ["cat-file", "--batch-check"], objects.length * 128, objectInput(objects));
+  const lines = output.toString("utf8").split("\n");
+  if (lines.pop() !== "" || lines.length !== objects.length) fail("Git batch object header count or terminator is invalid");
+  return lines.map((line, index) => objectHeader(line, objects[index]!));
+}
+
+function readBlobBatch(repository: string, objects: readonly string[], maxBytes: number): Buffer[] {
+  const headers = objectHeaders(repository, objects);
+  let byteLength = 0;
+  for (const header of headers) {
+    if (header.type !== "blob") fail("Git tree file object is not a blob");
+    if (header.size > maxBytes - byteLength) fail("Git blob exceeds the captured byte limit");
+    byteLength += header.size;
+  }
+  const output = runGit(repository, ["cat-file", "--batch"], byteLength + objects.length * 129, objectInput(objects));
+  const blobs: Buffer[] = [];
+  let offset = 0;
+  for (const expected of headers) {
+    const headerEnd = output.indexOf(10, offset);
+    if (headerEnd < offset || headerEnd - offset >= 128) fail("Git batch blob header is missing or oversized");
+    const actual = objectHeader(output.subarray(offset, headerEnd).toString("utf8"), expected.object);
+    if (actual.type !== "blob" || actual.size !== expected.size) fail("Git batch blob type or size changed");
+    const start = headerEnd + 1;
+    const end = start + actual.size;
+    if (end >= output.length || output[end] !== 10) fail("Git batch blob content or terminator is incomplete");
+    blobs.push(output.subarray(start, end));
+    offset = end + 1;
+  }
+  if (offset !== output.length) fail("Git batch blob output has unexpected trailing bytes");
+  return blobs;
 }
 
 function expectedMaps(data: SnapshotData): { files: Map<string, Entry>; dirs: Set<string> } {
@@ -187,9 +228,10 @@ function expectedMaps(data: SnapshotData): { files: Map<string, Entry>; dirs: Se
 }
 
 function assertTreeObjects(repository: string, entries: readonly GitTreeEntry[]): void {
-  for (const entry of entries) {
-    const actual = runGit(repository, ["cat-file", "-t", entry.object], 128).toString("utf8").trim();
-    if (actual !== entry.type) fail("Git tree entry points to an object of the wrong type");
+  for (let offset = 0; offset < entries.length; offset += GIT_BATCH_SIZE) {
+    const batch = entries.slice(offset, offset + GIT_BATCH_SIZE);
+    const headers = objectHeaders(repository, batch.map((entry) => entry.object));
+    if (batch.some((entry, index) => headers[index]!.type !== entry.type)) fail("Git tree entry points to an object of the wrong type");
   }
 }
 
@@ -211,9 +253,6 @@ function compareTree(data: SnapshotData, repository: string, treeId: string): Gi
     if ((executable && entry.mode !== 0o100755) || (!executable && entry.mode !== 0o100644)) {
       fail(`Git tree executable mode does not match captured file: ${entry.relativePath}`);
     }
-    const bytes = readBlob(repository, entry.object, data.limits.maxBytes - totalBytes);
-    totalBytes += bytes.length;
-    if (!bytes.equals(expectedFile.bytes!)) fail(`Git tree byte content does not match captured file: ${entry.relativePath}`);
     seenFiles.add(entry.relativePath);
   }
   if (seenFiles.size !== expected.files.size || [...expected.files.keys()].some((key) => !seenFiles.has(key))) {
@@ -221,6 +260,17 @@ function compareTree(data: SnapshotData, repository: string, treeId: string): Gi
   }
   if (seenDirs.size !== expected.dirs.size || [...expected.dirs].some((key) => !seenDirs.has(key))) {
     fail("Git tree directory paths do not match the complete captured snapshot");
+  }
+  const files = entries.filter((entry) => entry.type === "blob");
+  for (let offset = 0; offset < files.length; offset += GIT_BATCH_SIZE) {
+    const batch = files.slice(offset, offset + GIT_BATCH_SIZE);
+    const blobs = readBlobBatch(repository, batch.map((entry) => entry.object), data.limits.maxBytes - totalBytes);
+    for (let index = 0; index < batch.length; index++) {
+      const entry = batch[index]!;
+      const bytes = blobs[index]!;
+      totalBytes += bytes.length;
+      if (!bytes.equals(expected.files.get(entry.relativePath)!.bytes!)) fail(`Git tree byte content does not match captured file: ${entry.relativePath}`);
+    }
   }
   if (totalBytes !== data.entries.reduce((sum, entry) => sum + (entry.bytes?.length ?? 0), 0)) {
     fail("Git tree byte total does not match the captured snapshot");
@@ -301,9 +351,12 @@ export function captureExactSnapshot(
   }
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("invalid snapshot manifest");
   const includes = prefixes(manifest.includePrefixes);
+  const optionalIncludes = prefixes(manifest.optionalIncludePrefixes);
+  const selected = [...new Set([...includes, ...optionalIncludes])].sort();
+  if (selected.length > 256) fail("combined manifest include prefixes exceed the bounded limit");
   const excludes = [...new Set([".git", ...prefixes(manifest.excludePrefixes)])].sort();
   if (prefixes(manifest.allowedOutputDirs).length > 0) fail("allowedOutputDirs is unsupported for exact snapshots");
-  for (const include of includes) {
+  for (const include of selected) {
     if (excludes.some((exclude) => under(include, exclude))) fail("required include prefix is excluded");
   }
   if (typeof root !== "string" || !root || root.includes("\0")) fail("invalid root path");
@@ -313,7 +366,7 @@ export function captureExactSnapshot(
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) fail("root must be a nonlinked directory");
     const canonicalRoot = fs.realpathSync(requestedRoot);
     assertUnchanged(canonicalRoot, rootStat);
-    const scope = JSON.stringify([includes, excludes]);
+    const scope = JSON.stringify(optionalIncludes.length === 0 ? [includes, excludes] : [includes, excludes, optionalIncludes]);
     const entries: Entry[] = [{ relativePath: "", mode: rootStat.mode }];
     const observations = new Map<string, BigIntStats>([[canonicalRoot, rootStat]]);
     const pending = [{ relativePath: "", absolute: canonicalRoot, stat: rootStat }];
@@ -339,8 +392,8 @@ export function captureExactSnapshot(
           if (item.name.includes("\ufffd") || item.name.includes("\\")) fail("unsupported filesystem path encoding");
           const relativePath = directory.relativePath ? `${directory.relativePath}/${item.name}` : item.name;
           if (excludes.some((exclude) => under(relativePath, exclude))) continue;
-          const included = includes.length === 0 || includes.some((include) => under(relativePath, include));
-          const requiredParent = includes.some((include) => under(include, relativePath));
+          const included = selected.length === 0 || selected.some((include) => under(relativePath, include));
+          const requiredParent = selected.some((include) => under(include, relativePath));
           if (!included && !requiredParent) continue;
           if (relativePath.split("/").length > 128) fail("directory traversal depth limit exceeded");
           const absolute = path.join(canonicalRoot, relativePath);
@@ -421,22 +474,31 @@ export function assertGitAttributesPreserveExactBytes(
   validateTreeId(trees.afterTree);
   const before = treeEntries(data, root, trees.beforeTree);
   const after = treeEntries(data, root, trees.afterTree);
-  assertTreeObjects(root, before);
-  assertTreeObjects(root, after);
+  assertTreeObjects(root, [...before, ...after]);
   const paths = new Set<string>(data.entries.filter((entry) => entry.relativePath).map((entry) => entry.relativePath));
   for (const entry of [...before, ...after]) paths.add(entry.relativePath);
   const orderedPaths = [...paths].sort();
 
   const inspect = (args: string[], view: string): void => {
-    for (const relativePath of orderedPaths) {
-      const output = runGit(root, ["check-attr", "-z", "--all", ...args, "--", relativePath], 16 * 1024);
+    for (let offset = 0; offset < orderedPaths.length; offset += GIT_BATCH_SIZE) {
+      const batch = orderedPaths.slice(offset, offset + GIT_BATCH_SIZE);
+      const requested = new Set(batch);
+      const input = Buffer.from(`${batch.join("\0")}\0`, "utf8");
+      const output = runGit(root, ["check-attr", "-z", "--all", ...args, "--stdin"], batch.length * 16 * 1024, input);
       if (output.length === 0) continue;
-      const fields = output.toString("utf8").split("\0");
-      if (fields[fields.length - 1] === "") fields.pop();
-      if (fields.length % 3 !== 0) fail(`Git attribute output is malformed for ${view}`);
+      const text = output.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(output)) fail(`Git attribute output is invalid UTF-8 for ${view}`);
+      const fields = text.split("\0");
+      if (fields.pop() !== "" || fields.length % 3 !== 0) fail(`Git attribute output is malformed for ${view}`);
+      const pathBytes = new Map<string, number>();
       for (let index = 0; index < fields.length; index += 3) {
+        const relativePath = fields[index]!;
         const name = fields[index + 1];
         const value = fields[index + 2];
+        if (!requested.has(relativePath) || name === "") fail(`Git attribute output contains an unexpected path or name for ${view}`);
+        const bytes = (pathBytes.get(relativePath) ?? 0) + Buffer.byteLength(relativePath) + Buffer.byteLength(name!) + Buffer.byteLength(value!) + 3;
+        if (bytes > 16 * 1024) fail(`Git attribute per-path output bound exceeded for ${view}`);
+        pathBytes.set(relativePath, bytes);
         if (name === "filter" && value !== "unset") fail(`active Git filter attribute in ${view}`);
         if (name === "text" && value !== "unset") fail(`active Git text conversion attribute in ${view}`);
         if (name === "eol" && value !== "unset") fail(`active Git line-ending attribute in ${view}`);

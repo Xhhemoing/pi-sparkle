@@ -15,10 +15,27 @@ concurrency:
 
 jobs:
   quality:
+    name: ${{ matrix.check-name }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [22.19.x]
+        include:
+          - node-version: 22.19.x
+            pi-version: 1.4.0
+            runtime-version: 1.4.0
+            full-suite: true
+            check-name: quality (22.19.x)
+          - node-version: 22.19.x
+            pi-version: 1.2.0
+            runtime-version: 1.2.0
+            full-suite: true
+            check-name: quality (22.19.x, Pi 1.2.0)
+          - node-version: 22.19.x
+            pi-version: 1.2.0
+            runtime-version: 1.4.0
+            full-suite: false
+            check-name: quality (22.19.x, host Pi 1.2.0)
 
     steps:
       - name: Checkout repository
@@ -35,8 +52,36 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
 
-      - name: Install dependencies
+      - name: Install pinned dependencies
+        if: matrix.pi-version == '1.4.0'
         run: pnpm install --frozen-lockfile
+
+      - name: Install minimum Pi compatibility candidate
+        if: matrix.pi-version == '1.2.0'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ matrix.pi-version }}'
+          $runtimeVersion = '${{ matrix.runtime-version }}'
+          $package = Get-Content -LiteralPath package.json -Encoding UTF8 -Raw | ConvertFrom-Json -AsHashtable
+          $package.dependencies['@earendil-works/pi-agent-core'] = $runtimeVersion
+          $package.dependencies['@earendil-works/pi-ai'] = $runtimeVersion
+          $package.devDependencies['@earendil-works/pi-coding-agent'] = $version
+          $package.peerDependencies['@earendil-works/pi-coding-agent'] = $version
+          # Pi 1.2 publishes caret dependencies; pin the entire Pi family so
+          # the host cannot silently pick newer core/transitive packages. Exact
+          # app pins remain separate in the mixed host/runtime lane.
+          # pnpm reads overrides from the workspace configuration.
+          $overrides = @('','overrides:')
+          foreach ($name in @('pi-agent-core','pi-ai','pi-mcp','pi-tui','pi-codemode')) {
+            $overrides += "  '@earendil-works/pi-coding-agent@${version}>@earendil-works/${name}': '${version}'"
+          }
+          $overrides += "  '@earendil-works/pi-agent-core@${version}>@earendil-works/pi-ai': '${version}'"
+          $overrides += "  '@earendil-works/pi-ai@${version}>@earendil-works/pi-telemetry': '${version}'"
+          Add-Content -LiteralPath pnpm-workspace.yaml -Value $overrides -Encoding UTF8
+          $package | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath package.json -Encoding UTF8
+          pnpm install --no-frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: No unresolved merge-conflict markers
         # Guards AI-assisted/auto-resolved landings: a conflict marker must
@@ -54,6 +99,12 @@ jobs:
       - name: Workflow contract
         run: pnpm workflow:check
 
+      - name: Report source import closures
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/import-closure.mjs
       - name: Type check
         run: pnpm typecheck
 
@@ -68,7 +119,29 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path .agent_workspace/ci -Force | Out-Null
-          pnpm test -- --test-concurrency=1 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/tests.log
+          pnpm list --depth Infinity --json | Set-Content -LiteralPath .agent_workspace/ci/dependencies.json -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compatibilityTests = @()
+          if ('${{ matrix.full-suite }}' -eq 'false') {
+            $compatibilityTests = @(
+              'test/integration/pi-adapter/host-compat.test.ts',
+              'test/unit/native/extension.test.ts',
+              'test/unit/pi-adapter/coding-session.test.ts',
+              'test/unit/pi-adapter/approved-resources.test.ts',
+              'test/unit/pi-adapter/approved-resource-delivery.test.ts',
+              'test/unit/pi-adapter/managed-qualification-record.test.ts',
+              'test/integration/pi-adapter/sdk-session-lifecycle.test.ts',
+              'test/integration/pi-adapter/native-host-context.test.ts',
+              'test/integration/pi-adapter/native-host-model.test.ts',
+              'test/integration/pi-adapter/steer-retry.test.ts',
+              'test/integration/pi-adapter/stream-options.test.ts',
+              'test/integration/pi-adapter/cost-stop.test.ts',
+              'test/unit/pi-adapter/task-result-stop.test.ts',
+              'test/unit/pi-adapter/executor-fallback.test.ts',
+              'test/integration/development/sdk-boundary.test.ts'
+            )
+          }
+          pnpm test -- --test-concurrency=1 @compatibilityTests 2>&1 | Tee-Object -Encoding UTF8 -FilePath .agent_workspace/ci/tests.log
           exit $LASTEXITCODE
 
       - name: Build
@@ -90,8 +163,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-node-${{ matrix.node-version }}
-          path: .agent_workspace/ci/*.log
+          name: quality-node-${{ matrix.node-version }}-pi-${{ matrix.pi-version }}-runtime-${{ matrix.runtime-version }}
+          path: |
+            .agent_workspace/ci/*.log
+            .agent_workspace/ci/dependencies.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14

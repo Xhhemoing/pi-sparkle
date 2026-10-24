@@ -40,13 +40,7 @@ import {
   type Flowchart,
   type FlowNode
 } from "../domain/flowchart.js";
-import {
-  applyLearnedRouting,
-  loadLearnedRouting,
-  type LearnedRoutingPolicy
-} from "../learning/learned-routing.js";
 import { discoverProject } from "../project/discovery.js";
-import { analyzeTask } from "../routing/analyze-task.js";
 import type { ModelRouter, RoutingDecision } from "../supervisor/model-router.js";
 import type { AgentExecutor } from "../execution/contract.js";
 import {
@@ -77,7 +71,6 @@ import {
   advanceTaskCriteria,
   childTasksFromLog,
   loggedTaskRequests,
-  mappedAgentRole,
   plannedTaskCostCeilings,
   plannedTaskCriteria,
   withRecordedCostCeilings,
@@ -124,7 +117,17 @@ import {
 import type { RunEngineBinding } from "../domain/run-engine-binding.js";
 import { assertRunEngineForResume, bindingForNewRun, captureRunEngineContext, type RunEngineContext } from "./engine-binding.js";
 
+export interface FlowchartNodePolicyInput {
+  readonly role: FlowNode["role"];
+  readonly objective: string;
+  readonly agentRole?: FlowNode["agentRole"];
+  readonly modelPolicy: FlowNode["modelPolicy"];
+}
+export type FlowchartModelPolicyTransform = (node: FlowchartNodePolicyInput) => FlowNode["modelPolicy"];
+
 export interface FlowchartRunDeps {
+  /** Explicit trusted lab composition; absent means no policy-store reads. */
+  loadModelPolicyTransform?: (input: { readonly stateRoot: string; readonly projectRoot: string }) => Promise<FlowchartModelPolicyTransform | undefined>;
   /** Process-lifetime cooperative stop; absence preserves ordinary host behavior. */
   signal?: AbortSignal;
   engineContext?: RunEngineContext;
@@ -1228,49 +1231,23 @@ function makeEventFactory(
     }) as Event;
 }
 
-function familyForFlowNode(node: FlowNode): string {
-  const mapped = node.agentRole ?? mappedAgentRole(node.role);
-  if (mapped !== undefined) return analyzeTask(node.objective, mapped).family;
-  return node.role;
-}
-
-function applyLearnedToNode(node: FlowNode, learned: LearnedRoutingPolicy): FlowNode {
-  const family = familyForFlowNode(node);
-  const originalPreferred = node.modelPolicy.preferredModel;
-  const seedPreferred = originalPreferred ?? node.modelPolicy.allowedModels[0]!;
-  const applied = applyLearnedRouting(
-    family,
-    node.modelPolicy.allowedModels,
-    seedPreferred,
-    learned
-  );
-  const prefer = learned.prefer.find((entry) => entry.family === family)?.modelId;
-  const preferApplied = prefer !== undefined && applied.allowedModels.includes(prefer);
-  const modelPolicy =
-    preferApplied || originalPreferred !== undefined
-      ? { allowedModels: applied.allowedModels, preferredModel: applied.preferredModel }
-      : { allowedModels: applied.allowedModels };
-  return { ...node, modelPolicy };
-}
-
-function applyLearnedToFlowchart(
-  flowchart: Flowchart,
-  learned: LearnedRoutingPolicy | undefined
-): Flowchart {
-  if (learned === undefined) return flowchart;
-  return {
-    ...flowchart,
-    nodes: flowchart.nodes.map((node) => applyLearnedToNode(node, learned))
-  };
-}
-
 async function flowchartForSupervisor(
-  stateRoot: string,
+  deps: FlowchartRunDeps,
   projectRoot: string,
   flowchart: Flowchart
 ): Promise<Flowchart> {
-  const learned = await loadLearnedRouting(stateRoot, projectRoot);
-  return applyLearnedToFlowchart(flowchart, learned);
+  const transform = await deps.loadModelPolicyTransform?.({ stateRoot: deps.stateRoot, projectRoot });
+  if (transform === undefined) return flowchart;
+  return { ...flowchart, nodes: flowchart.nodes.map((node) => {
+    // The callback receives no graph identity or mutable graph references.
+    const policy = transform({ role: node.role, objective: node.objective,
+      ...(node.agentRole !== undefined ? { agentRole: node.agentRole } : {}),
+      modelPolicy: { ...node.modelPolicy, allowedModels: [...node.modelPolicy.allowedModels] }
+    });
+    return { ...node, modelPolicy: { allowedModels: [...policy.allowedModels],
+      ...(policy.preferredModel !== undefined ? { preferredModel: policy.preferredModel } : {})
+    } };
+  }) };
 }
 
 export async function startFlowchartRun(
@@ -1367,7 +1344,7 @@ async function startLockedFlowchartRun(
   };
 
   const supervisor = createFlowchartSupervisor({
-    flowchart: await flowchartForSupervisor(deps.stateRoot, project.rootPath, input.flowchart),
+    flowchart: await flowchartForSupervisor(deps, project.rootPath, input.flowchart),
     router: deps.router,
     limits: resolved.flowchart,
     ...(input.objective !== undefined ? { objective: input.objective } : {}),
@@ -1535,7 +1512,7 @@ async function restoreCheckpointedSupervisor(input: {
 }): Promise<FlowchartSupervisor> {
   const { definition, snapshot, limits } = input.flowchart;
   const config = {
-    flowchart: await flowchartForSupervisor(input.deps.stateRoot, input.projectRoot, definition),
+    flowchart: await flowchartForSupervisor(input.deps, input.projectRoot, definition),
     router: input.deps.router,
     limits,
     runId: input.runId,
@@ -2192,7 +2169,7 @@ async function unblockLockedFlowchartRun(
   }
 
   const config = {
-    flowchart: await flowchartForSupervisor(deps.stateRoot, replayed.project.rootPath, definition),
+    flowchart: await flowchartForSupervisor(deps, replayed.project.rootPath, definition),
     router: deps.router,
     limits,
     runId,

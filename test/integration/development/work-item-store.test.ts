@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import fsPromises, { mkdtemp, readFile, rm, writeFile, type FileHandle } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -33,6 +34,92 @@ test("concurrent claims cannot double-own one item and stale tokens cannot write
     assert.notEqual(fresh.token, old.token);
     await assert.rejects(a.block("a", old.token, "late writer"), /claim|token/i);
     assert.equal((await a.load()).items[0]!.claim!.token, fresh.token);
+  });
+});
+
+for (const operation of ["load", "next"] as const) for (const replacementStat of [1, 2]) {
+  test(`${operation} survives atomic publication before snapshot stat ${replacementStat}`, async (t) => {
+    await fixture(async (path) => {
+      const writer = new WorkItemStore(path);
+      const reader = new WorkItemStore(path);
+      await writer.create(createWorkQueue({ id: "queue", authorityRef: "tasks/plan.md", items: [item("a"), item("b")] }));
+      const originalOpen = fsPromises.open;
+      let intercepted = false;
+      let published = false;
+      let snapshotUnlinked = false;
+      let snapshotChanged = false;
+      let restoreStat: (() => void) | undefined;
+      const opens = t.mock.method(fsPromises, "open", async (...args: Parameters<typeof originalOpen>) => {
+        const handle = await originalOpen(...args);
+        if (args[0] === path && !intercepted) {
+          intercepted = true;
+          const originalStat = handle.stat;
+          let calls = 0;
+          let previousCtime: number | undefined;
+          const stats = t.mock.method(handle, "stat", (async (...params: unknown[]) => {
+            calls++;
+            if (calls === replacementStat) {
+              assert.equal((await writer.claimNext({ owner: "worker", baseRevision: BASE }))?.item.id, "a");
+              published = true;
+            }
+            const result = await Reflect.apply(originalStat, handle, params);
+            snapshotUnlinked ||= result.nlink === 0;
+            snapshotChanged ||= previousCtime !== undefined && previousCtime !== result.ctimeMs;
+            previousCtime = result.ctimeMs;
+            return result;
+          }) as FileHandle["stat"]);
+          restoreStat = () => stats.mock.restore();
+        }
+        return handle;
+      });
+      syncBuiltinESMExports();
+      try {
+        const result = await reader[operation]();
+        assert.equal(published, true);
+        // Some Windows filesystems retain old-handle metadata after replacement.
+        // Such an intact old snapshot remains advisory, never claim authority.
+        const mustRefresh = replacementStat === 1 ? snapshotUnlinked : snapshotChanged;
+        if (operation === "load") {
+          assert.ok(result && "revision" in result);
+          assert.ok(result.revision === 1 || (!mustRefresh && result.revision === 0));
+        } else {
+          assert.ok(result && "id" in result);
+          assert.ok(result.id === "b" || (!mustRefresh && result.id === "a"));
+        }
+        assert.equal((await reader.load()).revision, 1);
+      } finally {
+        opens.mock.restore();
+        restoreStat?.();
+        syncBuiltinESMExports();
+      }
+    });
+  });
+}
+
+test("next releases its snapshot lock before read-only eligibility verification", async () => {
+  await fixture(async (path) => {
+    const observer = new WorkItemStore(path, { lock: { timeoutMs: 20, retryMs: 1 } });
+    const store = new WorkItemStore(path, { verifyEligibility: async () => {
+      assert.equal((await observer.load()).revision, 0);
+    } });
+    await store.create(createWorkQueue({ id: "queue", authorityRef: "tasks/plan.md", items: [item("a")] }));
+    assert.equal((await store.next())?.id, "a");
+  });
+});
+
+test("locked eligibility and evidence verifiers can inspect their queue without reacquiring its lock", async () => {
+  await fixture(async (path) => {
+    const observer = new WorkItemStore(path, { lock: { timeoutMs: 20, retryMs: 1 } });
+    const observed: string[] = [];
+    const store = new WorkItemStore(path, {
+      verifyEligibility: async () => { observed.push((await observer.load()).items[0]!.status); },
+      verifyEvidence: async () => { observed.push((await observer.load()).items[0]!.status); return true; }
+    });
+    await store.create(createWorkQueue({ id: "queue", authorityRef: "tasks/plan.md", items: [item("a")] }));
+    const claim = (await store.claimNext({ owner: "worker", baseRevision: BASE }))!;
+    await store.markReady("a", claim.token, BASE, evidence());
+    await store.accept("a", claim.token, BASE);
+    assert.deepEqual(observed, ["planned", "running", "ready-for-review"]);
   });
 });
 

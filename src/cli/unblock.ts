@@ -1,3 +1,4 @@
+import { composeCliFlowchartDeps, type CliLabBehavior } from "./lab-behavior.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -35,7 +36,7 @@ function defaultStateRoot(): string {
  * it was in and what its attempts charged, because that is the record the
  * operator is signing.
  */
-export async function unblockCommand(args: string[], io: CliIo): Promise<number> {
+export async function unblockCommand(args: string[], io: CliIo, flowchartRouting?: CliLabBehavior["flowchartRouting"]): Promise<number> {
   const { values } = parseArgs({
     args,
     options: {
@@ -86,7 +87,7 @@ export async function unblockCommand(args: string[], io: CliIo): Promise<number>
     discardExecuted,
     ...(retryNode !== undefined ? { retryNode } : {}),
     ...(values.actor !== undefined ? { actor: values.actor } : {})
-  });
+  }, flowchartRouting);
   if (typeof outcome === "number") return outcome;
   const nodes = Object.entries(outcome.snapshot.nodes)
     .map(([id, node]) => `${id}=${node.state}`)
@@ -133,15 +134,14 @@ async function unblockRun(
     readonly discardExecuted: boolean;
     readonly retryNode?: string;
     readonly actor?: string;
-  }
+  },
+  flowchartRouting?: CliLabBehavior["flowchartRouting"]
 ): Promise<FlowchartRunOutcome | number> {
   try {
+    const deps = { stateRoot: request.stateRoot, router: await createCalibratedCliModelRouter(request.stateRoot),
+      pause: createFilePauseController(request.stateRoot) };
     return await unblockFlowchartRun(
-      {
-        stateRoot: request.stateRoot,
-        router: await createCalibratedCliModelRouter(request.stateRoot),
-        pause: createFilePauseController(request.stateRoot)
-      },
+      composeCliFlowchartDeps(deps, flowchartRouting),
       request.runId,
       {
         reason: request.reason,

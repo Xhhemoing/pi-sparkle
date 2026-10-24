@@ -1,11 +1,11 @@
 # Agent and Developer Operating Rules
 
-Use the [development workflow](docs/development-workflow.md). pi-sparkle is an internal development tool; the immediate value-validation target is Soul's isolated test version. Prove benefit on real tasks before extending the runtime.
+Use the [development workflow](docs/development-workflow.md) and [ADR-010](docs/decisions/0010-evidence-bound-changes.md). pi-sparkle targets evidence-bound changes for Pi. Phase 0 is authorized; current runtime capabilities and outcome claims remain limited to actual evidence.
 
 ## Operating Rules
 
 1. Read this file, `tasks/README.md`, the active plan/checklist, and only relevant ADR/status entries before editing.
-2. Follow the active plan: remove completed low-value documentation, reconcile project state, then trial existing capabilities on Soul's isolated test version. Preserve original Soul code/data and use synthetic inputs only. The broader 15-task comparison is deferred, not satisfied by this pilot. P4/P5 and new experiments/adaptation/learning features stay frozen until an explicit owner decision based on comparative evidence; this pilot does not unfreeze them. Safety maintenance remains allowed.
+2. Follow the active Phase 0 plan: reconcile current delivery, implement the accepted direction, verify Pi compatibility, then unify the worker and separate research dependencies. Freeze new general-purpose scheduler/durability and lab features; safety and compatibility maintenance remain allowed. Preserve original Soul and synthetic-only/private-evidence boundaries. Keep the old 15-task evaluation and unresolved safety duties; do not infer main merge, npm release or paid-model authorization.
 3. Every behavior change needs observable acceptance criteria and a verification command. For non-trivial work update `tasks/plan.md` before implementation; bug fixes and new behavior require a failing test first, except documentation/configuration changes.
 4. Preserve user changes; never reset, discard or overwrite another contributor's work. Assign disjoint write paths to agents and serialize shared changes and full gates.
 5. Keep runtime state, transcripts, triage dumps and temporary logs in `.agent_workspace/`. Do not commit credentials or unredacted private data.
@@ -17,7 +17,7 @@ Use the [development workflow](docs/development-workflow.md). pi-sparkle is an i
 
 ## Required Evidence
 
-Use the [task plan template](docs/templates/task-plan.md) as a compact checklist within the active plan. Use the [verification template](docs/templates/verification-record.md) in the PR description; a separate report is not required. Include scope/non-goals, acceptance criteria, changed files, compatibility/privacy risks, exact commands and outcomes, independent review when required, and unresolved owner/condition. CI artifacts hold detailed logs. Preserve durable links in the active plan when needed for handoff; chat alone is insufficient. Run `pnpm workflow:check` before delivery.
+Use the [task plan template](docs/templates/task-plan.md) as a compact checklist within the active plan. Use the [verification template](docs/templates/verification-record.md) in the PR description; a separate report is not required. Include scope/non-goals, acceptance criteria, changed files, compatibility/privacy risks, exact commands and outcomes, independent review for complex cross-module, authorization, security and data-correctness changes, and unresolved owner/condition. Existing human conflict-hunk review remains mandatory. CI artifacts hold detailed logs. Preserve durable links in the active plan when needed for handoff; chat alone is insufficient. Run `pnpm workflow:check` before delivery.
 
 ## Test and Delivery Policy
 

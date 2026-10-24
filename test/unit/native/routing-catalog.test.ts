@@ -9,6 +9,8 @@ test("host models become catalog rows with declared versions and unpriced defaul
   ];
   const catalog = buildNativeRoutingCatalog(models, { primary: "xhh/gpt-5.6-luna-fast", fast: "xhh/cursor-grok-4.6-fast" });
   const ids = catalog.config.models.map((model) => model.id);
+  assert.equal(catalog.config.policyVersion, "router-v1-native");
+  assert.equal(catalog.config.defaultThreshold, undefined);
   assert.deepEqual([...ids].sort(), ["xhh/cursor-grok-4.6-fast", "xhh/gpt-5.6-luna-fast"]);
   assert.deepEqual(catalog.aliases, {
     cheap: "xhh/cursor-grok-4.6-fast",

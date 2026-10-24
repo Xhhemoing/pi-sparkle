@@ -1,5 +1,5 @@
 import { snapshotTaskContext, type TaskContextInput } from "../context/task-context.js";
-import { snapshotCheckFindingAnalysis, type CheckFindingAnalysisOptions } from "../evaluation/check-finding-analysis.js";
+import { snapshotCheckFindingAnalysis, type CheckFindingAnalysisOptions } from "../native/check-finding-analysis.js";
 import {
   NativeWriteSession,
   type NativeWriteSessionInput,

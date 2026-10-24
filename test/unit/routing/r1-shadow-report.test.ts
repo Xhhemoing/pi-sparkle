@@ -130,6 +130,8 @@ const LIVE_PLANE = [
   "src/supervisor/flowchart-supervisor.ts",
   "src/supervisor/model-router.ts",
   "src/routing/assign.ts",
+  "src/lab/routing/assign.ts",
+  "src/routing/static-assign.ts",
 ];
 
 describe("offline R1 shadow report", () => {

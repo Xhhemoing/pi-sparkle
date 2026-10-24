@@ -197,7 +197,10 @@ export async function stageManagedCandidate(options: StageManagedCandidateOption
       throw new DomainValidationError(`application ${key} version does not match expected version ${versions[key]}`);
     }
   }
-  const appEdges = await discover(program, "app", declaredEdges(manifest, false));
+  // The controlled SDK is a required host peer. Root peers must travel with
+  // the candidate just like transitive peers; the isolated loader cannot
+  // borrow them from the original installation.
+  const appEdges = await discover(program, "app", declaredEdges(manifest, true));
   for (const key of ["core", "ai"] as const) {
     if (appEdges.get(enginePackages[key])?.manifest.version !== versions[key]) {
       throw new DomainValidationError(`installed ${key} version does not match expected version ${versions[key]}`);

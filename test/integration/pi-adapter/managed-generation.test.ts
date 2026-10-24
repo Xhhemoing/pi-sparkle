@@ -1,3 +1,4 @@
+import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -9,7 +10,7 @@ import { pathToFileURL } from "node:url";
 
 const core = "@earendil-works/pi-agent-core";
 const ai = "@earendil-works/pi-ai";
-const versions = { core: "0.86.1", ai: "0.86.1" };
+const versions = { core: "1.4.0", ai: "1.4.0" };
 const repository = process.cwd();
 
 interface Candidate {
@@ -53,11 +54,11 @@ async function fixture(t: TestContext): Promise<{ root: string; program: string;
   await mkdir(generations);
   await json(path.join(program, "package.json"), {
     name: "synthetic-program", version: "1.0.0", type: "module",
-    dependencies: { [core]: "0.86.1", [ai]: "0.86.1" }
+    dependencies: { [core]: "1.4.0", [ai]: "1.4.0" }
   });
   await writeFile(path.join(program, "dist/index.js"), "export const staged = true;", "utf8");
-  await packageAt(path.join(program, "node_modules", core), { name: core, version: "0.86.1" });
-  await packageAt(path.join(program, "node_modules", ai), { name: ai, version: "0.86.1" });
+  await packageAt(path.join(program, "node_modules", core), { name: core, version: "1.4.0" });
+  await packageAt(path.join(program, "node_modules", ai), { name: ai, version: "1.4.0" });
   return { root, program, generations };
 }
 
@@ -72,10 +73,10 @@ async function stage(program: string, generations: string, expectedVersions = ve
 
 test("managed candidate rejects mismatched or nonliteral versions before staging program code", async (t) => {
   const { program, generations } = await fixture(t);
-  for (const expected of [{ core: "0.86.2", ai: "0.86.1" }, { core: "^0.86.1", ai: "0.86.1" }]) {
+  for (const expected of [{ core: "1.4.1", ai: "1.4.0" }, { core: "^1.4.0", ai: "1.4.0" }]) {
     await assert.rejects(stage(program, generations, expected), /version|literal/);
   }
-  await json(path.join(program, "node_modules", ai, "package.json"), { name: ai, version: "0.86.2" });
+  await json(path.join(program, "node_modules", ai, "package.json"), { name: ai, version: "1.4.1" });
   await assert.rejects(stage(program, generations), /version/);
   assert.deepEqual(await readdir(generations), [], "invalid versions must not publish or allocate a generation");
 });
@@ -83,7 +84,7 @@ test("managed candidate rejects mismatched or nonliteral versions before staging
 test("managed candidate preserves cyclic graph identity and distinct same-version peer contexts", async (t) => {
   const { program, generations } = await fixture(t);
   const modules = path.join(program, "node_modules");
-  await packageAt(path.join(modules, core), { name: core, version: "0.86.1", dependencies: { left: "1", right: "1" } });
+  await packageAt(path.join(modules, core), { name: core, version: "1.4.0", dependencies: { left: "1", right: "1" } });
   for (const [name, value] of [["left", "L"], ["right", "R"]] as const) {
     const importer = path.join(modules, name);
     const shared = path.join(importer, "node_modules/shared");
@@ -125,11 +126,11 @@ test("managed candidate refuses missing required peers and records absent option
   const { program, generations } = await fixture(t);
   const coreRoot = path.join(program, "node_modules", core);
   await packageAt(coreRoot, {
-    name: core, version: "0.86.1", peerDependencies: { missing_required: "1" }
+    name: core, version: "1.4.0", peerDependencies: { missing_required: "1" }
   });
   await assert.rejects(stage(program, generations), /missing.*missing_required/);
   await packageAt(coreRoot, {
-    name: core, version: "0.86.1",
+    name: core, version: "1.4.0",
     dependencies: { missing_optional: "1" }, optionalDependencies: { missing_optional: "1" },
     peerDependencies: { absent_peer: "1", present_peer: "1" },
     peerDependenciesMeta: { absent_peer: { optional: true }, present_peer: { optional: true } }
@@ -143,6 +144,22 @@ test("managed candidate refuses missing required peers and records absent option
   assert.ok(manifest.packages.some((item) => item.name === "present_peer"));
 });
 
+test("managed application root peers are required and execute from the staged graph", async (t) => {
+  const { program, generations } = await fixture(t);
+  const manifestPath = path.join(program, "package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  await json(manifestPath, { ...manifest, peerDependencies: { controlled_sdk: "1" } });
+  await assert.rejects(stage(program, generations), /missing required package: controlled_sdk/);
+  assert.deepEqual(await readdir(generations), [], "missing required root peer must not allocate a candidate");
+  await packageAt(path.join(program, "node_modules/controlled_sdk"), { name: "controlled_sdk", version: "1.0.0" });
+  await writeFile(path.join(program, "dist/index.js"), 'export { present } from "controlled_sdk";', "utf8");
+  const candidate = await stage(program, generations);
+  const stagedRequire = createRequire(path.join(candidate.appRoot, "package.json"));
+  assert.ok(stagedRequire.resolve("controlled_sdk").startsWith(candidate.root + path.sep));
+  const entry = await import(pathToFileURL(path.join(candidate.appRoot, "dist/index.js")).href) as { present: boolean };
+  assert.equal(entry.present, true, "staged application must really load its root peer");
+});
+
 test("managed candidate refuses directory aliases, escaping packages and package file links", async (t) => {
   const { root, program, generations } = await fixture(t);
   const alias = path.join(root, "alias");
@@ -150,12 +167,12 @@ test("managed candidate refuses directory aliases, escaping packages and package
   await assert.rejects(stage(program, alias), /link|alias/);
   const packageRoot = path.join(program, "node_modules", core);
   const outside = path.join(root, "outside");
-  await packageAt(outside, { name: core, version: "0.86.1" });
+  await packageAt(outside, { name: core, version: "1.4.0" });
   await rm(packageRoot, { recursive: true });
   await symlink(outside, packageRoot, "junction");
   await assert.rejects(stage(program, generations), /installation|outside/);
   await rm(packageRoot, { recursive: true });
-  await packageAt(packageRoot, { name: core, version: "0.86.1" });
+  await packageAt(packageRoot, { name: core, version: "1.4.0" });
   await symlink(outside, path.join(packageRoot, "unexpected"), "junction");
   await assert.rejects(stage(program, generations), /link/);
   for (const generation of await readdir(generations)) {
@@ -166,7 +183,7 @@ test("managed candidate refuses directory aliases, escaping packages and package
 test("managed candidate refuses unsafe dependency names rather than traversing paths", async (t) => {
   const { program, generations } = await fixture(t);
   await packageAt(path.join(program, "node_modules", core), {
-    name: core, version: "0.86.1", dependencies: { "../outside": "1" }
+    name: core, version: "1.4.0", dependencies: { "../outside": "1" }
   });
   await assert.rejects(stage(program, generations), /package name/);
 });
@@ -232,9 +249,9 @@ function child(candidate: Candidate, code: string): { status: number | null; std
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function loadEntry(candidate: Candidate, entry = "index.js"): string {
+function loadEntry(candidate: Candidate, entry = "index.js", expectedVersions = versions): string {
   return `const { loadManagedCandidateEntry } = await import(${JSON.stringify(pathToFileURL(path.join(candidate.appRoot, "dist/pi-adapter/managed/bootstrap.js")).href)});
-    const entry = await loadManagedCandidateEntry(${JSON.stringify(candidate.root)}, ${JSON.stringify(entry)}, ${JSON.stringify(versions)});`;
+    const entry = await loadManagedCandidateEntry(${JSON.stringify(candidate.root)}, ${JSON.stringify(entry)}, ${JSON.stringify(expectedVersions)});`;
 }
 
 test("managed child refuses static, delayed dynamic and CJS ancestor imports before marker evaluation", async (t) => {
@@ -271,7 +288,7 @@ test("managed child refuses missing required dependency fallback and escaping de
       const { root, program, generations } = await fixture(t);
       await copyBootstrap(program);
       const coreRoot = path.join(program, "node_modules", core);
-      await packageAt(coreRoot, { name: core, version: "0.86.1", dependencies: { required_marker: "1" } });
+      await packageAt(coreRoot, { name: core, version: "1.4.0", dependencies: { required_marker: "1" } });
       await writeFile(path.join(coreRoot, "index.js"), 'import "required_marker";', "utf8");
       await packageAt(path.join(program, "node_modules/required_marker"), { name: "required_marker", version: "1.0.0" });
       const marker = path.join(root, "required-outside-evaluated.txt");
@@ -302,13 +319,13 @@ test("managed child checks engine manifests before entry evaluation and refuses 
     `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "evaluated", "utf8");`, "utf8");
   const candidate = await stage(program, generations);
   const stagedAi = path.dirname(createRequire(path.join(candidate.appRoot, "package.json")).resolve(`${ai}/package.json`));
-  await json(path.join(stagedAi, "package.json"), { name: ai, version: "0.86.2" });
+  await json(path.join(stagedAi, "package.json"), { name: ai, version: "1.4.1" });
   const result = child(candidate, loadEntry(candidate));
   assert.equal(result.status, 1);
   assert.match(result.stderr, /version/);
   assert.equal(existsSync(marker), false);
   // Restore only the adversarial test mutation; production staging never updates a generation.
-  await json(path.join(stagedAi, "package.json"), { name: ai, version: "0.86.1" });
+  await json(path.join(stagedAi, "package.json"), { name: ai, version: "1.4.0" });
   const scheme = child(candidate, `${loadEntry(candidate)} await import("data:text/javascript,export default 1");`);
   assert.equal(scheme.status, 1);
   assert.match(scheme.stderr, /unsupported module URL/);
@@ -318,9 +335,11 @@ test("actual copied built adapter and kernel execute one deterministic real Agen
   await ensureFreshBuild();
   assert.ok(existsSync(path.join(repository, "dist/pi-adapter/managed/bootstrap.js")), "fresh built managed bootstrap must exist");
   const { generations } = await fixture(t);
-  const candidate = await stage(repository, generations);
+  const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+  const actualVersions = { core: pins.agentCore, ai: pins.ai };
+  const candidate = await stage(repository, generations, actualVersions);
   assert.ok(existsSync(path.join(candidate.appRoot, "dist/pi-adapter/managed/bootstrap.js")), "fresh build includes bootstrap");
-  const result = child(candidate, `${loadEntry(candidate, "pi-adapter/pi-executor.js")}
+  const result = child(candidate, `${loadEntry(candidate, "pi-adapter/pi-executor.js", actualVersions)}
     const ai = await import(${JSON.stringify(ai)});
     const kernel = await import(${JSON.stringify(pathToFileURL(path.join(candidate.appRoot, "dist/pi-adapter/kernel.js")).href)});
     const faux = ai.fauxProvider({ provider: "isolated-faux", models: [{ id: "isolated", name: "Isolated" }] });
@@ -338,7 +357,7 @@ test("actual copied built adapter and kernel execute one deterministic real Agen
     packages: Array<{ name: string; version: string }>;
   };
   for (const name of [core, ai]) {
-    assert.equal(manifest.packages.find((item) => item.name === name)?.version, "0.86.1");
+    assert.equal(manifest.packages.find((item) => item.name === name)?.version, name === core ? actualVersions.core : actualVersions.ai);
   }
   assert.equal(existsSync(path.join(candidate.appRoot, "src")), false);
   assert.equal(existsSync(path.join(candidate.appRoot, ".agent_workspace")), false);

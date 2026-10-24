@@ -5,11 +5,11 @@ import {
   recordReward,
   selectArm,
   validateTaskFeatures,
-} from "../../../src/routing/bandit.js";
-import type { TaskFeatures } from "../../../src/routing/bandit.js";
+} from "../../../src/lab/routing/bandit.js";
+import type { TaskFeatures } from "../../../src/lab/routing/bandit.js";
 import { createSeededRng } from "../../../src/experiments/replay.js";
-import { createShadowRunner, createShadowState } from "../../../src/routing/shadow.js";
-import { createDriftMonitor } from "../../../src/routing/drift.js";
+import { createShadowRunner, createShadowState } from "../../../src/lab/routing/shadow.js";
+import { createDriftMonitor } from "../../../src/lab/routing/drift.js";
 
 function features(overrides: Partial<TaskFeatures> = {}): TaskFeatures {
   return {

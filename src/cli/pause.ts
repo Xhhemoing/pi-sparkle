@@ -7,6 +7,7 @@ import { pauseFlowchartRun } from "../run/flowchart-run.js";
 import { createFilePauseController, unlinkPauseToken } from "../run/pause-controller.js";
 import { EventStore } from "../run/event-store.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
+import { composeCliFlowchartDeps, type CliLabBehavior } from "./lab-behavior.js";
 
 export interface PauseIo {
   stdout(text: string): void;
@@ -24,7 +25,7 @@ function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
 }
 
-export async function pauseCommand(args: string[], io: PauseIo): Promise<number> {
+export async function pauseCommand(args: string[], io: PauseIo, flowchartRouting?: CliLabBehavior["flowchartRouting"]): Promise<number> {
   const first = args[0];
   if (first === "help" || first === "--help" || first === "-h") {
     io.stdout(PAUSE_USAGE);
@@ -137,7 +138,7 @@ export async function pauseCommand(args: string[], io: PauseIo): Promise<number>
     return CLI_EXIT.ok;
   }
   const outcome = await pauseFlowchartRun(
-    { stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause },
+    composeCliFlowchartDeps({ stateRoot, router: await createCalibratedCliModelRouter(stateRoot), pause }, flowchartRouting),
     runId,
     values.reason
   );

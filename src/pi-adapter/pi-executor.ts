@@ -2,12 +2,12 @@
  * Pi's public API is generic over schema/detail types; the adapter boundary
  * is where that generality is absorbed. */
 import {
-  Agent,
   type AgentEvent,
   type AgentTool,
   type ThinkingLevel
 } from "@earendil-works/pi-agent-core";
 import {
+  calculateCost,
   createModels,
   fauxAssistantMessage,
   fauxProvider,
@@ -44,9 +44,11 @@ import {
   CostGate,
   catalogPrices,
   type CostGateDisarmedReason,
-  type CostGateLedger
+  type CostGateLedger,
+  type CostGatePricingObservation
 } from "./cost-gate.js";
-import { AsyncEventQueue, SparkleKernel } from "./kernel.js";
+import { AsyncEventQueue } from "./kernel.js";
+import { createControlledCodingSession, type ControlledCodingSession } from "./coding-session.js";
 import {
   callOutcomeForFailure,
   classifyProviderFailure,
@@ -77,6 +79,8 @@ export interface PiExecutorOptions {
   providerId: string;
   modelId: string;
   systemPrompt?: string;
+  /** Private prepared host-approved resource text; not model-controlled parameters. */
+  approvedResourcePayload?: string | undefined;
   thinkingLevel?: SparkleThinkingLevel;
   /**
    * Opt in to completing after a valid task report, once its whole turn settles.
@@ -163,42 +167,141 @@ export function translatePiEvent(event: AgentEvent): ExecutionEvent | undefined 
         isError: event.isError,
         summary: event.isError ? `tool error: ${event.toolName}` : `tool finished: ${event.toolName}`
       };
-    case "turn_end": {
-      // Usage flows on the assistant message; without it cost telemetry is
-      // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
-      const message = event.message as {
-        role?: string;
-        usage?: { input?: number; output?: number; cacheRead?: number };
-      };
-      const usage = message.role === "assistant" ? message.usage : undefined;
-      const rawInput = usageCount(usage?.input);
-      const rawOutput = usageCount(usage?.output);
-      const rawCacheRead = usageCount(usage?.cacheRead);
-      // All-zero usage is what error payloads and stub providers report;
-      // recording it would fabricate cost data ("undefined, never zero").
-      const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
-      const allZero = reported.length > 0 && reported.every((value) => value === 0);
-      const inputTokens = allZero ? undefined : rawInput;
-      const outputTokens = allZero ? undefined : rawOutput;
-      if (inputTokens === undefined && outputTokens === undefined) {
-        return { type: "TURN_FINISHED" };
-      }
-      return {
-        type: "TURN_FINISHED",
-        usage: {
-          ...(inputTokens !== undefined ? { inputTokens } : {}),
-          ...(outputTokens !== undefined ? { outputTokens } : {}),
-          // Cache reads ride along so the invocation can record cacheHit —
-          // F6 paired blocks treat an undetected cache hit as contamination.
-          ...(rawCacheRead !== undefined && rawCacheRead > 0
-            ? { cacheReadTokens: rawCacheRead }
-            : {})
-        }
-      };
-    }
+    case "turn_end":
+      return translateTurnFinished(event.message);
     default:
       return undefined;
   }
+}
+
+/** Account from raw SDK usage without changing the public TURN_FINISHED shape. */
+function recordPiTurnCost(gate: CostGate, rawUsage: unknown, model: Model<Api>): void {
+  const raw = rawUsage !== null && typeof rawUsage === "object"
+    ? rawUsage as Record<string, unknown>
+    : {};
+  const counts = [raw.input, raw.output, raw.cacheRead, raw.cacheWrite].map((value) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+  );
+  const [input, output, cacheRead, cacheWrite] = counts;
+  const completeCounts = counts.every((value) => value !== undefined) &&
+    Number.isSafeInteger(counts.reduce<number>((sum, value) => sum + (value ?? 0), 0));
+  if (!counts.some((value) => value !== undefined && value > 0)) {
+    gate.recordTurn(undefined);
+    return;
+  }
+  const validRetention = raw.cacheWrite1h === undefined ||
+    (typeof raw.cacheWrite1h === "number" && Number.isSafeInteger(raw.cacheWrite1h) &&
+      raw.cacheWrite1h >= 0 && cacheWrite !== undefined && raw.cacheWrite1h <= cacheWrite);
+  const tiers = model.cost.tiers ?? [];
+  const validRates = [model.cost, ...tiers].every((rates) =>
+    [rates.input, rates.output, rates.cacheRead, rates.cacheWrite].every(validBudgetAmount)
+  ) && tiers.every((tier) => Number.isSafeInteger(tier.inputTokensAbove) && tier.inputTokensAbove >= 0);
+  const prices = catalogPrices(model.cost);
+  let catalogParts: number[] | undefined;
+  let shortWritesPriced = false;
+  let referenceUsd = prices !== undefined && tiers.length === 0
+    ? ((input ?? 0) / 1_000_000) * prices.inputUsdPerMTok +
+      ((output ?? 0) / 1_000_000) * prices.outputUsdPerMTok
+    : undefined;
+  if (completeCounts && validRates) {
+    // Use the pinned SDK's full calculation: cache contributes to tier
+    // selection, and 1h writes have a distinct rate. Raw cost cannot lower
+    // this catalog reference, even when its own parts add up internally.
+    const reference = calculateCost(model, {
+      input: input!, output: output!, cacheRead: cacheRead!, cacheWrite: cacheWrite!,
+      ...(validRetention && raw.cacheWrite1h !== undefined ? { cacheWrite1h: raw.cacheWrite1h as number } : {}),
+      totalTokens: input! + output! + cacheRead! + cacheWrite!,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    });
+    const shortWrites = cacheWrite! - (validRetention && typeof raw.cacheWrite1h === "number" ? raw.cacheWrite1h : 0);
+    // A positive combined write cost can come solely from the 1h writes.
+    // Omit retention on the same counts so the SDK checks the same tier's
+    // short-write price, without changing the reference amount above.
+    shortWritesPriced = shortWrites === 0 || calculateCost(model, {
+      input: input!, output: output!, cacheRead: cacheRead!, cacheWrite: cacheWrite!,
+      totalTokens: input! + output! + cacheRead! + cacheWrite!,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    }).cacheWrite > 0;
+    catalogParts = [reference.input, reference.output, reference.cacheRead,
+      validRetention ? reference.cacheWrite : 0];
+    const amount = catalogParts.reduce((sum, part) => sum + part, 0);
+    referenceUsd = prices !== undefined && catalogParts.every(validBudgetAmount) && validBudgetAmount(amount)
+      ? amount : undefined;
+  }
+  const rawCost = raw.cost !== null && typeof raw.cost === "object"
+    ? raw.cost as Record<string, unknown>
+    : {};
+  const amounts = [rawCost.input, rawCost.output, rawCost.cacheRead, rawCost.cacheWrite, rawCost.total];
+  const validAmounts = amounts.every(validBudgetAmount);
+  const parts = amounts as number[];
+  const total = parts[4];
+  const sum = parts.slice(0, 4).reduce((value, amount) => value + amount, 0);
+  const validCost = completeCounts && validRetention && validAmounts && Number.isFinite(sum) &&
+    sameBudgetAmount(sum, total!) && counts.every((count, index) => count !== 0 || parts[index] === 0);
+  const hasCache = (cacheRead ?? 0) > 0 || (cacheWrite ?? 0) > 0;
+  // Zero cache prices are also custom-provider placeholders. They cannot
+  // prove a free cache, even if the raw SDK cost repeats those zero rates.
+  const completeCatalog = prices !== undefined && completeCounts && validRates && validRetention &&
+    referenceUsd !== undefined && catalogParts !== undefined && shortWritesPriced &&
+    (!(cacheRead! > 0) || catalogParts[2]! > 0) && (!(cacheWrite! > 0) || catalogParts[3]! > 0);
+  const matchesCatalog = validCost && catalogParts !== undefined &&
+    catalogParts.every((part, index) => sameBudgetAmount(part, parts[index]!));
+  // Older/faux input-output-only callers carry no cost or an all-zero
+  // placeholder; their valid catalog reference remains the legacy fallback.
+  const legacyCost = !hasCache && (raw.cost === undefined || (validCost && total === 0));
+  const pricing: CostGatePricingObservation = {
+    referenceUsd: prices !== undefined && validCost
+      ? Math.max(referenceUsd ?? 0, total!) : referenceUsd,
+    // A higher raw amount can conservatively stop the budget, but its
+    // unexplained difference is not a complete same-catalog price or bill.
+    complete: completeCatalog && (matchesCatalog || legacyCost)
+  };
+  gate.recordTurn({
+    ...(input !== undefined ? { inputTokens: input } : {}),
+    ...(output !== undefined ? { outputTokens: output } : {})
+  }, pricing);
+}
+
+function validBudgetAmount(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function sameBudgetAmount(left: number, right: number): boolean {
+  return Math.abs(left - right) <= Number.EPSILON * Math.max(1, left, right) * 8;
+}
+/** Normalize one assistant response for the public turn event. */
+function translateTurnFinished(rawMessage: unknown): Extract<ExecutionEvent, { type: "TURN_FINISHED" }> {
+  // Usage flows on the assistant message; without it cost telemetry is
+  // blind (tokensIn/tokensOut stay undefined and cost gates cannot run).
+  const message = rawMessage as {
+    role?: string;
+    usage?: { input?: number; output?: number; cacheRead?: number };
+  };
+  const usage = message.role === "assistant" ? message.usage : undefined;
+  const rawInput = usageCount(usage?.input);
+  const rawOutput = usageCount(usage?.output);
+  const rawCacheRead = usageCount(usage?.cacheRead);
+  // All-zero usage is what error payloads and stub providers report;
+  // recording it would fabricate cost data ("undefined, never zero").
+  const reported = [rawInput, rawOutput].filter((value): value is number => value !== undefined);
+  const allZero = reported.length > 0 && reported.every((value) => value === 0);
+  const inputTokens = allZero ? undefined : rawInput;
+  const outputTokens = allZero ? undefined : rawOutput;
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return { type: "TURN_FINISHED" };
+  }
+  return {
+    type: "TURN_FINISHED",
+    usage: {
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      // Cache reads ride along so the invocation can record cacheHit —
+      // F6 paired blocks treat an undetected cache hit as contamination.
+      ...(rawCacheRead !== undefined && rawCacheRead > 0
+        ? { cacheReadTokens: rawCacheRead }
+        : {})
+    }
+  };
 }
 
 /**
@@ -470,7 +573,7 @@ export class PiAgentExecutor implements AgentExecutor {
    * Kernels for attempts currently in flight, keyed by agent instance. One
    * executor can serve concurrent child tasks; steering refuses ambiguity.
    */
-  private readonly liveKernels = new Map<AgentInstanceId, SparkleKernel>();
+  private readonly liveKernels = new Map<AgentInstanceId, ControlledCodingSession>();
   /**
    * Steer texts accepted during each in-flight execution, keyed by agent
    * instance. Scoped to the whole execution rather than one attempt because
@@ -559,31 +662,31 @@ export class PiAgentExecutor implements AgentExecutor {
       events.push(event);
     });
     const thinkingLevel: ThinkingLevel = this.options.thinkingLevel ?? "off";
-    const kernel = SparkleKernel.fromFactory(
-      () =>
-        new Agent({
-          initialState: {
-            systemPrompt: this.options.systemPrompt ?? "",
-            model,
-            thinkingLevel,
-            tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult]
-          },
-          streamFn: (
-            streamModel: Model<Api>,
-            context: Context,
-            options?: SimpleStreamOptions
-          ): AssistantMessageEventStream =>
-            this.models.streamSimple(streamModel, context, {
-              ...options,
-              ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
-                ? { apiKey: this.options.apiKey }
-                : {})
-            })
-        }),
-      gate.armed || this.options.stopAfterTaskResult === true ? {
-        stopAfterTurn: () => {
+    const kernel = await createControlledCodingSession({
+      cwd: request.workingDirectory,
+      systemPrompt: this.options.systemPrompt ?? "",
+      approvedResourcePayload: this.options.approvedResourcePayload,
+      model,
+      thinkingLevel,
+      tools: [...(this.options.tools ?? []), ...clusterTools, reportTaskResult],
+      streamFn: (
+        streamModel: Model<Api>,
+        context: Context,
+        options?: SimpleStreamOptions
+      ): AssistantMessageEventStream => {
+        signal.throwIfAborted();
+        return this.models.streamSimple(streamModel, context, {
+          ...options,
+          ...(this.options.apiKey !== undefined && streamModel.provider === this.options.providerId
+            ? { apiKey: this.options.apiKey }
+            : {})
+        });
+      },
+      ...(gate.armed || this.options.stopAfterTaskResult === true ? {
+        shouldStopAfterTurn: () => {
           // Always observe spend, even when a valid report also completes the run.
-          // Pi invokes this after tool settlement and turn_end (including usage).
+          // Pi invokes finishTurn after tool settlement, before turn_end; usage
+          // has already been accounted for by the assistant message_end listener.
           const costStop = gate.requestStopIfExceeded();
           // The stop hook precedes Pi's steering poll. Keep the normal loop for
           // the whole execution once any steer was accepted, including retries,
@@ -592,8 +695,8 @@ export class PiAgentExecutor implements AgentExecutor {
             (this.acceptedSteers.get(request.agentInstanceId)?.length ?? 0) > 0;
           return costStop || (this.options.stopAfterTaskResult === true && taskResultReported && !hasAcceptedSteering);
         }
-      } : {}
-    );
+      } : {})
+    });
 
     this.liveKernels.set(request.agentInstanceId, kernel);
     let thrown: unknown;
@@ -604,11 +707,21 @@ export class PiAgentExecutor implements AgentExecutor {
     if (signal.aborted) kernel.abort();
     let replayPending = replay.length > 0;
     const unsubscribe = kernel.subscribe((event) => {
-      const translated = translatePiEvent(event as AgentEvent);
+      const piEvent = event as AgentEvent;
+      // finishTurn precedes turn_end in Pi 1.x. Count each response at its
+      // message_end, including failed/aborted usage, before consulting the cap.
+      // Tool-result messages and the later turn_end must not count it twice.
+      if (piEvent.type === "message_end" && piEvent.message.role === "assistant") {
+        recordPiTurnCost(gate, piEvent.message.usage, model);
+      }
+      const translated = translatePiEvent(piEvent);
       if (translated === undefined) return;
-      if (translated.type === "TURN_FINISHED") {
-        gate.recordTurn(translated.usage);
-        if (replayPending) {
+      if (translated.type === "TURN_FINISHED" && piEvent.type === "turn_end") {
+        const failedTurn = piEvent.message.role === "assistant" &&
+          (piEvent.message.stopReason === "error" || piEvent.message.stopReason === "aborted");
+        // Failed turns and host budget/cancel stops close SDK admission. Keep
+        // the real stop reason rather than masking it with a late steer error.
+        if (replayPending && !failedTurn && !gate.stopRequested && !signal.aborted) {
           replayPending = false;
           // Queued after this attempt's first turn, not folded into its
           // opening prompt: the loop polls its steering queue once a turn
@@ -627,6 +740,7 @@ export class PiAgentExecutor implements AgentExecutor {
     });
     const running = (async () => {
       try {
+        signal.throwIfAborted();
         await kernel.prompt(`Working directory: ${request.workingDirectory}\n\n${request.prompt}`);
         await kernel.waitForIdle();
       } catch (error) {
@@ -644,14 +758,18 @@ export class PiAgentExecutor implements AgentExecutor {
       }
       drained = true;
     } finally {
+      if (!drained) kernel.abort();
+      // Async-generator return skips code after finally. Keep the live owner
+      // and event subscription until the real prompt/tool/transport settles.
+      await running;
+      await kernel.waitForIdle();
       signal.removeEventListener("abort", onAbort);
       unsubscribe();
       if (this.liveKernels.get(request.agentInstanceId) === kernel) {
         this.liveKernels.delete(request.agentInstanceId);
       }
-      if (!drained) kernel.abort();
+      kernel.dispose();
     }
-    await running;
     const errorMessage = kernel.errorMessage;
     return {
       events,
@@ -766,11 +884,11 @@ export class PiAgentExecutor implements AgentExecutor {
         `cannot steer: ${live.length} agent runs are in flight and steering has no target`
       );
     }
-    const [soleInstanceId, kernel] = live[0] as [AgentInstanceId, SparkleKernel];
+    const [soleInstanceId, kernel] = live[0] as [AgentInstanceId, ControlledCodingSession];
     this.deliver(soleInstanceId, kernel, text);
   }
 
-  private deliver(agentInstanceId: AgentInstanceId, kernel: SparkleKernel, text: string): void {
+  private deliver(agentInstanceId: AgentInstanceId, kernel: ControlledCodingSession, text: string): void {
     kernel.steerText(text);
     // Recorded only once the kernel has taken the text: a steer the live
     // attempt refused was never delivered, and re-delivering it to the next

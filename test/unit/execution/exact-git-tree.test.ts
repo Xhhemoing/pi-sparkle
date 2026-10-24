@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import {
   assertExactSnapshotMatchesGitTree,
   assertGitAttributesPreserveExactBytes,
@@ -51,6 +53,87 @@ function rawTree(root: string, mode: string, type: string, object: string, name:
 function attributes(root: string, beforeTree: string, afterTree = beforeTree): void {
   assertGitAttributesPreserveExactBytes(captureExactSnapshot(root), root, { beforeTree, afterTree });
 }
+
+test("bounded Git batches avoid a subprocess for each file and attribute view", (t) => {
+  const root = fixture(t);
+  for (let index = 1; index < 12; index++) fs.writeFileSync(path.join(root, `file-${index}`), Buffer.from([0, index, 255]));
+  const tree = stage(root);
+  const snapshot = captureExactSnapshot(root);
+  const traced = (name: string, operation: () => void): number => {
+    const trace = path.join(root, ".git", `${name}.jsonl`);
+    const prior = process.env.GIT_TRACE2_EVENT;
+    process.env.GIT_TRACE2_EVENT = trace;
+    try { operation(); }
+    finally {
+      if (prior === undefined) delete process.env.GIT_TRACE2_EVENT;
+      else process.env.GIT_TRACE2_EVENT = prior;
+    }
+    return fs.readFileSync(trace, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { event: string })
+      .filter((entry) => entry.event === "start").length;
+  };
+  const comparison = traced("comparison", () => assertExactSnapshotMatchesGitTree(snapshot, root, tree));
+  const inspection = traced("attributes", () => assertGitAttributesPreserveExactBytes(snapshot, root, { beforeTree: tree, afterTree: tree }));
+  assert.ok(comparison <= 6, `12-file byte comparison spawned ${comparison} Git processes`);
+  assert.ok(inspection <= 12, `12-file four-view attribute inspection spawned ${inspection} Git processes`);
+});
+
+test("Git object and attribute batches cross 64 paths without changing binary framing", (t) => {
+  const root = fixture(t);
+  for (let index = 0; index < 65; index++) {
+    fs.writeFileSync(path.join(root, `binary-${String(index).padStart(2, "0")}`), index === 64 ? Buffer.alloc(0) : Buffer.from([0, 10, 255, index]));
+  }
+  const tree = stage(root);
+  const snapshot = captureExactSnapshot(root);
+  assert.doesNotThrow(() => assertExactSnapshotMatchesGitTree(snapshot, root, tree));
+  assert.doesNotThrow(() => assertGitAttributesPreserveExactBytes(snapshot, root, { beforeTree: tree, afterTree: tree }));
+  fs.writeFileSync(path.join(root, "file"), "evil");
+  assert.throws(() => assertExactSnapshotMatchesGitTree(snapshot, root, stage(root)), /byte|content|match/i);
+});
+
+test("Git batch parser refuses corrupted real-process headers and binary framing", (t) => {
+  const root = fixture(t);
+  const tree = stage(root);
+  const snapshot = captureExactSnapshot(root);
+  const original = childProcess.spawnSync;
+  const header = (output: Buffer, change: (line: string) => string): Buffer => {
+    const end = output.indexOf(10);
+    return Buffer.concat([Buffer.from(change(output.subarray(0, end).toString("utf8"))), output.subarray(end)]);
+  };
+  const faults: { option: string; change: (output: Buffer) => Buffer }[] = [
+    { option: "--batch-check", change: (output) => header(output, (line) => line.replace(/^[0-9a-f]{40}/, "0".repeat(40))) },
+    { option: "--batch-check", change: (output) => header(output, (line) => line.replace(/ [0-9]+$/, " -1")) },
+    { option: "--batch-check", change: (output) => header(output, (line) => line.replace(/ [0-9]+$/, " 04")) },
+    { option: "--batch-check", change: (output) => header(output, (line) => line.replace(/ [0-9]+$/, " 9007199254740992")) },
+    { option: "--batch-check", change: (output) => header(output, (line) => line.replace(" blob ", " tree ")) },
+    { option: "--batch-check", change: (output) => output.subarray(0, output.length - 1) },
+    { option: "--batch", change: (output) => header(output, (line) => line.replace(/^[0-9a-f]{40}/, "0".repeat(40))) },
+    { option: "--batch", change: (output) => header(output, (line) => line.replace(/ [0-9]+$/, " 5")) },
+    { option: "--batch", change: (output) => output.subarray(0, output.length - 1) },
+    { option: "--batch", change: (output) => Buffer.concat([output, Buffer.from("extra")]) }
+  ];
+  for (const fault of faults) {
+    // Fault injection wraps actual Git results; no mock result can grant acceptance.
+    const intercepted = mock.method(childProcess, "spawnSync", ((...args: Parameters<typeof spawnSync>) => {
+      const result = original(...args);
+      if (Array.isArray(args[1]) && args[1].includes(fault.option) && Buffer.isBuffer(result.stdout)) {
+        return { ...result, stdout: fault.change(result.stdout) };
+      }
+      return result;
+    }) as typeof spawnSync);
+    syncBuiltinESMExports();
+    try { assert.throws(() => assertExactSnapshotMatchesGitTree(snapshot, root, tree), /Git batch|blob/i); }
+    finally { intercepted.mock.restore(); syncBuiltinESMExports(); }
+  }
+});
+
+test("attribute batching preserves the per-path output bound", (t) => {
+  const root = fixture(t);
+  const tree = stage(root);
+  fs.writeFileSync(path.join(root, ".gitattributes"), Array.from({ length: 256 }, (_, index) =>
+    `file custom${index}=${"x".repeat(64)}\n`).join(""));
+  assert.ok(Buffer.byteLength(git(root, ["check-attr", "-z", "--all", "--", "file"])) > 16 * 1024);
+  assert.throws(() => attributes(root, tree), /bound|Git command failed/i);
+});
 
 test("raw tree equality supports binary, empty and nested UTF-8 files without exposing bytes", (t) => {
   const root = fixture(t);
@@ -154,7 +237,8 @@ test("both boundaries refuse copied handles and partial snapshot scopes", (t) =>
   const root = fixture(t);
   const tree = stage(root);
   const snapshot = captureExactSnapshot(root);
-  const invalid = [{ ...snapshot }, JSON.parse(JSON.stringify(snapshot)), captureExactSnapshot(root, { includePrefixes: ["file"] }), captureExactSnapshot(root, { excludePrefixes: ["unused"] })];
+  const invalid = [{ ...snapshot }, JSON.parse(JSON.stringify(snapshot)), captureExactSnapshot(root, { includePrefixes: ["file"] }),
+    captureExactSnapshot(root, { optionalIncludePrefixes: ["file"] }), captureExactSnapshot(root, { excludePrefixes: ["unused"] })];
   for (const value of invalid) {
     assert.throws(() => assertExactSnapshotMatchesGitTree(value, root, tree), /handle|whole|scope|snapshot/i);
     assert.throws(() => assertGitAttributesPreserveExactBytes(value, root, { beforeTree: tree, afterTree: tree }), /handle|whole|scope|snapshot/i);

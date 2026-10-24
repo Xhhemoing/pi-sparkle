@@ -1,3 +1,4 @@
+import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -10,7 +11,8 @@ import { qualifyManagedCandidate, type ManagedQualificationResult, type ManagedQ
 import { withExclusiveFileLock } from "../../../src/persist/file-lock.js";
 
 const repository = process.cwd();
-const versions = { core: "0.86.1", ai: "0.86.1" };
+const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+const versions = { core: pins.agentCore, ai: pins.ai };
 interface Qualified extends ManagedCandidate { readonly qualification: ManagedQualificationRecord }
 interface Store {
   approve(result: ManagedQualificationResult): Promise<Qualified>;
@@ -229,7 +231,7 @@ test("qualified generations publish retained selection under the manager lock", 
   await t.test("persisted qualification corruption, absence and publication remnants never retarget", async () => {
     const before = await readFile(qa, "utf8");
     const good = JSON.parse(before) as ManagedQualificationRecord;
-    const mutations: unknown[] = ["{", { ...good, managerRoot: root + "-wrong" }, { ...good, generationId: b.generationId }, { ...good, versions: { core: "0.0.0", ai: "0.86.1" } }, { ...good, observations: [] }, { ...good, observations: [...good.observations.slice(0, 4), good.observations[0]] }, { ...good, observations: [...good.observations, good.observations[0]] }, { ...good, candidateRoot: b.root }, " ".repeat(128 * 1024 + 1)];
+    const mutations: unknown[] = ["{", { ...good, managerRoot: root + "-wrong" }, { ...good, generationId: b.generationId }, { ...good, versions: { core: "0.0.0", ai: versions.ai } }, { ...good, observations: [] }, { ...good, observations: [...good.observations.slice(0, 4), good.observations[0]] }, { ...good, observations: [...good.observations, good.observations[0]] }, { ...good, candidateRoot: b.root }, " ".repeat(128 * 1024 + 1)];
     for (const value of mutations) {
       try {
         await writeFile(qa, typeof value === "string" ? value : JSON.stringify(value), "utf8");

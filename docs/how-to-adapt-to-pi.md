@@ -11,9 +11,13 @@ Policy anchors (do not re-litigate them per bump):
   No other source module may import `@earendil-works/*` types.
 - **ADR-004 (Accepted):** adaptation is proposal-first. A version bump is a
   reviewed dependency change, not a live-run mutation.
-- **ADR-006 (Proposed):** this repo registers **no** Pi extension and does not
-  declare `package.json#pi.extensions`. Inbound extension events (for example
-  `session_compact_failed`) stay out of scope until that ADR is Accepted.
+- **ADR-006 (Accepted):** the packaged inbound extension stays in
+  `extensions/pi-sparkle/`; host authority and private credentials remain
+  outside model-supplied requests.
+- **ADR-010 (Accepted):** version compatibility and coding-agent session
+  migration are separate slices. A dedicated SDK adapter is allowed only
+  after its context, tools, persistence, retry and settlement boundaries are
+  verified; a version bump does not establish session equivalence.
 
 ## The pinned surface
 
@@ -22,24 +26,70 @@ The pins live in `package.json` `dependencies`:
 - `@earendil-works/pi-agent-core` — exact version, no range.
 - `@earendil-works/pi-ai` — exact version, matching agent-core.
 
-`@earendil-works/pi-coding-agent` is **not** a dependency. Its releases still
-matter because `pi install` (the coding agent) consumes this package's skill
-and prompt manifest (`package.json#pi`), so skill-discovery rule changes land
-through it.
+`@earendil-works/pi-coding-agent` is an exact development dependency and a
+required compatible peer. The controlled worker uses its public session factory
+through `src/pi-adapter/coding-session.ts`; managed candidate staging copies the
+installed peer into its contained dependency graph. `pi install` also consumes
+the package's skill and prompt manifest (`package.json#pi`).
 
-Everything the adapter imports, by file — this is the diff surface for step 2:
+Key adapter imports, by file — this is the diff surface for step 2:
 
 | File | pi-agent-core symbols | pi-ai symbols |
 |---|---|---|
-| `src/pi-adapter/pi-executor.ts` | `Agent`, `AgentEvent`, `AgentTool`, `ThinkingLevel` | `createModels`, `fauxAssistantMessage`, `fauxProvider`, `Api`, `AssistantMessageEventStream`, `Context`, `FauxProviderHandle`, `Model`, `MutableModels`, `SimpleStreamOptions` |
+| `src/pi-adapter/pi-executor.ts` | `AgentEvent`, `AgentTool`, `ThinkingLevel` | `calculateCost`, `createModels`, `fauxAssistantMessage`, `fauxProvider`, `Api`, `AssistantMessageEventStream`, `Context`, `FauxProviderHandle`, `Model`, `MutableModels`, `SimpleStreamOptions` |
 | `src/pi-adapter/runtime.ts` | `ThinkingLevel` | `createProvider`, `envApiKeyAuth`, `Model`, `MutableModels`; `openAICompletionsApi` (from `api/openai-completions.lazy`); `builtinModels` (dynamic, from `providers/all`) |
 | `src/pi-adapter/listed-model.ts` | — | `Api`, `Model`; `getBuiltinModel`, `getBuiltinModels`, `getBuiltinProviders` (from `providers/all`) |
 | `src/pi-adapter/auth-session.ts` | — | `AuthInteraction`, `AuthType` |
 | `src/pi-adapter/file-credential-store.ts` | — | `AuthOperationOptions`, `Credential`, `CredentialInfo`, `CredentialStore` |
 | `src/pi-adapter/cluster-tools.ts` | `AgentTool` | `Type` |
 
+The dedicated `coding-session.ts` imports the public SDK session factory, ModelRuntime, memory managers, resource-loader and extension types. Its public Agent hooks and provider bridge are part of the compatibility surface.
+
 Behavioral (not just type-level) dependencies to re-verify each bump:
 
+- **Controlled SDK session.** The dedicated adapter uses `createAgentSession`,
+  `ModelRuntime`, an owned resource loader and in-memory session/settings/credentials.
+  Preserve the exact host system prompt with the owned public `before_agent_start`
+  override: SDK `customPrompt` alone appends cwd and substitutes defaults for empty
+  text. Test provider-observed empty/nonempty text and tool schemas on each supported
+  SDK layout. This handler does not enable ambient extension discovery.
+  The native delegate reads the public effective-prompt and thinking getters
+  synchronously at admission. Verify this through a real parent SDK tool call
+  after later before-agent-start handlers; a mocked tool context is insufficient.
+  The child keeps its own read/report tools and does not copy parent transcripts.
+  The getter re-renders SDK prompt options, not the final request. In Pi 1.2/1.4,
+  `context_with_system` can change the unforced provider-facing prompt; when
+  before-agent-start forces a prompt, SDK projection runs after that transform
+  and restores the forced text. Test both paths. Parent context handlers and
+  provider-payload hooks are not inherited; a matching effective prompt does
+  not establish final wire equivalence. Approved resource bodies are separate.
+  Keep host transport/auth and explicitly selected thinking level; disable SDK
+  retries, compaction and cache warming. Test actual prompt/steer delivery,
+  cancellation during input preparation, held callbacks and early iterator closure.
+  Drain accepted steering before the next request and reject new input at terminal
+  settlement. A hard stop must also prevent SDK before-settle continuation.
+  `dispose()` does not substitute for awaiting prompt and abort settlement.
+  The host stream replaces SDK request construction; disabling session auto-retry
+  does not by itself configure provider-internal retries or inherit the parent's
+  cache/transport options. Treat those as explicit transport ownership concerns.
+
+- **Pi 1.x turn finalization.** `finishTurn` replaces `shouldStopAfterTurn`
+  and returns `{ action: "end" }` or `undefined`. It runs after assistant/tool
+  finalization but before `turn_end`, including error and aborted responses.
+  Keep success-only stop predicates off those hard exits. The adapter records
+  assistant usage at `message_end`, before the new hook, exactly once;
+  `TURN_FINISHED` and steering replay still follow the real `turn_end`.
+  Re-run actual task-result, budget-stop, error/abort and managed-settlement
+  tests; typechecking or the static compatibility probe cannot verify this.
+
+- **Mixed host/app versions.** The app pins core/AI while the coding-agent
+  host is a required compatible peer. Check the SDK-resolved host packages as well as
+  the app pins; overriding every package to the minimum version cannot
+  establish mixed-host compatibility. The native callback accepts the
+  public stream API, without requiring private class identity across
+  versions, and returns the original host-owned stream. CI exercises actual
+  loader/dispatch, usage and cancellation with host 1.2 / app 1.4 in addition
+  to the complete 1.2 and 1.4 suites.
 - **Pi ≥ 0.86: transcript-carried prompt/tools.** `StreamFn`/provider
   `stream*` now receive a branded `TranscriptContext` whose system prompt and
   tool declarations live in the transcript's system messages
@@ -88,6 +138,47 @@ Behavioral (not just type-level) dependencies to re-verify each bump:
 - `CredentialStore` method signatures (`read`, `list`, `modify`, `delete`)
   implemented by `FileCredentialStore`.
 
+## Explicit worker resources
+
+The default delegate captures the host model reference, working directory,
+effective system prompt and thinking level before invoking the resource provider
+or yielding. Each child uses that model unless the delegate explicitly selects
+an available, unambiguous override. Static eligibility rules may refuse the
+selected model; they cannot fall back to another model. The default path does
+not load learned policies or start post-run adaptation. Existing legacy research
+callers keep those opt-in composition paths separately.
+
+A trusted Pi wrapper can select additional context and skill text for each
+`sparkle_delegate` call. The default package has no such provider. This option
+is host configuration, not a model tool argument:
+
+```ts
+import { createSparkleExtension } from "pi-sparkle/extensions/pi-sparkle/index.ts";
+
+export default createSparkleExtension({
+  approvedResources: ({ cwd }) => {
+    if (cwd !== "/absolute/path/to/approved-project") return undefined;
+    return {
+      contextFiles: [{ path: "PROJECT.md", text: "Use the repository's public interfaces." }],
+      skills: [{ name: "review", description: "Review guidance", body: "Check error handling and report concrete paths." }]
+    };
+  }
+});
+```
+
+The provider is synchronous and called once before delegation yields. Sparkle
+copies the selected strings into a JSON message; retries reuse that text and
+steering does not inject it again. Paths are labels, never instructions to read
+files. The worker receives only these bodies, its task and its own tool results.
+The inherited system prompt is kept separately and unchanged.
+
+The combined limit is 32 entries and 65,536 UTF-8 bytes for the rendered JSON,
+including labels and escaping. Missing bodies, malformed values, promises and
+oversized payloads are rejected before worker dispatch. Explicit empty strings
+are valid bodies. No configuration means no extra resource message. The SDK
+converts this custom message to user content; `display: false` affects UI only.
+It does not grant tool permissions, enable `/skill:` file expansion or inherit
+ambient files, parent history, context transforms or provider-payload hooks.
 ## The playbook
 
 ### 1. Read the changelogs for the delta from the pin
@@ -236,10 +327,10 @@ Deliberate non-goals. Revisit only with a new ADR, not during a routine bump:
   not report the TUI knob as drift of ours or vice versa.
 - **PowerShell tool.** Windows/coding-agent surface. The fake executor and
   the adapter tool set stay platform-neutral; do not add a fake PowerShell.
-- **Inbound extension events** (`session_compact_failed` and friends).
-  Requires registering a Pi extension, which ADR-006 (still Proposed)
-  forbids. `package.json` must not declare `pi.extensions` and
-  `@earendil-works/pi-coding-agent` must not become an import.
+- **Uncontrolled extension discovery.** ADR-006 permits the packaged inbound
+  extension. ADR-010 permits the dedicated SDK adapter after boundary review;
+  neither authorizes loading arbitrary user extensions/MCP servers or borrowing
+  parent tool closures into a candidate. Resource inheritance remains explicit.
 - **Coding-agent session/TUI state as product state.** Session transport is
   not episode closure (ADR-006); Pi session lifecycle changes never map to
   episode lifecycle changes here.

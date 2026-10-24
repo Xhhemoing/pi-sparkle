@@ -11,7 +11,7 @@ import { hasTrustedVerificationEvidence, type IndependentCheckRecord } from "../
 import type { LoopArtifactRef } from "../execution/loop-artifact.js";
 import type { TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import { fingerprintsCompatible } from "../execution/worktree-snapshot.js";
-import { HOST_TERMINAL_OUTCOME_SCHEMA, type HostTerminalOutcomeAssessment } from "../evaluation/types.js";
+import { HOST_TERMINAL_OUTCOME_SCHEMA, type HostTerminalOutcomeAssessment } from "./host-outcome-types.js";
 import { episodeIdFromEvents } from "../run/episode-bind.js";
 import type { RunOutcome } from "../run/coordinator.js";
 import { isInvocation, type ModelInvocation } from "../telemetry/model-invocation.js";

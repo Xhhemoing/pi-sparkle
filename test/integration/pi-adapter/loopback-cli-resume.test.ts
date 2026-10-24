@@ -89,6 +89,95 @@ async function invocationRowCount(stateRoot: string): Promise<number> {
   return text.split("\n").filter((line) => line.trim() !== "").length;
 }
 
+async function appendPersistedFailureDiagnostics(
+  assertionError: unknown,
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string,
+  phase: "flowchart-start" | "flowchart-resume" | "supervised-resume",
+  runId: RunId | undefined
+): Promise<void> {
+  // Read only after an assertion fails, before the synthetic fixture is removed.
+  // Select diagnostic fields rather than logging provider requests or credentials.
+  const diagnostics: unknown[] = [];
+  try {
+    diagnostics.push({
+      phase,
+      providerPort: new URL(provider.baseUrl).port,
+      requestCount: provider.requests.length,
+      protocolErrorCount: provider.protocolErrors.length
+    });
+    const runIds = new Set<RunId>();
+    if (runId === undefined) diagnostics.push({ diagnosticError: "run id unavailable in command output" });
+    else runIds.add(runId);
+    for (const currentRunId of runIds) {
+      try {
+        const { events } = await new EventStore(stateRoot, currentRunId).readAll();
+        for (const event of events) {
+          if (event.type === "CHILD_RUN_CREATED") runIds.add(event.payload.childRun.id);
+          if (event.type === "RUN_FAILED" || event.type === "RUN_BLOCKED") {
+            diagnostics.push({ runId: currentRunId, type: event.type, reason: event.payload.reason });
+          }
+          if (event.type === "CHILD_MESSAGE" && event.payload.message.type === "TASK_RESULT") {
+            const { taskId, outcome, summary, failure } = event.payload.message;
+            diagnostics.push({ runId: currentRunId, type: "TASK_RESULT", taskId, outcome, summary, failure });
+          }
+        }
+      } catch (error) {
+        diagnostics.push({
+          runId: currentRunId,
+          diagnosticError: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    try {
+      const rows = await loadInvocationsFromStateRoot(stateRoot);
+      diagnostics.push({
+        invocations: rows
+          .filter((row) => runIds.has(row.runId))
+          .map(({ runId, taskId, callOutcome, config }) => ({
+            runId, taskId, callOutcome, provider: config.provider, model: config.model
+          }))
+      });
+    } catch (error) {
+      diagnostics.push({ invocationDiagnosticError: error instanceof Error ? error.message : String(error) });
+    }
+  } catch (error) {
+    diagnostics.push({ diagnosticError: error instanceof Error ? error.message : String(error) });
+  }
+  if (assertionError instanceof Error) {
+    assertionError.message += `\nPersisted ${phase} diagnostics: ${JSON.stringify(diagnostics)}`;
+  }
+}
+
+async function assertFlowchartExitCode(
+  code: number,
+  output: ReturnType<typeof capture>,
+  phase: "flowchart-start" | "flowchart-resume",
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string
+): Promise<void> {
+  try {
+    assert.equal(code, 0, output.err.join(""));
+  } catch (assertionError) {
+    const runId = output.out.join("").match(/Run (run_[A-Za-z0-9_-]+):/)?.[1] as RunId | undefined;
+    await appendPersistedFailureDiagnostics(assertionError, provider, stateRoot, phase, runId);
+    throw assertionError;
+  }
+}
+
+async function assertSupervisedProviderRequestCount(
+  provider: LoopbackOpenAiProvider,
+  stateRoot: string,
+  runId: RunId
+): Promise<void> {
+  try {
+    assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+  } catch (assertionError) {
+    await appendPersistedFailureDiagnostics(assertionError, provider, stateRoot, "supervised-resume", runId);
+    throw assertionError;
+  }
+}
+
 async function waitForInvocationRows(stateRoot: string, expected: number): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if ((await invocationRowCount(stateRoot)) === expected) return;
@@ -339,7 +428,7 @@ test("flowchart resume sends flagged executor config to the offline provider", a
       ],
       started.io
     );
-    assert.equal(startCode, 0, started.err.join(""));
+    await assertFlowchartExitCode(startCode, started, "flowchart-start", provider, stateRoot);
     assert.equal(stripSkipContractWarning(started.err.join("")), "");
     assert.match(started.out.join(""), /WAITING_FOR_USER/);
     const runId = parseRunId(started.out.join(""));
@@ -364,7 +453,7 @@ test("flowchart resume sends flagged executor config to the offline provider", a
       ],
       resumed.io
     );
-    assert.equal(resumeCode, 0, resumed.err.join(""));
+    await assertFlowchartExitCode(resumeCode, resumed, "flowchart-resume", provider, stateRoot);
     // R4-6: this was the pinned default-rebuild warning from 74daff3. Adding
     // flags intentionally changes that sole allowed stderr line to disclosure.
     assert.equal(
@@ -461,7 +550,7 @@ test("supervised resume overrides a distinct configured default on the HTTP requ
       );
 
       assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
-      assert.equal(provider.requests.length, 1, "supervised resume makes one provider call");
+      await assertSupervisedProviderRequestCount(provider, stateRoot, interrupted.runId);
       const request = provider.requests[0]!;
       assert.equal(request.method, "POST");
       assert.equal(request.url, "/v1/chat/completions");

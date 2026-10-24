@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runIndependentCheck } from "../../../src/execution/independent-check.js";
 import { test } from "node:test";
 import { checkDevelopmentRecipes } from "../../../src/development/recipe-check.js";
 import { DevelopmentController } from "../../../src/development/controller.js";
@@ -102,4 +104,27 @@ test("controller run, historical review and explicit accept retain the host limi
     assert.equal(git(root, ["rev-parse", "HEAD"]), base);
     assert.equal(git(root, ["status", "--porcelain"]), "");
   });
+}));
+test("stored failed-recipe evidence preserves the diagnostic tail after verbose compiler output", async () => temporary(async (root) => {
+  git(root, ["init"]); git(root, ["config", "user.name", "Recipe diagnostic fixture"]);
+  git(root, ["config", "user.email", "fixture@example.invalid"]);
+  await writeFile(path.join(root, "value.txt"), "unchanged");
+  git(root, ["add", "."]); git(root, ["-c", "commit.gpgsign=false", "commit", "-m", "fixture"]);
+  const checker = fileURLToPath(new URL("../../../src/development/recipe-check.ts", import.meta.url));
+  const recipes = [recipe("process.stdout.write('compile-start\\n'+'x'.repeat(5000)+'\\nstdout-final-detail'); process.stderr.write('compiler-preamble\\n'+'y'.repeat(5000)+'\\nerror: final diagnostic explains the failed check'); process.exitCode=1",
+    { maxStdoutBytes: 8192, maxStderrBytes: 8192 })];
+  const checked = await runIndependentCheck({ cwd: root, command: process.execPath,
+    args: ["--import", import.meta.resolve("tsx"), checker, JSON.stringify(recipes)] });
+  assert.equal(checked.ok, false);
+  assert.equal(checked.exitCode, 1);
+  const summary = JSON.parse(checked.stdoutText.split("\n")[0]!);
+  assert.equal(summary.results[0].recipeId, "check");
+  assert.equal(summary.results[0].status, "completed");
+  assert.equal(summary.results[0].ok, false);
+  assert.match(checked.stdoutText, /compile-start/);
+  assert.match(checked.stdoutText, /stdout-final-detail/);
+  assert.match(checked.stdoutText, /compiler-preamble/);
+  assert.match(checked.stdoutText, /error: final diagnostic explains the failed check/);
+  assert.ok(Buffer.byteLength(checked.stdoutText) <= 4096);
+  assert.equal(await readFile(path.join(root, "value.txt"), "utf8"), "unchanged");
 }));

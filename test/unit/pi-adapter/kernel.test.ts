@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import {
   AsyncEventQueue,
   SparkleKernel,
@@ -10,7 +12,7 @@ import {
 
 class StubAgent implements SparkleKernelAgent {
   sessionId?: string;
-  shouldStopAfterTurn?: (...args: never[]) => boolean | Promise<boolean>;
+  finishTurn?: SparkleKernelAgent["finishTurn"];
   state = { isStreaming: true, errorMessage: "provider failed" };
   prompts: string[] = [];
   steered: SparkleKernelUserMessage[] = [];
@@ -113,14 +115,47 @@ describe("SparkleKernel", () => {
       }
     });
 
-    assert.equal(await agent.shouldStopAfterTurn?.(), false);
-    assert.equal(await agent.shouldStopAfterTurn?.(), true);
+    assert.equal(await agent.finishTurn?.(...([{ message: { stopReason: "toolUse" } }] as unknown as never[])), undefined);
+    assert.deepEqual(await agent.finishTurn?.(...([{ message: { stopReason: "toolUse" } }] as unknown as never[])), { action: "end" });
     assert.equal(checks, 2);
 
+    for (const stopReason of ["error", "aborted"]) {
+      assert.equal(await agent.finishTurn?.(...([{ message: { stopReason } }] as unknown as never[])), undefined);
+    }
+    assert.equal(checks, 2, "failed and aborted turns do not consult the graceful stop predicate");
+
     kernel.setStopAfterTurn(undefined);
-    assert.equal(agent.shouldStopAfterTurn, undefined);
+    assert.equal(agent.finishTurn, undefined);
   });
 });
+
+for (const stopReason of ["error", "aborted"] as const) {
+  it(`preserves a real Agent ${stopReason} response without consulting graceful completion`, async () => {
+    const faux = fauxProvider();
+    faux.setResponses([fauxAssistantMessage("partial response", { stopReason, errorMessage: `provider ${stopReason}` })]);
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const model = faux.getModel();
+    assert.ok(model);
+    let checks = 0;
+    const kernel = SparkleKernel.fromAgent(new Agent({
+      initialState: { model },
+      streamFn: (streamModel, context, options) => models.streamSimple(streamModel, context, options)
+    }), { stopAfterTurn: () => { checks += 1; return true; } });
+    const events: SparkleKernelEvent[] = [];
+    kernel.subscribe((event) => events.push(event));
+
+    await kernel.prompt("finish the response");
+    await kernel.waitForIdle();
+
+    assert.equal(checks, 0, "a failed response must not latch a successful stop");
+    assert.equal(kernel.errorMessage, `provider ${stopReason}`);
+    assert.equal(kernel.isStreaming, false);
+    assert.equal(faux.state.callCount, 1);
+    assert.equal(events.filter((event) => event.type === "turn_end").length, 1);
+    assert.equal(events.filter((event) => event.type === "agent_end").length, 1);
+  });
+}
 
 describe("AsyncEventQueue", () => {
   it("drains a 100000-event burst in order without moving the remaining backlog on each read", async (t) => {

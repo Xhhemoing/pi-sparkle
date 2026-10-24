@@ -17,8 +17,8 @@ import {
   BanditStateUnreadableError,
   loadProjectBanditByKey,
   projectBanditPath
-} from "../learning/bandit-store.js";
-import { stableProjectKey } from "../learning/learned-routing.js";
+} from "../persist/bandit-state.js";
+import { stableProjectKey } from "../persist/project-key.js";
 import { readPinnedPiVersions } from "../pi-compat/check.js";
 import {
   PreferenceSnapshotUnreadableError,

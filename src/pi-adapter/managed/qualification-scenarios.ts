@@ -8,7 +8,8 @@ import type { ModelInvocation } from "../../telemetry/model-invocation.js";
 import { SparkleKernel } from "../kernel.js";
 import { PiAgentExecutor, type CostGateEvent } from "../pi-executor.js";
 
-export interface UsageObservation { readonly inputTokens: number; readonly outputTokens: number }
+export interface UsageObservation { readonly inputTokens: number; readonly outputTokens: number; readonly cacheReadTokens?: number }
+export interface ProviderUsageObservation { readonly inputTokens: number; readonly outputTokens: number; readonly cacheReadTokens: number; readonly cacheWriteTokens: number }
 export interface ExecutionObservation {
   readonly scenario: "priced-stop" | "unpriced-cap" | "preabort" | "blocked-tool-cancel";
   readonly streamEntries: number;
@@ -25,6 +26,8 @@ export interface ExecutionObservation {
   readonly toolErrors: number;
   /** Actual prompt serialization observed at each dispatched faux call. */
   readonly contexts: readonly string[];
+  /** Current SDK records include raw provider counters; older records omit this. */
+  readonly providerUsage?: readonly ProviderUsageObservation[];
   readonly turns: readonly (UsageObservation | null)[];
   readonly invocations: number;
   readonly invocation: { readonly outcome: string; readonly tokensIn: number | null; readonly tokensOut: number | null; readonly cacheHit: boolean | null } | null;
@@ -70,6 +73,8 @@ function contextText(context: Context): string {
 function harness(providerId: string, tools: AgentTool<any>[], priced: boolean, responseText: string) {
   const faux = fauxProvider({ provider: providerId, api: `${providerId}-api`, tokenSize: { min: 4, max: 4 }, models: [{ id: "probe-model", name: "Probe model", cost: { input: priced ? 1_000_000 : 0, output: priced ? 1_000_000 : 0, cacheRead: 0, cacheWrite: 0 } }] });
   const contexts: string[] = [];
+  const providerUsage: ProviderUsageObservation[] = [];
+  const usageCompletions: Promise<void>[] = [];
   faux.setResponses([(context) => { contexts.push(contextText(context)); return fauxAssistantMessage(fauxToolCall("probe_tool", {}, { id: "probe-tool-1" }), { stopReason: "toolUse", timestamp: 1 }); },
     (context) => { contexts.push(contextText(context)); return fauxAssistantMessage(responseText, { timestamp: 1 }); }]);
   const streamAborted: boolean[] = [], dispatchAborted: boolean[] = [];
@@ -83,7 +88,16 @@ function harness(providerId: string, tools: AgentTool<any>[], priced: boolean, r
   const base = createModels(); base.setProvider(provider);
   let modelLookups = 0, retries = 0, sleeps = 0;
   const models = new Proxy(base, { get(target, key) {
-    if (key === "streamSimple") return (...args: Parameters<MutableModels["streamSimple"]>) => { streamAborted.push(args[2]?.signal?.aborted ?? false); return target.streamSimple(...args); };
+    if (key === "streamSimple") return (...args: Parameters<MutableModels["streamSimple"]>) => {
+      streamAborted.push(args[2]?.signal?.aborted ?? false);
+      const stream = target.streamSimple(...args);
+      usageCompletions.push(Promise.resolve(stream).then(async (result) => {
+        const { usage } = await result.result();
+        providerUsage.push({ inputTokens: usage.input, outputTokens: usage.output,
+          cacheReadTokens: usage.cacheRead, cacheWriteTokens: usage.cacheWrite });
+      }));
+      return stream;
+    };
     if (key === "getModel") return (...args: Parameters<MutableModels["getModel"]>) => { modelLookups++; return target.getModel(...args); };
     const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
   } });
@@ -94,12 +108,13 @@ function harness(providerId: string, tools: AgentTool<any>[], priced: boolean, r
   const controller = new AbortController();
   const run = async (cap?: number): Promise<void> => {
     for await (const event of executor.execute({ runId: createRunId(), taskId: createTaskId(), agentInstanceId: createAgentInstanceId(), prompt: "Call probe_tool, then finish.", workingDirectory: ".", ...(cap === undefined ? {} : { maxCostUsd: cap }) }, controller.signal)) events.push(event);
+    await Promise.all(usageCompletions);
   };
   const observe = (scenario: ExecutionObservation["scenario"], toolStarts: number, toolCompletions: number): ExecutionObservation => {
     const invocation = invocations[0];
     return { scenario, streamEntries: streamAborted.length, streamAborted, providerDispatches: dispatchAborted.length, dispatchAborted, providerHandlers: faux.state.callCount, modelLookups, retries, sleeps,
-      pendingResponses: faux.getPendingResponseCount(), toolStarts, toolCompletions, toolErrors: events.filter((event) => event.type === "TOOL_FINISHED" && event.isError).length, contexts,
-      turns: events.filter((event) => event.type === "TURN_FINISHED").map((event) => event.usage === undefined ? null : { inputTokens: event.usage.inputTokens!, outputTokens: event.usage.outputTokens! }),
+      pendingResponses: faux.getPendingResponseCount(), toolStarts, toolCompletions, toolErrors: events.filter((event) => event.type === "TOOL_FINISHED" && event.isError).length, contexts, providerUsage,
+      turns: events.filter((event) => event.type === "TURN_FINISHED").map((event) => event.usage === undefined ? null : { inputTokens: event.usage.inputTokens!, outputTokens: event.usage.outputTokens!, ...(event.usage.cacheReadTokens === undefined ? {} : { cacheReadTokens: event.usage.cacheReadTokens }) }),
       invocations: invocations.length, invocation: invocation === undefined ? null : { outcome: invocation.callOutcome ?? "unknown", tokensIn: invocation.tokensIn ?? null, tokensOut: invocation.tokensOut ?? null, cacheHit: invocation.cacheHit ?? null },
       taskResults: events.flatMap((event) => event.type === "MESSAGE" && event.message.type === "TASK_RESULT" ? [event.message.outcome] : []),
       executionFinished: events.flatMap((event) => event.type === "EXECUTION_FINISHED" ? [event.outcome] : []),

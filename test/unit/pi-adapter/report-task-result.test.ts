@@ -68,26 +68,24 @@ function attemptToolsArray(source: string): {
     true,
     ts.ScriptKind.TS
   );
-  const agents: ts.NewExpression[] = [];
+  const sessions: ts.CallExpression[] = [];
   function visit(node: ts.Node): void {
     if (
-      ts.isNewExpression(node) &&
+      ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "Agent"
+      node.expression.text === "createControlledCodingSession"
     ) {
-      agents.push(node);
+      sessions.push(node);
     }
     ts.forEachChild(node, visit);
   }
   visit(parsed);
 
-  assert.equal(agents.length, 1, "PiAgentExecutor must construct one Agent");
-  const agent = agents[0];
-  const options = agent?.arguments?.[0];
+  assert.equal(sessions.length, 1, "PiAgentExecutor must construct one controlled coding session");
+  const session = sessions[0];
+  const options = session?.arguments[0];
   assert.ok(options !== undefined && ts.isObjectLiteralExpression(options));
-  const initialState = objectProperty(options, "initialState").initializer;
-  assert.ok(ts.isObjectLiteralExpression(initialState));
-  const tools = objectProperty(initialState, "tools").initializer;
+  const tools = objectProperty(options, "tools").initializer;
   assert.ok(ts.isArrayLiteralExpression(tools));
   return { parsed, tools };
 }

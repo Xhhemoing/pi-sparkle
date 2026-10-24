@@ -44,11 +44,15 @@ test("projector setup failure settles the run before rejecting and removes activ
   });
 });
 
+test("native resolver refuses an omitted model reference instead of choosing a personal default", () => {
+  assert.throws(() => Reflect.apply(native.resolveNativeModel, undefined, [models]), /unavailable/);
+});
+
 test("preferred model must resolve uniquely; explicit provider pin wins", () => {
-  assert.deepEqual(native.resolveNativeModel(models), models[0]);
-  assert.throws(() => native.resolveNativeModel([]), /unavailable/);
+  assert.deepEqual(native.resolveNativeModel(models, "grok-4.7"), models[0]);
+  assert.throws(() => native.resolveNativeModel([], "grok-4.7"), /unavailable/);
   const ambiguous = [...models, { provider: "other", id: models[0]!.id }];
-  assert.throws(() => native.resolveNativeModel(ambiguous), /ambiguous/);
+  assert.throws(() => native.resolveNativeModel(ambiguous, "grok-4.7"), /ambiguous/);
   assert.deepEqual(native.resolveNativeModel(ambiguous, "xhh-grok/grok-4.7"), models[0]);
 });
 
@@ -295,6 +299,7 @@ test("native delegation persists multiple child results and discloses self-repor
     assert.match(result.text, /not independently verified/);
     const events = (await new EventStore(join(root, "state"), result.runId).readAll()).events;
     assert.ok(events.some((e) => e.type === "RUN_COMPLETED"));
+    assert.equal(events.some((e) => e.type === "MODEL_ROUTED"), false, "legacy calls without routing retain their original event behavior");
     assert.ok(progress.length > 0);
     assert.equal(session.activeCount, 0);
     await session.shutdown();
