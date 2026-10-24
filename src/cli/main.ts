@@ -199,6 +199,7 @@ Usage:
   pi-sparkle init [--dir <path>] [--force] [--json]
   pi-sparkle init --task [--dir <path>] [--force] [--json]
   pi-sparkle preflight <task.json> --project <path> [--state-root <dir>] [--json]
+  pi-sparkle task verdict --artifact <existing.json> [--apply-record <existing.json>] --json|--markdown
   pi-sparkle inspect --run <runId> [--state-root <dir>] [--json | --summary-json | --status-json]
   pi-sparkle inspect --run <runId> --follow [--json] [--idle-timeout-ms <ms>] [--state-root <dir>]
   pi-sparkle inspect --episode <epId> [--state-root <dir>] [--json]
@@ -2360,6 +2361,10 @@ export async function main(argv: string[], io: CliIo = defaultIo, runtime?: CliR
       }
       case "inspect":
         return await inspectCommand(rest, io);
+      case "task": {
+        const { taskVerdictCommand } = await import("./task-verdict.js");
+        return await taskVerdictCommand(rest, io);
+      }
       case "resume":
         return await resumeCommand(rest, io, commandRuntime);
       case "answer":
