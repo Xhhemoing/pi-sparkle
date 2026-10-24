@@ -52,6 +52,20 @@ function entrypoint(args: string[], nodeArgs: string[] = [], options: { timeoutM
   assert.equal(result.signal, null);
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
+/** Only these synthetic compiler fixtures may disclose their host artifact on failure. */
+async function compiledFailureDiagnostic(root: string, result: { stdout: string; stderr: string }): Promise<string> {
+  let evidence = "host artifact unavailable";
+  try {
+    const report = JSON.parse(result.stdout) as { artifactPath?: unknown };
+    if (typeof report.artifactPath === "string") {
+      const relative = path.relative(root, report.artifactPath);
+      if (relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+        evidence = await readFile(report.artifactPath, "utf8");
+      } else evidence = "refused artifact locator outside the synthetic fixture";
+    }
+  } catch (error) { evidence = `host artifact unreadable: ${error instanceof Error ? error.message : String(error)}`; }
+  return `Retained synthetic compiler fixture: ${root}\nCLI stdout:\n${result.stdout}\nCLI stderr:\n${result.stderr}\nHost artifact:\n${evidence}`;
+}
 async function compiledFixture(repo: string, language: "Rust" | "Go"): Promise<void> {
   await rm(path.join(repo, "package.json"));
   await rm(path.join(repo, "test"), { recursive: true });
@@ -97,18 +111,18 @@ for (const language of ["Rust", "Go"] as const) {
     const original = await readFile(sourceFile, "utf8");
     retainedFixtureRoots.add(root);
     const checked = entrypoint(["preflight", file, "--project", repo, "--state-root", state, "--json"], [], { timeoutMs: 90000 });
-    assert.equal(checked.code, 0, checked.stderr);
+    assert.equal(checked.code, 0, checked.code === 0 ? "" : await compiledFailureDiagnostic(root, checked));
     const observation = JSON.parse(checked.stdout);
     assert.equal(observation.ok, true);
     assert.equal(observation.effectsSettled, true);
     assert.equal(observation.candidateDisposition, "removed");
-    retainedFixtureRoots.delete(root);
     assert.equal((await lstat(result.cachePath)).isDirectory(), true);
     const evidence = await readFile(observation.artifactPath, "utf8");
     assert.match(evidence, language === "Rust" ? /actual_library_assertion/ : /ok.*example.invalid/);
     assert.equal(git(repo, ["rev-parse", "HEAD"]), revision);
     assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
     assert.equal(await readFile(sourceFile, "utf8"), original);
+    retainedFixtureRoots.delete(root);
   }));
 }
 
@@ -183,10 +197,11 @@ test("TaskSpec compiled Rust checker uses fresh outputs despite a poisoned old t
   const run = () => runAuthorizedCommand({ executable: checker.command, args: checker.args, cwd: repo, env: {}, timeoutMs: 40000, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
   retainedFixtureRoots.add(root);
   const first = await run();
-  assert.equal(first.status, "completed");
-  assert.equal(first.cleanupUnsettled, undefined);
-  assert.notEqual(first.exitCode, 0);
-  assert.match(first.stdoutText, /actual_library_assertion.*FAILED/);
+  const firstDiagnostic = `Retained synthetic compiler fixture: ${root}\nFirst Rust checker result:\n${JSON.stringify(first, null, 2)}`;
+  assert.equal(first.status, "completed", firstDiagnostic);
+  assert.equal(first.cleanupUnsettled, undefined, firstDiagnostic);
+  assert.notEqual(first.exitCode, 0, firstDiagnostic);
+  assert.match(first.stdoutText, /actual_library_assertion.*FAILED/, firstDiagnostic);
   const children = (await readdir(cachePath)).filter((name: string) => name.startsWith("check-"));
   assert.equal(children.length, 1, "each checker invocation must allocate a fresh output child");
   const deps = path.join(cachePath, children[0]!, "debug", "deps");
@@ -196,10 +211,11 @@ test("TaskSpec compiled Rust checker uses fresh outputs despite a poisoned old t
   assert.ok(harmless && actual);
   await copyFile(path.join(deps, harmless), path.join(deps, actual));
   const second = await run();
-  assert.equal(second.status, "completed");
-  assert.equal(second.cleanupUnsettled, undefined);
-  assert.notEqual(second.exitCode, 0, "poisoned old executable must not accept wrong source");
-  assert.match(second.stdoutText, /actual_library_assertion.*FAILED/);
+  const secondDiagnostic = `Retained synthetic compiler fixture: ${root}\nSecond Rust checker result (poisoned old executable must not accept wrong source):\n${JSON.stringify(second, null, 2)}`;
+  assert.equal(second.status, "completed", secondDiagnostic);
+  assert.equal(second.cleanupUnsettled, undefined, secondDiagnostic);
+  assert.notEqual(second.exitCode, 0, secondDiagnostic);
+  assert.match(second.stdoutText, /actual_library_assertion.*FAILED/, secondDiagnostic);
   assert.equal((await readdir(cachePath)).filter((name) => name.startsWith("check-")).length, 2);
   retainedFixtureRoots.delete(root);
 }));

@@ -33,8 +33,8 @@ pnpm cli version
 
 `pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm
 pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI.
-The package metadata remains `private: true`; packaging is exercised only by
-the security probe and is not an installation or publication path.
+The package metadata remains `private: true`; private tarballs are exercised by
+the security probe and the experimental [four-language installed examples](docs/taskspec.md#exercise-an-installed-package). The examples have passed on Windows with actual Express, FastAPI, Rust CLI and Go service checks, an owned scripted worker, independent acceptance and explicit fixture-only apply. This is not an npm publication, a general supported installation path, or evidence of real-model quality benefit. Linux Rust profile checks are still being diagnosed.
 
 ### Install as a local Pi package
 
@@ -234,7 +234,7 @@ pnpm cli run \
 | `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Check a children spec or flowchart against the live catalog without starting a run |
 | `pnpm cli list [--runs \| --episodes]` | List persisted runs or episodes in the state root |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart specs into the working directory |
-| `pnpm cli init --task [--dir <repo>] [--force]` | Experimental Node TaskSpec draft from an explicit existing `node --test` file list; runs no test, install or model. Review the draft before use |
+| `pnpm cli init --task [--dir <repo>] [--state-root <dir>] [--python <exe>] [--force]` | Experimental Node/TypeScript and conservative Python/Rust/Go drafts. Compiled profiles use external fresh outputs; Python selects an existing interpreter. Init runs no test, install or model. [Supported inputs](docs/taskspec.md#generate-a-draft-and-run-preflight) |
 | `pnpm cli preflight <task.json> --project <repo> [--state-root <dir>] [--json]` | Actual zero-model preparation and base checks in an isolated candidate; private evidence, truthful settlement and cleanup, no source apply. [Current TaskSpec limits](docs/taskspec.md) |
 | `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` — a frozen additive-only contract: pin `type`/`runId`/`status`/`requiredEvidence`, new keys may appear, existing keys keep meaning (mutually exclusive with `--json`, run-only). `--follow` tails events.jsonl read-only until a stopping status (optional `--idle-timeout-ms`; incompatible with `--summary-json` / `--status-json`). `--status-json` projects child-reported progress, current blockers, own-run cost subsets/gaps and advisory recovery commands; run-only and mutually exclusive with the other JSON modes. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |

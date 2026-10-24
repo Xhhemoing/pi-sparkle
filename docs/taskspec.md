@@ -73,6 +73,44 @@ Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
 CLI task execution, Verdict presentation and four-language installed examples are
 still unfinished; the one-worker source API described below is available for
 host integration.
+## Exercise an installed package
+
+The experimental `examples/task-spec-language-demo.mjs` runner creates its own
+synthetic Git repositories. It supports `node-express`, `python-fastapi`,
+`rust-cli`, `go-service`, or `all`. Each example starts with passing checks,
+uses the owned worker tool for a semantics-preserving refactor, checks that
+acceptance left the original fixture unchanged, and separately requests apply
+with fresh whole-candidate verification. The prepared apply target is saved
+before source mutation. These are scripted mechanism demonstrations; they do
+not establish real-model equivalence or the quality/cost targets.
+
+Build and pack the current checkout, then install that tarball with its Pi peer
+into a private prefix. No global installation or publication is needed. For
+example, after `pnpm build` and `pnpm pack --pack-destination <artifacts>`, use
+`npm install --prefix <private-pi-prefix> --omit=dev --ignore-scripts --no-audit --no-fund <tarball> @earendil-works/pi-coding-agent@1.4.0`.
+Install Express separately with
+`npm install --prefix <private-node-deps> --ignore-scripts --save-exact express@5.3.0`.
+Select an external Python 3.12 virtual environment containing FastAPI, pytest,
+Ruff and httpx. The locally exercised versions are FastAPI 0.162.0, pytest
+9.1.1, Ruff 0.17.2 and httpx 0.28.1. Rust/Cargo and Go must already be selected
+on PATH. The runner installs no dependencies and does not skip missing tools.
+
+Run the installed copy, supplying your chosen private paths. On Windows, keep the evidence parent short (for example, a short child of .agent_workspace): Git worktree creation can fail with "$GIT_DIR too big" under deeply nested paths. Such an early failure does not exercise the language tests or worker.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+& node "$piPrefix/node_modules/pi-sparkle/examples/task-spec-language-demo.mjs" `
+  --root $evidenceParent --node-deps $nodeDeps --python $pythonRuntime --language all
+```
+
+Dependencies and compiler output stay outside the generated source trees.
+The runner retains command output, per-language outcomes, native evidence and
+prepared apply records under a new child of `--root`; inspect failures before
+retrying. Results explicitly report zero model invocations, unknown monetary
+cost and no live-effectiveness claim. Actual installed execution evidence and
+remaining acceptance work are recorded in the active plan and PR; merely
+building or reading this example does not complete that acceptance.
+
 ## Define the task
 
 `parseDevelopmentTaskSpec(text)` in `src/development/task-spec.ts` accepts at
