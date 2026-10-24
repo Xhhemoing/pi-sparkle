@@ -2,7 +2,7 @@
 
 These experimental source APIs and CLI commands are in the Phase 1 candidate,
 not a published package or stable SDK export. They support literal paths and bounded write/protect patterns, JSON `command`/`args`, and up to five bounded worker attempts (one by default). Shell `run` strings, explicit model overrides and USD budgets are rejected. Full
-Phase 1 acceptance and four-language installation examples remain unfinished.
+Phase 1 acceptance remains unfinished; the installed four-language examples have bounded Windows mechanism evidence.
 
 A TaskSpec selects the same host checks for the base preflight and final
 acceptance. Preflight actually runs preparation and those checks without a
@@ -70,9 +70,30 @@ provider configuration and never applies source changes. Its standalone
 candidate is not reused by a later task invocation.
 
 Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
-CLI task execution, Verdict presentation and four-language installed examples are
-still unfinished; the bounded source API described below is available for
-host integration.
+CLI task execution and cross-platform qualification remain unfinished. The bounded source API supports host integration, and the installed four-language examples below have actual Windows mechanism evidence.
+## Read a historical Verdict
+
+```text
+pnpm cli task verdict --artifact <artifact.json> --markdown
+pnpm cli task verdict --artifact <artifact.json> --apply-record <host-saved-apply.json> --json
+```
+
+Choose exactly one output format. The command reads an existing Native check,
+loop, failure or apply-registration artifact, or a TaskSpec preflight record.
+Both formats use one allowlisted projection. Raw checker output, hidden checker
+IDs and commands remain private; cost is unknown. Inputs must be ordinary,
+nonlinked UTF-8 JSON files no larger than 2 MiB each.
+
+The output states the scope of the historical acceptance. A provisional check
+record without an acceptance remains incomplete; a preflight pass does not
+establish the full task outcome. An optional matching host-saved apply result
+reports recorded application separately from a merely prepared target.
+These editable records never establish current-source verification or recreate
+execution/apply authority. No command is executed and record references are
+not followed. Exit 0 means the supported record was read, even when it reports
+a historical refusal; missing, unsafe, corrupt or unsupported evidence returns
+an explicit projection and a nonzero exit status.
+
 ## Exercise an installed package
 
 The experimental `examples/task-spec-language-demo.mjs` runner creates its own
@@ -111,6 +132,23 @@ cost and no live-effectiveness claim. Actual installed execution evidence and
 remaining acceptance work are recorded in the active plan and PR; merely
 building or reading this example does not complete that acceptance.
 
+## Use the input schema
+
+The package includes [schema/taskspec.v1.json](../schema/taskspec.v1.json) for
+editor validation of JSON authoring inputs. Configure it as an external schema
+association: the TaskSpec parser rejects an added `$schema` field, like any
+other unsupported input field. From the source checkout, `pnpm schema:taskspec`
+regenerates the JSON from `src/development/task-spec-schema.ts`.
+
+Defaults are annotations; the strict parser supplies the defaults. This schema
+covers field shapes and bounds, not execution authority. The parser additionally
+checks whole-millisecond precision, unique recipe IDs, aggregate timeout/output
+limits and the 64 KiB UTF-8 input limit. Own-data object safety, actual file/link
+checks, protection coverage, source freshness and named business-failure
+assertions still require the parser and runtime. String lengths in the parser
+use UTF-16 units; generic JSON Schema consumers may count Unicode characters
+differently. Keep these checks even when an editor accepts the document.
+
 ## Define the task
 
 `parseDevelopmentTaskSpec(text)` in `src/development/task-spec.ts` accepts at
@@ -139,7 +177,7 @@ reject unknown fields, accessors, proxies and malformed values.
 The four original time fields are required; the two cumulative totals are optional. All durations range from 0.001 to 1800 seconds with whole
 millisecond precision. The earlier recipe default remains 5 seconds per check
 and at most 40 seconds of declared recipe time in total. A larger
-`checkSeconds` does not increase those recipe limits. Task-wide monetary accounting and cross-process resume are not implemented. Unknown cost stays unknown; `budget.usd` is explicitly unsupported.
+`checkSeconds` does not increase those recipe limits. Task-wide monetary accounting and cross-process resume are not implemented. Unknown cost stays unknown; `budget.usd` is explicitly unsupported. A host using the Pi executor can observe `onExecutionCost` after actual session settlement: it separates the known reference subtotal from complete/partial/unknown coverage and counts stream dispatches. This does not aggregate or enforce a TaskSpec allowance across attempts, measure underlying HTTP requests, include tool charges or establish a provider bill.
 
 Preparation and base checks execute once before the first real worker. Repair
 gets only worker-visible failure feedback and does not refresh the total
@@ -152,6 +190,23 @@ remains in the evidence while candidate delivery is refused. Exhausted pools
 prevent later workers/checks; unknown cleanup stops repair and retains the
 candidate. Omitting the totals preserves the prior per-attempt/per-phase
 behavior under the same overall deadline.
+
+Preflight JSON and its private artifact report `resources`: the existing
+snapshot's file count and UTF-8-independent byte length, plus actual
+preparation/check elapsed time divided by each effective phase allowance.
+The snapshot covers selected allow/protect/check inputs; it is not a measurement
+of all workspace files, peak memory, CPU or external compiler outputs. A phase
+or snapshot that was not reached is `null`, including its ratio; a failed phase
+retains the elapsed time actually observed. Hidden command output stays private.
+
+The explicit maintainer fixture
+`node --import tsx --test test/probes/task-preflight-cold-compiler.ts` performs
+four fresh stdlib Rust compilations and then executes their assertions under a
+separate check allowance. It prints actual phase timings, retains failures and
+marks missing compiler/linker support as unverified. It uses no model or sleep
+to stand in for compilation. This machine-dependent measurement is separate
+from the default test gate; its success establishes the exercised preparation
+budget separation, not general compiler cache safety or process containment.
 
 Checks use `id`, `command`, `args`, `verifierVersion`, optional
 `protectedPaths`, `timeoutMs`, `maxStdoutBytes`, `maxStderrBytes` and

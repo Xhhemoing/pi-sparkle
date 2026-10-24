@@ -30,7 +30,8 @@
     ".agents/skills",
     "prompts",
     "examples",
-    "sdk"
+    "sdk",
+    "schema"
   ],
   "pi": {
     "extensions": [
@@ -56,6 +57,7 @@
     "pi:probe": "node scripts/pi-compat-probe.mjs",
     "test": "node scripts/run-tests.mjs",
     "workflow:check": "node scripts/workflow-check.mjs",
+    "schema:taskspec": "node --import tsx scripts/generate-task-spec-schema.mjs",
     "status": "node scripts/status.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,313 @@
+{
+  "type": "object",
+  "required": [
+    "version",
+    "objective",
+    "write",
+    "checks",
+    "budget"
+  ],
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "objective": {
+      "type": "string",
+      "maxLength": 4096,
+      "pattern": "^(?!\\s*$)[^\\u0000]*$"
+    },
+    "context": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?!\\s*$)(?!\\.git(?:/|$))(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+(?:/(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+)*$",
+        "description": "Safe literal relative prefix, matching the parser's existing literal compatibility rules. No glob expansion."
+      },
+      "maxItems": 32,
+      "default": []
+    },
+    "write": {
+      "type": "object",
+      "required": [
+        "allow",
+        "protect"
+      ],
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!\\s*$)(?!\\.git(?:/|$))(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+(?:/(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+)*$",
+                "description": "Safe literal relative prefix, matching the parser's existing literal compatibility rules. No glob expansion."
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?=.*[*?])(?!\\.{1,2}(?:/|$))(?!\\.[gG][iI][tT](?:/|$))(?:\\*\\*|(?![^/]*\\*\\*)[^\\u0000-\\u001f\\u007f\\\\:\\ufffd{}\\[\\]()/]+)(?:/(?!\\.{1,2}(?:/|$))(?!\\.[gG][iI][tT](?:/|$))(?:\\*\\*|(?![^/]*\\*\\*)[^\\u0000-\\u001f\\u007f\\\\:\\ufffd{}\\[\\]()/]+)){0,127}$",
+                "description": "Case-sensitive slash-separated selector with segment * and ?, or whole-segment **; matching directories include their subtrees."
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "protect": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!\\s*$)(?!\\.git(?:/|$))(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+(?:/(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+)*$",
+                "description": "Safe literal relative prefix, matching the parser's existing literal compatibility rules. No glob expansion."
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?=.*[*?])(?!\\.{1,2}(?:/|$))(?!\\.[gG][iI][tT](?:/|$))(?:\\*\\*|(?![^/]*\\*\\*)[^\\u0000-\\u001f\\u007f\\\\:\\ufffd{}\\[\\]()/]+)(?:/(?!\\.{1,2}(?:/|$))(?!\\.[gG][iI][tT](?:/|$))(?:\\*\\*|(?![^/]*\\*\\*)[^\\u0000-\\u001f\\u007f\\\\:\\ufffd{}\\[\\]()/]+)){0,127}$",
+                "description": "Case-sensitive slash-separated selector with segment * and ?, or whole-segment **; matching directories include their subtrees."
+              }
+            ]
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "prepare": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "command",
+          "args"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?!\\s*$)[^\\u0000]*$"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^[^\\u0000]*$"
+            },
+            "maxItems": 64
+          }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 8,
+      "default": []
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "command",
+          "args",
+          "verifierVersion",
+          "expect"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?!\\s*$)[^\\u0000]*$"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^[^\\u0000]*$"
+            },
+            "maxItems": 64
+          },
+          "verifierVersion": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^(?!\\s*$)[^\\u0000]*$"
+          },
+          "protectedPaths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?!\\s*$)(?!\\.git(?:/|$))(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+(?:/(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+)*$",
+              "description": "Safe literal relative prefix, matching the parser's existing literal compatibility rules. No glob expansion."
+            },
+            "maxItems": 16,
+            "uniqueItems": true
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40000,
+            "default": 5000
+          },
+          "maxStdoutBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576,
+            "default": 2048
+          },
+          "maxStderrBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576,
+            "default": 2048
+          },
+          "visibleToWorker": {
+            "type": "boolean",
+            "default": true
+          },
+          "expect": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "baseline"
+                ],
+                "properties": {
+                  "baseline": {
+                    "type": "string",
+                    "const": "pass"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "baseline",
+                  "failureAssertion"
+                ],
+                "properties": {
+                  "baseline": {
+                    "type": "string",
+                    "const": "fail"
+                  },
+                  "failureAssertion": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^(?!\\s*$)[^\\u0000]*$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 8
+    },
+    "budget": {
+      "type": "object",
+      "required": [
+        "totalSeconds",
+        "prepareSeconds",
+        "checkSeconds",
+        "workerSeconds"
+      ],
+      "properties": {
+        "totalSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        },
+        "prepareSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        },
+        "checkSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        },
+        "workerSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        },
+        "workerTotalSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        },
+        "checkTotalSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 1800,
+          "description": "Seconds with whole-millisecond precision, enforced by the strict parser. No floating-point multipleOf constraint is used by this authoring schema."
+        }
+      },
+      "additionalProperties": false
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "model"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "const": "inherit"
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 1
+        }
+      },
+      "additionalProperties": false,
+      "default": {
+        "model": "inherit"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pi-sparkle experimental TaskSpec v1 input",
+  "additionalProperties": false,
+  "description": "JSON authoring aid only. Defaults are annotations; the parser performs normalization. The strict parser additionally enforces own-data objects/arrays, Proxy/getter/hole refusal, UTF-8 JSON input <=64 KiB, whole-millisecond precision, unique preparation/check ids, combined recipe timeout <=40000 ms and complete structured-output capacity. Runtime checks enforce actual files/context, links, protection coverage and unchanged bytes, source freshness and the named business failure assertion. This schema proves no filesystem access, command safety, resource settlement or execution authority. String bounds follow parser UTF-16 lengths; JSON Schema consumers may count Unicode characters differently. USD and shell run fields are unsupported."
+}
