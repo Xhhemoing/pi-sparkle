@@ -25,15 +25,26 @@ reconciliation.
 export const TASK_INIT_USAGE = `pi-sparkle init --task — generate an experimental TaskSpec draft
 
 Usage:
-  pi-sparkle init --task [--dir <repo>] [--force] [--json]
+  pi-sparkle init --task [--dir <repo>] [--state-root <dir>] [--python <executable>] [--force] [--json]
 
 Writes sparkle.task.json from an existing Node package's simple node --test
 script with explicit .js/.mjs/.cjs or .ts/.mts/.cts test files. TypeScript
 requires native Node type stripping and erasable syntax; no static type check
 is performed. No test, install or model is
 run. Review the draft's objective, scope, checks and budgets before preflight.
+Rust and Go support conservative stdlib-only packages with existing tests.
+Rust rejects custom/workspace targets, examples, benches and src/bin. Go requires
+a root single package with ASCII alphanumeric source stems and <stem>_test.go
+tests; subpackages, ignored/platform-suffixed names, build tags and embed are
+unsupported.
+Their --state-root selects external compiler output storage (default:
+~/.pi-sparkle). Each check creates a fresh child and retains it for host cleanup;
+mutable compiled/test artifacts are not reused. Init creates no output storage.
+Node and Python reject --state-root. Python supports a conservative pyproject
+pytest profile and runs existing pytest/ruff through the selected interpreter;
+--python selects that executable only for Python. No dependencies are installed.
 Only --force replaces an existing regular file. Shell scripts, other runners,
-Python/Rust/Go and ambiguous multi-language packages are not supported yet.
+compiled dependency/workspace forms and ambiguous projects are unsupported.
 The draft expects a passing base; a business RED requires an explicit named
 assertion wrapper authored by the host, never a guessed failure assertion.
 `;
@@ -141,7 +152,7 @@ async function nodeTestArgs(root: string, script: unknown): Promise<{ args: stri
   if (inputs.length === 0) fail("implicit Node test discovery is unsupported; use explicit existing JavaScript or TypeScript test files");
   return { args, inputs };
 }
-async function draftSpec(root: string): Promise<DevelopmentTaskSpec> {
+async function draftSpec(root: string, stateRoot?: string, python?: string): Promise<{ spec: DevelopmentTaskSpec; profile?: "rust" | "go" | "python"; cachePath?: string }> {
   const languages = [
     { name: "Node", files: ["package.json"] }, { name: "Python", files: ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "pytest.ini"] },
     { name: "Rust", files: ["Cargo.toml"] }, { name: "Go", files: ["go.mod", "go.work"] }
@@ -150,7 +161,19 @@ async function draftSpec(root: string): Promise<DevelopmentTaskSpec> {
   for (const language of languages) {
     for (const file of language.files) if (await entry(path.join(root, file))) { detected.push(language.name); break; }
   }
-  if (detected.length !== 1 || detected[0] !== "Node") fail(`unsupported or ambiguous language detection (${detected.join(", ") || "none"}); currently only Node projects are supported`);
+  if (detected.length !== 1 || !["Node", "Python", "Rust", "Go"].includes(detected[0]!)) fail(`unsupported or ambiguous language detection (${detected.join(", ") || "none"}); supported profiles are Node and conservative Python/Rust/Go packages`);
+  if (detected[0] !== "Python" && python !== undefined) fail("--python is supported only for Python projects");
+  if (detected[0] === "Python") {
+    if (stateRoot !== undefined) fail("--state-root is supported only for compiled Rust/Go profiles");
+    const { pythonTaskSpecDraft } = await import("./task-spec-python.js");
+    return pythonTaskSpecDraft({ root, taskFilename: TASK_FILENAME, ...(python === undefined ? {} : { python: required(python, "--python") }), readRegularFile: boundedFile });
+  }
+  if (detected[0] === "Rust" || detected[0] === "Go") {
+    const { compiledTaskSpecDraft } = await import("./task-spec-compiled.js");
+    return compiledTaskSpecDraft({ root, stateRoot: path.resolve(stateRoot === undefined ? path.join(homedir(), ".pi-sparkle") : required(stateRoot, "--state-root")),
+      language: detected[0], taskFilename: TASK_FILENAME, readRegularFile: boundedFile });
+  }
+  if (stateRoot !== undefined) fail("--state-root is supported only for compiled Rust/Go profiles");
   let manifest: unknown;
   try { manifest = JSON.parse(await boundedFile(path.join(root, "package.json"))); }
   catch (error) { fail(`cannot read package.json: ${error instanceof Error ? error.message : String(error)}`); }
@@ -163,10 +186,10 @@ async function draftSpec(root: string): Promise<DevelopmentTaskSpec> {
   for (const directory of ["test", "tests", "__tests__"]) if (await physicalDirectory(root, directory)) testDirectories.push(directory);
   const selected = await nodeTestArgs(root, script);
   const protect = [...new Set(["package.json", TASK_FILENAME, ...testDirectories, ...selected.inputs])];
-  return snapshotDevelopmentTaskSpec({ version: 1, objective: "Describe the intended source change before running this draft", context: ["package.json"],
+  return { spec: snapshotDevelopmentTaskSpec({ version: 1, objective: "Describe the intended source change before running this draft", context: ["package.json"],
     write: { allow, protect }, prepare: [], checks: [{ id: "node-tests", command: process.execPath, args: selected.args,
       verifierVersion: "init-draft-v1", protectedPaths: protect, visibleToWorker: true, expect: { baseline: "pass" } }],
-    budget: { totalSeconds: 600, prepareSeconds: 300, checkSeconds: 40, workerSeconds: 300 }, worker: { model: "inherit" } });
+    budget: { totalSeconds: 600, prepareSeconds: 300, checkSeconds: 40, workerSeconds: 300 }, worker: { model: "inherit" } }) };
 }
 async function writeDraft(target: string, body: string, force: boolean): Promise<boolean> {
   const before = await entry(target);
@@ -188,20 +211,23 @@ export async function initTaskSpecCommand(args: string[], io: TaskSpecCliIo): Pr
   let stage = "parse-args";
   try {
     const { values, tokens } = parseArgs({ args, strict: true, allowPositionals: false, tokens: true, options: {
-      dir: { type: "string" }, force: { type: "boolean" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }
+      dir: { type: "string" }, "state-root": { type: "string" }, python: { type: "string" }, force: { type: "boolean" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" }
     } });
     rejectDuplicates(tokens);
     if (values.help) { io.stdout(TASK_INIT_USAGE); return CLI_EXIT.ok; }
     const dir = path.resolve(values.dir === undefined ? "." : required(values.dir, "--dir"));
     stage = "validation";
-    const spec = await draftSpec(dir);
+    const draft = await draftSpec(dir, values["state-root"], values.python);
+    const { spec } = draft;
     const file = path.join(dir, TASK_FILENAME);
     stage = "execute";
     const overwritten = await writeDraft(file, `${JSON.stringify(spec, null, 2)}\n`, values.force === true);
     const typescript = spec.checks[0]!.args.some((argument) => /\.(?:cts|mts|ts)$/.test(argument));
     const next = "Review this draft's objective, scope, checks and budgets. It expects a passing base; configure an explicit named assertion wrapper for a business RED. No test, install or model was run."
-      + (typescript ? " Native Node execution strips erasable TypeScript syntax; no static type checking is performed." : "");
-    if (values.json) io.stdout(`${JSON.stringify({ type: "TASKSPEC_DRAFT", preview: true, status: "draft", dir, file, overwritten, next })}\n`);
+      + (typescript ? " Native Node execution strips erasable TypeScript syntax; no static type checking is performed." : "")
+      + (draft.cachePath === undefined ? "" : ` Each check creates fresh compiler outputs under ${draft.cachePath} and retains them for host cleanup; mutable compiled/test artifacts are not reused. Review this location before execution.`);
+    if (values.json) io.stdout(`${JSON.stringify({ type: "TASKSPEC_DRAFT", preview: true, status: "draft", dir, file, overwritten,
+      ...(draft.profile === undefined ? {} : { profile: draft.profile, cachePath: draft.cachePath }), next })}\n`);
     else io.stdout(`Wrote TaskSpec draft: ${file}\n${next}\n`);
     return CLI_EXIT.ok;
   } catch (error) {

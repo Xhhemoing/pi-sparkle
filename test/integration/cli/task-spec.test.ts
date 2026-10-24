@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { main } from "../../../src/cli/main.js";
 import { parseDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
+import { runAuthorizedCommand } from "../../../src/execution/command-runner.js";
 
 const REPO = process.cwd();
 const retainedFixtureRoots = new Set<string>();
@@ -44,13 +45,272 @@ function spec(code: string): DevelopmentTaskSpec {
       protectedPaths: ["test", "package.json"], visibleToWorker: false, expect: { baseline: "pass" } }],
     budget: { totalSeconds: 30, prepareSeconds: 10, checkSeconds: 5, workerSeconds: 10 }, worker: { model: "inherit" } };
 }
-function entrypoint(args: string[], nodeArgs: string[] = []): { code: number | null; stdout: string; stderr: string } {
+function entrypoint(args: string[], nodeArgs: string[] = [], options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): { code: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [...nodeArgs, "--import", "tsx", "src/cli/main.ts", ...args],
-    { cwd: REPO, encoding: "utf8", windowsHide: true, timeout: 30000 });
+    { cwd: REPO, encoding: "utf8", windowsHide: true, timeout: options.timeoutMs ?? 30000, ...(options.env === undefined ? {} : { env: options.env }) });
   assert.equal(result.error, undefined);
   assert.equal(result.signal, null);
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
+async function compiledFixture(repo: string, language: "Rust" | "Go"): Promise<void> {
+  await rm(path.join(repo, "package.json"));
+  await rm(path.join(repo, "test"), { recursive: true });
+  await rm(path.join(repo, "src"), { recursive: true });
+  if (language === "Rust") {
+    await mkdir(path.join(repo, "src")); await mkdir(path.join(repo, "tests"));
+    await writeFile(path.join(repo, "Cargo.toml"), '[package]\nname = "sparkle_cli_fixture"\nversion = "0.1.0"\nedition = "2021"\n', "utf8");
+    await writeFile(path.join(repo, "Cargo.lock"), 'version = 4\n\n[[package]]\nname = "sparkle_cli_fixture"\nversion = "0.1.0"\n', "utf8");
+    await writeFile(path.join(repo, "src/lib.rs"), 'pub fn total(left: i32, right: i32) -> i32 { left + right }\n', "utf8");
+    await writeFile(path.join(repo, "tests/total.rs"), '#[test] fn actual_library_assertion() { assert_eq!(sparkle_cli_fixture::total(1, 2), 3); }\n', "utf8");
+  } else {
+    await writeFile(path.join(repo, "go.mod"), 'module example.invalid/sparkle-cli-fixture\n\ngo 1.22\n', "utf8");
+    await writeFile(path.join(repo, "total.go"), 'package total\nfunc Total(left, right int) int { return left + right }\n', "utf8");
+    await writeFile(path.join(repo, "total_test.go"), 'package total\nimport "testing"\nfunc TestActualLibrary(t *testing.T) { if Total(1, 2) != 3 { t.Fatal("total must equal 3") } }\n', "utf8");
+  }
+}
+
+for (const language of ["Rust", "Go"] as const) {
+  test(`TaskSpec compiled ${language} draft actually preflights with an external cache and unchanged source`, async () => fixture(async (repo, root) => {
+    await compiledFixture(repo, language);
+    const state = path.join(root, "state");
+    const initialized = entrypoint(["init", "--task", "--dir", repo, "--state-root", state, "--json"]);
+    assert.equal(initialized.code, 0, initialized.stderr);
+    const result = JSON.parse(initialized.stdout);
+    assert.equal(result.status, "draft");
+    assert.equal(result.profile, language.toLowerCase());
+    assert.ok(path.isAbsolute(result.cachePath));
+    assert.ok(path.relative(state, result.cachePath).startsWith(`runtime${path.sep}`));
+    await assert.rejects(lstat(result.cachePath), { code: "ENOENT" });
+    const file = path.join(repo, "sparkle.task.json");
+    const draft = parseDevelopmentTaskSpec(await readFile(file, "utf8"));
+    assert.equal(draft.checks[0]!.timeoutMs, 40000);
+    assert.equal(draft.budget.checkSeconds, 40);
+    assert.ok(draft.write.protect.includes("sparkle.task.json"));
+    if (language === "Rust") {
+      assert.match(draft.checks[0]!.args[1]!, /--offline/);
+      assert.match(draft.checks[0]!.args[1]!, /--locked/);
+      assert.ok(draft.write.protect.includes("Cargo.lock"));
+    } else assert.ok(draft.write.protect.includes("**/*_test.go"));
+    git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "compiled fixture"]);
+    const revision = git(repo, ["rev-parse", "HEAD"]);
+    const sourceFile = path.join(repo, language === "Rust" ? "src/lib.rs" : "total.go");
+    const original = await readFile(sourceFile, "utf8");
+    retainedFixtureRoots.add(root);
+    const checked = entrypoint(["preflight", file, "--project", repo, "--state-root", state, "--json"], [], { timeoutMs: 90000 });
+    assert.equal(checked.code, 0, checked.stderr);
+    const observation = JSON.parse(checked.stdout);
+    assert.equal(observation.ok, true);
+    assert.equal(observation.effectsSettled, true);
+    assert.equal(observation.candidateDisposition, "removed");
+    retainedFixtureRoots.delete(root);
+    assert.equal((await lstat(result.cachePath)).isDirectory(), true);
+    const evidence = await readFile(observation.artifactPath, "utf8");
+    assert.match(evidence, language === "Rust" ? /actual_library_assertion/ : /ok.*example.invalid/);
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), revision);
+    assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+    assert.equal(await readFile(sourceFile, "utf8"), original);
+  }));
+}
+
+test("TaskSpec compiled profiles refuse missing compilers and source-aliased state without replacing a draft", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Rust");
+  const target = path.join(repo, "sparkle.task.json");
+  await writeFile(target, "keep", "utf8");
+  const unavailable = entrypoint(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state"), "--force"], [], { env: { ...process.env, PATH: "" } });
+  assert.equal(unavailable.code, 1);
+  assert.match(unavailable.stderr, /cargo.*(not found|unavailable|PATH)/i);
+  assert.equal(await readFile(target, "utf8"), "keep");
+  const alias = path.join(root, "state-alias");
+  await symlink(repo, alias, process.platform === "win32" ? "junction" : "dir");
+  const nested = await call(["init", "--task", "--dir", repo, "--state-root", alias, "--force"]);
+  assert.equal(nested.code, 1);
+  assert.match(nested.stderr, /state.*outside|state.*source|link/i);
+  assert.equal(await readFile(target, "utf8"), "keep");
+}));
+
+test("TaskSpec compiled profiles refuse dependency declarations, missing lockfiles and linked inputs", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Rust");
+  const args = ["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")];
+  await rm(path.join(repo, "Cargo.lock"));
+  assert.equal((await call(args)).code, 1);
+  await writeFile(path.join(repo, "Cargo.lock"), 'version = 4\n\n[[package]]\nname = "sparkle_cli_fixture"\nversion = "0.1.0"\n', "utf8");
+  await writeFile(path.join(repo, "Cargo.toml"), '[package]\nname="sparkle_cli_fixture"\nversion="0.1.0"\nedition="2021"\n[dependencies]\n', "utf8");
+  const dependencies = await call(args);
+  assert.equal(dependencies.code, 1);
+  assert.match(dependencies.stderr, /unsupported|dependenc/i);
+  await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+  await rm(path.join(repo, "Cargo.toml")); await rm(path.join(repo, "Cargo.lock")); await rm(path.join(repo, "src"), { recursive: true }); await rm(path.join(repo, "tests"), { recursive: true });
+  await writeFile(path.join(repo, "go.mod"), 'module example.invalid/test\ngo 1.22\nrequire example.invalid/unsupported v1.0.0\n', "utf8");
+  await writeFile(path.join(repo, "total.go"), 'package total\n', "utf8");
+  await writeFile(path.join(repo, "total_test.go"), 'package total\nimport "testing"\nfunc TestValue(t *testing.T) {}\n', "utf8");
+  const moduleDependency = await call(args);
+  assert.equal(moduleDependency.code, 1);
+  assert.match(moduleDependency.stderr, /unsupported|require|dependenc/i);
+  await writeFile(path.join(repo, "go.mod"), 'module example.invalid/test\ngo 1.22\n', "utf8");
+  await mkdir(path.join(repo, "real-tests"));
+  await symlink(path.join(repo, "real-tests"), path.join(repo, "linked-tests"), process.platform === "win32" ? "junction" : "dir");
+  const linked = await call(args);
+  assert.equal(linked.code, 1);
+  assert.match(linked.stderr, /link|junction/i);
+  await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+}));
+
+test("TaskSpec Node profile explicitly refuses compiled cache options", async () => fixture(async (repo, root) => {
+  const result = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /state-root.*(compiled|Rust|Go)/i);
+  await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+}));
+
+test("TaskSpec init refuses Python-only options for Node and compiled profiles", async () => {
+  for (const language of ["Node", "Rust", "Go"] as const) await fixture(async (repo) => {
+    if (language !== "Node") await compiledFixture(repo, language);
+    const result = await call(["init", "--task", "--dir", repo, "--python", process.execPath]);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /python.*only.*Python/i);
+    await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+  });
+});
+
+test("TaskSpec compiled Rust checker uses fresh outputs despite a poisoned old test executable", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Rust");
+  await writeFile(path.join(repo, "src/lib.rs"), 'pub fn total(left: i32, right: i32) -> i32 { left - right }\n', "utf8");
+  const initialized = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state"), "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const { cachePath } = JSON.parse(initialized.stdout);
+  const draft = parseDevelopmentTaskSpec(await readFile(path.join(repo, "sparkle.task.json"), "utf8"));
+  const checker = draft.checks[0]!;
+  const run = () => runAuthorizedCommand({ executable: checker.command, args: checker.args, cwd: repo, env: {}, timeoutMs: 40000, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
+  retainedFixtureRoots.add(root);
+  const first = await run();
+  assert.equal(first.status, "completed");
+  assert.equal(first.cleanupUnsettled, undefined);
+  assert.notEqual(first.exitCode, 0);
+  assert.match(first.stdoutText, /actual_library_assertion.*FAILED/);
+  const children = (await readdir(cachePath)).filter((name: string) => name.startsWith("check-"));
+  assert.equal(children.length, 1, "each checker invocation must allocate a fresh output child");
+  const deps = path.join(cachePath, children[0]!, "debug", "deps");
+  const binaries = (await readdir(deps)).filter((name) => process.platform === "win32" ? name.endsWith(".exe") : !name.includes("."));
+  const harmless = binaries.find((name) => name.startsWith("sparkle_cli_fixture-"));
+  const actual = binaries.find((name) => name.startsWith("total-"));
+  assert.ok(harmless && actual);
+  await copyFile(path.join(deps, harmless), path.join(deps, actual));
+  const second = await run();
+  assert.equal(second.status, "completed");
+  assert.equal(second.cleanupUnsettled, undefined);
+  assert.notEqual(second.exitCode, 0, "poisoned old executable must not accept wrong source");
+  assert.match(second.stdoutText, /actual_library_assertion.*FAILED/);
+  assert.equal((await readdir(cachePath)).filter((name) => name.startsWith("check-")).length, 2);
+  retainedFixtureRoots.delete(root);
+}));
+
+test("TaskSpec compiled Go checker allocates fresh outputs on every invocation and reruns tests", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Go");
+  const initialized = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state"), "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const { cachePath } = JSON.parse(initialized.stdout);
+  const draft = parseDevelopmentTaskSpec(await readFile(path.join(repo, "sparkle.task.json"), "utf8"));
+  const checker = draft.checks[0]!;
+  retainedFixtureRoots.add(root);
+  const outputs = new Set<string>();
+  for (let invocation = 1; invocation <= 2; invocation++) {
+    const result = await runAuthorizedCommand({ executable: checker.command, args: checker.args, cwd: repo, env: {}, timeoutMs: 40000, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
+    assert.equal(result.status, "completed", `retained fixture ${root}: ${result.stderrText}`);
+    assert.equal(result.cleanupUnsettled, undefined);
+    assert.equal(result.exitCode, 0, result.stderrText);
+    assert.match(result.stdoutText, /ok.*example.invalid/);
+    assert.doesNotMatch(result.stdoutText, /\(cached\)/);
+    for (const name of await readdir(cachePath)) if (name.startsWith("check-")) outputs.add(name);
+    assert.equal(outputs.size, invocation);
+  }
+  retainedFixtureRoots.delete(root);
+}));
+
+test("TaskSpec compiled Go refuses ignored tests that otherwise yield a zero-exit no-tests checker", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Go");
+  await mkdir(path.join(repo, ".hidden"));
+  await rename(path.join(repo, "total_test.go"), path.join(repo, ".hidden/total_test.go"));
+  const initialized = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state"), "--json"]);
+  if (initialized.code === 1) {
+    assert.match(initialized.stderr, /root|ignored|single.package|unsupported.*Go/i);
+    await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+    return;
+  }
+  const draft = parseDevelopmentTaskSpec(await readFile(path.join(repo, "sparkle.task.json"), "utf8"));
+  retainedFixtureRoots.add(root);
+  const checker = draft.checks[0]!;
+  const result = await runAuthorizedCommand({ executable: checker.command, args: checker.args, cwd: repo, env: {}, timeoutMs: 40000, maxStdoutBytes: 16384, maxStderrBytes: 16384 });
+  assert.equal(result.status, "completed");
+  assert.equal(result.cleanupUnsettled, undefined);
+  retainedFixtureRoots.delete(root);
+  assert.match(result.stdoutText, /no test files/);
+  assert.notEqual(result.exitCode, 0, `ignored tests must not produce an accepted checker: ${result.stdoutText}`);
+}));
+
+test("TaskSpec compiled Rust refuses linked implicit examples before writing a draft", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Rust");
+  const external = path.join(root, "external-example");
+  await mkdir(external);
+  await writeFile(path.join(external, "implicit.rs"), "fn main() {}\n", "utf8");
+  await symlink(external, path.join(repo, "examples"), process.platform === "win32" ? "junction" : "dir");
+  const result = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")]);
+  assert.equal(result.code, 1, result.stdout);
+  assert.match(result.stderr, /examples|unsupported|link/i);
+  await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+}));
+
+test("TaskSpec compiled profiles refuse unsupported Go constraints/names and extra Rust targets", async () => {
+  await fixture(async (repo, root) => {
+    await compiledFixture(repo, "Go");
+    const args = ["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")];
+    const original = await readFile(path.join(repo, "total_test.go"), "utf8");
+    for (const name of ["total_linux_test.go", "_total_test.go", "my_total_test.go"]) {
+      await rename(path.join(repo, "total_test.go"), path.join(repo, name));
+      const result = await call(args);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /unsupported Go input/);
+      await rename(path.join(repo, name), path.join(repo, "total_test.go"));
+    }
+    for (const directive of ["//go:build linux", "// +build linux", "//go:embed data.txt"]) {
+      await writeFile(path.join(repo, "total_test.go"), `${directive}\n${original}`, "utf8");
+      const result = await call(args);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /constraint|embed/);
+    }
+    await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+  });
+  await fixture(async (repo, root) => {
+    await compiledFixture(repo, "Rust");
+    for (const target of ["examples", "benches", "src/bin"]) {
+      await mkdir(path.join(repo, target));
+      const result = await call(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state")]);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /unsupported.*(examples|benches|src\/bin)/);
+      await rm(path.join(repo, target), { recursive: true });
+    }
+    await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+  });
+});
+
+test("TaskSpec compiled checker refuses a substituted output-parent junction before writing source", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Go");
+  const state = path.join(root, "state");
+  const initialized = await call(["init", "--task", "--dir", repo, "--state-root", state, "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const { cachePath } = JSON.parse(initialized.stdout);
+  const file = path.join(repo, "sparkle.task.json");
+  git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "link substitution fixture"]);
+  await mkdir(path.dirname(cachePath), { recursive: true });
+  await symlink(repo, cachePath, process.platform === "win32" ? "junction" : "dir");
+  const before = await readdir(repo);
+  const checked = await call(["preflight", file, "--project", repo, "--state-root", state, "--json"]);
+  assert.equal(checked.code, 1);
+  const observation = JSON.parse(checked.stdout);
+  assert.equal(observation.ok, false);
+  assert.match(await readFile(observation.artifactPath, "utf8"), /link|non-directory/);
+  assert.deepEqual(await readdir(repo), before);
+  assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+}));
 async function typescriptFixture(repo: string, extension: "ts" | "mts" | "cts"): Promise<void> {
   const source = extension === "cts" ? "const value: number = 7; module.exports = { value };\n" : "export const value: number = 7;\n";
   const header = extension === "cts"

@@ -13,11 +13,45 @@ preflight creates its own candidate; it does not reserve a cache for a later run
 ## Generate a draft and run preflight
 
 From the pi-sparkle checkout, `pnpm cli init --task --dir <repo>` writes
-`sparkle.task.json`. This initial generator supports only Node packages whose
-existing test script explicitly names existing JavaScript or TypeScript test files, such as `node --test test/value.test.cjs` or `node --test test/value.test.ts`. TypeScript inputs (`.ts`, `.mts`, `.cts`) require a Node runtime with native type stripping and erasable syntax. This executes assertions but does not run a static type checker; syntax requiring transformation, such as enums, fails during actual preflight. It requires a detected `src` or `lib`
-directory. Quoting, shell syntax, implicit test discovery, other runners and
-ambiguous language detection produce a diagnostic instead of a guessed check.
-It does not execute tests, install dependencies or invoke a model.
+`sparkle.task.json`. It detects one supported project language and generates a
+conservative draft. Init does not execute tests, install dependencies or invoke
+a model; preflight is the actual runtime and dependency check.
+
+| Profile | Supported inputs and actual checks |
+|---|---|
+| Node / TypeScript | A package with an explicit `node --test test/value.test.cjs` or `.ts/.mts/.cts` script and `src` or `lib`. TypeScript requires native Node type stripping and erasable syntax; static type checking is not included. Enums and other syntax requiring transformation fail actual preflight. |
+| Python | Regular `pyproject.toml`, `src` and `tests`, with explicit `[tool.pytest.ini_options]`, `testpaths = ["tests"]` and `pythonpath = ["src"]`. Runs actual pytest and Ruff through the selected interpreter. |
+| Rust | One stdlib-only package with `Cargo.toml`, matching `Cargo.lock`, `src/lib.rs` or `src/main.rs`, and external integration tests under `tests`. Runs actual `cargo test --offline --locked`. |
+| Go | One root stdlib-only package with a simple `go.mod`, regular source and test files. Runs actual `go test -count=1 ./...`. Source stems start with an ASCII letter and contain only letters/digits; test names are `<stem>_test.go`. |
+
+These initial profiles deliberately reject unsupported inference. Node rejects
+quoting, shell syntax, implicit discovery and other runners. Python accepts
+single-line bare TOML keys and explicit tool tables, rejects conflicting or
+nested checker configuration and external Ruff configuration, and requires
+existing pytest/ruff modules. Rust rejects workspaces, dependencies, build
+scripts, toolchain/config overrides and additional automatic targets. Go
+rejects dependencies, workspaces, subpackages, ignored/platform-selective file
+names, build constraints and embed directives. Linked inputs and ambiguous
+language detection refuse. Author and review an explicit TaskSpec for a project
+outside these subsets.
+
+For Python, `--python <executable>` selects an existing interpreter; otherwise
+init prefers a real project `.venv` then Python on PATH, excluding WindowsApps
+launcher aliases. A runtime outside source is recommended for execution because
+the existing clean-source policy still applies to ignored dependency folders.
+pytest disables bytecode and its result cache. Ruff explicitly uses the protected
+root `pyproject.toml`, disables its cache and ignores Git exclusion rules, so a
+worker-added nested config or ignore file cannot relax that generated command.
+
+For Rust/Go, `--state-root <private-dir>` selects external compiler storage
+(default `~/.pi-sparkle`); Node and Python reject this init flag. Each actual
+check creates a fresh child output directory after checking its parent path.
+Go additionally disables successful test-result caching and module network
+access, and uses the local toolchain with CGO disabled. Outputs are retained for
+host-managed cleanup; init itself creates no compiler storage. This avoids
+reusing mutable test executables between checks, without claiming general OS
+process containment. Compiled checks request 40 seconds; Python's two checks
+request 20 seconds each, within the existing 40-second combined recipe limit.
 
 Review the draft's objective, writable/protected paths, checks and time limits,
 then commit the intended task inputs so the source meets the existing clean
@@ -36,7 +70,7 @@ provider configuration and never applies source changes. Its standalone
 candidate is not reused by a later task invocation.
 
 Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
-CLI task execution, Verdict presentation and the Python/Rust/Go generators are
+CLI task execution, Verdict presentation and four-language installed examples are
 still unfinished; the one-worker source API described below is available for
 host integration.
 ## Define the task
