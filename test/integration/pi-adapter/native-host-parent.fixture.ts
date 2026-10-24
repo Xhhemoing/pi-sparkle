@@ -6,7 +6,7 @@ import {
   getCurrentSystemPrompt, getCurrentTools, normalizeContext, type TranscriptContext, type SimpleStreamOptions, type FauxResponseFactory
 } from "@earendil-works/pi-ai";
 import {
-  createEventBus, AgentSession, ModelRuntime, SessionManager, SettingsManager, createAgentSession, createExtensionRuntime,
+  createEventBus, AgentSession, ModelRuntime, SessionManager, SettingsManager, createAgentSession,
   type ContextWithSystemEvent, type Extension, type ResourceLoader
 } from "@earendil-works/pi-coding-agent";
 
@@ -20,6 +20,7 @@ interface ParentModelScenario {
   readonly switchDuringApproval?: boolean;
   readonly malformedLearnedState?: boolean;
   readonly switchCwdDuringApproval?: boolean;
+  readonly thinkingBudgets?: { readonly low: number };
 }
 
 export async function actualParentDelegation(systemPrompt: string, approvedResources?: (input: { cwd: string }) => unknown, retryWorker = false, wireOnly = false, modelScenario?: ParentModelScenario) {
@@ -60,7 +61,7 @@ export async function actualParentDelegation(systemPrompt: string, approvedResou
         }
       : approvedResources;
     const configured = createSparkleExtension({ approvedResources: selectedResources } as unknown as Parameters<typeof createSparkleExtension>[0]);
-    loaded.extensions = [await loadExtensionFromFactory(configured, cwd, createEventBus(), createExtensionRuntime())];
+    loaded.extensions = [await loadExtensionFromFactory(configured, cwd, createEventBus(), loaded.runtime)];
   }
   const getterPrompts: string[] = [], parentWirePrompts: string[] = [];
   const delegateResults: unknown[] = [];
@@ -90,7 +91,9 @@ export async function actualParentDelegation(systemPrompt: string, approvedResou
       ...event.messages.filter((message) => message.role !== "system")] };
   }]);
   const resources: ResourceLoader = {
-    getExtensions: () => ({ extensions: [...loaded.extensions, late], errors: [], runtime: createExtensionRuntime() }),
+    // The SDK binds actions (including getSettings) on this exact runtime;
+    // extension factories captured it when they were loaded above.
+    getExtensions: () => ({ extensions: [...loaded.extensions, late], errors: [], runtime: loaded.runtime }),
     getSkills: () => ({ skills: [], diagnostics: [] }), getPrompts: () => ({ prompts: [], diagnostics: [] }),
     getThemes: () => ({ themes: [], diagnostics: [] }), getAgentsFiles: () => ({ agentsFiles: [] }),
     getSystemPrompt: () => wireOnly ? systemPrompt : "EARLY_HOST_PROMPT", getSystemPromptSource: () => undefined,
@@ -156,7 +159,8 @@ export async function actualParentDelegation(systemPrompt: string, approvedResou
     const created = await createAgentSession({ cwd, modelRuntime: runtime, model, thinkingLevel: "off",
       tools: ["sparkle_delegate"], resourceLoader: resources, sessionManager,
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false, provider: { maxRetries: 0 } },
-        compaction: { enabled: false }, cacheWarming: "off" }) });
+        compaction: { enabled: false }, cacheWarming: "off",
+        ...(modelScenario?.thinkingBudgets === undefined ? {} : { thinkingBudgets: modelScenario.thinkingBudgets }) }) });
     host = created.session;
     await host.prompt(`Delegate the synthetic inspection. ${PARENT_ONLY}`);
     await host.waitForIdle();

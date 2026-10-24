@@ -1,6 +1,6 @@
 {
   "name": "pi-sparkle",
-  "version": "0.1.0-preview.3",
+  "version": "0.2.0-beta",
   "private": true,
   "description": "Evidence-bound changes for Pi: isolated candidates, independent checks and explicit application",
   "license": "MIT",

@@ -2,7 +2,7 @@
 
 **Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
 
-**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; experimental TaskSpec execution and explicit same-session apply/discard are available; complete Phase 1 qualification and full host resource equivalence remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
+**Developer Preview (0.2.0-beta; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; experimental TaskSpec execution and explicit same-session apply/discard are available; complete Phase 1 qualification and full host resource equivalence remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
 
 The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
 
@@ -34,7 +34,17 @@ pnpm cli version
 `pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm
 pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI.
 The package metadata remains `private: true`; private tarballs are exercised by
-the security probe and the experimental [four-language installed examples](docs/taskspec.md#exercise-an-installed-package). The examples have passed on Windows with actual Express, FastAPI, Rust CLI and Go service checks, an owned scripted worker, independent acceptance and explicit fixture-only apply. This is not an npm publication, a general supported installation path, or evidence of real-model quality benefit. The Linux Rust profile checks now also pass in both Pi compatibility lanes; complete combined Windows qualification and the remaining Phase 1 requirements are still open.
+the security probe and the experimental [four-language installed examples](docs/taskspec.md#exercise-an-installed-package). The earlier scripted examples passed on Windows with actual Express, FastAPI, Rust CLI and Go service checks, independent acceptance and explicit fixture-only apply. The public CLI mode now exercises the same flow through a real SDK and an offline loopback provider; its candidate-specific results are in the active plan. This is not an npm publication, a general supported installation path, or evidence of real-model quality benefit. The Linux Rust profile checks now also pass in both Pi compatibility lanes; complete combined Windows qualification and the remaining Phase 1 requirements are still open.
+
+### TaskSpec walkthrough
+
+![Recorded offline TaskSpec CLI results: draft, preflight, accepted candidate, explicit apply and source verification](docs/assets/task-cli-walkthrough.gif)
+
+This replay condenses actual JSON results from the private `0.2.0-beta` Node/YAML
+example. Paths are shortened. It uses the real SDK and checks with a deterministic
+loopback provider; only the synthetic fixture is changed. Follow the
+[installed CLI walkthrough](docs/taskspec.md#exercise-an-installed-package) to
+run it locally. The replay is not a live-model comparison.
 
 ### Install as a local Pi package
 
@@ -226,7 +236,7 @@ pnpm cli run \
 
 | Command | Description |
 |---------|-------------|
-| `pnpm cli version` | Print `0.1.0-preview.3` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
+| `pnpm cli version` | Print `0.2.0-beta` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
 | `pnpm cli help` | Print the usage block (same as `--help` / `-h`). It is the authoritative flag list; this table is the shorter tour |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--max-cost-usd`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |

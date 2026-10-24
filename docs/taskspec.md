@@ -187,11 +187,17 @@ an explicit projection and a nonzero exit status.
 The experimental `examples/task-spec-language-demo.mjs` runner creates its own
 synthetic Git repositories. It supports `node-express`, `python-fastapi`,
 `rust-cli`, `go-service`, or `all`. Each example starts with passing checks,
-uses the owned worker tool for a semantics-preserving refactor, checks that
-acceptance left the original fixture unchanged, and separately requests apply
-with fresh whole-candidate verification. The prepared apply target is saved
-before source mutation. These are scripted mechanism demonstrations; they do
-not establish real-model equivalence or the quality/cost targets.
+performs a semantics-preserving refactor, observes that acceptance left the
+source and protected files unchanged, then explicitly applies with fresh checks.
+
+Use `--mode cli` to exercise the installed public `init`, `preflight` and
+`task run --executor pi --review` commands. A local loopback provider supplies
+two deterministic SDK turns; no external model service is contacted. The runner
+records acceptance and source bytes before sending `apply` to the same CLI
+process, then checks the applied source through public preflight. The Node
+example uses YAML; the other three use JSON. This is a mechanism demonstration,
+not a model-quality comparison. The default `--mode scripted` retains the earlier
+direct API demonstration with no model dispatches.
 
 Build and pack the current checkout, then install that tarball with its Pi peer
 into a private prefix. No global installation or publication is needed. For
@@ -202,23 +208,56 @@ Install Express separately with
 Select an external Python 3.12 virtual environment containing FastAPI, pytest,
 Ruff and httpx. The locally exercised versions are FastAPI 0.162.0, pytest
 9.1.1, Ruff 0.17.2 and httpx 0.28.1. Rust/Cargo and Go must already be selected
-on PATH. The runner installs no dependencies and does not skip missing tools.
+on PATH. CLI mode resolves the existing Rust executable with `rustup which cargo`
+(with auto-install disabled) before isolating Pi HOME, so the checker does not
+use a rustup shim against an empty profile. The runner installs no dependencies
+and does not skip missing tools.
 
-Run the installed copy, supplying your chosen private paths. On Windows, keep the evidence parent short (for example, a short child of .agent_workspace): Git worktree creation can fail with "$GIT_DIR too big" under deeply nested paths. Such an early failure does not exercise the language tests or worker.
+Run the installed copy, supplying your chosen private paths. On Windows, keep
+the evidence parent short: Git worktree creation can fail with "$GIT_DIR too big"
+under deeply nested paths. Such an early failure does not exercise language checks.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 & node "$piPrefix/node_modules/pi-sparkle/examples/task-spec-language-demo.mjs" `
-  --root $evidenceParent --node-deps $nodeDeps --python $pythonRuntime --language all
+  --mode cli --root $evidenceParent --node-deps $nodeDeps `
+  --python $pythonRuntime --language all
 ```
 
 Dependencies and compiler output stay outside the generated source trees.
-The runner retains command output, per-language outcomes, native evidence and
-prepared apply records under a new child of `--root`; inspect failures before
-retrying. Results explicitly report zero model invocations, unknown monetary
-cost and no live-effectiveness claim. Actual installed execution evidence and
-remaining acceptance work are recorded in the active plan and PR; merely
-building or reading this example does not complete that acceptance.
+The runner retains command output, per-language outcomes, private evidence and
+`accepted-before-apply.json` under a new child of `--root`; inspect failures
+before retrying. Successful CLI examples report two synthetic SDK dispatches,
+known reference usage and unknown provider billing. Scripted mode reports zero
+model dispatches. Neither mode demonstrates the quality/cost targets. Actual
+installed execution and remaining acceptance work are recorded in the active
+plan and PR; building or reading the example does not complete that acceptance.
+
+## Compared host configuration
+
+The configuration comparison covers a fresh task with an explicitly declared
+model, system prompt, approved skill and context files, scoped file tools and
+budgets. One arm creates a direct public Pi SDK session; the other uses the
+Native write factory and owned Pi executor. Each reads its own fixture files.
+The test inspects actual SDK requests and runs the tools.
+
+| Configuration | Observed comparison |
+|---|---|
+| Model | Same provider/id, declared pricing and token capabilities on every dispatch. |
+| Prompt | Same predeclared host system-prompt bytes. |
+| Skills | Same approved name, description and body delivered once per transcript. |
+| Tools | Same five scoped file-tool schemas and report schema; actual read, allowed write and protected-path refusal. |
+| Context | Same declared fresh file contents, separate roots, no ambient or other-arm marker. |
+| Budget | Same four thinking values and common explicit deadline; both wait for a held tool to settle after cancellation. |
+
+The worker additionally enforces its TaskSpec reference-USD pool; the direct
+session does not acquire that policy merely by participating in the comparison.
+Report acknowledgements/message type labels, absolute roots and synthetic usage
+amounts are recorded differences. Neither billing nor cost equality follows.
+This does not reproduce arbitrary parent hooks, prior conversation, automatic
+skill discovery, shell/MCP tools, OAuth, compaction or cross-process recovery.
+Use the bounded result when reviewing the Phase 1 configuration scope; quality
+and completion non-inferiority still need the separately planned benchmark.
 
 ## Use the input schema
 

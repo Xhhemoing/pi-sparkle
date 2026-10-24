@@ -125,6 +125,8 @@ jobs:
           if ('${{ matrix.full-suite }}' -eq 'false') {
             $compatibilityTests = @(
               'test/integration/pi-adapter/host-compat.test.ts',
+              'test/integration/pi-adapter/thinking-budgets.test.ts',
+              'test/integration/pi-adapter/host-profile-equivalence.test.ts',
               'test/unit/native/extension.test.ts',
               'test/unit/pi-adapter/coding-session.test.ts',
               'test/unit/pi-adapter/approved-resources.test.ts',
