@@ -15,7 +15,8 @@
     "objective": {
       "type": "string",
       "maxLength": 4096,
-      "pattern": "^(?!\\s*$)[^\\u0000]*$"
+      "pattern": "^(?!\\s*$)[^\\u0000]*$",
+      "description": "Objective text. Explicit [[file:relative/path]] declarations join required context; ordinary path-like prose is unchanged."
     },
     "context": {
       "type": "array",
@@ -82,6 +83,20 @@
           },
           "maxItems": 128,
           "uniqueItems": true
+        },
+        "require": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^(?!\\s*$)(?!\\.git(?:/|$))(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+(?:/(?!\\.{1,2}(?:/|$))[^\\u0000:\\\\*?\\[\\]/]+)*$",
+            "description": "Safe literal relative prefix, matching the parser's existing literal compatibility rules. No glob expansion."
+          },
+          "maxItems": 32,
+          "uniqueItems": true,
+          "default": [],
+          "description": "Explicit required output locations. The parser requires each path within allow and outside protect; files need not exist yet. This grants no additional permission."
         }
       },
       "additionalProperties": false

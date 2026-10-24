@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { developmentTaskSpecSchema } from "../src/development/task-spec-schema.ts";
+import { developmentTaskSpecSchema } from "../src/pi-adapter/task-spec-schema.ts";
 
 const directory = fileURLToPath(new URL("../schema/", import.meta.url));
 await mkdir(directory, { recursive: true });

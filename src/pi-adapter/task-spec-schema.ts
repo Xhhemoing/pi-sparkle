@@ -39,11 +39,12 @@ const check = Type.Object({
 /** Experimental JSON authoring schema, not an execution or verification capability. */
 export const developmentTaskSpecSchema = Type.Object({
   version: Type.Literal(1),
-  objective: text(4096),
+  objective: { ...text(4096), description: "Objective text. Explicit [[file:relative/path]] declarations join required context; ordinary path-like prose is unchanged." },
   context: Type.Optional(Type.Array(literalPath, { maxItems: 32, default: [] })),
   write: Type.Object({
     allow: Type.Array(selectedPath, { minItems: 1, maxItems: 32, uniqueItems: true }),
-    protect: Type.Array(selectedPath, { maxItems: 128, uniqueItems: true })
+    protect: Type.Array(selectedPath, { maxItems: 128, uniqueItems: true }),
+    require: Type.Optional(Type.Array(literalPath, { maxItems: 32, uniqueItems: true, default: [], description: "Explicit required output locations. The parser requires each path within allow and outside protect; files need not exist yet. This grants no additional permission." }))
   }, { additionalProperties: false }),
   prepare: Type.Optional(Type.Array(Type.Object({ id: identifier, command: text(512), args: argumentsSchema },
     { additionalProperties: false }), { maxItems: 8, default: [] })),

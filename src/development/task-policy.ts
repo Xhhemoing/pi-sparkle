@@ -24,6 +24,15 @@ function fail(reason: string): never { throw new DomainValidationError(`developm
 function under(relative: string, prefixes: readonly string[]): boolean {
   return relative !== ".git" && !relative.startsWith(".git/") && prefixes.some((prefix) => hasPathPattern(prefix) ? matchesPathSelector(relative, prefix) : relative === prefix || relative.startsWith(`${prefix}/`));
 }
+/** Validate explicit required output permissions; existence and filesystem aliases remain runtime checks. */
+export function assertRequiredDevelopmentWrites(policy: DevelopmentScopePolicy, required: readonly string[]): void {
+  for (const selected of required) {
+    const relative = workItemScope(selected);
+    if (!under(relative, policy.allowedScope) || under(relative, policy.protectedPaths)) {
+      fail(`required writable path is outside task scope or protected: ${relative}`);
+    }
+  }
+}
 function paths(value: unknown, name: string, minimum: number, maximum: number): readonly string[] {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) fail(`invalid ${name} path list`);
   const result: string[] = [];

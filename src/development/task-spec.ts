@@ -1,7 +1,7 @@
 import { types } from "node:util";
 import { DomainValidationError } from "../domain/errors.js";
 import { snapshotDevelopmentCheckPlan, type DevelopmentCheckDefinition } from "./check-plan.js";
-import { snapshotDevelopmentScopePolicy } from "./task-policy.js";
+import { assertRequiredDevelopmentWrites, snapshotDevelopmentScopePolicy } from "./task-policy.js";
 import { workItemScope } from "./work-items.js";
 
 export interface DevelopmentTaskPreparation { readonly id: string; readonly command: string; readonly args: readonly string[]; }
@@ -13,7 +13,7 @@ export interface DevelopmentTaskSpec {
   readonly version: 1;
   readonly objective: string;
   readonly context: readonly string[];
-  readonly write: { readonly allow: readonly string[]; readonly protect: readonly string[] };
+  readonly write: { readonly allow: readonly string[]; readonly protect: readonly string[]; readonly require?: readonly string[] };
   readonly prepare: readonly DevelopmentTaskPreparation[];
   readonly checks: readonly DevelopmentTaskCheck[];
   readonly budget: { readonly totalSeconds: number; readonly prepareSeconds: number; readonly checkSeconds: number; readonly workerSeconds: number;
@@ -62,6 +62,19 @@ function args(value: unknown): string[] { return array(value, 64).map((entry) =>
 function prefixes(value: unknown, maximum: number, minimum = 0): string[] {
   return array(value, maximum, minimum).map(workItemScope);
 }
+/** Only this explicit declaration syntax is a file reference; ordinary prose stays unchanged. */
+function requiredContext(objective: string, explicit: string[]): string[] {
+  const required = [...explicit];
+  const remaining = objective.replace(/\[\[file:([\s\S]*?)\]\]/g, (_declaration, rawPath: string) => {
+    if (rawPath.includes("\n") || rawPath.includes("\r")) fail("explicit file reference must fit one line");
+    const selected = workItemScope(rawPath);
+    if (!required.includes(selected)) required.push(selected);
+    return "";
+  });
+  if (remaining.includes("[[file:")) fail("malformed explicit file reference");
+  if (required.length > 32) fail("combined required context must contain at most 32 files");
+  return required;
+}
 function duration(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0.001 || value > 1800) fail("duration must convert to 1..1800000 whole milliseconds");
   const milliseconds = value * 1000;
@@ -92,9 +105,14 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
   const raw = record(value, ["version", "objective", "context", "write", "prepare", "checks", "budget", "worker"]);
   if (raw.version !== 1) fail("version must be 1");
   const objective = text(raw.objective, 4096);
-  const context = raw.context === undefined ? [] : prefixes(raw.context, 32);
-  const write = record(raw.write, ["allow", "protect"]);
+  const context = requiredContext(objective, raw.context === undefined ? [] : prefixes(raw.context, 32));
+  const write = record(raw.write, ["allow", "protect", "require"]);
   const scope = snapshotDevelopmentScopePolicy({ allowedScope: array(write.allow, 32, 1), protectedPaths: array(write.protect, 128) });
+  const requiredWrites = write.require === undefined ? undefined : prefixes(write.require, 32);
+  if (requiredWrites !== undefined) {
+    if (new Set(requiredWrites).size !== requiredWrites.length) fail("required writable paths must be unique");
+    assertRequiredDevelopmentWrites(scope, requiredWrites);
+  }
   const prepare = (raw.prepare === undefined ? [] : array(raw.prepare, 8)).map((value) => {
     const command = record(value, ["id", "command", "args"]);
     const id = text(command.id, 64);
@@ -115,7 +133,7 @@ export function snapshotDevelopmentTaskSpec(value: unknown): DevelopmentTaskSpec
   const worker = raw.worker === undefined ? { model: "inherit" } : record(raw.worker, ["model", "maxAttempts"]);
   if (worker.model !== "inherit") fail("worker model must inherit; explicit model selection is unsupported");
   if (worker.maxAttempts !== undefined && (!Number.isSafeInteger(worker.maxAttempts) || Number(worker.maxAttempts) < 1 || Number(worker.maxAttempts) > 5)) fail("worker maxAttempts must be an integer from 1 to 5");
-  return freeze({ version: 1, objective, context, write: { allow: scope.allowedScope, protect: scope.protectedPaths }, prepare,
+  return freeze({ version: 1, objective, context, write: { allow: scope.allowedScope, protect: scope.protectedPaths, ...(requiredWrites === undefined ? {} : { require: requiredWrites }) }, prepare,
     checks: plan.checks.map((check, index) => ({ ...check, expect: checked[index]!.expect })),
     budget: { totalSeconds: duration(budget.totalSeconds), prepareSeconds: duration(budget.prepareSeconds),
       checkSeconds: duration(budget.checkSeconds), workerSeconds: duration(budget.workerSeconds),

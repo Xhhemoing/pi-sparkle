@@ -28,7 +28,7 @@ function valid() {
 
 test("published TaskSpec schema is reproducible from the TypeBox definition and included in package files", async () => {
   const published = await schema();
-  const { developmentTaskSpecSchema } = await import("../../../src/development/task-spec-schema.js");
+  const { developmentTaskSpecSchema } = await import("../../../src/pi-adapter/task-spec-schema.js");
   assert.deepEqual(published, JSON.parse(JSON.stringify(developmentTaskSpecSchema)));
   const manifest = JSON.parse(await readFile("package.json", "utf8")) as { files: string[]; scripts: Record<string, string> };
   assert.ok(manifest.files.includes("schema"));
@@ -136,5 +136,18 @@ test("actual Node init draft validates without executing its test command", asyn
     assert.equal(JSON.parse(stdout).status, "draft");
   } finally {
     assert.equal(path.dirname(root), parent); await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("input schema admits explicit required write declarations without pretending to prove their scope", async () => {
+  const definition = await schema();
+  const source = { ...valid(), objective: "Use [[file:docs/design.md]]", write: { allow: ["src", "tests/*.rs"], protect: ["checks"], require: ["tests/fixture.rs"] } };
+  check(definition, source);
+  assert.deepEqual(snapshotDevelopmentTaskSpec(source).context, ["src/value.ts", "docs/design.md"]);
+  const conflict = { ...source, write: { ...source.write, allow: ["src"] } };
+  check(definition, conflict);
+  assert.throws(() => snapshotDevelopmentTaskSpec(conflict), /required writable/);
+  for (const require of [["tests/*.rs"], ["tests/a.rs", "tests/a.rs"]]) {
+    assert.throws(() => check(definition, { ...source, write: { ...source.write, require } }));
   }
 });
