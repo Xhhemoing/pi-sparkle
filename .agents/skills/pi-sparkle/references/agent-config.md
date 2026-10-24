@@ -1,40 +1,42 @@
-# Agent Config Drift
+# Agent Configuration Diagnosis
 
-## Detection Signals
-- Subagent run JSON in `.pi/subagents/runs/` with `failed` / `Unknown agent: <name>`
-- Project agents listed in a prompt or spawn table that do not exist in the
-  current checkout
-- Tool allowlists that differ across copies of the same role (for example
-  `worker.md`)
+Use this reference for an observed dispatch failure or a concrete discrepancy
+between the requested role and the configuration actually loaded.
 
-## Observed Failures
-- `Unknown agent: tokenfree-luna` — the agent existed in cengfan, not in the
-  spawn registry the parent used.
-- `Unknown agent: general-purpose` — local pi-sparkle subagent runs
-  (`msu84tlk`, `msu85blr`). The name comes from skills such as
-  `requesting-code-review`. The dispatch contract refuses it on purpose;
-  do not add a `general-purpose` profile to silence the error. Route reviews
-  to `reviewer`.
-- Global `~/.agents/skills` and project agent files drift independently; there
-  is no prune or drift check at session start.
+## Follow the failure
 
-## Audit Steps
-1. Collect unique agent names from recent `.pi/subagents/runs/*.json`.
-2. Resolve each name against the project's agent directory and Pi's loaded
-   profiles. Record **missing** names; do not invent replacements.
-3. Compare tool allowlists for the same role across projects. Differences are
-   drift candidates, not automatic merges.
-4. If a parent still routes to a missing agent, the durable fix is to update
-   the spawn table or restore the agent file — not to add a new skill.
+- Start with the relevant error, invocation, and task outcome. Existing
+  `.pi/subagents/runs/` records may help where present and within scope; do not
+  assume that path or telemetry exists in every installation.
+- Resolve the requested name against the current loaded profiles, dispatch
+  implementation, and applicable project instructions. Record missing names
+  and unavailable capabilities explicitly; do not invent a substitute agent,
+  successful review, or delegation result.
+- Compare role definitions and tool allowlists only where necessary for the
+  reported problem. Differences across projects can be intentional boundaries,
+  rather than drift. Do not scan unrelated projects by default.
+- Keep model, thinking effort, tool permissions, and dispatch-name failures
+  distinct. Verify current supported settings before changing them.
 
-## Enforcement (proposal)
-- Fail closed on unknown agent names at spawn time (already observed as
-  subagent failures; make it a preflight).
-- Keep tool allowlists in versioned files; do not widen them from a successful
-  run.
-- Installing this package does not grant credential, permission, or
-  allowlist edits (ADR-006).
+## Correct within authorization
 
-## Validation
-After a drift check: zero `Unknown agent` in a fresh project session that uses
-only declared profiles, or an explicit skip with the missing name recorded.
+A stale spawn reference may warrant a scoped caller correction or restoration
+of an intended profile, after checking current role semantics and authorization.
+Do not add a broadly privileged profile merely to silence `Unknown agent`,
+weaken name validation, or turn every diagnosis into a new preflight gate.
+Use an available declared review role when appropriate; never assume a
+historical agent name is valid in the current registry.
+
+Successful execution does not justify widening a tool allowlist or copying
+permissions from another project. Installing or loading this package grants
+no credential, permission, allowlist, promotion, or learning authority. Keep
+existing safety boundaries and owner decisions intact.
+
+## Verify proportionally
+
+Inspect an authorized configuration diff and use the smallest existing check
+that exercises the affected resolution path. Run a fresh dispatch only when
+within the task's execution and cost authorization; a real-provider run remains
+opt-in. Report an unavailable check or missing profile as unknown, skipped, or
+blocked, with its effect on the requested result. Stop after the scoped failure
+is resolved and verified, or after identifying the evidence needed to proceed.
