@@ -44,6 +44,74 @@ function spec(code: string): DevelopmentTaskSpec {
       protectedPaths: ["test", "package.json"], visibleToWorker: false, expect: { baseline: "pass" } }],
     budget: { totalSeconds: 30, prepareSeconds: 10, checkSeconds: 5, workerSeconds: 10 }, worker: { model: "inherit" } };
 }
+function entrypoint(args: string[], nodeArgs: string[] = []): { code: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(process.execPath, [...nodeArgs, "--import", "tsx", "src/cli/main.ts", ...args],
+    { cwd: REPO, encoding: "utf8", windowsHide: true, timeout: 30000 });
+  assert.equal(result.error, undefined);
+  assert.equal(result.signal, null);
+  return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+async function typescriptFixture(repo: string, extension: "ts" | "mts" | "cts"): Promise<void> {
+  const source = extension === "cts" ? "const value: number = 7; module.exports = { value };\n" : "export const value: number = 7;\n";
+  const header = extension === "cts"
+    ? `const {test} = require('node:test'); const assert = require('node:assert/strict'); const result: {value: number} = require('../src/value.${extension}'); const value: number = result.value;`
+    : `import {test} from 'node:test'; import assert from 'node:assert/strict'; import {value} from '../src/value.${extension}';`;
+  await writeFile(path.join(repo, `src/value.${extension}`), source, "utf8");
+  await writeFile(path.join(repo, `test/value.test.${extension}`), `${header}\nconst expected: number = 7; test('actual erasable TypeScript assertion', () => assert.equal(value, expected));\n`, "utf8");
+  await writeFile(path.join(repo, "package.json"), JSON.stringify({ type: "module", scripts: { test: `node --test test/value.test.${extension}` } }), "utf8");
+}
+
+for (const extension of ["ts", "mts", "cts"] as const) {
+  test(`TaskSpec TypeScript ${extension} draft runs actual typed tests through the real CLI`, async () => fixture(async (repo, root) => {
+    await typescriptFixture(repo, extension);
+    const initialized = entrypoint(["init", "--task", "--dir", repo, "--json"]);
+    assert.equal(initialized.code, 0, initialized.stderr);
+    assert.match(initialized.stdout, /type.check|type check/i);
+    const file = path.join(repo, "sparkle.task.json");
+    const draft = parseDevelopmentTaskSpec(await readFile(file, "utf8"));
+    assert.deepEqual(draft.checks[0]!.args, ["--test", `test/value.test.${extension}`]);
+    assert.equal(draft.checks[0]!.command, process.execPath);
+    assert.ok(draft.write.protect.includes(`test/value.test.${extension}`));
+    git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "typed fixture"]);
+    const revision = git(repo, ["rev-parse", "HEAD"]);
+    const original = await readFile(path.join(repo, `src/value.${extension}`), "utf8");
+    const checked = entrypoint(["preflight", file, "--project", repo, "--state-root", path.join(root, "state"), "--json"]);
+    assert.equal(checked.code, 0, checked.stderr);
+    const output = JSON.parse(checked.stdout);
+    assert.equal(output.ok, true);
+    assert.equal(output.effectsSettled, true);
+    assert.equal(output.candidateDisposition, "removed");
+    assert.match(await readFile(output.artifactPath, "utf8"), /actual erasable TypeScript assertion/);
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), revision);
+    assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+    assert.equal(await readFile(path.join(repo, `src/value.${extension}`), "utf8"), original);
+  }));
+}
+
+test("TaskSpec TypeScript init refuses a runtime without native stripping before writing", async () => fixture(async (repo) => {
+  await typescriptFixture(repo, "ts");
+  const result = entrypoint(["init", "--task", "--dir", repo, "--json"], ["--no-experimental-strip-types"]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /native.*TypeScript|TypeScript.*strip/i);
+  await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
+}));
+
+test("TaskSpec TypeScript preflight refuses syntax requiring transformation rather than type erasure", async () => fixture(async (repo, root) => {
+  await typescriptFixture(repo, "mts");
+  await writeFile(path.join(repo, "src/value.mts"), "enum Value { Seven = 7 }; export const value: number = Value.Seven;\n", "utf8");
+  const initialized = entrypoint(["init", "--task", "--dir", repo, "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "unsupported typed fixture"]);
+  const revision = git(repo, ["rev-parse", "HEAD"]);
+  const checked = entrypoint(["preflight", path.join(repo, "sparkle.task.json"), "--project", repo, "--state-root", path.join(root, "state"), "--json"]);
+  assert.equal(checked.code, 1);
+  const output = JSON.parse(checked.stdout);
+  assert.equal(output.ok, false);
+  assert.equal(output.effectsSettled, true);
+  assert.match(await readFile(output.artifactPath, "utf8"), /ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX|enum.*not supported/i);
+  assert.equal(git(repo, ["rev-parse", "HEAD"]), revision);
+  assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+}));
 
 test("TaskSpec init creates a parser-valid draft without executing the real Node test", async () => fixture(async (repo, root) => {
   const marker = path.join(root, "test-ran");

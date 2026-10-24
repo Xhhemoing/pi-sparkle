@@ -74,7 +74,7 @@ the caller's verifier. Calls without `scopePolicy` keep their existing
 workspace-root tool behavior. These deep imports are experimental; this is not
 the complete TaskSpec, preparation or budget interface.
 
-For direct check-plan calls, the host must ensure each declared literal checker dependency exists; semantic coverage by a broader protected path alone does not establish this. TaskSpec preflight performs that required-input check.
+For fixed check-plan calls, each declared literal checker dependency must exist and be observable before every worker factory, including repair attempts. Direct and Native entrypoints reuse exact filesystem capture with the original descriptor limits; semantic coverage by a broader protected path alone does not satisfy this requirement. Calls without a check plan retain their existing behavior.
 
 For one fixed set of host checks, the experimental check-plan helper also selects
 which diagnostics the worker may receive:

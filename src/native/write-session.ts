@@ -1,4 +1,4 @@
-import { DEVELOPMENT_CHECK_STORAGE_BYTES, projectDevelopmentCheckFeedback, renderVisibleDevelopmentChecks,
+import { DEVELOPMENT_CHECK_STORAGE_BYTES, assertDevelopmentCheckInputs, projectDevelopmentCheckFeedback, renderVisibleDevelopmentChecks,
   type DevelopmentCheckPlan, type VisibleCheckFeedback } from "../development/check-plan.js";
 import { randomUUID } from "node:crypto";
 import { CheckFindingAnalysisOwner, snapshotCheckFindingAnalysis,
@@ -525,6 +525,7 @@ export class NativeWriteSession {
     };
     let executor: AgentExecutor;
     try {
+      if (preflight.checkPlan !== undefined) assertDevelopmentCheckInputs(preflight.checkPlan, session.worktree.cwd, preflight.verification);
       executor = await this.options.executorFactory({
         candidatePath: session.worktree.cwd,
         sourceRevision: preflight.revision,

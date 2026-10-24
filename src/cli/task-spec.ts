@@ -28,7 +28,9 @@ Usage:
   pi-sparkle init --task [--dir <repo>] [--force] [--json]
 
 Writes sparkle.task.json from an existing Node package's simple node --test
-script with explicit JavaScript test files. No test, install or model is
+script with explicit .js/.mjs/.cjs or .ts/.mts/.cts test files. TypeScript
+requires native Node type stripping and erasable syntax; no static type check
+is performed. No test, install or model is
 run. Review the draft's objective, scope, checks and budgets before preflight.
 Only --force replaces an existing regular file. Shell scripts, other runners,
 Python/Rust/Go and ambiguous multi-language packages are not supported yet.
@@ -130,10 +132,13 @@ async function nodeTestArgs(root: string, script: unknown): Promise<{ args: stri
     const input = resolveInsideRoot(root, token);
     physicalDirectoryWithoutLinks(path.dirname(input));
     const info = await lstat(input);
-    if (!info.isFile() || info.isSymbolicLink() || !/\.(?:cjs|mjs|js)$/.test(token)) fail(`expected an existing regular JavaScript test file: ${token}`);
+    if (!info.isFile() || info.isSymbolicLink() || !/\.(?:cjs|mjs|js|cts|mts|ts)$/.test(token)) fail(`expected an existing regular JavaScript or TypeScript test file: ${token}`);
+    if (/\.(?:cts|mts|ts)$/.test(token) && !process.features.typescript) {
+      fail(`native TypeScript type stripping is unavailable in this Node runtime (${process.version}); use a compatible runtime or an explicitly authored checker`);
+    }
     inputs.push(token);
   }
-  if (inputs.length === 0) fail("implicit Node test discovery is unsupported; use explicit existing JavaScript test files");
+  if (inputs.length === 0) fail("implicit Node test discovery is unsupported; use explicit existing JavaScript or TypeScript test files");
   return { args, inputs };
 }
 async function draftSpec(root: string): Promise<DevelopmentTaskSpec> {
@@ -193,7 +198,9 @@ export async function initTaskSpecCommand(args: string[], io: TaskSpecCliIo): Pr
     const file = path.join(dir, TASK_FILENAME);
     stage = "execute";
     const overwritten = await writeDraft(file, `${JSON.stringify(spec, null, 2)}\n`, values.force === true);
-    const next = "Review this draft's objective, scope, checks and budgets. It expects a passing base; configure an explicit named assertion wrapper for a business RED. No test, install or model was run.";
+    const typescript = spec.checks[0]!.args.some((argument) => /\.(?:cts|mts|ts)$/.test(argument));
+    const next = "Review this draft's objective, scope, checks and budgets. It expects a passing base; configure an explicit named assertion wrapper for a business RED. No test, install or model was run."
+      + (typescript ? " Native Node execution strips erasable TypeScript syntax; no static type checking is performed." : "");
     if (values.json) io.stdout(`${JSON.stringify({ type: "TASKSPEC_DRAFT", preview: true, status: "draft", dir, file, overwritten, next })}\n`);
     else io.stdout(`Wrote TaskSpec draft: ${file}\n${next}\n`);
     return CLI_EXIT.ok;

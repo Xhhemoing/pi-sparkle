@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { startDevelopmentTaskSpec } from "../../../src/development/start-task-spec.js";
+import { startDevelopmentTaskSpec, preflightDevelopmentTaskSpec } from "../../../src/development/start-task-spec.js";
 import { snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 
@@ -159,7 +159,7 @@ test("broad glob scope cannot grant access to the candidate Git control file", a
   assert.ok(refused instanceof Error); assert.equal(result.execution.acceptance.accepted, true, result.execution.reason);
   assert.equal(await readFile(path.join(result.execution.candidatePath, ".git"), "utf8"), before);
 }));
-test("TaskSpec preflight requires every literal checker dependency even when its protection glob matches another file", async () => fixture(async (sourceRepo, stateRoot, sandboxRoot) => {
+test("TaskSpec run refuses a missing literal checker dependency before preflight or real factory allocation", async () => fixture(async (sourceRepo, stateRoot, sandboxRoot) => {
   let factories = 0; const definition = spec();
   const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot,
     spec: { ...definition, write: { ...definition.write, protect: ["src/**"] },
@@ -167,6 +167,20 @@ test("TaskSpec preflight requires every literal checker dependency even when its
     executorFactory: () => { factories++; return new ProtocolChildExecutor(); } });
   assert.equal(factories, 0, "a different glob match cannot replace the declared required checker dependency");
   assert.equal(result.execution.acceptance.accepted, false);
-  assert.equal(result.preflight?.ok, false);
-  assert.match(result.preflight!.reason, /required include prefix is missing/);
+  assert.equal(result.preflight, undefined, "Native admission refused before the preflight wrapper ran");
+  assert.match(result.execution.reason, /required include prefix is missing/);
+}));
+
+test("standalone TaskSpec preflight retains actual missing literal checker dependency evidence", async () => fixture(async (sourceRepo, stateRoot, sandboxRoot) => {
+  const definition = spec();
+  const result = await preflightDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot,
+    spec: { ...definition, write: { ...definition.write, protect: ["src/**"] },
+      checks: [{ ...definition.checks[0]!, protectedPaths: ["src/missing.ts"] }] } });
+  assert.equal(result.ok, false);
+  assert.equal(result.candidateDisposition, "removed");
+  assert.match(result.reason, /required include prefix is missing/);
+  const evidence = JSON.parse(await readFile(result.artifactPath, "utf8"));
+  assert.equal(evidence.modelInvocations, 0);
+  assert.equal(evidence.ok, false);
+  assert.deepEqual(evidence.checks, [], "missing inputs refuse before the actual base checker");
 }));

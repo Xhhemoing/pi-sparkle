@@ -364,3 +364,98 @@ test("check-plan recipe protection cannot be dropped by a broader writable scope
   } else if ("error" in outcome) assert.ok(outcome.error instanceof Error);
   assert.equal(factories, 0, "recipe-declared protection and writable scope contradictions must refuse before factory allocation");
 }));
+
+for (const entry of ["direct", "Native"] as const) {
+  test(`${entry} planned admission refuses a missing declared checker input under an existing protected directory`, async () => fixture(async (f) => {
+    const marker = "ACTUAL_CHECK_WITH_UNUSED_MISSING_INPUT_PASSED";
+    const checks = [{ ...recipe("required-input", `process.stdout.write(${JSON.stringify(marker)});`),
+      protectedPaths: ["checks/missing.cjs"], visibleToWorker: false }];
+    let factories = 0; let workers = 0;
+    const factory: NativeWriteExecutorFactory = (context) => {
+      factories++;
+      return { async *execute(request, signal) {
+        workers++;
+        await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("legal-change", {
+          path: "value.txt", contents: AFTER
+        }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      } };
+    };
+    const input = { ...preparedInput(f, checks, factory), maxAttempts: 1 };
+    const session = entry === "Native" ? new NativeWriteSession({ stateRoot: f.stateRoot, sandboxRoot: f.sandboxRoot, executorFactory: factory }) : undefined;
+    try {
+      const result = session === undefined ? await startDevelopmentTask(input) : await session.execute(input);
+      if (result.acceptance.accepted) {
+        const check = result.acceptance.independentCheck;
+        assert.ok(check);
+        assert.equal(check.processStatus, "completed");
+        assert.equal(check.exitCode, 0, "the real checker does not read its missing declared dependency");
+        assert.ok(check.stdoutText.includes(marker));
+      }
+      assert.equal(factories, 0, "a broad scope prefix must not substitute for the required checker input's actual existence");
+      assert.equal(workers, 0, "missing checker input must refuse before the actual worker request");
+      assert.equal(result.acceptance.accepted, false);
+      assert.equal(result.acceptance.independentCheck, undefined, "refused admission must not run the final checker");
+      await assert.rejects(readFile(path.join(result.candidatePath, "checks/missing.cjs")), { code: "ENOENT" });
+    } finally { await session?.shutdown(); }
+  }));
+}
+
+test("Native planned admission rechecks declared inputs before a repair factory", async () => fixture(async (f) => {
+  let factories = 0; let workers = 0; let analyses = 0;
+  let candidate = "";
+  const factory: NativeWriteExecutorFactory = (context) => {
+    factories++; candidate = context.candidatePath;
+    return { async *execute(request, signal) {
+      workers++;
+      await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("candidate-progress", {
+        path: "value.txt", contents: `attempt ${context.attempt?.number}`
+      }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    } };
+  };
+  const checks = [{ ...recipe(VISIBLE_ID, "process.stdout.write('VISIBLE_EXPECTED_FAILURE'); process.exit(1);"),
+    protectedPaths: ["checks/guard.txt"] }];
+  const session = new NativeWriteSession({ stateRoot: f.stateRoot, sandboxRoot: f.sandboxRoot, executorFactory: factory,
+    checkFindingAnalysis: { analyze: async ({ feedback }) => {
+      analyses++;
+      assert.equal(feedback.exitCode, 1, "the first actual Node check must produce a repairable failure");
+      await rm(path.join(candidate, "checks/guard.txt"));
+      return { summary: "Host-side fault injection removed a required dependency before repair admission" };
+    } } });
+  try {
+    const result = await session.execute(preparedInput(f, checks, factory));
+    assert.equal(analyses, 1);
+    assert.equal(result.loop?.attempts.length, 2, "the real loop must reach repair admission");
+    assert.equal(factories, 1, "a repair cannot allocate a factory after a required checker input disappears");
+    assert.equal(workers, 1);
+    assert.equal(result.acceptance.accepted, false);
+    assert.equal(result.acceptance.independentCheck, undefined);
+    await assert.rejects(readFile(path.join(result.candidatePath, "checks/guard.txt")), { code: "ENOENT" });
+  } finally { await session.shutdown(); }
+}));
+
+test("Native planned admission preserves valid literal inputs and actual visible-feedback repair", async () => fixture(async (f) => {
+  let factories = 0;
+  const factory: NativeWriteExecutorFactory = (context) => {
+    factories++;
+    return { async *execute(request, signal) {
+      if (context.attempt?.number === 2) assert.ok(JSON.stringify(context.attempt.checkFeedback).includes(VISIBLE_HINT));
+      await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("repair-value", {
+        path: "value.txt", contents: context.attempt?.number === 2 ? AFTER : "needs repair"
+      }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    } };
+  };
+  const checks = [{ ...recipe(VISIBLE_ID, `const fs=require('node:fs'); if(fs.readFileSync('checks/guard.txt','utf8')!=='protected checker input')process.exit(2); if(fs.readFileSync('value.txt','utf8')!==${JSON.stringify(AFTER)}) { process.stdout.write(${JSON.stringify(VISIBLE_HINT)}); process.exit(1); }`),
+    protectedPaths: ["checks/guard.txt"] }];
+  const session = new NativeWriteSession({ stateRoot: f.stateRoot, sandboxRoot: f.sandboxRoot, executorFactory: factory });
+  try {
+    const result = await session.execute(preparedInput(f, checks, factory));
+    assert.equal(factories, 2);
+    assert.deepEqual(result.loop?.attempts.map((attempt) => attempt.accepted), [false, true]);
+    assert.equal(result.acceptance.accepted, true, result.reason);
+    assert.equal(result.acceptance.independentCheck?.exitCode, 0);
+    assert.equal(await readFile(path.join(result.candidatePath, "checks/guard.txt"), "utf8"), "protected checker input");
+  } finally { await session.shutdown(); }
+}));

@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DomainValidationError } from "../domain/errors.js";
 import { matchesPathSelector } from "../execution/path-selector.js";
+import { captureExactSnapshot } from "../execution/exact-snapshot.js";
 import type { IndependentCheckRecord } from "../execution/independent-check.js";
 import { assertTrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import type { NativeWriteAcceptanceCriterion } from "../native/write-criteria.js";
@@ -113,6 +114,16 @@ export function assertDevelopmentCheckPlanVerification(plan: DevelopmentCheckPla
       !expected.checkerFiles.every((file) => descriptor.checkerFiles.includes(realpathSync(file)))) fail("verifier does not match the fixed check plan");
   if (verification.repairableExitCodes?.length !== 1 || verification.repairableExitCodes[0] !== 1 ||
       verification.unsettledExitCodes?.length !== 1 || verification.unsettledExitCodes[0] !== 3) fail("check plan requires functional exit 1 and unsettled exit 3 policies");
+}
+/** Observe each declared literal dependency, not just a covering protection selector. */
+export function assertDevelopmentCheckInputs(plan: DevelopmentCheckPlan, candidatePath: string, verification: NativeWriteVerificationInput): void {
+  const required = [...new Set(plan.checks.flatMap((check) => check.protectedPaths ?? []))];
+  if (required.length === 0) return;
+  const descriptor = verification.trustedVerification;
+  if (descriptor === undefined) fail("required checker inputs need an original host-issued verifier");
+  captureExactSnapshot(candidatePath, { includePrefixes: required }, {
+    maxFiles: descriptor.maxSnapshotFiles, maxBytes: descriptor.maxSnapshotBytes
+  });
 }
 export function visibleDevelopmentCriteria(plan: DevelopmentCheckPlan): readonly NativeWriteAcceptanceCriterion[] | undefined {
   const visible = plan.checks.filter((check) => check.visibleToWorker !== false);

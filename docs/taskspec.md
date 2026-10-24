@@ -14,8 +14,7 @@ preflight creates its own candidate; it does not reserve a cache for a later run
 
 From the pi-sparkle checkout, `pnpm cli init --task --dir <repo>` writes
 `sparkle.task.json`. This initial generator supports only Node packages whose
-existing test script explicitly names existing JavaScript test files, such as
-`node --test test/value.test.cjs`. It requires a detected `src` or `lib`
+existing test script explicitly names existing JavaScript or TypeScript test files, such as `node --test test/value.test.cjs` or `node --test test/value.test.ts`. TypeScript inputs (`.ts`, `.mts`, `.cts`) require a Node runtime with native type stripping and erasable syntax. This executes assertions but does not run a static type checker; syntax requiring transformation, such as enums, fails during actual preflight. It requires a detected `src` or `lib`
 directory. Quoting, shell syntax, implicit test discovery, other runners and
 ambiguous language detection produce a diagnostic instead of a guessed check.
 It does not execute tests, install dependencies or invoke a model.
@@ -133,7 +132,7 @@ base failure never grants permission to deliver a failing candidate.
   same host-owned executor factory used by
   [`startDevelopmentTask`](direct-development-task.md). The actual factory is
   invoked only after successful base preflight and fresh source verification.
-  `execution` is the existing native result: acceptance does not apply changes.
+  `execution` is the existing native result: acceptance does not apply changes. Missing declared checker inputs can be refused by Native admission before the preflight wrapper starts; in that case `preflight` is absent and the Native result retains the refusal reason. Standalone preflight still produces its own actual failure artifact.
 - `preflightDevelopmentTaskSpec({ sourceRepo, stateRoot, sandboxRoot?, spec,
   signal? })` has no worker factory. It runs actual preparation/checks in an
   isolated worktree. Settled temporary candidates are removed; unresolved
