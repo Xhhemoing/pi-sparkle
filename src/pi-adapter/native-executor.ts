@@ -1,7 +1,7 @@
+import { captureNativeHostContext } from "./native-host-context.js";
 import type { Api, AssistantMessageEventStream, Model, MutableModels } from "@earendil-works/pi-ai";
-import { formatModelRef } from "../config/model-ref.js";
-import { DomainValidationError } from "../domain/errors.js";
 import type { AgentExecutor } from "../execution/contract.js";
+import type { SparkleThinkingBudgets } from "./thinking-budgets.js";
 import { PiAgentExecutor, type SparkleThinkingLevel } from "./pi-executor.js";
 import { createWorktreeCodingTools } from "./worktree-coding-tools.js";
 import { createRecallTool, type ObservationProjector } from "./observation-tools.js";
@@ -14,6 +14,7 @@ export interface NativeExecutorInput {
   readonly approvedResourcePayload?: string | undefined;
   /** Host selection sampled when delegation is admitted. */
   readonly thinkingLevel: SparkleThinkingLevel;
+  readonly thinkingBudgets?: SparkleThinkingBudgets | undefined;
   /** Exact eligible host-registry snapshot used to build the routing catalog. */
   readonly models: readonly Model<Api>[];
   /** Default requested model; must be a member of models. */
@@ -28,94 +29,8 @@ export interface NativeExecutorInput {
   readonly observationProjector?: ObservationProjector | undefined;
 }
 
-function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
-  if (typeof value !== "object" || value === null) return value;
-  const object = value as object;
-  if (seen.has(object)) return value;
-  seen.add(object);
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested, seen);
-  }
-  return Object.freeze(value);
-}
-
-function immutableModelSnapshot(model: Model<Api>): Model<Api> {
-  try {
-    const credentialFree: Record<PropertyKey, unknown> = {};
-    for (const key of Reflect.ownKeys(model)) {
-      if (key === "headers") continue;
-      const descriptor = Object.getOwnPropertyDescriptor(model, key);
-      if (descriptor?.enumerable === true) credentialFree[key] = Reflect.get(model, key);
-    }
-    return deepFreeze(structuredClone(credentialFree)) as unknown as Model<Api>;
-  } catch {
-    throw new DomainValidationError(
-      `native executor model must be structured-cloneable: ${model.provider}/${model.id}`
-    );
-  }
-}
-
-/** Reuse host model objects and host stream dispatch; credentials never cross this bridge. */
 export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor {
-  if (typeof input.effectiveSystemPrompt !== "string") {
-    throw new DomainValidationError("native executor requires an explicit effective host system prompt");
-  }
-  if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(input.thinkingLevel)) {
-    throw new DomainValidationError("native executor requires an explicit valid host thinking level");
-  }
-  if (input.models.length === 0) {
-    throw new DomainValidationError("native executor requires at least one eligible host model");
-  }
-  const byRef = new Map<string, Model<Api>>();
-  const hostByRef = new Map<string, Model<Api>>();
-  for (const model of input.models) {
-    let ref: string;
-    try {
-      ref = formatModelRef(model.provider, model.id);
-    } catch {
-      throw new DomainValidationError(
-        `native executor model refs must use a canonical provider without slash and trimmed model id: ${model.provider}/${model.id}`
-      );
-    }
-    if (model.provider !== model.provider.trim() || model.id !== model.id.trim()) {
-      throw new DomainValidationError(`native executor model refs must be canonical provider/model: ${ref}`);
-    }
-    if (byRef.has(ref)) throw new DomainValidationError(`duplicate native executor model ref: ${ref}`);
-    byRef.set(ref, immutableModelSnapshot(model));
-    hostByRef.set(ref, model);
-  }
-  if (
-    input.defaultModel.provider !== input.defaultModel.provider.trim() ||
-    input.defaultModel.id !== input.defaultModel.id.trim()
-  ) {
-    throw new DomainValidationError(
-      "native executor default model components must be canonical without surrounding whitespace"
-    );
-  }
-  let defaultRef: string;
-  try {
-    defaultRef = formatModelRef(input.defaultModel.provider, input.defaultModel.id);
-  } catch {
-    throw new DomainValidationError("native executor default model must use a canonical provider/model ref");
-  }
-  const defaultModel = byRef.get(defaultRef);
-  if (defaultModel === undefined) {
-    throw new DomainValidationError(`native executor default model must be eligible: ${defaultRef}`);
-  }
-  const models = {
-    getModel: (providerId: string, modelId: string) => byRef.get(`${providerId}/${modelId}`),
-    streamSimple: (selected: Model<Api>, context: Parameters<MutableModels["streamSimple"]>[1], options: Parameters<MutableModels["streamSimple"]>[2]) => {
-      const ref = `${selected.provider}/${selected.id}`;
-      const hostModel = hostByRef.get(ref);
-      if (hostModel === undefined) {
-        throw new DomainValidationError(`native executor dispatch model is outside the host snapshot: ${ref}`);
-      }
-      if (`${hostModel.provider}/${hostModel.id}` !== ref) {
-        throw new DomainValidationError(`native executor host model identity drifted after snapshot: ${ref}`);
-      }
-      return input.streamSimple(hostModel, context, options);
-    }
-  } as MutableModels;
+  const { models, defaultModel, supportedModelIds, thinkingBudgets } = captureNativeHostContext(input);
   const readTools = createWorktreeCodingTools({ worktreeRoot: input.projectRoot, maxReadBytes: 32_000 })
     .filter((tool) => tool.name === "sparkle_read_file");
   const projector = input.observationProjector;
@@ -170,12 +85,13 @@ export function createNativeExecutor(input: NativeExecutorInput): AgentExecutor 
     providerId: defaultModel.provider, modelId: defaultModel.id, models,
     systemPrompt: input.effectiveSystemPrompt,
     thinkingLevel: input.thinkingLevel,
+    ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }),
     approvedResourcePayload: input.approvedResourcePayload,
     tools: projector === undefined
       ? wrappedRead
       : [...wrappedRead, createRecallTool(projector)]
   });
-  const supportedModelIds = Object.freeze([...byRef.keys()]);
+
   return {
     supportedModelIds,
     execute: (request, signal) => delegate.execute({

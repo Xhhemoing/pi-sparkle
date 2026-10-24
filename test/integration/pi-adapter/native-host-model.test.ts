@@ -10,10 +10,12 @@ import { actualParentDelegation } from "./native-host-parent.fixture.js";
 for (const override of [undefined, "B", "host-context/B"]) {
   test(`real parent SDK pins every delegated child to ${override ?? "its selected host A"}`, { timeout: 20000 }, async () => {
     const result = await actualParentDelegation("MODEL_HOST_PROMPT", undefined, false, false,
-      override === undefined ? {} : { override });
+      override === undefined ? { thinkingBudgets: { low: 4321 } } : { override });
     assert.equal(result.error, undefined);
     assert.ok(result.children.length >= 2, "both sibling tasks must dispatch through the real SDK");
     assert.deepEqual([...new Set(result.children.map((child) => child.model))], [override === undefined ? "host-context/A" : "host-context/B"]);
+    if (override === undefined) for (const child of result.children) assert.equal(child.options?.thinkingBudgets?.low, 4321,
+      "the real parent SettingsManager budget must reach every child wire");
     assert.deepEqual(result.delegateResults.map((details) => {
       assert.ok(typeof details === "object" && details !== null && "analysis" in details);
       return details.analysis;
@@ -53,11 +55,12 @@ test("missing, unavailable, out-of-scope and ambiguous selections refuse before 
   for (const scenario of cases) {
     const cwd = await mkdtemp(join(scratch, "refuse-"));
     let selections = 0, dispatches = 0;
+    const runtime = createExtensionRuntime(); runtime.getSettings = () => ({});
     const extension = await loadExtensionFromFactory(createSparkleExtension({ approvedResources: () => {
       selections++;
       if (scenario.host === undefined) throw new Error("resource selection preceded missing-host refusal");
       return undefined;
-    } }), cwd, createEventBus(), createExtensionRuntime());
+    } }), cwd, createEventBus(), runtime);
     const tool = extension.tools.get("sparkle_delegate")!.definition;
     await assert.rejects(tool.execute(scenario.name, { tasks: [{ role: "scout", objective: "Synthetic inspection" }],
       ...(scenario.override !== undefined ? { model: scenario.override } : {}) }, undefined, undefined, {
@@ -78,7 +81,8 @@ test("one selected registry model still rejects an ineligible sibling through st
   const cwd = await mkdtemp(join(scratch, "policy-refuse-"));
   const faux = fauxProvider({ provider: "host-policy", models: [{ id: "only" }] });
   let dispatches = 0;
-  const extension = await loadExtensionFromFactory(createSparkleExtension(), cwd, createEventBus(), createExtensionRuntime());
+  const runtime = createExtensionRuntime(); runtime.getSettings = () => ({});
+  const extension = await loadExtensionFromFactory(createSparkleExtension(), cwd, createEventBus(), runtime);
   await assert.rejects(extension.tools.get("sparkle_delegate")!.definition.execute("policy-refuse", {
     tasks: [{ role: "scout", objective: "Inspect parser" }, { role: "reviewer", objective: "Review parser; data must stay local" }]
   }, undefined, undefined, {
@@ -98,7 +102,8 @@ test("selected host object identity drift remains refused by actual worker dispa
   const faux = fauxProvider({ provider: "host-drift", models: [{ id: "selected" }] });
   const model = { ...faux.getModel() };
   let dispatches = 0, changed = false;
-  const extension = await loadExtensionFromFactory(createSparkleExtension(), cwd, createEventBus(), createExtensionRuntime());
+  const runtime = createExtensionRuntime(); runtime.getSettings = () => ({});
+  const extension = await loadExtensionFromFactory(createSparkleExtension(), cwd, createEventBus(), runtime);
   const result = await extension.tools.get("sparkle_delegate")!.definition.execute("drift", {
     tasks: [{ role: "scout", objective: "Inspect parser" }]
   }, undefined, (update: { content: { type: string; text?: string }[] }) => {

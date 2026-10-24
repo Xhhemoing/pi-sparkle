@@ -40,6 +40,93 @@ verification; worker output and repair feedback do not grant command authority.
 Candidate worktrees isolate repository changes, but are not an OS security
 sandbox for arbitrary host code or verification commands.
 
+An optional host `scopePolicy` enforces writable and protected paths:
+
+```ts
+import { prepareScopedDevelopmentVerification } from "./dist/development/task-policy.js";
+
+const scopePolicy = { allowedScope: ["src", "test/new-case.ts"], protectedPaths: ["checks"] };
+const verification = prepareScopedDevelopmentVerification({
+  command: trustedChecker, args: trustedArguments,
+  checkerFiles: hostCheckerFiles, scopePolicy
+});
+const result = await startDevelopmentTask({
+  stateRoot, sandboxRoot, sourceRepo, objective,
+  scopePolicy, verification, executorFactory, signal
+});
+```
+
+The policy uses repository-relative literal prefixes or the bounded `*`, `?`, `**` patterns described in [TaskSpec](taskspec.md#select-writable-and-protected-paths). Controller queue definitions remain literal; no shell expansion is performed. Both arrays are snapshotted before asynchronous work. The host must
+list all protected checker dependencies; these must exist before the executor
+factory is called. Allowed paths may be absent. Actual owned write/patch tools
+refuse outside or protected paths before changing bytes. An existing exact
+in-process observation of protected files is retained across repair attempts;
+final protected changes, including ignored additions and Git-normalized byte
+changes, refuse acceptance. Changes from the initial revision to candidate HEAD are checked alongside the working tree, so committing a changed file cannot remove it from scope validation. Valid in-scope commits remain allowed by this direct entry.
+This does not contain arbitrary filesystem, network or MCP effects outside the
+observed scope, or detect a transient change restored before observation.
+
+The helper explicitly issues the existing trusted verification capability. A
+caller may supply its own original capability with the same required protected
+and optional allowed selectors, without exclusions or allowed output directories. Pattern selectors use the manifest's explicit pattern fields; literal fields keep their existing meaning.
+Verifier fields must be ordinary own data values and are copied once for policy matching and execution. Mismatched or copied descriptors are rejected; the task never silently replaces
+the caller's verifier. Calls without `scopePolicy` keep their existing
+workspace-root tool behavior. These deep imports are experimental; this is not
+the complete TaskSpec, preparation or budget interface.
+
+For fixed check-plan calls, each declared literal checker dependency must exist and be observable before every worker factory, including repair attempts. Direct and Native entrypoints reuse exact filesystem capture with the original descriptor limits; semantic coverage by a broader protected path alone does not satisfy this requirement. Calls without a check plan retain their existing behavior.
+
+For one fixed set of host checks, the experimental check-plan helper also selects
+which diagnostics the worker may receive:
+
+```ts
+import { prepareDevelopmentCheckPlan } from "./dist/development/check-plan.js";
+
+const { checkPlan, verification } = prepareDevelopmentCheckPlan({
+  scopePolicy,
+  checks: [
+    { id: "unit", command: process.execPath, args: ["checks/unit.mjs"],
+      verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: true },
+    { id: "host-only", command: process.execPath, args: ["checks/host-only.mjs"],
+      verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: false }
+  ]
+});
+const result = await startDevelopmentTask({
+  stateRoot, sandboxRoot, sourceRepo, objective, scopePolicy,
+  checkPlan, verification, executorFactory, maxAttempts: 2, signal
+});
+```
+
+Visibility defaults to true. The same snapshotted check list supplies the actual
+host verifier, visible commands and visible acceptance criteria. Do not provide
+separate `acceptanceCriteria` with a plan. A mismatched command, argv, original
+verifier or declared protection is refused before worker allocation. The helper
+requires every recipe-declared protected prefix to be covered by the selected
+required verifier scope; it does not silently expand that scope.
+
+On a repair attempt, plan calls expose `attempt.checkFeedback` with visible
+check results and a generic `not-accepted` outcome. They omit the legacy
+`attempt.previous`, including its host run/artifact references and aggregate
+output lengths. Hidden check IDs, commands and diagnostics do not enter this
+projection, the objective, acceptance metadata or prepared context. A plan with
+only hidden checks can reject a candidate and provide generic feedback without
+revealing those checks. Visible failures still drive the requested repair loop.
+Calls without a plan keep their existing repair feedback.
+
+Host artifacts retain every attempted check's bounded structured result,
+including hidden diagnostics and unobserved checks. Plan calls explicitly select
+up to 256 KiB of evidence storage per stream; other independent checks keep the
+4 KiB default. Existing recipe time/output limits still apply, and a plan whose
+combined configured output cannot fit the structured report is rejected.
+Incomplete, truncated or unavailable results cannot authorize a repair attempt.
+
+This controls product feedback channels. Source-contained scripts may remain
+readable through the worker's other tools; it is not an OS secrecy boundary.
+Benchmark held-out scoring belongs in a separate evaluator and must never be
+included in this host check list or used for repairs. The complete TaskSpec
+interface, zero-model preparation/preflight and cumulative budgets are separate
+Phase 1 work.
+
 For a bounded subtask inside a larger project, the host can use this same entry
 with one Pi worker; a separate project queue or recursive planner is unnecessary.
 Choose this path when the objective, permitted edits and independent check are
@@ -196,3 +283,8 @@ snapshots it; model requests cannot supply their own context selection.
 M1-C implementation and verification are recorded in the
 [staged continuation report](reports/2026-10-19-staged-continuation.md), including
 actual final-prompt tests and the separately authorized two-case provider smoke.
+
+
+Experimental JSON TaskSpec preparation and one-worker integration are described in
+[TaskSpec and zero-model preflight](taskspec.md). They reuse this entry's candidate,
+check and explicit-application boundaries.

@@ -85,6 +85,7 @@ async function load(options: ConversationSessionOptions, initializer?: unknown) 
     const { loadExtensions } = await import(loaderUrl.href);
     const result = await loadExtensions([wrapper], process.cwd());
     assert.deepEqual(result.errors, [], "trusted wrapper must initialize through the real Pi loader");
+    result.runtime.getSettings = () => ({}); // Explicit synthetic host settings after loading.
     const extension = result.extensions[0]!;
     async function execute(name: string, params: unknown, signal?: AbortSignal) {
       const tool = extension.tools.get(name);

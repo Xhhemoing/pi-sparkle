@@ -1,4 +1,7 @@
 import { prepareApprovedResources, type ApprovedResourcesProvider } from "../../src/pi-adapter/approved-resources.js";
+import { captureThinkingBudgets } from "../../src/pi-adapter/thinking-budgets.js";
+import { captureNativeTaskCommand, createNativeTaskSession, runNativeTaskCommand, snapshotNativeTaskCommandOptions,
+  type NativeTaskCommandOptions } from "../../src/pi-adapter/native-task-command.js";
 import { join } from "node:path";
 import { parseCandidateCommandArgs, parseCandidateDisposalArgs } from "../../src/native/command-args.js";
 import { Type } from "@earendil-works/pi-ai";
@@ -6,6 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConversationRecoveryOptions, ReadonlyConversationSession } from "../../src/conversation/recovery.js";
 import type { ConversationSession, ConversationSessionOptions } from "../../src/conversation/session.js";
 import type { CoreNativeSession } from "../../src/native/core-session.js";
+import type { TaskSpecSession } from "../../src/development/task-session.js";
 
 /**
  * Session-scoped issued-candidate handles. The apply tool never accepts a
@@ -25,6 +29,8 @@ interface IssuedCandidateHandle {
 export interface SparkleExtensionOptions {
   /** Synchronous trusted host selection; never populated from model tool parameters. */
   readonly approvedResources?: ApprovedResourcesProvider;
+  /** Trusted command storage paths; never model-supplied TaskSpec fields. */
+  readonly task?: NativeTaskCommandOptions;
   readonly conversation?: ConversationSessionOptions;
   readonly conversationRecovery?: ConversationRecoveryOptions;
 }
@@ -39,10 +45,12 @@ export default createSparkleExtension();
 function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionOptions): void {
   if (process.env.SPARKLE_NATIVE === "0") return;
   let session: CoreNativeSession | undefined;
+  let taskSession: Promise<TaskSpecSession> | undefined;
   let closed = false;
   const abort = new AbortController();
   const pending = new Set<Promise<unknown>>();
   let shutdown: Promise<void> | undefined;
+  const taskOptions = snapshotNativeTaskCommandOptions(options.task);
   if (options.conversation !== undefined && options.conversationRecovery !== undefined) throw new Error("Choose conversation or conversationRecovery, not both");
   if (options.conversation !== undefined || options.conversationRecovery !== undefined) {
     const configuration = options.conversation;
@@ -104,6 +112,48 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
     });
   }
   const issuedCandidates = new Map<string, IssuedCandidateHandle>();
+  pi.registerCommand("sparkle-task", {
+    description: "Run a host-reviewed TaskSpec using the selected Pi model in an isolated candidate; never applies source changes",
+    handler: async (args, ctx) => {
+      if (closed) throw new Error("Sparkle session is shut down");
+      let output: unknown;
+      try {
+        const signal = ctx.signal === undefined ? abort.signal : AbortSignal.any([ctx.signal, abort.signal]);
+        signal.throwIfAborted();
+        // Capture every host selection before a callback, import or file read can yield.
+        const thinkingBudgets = captureThinkingBudgets(pi.getSettings());
+        const admission = captureNativeTaskCommand(ctx, ctx.thinkingLevel ?? pi.getThinkingLevel(), options.approvedResources, thinkingBudgets);
+        signal.throwIfAborted();
+        taskSession ??= createNativeTaskSession(taskOptions);
+        const selectedSession = taskSession;
+        const operation = selectedSession.then(current => runNativeTaskCommand({ args, admission, signal, session: current }));
+        pending.add(operation);
+        try { output = await operation; }
+        finally { pending.delete(operation); }
+      } catch (error) {
+        output = { type: "TASKSPEC_REFUSED", status: "refused", reason: error instanceof Error ? error.message : "TaskSpec command refused" };
+      }
+      pi.sendMessage({ customType: "sparkle-task-result", content: JSON.stringify(output), display: true }, { triggerTurn: false });
+    }
+  });
+  for (const action of ["apply", "discard"] as const) pi.registerCommand(`sparkle-task-${action}`, {
+    description: `${action === "apply" ? "Apply with fresh host verification" : "Discard an unchanged settled candidate"} from this live TaskSpec session; takes only its runId`,
+    handler: async (args, ctx) => {
+      if (closed) throw new Error("Sparkle session is shut down");
+      let output: unknown;
+      try {
+        const signal = ctx.signal === undefined ? abort.signal : AbortSignal.any([ctx.signal, abort.signal]);
+        signal.throwIfAborted();
+        if (taskSession === undefined) throw new Error("run is not held by this live TaskSpec owner");
+        const operation = taskSession.then(async current => current[action](args.trim(), signal));
+        pending.add(operation);
+        try { output = await operation; } finally { pending.delete(operation); }
+      } catch (error) {
+        output = { type: "TASKSPEC_REFUSED", status: "refused", reason: error instanceof Error ? error.message : "TaskSpec operation refused" };
+      }
+      pi.sendMessage({ customType: "sparkle-task-result", content: JSON.stringify(output), display: true }, { triggerTurn: false });
+    }
+  });
   const contractText = Type.String({ minLength: 1, maxLength: 512 });
   const taskContract = Type.Object({
     scope: Type.Optional(Type.Array(contractText, { maxItems: 8 })),
@@ -142,6 +192,7 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
       // host turn must not change the context of this admitted delegation.
       const effectiveSystemPrompt = ctx.getSystemPrompt();
       const thinkingLevel = ctx.thinkingLevel ?? pi.getThinkingLevel();
+      const thinkingBudgets = captureThinkingBudgets(pi.getSettings());
       const hostModel = ctx.model;
       const capturedHostModel = hostModel === undefined ? undefined : { provider: hostModel.provider, id: hostModel.id };
       const preferredModel = params.model;
@@ -182,7 +233,7 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
         return { projector: createObservationProjector({ enabled: true, toolName: "sparkle_read_file" }) };
       })() : undefined;
       const executor = createNativeExecutor({
-        effectiveSystemPrompt, thinkingLevel, approvedResourcePayload,
+        effectiveSystemPrompt, thinkingLevel, approvedResourcePayload, ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }),
         projectRoot,
         defaultModel: model,
         models: [model],
@@ -306,7 +357,8 @@ function initializeSparkleExtension(pi: ExtensionAPI, options: SparkleExtensionO
     shutdown = (async () => {
       // Start native cancellation immediately; a failed conversation must not skip it.
       const native = session?.shutdown();
-      const results = await Promise.allSettled([...pending, ...(native === undefined ? [] : [native])]);
+      const tasks = taskSession?.then(current => current.shutdown());
+      const results = await Promise.allSettled([...pending, ...(native === undefined ? [] : [native]), ...(tasks === undefined ? [] : [tasks])]);
       const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failures.length > 0) throw new AggregateError(failures.map((result) => result.reason), "Sparkle shutdown observed failed operations");
     })();

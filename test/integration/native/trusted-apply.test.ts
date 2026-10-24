@@ -106,6 +106,20 @@ test("trusted apply binds checked binary/empty/LF files to the source tree despi
   });
 });
 
+for (const removed of ["path", "path-and-record"] as const) test(`strict managed disposal refuses missing ${removed} while legacy policy remains available`, async () => {
+  await withCandidate(async ({ root, repo, result }) => {
+    const session = new NativeApplySession();
+    await session.apply({ sourceRepo: repo, result, trustedVerification: prepareTrustedVerification(VERIFY) });
+    assert.equal(path.dirname(result.candidatePath), path.join(root, "sandbox"), "remove only this private synthetic candidate");
+    if (removed === "path") await rm(result.candidatePath, { recursive: true, force: true });
+    else git(repo, ["worktree", "remove", "--force", result.candidatePath]);
+    const before = git(repo, ["worktree", "list", "--porcelain", "-z"]);
+    await assert.rejects(session.disposeStrict(result.candidatePath), /missing|inaccessible|registered|identity/);
+    assert.equal(git(repo, ["worktree", "list", "--porcelain", "-z"]), before, "strict refusal does not prune the registration");
+    if (removed === "path-and-record") assert.equal((await session.dispose(result.candidatePath)).status, "DISPOSED", "legacy missing-record reconciliation stays unchanged");
+  });
+});
+
 test("trusted apply refuses missing, copied and JSON descriptors without changing source", async () => {
   await withCandidate(async ({ repo, result }) => {
     const descriptor = prepareTrustedVerification(VERIFY);
@@ -277,5 +291,18 @@ test("trusted apply refuses active attributes introduced by an ORIG_HEAD hook", 
     assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), AFTER);
     assert.equal(await readFile(path.join(repo, ".git", "info", "attributes"), "utf8"), "value.txt text\n");
     assert.equal(await readFile(path.join(result.candidatePath, "value.txt"), "utf8"), AFTER);
+  });
+});
+
+test("trusted apply rejects pattern-only descriptors before staging source changes", async () => {
+  await withCandidate(async ({ repo, result }) => {
+    for (const snapshotManifest of [{ includePatterns: ["**"] }, { optionalIncludePatterns: ["**"] }]) {
+      const descriptor = prepareTrustedVerification({ ...VERIFY, snapshotManifest });
+      let prepared = false;
+      await assert.rejects(new NativeApplySession().apply({ sourceRepo: repo, result, trustedVerification: descriptor,
+        onPrepared: () => { prepared = true; } }), /whole-candidate descriptor without manifest exceptions/);
+      assert.equal(prepared, false);
+      await assertUnapplied(repo, result);
+    }
   });
 });

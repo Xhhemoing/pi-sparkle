@@ -38,7 +38,8 @@ test("invalid or asynchronous approved resources refuse before registry or provi
     let selections = 0, dispatches = 0;
     let input: unknown;
     const options = { approvedResources: (value: unknown) => { selections++; input = value; return invalid; } } as unknown as SparkleExtensionOptions;
-    const extension = await loadExtensionFromFactory(createSparkleExtension(options), process.cwd(), createEventBus(), createExtensionRuntime());
+    const runtime = createExtensionRuntime(); runtime.getSettings = () => ({});
+    const extension = await loadExtensionFromFactory(createSparkleExtension(options), process.cwd(), createEventBus(), runtime);
     const tool = extension.tools.get("sparkle_delegate")!.definition;
     await assert.rejects(tool.execute("invalid-approved", { model: "fixture/selected", tasks: [{ role: "scout", objective: "Synthetic" }] },
       new AbortController().signal, undefined, {

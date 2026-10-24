@@ -2,7 +2,7 @@
 
 **Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
 
-**Developer Preview (0.1.0-preview.3; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; TaskSpec and full host resource inheritance remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
+**Developer Preview (0.2.0-beta; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; experimental TaskSpec execution and explicit same-session apply/discard are available; complete Phase 1 qualification and full host resource equivalence remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
 
 The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
 
@@ -33,8 +33,18 @@ pnpm cli version
 
 `pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm
 pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI.
-The package metadata remains `private: true`; packaging is exercised only by
-the security probe and is not an installation or publication path.
+The package metadata remains `private: true`; private tarballs are exercised by
+the security probe and the experimental [four-language installed examples](docs/taskspec.md#exercise-an-installed-package). The earlier scripted examples passed on Windows with actual Express, FastAPI, Rust CLI and Go service checks, independent acceptance and explicit fixture-only apply. The public CLI mode now exercises the same flow through a real SDK and an offline loopback provider; its candidate-specific results are in the active plan. This is not an npm publication, a general supported installation path, or evidence of real-model quality benefit. The Linux Rust profile checks now also pass in both Pi compatibility lanes; complete combined Windows qualification and the remaining Phase 1 requirements are still open.
+
+### TaskSpec walkthrough
+
+![Recorded offline TaskSpec CLI results: draft, preflight, accepted candidate, explicit apply and source verification](docs/assets/task-cli-walkthrough.gif)
+
+This replay condenses actual JSON results from the private `0.2.0-beta` Node/YAML
+example. Paths are shortened. It uses the real SDK and checks with a deterministic
+loopback provider; only the synthetic fixture is changed. Follow the
+[installed CLI walkthrough](docs/taskspec.md#exercise-an-installed-package) to
+run it locally. The replay is not a live-model comparison.
 
 ### Install as a local Pi package
 
@@ -226,7 +236,7 @@ pnpm cli run \
 
 | Command | Description |
 |---------|-------------|
-| `pnpm cli version` | Print `0.1.0-preview.3` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
+| `pnpm cli version` | Print `0.2.0-beta` without a build. After `pnpm build`, `node dist/cli/main.js --version` is the compiled equivalent |
 | `pnpm cli help` | Print the usage block (same as `--help` / `-h`). It is the authoritative flag list; this table is the shorter tour |
 | `pnpm cli run --project <path> --objective <text>` | Start a run (`--children`, `--flowchart`, `--track`, `--executor`, `--thinking`, `--max-cost-usd`, `--state-root`) |
 | `pnpm cli run --track --assume-defaults --primary-model <id>` | Clarify (or assume defaults), plan a cluster, auto-route models, execute, propose learning |
@@ -234,9 +244,13 @@ pnpm cli run \
 | `pnpm cli validate --children <spec.json> \| --flowchart <flowchart.json>` | Check a children spec or flowchart against the live catalog without starting a run |
 | `pnpm cli list [--runs \| --episodes]` | List persisted runs or episodes in the state root |
 | `pnpm cli init [--dir <path>] [--force]` | Write example children and flowchart specs into the working directory |
+| `pnpm cli init --task [--dir <repo>] [--state-root <dir>] [--python <exe>] [--force]` | Experimental Node/TypeScript and conservative Python/Rust/Go drafts. Compiled profiles use external fresh outputs; Python selects an existing interpreter. Init runs no test, install or model. [Supported inputs](docs/taskspec.md#generate-a-draft-and-run-preflight) |
+| `pnpm cli preflight <task.json> --project <repo> [--state-root <dir>] [--json]` | Actual zero-model preparation and base checks in an isolated candidate; private evidence, truthful settlement and cleanup, no source apply. [Current TaskSpec limits](docs/taskspec.md) |
+| `pnpm cli task run <task-file> --project <repo> --executor pi [--review] [--json]` | Execute through configured Pi with scoped tools and independent acceptance; retain by default, or explicitly apply/discard during the same-process review. [Execution and recovery limits](docs/taskspec.md#run-with-configured-pi-from-the-cli) |
+| `pnpm cli task verdict --artifact <json> [--apply-record <json>] --json\|--markdown` | Read bounded historical evidence without rerunning checks or applying changes. Missing evidence stays explicit; raw checker details stay private. [Historical Verdict](docs/taskspec.md#read-a-historical-verdict) |
 | `pnpm cli inspect --run <runId>` | Print status, episode id, events, artifacts, evidence, and — when the run stalled or blocked — the latest `required evidence` demand. `--json` is the pure event stream (one event per line, nothing appended); `--summary-json` is one `INSPECT_SUMMARY` object with `status` and `requiredEvidence` — a frozen additive-only contract: pin `type`/`runId`/`status`/`requiredEvidence`, new keys may appear, existing keys keep meaning (mutually exclusive with `--json`, run-only). `--follow` tails events.jsonl read-only until a stopping status (optional `--idle-timeout-ms`; incompatible with `--summary-json` / `--status-json`). `--status-json` projects child-reported progress, current blockers, own-run cost subsets/gaps and advisory recovery commands; run-only and mutually exclusive with the other JSON modes. A crash-truncated JSONL tail is ignored and warned on stderr |
 | `pnpm cli inspect --episode <epId>` | Print the episode snapshot bound to a run |
-| `pnpm cli resume --run <runId>` | Resume a paused or interrupted run (`--supervised` for M2 DAG checkpoints; `--unpause` to clear a pause token) |
+| `pnpm cli resume --run <runId>` | Continue supervised/flowchart runs; ordinary runs rebuild a checkpoint only (`--supervised` for M2 DAG checkpoints; `--unpause` clears a pause token) |
 | `pnpm cli answer --run <runId> --message <msgId> --text <answer>` | Answer a waiting run's question. Flowchart approval replies use `--selected` / `--selected-ids` and are validated against the stored approval plan |
 | `pnpm cli pause --run <runId> [--reason <text>]` | Write a pause token and `PAUSE_REQUESTED`; `pause --clear` removes the token, `resume --unpause` clears it and continues |
 | `pnpm cli inject --run <runId> --type fact\|override\|skip` | Record a typed fact/override/skip against the run's decision policy; user strings are recorded, never executed |

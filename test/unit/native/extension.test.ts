@@ -14,6 +14,9 @@ test("Pi loader loads packaged native tools and shutdown hook without starting p
   const extension = result.extensions[0];
   assert.deepEqual(new Set(extension.tools.keys()), EXPECTED_TOOLS, "tool surface pin: no unregistered tools");
   assert.ok(extension.commands.has("sparkle-status"));
+  assert.ok(extension.commands.has("sparkle-task"));
+  assert.ok(extension.commands.has("sparkle-task-apply"), "user-only TaskSpec apply command is required");
+  assert.ok(extension.commands.has("sparkle-task-discard"), "user-only TaskSpec discard command is required");
   assert.ok(extension.commands.has("sparkle-dispose-candidate"));
   assert.equal(extension.commands.has("sparkle"), false, "existing /sparkle prompt remains reachable");
   assert.ok(extension.handlers.has("session_shutdown"));

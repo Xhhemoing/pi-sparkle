@@ -28,6 +28,8 @@ export interface IndependentCheckInput {
   readonly artifactPath?: string;
   /** Max wall time in ms (default 60s). */
   readonly timeoutMs?: number;
+  /** Host evidence storage per stream; defaults to 4 KiB, at most 256 KiB. */
+  readonly storedStreamMaxBytes?: number;
   /** Host-fixed snapshot scope (model cannot override after the fact). */
   readonly snapshotManifest?: SnapshotManifest;
   /**
@@ -95,10 +97,10 @@ export function hasTrustedVerificationEvidence(check: IndependentCheckRecord, de
     check.trustedVerification.descriptorId === descriptor.id;
 }
 
-function boundedText(text: string): string {
+function boundedText(text: string, maximum: number): string {
   const bytes = Buffer.from(text, "utf8");
-  if (bytes.byteLength <= STORED_STREAM_MAX_BYTES) return text;
-  return bytes.subarray(0, STORED_STREAM_MAX_BYTES).toString("utf8");
+  if (bytes.byteLength <= maximum) return text;
+  return bytes.subarray(0, maximum).toString("utf8");
 }
 
 function artifactByteLength(filePath: string): number | undefined {
@@ -118,6 +120,11 @@ function artifactByteLength(filePath: string): number | undefined {
  * agent-authored verdict.
  */
 export async function runIndependentCheck(input: IndependentCheckInput): Promise<IndependentCheckRecord> {
+  const selectedStorage = input.storedStreamMaxBytes;
+  const storedStreamMaxBytes = selectedStorage === undefined ? STORED_STREAM_MAX_BYTES : selectedStorage;
+  if (!Number.isSafeInteger(storedStreamMaxBytes) || storedStreamMaxBytes < 1 || storedStreamMaxBytes > 256 * 1024) {
+    throw new DomainValidationError("stored output limit must be an integer from 1 to 262144 bytes");
+  }
   const cwd = path.resolve(input.cwd);
   if (input.command.trim() === "") {
     throw new DomainValidationError("independent check command must be non-empty");
@@ -193,8 +200,8 @@ export async function runIndependentCheck(input: IndependentCheckInput): Promise
     processSignal: result.signal,
     ...(cleanupUnsettled ? { processCleanupUnsettled: true as const } : {}),
     ...(exactEvidence === undefined ? {} : { trustedVerification: exactEvidence }),
-    stdoutText: boundedText(stdout),
-    stderrText: boundedText(stderr),
+    stdoutText: boundedText(stdout, storedStreamMaxBytes),
+    stderrText: boundedText(stderr, storedStreamMaxBytes),
     stdoutByteLength,
     stderrByteLength,
     revision,

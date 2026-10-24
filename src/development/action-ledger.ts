@@ -5,7 +5,7 @@ import type { AtomicWriteOptions } from "../persist/atomic-file.js";
 import type { FileLockOptions } from "../persist/file-lock.js";
 import { ActionStore } from "./action-store.js";
 
-export type ActionKind = "candidate-write" | "candidate-check" | "git-commit" | "pull-request" | "candidate-apply";
+export type ActionKind = "candidate-write" | "candidate-check" | "git-commit" | "pull-request" | "candidate-apply" | "candidate-discard";
 export type ActionState = "prepared" | "running" | "completed" | "needs-reconciliation" | "failed";
 export type ActionResolution = "completed" | "safe-to-retry";
 
@@ -96,7 +96,7 @@ interface ActionSnapshotV2 {
 }
 type ActionSnapshot = ActionSnapshotV1 | ActionSnapshotV2;
 
-const KINDS: readonly ActionKind[] = ["candidate-write", "candidate-check", "git-commit", "pull-request", "candidate-apply"];
+const KINDS: readonly ActionKind[] = ["candidate-write", "candidate-check", "git-commit", "pull-request", "candidate-apply", "candidate-discard"];
 const STATES: readonly ActionState[] = ["prepared", "running", "completed", "needs-reconciliation", "failed"];
 const ID = /^action_v1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TOKEN = /^claim_v1_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
