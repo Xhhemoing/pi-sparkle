@@ -17,7 +17,7 @@ Use the [development workflow](docs/development-workflow.md) and accepted [ADR-0
 
 Use the [plan template](docs/templates/task-plan.md) as a compact content guide within the existing plan, omitting irrelevant fields. Record scope/non-goals, next usable result, dependencies, acceptance, risks and unresolved owner/condition. Put exact commands, outcomes and required independent review in the PR using the [verification template](docs/templates/verification-record.md); detailed logs stay in CI artifacts or private workspace. Keep only necessary handoff links in the plan.
 
-Resolve conflicting current claims before completion. Distinguish implementation, focused verification, complete acceptance, hosted CI, human adoption, release and demonstrated benefit. Retain failed, skipped, not-run and unknown results; local or hosted green cannot supply approval. Generate [STATUS](STATUS.md) with `pnpm status`; it is an observation, never authorization.
+Resolve conflicting current claims before completion. Distinguish implementation, focused verification, complete acceptance, hosted CI, human adoption, release and demonstrated benefit. Retain failed, skipped, not-run and unknown results; local or hosted green cannot supply approval. Run `pnpm status` to generate ignored local `STATUS.md`; it is an observation, never authorization. CI also uploads a generation-time snapshot in its existing job artifacts.
 
 ## Test and Delivery Policy
 

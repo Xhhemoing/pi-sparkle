@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -36,6 +36,7 @@ const tasks = open.map((line) => line.replace(/\]\(([^)]+)\)/g, (match, target) 
   return `](${link(`tasks/${path}`)}${anchor === undefined ? "" : `#${anchor}`})`;
 }));
 
+mkdirSync(dirname(output), { recursive: true });
 writeFileSync(output, [
   "# Project status",
   "",

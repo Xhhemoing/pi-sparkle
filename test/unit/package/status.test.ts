@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,16 +46,17 @@ test("status reflects Git and package metadata, keeps open tasks, and regenerate
   }
 });
 
-test("status labels non-Git state unknown and resolves links for an alternate output", async () => {
+test("status creates nested output parents and resolves links without creating a root snapshot", async () => {
   const root = await fixture();
   try {
-    await mkdir(join(root, "generated"));
-    await exec(process.execPath, [script, "--root", root, "--output", "generated/summary.md"]);
-    const result = await readFile(join(root, "generated/summary.md"), "utf8");
+    await exec(process.execPath, [script, "--root", root, "--output", ".agent_workspace/ci/STATUS.md"]);
+    const result = await readFile(join(root, ".agent_workspace/ci/STATUS.md"), "utf8");
     assert.match(result, /Branch: unknown/);
     assert.match(result, /Commit: unknown/);
-    assert.match(result, /\.\.\/docs\/status-matrix\.md/);
-    assert.match(result, /\.\.\/tasks\/todo\.md/);
+    assert.ok(result.includes("[status matrix](../../docs/status-matrix.md)"));
+    assert.ok(result.includes("[checklist](../../tasks/todo.md)"));
+    assert.ok(result.includes("[details](../../docs/detail.md#next)"));
+    await assert.rejects(access(join(root, "STATUS.md")), { code: "ENOENT" });
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 3 });
   }
