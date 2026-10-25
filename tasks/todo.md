@@ -4,8 +4,8 @@ See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-
 
 - [ ] R0.1 Coordinator + owner: [Rust PR #85](https://github.com/Xhhemoing/pi-sparkle/pull/85) at `ef533595` has green CI/recovery; preserve the unchanged isolated timing failure and instrumented evidence that preparation is excluded but the 1-second worker allowance has narrow host-overhead margin. Local gate PID 48816 is still running, not complete acceptance; the owner-approved conflict resolution still needs resulting-candidate checks and the runtime merge decision.
 - [ ] R0.2 Coordinator: after Rust, integrate external #80/#82 serially (single-writer test file; drop their `tasks/plan.md` edits); independent review of #80 path logic; owner merges.
-- [ ] R0.3 Coordinator: `scripts/real-task-record.mjs` + `scripts/real-task-summary.mjs` with synthetic unit tests; unknown cost stays unknown and counts US$5 toward the weekly cap; owner merges.
-- [ ] R0.4–R0.6 Coordinator: private queue of at least 10 real tasks (pi-sparkle + Soul), verified isolated Soul clone procedure on a drive with space, per-task `budget.usd <= 5` and weekly total <= US$50.
+- [ ] R0.3 Coordinator: finish independent review/current CI for record + summary tooling, including review backfill and unknown-cost accounting; owner merges.
+- [ ] R0.6 Coordinator: verify per-task <=US$5 and weekly <=US$50 before R1; private 10-task alternating queue and D: committed-only Soul clone rehearsal are prepared (plan evidence).
 - [ ] R1 Coordinator: run and record the first 10 real tasks alternating sources, at least 3 with a matched direct-Pi arm; never write the original Soul.
 - [ ] R2 Coordinator: review every 10 attempts or weekly; update run statistics; hypothesis + general fix for the top 1–2 failure classes; verify on later real tasks.
 - [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
