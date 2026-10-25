@@ -111,7 +111,17 @@ async function rustDefinition(input: CompiledDraftInput, cachePath: string): Pro
   const cargo = compiler("cargo");
   // POSIX rustup/cargo needs a searchable system linker. Carry only the two
   // selected executable directories, not the host environment or whole PATH.
-  const env = process.platform === "win32" ? {} : { PATH: [...new Set([path.dirname(cargo), path.dirname(compiler("cc"))])].join(path.delimiter) };
+  const env: NodeJS.ProcessEnv = process.platform === "win32" ? {} : { PATH: [...new Set([path.dirname(cargo), path.dirname(compiler("cc"))])].join(path.delimiter) };
+  // Preserve only explicitly selected Rust configuration. Relative homes are
+  // fixed at init's host cwd, never reinterpreted inside a later candidate.
+  for (const key of ["RUSTUP_HOME", "CARGO_HOME"] as const) {
+    const selected = process.env[key];
+    if (selected !== undefined && selected.trim() !== "") env[key] = path.resolve(selected);
+  }
+  const toolchain = process.env.RUSTUP_TOOLCHAIN;
+  if (toolchain !== undefined && toolchain.trim() !== "") env.RUSTUP_TOOLCHAIN = toolchain;
+  env.RUSTUP_AUTO_INSTALL = "0";
+  env.CARGO_NET_OFFLINE = "true";
   return { command: process.execPath, args: ["-e", COMPILED_CHECK_WRAPPER, "rust", cargo, cachePath, JSON.stringify(env)], allow: ["src"],
     protect: ["Cargo.toml", "Cargo.lock", "tests", input.taskFilename], context: ["Cargo.toml", "Cargo.lock"] };
 }

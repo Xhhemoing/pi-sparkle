@@ -55,7 +55,7 @@ For Rust/Go, `--state-root <private-dir>` selects external compiler storage
 (default `~/.pi-sparkle`); Node and Python reject this init flag. Each actual
 check creates a fresh child output directory after checking its parent path.
 Go additionally disables successful test-result caching and module network
-access, and uses the local toolchain with CGO disabled. On POSIX, Rust requires a discoverable `cc` linker and receives only an explicit PATH containing the selected cargo/cc directories; the Windows Rust environment remains empty. Outputs are retained for
+access, and uses the local toolchain with CGO disabled. Rust captures only explicitly supplied `RUSTUP_HOME`, `CARGO_HOME` and `RUSTUP_TOOLCHAIN`; relative home paths are resolved at init, and checks force `RUSTUP_AUTO_INSTALL=0` and `CARGO_NET_OFFLINE=true`. On POSIX it also requires a discoverable `cc` linker and receives only a PATH containing the selected cargo/cc directories. HOME/USERPROFILE and other host variables are not copied. A caller using a private HOME must explicitly select its installed Rust environment; implicit defaults from another HOME are not recovered. The supplied CARGO_HOME remains trusted compiler configuration, not OS isolation. Outputs are retained for
 host-managed cleanup; init itself creates no compiler storage. This avoids
 reusing mutable test executables between checks, without claiming general OS
 process containment. Compiled checks request 40 seconds; Python's two checks

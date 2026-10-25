@@ -127,6 +127,61 @@ for (const language of ["Rust", "Go"] as const) {
   }));
 }
 
+test("TaskSpec Rust preflight preserves explicit relative Rust homes under an isolated HOME without leaking unrelated environment", { timeout: 120000 }, async (t) => {
+  const inherited = Object.fromEntries(["PATH", "Path", "SystemRoot", "WINDIR", "HOME", "USERPROFILE", "RUSTUP_HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN"]
+    .flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+  const rustupEnv = { ...inherited, RUSTUP_AUTO_INSTALL: "0", CARGO_NET_OFFLINE: "true" };
+  const located = spawnSync("rustup", ["show", "home"], { cwd: REPO, env: rustupEnv, encoding: "utf8", windowsHide: true, timeout: 10000 });
+  const selected = spawnSync("rustup", ["which", "cargo"], { cwd: REPO, env: rustupEnv, encoding: "utf8", windowsHide: true, timeout: 10000 });
+  if (located.error !== undefined || located.status !== 0 || selected.error !== undefined || selected.status !== 0) {
+    t.skip("requires a locally installed rustup toolchain; no install or network is attempted"); return;
+  }
+  const rustupHome = located.stdout.trim(), cargo = selected.stdout.trim();
+  assert.ok(path.isAbsolute(rustupHome)); assert.ok(path.isAbsolute(cargo));
+  const selectedToolchain = inherited.RUSTUP_TOOLCHAIN?.trim() ? inherited.RUSTUP_TOOLCHAIN : path.basename(path.dirname(path.dirname(cargo)));
+  await fixture(async (repo, root) => {
+    await compiledFixture(repo, "Rust");
+    const home = path.join(root, "home"), cargoHome = path.join(root, "cargo-home"), state = path.join(root, "state");
+    await mkdir(home); await mkdir(cargoHome);
+    const rustHomeInput = path.relative(REPO, rustupHome) || ".", cargoHomeInput = path.relative(REPO, cargoHome);
+    const env: NodeJS.ProcessEnv = { ...Object.fromEntries(["PATH", "Path", "SystemRoot", "WINDIR"].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])),
+      HOME: home, USERPROFILE: home, RUSTUP_HOME: rustHomeInput, CARGO_HOME: cargoHomeInput,
+      RUSTUP_TOOLCHAIN: selectedToolchain,
+      RUSTUP_AUTO_INSTALL: "0", CARGO_NET_OFFLINE: "true", PI_API_KEY: "SYNTHETIC_RUST_CONFIG_MUST_NOT_LEAK",
+      SPARKLE_UNRELATED_ENV: "UNRELATED_RUST_CONFIG_MUST_NOT_LEAK" };
+    const available = spawnSync("cargo", ["--version"], { cwd: REPO, env, encoding: "utf8", windowsHide: true, timeout: 10000 });
+    assert.equal(available.error, undefined); assert.equal(available.status, 0, available.stderr);
+    const initialized = entrypoint(["init", "--task", "--dir", repo, "--state-root", state, "--json"], [], { env });
+    assert.equal(initialized.code, 0, initialized.stderr);
+    const file = path.join(repo, "sparkle.task.json"), draft = parseDevelopmentTaskSpec(await readFile(file, "utf8"));
+    const capturedEnv = JSON.parse(draft.checks[0]!.args[5]!) as Record<string, unknown>;
+    git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "Explicit synthetic Rust configuration"]);
+    const revision = git(repo, ["rev-parse", "HEAD"]), source = await readFile(path.join(repo, "src/lib.rs"), "utf8");
+    retainedFixtureRoots.add(root);
+    const checked = entrypoint(["preflight", file, "--project", repo, "--state-root", state, "--json"], [], { env, timeoutMs: 90000 });
+    const diagnostics = await compiledFailureDiagnostic(root, checked);
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), revision); assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+    assert.equal(await readFile(path.join(repo, "src/lib.rs"), "utf8"), source);
+    // The regression must fail on actual cargo/preflight execution, before the
+    // static snapshot assertions below can mask the missing-toolchain defect.
+    assert.equal(checked.code, 0, diagnostics);
+    const report = JSON.parse(checked.stdout);
+    assert.equal(report.ok, true); assert.equal(report.effectsSettled, true); assert.equal(report.candidateDisposition, "removed");
+    assert.match(await readFile(report.artifactPath, "utf8"), /actual_library_assertion/);
+    assert.equal(capturedEnv.RUSTUP_HOME, path.resolve(REPO, rustHomeInput));
+    assert.equal(capturedEnv.CARGO_HOME, path.resolve(REPO, cargoHomeInput));
+    assert.equal(capturedEnv.RUSTUP_TOOLCHAIN, selectedToolchain);
+    assert.equal(capturedEnv.RUSTUP_AUTO_INSTALL, "0"); assert.equal(capturedEnv.CARGO_NET_OFFLINE, "true");
+    assert.equal("HOME" in capturedEnv, false); assert.equal("USERPROFILE" in capturedEnv, false);
+    assert.equal("PI_API_KEY" in capturedEnv, false); assert.equal("SPARKLE_UNRELATED_ENV" in capturedEnv, false);
+    if (process.platform === "win32") assert.equal("PATH" in capturedEnv, false);
+    else assert.ok(typeof capturedEnv.PATH === "string" && capturedEnv.PATH.split(path.delimiter).length <= 2
+      && capturedEnv.PATH.split(path.delimiter).includes(path.dirname(draft.checks[0]!.args[3]!)));
+    assert.doesNotMatch(JSON.stringify(draft), /SYNTHETIC_RUST_CONFIG_MUST_NOT_LEAK|UNRELATED_RUST_CONFIG_MUST_NOT_LEAK/);
+    retainedFixtureRoots.delete(root);
+  });
+});
+
 test("TaskSpec compiled profiles refuse missing compilers and source-aliased state without replacing a draft", async () => fixture(async (repo, root) => {
   await compiledFixture(repo, "Rust");
   const target = path.join(repo, "sparkle.task.json");
