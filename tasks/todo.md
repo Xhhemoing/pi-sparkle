@@ -2,10 +2,10 @@
 
 See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] R0.1 Coordinator: Rust PR closeout — rerun the failed `cumulative TaskSpec worker allowance excludes slow first-factory preparation` case alone, repair test-first only if it is a real defect, open the PR against `main` with current green CI; owner merges.
+- [ ] R0.1 Owner + coordinator: Rust #85 has current green CI; review the concrete plan/todo conflict proposal, obtain resulting-candidate checks after approved resolution, and owner-merge; retain local timing failures.
 - [ ] R0.2 Coordinator: after Rust, integrate external #80/#82 serially (single-writer test file; drop their `tasks/plan.md` edits); independent review of #80 path logic; owner merges.
-- [ ] R0.3 Coordinator: `scripts/real-task-record.mjs` + `scripts/real-task-summary.mjs` with synthetic unit tests; unknown cost stays unknown and counts US$5 toward the weekly cap; owner merges.
-- [ ] R0.4–R0.6 Coordinator: private queue of at least 10 real tasks (pi-sparkle + Soul), verified isolated Soul clone procedure on a drive with space, per-task `budget.usd <= 5` and weekly total <= US$50.
+- [ ] R0.3 Coordinator: finish independent review/current CI for record + summary tooling, including review backfill and unknown-cost accounting; owner merges.
+- [ ] R0.6 Coordinator: verify per-task <=US$5 and weekly <=US$50 before R1; private 10-task alternating queue and D: committed-only Soul clone rehearsal are prepared (plan evidence).
 - [ ] R1 Coordinator: run and record the first 10 real tasks alternating sources, at least 3 with a matched direct-Pi arm; never write the original Soul.
 - [ ] R2 Coordinator: review every 10 attempts or weekly; update run statistics; hypothesis + general fix for the top 1–2 failure classes; verify on later real tasks.
 - [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
