@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md), its [confirmed Phase 1 order](plan.md#owner-approved-sequence-and-next-acceptance-2026-10-24), [unfinished checklist](todo.md) and [ADR-010](../docs/decisions/0010-evidence-bound-changes.md). The active plan records the effective workspace, owner authorization and candidate-specific evidence. Operating guides do not pin the current phase or repeat volatile PR/job summaries.
+Start with the [active plan](plan.md) and its [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25), the [unfinished checklist](todo.md), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). The active plan records the effective workspace, owner authorization and candidate-specific evidence. Operating guides do not pin the current phase or repeat volatile PR/job summaries.
 
 ## Authoritative Files
 
