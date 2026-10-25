@@ -2,7 +2,7 @@
 
 See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] R0.1 Owner + coordinator: Rust #85 has current green CI; review the concrete plan/todo conflict proposal, obtain resulting-candidate checks after approved resolution, and owner-merge; retain local timing failures.
+- [ ] R0.1 Coordinator + owner: [Rust PR #85](https://github.com/Xhhemoing/pi-sparkle/pull/85) at `ef533595` has green CI/recovery; preserve the unchanged isolated timing failure and instrumented evidence that preparation is excluded but the 1-second worker allowance has narrow host-overhead margin. Local gate PID 48816 is still running, not complete acceptance; owner conflict-hunk review, approved resolution with resulting-candidate checks, and the runtime merge decision remain pending.
 - [ ] R0.2 Coordinator: after Rust, integrate external #80/#82 serially (single-writer test file; drop their `tasks/plan.md` edits); independent review of #80 path logic; owner merges.
 - [ ] R0.3 Coordinator: finish independent review/current CI for record + summary tooling, including review backfill and unknown-cost accounting; owner merges.
 - [ ] R0.6 Coordinator: verify per-task <=US$5 and weekly <=US$50 before R1; private 10-task alternating queue and D: committed-only Soul clone rehearsal are prepared (plan evidence).
