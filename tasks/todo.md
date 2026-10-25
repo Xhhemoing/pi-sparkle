@@ -2,7 +2,8 @@
 
 See [Phase 1 plan](plan.md#phase-1-language-initialization-and-execution-examples-2026-10-24), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and generated [STATUS](../STATUS.md). Only unfinished work belongs here.
 
-- [ ] Coordinator / Phase 1: finish current integrated USD/lifecycle/configured CLI/YAML gate/probes/package and PR/CI; finish beta/demo and six-configuration profile review; retain installed four-language and GIF evidence; three-platform CI stays Phase 2.
+- [ ] Coordinator / PR #78 closeout: publish Phase 1 exit traceability; assess resume/TS/Rust and #79 conflicts; run only the specified validation and stop for owner decisions. No main merge or Phase 2 implementation.
+- [ ] Owner: choose resume A/B, whether TS requires typechecking, #78/#79 merge order and whether to adopt #78; future Phase 2 work remains in the plan and is not started.
 - [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; retain deferred #72 branch/slice for lab evaluation, without treating it as implemented or enabling learning.
 - [ ] Maintainer: carry old B authorization, cumulative budget, cancellation/settlement, effect-admission and crash-reconciliation requirements into the new worker/apply path; defer new general orchestration.
 - [ ] Owner: retain the unfinished 15-task evaluation, old C–F requirements and all-outcome cost/quality evidence; approve paid calibration separately after real channel prices are known.
