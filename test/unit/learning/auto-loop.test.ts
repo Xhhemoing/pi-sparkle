@@ -435,7 +435,7 @@ test("a feedback lock that clears inside the budget costs nothing but a retry", 
     });
 
     let pending: Promise<Awaited<ReturnType<typeof runAutoAdaptLoop>>> | undefined;
-    await withFeedbackLogLock(stateRoot, async () => {
+    const lockReleased: Promise<void> = withFeedbackLogLock(stateRoot, async () => {
       pending = runAutoAdaptLoop({
         stateRoot,
         projectRoot: "/tmp/proj-fb-retry",
@@ -449,16 +449,18 @@ test("a feedback lock that clears inside the budget costs nothing but a retry", 
           retryBackoffMs: 1,
           timeoutMs: 60,
           retryMs: 5,
-          // Attempt 1 has provably timed out by the time the backoff runs, so
-          // releasing here is "the cascade finished" without a sleep race.
+          // Attempt 1 has timed out. Request release, then wait for the holder's
+          // close/read/remove cleanup before the next acquisition attempt.
           sleep: async (ms) => {
             backoffs.push(ms);
             releaseLock();
+            await lockReleased;
           }
         }
       });
       await lockHeld;
     });
+    await lockReleased;
 
     assert.ok(pending !== undefined);
     const result = await pending;
