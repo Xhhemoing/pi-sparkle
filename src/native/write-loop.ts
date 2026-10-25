@@ -1,3 +1,5 @@
+import type { VisibleCheckFeedback } from "../development/check-plan.js";
+import type { NativeWriteCostSummary } from "./write-cost-budget.js";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
@@ -20,9 +22,11 @@ export interface NativeWriteAttemptContext {
   readonly maxAttempts: number;
   /** Untrusted command output for repair, never executable authority. */
   readonly previous?: NativeWriteFeedback;
+  /** Plan-selected visible rows only; never includes host artifact references. */
+  readonly checkFeedback?: VisibleCheckFeedback;
 }
 export type NativeWriteStopReason = "accepted" | "attempt-limit" | "no-progress" | "cancelled" |
-  "time-budget" | "executor-failed" | "verification-unavailable" | "snapshot-unavailable" | "source-changed";
+  "time-budget" | "cost-budget" | "cost-unavailable" | "executor-failed" | "verification-unavailable" | "snapshot-unavailable" | "source-changed";
 export interface NativeWriteAttemptRecord {
   readonly number: number;
   readonly runId: RunId;
@@ -35,6 +39,7 @@ export interface NativeWriteLoopResult {
   readonly maxWallTimeMs: number;
   readonly attempts: readonly NativeWriteAttemptRecord[];
   readonly stopReason: NativeWriteStopReason;
+  readonly referenceCost?: NativeWriteCostSummary;
   readonly artifact: LoopArtifactRef;
 }
 export interface NativeWriteLoopLimits {

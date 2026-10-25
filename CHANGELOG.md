@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented here.
 
+## [0.2.0-beta] - Unreleased candidate
+
+The package remains private. This version prepares local installation and Phase 1 acceptance; it is not an npm release or a claim of measured quality improvement.
+
+### Added
+
+- JSON/YAML TaskSpec input, conservative four-language initialization and actual zero-model preparation/base checks.
+- Scoped Pi execution with fixed independent checks, bounded repair, cumulative task time and optional reference-usage budgets.
+- User-only host apply/discard and configured `task run --review`, keeping original live candidate authority through fresh verification and persisted effect intent.
+- Safe historical Verdict JSON/Markdown projections and explicit refusal to recreate live TaskSpec authority from saved JSON.
+
+### Compatibility
+
+- Existing top-level run/resume and older Native disposal behavior remain available. TaskSpec resume after process exit is unsupported; its run ID is not a recoverable verifier or budget pool.
+- Controlled workers capture approved host configuration; arbitrary parent hooks, transcript, shell/MCP tools and OS containment remain outside the supported profile. Unknown usage/effects stay unknown.
+- TaskSpec YAML is explicit by file extension and uses the same strict schema; shell run strings, aliases, merges and custom tags are rejected.
+
 ## [0.1.0-preview.3] - 2026-10-06
 
 Developer Preview only. The package remains private and is intended for clone + pnpm use.

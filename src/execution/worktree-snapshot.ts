@@ -3,13 +3,18 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { DomainValidationError } from "../domain/errors.js";
 import { readWorktreeRevision } from "./worktree.js";
+import { matchesPathSelector, normalizePathSelector } from "./path-selector.js";
 
 /** Host-fixed candidate scope for fingerprinting. Model cannot reshape this. */
 export interface SnapshotManifest {
-  /** Required relative path prefixes included (both include lists empty = whole worktree except .git). */
+  /** Required relative path prefixes (all include lists empty = whole worktree except .git). */
   readonly includePrefixes?: readonly string[];
   /** Included relative prefixes that may be absent; appearance/deletion still changes the snapshot. */
   readonly optionalIncludePrefixes?: readonly string[];
+  /** Required bounded selectors. Exact capture requires a match for each selector. */
+  readonly includePatterns?: readonly string[];
+  /** Bounded selectors whose current match set may be empty. */
+  readonly optionalIncludePatterns?: readonly string[];
   /** Relative path prefixes excluded (always includes .git). */
   readonly excludePrefixes?: readonly string[];
   /**
@@ -60,8 +65,9 @@ function isExcluded(rel: string, manifest: SnapshotManifest): boolean {
     if (n === pref.slice(0, -1) || n.startsWith(pref)) return true;
   }
   const includes = [...(manifest.includePrefixes ?? []), ...(manifest.optionalIncludePrefixes ?? [])];
-  if (includes.length === 0) return false;
-  return !includes.some((pref) => {
+  const patterns = [...(manifest.includePatterns ?? []), ...(manifest.optionalIncludePatterns ?? [])];
+  if (includes.length === 0 && patterns.length === 0) return false;
+  return !patterns.some((selector) => matchesPathSelector(n, selector)) && !includes.some((pref) => {
     const p = pref.endsWith("/") ? pref : `${pref}/`;
     return n === pref || n === pref.replace(/\/$/, "") || n.startsWith(p);
   });
@@ -170,6 +176,10 @@ export function captureWorktreeFingerprint(
   manifest: SnapshotManifest = {}
 ): WorktreeFingerprint {
   const root = path.resolve(cwd);
+  for (const selectors of [manifest.includePatterns, manifest.optionalIncludePatterns]) {
+    if (selectors !== undefined && (!Array.isArray(selectors) || selectors.length > 256)) throw new DomainValidationError("worktree fingerprint: patterns must be bounded arrays");
+    selectors?.forEach(normalizePathSelector);
+  }
   const headRevision = readWorktreeRevision(root);
   const records = parsePorcelainZ(gitPorcelainZ(root));
   const entries: FingerprintEntry[] = [];

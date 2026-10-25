@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import type { SnapshotManifest } from "./worktree-snapshot.js";
+import { matchesPathSelector, mayMatchPathDescendant, normalizePathSelector } from "./path-selector.js";
 
 /** Opaque in-process handle: bytes are never exposed or serialized. */
 export interface ExactSnapshot {
@@ -297,6 +298,11 @@ function prefixes(value: readonly string[] | undefined): string[] {
 function under(relativePath: string, prefix: string): boolean {
   return relativePath === prefix || relativePath.startsWith(`${prefix}/`);
 }
+function patterns(value: readonly string[] | undefined): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 256) fail("manifest patterns must be a bounded array");
+  return [...new Set(value.map(normalizePathSelector))].sort();
+}
 
 function unchanged(before: BigIntStats, after: BigIntStats): boolean {
   return before.dev === after.dev && before.ino === after.ino && before.mode === after.mode
@@ -352,8 +358,11 @@ export function captureExactSnapshot(
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("invalid snapshot manifest");
   const includes = prefixes(manifest.includePrefixes);
   const optionalIncludes = prefixes(manifest.optionalIncludePrefixes);
+  const includePatterns = patterns(manifest.includePatterns);
+  const optionalPatterns = patterns(manifest.optionalIncludePatterns);
+  const selectedPatterns = [...new Set([...includePatterns, ...optionalPatterns])].sort();
   const selected = [...new Set([...includes, ...optionalIncludes])].sort();
-  if (selected.length > 256) fail("combined manifest include prefixes exceed the bounded limit");
+  if (selected.length + selectedPatterns.length > 256) fail("combined manifest include prefixes and patterns exceed the bounded limit");
   const excludes = [...new Set([".git", ...prefixes(manifest.excludePrefixes)])].sort();
   if (prefixes(manifest.allowedOutputDirs).length > 0) fail("allowedOutputDirs is unsupported for exact snapshots");
   for (const include of selected) {
@@ -366,11 +375,18 @@ export function captureExactSnapshot(
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) fail("root must be a nonlinked directory");
     const canonicalRoot = fs.realpathSync(requestedRoot);
     assertUnchanged(canonicalRoot, rootStat);
-    const scope = JSON.stringify(optionalIncludes.length === 0 ? [includes, excludes] : [includes, excludes, optionalIncludes]);
+    const scope = JSON.stringify(selectedPatterns.length > 0 ? [includes, excludes, optionalIncludes, includePatterns, optionalPatterns]
+      : optionalIncludes.length === 0 ? [includes, excludes] : [includes, excludes, optionalIncludes]);
     const entries: Entry[] = [{ relativePath: "", mode: rootStat.mode }];
     const observations = new Map<string, BigIntStats>([[canonicalRoot, rootStat]]);
     const pending = [{ relativePath: "", absolute: canonicalRoot, stat: rootStat }];
     const found = new Set<string>();
+    const foundPatterns = new Set<string>();
+    const keptDirectories = new Set<string>([""]);
+    const keepAncestors = (relative: string): void => {
+      let parent = path.posix.dirname(relative);
+      while (parent !== ".") { keptDirectories.add(parent); parent = path.posix.dirname(parent); }
+    };
     // Stream directories instead of allocating an unbounded readdir result.
     // Count every observed child, including out-of-scope siblings, but never
     // descend into an excluded subtree. A separate depth bound avoids huge
@@ -392,17 +408,24 @@ export function captureExactSnapshot(
           if (item.name.includes("\ufffd") || item.name.includes("\\")) fail("unsupported filesystem path encoding");
           const relativePath = directory.relativePath ? `${directory.relativePath}/${item.name}` : item.name;
           if (excludes.some((exclude) => under(relativePath, exclude))) continue;
-          const included = selected.length === 0 || selected.some((include) => under(relativePath, include));
+          const patternMatches = selectedPatterns.filter((selector) => matchesPathSelector(relativePath, selector));
+          const included = (selected.length === 0 && selectedPatterns.length === 0) || selected.some((include) => under(relativePath, include)) || patternMatches.length > 0;
           const requiredParent = selected.some((include) => under(include, relativePath));
-          if (!included && !requiredParent) continue;
+          const patternParent = selectedPatterns.some((selector) => mayMatchPathDescendant(relativePath, selector));
+          if (!included && !requiredParent && !patternParent) continue;
           if (relativePath.split("/").length > 128) fail("directory traversal depth limit exceeded");
           const absolute = path.join(canonicalRoot, relativePath);
           const stat = fs.lstatSync(absolute, { bigint: true });
           if (stat.isSymbolicLink()) fail("included path or parent is a symbolic link");
+          // A globstar can continue below any directory, but that possibility
+          // does not select unrelated regular files encountered on the way.
+          if (!included && !requiredParent && stat.isFile()) continue;
           if (includes.includes(relativePath)) found.add(relativePath);
+          for (const selector of patternMatches) if (includePatterns.includes(selector)) foundPatterns.add(selector);
           observations.set(absolute, stat);
           if (stat.isDirectory()) {
             entries.push({ relativePath, mode: stat.mode });
+            if (included || requiredParent) { keptDirectories.add(relativePath); keepAncestors(relativePath); }
             pending.push({ relativePath, absolute, stat });
           } else {
             if (!included || !stat.isFile() || stat.nlink !== 1n) fail("included path must be a nonlinked regular file or directory");
@@ -411,6 +434,7 @@ export function captureExactSnapshot(
             const bytes = readExactFile(absolute, stat, limits.maxBytes - byteLength);
             byteLength += bytes.length;
             entries.push({ relativePath, mode: stat.mode, bytes });
+            keepAncestors(relativePath);
           }
         }
       } finally {
@@ -419,17 +443,19 @@ export function captureExactSnapshot(
       assertUnchanged(directory.absolute, directory.stat);
     }
     if (includes.some((include) => !found.has(include))) fail("required include prefix is missing");
+    if (includePatterns.some((selector) => !foundPatterns.has(selector))) fail("required include pattern is missing a match");
     // Validate all earlier observations again so a later read cannot silently
     // replace an already captured file, ancestor directory, or the root.
     for (const [absolute, stat] of observations) assertUnchanged(absolute, stat);
     assertUnchanged(requestedRoot, rootStat);
     if (fs.realpathSync(requestedRoot) !== canonicalRoot) fail("root identity changed during capture");
-    entries.sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0);
+    const selectedEntries = selectedPatterns.length === 0 ? entries : entries.filter((entry) => entry.bytes !== undefined || keptDirectories.has(entry.relativePath));
+    selectedEntries.sort((a, b) => a.relativePath < b.relativePath ? -1 : a.relativePath > b.relativePath ? 1 : 0);
     const snapshot = Object.freeze({ fileCount, byteLength });
     snapshots.set(snapshot, {
       root: canonicalRoot,
       scope,
-      entries,
+      entries: selectedEntries,
       limits: Object.freeze({ maxFiles: limits.maxFiles, maxBytes: limits.maxBytes })
     });
     return snapshot;
@@ -443,8 +469,14 @@ export function captureExactSnapshot(
 export function sameExactSnapshot(a: ExactSnapshot, b: ExactSnapshot): boolean {
   const left = snapshots.get(a);
   const right = snapshots.get(b);
-  if (!left || !right || left.root !== right.root || left.scope !== right.scope
-    || left.entries.length !== right.entries.length) return false;
+  return !!left && !!right && left.root === right.root && sameExactSnapshotContents(a, b);
+}
+
+/** Compare selected bytes/modes across roots; does not establish worktree identity. */
+export function sameExactSnapshotContents(a: ExactSnapshot, b: ExactSnapshot): boolean {
+  const left = snapshots.get(a);
+  const right = snapshots.get(b);
+  if (!left || !right || left.scope !== right.scope || left.entries.length !== right.entries.length) return false;
   return left.entries.every((entry, index) => {
     const other = right.entries[index]!;
     return entry.relativePath === other.relativePath && entry.mode === other.mode

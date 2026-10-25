@@ -10,6 +10,7 @@ import { createEvidenceId, createMessageId } from "../../../src/domain/ids.js";
 import { nowIso } from "../../../src/domain/timestamp.js";
 import type { AgentExecutionRequest, ExecutionEvent } from "../../../src/execution/contract.js";
 import { NativeWriteSession, type NativeWriteExecutorFactoryInput } from "../../../src/native/write-session.js";
+import { GatedExecutor } from "../../../src/testing/fake-executor.js";
 
 function git(cwd: string, args: string[]): string {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -46,6 +47,68 @@ function session(root: string, calls: NativeWriteExecutorFactoryInput[], values:
       } };
     } });
 }
+
+test("cumulative Native worker pool limits the second actual worker and never starts a third factory", async () => fixture(async (root, repo) => {
+  let calls = 0; let secondMs = 0;
+  const gated = new GatedExecutor();
+  const write = new NativeWriteSession({ stateRoot: path.join(root, "state"), sandboxRoot: path.join(root, "candidates"),
+    executorFactory(context) {
+      calls++;
+      return { async *execute(request, signal) {
+        if (calls === 1) {
+          await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "bad1" }, signal);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          yield success(request); yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+        } else { const start = performance.now(); try { yield* gated.execute(request, signal); } finally { secondMs = performance.now() - start; } }
+      } };
+    } });
+  const result = await write.execute({ sourceRepo: repo, objective: "repair", verification, maxAttempts: 3,
+    workerTimeoutMs: 2000, phaseTimeLimits: { workerTotalMs: 450 } });
+  assert.equal(calls, 2); assert.equal(gated.sawAbort, true);
+  assert.ok(secondMs < 400, `second worker received a fresh allowance: ${secondMs}ms`);
+  assert.equal(result.acceptance.accepted, false);
+  assert.equal(result.loop?.stopReason, "time-budget");
+}));
+
+test("cumulative Native check pool refuses a later nominally successful verification", async () => fixture(async (root, repo) => {
+  const contexts: NativeWriteExecutorFactoryInput[] = [];
+  const result = await session(root, contexts, ["bad1", "good"]).execute({ sourceRepo: repo, objective: "repair", maxAttempts: 3,
+    verification: { command: process.execPath, args: ["-e", "const v=require('node:fs').readFileSync('value.txt','utf8');setTimeout(()=>process.exit(v==='good'?0:1),v==='good'?3000:100)"] },
+    phaseTimeLimits: { checkTotalMs: 2000 } });
+  assert.equal(result.acceptance.accepted, false);
+  assert.equal(contexts.length, 2);
+  assert.equal(result.loop?.stopReason, result.effectsSettled === false ? "verification-unavailable" : "time-budget");
+  assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), "zero");
+}));
+
+test("cumulative Native rejects successful check persistence that crosses its pool", async () => fixture(async (root, repo) => {
+  const contexts: NativeWriteExecutorFactoryInput[] = [];
+  const rename = fs.rename;
+  let delayed = false;
+  fs.rename = async (source, destination) => {
+    if (!delayed && String(destination).includes("loop-artifacts")) {
+      const payload = JSON.parse(await readFile(source, "utf8")) as { body?: { kind?: string } };
+      if (payload.body?.kind === "ps-p3-closed-loop") {
+        delayed = true;
+        const until = performance.now() + 1100;
+        while (performance.now() < until) { /* Exercise a stalled deadline timer after a real successful check. */ }
+      }
+    }
+    return rename(source, destination);
+  };
+  syncBuiltinESMExports();
+  try {
+    const result = await session(root, contexts, ["good"]).execute({ sourceRepo: repo, objective: "repair", verification,
+      maxAttempts: 3, phaseTimeLimits: { checkTotalMs: 1000 } });
+    assert.equal(delayed, true);
+    assert.equal(contexts.length, 1);
+    assert.equal(result.acceptance.independentCheck?.ok, true, "the original successful observation remains available");
+    assert.equal(result.acceptance.accepted, false);
+    assert.equal(result.loop?.stopReason, "time-budget");
+    assert.match(result.reason, /check cumulative/);
+    assert.ok((await readFile(result.artifact.path, "utf8")).length > 0);
+  } finally { fs.rename = rename; syncBuiltinESMExports(); }
+}));
 
 test("bounded repair reuses candidate and feeds frozen host evidence after equal-length edit", async () => {
   await fixture(async (root, repo) => {

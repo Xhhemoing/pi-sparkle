@@ -91,33 +91,38 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, captureBudgets = false) {
   const { ai, getCurrentTools, loadExtensions } = await hostPackages(t);
   const parent = join(process.cwd(), ".agent_workspace", "host-compat");
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, "native-"));
   await writeFile(join(root, "fixture.txt"), "synthetic host compatibility fixture", "utf8");
   const loaded = await loadExtensions([join(process.cwd(), "extensions/pi-sparkle/index.ts")], root);
+  const thinkingBudgets = { high: 1234 }; let settingsReads = 0;
+  loaded.runtime.getSettings = () => { settingsReads++; if (captureBudgets) queueMicrotask(() => { thinkingBudgets.high = 9999; });
+    return captureBudgets ? { thinkingBudgets } : {}; };
   assert.deepEqual(loaded.errors, []);
   assert.equal(loaded.extensions.length, 1);
   const extension = loaded.extensions[0];
   const tool = extension.tools.get("sparkle_delegate")?.definition;
   assert.ok(tool, "real SDK loader must register the real delegate handler");
-  const faux = ai.fauxProvider({ provider: "host-compat-fixture", models: [{ id: "read-only" }] });
+  const faux = ai.fauxProvider({ provider: "host-compat-fixture", models: [{ id: "read-only", reasoning: captureBudgets }] });
   const models = ai.createModels();
   models.setProvider(faux.provider);
   const model = faux.getModel();
   const replies: AssistantMessage[] = [];
   const responseSettlements: Promise<void>[] = [];
+  const budgetWires: SimpleStreamOptions["thinkingBudgets"][] = [];
   let dispatches = 0;
   let authReads = 0;
   const ctx = {
-    cwd: root, getSystemPrompt: () => "SYNTHETIC_HOST_PROMPT", thinkingLevel: "off", model, scopedModels: [{ model }],
+    cwd: root, getSystemPrompt: () => "SYNTHETIC_HOST_PROMPT", thinkingLevel: captureBudgets ? "high" : "off", model, scopedModels: [{ model }],
     modelRegistry: {
       getAvailable: () => faux.models,
       getApiKeyAndHeaders: async () => { authReads++; throw new Error("host bridge owns credentials"); },
       streamSimple(selected: Model<string>, context: Context, options?: SimpleStreamOptions) {
         dispatches++;
+        budgetWires.push(options?.thinkingBudgets === undefined ? undefined : { ...options.thinkingBudgets });
         assert.equal(selected, model, "dispatch must reuse the exact host model object");
         assert.equal(selected.provider, "host-compat-fixture");
         assert.equal(selected.id, "read-only");
@@ -151,8 +156,19 @@ async function fixture(t: TestContext) {
     await rm(root, { recursive: true, force: true });
   };
   return { ai, faux, root, model, replies, responseSettlements, delegate, shutdown, cleanup,
+    thinkingBudgets, budgetWires, get settingsReads() { return settingsReads; },
     dispatches: () => dispatches, streamSimple: ctx.modelRegistry.streamSimple };
 }
+
+test("actual readonly admission snapshots the public Pi settings before asynchronous host mutation", { timeout: 30000 }, async (t) => {
+  const f = await fixture(t, true);
+  try {
+    f.faux.setResponses([f.ai.fauxAssistantMessage("one local response")]);
+    const result = await f.delegate(); assert.equal(result.details.status, "COMPLETED");
+    assert.equal(f.settingsReads, 1); assert.deepEqual(f.budgetWires, [{ high: 1234 }]);
+    assert.equal(f.thinkingBudgets.high, 9999); assert.equal(Object.isFrozen(f.thinkingBudgets), false);
+  } finally { await f.cleanup(); }
+});
 
 test("SDK-host AI dispatch reaches actual read/report handlers with reported usage", { timeout: 30_000 }, async (t) => {
   const f = await fixture(t);

@@ -182,35 +182,46 @@ function isDeclaredHostAcceptance(type: ts.Type, checker: ts.TypeChecker): boole
 
 function hasAssertedReceiverOrigin(receiver: ts.Node, checker: ts.TypeChecker): boolean {
   const visiting = new Set<ts.Node>();
+  const observed = new Map<ts.Node, boolean>();
   let remaining = 256;
+  function inspect(node: ts.Node): boolean {
+    // Destructuring gets the same provenance check as a direct property read.
+    if (ts.isObjectBindingPattern(node) && ts.isVariableDeclaration(node.parent) &&
+        node.parent.initializer !== undefined && visit(node.parent.initializer)) return true;
+    // A local alias must not turn an asserted episode into a trusted DTO.
+    if (ts.isIdentifier(node)) {
+      const symbol = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+        ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+      const declarations = symbol?.declarations ?? [];
+      if (declarations.some((declaration) => {
+        let local: ts.Node = declaration;
+        while (ts.isBindingElement(local) || ts.isObjectBindingPattern(local) || ts.isArrayBindingPattern(local)) {
+          if (ts.isBindingElement(local) && local.initializer !== undefined && visit(local.initializer)) return true;
+          local = local.parent;
+        }
+        return ts.isVariableDeclaration(local) && local.initializer !== undefined && visit(local.initializer);
+      })) return true;
+    }
+    return ts.forEachChild(node, (child) => visit(child) || undefined) === true;
+  }
   function visit(node: ts.Node): boolean {
+    const known = observed.get(node);
+    if (known !== undefined) return known;
     if (--remaining < 0 || visiting.has(node)) return true;
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node)) return true;
     visiting.add(node);
     try {
-      // Destructuring gets the same provenance check as a direct property read.
-      if (ts.isObjectBindingPattern(node) && ts.isVariableDeclaration(node.parent) &&
-          node.parent.initializer !== undefined && visit(node.parent.initializer)) return true;
-      // A local alias must not turn an asserted episode into a trusted DTO.
-      if (ts.isIdentifier(node)) {
-        const declarations = checker.getSymbolAtLocation(node)?.declarations ?? [];
-        if (declarations.some((declaration) => {
-          let local: ts.Node = declaration;
-          while (ts.isBindingElement(local) || ts.isObjectBindingPattern(local) || ts.isArrayBindingPattern(local)) {
-            if (ts.isBindingElement(local) && local.initializer !== undefined && visit(local.initializer)) return true;
-            local = local.parent;
-          }
-          return ts.isVariableDeclaration(local) && local.initializer !== undefined && visit(local.initializer);
-        })) return true;
-      }
-      return ts.forEachChild(node, (child) => visit(child) || undefined) === true;
+      const result = inspect(node);
+      // The same initializer can be reached through many aliases/arguments.
+      // Charge its AST once; cycles, assertions and exhaustion still refuse.
+      observed.set(node, result);
+      return result;
     } finally {
       visiting.delete(node);
     }
   }
   return visit(receiver);
 }
-
 function readsAcceptance(node: ts.Node, checker: ts.TypeChecker): boolean {
   let receiver: ts.Node | undefined;
   if ((ts.isPropertyAccessExpression(node) && node.name.text === "acceptance") ||
@@ -398,6 +409,25 @@ test("the census distinguishes declared host recipes and verdicts from episode a
   ]), []);
 });
 
+test("the census reuses shared expression provenance without exhausting its bounded traversal", () => {
+  const repeated = Array.from({ length: 180 }, () => "shared").join(", ");
+  const source = `
+    import type { NativeWriteSessionResult } from "../native/write-session.js";
+    declare function hostResult(...inputs: readonly unknown[]): NativeWriteSessionResult;
+    function runNext() {
+      const shared = { nested: { safe: 1 } };
+      const result = hostResult(${repeated});
+      return { contract: result.acceptance };
+    }
+  `;
+  assert.deepEqual(assertNoEpisodeContractSynthesis([
+    { file: CONTROLLER_FIXTURE_FILE, source }
+  ]), []);
+  const asserted = source.replace("const shared = { nested: { safe: 1 } };", "const hidden = {} as unknown as NativeWriteSessionResult; const shared = { hidden };");
+  assert.throws(() => assertNoEpisodeContractSynthesis([
+    { file: CONTROLLER_FIXTURE_FILE, source: asserted }
+  ]), assert.AssertionError, "memoization must not turn asserted aliases into trusted origins");
+});
 test("the same controller location still rejects real episodes and mixed receiver types", () => {
   for (const receiverType of ["EpisodeAlias", "WorkItemDefinition | EpisodeAlias"]) {
     for (const read of ["selected.item.acceptance", 'selected.item["acceptance"]']) {
@@ -548,4 +578,19 @@ test("a persisted episode contains criteria but none of the supplied contract co
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
+});
+
+test("a shorthand default initializer keeps its own asserted origin", () => {
+  const source = `import type { NativeWriteSessionResult } from "../native/write-session.js";
+    declare function hostResult(...inputs: readonly unknown[]): NativeWriteSessionResult;
+    function runNext() {
+      const unsafeAlias = {} as unknown as NativeWriteSessionResult;
+      let selected;
+      const plain = {};
+      const result = hostResult(({ selected = unsafeAlias } = plain));
+      return { contract: result.acceptance };
+    }`;
+  assert.throws(() => assertNoEpisodeContractSynthesis([
+    { file: CONTROLLER_FIXTURE_FILE, source }
+  ]), assert.AssertionError, "default initializer identifiers must resolve their own symbols");
 });

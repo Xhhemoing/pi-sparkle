@@ -1,3 +1,5 @@
+import { developmentPiTools } from "../pi-adapter/development-tools.js";
+export { developmentPiTools } from "../pi-adapter/development-tools.js";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -11,7 +13,7 @@ import { runtimeRoot } from "../persist/state-layout.js";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { parseModelRef } from "../config/model-ref.js";
 import { createConfiguredPiExecutor } from "../pi-adapter/runtime.js";
-import type { NativeWriteExecutorFactory, NativeWriteTool } from "../native/write-session.js";
+import type { NativeWriteExecutorFactory } from "../native/write-session.js";
 import { createInvocationSink } from "../telemetry/invocation-log.js";
 import { ProtocolChildExecutor } from "../testing/fake-executor.js";
 import type { AgentExecutor } from "../execution/contract.js";
@@ -74,18 +76,6 @@ async function readDefinitions(file: string): Promise<unknown> {
     if (used !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) fail("host definitions changed while reading");
     return JSON.parse(buffer.subarray(0, used).toString("utf8")) as unknown;
   } finally { await handle.close(); }
-}
-
-/** Preserve the host-provided closures and schemas; never create broader tools. */
-export function developmentPiTools(tools: readonly NativeWriteTool[]): NonNullable<Parameters<typeof createConfiguredPiExecutor>[0]["tools"]> {
-  return ["sparkle_read_file", "sparkle_write_file", "sparkle_list_files", "sparkle_search_files", "sparkle_patch_file"].map((name) => {
-    const tool = tools.find((entry) => entry.name === name);
-    if (tool === undefined || !("parameters" in tool) || tool.parameters === null || typeof tool.parameters !== "object" ||
-        !("label" in tool) || typeof tool.label !== "string" || !("description" in tool) || typeof tool.description !== "string") {
-      fail(`native scoped tool descriptor unavailable: ${name}`);
-    }
-    return tool as NonNullable<Parameters<typeof createConfiguredPiExecutor>[0]["tools"]>[number];
-  });
 }
 
 function record(value: string | undefined): Record<string, unknown> {

@@ -10,6 +10,16 @@ import { ActionLedger, createActionIdempotencyKey } from "../../../src/developme
 
 const evidence = { summary: "Host inspected the actual receipt", references: ["receipt.json"] };
 
+test("candidate-discard is an explicit supported effect kind and reloads without changing ledger schema", async () => {
+  await fixture(async (dir, ledger) => {
+    const prepared = await ledger.prepare({ idempotencyKey: "discard-pinning", kind: "candidate-discard", input: { candidatePath: "host-owned" } });
+    const reloaded = await new ActionLedger(join(dir, "ledger")).get(prepared.actionId);
+    assert.equal(reloaded?.kind, "candidate-discard"); assert.equal(reloaded?.state, "prepared");
+    const snapshot = JSON.parse(await readFile(join(dir, "ledger", "actions.json"), "utf8"));
+    assert.equal(snapshot.schemaVersion, 1);
+  });
+});
+
 async function fixture(run: (dir: string, ledger: ActionLedger) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "sparkle-action-ledger-"));
   try { await run(dir, new ActionLedger(join(dir, "ledger"))); }

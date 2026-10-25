@@ -1,4 +1,5 @@
 import { assertApprovedResourcePayload } from "./approved-resources.js";
+import { captureThinkingBudgets, type SparkleThinkingBudgets } from "./thinking-budgets.js";
 import type { AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { InMemoryCredentialStore, createAssistantMessageEventStream, normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 import {
@@ -16,6 +17,7 @@ export interface ControlledCodingSessionOptions {
   cwd: string;
   model: Model<Api>;
   thinkingLevel: ThinkingLevel;
+  thinkingBudgets?: SparkleThinkingBudgets | undefined;
   systemPrompt: string;
   approvedResourcePayload?: string | undefined;
   tools: AgentTool[];
@@ -70,6 +72,7 @@ function ownedResources(systemPrompt: string, approvedResourcePayload: string | 
 
 /** Host-owned model transport and auth stay outside the SDK's model registry. */
 export async function createControlledCodingSession(options: ControlledCodingSessionOptions): Promise<ControlledCodingSession> {
+  const thinkingBudgets = captureThinkingBudgets(options);
   assertApprovedResourcePayload(options.approvedResourcePayload);
   const { model } = options;
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null,
@@ -114,7 +117,7 @@ export async function createControlledCodingSession(options: ControlledCodingSes
     resourceLoader: ownedResources(options.systemPrompt, options.approvedResourcePayload),
     sessionManager: SessionManager.inMemory(options.cwd),
     settingsManager: SettingsManager.inMemory({ retry: { enabled: false, provider: { maxRetries: 0 } },
-      compaction: { enabled: false }, cacheWarming: "off", steeringMode: "all" })
+      compaction: { enabled: false }, cacheWarming: "off", steeringMode: "all", ...(thinkingBudgets === undefined ? {} : { thinkingBudgets }) })
   });
   // The public factory owns its Agent, including when SDK and host Pi versions
   // differ. Never pass a host Agent into the SDK's nominal class boundary.
