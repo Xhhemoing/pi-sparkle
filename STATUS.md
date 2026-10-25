@@ -4,14 +4,13 @@
 
 - Version: 0.2.0-beta (private: true)
 - Branch: codex/taskspec-policy-phase1
-- Commit: 51f314ae21252b02ab5fa0988d9a608bbbd3a622
+- Commit: ac26c12ab17c9f76d22dca071fd91aa438ad90cf
 - CI: unknown (not queried; local tests do not establish hosted CI). [GitHub Actions](https://github.com/Xhhemoing/pi-sparkle/actions).
 - Capability evidence: [status matrix](docs/status-matrix.md)
 - Active work: [checklist](tasks/todo.md)
 
 ## Open work
 
-- [ ] Coordinator / PR #78 closeout: publish Phase 1 exit traceability; assess resume/TS/Rust and #79 conflicts; run only the specified validation and stop for owner decisions. No main merge or Phase 2 implementation.
 - [ ] Owner: choose resume A/B, whether TS requires typechecking, #78/#79 merge order and whether to adopt #78; future Phase 2 work remains in the plan and is not started.
 - [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; retain deferred #72 branch/slice for lab evaluation, without treating it as implemented or enabling learning.
 - [ ] Maintainer: carry old B authorization, cumulative budget, cancellation/settlement, effect-admission and crash-reconciliation requirements into the new worker/apply path; defer new general orchestration.
