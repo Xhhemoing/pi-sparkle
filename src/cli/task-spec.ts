@@ -35,6 +35,8 @@ requires native Node type stripping and erasable syntax; no static type check
 is performed. No test, install or model is
 run. Review the draft's objective, scope, checks and budgets before preflight.
 Rust and Go support conservative stdlib-only packages with existing tests.
+Rust drafts are host-bound: regenerate and review on another host before use;
+review local executable, environment and output paths before committing or sharing.
 Rust rejects custom/workspace targets, examples, benches and src/bin. Go requires
 a root single package with ASCII alphanumeric source stems and <stem>_test.go
 tests; subpackages, ignored/platform-suffixed names, build tags and embed are
@@ -232,6 +234,7 @@ export async function initTaskSpecCommand(args: string[], io: TaskSpecCliIo): Pr
     const typescript = spec.checks[0]!.args.some((argument) => /\.(?:cts|mts|ts)$/.test(argument));
     const next = "Review this draft's objective, scope, checks and budgets. It expects a passing base; configure an explicit named assertion wrapper for a business RED. No test, install or model was run."
       + (typescript ? " Native Node execution strips erasable TypeScript syntax; no static type checking is performed." : "")
+      + (draft.profile === "rust" ? " This Rust draft is host-bound: executable paths, explicit Rust homes/toolchain and output locations belong to this host. On another host, regenerate and review the draft. Review local paths before committing or sharing; do not share an unreviewed machine-bound draft." : "")
       + (draft.cachePath === undefined ? "" : ` Each check creates fresh compiler outputs under ${draft.cachePath} and retains them for host cleanup; mutable compiled/test artifacts are not reused. Review this location before execution.`);
     if (values.json) io.stdout(`${JSON.stringify({ type: "TASKSPEC_DRAFT", preview: true, status: "draft", dir, file, overwritten,
       ...(draft.profile === undefined ? {} : { profile: draft.profile, cachePath: draft.cachePath }), next })}\n`);

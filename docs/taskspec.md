@@ -61,6 +61,41 @@ reusing mutable test executables between checks, without claiming general OS
 process containment. Compiled checks request 40 seconds; Python's two checks
 request 20 seconds each, within the existing 40-second combined recipe limit.
 
+Rust drafts are **bound to the init host**. Node/Cargo executables, explicitly
+selected Rust homes/toolchain and output locations can contain local absolute
+paths and usernames. Regenerate and review the draft on another host. Review
+those paths before committing or sharing; do not share an unreviewed machine-bound
+draft. Neither preflight nor final verification re-resolves the environment:
+both use the draft's same fixed commands and captured environment.
+
+For recognized, nonzero, completed Cargo failures, preflight and task-run expose
+static infrastructure advice in the optional `refusal` projection:
+
+- `RUST_TOOLCHAIN_UNAVAILABLE`: the rustup Cargo shim reports that no default
+  toolchain is selected. From the original host shell, inspect `rustup toolchain
+  list`, then explicitly select an **already installed** toolchain before init.
+  In PowerShell, set `$env:RUSTUP_HOME = (rustup show home)` and
+  `$env:RUSTUP_TOOLCHAIN = '<installed-toolchain>'` using that installed name.
+  Regenerate and review init-generated drafts. For an explicitly authored
+  TaskSpec, the owner instead reviews and updates its fixed toolchain/environment
+  definition before checking again; dependency-bearing projects still cannot
+  use the stdlib-only init profile.
+- `RUST_OFFLINE_DEPENDENCY_MISSING`: Cargo reports a missing package in the
+  crates.io index together with its offline-mode diagnostic. Outside the
+  product's offline run, use the same reviewed `CARGO_HOME` and registry
+  configuration selected by the fixed TaskSpec. The owner can prepare dependencies with `cargo fetch`
+  and review any `Cargo.lock` changes, or use `cargo vendor` and review the
+  vendor configuration. Filling an unrelated default cache will not repair a
+  task bound to a different cache. If that selection changes, explicitly review
+  the TaskSpec; then retry the fixed offline/locked checks.
+
+The product does not install toolchains, download dependencies or turn off
+offline mode. Other diagnostics retain generic refusal and private evidence;
+an unknown message is not guessed from a broad “toolchain” or “offline” keyword.
+Advice never repeats raw stderr, package names, local homes or credentials.
+Dependency-bearing counterexamples use explicitly authored TaskSpecs; init's
+stdlib-only restriction remains in force.
+
 Review the draft's objective, writable/protected paths, checks and time limits,
 then commit the intended task inputs so the source meets the existing clean
 repository requirement. The generated draft expects a passing base; use the

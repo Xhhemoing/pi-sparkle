@@ -2,7 +2,7 @@
 
 See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] R0.1 Coordinator: Rust PR closeout — rerun the failed `cumulative TaskSpec worker allowance excludes slow first-factory preparation` case alone, repair test-first only if it is a real defect, open the PR against `main` with current green CI; owner merges.
+- [ ] R0.1 Coordinator + owner: [Rust PR #85](https://github.com/Xhhemoing/pi-sparkle/pull/85) at `ef533595` has green CI/recovery; preserve the unchanged isolated timing failure and instrumented evidence that preparation is excluded but the 1-second worker allowance has narrow host-overhead margin. Local gate PID 48816 is still running, not complete acceptance; the owner-approved conflict resolution still needs resulting-candidate checks and the runtime merge decision.
 - [ ] R0.2 Coordinator: after Rust, integrate external #80/#82 serially (single-writer test file; drop their `tasks/plan.md` edits); independent review of #80 path logic; owner merges.
 - [ ] R0.3 Coordinator: `scripts/real-task-record.mjs` + `scripts/real-task-summary.mjs` with synthetic unit tests; unknown cost stays unknown and counts US$5 toward the weekly cap; owner merges.
 - [ ] R0.4–R0.6 Coordinator: private queue of at least 10 real tasks (pi-sparkle + Soul), verified isolated Soul clone procedure on a drive with space, per-task `budget.usd <= 5` and weekly total <= US$50.
