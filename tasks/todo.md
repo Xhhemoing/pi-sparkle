@@ -2,9 +2,8 @@
 
 See [Phase 1 plan](plan.md#phase-1-language-initialization-and-execution-examples-2026-10-24), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and run `pnpm status` for a local generated snapshot. Only unfinished work belongs here.
 
-- [ ] Coordinator: deliver separate reviewed S4 TS and S5 Rust PRs with RED/GREEN, complete checks and current CI; serialize shared files and full gates; resume stays on hold.
-- [ ] Owner: review the S4 TS candidate, its RED/GREEN, installed CLI and current full-check/CI evidence before deciding merge; generic TS init remains stripping-only.
-- [ ] S5 Rust implementer + coordinator test writer: actual toolchain/offline dependency refusal through explicit TaskSpec, safe hints and host-bound draft warning; no network or environment re-resolution.
+- [ ] Owner: review [S4 TS PR #83](https://github.com/Xhhemoing/pi-sparkle/pull/83), its RED/GREEN, installed CLI and current full-check/CI evidence before deciding merge; generic TS init remains stripping-only.
+- [ ] Owner: review the [S5 Rust PR](https://github.com/Xhhemoing/pi-sparkle/pulls?q=is%3Apr%20head%3Acodex%2Fphase1-rust-guidance-20261025), its actual Cargo RED/GREEN and current full-check/CI evidence before deciding merge; keep stdlib init and fixed offline environments.
 - [ ] On hold (owner): S3-B1 coordinator: new owner-authorized finite cross-process verification; records do not grant authority; zero models, source unchanged, original budget history preserved; refuse unknown effects pending reconciliation.
 - [ ] On hold (owner): S3-B2 coordinator: explicit current apply/discard authority; fresh apply checks/prepared Ledger target; safe discard despite business-check failure, with replaced-path/index/lock/settlement counterexamples.
 - [ ] Owner: after required PR evidence, decide merges, Phase 1 completion and #68 disposition; #78 is only an adopted increment and Phase 2 remains unstarted.

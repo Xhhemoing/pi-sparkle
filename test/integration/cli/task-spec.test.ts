@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -180,6 +180,73 @@ async function compiledFixture(repo: string, language: "Rust" | "Go"): Promise<v
     await writeFile(path.join(repo, "total_test.go"), 'package total\nimport "testing"\nfunc TestActualLibrary(t *testing.T) { if Total(1, 2) != 3 { t.Fatal("total must equal 3") } }\n', "utf8");
   }
 }
+
+for (const kind of ["missing-toolchain", "offline-dependency"] as const) {
+  test(`TaskSpec Rust ${kind} gives safe preparation guidance after a real settled Cargo refusal`, { timeout: 120000 }, async (t) => {
+    const inherited = Object.fromEntries(["PATH", "Path", "SystemRoot", "WINDIR", "HOME", "USERPROFILE", "RUSTUP_HOME", "CARGO_HOME", "RUSTUP_TOOLCHAIN"]
+      .flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+    const selectedEnv = { ...inherited, RUSTUP_AUTO_INSTALL: "0", CARGO_NET_OFFLINE: "true" };
+    const locate = (args: string[]) => spawnSync("rustup", args, { cwd: REPO, env: selectedEnv, encoding: "utf8", windowsHide: true, timeout: 10000 });
+    const cargo = locate(["which", "cargo"]), rustc = locate(["which", "rustc"]), rustup = locate(["show", "home"]);
+    const shim = path.resolve(process.env.CARGO_HOME ?? path.join(homedir(), ".cargo"), "bin", process.platform === "win32" ? "cargo.exe" : "cargo");
+    const available = spawnSync(shim, ["--version"], { cwd: REPO, env: selectedEnv, encoding: "utf8", windowsHide: true, timeout: 10000 });
+    if ([cargo, rustc, rustup, available].some(result => result.error !== undefined || result.status !== 0)) {
+      t.skip("requires an installed rustup Cargo shim and toolchain; no installation or network is attempted"); return;
+    }
+    await fixture(async (repo, root) => {
+      await compiledFixture(repo, "Rust");
+      if (kind === "offline-dependency") await writeFile(path.join(repo, "Cargo.toml"),
+        (await readFile(path.join(repo, "Cargo.toml"), "utf8")) + '\n[dependencies]\nserde = "1"\n', "utf8");
+      const home = path.join(root, "private-home"), cargoHome = path.join(root, "empty-cargo-home");
+      await mkdir(home); await mkdir(cargoHome);
+      const env: Record<string, string> = { HOME: home, USERPROFILE: home, CARGO_HOME: cargoHome, RUSTUP_AUTO_INSTALL: "0", CARGO_NET_OFFLINE: "true",
+        PI_API_KEY: "SYNTHETIC_RUST_REFUSAL_SECRET" };
+      if (kind === "offline-dependency") Object.assign(env, { RUSTUP_HOME: rustup.stdout.trim(), RUSTC: rustc.stdout.trim() });
+      const wrapper = "const {spawn}=require('node:child_process');const [exe,out,raw]=process.argv.slice(1);const child=spawn(exe,['test','--offline','--locked','--target-dir',out],{cwd:process.cwd(),env:JSON.parse(raw),shell:false,windowsHide:true,stdio:'inherit'});child.on('error',()=>{process.exitCode=1});child.on('close',code=>{process.exitCode=code===0?0:code>0?code:1});";
+      const definition: DevelopmentTaskSpec = { version: 1, objective: "Observe an explicit offline Rust refusal", context: ["Cargo.toml", "Cargo.lock"],
+        write: { allow: ["src"], protect: ["Cargo.toml", "Cargo.lock", "tests"] }, prepare: [],
+        checks: [{ id: "rust-tests", command: process.execPath, args: ["-e", wrapper, kind === "missing-toolchain" ? shim : cargo.stdout.trim(), path.join(root, "outputs"), JSON.stringify(env)],
+          verifierVersion: "explicit-rust-refusal-v1", protectedPaths: ["Cargo.toml", "Cargo.lock", "tests"], visibleToWorker: false, timeoutMs: 15000,
+          maxStderrBytes: 16384, expect: { baseline: "pass" } }],
+        budget: { totalSeconds: 60, prepareSeconds: 1, checkSeconds: 15, workerSeconds: 5 }, worker: { model: "inherit" } };
+      const file = path.join(root, "explicit-task.json");
+      await writeFile(file, JSON.stringify(definition), "utf8");
+      git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "Explicit offline Rust counterexample"]);
+      const revision = git(repo, ["rev-parse", "HEAD"]), source = await readFile(path.join(repo, "src/lib.rs"), "utf8");
+      const lock = await readFile(path.join(repo, "Cargo.lock"), "utf8");
+      const checked = entrypoint(["preflight", file, "--project", repo, "--state-root", path.join(root, "standalone"), "--json"], [], { timeoutMs: 90000 });
+      assert.equal(checked.code, 1);
+      const report = JSON.parse(checked.stdout);
+      assert.equal(report.ok, false); assert.equal(report.effectsSettled, true); assert.equal(report.candidateDisposition, "removed");
+      const evidence = JSON.parse(await readFile(report.artifactPath, "utf8"));
+      assert.equal(evidence.modelInvocations, 0); assert.equal(evidence.checks[0].result.status, "completed");
+      assert.notEqual(evidence.checks[0].result.exitCode, 0); assert.equal(evidence.checks[0].expected, false);
+      assert.match(evidence.checks[0].result.stderrText, kind === "missing-toolchain" ? /rustup could not choose a version of cargo.*no default is configured/ : /no matching package named `serde` found/);
+      const code = kind === "missing-toolchain" ? "RUST_TOOLCHAIN_UNAVAILABLE" : "RUST_OFFLINE_DEPENDENCY_MISSING";
+      assert.equal(report.refusal?.code, code); assert.equal(report.refusal.category, "infrastructure");
+      assert.match(report.refusal.next, kind === "missing-toolchain" ? /RUSTUP_HOME.*RUSTUP_TOOLCHAIN/ : /cargo fetch.*cargo vendor/);
+      for (const privateValue of [root, rustup.stdout.trim(), "SYNTHETIC_RUST_REFUSAL_SECRET", "serde", "rustup default stable"]) {
+        assert.equal(JSON.stringify(report.refusal).includes(privateValue), false);
+      }
+      assert.ok(checked.stderr.includes(report.refusal.next));
+      let factories = 0;
+      const run = await startDevelopmentTaskSpec({ sourceRepo: repo, stateRoot: path.join(root, "run"), sandboxRoot: path.join(root, "candidates"), spec: definition,
+        executorFactory: () => { factories++; return new ProtocolChildExecutor(); } });
+      assert.equal(factories, 0); assert.equal(run.execution.acceptance.accepted, false);
+      assert.equal(run.preflight?.effectsSettled, true); assert.equal(run.preflight?.refusal?.code, code);
+      assert.equal(git(repo, ["rev-parse", "HEAD"]), revision); assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+      assert.equal(await readFile(path.join(repo, "src/lib.rs"), "utf8"), source); assert.equal(await readFile(path.join(repo, "Cargo.lock"), "utf8"), lock);
+    });
+  });
+}
+
+test("TaskSpec Rust init warns that the draft is bound to this host and must be regenerated before sharing", async () => fixture(async (repo, root) => {
+  await compiledFixture(repo, "Rust");
+  const initialized = entrypoint(["init", "--task", "--dir", repo, "--state-root", path.join(root, "state"), "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const result = JSON.parse(initialized.stdout);
+  assert.match(result.next, /host-bound/); assert.match(result.next, /regenerate.*review/i); assert.match(result.next, /committing or sharing/);
+}));
 
 for (const language of ["Rust", "Go"] as const) {
   test(`TaskSpec compiled ${language} draft actually preflights with an external cache and unchanged source`, async () => fixture(async (repo, root) => {
