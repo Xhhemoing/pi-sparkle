@@ -14,7 +14,7 @@ Preserve original Soul, synthetic/private-evidence boundaries, frozen capabiliti
 
 Resolve conflicts using accepted ADR/spec and explicit owner decisions, current plan/checklist for authorized scope, actual candidate/source/PR/CI for execution facts, and `docs/status-matrix.md` for scoped capability claims. A dated capability row cannot erase newer observed failures; tests cannot grant approval. Resolve discrepancies in existing authoritative records before claiming completion.
 
-Keep current phase and next action in the active plan, unfinished work in `tasks/todo.md` (at most 25 lines), and exact validation/review in the PR and CI artifacts. Generated STATUS is a local snapshot. Private logs, transcripts and triage belong in `.agent_workspace/`; no credentials or unredacted private data in Git or uploaded artifacts.
+Keep current phase and next action in the active plan, unfinished work in `tasks/todo.md` (at most 25 lines), and exact validation/review in the PR and CI artifacts. Generated STATUS is an ignored local snapshot: run `pnpm status`. CI generates `.agent_workspace/ci/STATUS.md` and includes it in existing quality/CLI job artifacts; see [retrieval guidance](../tasks/plan.md#retained-evidence-and-unfinished-obligations). A fresh checkout does not require this file. Private logs, transcripts and triage belong in `.agent_workspace/`; no credentials or unredacted private data in Git or uploaded artifacts.
 
 ## 3. Plan Before Implementation
 

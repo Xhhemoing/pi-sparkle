@@ -52,6 +52,13 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
 
+      - name: Generate local status snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/status.mjs --output .agent_workspace/ci/STATUS.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Install pinned dependencies
         if: matrix.pi-version == '1.4.0'
         run: pnpm install --frozen-lockfile
@@ -169,6 +176,7 @@ jobs:
           path: |
             .agent_workspace/ci/*.log
             .agent_workspace/ci/dependencies.json
+            .agent_workspace/ci/STATUS.md
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
@@ -194,6 +202,13 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+
+      - name: Generate local status snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/status.mjs --output .agent_workspace/ci/STATUS.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -278,7 +293,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-${{ matrix.os }}-node-${{ matrix.node-version }}
-          path: .agent_workspace/ci/*.log
+          path: |
+            .agent_workspace/ci/*.log
+            .agent_workspace/ci/STATUS.md
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14

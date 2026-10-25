@@ -27,3 +27,6 @@ _dbg*.mjs
 /merge_*.csv
 /merge_*.txt
 .wpscomate/
+
+# generated local status snapshot
+/STATUS.md

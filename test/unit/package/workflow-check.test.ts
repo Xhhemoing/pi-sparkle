@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -44,4 +44,23 @@ test("repository workflow contract is complete", async () => {
 
   assert.equal(result.exitCode, 0, result.stderr);
   assert.match(result.stdout, /workflow-check: ok/);
+});
+
+test("workflow check accepts complete governance files without a generated STATUS snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sparkle-workflow-"));
+  try {
+    for (const file of ["AGENTS.md", "docs/development-workflow.md", "docs/templates/task-plan.md",
+      "docs/templates/verification-record.md", "tasks/README.md", "tasks/plan.md", "tasks/todo.md",
+      "docs/status-matrix.md", ".github/PULL_REQUEST_TEMPLATE.md", "package.json"]) {
+      const destination = join(root, file);
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, await readFile(join(repoRoot, file), "utf8"), "utf8");
+    }
+    await assert.rejects(access(join(root, "STATUS.md")), { code: "ENOENT" });
+    const result = await runChecker(root);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.match(result.stdout, /workflow-check: ok/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

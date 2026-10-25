@@ -8,7 +8,9 @@ Start with the [active plan](plan.md), its [confirmed Phase 1 order](plan.md#own
 - [`todo.md`](todo.md): unfinished work only, at most 25 lines, ordered by the next usable result.
 - [`migration-todo.md`](migration-todo.md), [`adaptive-plan.md`](adaptive-plan.md) and [`adaptive-todo.md`](adaptive-todo.md): retained historical details and constraints; old next steps do not dispatch current work or lift freezes.
 - [Previous plan](archive/2026-10-21-pre-integration-plan.md) and [checklist](archive/2026-10-21-pre-integration-checklist.md): unresolved earlier duties and historical evidence.
-- [Status matrix](../docs/status-matrix.md): scoped capability claims; [generated STATUS](../STATUS.md): generation-time observations, not authorization.
+- [Status matrix](../docs/status-matrix.md): scoped capability claims. Run `pnpm status` to generate ignored local `STATUS.md`; CI snapshots are in the existing quality/CLI Actions artifacts (see [retrieval](plan.md#retained-evidence-and-unfinished-obligations)). Neither snapshot grants authorization.
+
+- [Phase 1 evidence](../docs/evidence/phase1-exit.md) and [older plan archive](archive/2026-10-25-pre-maintenance-plan.md): retained traceability, failures, historical decisions and unfinished obligations; read relevant sections rather than treating old next actions as current.
 
 ## Required Task Record
 
