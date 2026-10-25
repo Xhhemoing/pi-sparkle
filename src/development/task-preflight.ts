@@ -10,6 +10,7 @@ import { captureExactSnapshot, sameExactSnapshot } from "../execution/exact-snap
 import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
 import { DEFAULT_RECIPE_OUTPUT_BYTES, DEFAULT_RECIPE_TIMEOUT_MS } from "./work-items.js";
+import { classifyTaskCheckRefusal, type TaskCheckRefusal } from "./task-check-refusal.js";
 export interface TaskPreflightInput {
   readonly candidatePath: string;
   readonly sourceRevision: string;
@@ -35,6 +36,7 @@ export interface TaskPreflightPhaseResources {
 export interface TaskPreflightResult {
   readonly ok: boolean;
   readonly reason: string;
+  readonly refusal?: TaskCheckRefusal;
   readonly effectsSettled: boolean;
   readonly artifactPath: string;
   readonly preparationMs: number;
@@ -117,6 +119,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     checks: phaseResources(checkPhaseLimit, checksMs, checksObserved) });
   let unsettledCommand: AuthorizedCommandRunResult | undefined;
   let reason = "expected base checks observed";
+  let refusal: TaskCheckRefusal | undefined;
   let ok = false;
   const expired = (): boolean => signal.aborted || performance.now() >= deadlineAt;
   const ensureActive = (): void => { if (expired()) throw new DomainValidationError("preflight cancelled or total time budget exhausted"); };
@@ -173,7 +176,12 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
         check.maxStdoutBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES, check.maxStderrBytes ?? DEFAULT_RECIPE_OUTPUT_BYTES);
         const expected = expectedCheck(observed.result, check);
         checks.push({ id: check.id, ...observed, expected });
-        if (!expected) throw new DomainValidationError(`base check ${check.id} did not establish its expected ${check.expect.baseline} result`);
+        if (!expected) {
+          refusal = classifyTaskCheckRefusal(check, observed.result);
+          throw new DomainValidationError(refusal === undefined
+            ? `base check ${check.id} did not establish its expected ${check.expect.baseline} result`
+            : `${refusal.code}: ${refusal.message} ${refusal.next}`);
+        }
         unchanged();
       }
     } finally { checksMs = performance.now() - checksStart; input.onChecksElapsed?.(checksMs); }
@@ -185,7 +193,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
   const artifactDirectory = path.join(state, "preflight");
   let artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
   const record = () => ({ kind: "development-preflight", sourceRevision: input.sourceRevision,
-    candidatePath: candidate, ok, reason, effectsSettled: unsettledCommand === undefined,
+    candidatePath: candidate, ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined,
     preparation, checks, unobservedChecks: spec.checks.slice(checks.length).map((check) => check.id),
     preparationMs, checksMs, resources: resources(), totalMs: performance.now() - started, modelInvocations: 0, costUsd: null });
   const correctExpired = (): void => {
@@ -201,7 +209,7 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
       artifactPath = path.join(artifactDirectory, `${randomUUID()}.json`);
       await writeFile(artifactPath, `${JSON.stringify({ ...record(), supersedesArtifactPath }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     }
-    return Object.freeze({ ok, reason, effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(),
+    return Object.freeze({ ok, reason, ...(refusal === undefined ? {} : { refusal }), effectsSettled: unsettledCommand === undefined, artifactPath, preparationMs, checksMs, resources: resources(),
       ...(unsettledCommand === undefined ? {} : { unsettledCommand }) });
   } catch (error) {
     // Persistence failure must not erase the runner's unresolved effects.

@@ -9,7 +9,7 @@ import { performance } from "node:perf_hooks";
 import { clearTimeout, setTimeout } from "node:timers";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { LANGUAGES, languageFixture } from "./task-spec-language-fixtures.mjs";
+import { LANGUAGES, languageFixture, configureTypeScriptExample } from "./task-spec-language-fixtures.mjs";
 import { DEMO_MODEL, DEMO_PROVIDER, startTaskSpecLoopbackProvider } from "./task-spec-loopback-provider.mjs";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -19,7 +19,7 @@ const USAGE = `Offline installed-package TaskSpec language demo
 node examples/task-spec-language-demo.mjs --root <private-parent>
   [--mode scripted|cli]
   [--language all|node-express|python-fastapi|rust-cli|go-service]
-  [--python <external-python>] [--node-deps <external-express-prefix>]
+  [--python <external-python>] [--node-deps <external-express-typescript-prefix>]
 
 Every selected language gets a new mkdtemp Git fixture. The runner executes this
 package's dist init/preflight. Default scripted mode uses an owned scripted write
@@ -255,7 +255,7 @@ async function runLanguage(api, runRoot, language, options, signal) {
   try {
     let packageAnchor;
     if (language === "node-express") {
-      if (!options["node-deps"]) throw new Error("node-express requires --node-deps with preinstalled Express");
+      if (!options["node-deps"]) throw new Error("node-express requires --node-deps with preinstalled Express, TypeScript, @types/node and @types/express");
       packageAnchor = path.join(path.resolve(options["node-deps"]), "package.json");
       const anchor = await lstat(packageAnchor);
       assert.ok(anchor.isFile() && !anchor.isSymbolicLink(), "external Express package.json anchor must be a regular file");
@@ -280,9 +280,11 @@ async function runLanguage(api, runRoot, language, options, signal) {
     if (language === "python-fastapi" && options.python) args.push("--python", path.resolve(options.python));
     observation.init = await cli(api, projectRoot, "init", args, signal);
     let taskFile = path.join(sourceRepo, "sparkle.task.json");
-    const draft = JSON.parse(await readFile(taskFile, "utf8"));
+    let draft = JSON.parse(await readFile(taskFile, "utf8"));
     draft.objective = fixture.objective; // Explicit host review of this generated synthetic draft.
     if (language === "node-express") {
+      draft = configureTypeScriptExample(draft);
+      draft.budget.checkTotalSeconds = 80;
       const additions = ["runtime-config.json", ...(options.mode === "cli" ? ["sparkle.task.yaml"] : [])];
       draft.write.protect = [...new Set([...draft.write.protect, ...additions])];
       draft.checks = draft.checks.map((check) => ({ ...check,

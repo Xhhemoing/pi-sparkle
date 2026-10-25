@@ -4,13 +4,110 @@ import { constants } from "node:fs";
 import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { main } from "../../../src/cli/main.js";
 import { parseDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
 import { runAuthorizedCommand } from "../../../src/execution/command-runner.js";
+import { startDevelopmentTaskSpec } from "../../../src/development/start-task-spec.js";
+import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 
 const REPO = process.cwd();
 const retainedFixtureRoots = new Set<string>();
+
+async function typedExample(repo: string, root: string, mode: "healthy" | "type-error" | "missing-compiler" | "empty-prefix" | "missing-config") {
+  const examples = await import(pathToFileURL(path.join(REPO, "examples/task-spec-language-fixtures.mjs")).href);
+  await rm(path.join(repo, "src/value.cjs"));
+  await rm(path.join(repo, "test/value.test.cjs"));
+  const healthy = "export const value: number = 1;\n";
+  const source = healthy + (mode === "type-error" ? 'const wrong: number = "x";\nvoid wrong;\n' : "");
+  await writeFile(path.join(repo, "src/value.ts"), source, "utf8");
+  await writeFile(path.join(repo, "test/value.test.ts"), "import assert from 'node:assert/strict';import {test} from 'node:test';import {value} from '../src/value.ts';test('value',()=>assert.equal(value,1));\n", "utf8");
+  await writeFile(path.join(repo, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test test/value.test.ts" } }), "utf8");
+  let anchor = mode === "missing-compiler" ? path.join(root, "absent-dependencies/package.json") : path.join(REPO, "package.json");
+  if (mode === "empty-prefix") {
+    const parent = path.join(REPO, ".agent_workspace/phase1-languages");
+    await mkdir(parent, { recursive: true });
+    const prefix = await mkdtemp(path.join(parent, "empty-explicit-prefix-"));
+    anchor = path.join(prefix, "package.json");
+    await writeFile(anchor, "{}", "utf8");
+  }
+  const files = examples.typescriptExampleFiles({ packageAnchor: anchor });
+  for (const [file, contents] of Object.entries(files)) {
+    if (mode === "missing-config" && file === "tsconfig.json") continue;
+    await mkdir(path.dirname(path.join(repo, file)), { recursive: true });
+    await writeFile(path.join(repo, file), contents as string, "utf8");
+  }
+  const initialized = await call(["init", "--task", "--dir", repo, "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const file = path.join(repo, "sparkle.task.json");
+  const draft = parseDevelopmentTaskSpec(await readFile(file, "utf8"));
+  assert.equal(draft.checks.length, 1, "generic init retains its stripping-only profile");
+  const configured = examples.configureTypeScriptExample(draft);
+  const definition = parseDevelopmentTaskSpec(JSON.stringify({ ...configured,
+    budget: { ...configured.budget, totalSeconds: 90, checkSeconds: 20, checkTotalSeconds: 60, workerSeconds: 10 } }));
+  await writeFile(file, JSON.stringify(definition), "utf8");
+  git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "Explicit typed example"]);
+  return { file, definition, source, healthy, revision: git(repo, ["rev-parse", "HEAD"]) };
+}
+
+for (const [mode, code, category] of [
+  ["type-error", "TS_UNDECLARED_RED", "undeclared-red"],
+  ["missing-compiler", "TS_COMPILER_MISSING", "infrastructure"],
+  ["empty-prefix", "TS_COMPILER_MISSING", "infrastructure"],
+  ["missing-config", "TS_CONFIG_MISSING", "infrastructure"]] as const) {
+  test(`TaskSpec typed example refuses ${mode} before worker allocation with safe guidance`, { timeout: 120000 }, async () => fixture(async (repo, root) => {
+    const input = await typedExample(repo, root, mode);
+    const nodeOnly = spawnSync(process.execPath, ["--test", "test/value.test.ts"], { cwd: repo, encoding: "utf8", windowsHide: true });
+    assert.equal(nodeOnly.status, 0, nodeOnly.stderr);
+    const checked = await call(["preflight", input.file, "--project", repo, "--state-root", path.join(root, "standalone"), "--json"]);
+    assert.equal(checked.code, 1, "type erasure alone must not satisfy the explicit typed example");
+    const report = JSON.parse(checked.stdout);
+    assert.equal(report.ok, false); assert.equal(report.effectsSettled, true);
+    assert.equal(report.candidateDisposition, "removed");
+    assert.equal(report.refusal.code, code); assert.equal(report.refusal.category, category);
+    assert.deepEqual(Object.keys(report.refusal).sort(), ["category", "code", "message", "next"]);
+    assert.ok(report.refusal.message.length > 0 && report.refusal.next.length > 0);
+    assert.equal(JSON.stringify(report.refusal).includes(root), false);
+    const evidence = JSON.parse(await readFile(report.artifactPath, "utf8"));
+    assert.equal(evidence.modelInvocations, 0);
+    assert.equal(evidence.checks[0].expected, false);
+    if (mode === "type-error") assert.match(evidence.checks[0].result.stderrText, /TS2322/);
+    let factories = 0;
+    const run = await startDevelopmentTaskSpec({ sourceRepo: repo, stateRoot: path.join(root, "run"), sandboxRoot: path.join(root, "candidates"),
+      spec: input.definition, executorFactory: () => { factories++; return new ProtocolChildExecutor(); } });
+    assert.equal(factories, 0); assert.equal(run.execution.acceptance.accepted, false);
+    assert.equal(run.preflight?.effectsSettled, true);
+    assert.equal(run.execution.effectsSettled, undefined, "Native marks only unsettled effects with false");
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), input.revision); assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+    assert.equal(await readFile(path.join(repo, "src/value.ts"), "utf8"), input.source);
+  }));
+}
+
+test("TaskSpec typed example rejects a worker type error at final acceptance and preserves source", { timeout: 120000 }, async () => fixture(async (repo, root) => {
+  const input = await typedExample(repo, root, "healthy");
+  retainedFixtureRoots.add(root);
+  let factories = 0;
+  const invalid = input.healthy + 'const wrong: number = "x";\nvoid wrong;\n';
+  const run = await startDevelopmentTaskSpec({ sourceRepo: repo, stateRoot: path.join(root, "state"), sandboxRoot: path.join(root, "candidates"),
+    spec: input.definition, executorFactory(context) {
+      factories++;
+      return { async *execute(request, signal) {
+        await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("typed-edit", { path: "src/value.ts", contents: invalid }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      } };
+    } });
+  assert.equal(run.preflight?.ok, true, JSON.stringify({ root, reason: run.preflight?.reason, artifactPath: run.preflight?.artifactPath, executionReason: run.execution.reason })); assert.equal(factories, 1);
+  assert.equal(run.execution.acceptance.accepted, false, "final acceptance must execute the fixed typecheck");
+  assert.equal(run.execution.effectsSettled, undefined, "Native marks only unsettled effects with false");
+  const evidence = JSON.parse(await readFile(run.preflight!.artifactPath, "utf8"));
+  assert.ok(evidence.checks.some((check: { id: string; durationMs: number }) => check.id === "typescript-typecheck" && check.durationMs > 0));
+  assert.ok(run.preflight!.checksMs > 0, "real compiler time is charged to existing checks");
+  assert.equal(await readFile(path.join(run.execution.candidatePath, "src/value.ts"), "utf8"), invalid);
+  assert.equal(await readFile(path.join(repo, "src/value.ts"), "utf8"), input.source);
+  assert.equal(git(repo, ["rev-parse", "HEAD"]), input.revision); assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+  retainedFixtureRoots.delete(root);
+}));
 function git(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, result.stderr);
@@ -115,6 +212,7 @@ for (const language of ["Rust", "Go"] as const) {
     assert.equal(checked.code, 0, checked.code === 0 ? "" : await compiledFailureDiagnostic(root, checked));
     const observation = JSON.parse(checked.stdout);
     assert.equal(observation.ok, true);
+    assert.equal(Object.hasOwn(observation, "refusal"), false);
     assert.equal(observation.effectsSettled, true);
     assert.equal(observation.candidateDisposition, "removed");
     assert.equal((await lstat(result.cachePath)).isDirectory(), true);
@@ -557,6 +655,7 @@ for (const code of ["process.exit(1)", "require('./missing-cli-dependency.cjs')"
     assert.equal(result.code, 1);
     const output = JSON.parse(result.stdout);
     assert.equal(output.ok, false);
+    assert.equal(Object.hasOwn(output, "refusal"), false, "ordinary check failures keep their existing projection");
     assert.equal(output.effectsSettled, true);
     assert.equal(output.candidateDisposition, "removed");
     assert.ok(await readFile(output.artifactPath, "utf8"));

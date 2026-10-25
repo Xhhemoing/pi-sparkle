@@ -116,11 +116,12 @@ export async function taskSpecPreflightCommand(args: string[], io: TaskSpecCliIo
     // Keep diagnostics in the host artifact. This projection never prints check output.
     const output = { type: "TASKSPEC_PREFLIGHT", preview: true, ok: result.ok, effectsSettled: result.effectsSettled,
       artifactPath: result.artifactPath, preparationMs: result.preparationMs, checksMs: result.checksMs, resources: result.resources,
-      candidatePath: result.candidatePath, candidateDisposition: result.candidateDisposition };
+      candidatePath: result.candidatePath, candidateDisposition: result.candidateDisposition,
+      ...(result.refusal === undefined ? {} : { refusal: result.refusal }) };
     if (values.json) io.stdout(`${JSON.stringify(output)}\n`);
     else io.stdout(`TaskSpec preflight ${result.ok ? "accepted the expected base" : "refused the base"}.\nHost evidence: ${result.artifactPath}\nEffects settled: ${result.effectsSettled}\nCandidate: ${result.candidateDisposition} (${result.candidatePath})\n`);
-    if (!result.ok) return cliFail(io, { command: "preflight", stage: "execute", message: "TaskSpec base checks were refused",
-      next: `inspect private host evidence at ${result.artifactPath}; reconcile any unsettled candidate before retrying` });
+    if (!result.ok) return cliFail(io, { command: "preflight", stage: "execute", message: result.refusal?.message ?? "TaskSpec base checks were refused",
+      next: result.refusal?.next ?? `inspect private host evidence at ${result.artifactPath}; reconcile any unsettled candidate before retrying` });
     return CLI_EXIT.ok;
   } catch (error) {
     return cliFail(io, { command: "preflight", stage, message: error instanceof Error ? error.message : String(error), next: "run pi-sparkle preflight --help; review the TaskSpec and private host evidence before retrying" });

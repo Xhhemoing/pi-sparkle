@@ -1,5 +1,30 @@
 // Synthetic, healthy projects. No dependencies or interpreter are copied into source.
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 export const LANGUAGES = ["node-express", "python-fastapi", "rust-cli", "go-service"];
+const TYPECHECK_SOURCE = readFileSync(new URL("./task-spec-typescript-check.mjs", import.meta.url), "utf8");
+
+export function typescriptExampleFiles({ packageAnchor }) {
+  if (typeof packageAnchor !== "string" || !path.isAbsolute(packageAnchor)) throw new Error("TypeScript example requires an explicit absolute dependency package anchor");
+  return {
+    "tsconfig.json": `${JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext",
+      strict: true, noEmit: true, incremental: false, pretty: false, allowImportingTsExtensions: true,
+      types: ["node"], typeRoots: [path.join(path.dirname(packageAnchor), "node_modules/@types")] }, include: ["src/**/*", "test/**/*"] }, null, 2)}\n`,
+    "typecheck/config.json": `${JSON.stringify({ packageAnchor, requiredTypes: ["@types/node"] }, null, 2)}\n`,
+    "typecheck/check.mjs": TYPECHECK_SOURCE
+  };
+}
+
+export function configureTypeScriptExample(draft) {
+  const protect = [...new Set([...draft.write.protect, "*.json", "typecheck"])];
+  return { ...draft, write: { ...draft.write, protect }, checks: [
+    { id: "typescript-typecheck", command: process.execPath, args: ["typecheck/check.mjs"], verifierVersion: "example-typescript-v1",
+      protectedPaths: ["package.json", "typecheck"], timeoutMs: 20000, visibleToWorker: true, expect: { baseline: "pass" } },
+    ...draft.checks.map((check) => ({ ...check,
+      ...(check.protectedPaths === undefined ? {} : { protectedPaths: [...check.protectedPaths] }) }))
+  ] };
+}
 
 function nodeExpress(packageAnchor) {
   if (!packageAnchor) throw new Error("node-express requires --node-deps pointing to an external Express installation prefix");
@@ -7,7 +32,7 @@ function nodeExpress(packageAnchor) {
 import { createRequire } from 'node:module';
 
 const config = JSON.parse(readFileSync(new URL('../runtime-config.json', import.meta.url), 'utf8'));
-const express = createRequire(config.packageAnchor)('express');
+const express: typeof import('express') = createRequire(config.packageAnchor)('express');
 
 export function total(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0);
@@ -20,11 +45,17 @@ export function createApp() {
   return app;
 }
 `;
+  const typed = typescriptExampleFiles({ packageAnchor });
+  const tsconfig = JSON.parse(typed["tsconfig.json"]);
+  tsconfig.compilerOptions.paths = { express: [path.join(path.dirname(packageAnchor), "node_modules/@types/express/index.d.ts")] };
+  typed["tsconfig.json"] = `${JSON.stringify(tsconfig, null, 2)}\n`;
+  typed["typecheck/config.json"] = `${JSON.stringify({ packageAnchor, requiredTypes: ["@types/node", "@types/express"] }, null, 2)}\n`;
   return {
     sourceFile: "src/app.ts", before,
     after: before.replace("  return values.reduce((sum, value) => sum + value, 0);", "  let result = 0;\n  for (const value of values) result += value;\n  return result;"),
     objective: "Refactor the Express total helper to an explicit loop while preserving every HTTP result and all protected inputs.",
     files: {
+      ...typed,
       "package.json": `${JSON.stringify({ name: "sparkle-express-example", version: "0.0.0", private: true, type: "module", scripts: { test: "node --test test/app.test.ts" } }, null, 2)}\n`,
       "runtime-config.json": `${JSON.stringify({ packageAnchor }, null, 2)}\n`,
       "test/app.test.ts": `import assert from 'node:assert/strict';

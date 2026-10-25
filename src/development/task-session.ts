@@ -14,6 +14,7 @@ import { startDevelopmentTaskSpec, type DevelopmentTaskSpecResult } from "./star
 import { assertTaskSpecStateOutside } from "./task-preflight.js";
 import { assertDevelopmentScope } from "./task-policy.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
+import type { TaskCheckRefusal } from "./task-check-refusal.js";
 
 export interface TaskExecutionProjection {
   readonly type: "TASKSPEC_EXECUTION";
@@ -23,6 +24,7 @@ export interface TaskExecutionProjection {
   readonly artifactId: string; readonly artifactPath: string;
   readonly candidatePath: string; readonly sourceRevision: string; readonly stateRoot: string;
   readonly managed: boolean; readonly preflightArtifactPath?: string;
+  readonly refusal?: TaskCheckRefusal;
 }
 export type TaskApplyProjection = NativeApplyResult & { readonly type: "TASKSPEC_APPLICATION"; readonly runId: string; readonly actionId: string; readonly alreadyRecorded?: true };
 export type TaskDiscardProjection = NativeDisposeResult & { readonly type: "TASKSPEC_DISPOSAL"; readonly runId: string; readonly actionId: string; readonly alreadyRecorded?: true };
@@ -221,6 +223,7 @@ export class TaskSpecSession {
       effectsSettled: execution.effectsSettled !== false, runId: execution.runId, taskId: execution.taskId,
       artifactId: execution.artifact.id, artifactPath: execution.artifact.path, candidatePath: execution.candidatePath,
       sourceRevision: execution.sourceRevision, stateRoot: this.stateRoot, managed,
-      ...(result.preflight === undefined ? {} : { preflightArtifactPath: result.preflight.artifactPath }) });
+      ...(result.preflight === undefined ? {} : { preflightArtifactPath: result.preflight.artifactPath }),
+      ...(result.preflight?.refusal === undefined ? {} : { refusal: result.preflight.refusal }) });
   }
 }
