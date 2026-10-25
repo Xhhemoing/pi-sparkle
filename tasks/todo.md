@@ -1,15 +1,17 @@
 # Active checklist
 
-See [Phase 1 plan](plan.md#phase-1-language-initialization-and-execution-examples-2026-10-24), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and run `pnpm status` for a local generated snapshot. Only unfinished work belongs here.
+See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] Coordinator: deliver separate reviewed S4 TS and S5 Rust PRs with RED/GREEN, complete checks and current CI; serialize shared files and full gates; resume stays on hold.
-- [ ] Owner: review the S4 TS candidate, its RED/GREEN, installed CLI and current full-check/CI evidence before deciding merge; generic TS init remains stripping-only.
-- [ ] S5 Rust implementer + coordinator test writer: actual toolchain/offline dependency refusal through explicit TaskSpec, safe hints and host-bound draft warning; no network or environment re-resolution.
-- [ ] On hold (owner): S3-B1 coordinator: new owner-authorized finite cross-process verification; records do not grant authority; zero models, source unchanged, original budget history preserved; refuse unknown effects pending reconciliation.
-- [ ] On hold (owner): S3-B2 coordinator: explicit current apply/discard authority; fresh apply checks/prepared Ledger target; safe discard despite business-check failure, with replaced-path/index/lock/settlement counterexamples.
-- [ ] Owner: after required PR evidence, decide merges, Phase 1 completion and #68 disposition; #78 is only an adopted increment and Phase 2 remains unstarted.
-- [ ] Coordinator: separate #68 host/static-routing/queue-fix scope; retain deferred #72 branch/slice for lab evaluation, without treating it as implemented or enabling learning.
-- [ ] Maintainer: carry old B authorization, cumulative budget, cancellation/settlement, effect-admission and crash-reconciliation requirements into the new worker/apply path; defer new general orchestration.
-- [ ] Owner: retain the unfinished 15-task evaluation, old C–F requirements and all-outcome cost/quality evidence; approve paid calibration separately after real channel prices are known.
-- [ ] Before adopting the older direct helper candidate: correct and retest its kill-error/successful-reap regression; preserve original Soul.
+- [ ] R0.1 Coordinator: Rust PR closeout — rerun the failed `cumulative TaskSpec worker allowance excludes slow first-factory preparation` case alone, repair test-first only if it is a real defect, open the PR against `main` with current green CI; owner merges.
+- [ ] R0.2 Coordinator: after Rust, integrate external #80/#82 serially (single-writer test file; drop their `tasks/plan.md` edits); independent review of #80 path logic; owner merges.
+- [ ] R0.3 Coordinator: `scripts/real-task-record.mjs` + `scripts/real-task-summary.mjs` with synthetic unit tests; unknown cost stays unknown and counts US$5 toward the weekly cap; owner merges.
+- [ ] R0.4–R0.6 Coordinator: private queue of at least 10 real tasks (pi-sparkle + Soul), verified isolated Soul clone procedure on a drive with space, per-task `budget.usd <= 5` and weekly total <= US$50.
+- [ ] R1 Coordinator: run and record the first 10 real tasks alternating sources, at least 3 with a matched direct-Pi arm; never write the original Soul.
+- [ ] R2 Coordinator: review every 10 attempts or weekly; update run statistics; hypothesis + general fix for the top 1–2 failure classes; verify on later real tasks.
+- [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
+- [ ] R4 Owner: decide entry to automation for outcome-supported proposal types only, after the stop/rollback chain is verified.
+- [ ] Owner: decide Phase 1 completion; deferred B1/B2 resume follows real-task need ([archived acceptance](archive/2026-10-25-phase1-plan.md)).
+- [ ] Coordinator: split #68 (host assembly / static routing / queue-read); keep #72 deferred lab evaluation.
+- [ ] Before adopting the older direct helper candidate: correct and retest its kill-error/successful-reap regression.
+- [ ] Owner: the old 15-task evaluation and ADR-010 benefit targets remain unproven; R5 benchmark and paid/publication steps need separate authorization.
 - [ ] Existing owners: retain [earlier unresolved obligations](archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production approval.

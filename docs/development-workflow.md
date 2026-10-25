@@ -37,10 +37,11 @@ Choose verification from changed behavior and risk; retain existing required che
 | Change | During implementation | Integrated delivery verification |
 |---|---|---|
 | Docs/templates/skill instructions | workflow/diff, relevant content/links and changed skill validator | targeted review and current remote CI; no local runtime gate solely for prose |
-| Pure logic | failing regression, focused units and typecheck | `pnpm gate` |
-| CLI/persistence/lifecycle | actual affected entrypoints and integration/negative cases | `pnpm gate` and relevant existing probe |
+| Pure logic | failing regression, focused units and typecheck | hosted CI complete suite |
+| CLI/persistence/lifecycle | actual affected entrypoints and integration/negative cases | hosted CI; safety core (scope, candidate/apply/discard, Ledger, budgets, cancellation) also one serial `pnpm gate` and relevant probe |
+| Real-task run (ADR-011) | registered task, budget, isolated copy for Soul | private task record; aggregated statistics at review |
 | Privacy/security/adapter | boundary regressions and relevant independent review | `pnpm gate`, `pnpm security:probe`, `pnpm pi:probe` |
-| Experiment/holdout | authorized preregistration, eligibility and actual observations | existing dedicated evidence; keep live adaptation frozen until its gate closes |
+| Experiment/holdout | authorized preregistration, eligibility and actual observations | existing dedicated evidence; self-optimization only within the ADR-011 loop |
 | Preview/release | applicable complete checks and probes | `pnpm prerelease` and separate release authority |
 
 Run inexpensive relevant type, lint and boundary checks before an expensive complete run. Schedule the complete run when the intended integration is ready; a failing integrated candidate still needs its required complete revalidation after repair. Do not restart a full run for every small edit or treat a run of an older candidate as validation of later changes.
