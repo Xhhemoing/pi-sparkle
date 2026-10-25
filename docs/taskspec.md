@@ -203,8 +203,11 @@ Build and pack the current checkout, then install that tarball with its Pi peer
 into a private prefix. No global installation or publication is needed. For
 example, after `pnpm build` and `pnpm pack --pack-destination <artifacts>`, use
 `npm install --prefix <private-pi-prefix> --omit=dev --ignore-scripts --no-audit --no-fund <tarball> @earendil-works/pi-coding-agent@1.4.0`.
-Install Express separately with
-`npm install --prefix <private-node-deps> --ignore-scripts --save-exact express@5.3.0`.
+Supply Express, TypeScript and the Node/Express type packages separately in
+`<private-node-deps>`. For example, run `npm install --prefix <private-node-deps>
+--ignore-scripts --save-exact express@5.3.0 typescript@5.9.3 @types/node@26.2.0 @types/express@5.0.6`
+as an explicit host preparation step; retain and review that prefix's lockfile.
+The example never installs or downloads them.
 Select an external Python 3.12 virtual environment containing FastAPI, pytest,
 Ruff and httpx. The locally exercised versions are FastAPI 0.162.0, pytest
 9.1.1, Ruff 0.17.2 and httpx 0.28.1. Rust/Cargo and Go must already be selected
@@ -232,6 +235,25 @@ known reference usage and unknown provider billing. Scripted mode reports zero
 model dispatches. Neither mode demonstrates the quality/cost targets. Actual
 installed execution and remaining acceptance work are recorded in the active
 plan and PR; building or reading the example does not complete that acceptance.
+
+The node-express example adds a protected `tsconfig.json` and fixed
+`tsc --noEmit -p .` check before its Node HTTP tests. The same fixed checks run
+at baseline, final candidate acceptance and explicit application. Compiler
+startup is part of the existing check allowance, including its cumulative pool;
+it is not free preparation. The example declares a 20-second compiler check,
+within its 40-second check phase and 80-second cumulative check pool. Generic `init --task` remains stripping-only and
+does not infer a compiler or configuration for arbitrary TypeScript projects.
+
+Recognized example failures add an optional `refusal` object to standalone
+preflight and failed task-run JSON, with `code`, `category`, `message` and `next`. Existing fields
+and exit code 1 are unchanged. `TS_COMPILER_MISSING` (also missing required type
+packages) and `TS_CONFIG_MISSING` are `infrastructure` failures with preparation
+guidance. `TS_UNDECLARED_RED` is an `undeclared-red`: a compiler ran and found
+errors in a baseline declared passing, so fix that code before retrying. None
+establishes a named business RED or allocates a model. Unrecognized failures,
+incomplete output or unsettled effects keep generic refusal. Advice is static;
+compiler diagnostics and paths remain in private evidence. A compiler failure
+after worker edits rejects final acceptance and leaves the source unchanged.
 
 ## Compared host configuration
 

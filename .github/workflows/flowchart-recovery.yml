@@ -20,7 +20,7 @@ on:
       - 'scripts/run-tests.mjs'
       - '.github/workflows/flowchart-recovery.yml'
   pull_request:
-    branches: [main]
+    branches: [main, 'codex/**']
     paths:
       - 'src/run/**'
       - 'src/supervisor/**'

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { main } from "../../../src/cli/main.js";
 import { saveProvidersConfig } from "../../../src/config/providers-config.js";
@@ -89,6 +89,7 @@ for (const decision of ["default", "apply", "discard", "eof"] as const) test(`ac
     assert.equal(output.code, 0, output.stderr);
     const run = output.records.find(record => record.type === "TASKSPEC_EXECUTION");
     assert.ok(run, output.stdout); assert.equal(run.accepted, true); assert.equal(run.effectsSettled, true); assert.equal(run.managed, true);
+    assert.equal(Object.hasOwn(run, "refusal"), false, "successful execution projection is unchanged");
     assert.equal(f.provider.requests.length, 2, "report_task_result stops SDK before a third model turn"); assert.deepEqual(f.provider.protocolErrors, []);
     for (const request of f.provider.requests) {
       const body = request.body as { tools: { function: { name: string } }[]; model: string };
@@ -110,6 +111,39 @@ for (const decision of ["default", "apply", "discard", "eof"] as const) test(`ac
     await access(run.artifactPath as string);
   } finally { await f.provider.close(); }
 });
+
+for (const [mode, expectedCode] of [["type-error", "TS_UNDECLARED_RED"], ["missing-compiler", "TS_COMPILER_MISSING"], ["missing-config", "TS_CONFIG_MISSING"]] as const) {
+  test(`actual task run typed ${mode} retains safe refusal guidance with zero model dispatch`, { timeout: 180000 }, async () => {
+    const f = await fixture();
+    try {
+      const examples = await import(pathToFileURL(path.resolve("examples/task-spec-language-fixtures.mjs")).href);
+      const packageAnchor = mode === "missing-compiler" ? path.join(f.root, "missing/package.json") : path.resolve("package.json");
+      const files = { ...examples.typescriptExampleFiles({ packageAnchor }), "package.json": '{"type":"module"}',
+        "src/value.ts": mode === "type-error" ? 'export const value: number = "TASK_CLI_HIDDEN_CHECK_OUTPUT";\n' : 'export const value: number = 1;\n' };
+      for (const [file, contents] of Object.entries(files)) {
+        if (file === "tsconfig.json" && mode === "missing-config") continue;
+        await mkdir(path.dirname(path.join(f.source, file)), { recursive: true });
+        await writeFile(path.join(f.source, file), contents as string, "utf8");
+      }
+      const draft = JSON.parse(await readFile(f.taskFile, "utf8"));
+      draft.write.allow.push("src"); draft.write.protect.push("package.json");
+      await writeFile(f.taskFile, JSON.stringify(examples.configureTypeScriptExample(draft)), "utf8");
+      git(f.source, ["add", "."]); git(f.source, ["-c", "commit.gpgsign=false", "commit", "-m", "Typed CLI refusal"]);
+      const revision = git(f.source, ["rev-parse", "HEAD"]);
+      const output = await f.run();
+      assert.equal(output.code, 1); assert.equal(f.provider.requests.length, 0);
+      const run = output.records.find(record => record.type === "TASKSPEC_EXECUTION");
+      assert.ok(run); assert.equal(run.accepted, false); assert.equal(run.effectsSettled, true);
+      const refusal = run.refusal as { code: string; category: string; message: string; next: string };
+      assert.equal(refusal?.code, expectedCode);
+      assert.equal(refusal.category, mode === "type-error" ? "undeclared-red" : "infrastructure");
+      assert.deepEqual(Object.keys(refusal).sort(), ["category", "code", "message", "next"]);
+      assert.ok(output.stderr.includes(refusal.message)); assert.ok(output.stderr.includes(refusal.next));
+      assert.equal(git(f.source, ["rev-parse", "HEAD"]), revision); assert.equal(git(f.source, ["status", "--porcelain=v1"]), "");
+      assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+    } finally { await f.provider.close(); }
+  });
+}
 
 for (const reason of ["invalid", "unpriced"] as const) test(`actual task run ${reason} refuses with zero model dispatch`, { timeout: 180000 }, async () => {
   const f = await fixture({ [reason]: true });

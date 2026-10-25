@@ -104,8 +104,8 @@ export async function taskRunCommand(args: string[], io: Io, runtime: { readonly
         else io.stdout(`TaskSpec ${action.status}: ${action.runId}\nCandidate: ${action.candidatePath}\n`);
       } else if (!values.json) io.stdout("Candidate retained.\n");
     }
-    if (!result.accepted) return cliFail(io, { command: "task run", stage: "execute", message: "TaskSpec execution unavailable or refused; private diagnostics remain in host evidence",
-      runId: result.runId, next: `inspect private evidence at ${result.artifactPath}; do not retry unresolved effects` });
+    if (!result.accepted) return cliFail(io, { command: "task run", stage: "execute", message: result.refusal?.message ?? "TaskSpec execution unavailable or refused; private diagnostics remain in host evidence",
+      runId: result.runId, next: result.refusal?.next ?? `inspect private evidence at ${result.artifactPath}; do not retry unresolved effects` });
     return CLI_EXIT.ok;
   } catch (error) {
     // Exceptions after execution begins may carry raw trusted checker output.
