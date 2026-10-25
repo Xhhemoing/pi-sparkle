@@ -84,6 +84,27 @@ async function compiledFixture(repo: string, language: "Rust" | "Go"): Promise<v
   }
 }
 
+test("TaskSpec init and preflight accept a dot-prefixed in-root test directory", async () => fixture(async (repo, root) => {
+  await rename(path.join(repo, "test"), path.join(repo, "..fixtures"));
+  await writeFile(path.join(repo, "package.json"), JSON.stringify({ scripts: { test: "node --test ..fixtures/value.test.cjs" } }), "utf8");
+  const initialized = await call(["init", "--task", "--dir", repo, "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const file = path.join(repo, "sparkle.task.json");
+  const draft = parseDevelopmentTaskSpec(await readFile(file, "utf8"));
+  assert.deepEqual(draft.checks[0]!.args, ["--test", "..fixtures/value.test.cjs"]);
+  git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "dot-prefixed fixture"]);
+  const revision = git(repo, ["rev-parse", "HEAD"]);
+  const checked = await call(["preflight", file, "--project", repo, "--state-root", path.join(root, "state"), "--json"]);
+  assert.equal(checked.code, 0, checked.stderr || checked.stdout);
+  const observation = JSON.parse(checked.stdout);
+  assert.equal(observation.ok, true);
+  assert.equal(observation.effectsSettled, true);
+  assert.equal(observation.candidateDisposition, "removed");
+  assert.equal(git(repo, ["rev-parse", "HEAD"]), revision);
+  assert.equal(git(repo, ["status", "--porcelain=v1"]), "");
+  assert.equal(await readFile(path.join(repo, "src/value.cjs"), "utf8"), "module.exports = 1;\n");
+}));
+
 for (const language of ["Rust", "Go"] as const) {
   test(`TaskSpec compiled ${language} draft actually preflights with an external cache and unchanged source`, async () => fixture(async (repo, root) => {
     await compiledFixture(repo, language);
