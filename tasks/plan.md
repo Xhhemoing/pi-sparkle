@@ -1,5 +1,15 @@
 # Active implementation plan
 
+## CLI validation edge cases (2026-10-25)
+
+- Coordinator: continue the user's practical improvements from current main `3f59171` on `fix/cli-validation-edge-cases`; preserve the separate PR #80. Scope is two existing CLI validation defects, with no dependencies, new feature family or frozen scheduler/resume work.
+- Result: pinned-child validation must reject an empty/whitespace `--state-root` before reading a live catalog, while unpinned children retain their documented ignored-option behavior. Python init must accept a valid TOML table whose comment mentions pytest, while still rejecting unsupported pytest tables.
+- Ownership: CLI implementer owns `src/cli/validate.ts` and `test/unit/cli/validate.test.ts`; Python implementer owns `src/cli/task-spec-python.ts` and `test/integration/cli/task-spec-python.test.ts`; coordinator alone owns this plan and integrated verification. Update only directly contradictory usage/comments.
+- Acceptance: reproduce both bugs with actual entrypoints before repair; test blank roots in text/JSON modes, explicit valid roots and no-pin compatibility; test commented project/Ruff tables and unsupported real pytest tables. Preserve exit/error/JSON contracts, no writes/provider dispatch during validation, and Python's restricted configuration parser.
+- Verification: retain focused RED/GREEN logs in `.agent_workspace/cli-validation/`; run both complete affected test files, relevant CLI boundary tests, typecheck/lint/workflow and applicable gate/probes serially. Independent review covers both implementation and frozen CLI/error pins; preserve failures, skips and not-run conditions rather than weakening tests.
+- Local result: both fixes passed their intended RED/GREEN cycle and independent cross-review; affected files passed 52 tests with 4 optional Python skips. Complete `pnpm gate` finished with 4,721 passed, 16 failed, 61 skipped: 5 missing Cargo/Go on PATH, 9 symlink-creation `EPERM` failures, and 2 managed-process timeouts whose root causes remain unresolved. This is not complete local acceptance. Separate build, security probe (26), Pi probe (4), typecheck and lint passed; detailed commands/results belong in the PR.
+- Handoff: commit and publish the scoped candidate under the user's standing PR authorization; keep complete local gate, hosted CI and human merge approval distinct. Existing TS/Rust/resume work below remains on hold.
+
 ## Phase 1: language initialization and execution examples (2026-10-24)
 
 Owner: coordinating agent. Updated 2026-10-25 (America/Los_Angeles) with the owner's confirmed review decisions. PR #78 at `134edf0b` was adopted as a **Phase 1 increment, not Phase 1 completion**, and merged without squash as `79d2aa11b746818fabb5ad6c5af3e7d48a8264ce`. Resume B and TypeScript example typechecking are selected; the completed adoption/order/A-or-B choices must not reappear as open work. Remaining product outcomes are TS typechecking, actionable Rust refusal and cross-process review/apply/discard.
