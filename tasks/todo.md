@@ -2,7 +2,7 @@
 
 See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] Coordinator: keep per-task <=US$5 admission; owner removed the weekly cap on 2026-10-26; official reference prices verified, gateway billing unknown. R1 process exit: 23 attempts / 10 tasks / 3 matched direct arms recorded; one reviewed-and-kept patch, two candidate adoptions pending; original-policy US$50 reserved; preserve the explicit weekly-cap override; do not retry P01/P02 without a class correction or changed condition.
+- [ ] Coordinator: keep per-task <=US$5 admission; owner removed the weekly cap on 2026-10-26; official reference prices verified, gateway billing unknown. R1 process exit: 24 attempts / 10 tasks / 3 matched direct arms; three kept changes, one documentation adoption pending; use the owner-adopted --weekly-limit-usd none option; do not retry P01/P02 without a class correction or changed condition.
 - [ ] Coordinator: finish the whole-candidate capacity repair and S05 malformed-input class repair; preserve failed/rejected attempts and direct-Pi cost/cleanup unknowns.
 - [ ] R2 Coordinator: first two 10-attempt reviews recorded; deliver shared Node preparation guidance and verify the hypothesis on later real tasks; continue reviews every 10 attempts or weekly.
 - [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
