@@ -185,12 +185,39 @@ minimal config only when creating a new file):
       "baseUrl": "https://api.example.invalid/v1",
       "envVar": "EXAMPLE_API_KEY",
       "models": [
-        { "id": "example-chat", "name": "Example chat model" }
+        {
+          "id": "example-chat",
+          "name": "Example chat model",
+          "inputCostPerMTok": 1.25,
+          "outputCostPerMTok": 5,
+          "cacheReadCostPerMTok": 0.125,
+          "cacheWriteCostPerMTok": 1.5,
+          "costTiers": [
+            {
+              "inputTokensAbove": 128000,
+              "input": 2.5,
+              "output": 7.5,
+              "cacheRead": 0.25,
+              "cacheWrite": 3
+            }
+          ]
+        }
       ]
     }
   ]
 }
 ```
+
+These reference prices are illustrative, hypothetical values in USD per million
+tokens (including the rates in `costTiers`); actual gateway billing is unknown.
+Verify your own model/provider prices before using them. All rates must be finite
+and nonnegative. `costTiers` thresholds (`inputTokensAbove`) must be nonnegative
+safe integers in strictly increasing order. A tier applies only when total input
+including cached tokens (`input + cacheRead + cacheWrite`) is strictly above its
+threshold. The last applicable tier sets whole-request rates for input, output,
+cache reads and cache writes, rather than marginal pricing on only the excess
+tokens. With this example, 128,000 total input tokens use the base rates;
+128,001 use the tier rates for the whole request.
 
 Keep `envVar` nonempty even when you plan to use interactive stored login. A
 custom provider without it uses a keyless local resolver and cannot use stored
