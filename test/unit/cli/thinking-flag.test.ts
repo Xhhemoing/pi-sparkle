@@ -7,6 +7,7 @@ import { main, resolveThinkingLevel, type CliIo } from "../../../src/cli/main.js
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import { parseCliErrorJson } from "../../../src/cli/errors.js";
 import type { SparkleThinkingLevel } from "../../../src/pi-adapter/pi-executor.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function capture(): { io: CliIo; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -34,9 +35,32 @@ async function withRoots(run: (stateRoot: string, projectRoot: string) => Promis
   }
 }
 
-test("thinking level defaults to off and reads PI_THINKING_LEVEL when no flag is given", () => {
+test("thinking level defaults to off and reads PI_THINKING_LEVEL when no flag is given", async () => withIsolatedPiEnv(async () => {
   assert.equal(resolveThinkingLevel(undefined, undefined), "off");
   assert.equal(resolveThinkingLevel(undefined, "medium"), "medium");
+}));
+
+test("Pi environment isolation clears thinking and restores the user's value after success and failure", async () => {
+  const savedLevel = process.env.PI_THINKING_LEVEL;
+  try {
+    process.env.PI_THINKING_LEVEL = "high";
+    await withIsolatedPiEnv(async () => {
+      assert.equal(process.env.PI_THINKING_LEVEL, undefined);
+      assert.equal(resolveThinkingLevel(undefined), "off");
+      process.env.PI_THINKING_LEVEL = "low";
+    });
+    assert.equal(process.env.PI_THINKING_LEVEL, "high");
+    const failure = new Error("isolated test failure");
+    await assert.rejects(withIsolatedPiEnv(async () => {
+      assert.equal(process.env.PI_THINKING_LEVEL, undefined);
+      process.env.PI_THINKING_LEVEL = "medium";
+      throw failure;
+    }), error => error === failure);
+    assert.equal(process.env.PI_THINKING_LEVEL, "high");
+  } finally {
+    if (savedLevel === undefined) delete process.env.PI_THINKING_LEVEL;
+    else process.env.PI_THINKING_LEVEL = savedLevel;
+  }
 });
 
 test("--thinking wins over PI_THINKING_LEVEL", () => {

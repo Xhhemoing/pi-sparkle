@@ -14,6 +14,7 @@ import { EventStore } from "../../../src/run/event-store.js";
 import { CheckpointStore } from "../../../src/run/checkpoint-store.js";
 import { validateCheckpoint } from "../../../src/run/replay.js";
 import { createModelRouter } from "../../../src/supervisor/model-router.js";
+import { withIsolatedPiEnv } from "../../helpers/pi-env.js";
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;
@@ -64,7 +65,7 @@ test("external process stop aborts the active flowchart and awaits actual settle
   }
 });
 
-test("a stopped CLI child flowchart does not start adaptation after owned execution settles", async () => {
+test("a stopped CLI child flowchart does not start adaptation after owned execution settles", async () => withIsolatedPiEnv(async () => {
   const root = await mkdtemp(join(tmpdir(), "sparkle-stop-adapt-"));
   const stop = new AbortController();
   const output: string[] = [];
@@ -78,7 +79,7 @@ test("a stopped CLI child flowchart does not start adaptation after owned execut
     assert.match(output.join(""), /CANCELLED/);
     assert.doesNotMatch(output.join(""), / {2}adapt:/, "process stop cannot start new adaptation work");
   } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
-});
+}));
 
 test("initial checkpoint failure removes the external stop listener", async () => {
   const root = await mkdtemp(join(tmpdir(), "sparkle-stop-listener-"));
