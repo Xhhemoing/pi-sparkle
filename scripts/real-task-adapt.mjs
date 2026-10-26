@@ -12,10 +12,10 @@ import { isResourceVersionId } from "../src/domain/ids.ts";
 
 const USAGE = `Development-only resource proposals; no baseline registration, promotion, model or command execution.
 Run with: node --import tsx scripts/real-task-adapt.mjs <propose|materialize|evaluate>
-  propose --state-root <dir> --project <root> --topic <operator-selected class> --input <JSON array of existing record paths>
-  materialize --state-root <dir> --project <root> --input <TaskSpec JSON> --task-id <logical-id> --revision <Git SHA> --topics <comma-separated topics> [--prepare-binding <host-selected binding JSON>]
+  propose --state-root <dir> --project <root> --topic <operator-selected class> --input <JSON array of existing record paths> [--check-launchers <exact conversion JSON>]
+  materialize --state-root <dir> --project <root> --input <TaskSpec JSON> --task-id <logical-id> --revision <Git SHA> --topics <comma-separated topics> [--prepare-binding <host-selected binding JSON>] [--check-bindings <host-authorized original checks and selections JSON>]
   evaluate --state-root <dir> --project <root> --topic <topic> --version <rsv_...> --input <JSON array of trial file references>
-Topics: node-preparation, host-only-checks, input-validation.
+Topics: node-preparation, host-only-checks, input-validation, check-recipes.
 Materialize writes JSON to stdout only; host must review and explicitly run its spec. It never runs prepare commands.
 Node workflow evaluation stays UNOBSERVED: existing preflight artifacts do not bind preparation argv.
 Use existing adapt show/promote --review-file --approve/rollback for owner decisions; a missing baseline is never initialized here.
@@ -25,7 +25,7 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   const { values } = parseArgs({ args, strict: true, options: { "state-root": { type: "string" }, project: { type: "string" }, input: { type: "string" },
     "task-id": { type: "string" }, revision: { type: "string" }, topics: { type: "string" }, topic: { type: "string" }, version: { type: "string" },
-    "prepare-binding": { type: "string" }, help: { type: "boolean" } } });
+    "prepare-binding": { type: "string" }, "check-launchers": { type: "string" }, "check-bindings": { type: "string" }, help: { type: "boolean" } } });
   if (values.help || command === undefined || command === "--help") { process.stdout.write(USAGE); return; }
   if (!["propose", "materialize", "evaluate"].includes(command)) throw Error("unknown development adapter operation");
   const stateRoot = path.resolve(required(values["state-root"], "--state-root")), projectRoot = path.resolve(required(values.project, "--project"));
@@ -44,7 +44,8 @@ async function main() {
     }
     result = await withAdaptationRegistryLock(stateRoot, async () => {
       const registry = await loadAdaptationRegistryOrNew(stateRoot), before = registry.snapshot().candidates.length;
-      const packets = proposeRealTaskResources({ registry, projectRoot, topic: taskResourceTopic(values.topic), sourceRecords });
+      const packets = proposeRealTaskResources({ registry, projectRoot, topic: taskResourceTopic(values.topic), sourceRecords,
+        ...(values["check-launchers"] === undefined ? {} : { checkRecipeLaunchers: await readRealTaskJson(values["check-launchers"]) }) });
       if (registry.snapshot().candidates.length !== before) await saveAdaptationRegistry(stateRoot, registry);
       return packets;
     });
@@ -54,7 +55,8 @@ async function main() {
       result = materializeTaskResources({ registry, projectRoot, logicalTaskId: required(values["task-id"], "--task-id"),
         sourceRevision: required(values.revision, "--revision"), spec: parseDevelopmentTaskSpec(await readFile(inputFile, "utf8")),
         topics: required(values.topics, "--topics").split(",").map(taskResourceTopic),
-        ...(values["prepare-binding"] === undefined ? {} : { preparationBinding: await readRealTaskJson(values["prepare-binding"]) }) });
+        ...(values["prepare-binding"] === undefined ? {} : { preparationBinding: await readRealTaskJson(values["prepare-binding"]) }),
+        ...(values["check-bindings"] === undefined ? {} : { checkRecipeBindings: await readRealTaskJson(values["check-bindings"]) }) });
     } else {
       const topic = taskResourceTopic(values.topic), trials = await readRealTaskJson(inputFile);
       if (!Array.isArray(trials)) throw Error("evaluation input must list trial file references");

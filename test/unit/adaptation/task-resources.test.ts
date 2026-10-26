@@ -13,6 +13,8 @@ import { prepareDevelopmentCheckPlan } from "../../../src/development/check-plan
 import { TaskSpecSession } from "../../../src/development/task-session.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { runtimeRoot } from "../../../src/persist/state-layout.js";
+import type { DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
+import type { CheckRecipeLauncher } from "../../../src/lab/adaptation/task-resources.js";
 
 async function adapters() {
   const resource = await import("../../../src/lab/adaptation/task-resources.js").catch((error: NodeJS.ErrnoException) => {
@@ -42,6 +44,86 @@ async function setup(topic: "host-only-checks" | "input-validation" | "node-prep
   const promote = () => promoteWithRegistry(registry, { candidateId: candidate.candidateId, expectedCurrentVersionId: parent.versionId, content: content("File-only workers leave host-only checks UNOBSERVED."), approvedBy: { kind: "human", identity: "owner" }, explicitApproval: true, review: { reviewId: "review-one", candidateId: candidate.candidateId, contentHash: candidate.contentHash, verdict: "approved", reviewerKind: "independent", reviewerId: "peer", actorId: candidate.author.identity, evidenceRefs: ["private/source.json"] }, changeNote: { scope: "host-only-checks", evidence: ["private/source.json"], guardrails: ["no command authority"], rollbackVersionId: parent.versionId } });
   return { api, registry, identity, parent, candidate, materialize, promote };
 }
+
+async function checkRecipeSetup(baseSpec: DevelopmentTaskSpec = spec, selectedProjectRoot = projectRoot, selectedLaunchers?: readonly CheckRecipeLauncher[]) {
+  const api = await adapters(), registry = new ResourceRegistry(), topic = "check-recipes" as const;
+  const identity = api.taskResourceIdentity(selectedProjectRoot, topic);
+  const launchers = selectedLaunchers ?? [{ id: "absolute-node", fromCommand: "node", fromPrefixArgs: [], command: process.execPath, prefixArgs: [] }];
+  const content = (mode: "preserve" | "host-bindings") => JSON.stringify({ topic, mode, launchers: mode === "preserve" ? [] : launchers, sourceRefs: ["private/checker-failure.json"], expectedEffect: "Avoid implicit Node launcher resolution without changing business coverage" });
+  const parent = registry.registerBaseline({ identity, content: content("preserve"), author: { kind: "human", identity: "owner" } });
+  const candidate = registry.createCandidate({ identity, parentVersionId: parent.versionId, content: content("host-bindings"), author: { kind: "detector", identity: "real-task-review" }, evaluationPlan: { stages: ["static", "real-task"], metrics: ["correct-delivery"], planVersion: 1 } });
+  const bindings = { authorityRef: "private/authorized-fixed-launchers", originalChecks: baseSpec.checks, selections: baseSpec.checks.map(check => ({ checkId: check.id, launcherId: "absolute-node" })) };
+  const materialize = (logicalTaskId: string, selectedBindings: unknown = bindings) => api.materializeTaskResources({ registry, projectRoot: selectedProjectRoot, logicalTaskId, sourceRevision, spec: baseSpec, topics: [topic], checkRecipeBindings: selectedBindings });
+  const promote = (reviewerKind: "independent" | "peer" = "independent") => promoteWithRegistry(registry, { candidateId: candidate.candidateId, expectedCurrentVersionId: parent.versionId, content: content("host-bindings"), approvedBy: { kind: "human", identity: "owner" }, explicitApproval: true,
+    review: { reviewId: "check-recipe-review", candidateId: candidate.candidateId, contentHash: candidate.contentHash, verdict: "approved", reviewerKind, reviewerId: "peer", actorId: candidate.author.identity, evidenceRefs: ["private/checker-failure.json"] }, changeNote: { scope: "check launcher equivalence", evidence: ["private/checker-failure.json"], guardrails: ["preserve all business checks"], rollbackVersionId: parent.versionId } });
+  return { api, registry, identity, launchers, content, parent, candidate, bindings, materialize, promote };
+}
+
+test("check-recipe resources change actual checks only through exact approved fixed launchers and rollback to the original checks", async () => {
+  const f = await checkRecipeSetup();
+  assert.equal(f.identity.kind, "workflow-template");
+  assert.deepEqual(f.materialize("before").spec, spec);
+  f.promote();
+  const materialized = f.materialize("after");
+  assert.equal(materialized.spec.checks[0]!.command, process.execPath);
+  assert.deepEqual({ ...materialized.spec, checks: spec.checks }, spec, "objective, business requirements and authority stay unchanged");
+  assert.deepEqual({ ...materialized.spec.checks[0], command: "node" }, spec.checks[0]);
+  const missing = () => f.api.materializeTaskResources({ registry: f.registry, projectRoot, logicalTaskId: "missing", sourceRevision, spec, topics: ["check-recipes"] });
+  assert.throws(missing, /binding/);
+  assert.throws(() => f.materialize("omitted", { ...f.bindings, selections: [] }), /all|coverage|selection/);
+  assert.throws(() => f.materialize("new-command", { ...f.bindings, selections: [{ checkId: "unit", launcherId: "absolute-node", command: "exit" }] }), /field|selection/);
+  assert.throws(() => f.materialize("smoke", { ...f.bindings, originalChecks: [{ ...spec.checks[0], args: ["-e", "process.exit(0)"] }] }), /original checks/);
+  assert.throws(() => f.api.parseTaskResourceContent(JSON.stringify({ topic: "check-recipes", mode: "host-bindings", launchers: [{ ...f.launchers[0], prefixArgs: ["-e", "process.exit(0)"] }], sourceRefs: ["private/x"], expectedEffect: "test" })), /prefix|import/);
+  assert.throws(() => f.api.parseTaskResourceContent(JSON.stringify({ topic: "check-recipes", mode: "host-bindings", launchers: [{ ...f.launchers[0], prefixArgs: ["--import", "tsx"] }], sourceRefs: ["private/x"], expectedEffect: "test" })), /absolute|module/);
+  assert.throws(() => f.api.parseTaskResourceContent(JSON.stringify({ topic: "check-recipes", mode: "host-bindings", launchers: [{ ...f.launchers[0], prefixArgs: ["--import", "C:\\host\\loader.mjs"] }], sourceRefs: ["private/x"], expectedEffect: "test" })), /file URL/);
+  const both = await checkRecipeSetup(snapshotDevelopmentTaskSpec({ ...spec, checks: [...spec.checks, { ...spec.checks[0]!, id: "business", args: ["checks/business.mjs"], expect: { baseline: "fail", failureAssertion: "business-required" } }] })); both.promote();
+  assert.throws(() => both.materialize("omit-unit", { ...both.bindings, selections: both.bindings.selections.slice(1) }), /all original checks/);
+  const oldModule = "C:\\host\\loader.mjs", newModule = "file:///C:/host/loader.mjs";
+  const importSpec = snapshotDevelopmentTaskSpec({ ...spec, checks: [{ ...spec.checks[0]!, args: ["--import", oldModule, ...spec.checks[0]!.args] }] });
+  const imported = await checkRecipeSetup(importSpec, projectRoot, [{ id: "absolute-node", fromCommand: "node", fromPrefixArgs: ["--import", oldModule], command: process.execPath, prefixArgs: ["--import", newModule] }]); imported.promote();
+  assert.deepEqual(imported.materialize("file-url").spec.checks[0]!.args, ["--import", newModule, ...spec.checks[0]!.args], "same-id loader correction preserves the complete business argv remainder");
+  rollbackActive(f.registry, { identity: f.identity, expectedCurrentVersionId: f.registry.getActiveVersion(f.identity)!.versionId, targetVersionId: f.parent.versionId, reason: "user", automatic: false, evidence: ["private/review.json"] });
+  assert.deepEqual(f.materialize("rolled-back").spec, spec);
+  assert.equal(materialized.spec.checks[0]!.command, process.execPath, "an in-flight input never refreshes its resource");
+});
+
+for (const { loaderChanged, writeChanged } of [{ loaderChanged: false, writeChanged: false }, { loaderChanged: true, writeChanged: false }, { loaderChanged: false, writeChanged: true }]) test(`check-recipe evaluation binds exact checker and independent review, loader change=${loaderChanged}, scope change=${writeChanged}`, async () => {
+  const launchers = [{ id: "absolute-node", fromCommand: "node", fromPrefixArgs: [], command: process.execPath, prefixArgs: loaderChanged ? ["--import", "file:///C:/host/reviewed-loader.mjs"] : [] }];
+  const f = await checkRecipeSetup(spec, projectRoot, launchers), root = await mkdtemp(path.join(tmpdir(), "check-recipe-eval-"));
+  try {
+    const save = async (name: string, value: unknown) => { const file = path.join(root, name); await writeFile(file, JSON.stringify(value), "utf8"); return file; };
+    const trials: Array<{ recordFile: string; inputFile: string; contractFile: string; eventsFile: string; checkFile: string }> = [];
+    const add = async (id: string, failed: boolean) => {
+      const materialized = writeChanged && id.startsWith("candidate") ? f.api.materializeTaskResources({ registry: f.registry, projectRoot, logicalTaskId: id, sourceRevision,
+        spec: snapshotDevelopmentTaskSpec({ ...spec, write: { ...spec.write, allow: [...spec.write.allow, "extra.txt"] } }), topics: ["check-recipes"], checkRecipeBindings: f.bindings }) : f.materialize(id);
+      const runId = `run_${id}`, candidatePath = path.join(root, id);
+      const verification = { ...prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect }, checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) }).verification, timeoutMs: 20000 };
+      trials.push({ recordFile: await save(`${id}-record.json`, { id, comparisonId: id, source: "pi-sparkle", arm: "sparkle", runId, sourceRevision, model: "synthetic", thinking: "high", status: failed ? "FAILED" : "COMPLETED", accepted: !failed, effectsSettled: true, reviewed: true, kept: !failed, escapedDefects: 0, referenceUsd: "unknown", cost: { knownLowerBoundUsd: 0.01 } }),
+        inputFile: await save(`${id}-input.json`, materialized), eventsFile: await save(`${id}-events.jsonl`, { type: "RUN_CREATED", runId, occurredAt: new Date(Date.now() + 1000).toISOString(), payload: { run: { id: runId } } }),
+        contractFile: await save(`${id}-contract.json`, { schemaVersion: "loop-artifact-v2", id: `art_v2_${randomUUID()}`, runId, body: { kind: "native-write-task-contract", runId, taskId: `tsk_${id}`, sourceRevision, candidatePath, objective: spec.objective, verification } }),
+        checkFile: await save(`${id}-check.json`, { schemaVersion: "loop-artifact-v2", id: `art_v2_${randomUUID()}`, runId, body: { kind: "ps-p3-closed-loop", revision: sourceRevision, cwd: candidatePath, command: verification.command, args: verification.args, check: { kind: "command-check", command: verification.command, args: verification.args, cwd: candidatePath, processStatus: "completed", processExitCode: failed ? 1 : 0, exitCode: failed ? 1 : 0, processSignal: null, trustedVerification: { schemaVersion: "exact-verification-v1", descriptorId: verification.trustedVerification!.id, ok: true } } } }) });
+    };
+    await add("baseline", true); f.promote("peer");
+    for (let index = 0; index < 5; index++) await add(`candidate${index}`, index === 0);
+    const evaluate = () => f.api.evaluateRealTaskResources({ registry: f.registry, identity: f.identity, versionId: f.registry.getActiveVersion(f.identity)!.versionId, trials });
+    let result = await evaluate();
+    assert.equal(result.candidateTasks, 5); assert.ok(result.attempts.every(attempt => attempt.consumed));
+    assert.equal(result.conclusion, "unclear", "a peer approval or different argv alone is not independent business equivalence evidence");
+    assert.ok(result.attempts.some(attempt => attempt.issues.some(issue => /independent.*equivalence/.test(issue))));
+    // A synthetic restore fixture exercises independent provenance, without approving any real resource.
+    const snapshot = f.registry.snapshot();
+    const independent = ResourceRegistry.fromSnapshot({ ...snapshot, ledger: snapshot.ledger.map(entry => entry.kind !== "promoted" || !entry.review ? entry : { ...entry, review: { ...entry.review, reviewerKind: "independent" as const } }) });
+    result = await f.api.evaluateRealTaskResources({ registry: independent, identity: f.identity, versionId: independent.getActiveVersion(f.identity)!.versionId, trials });
+    assert.equal(result.conclusion, loaderChanged || writeChanged ? "unclear" : "better", "a launcher comparison cannot equate different write authority or supply missing import-module implementation evidence");
+    if (loaderChanged) assert.ok(result.attempts.every(attempt => attempt.issues.some(issue => /loader implementation/.test(issue))));
+    assert.equal(new Set(result.evaluations.map(record => record.dependencyVersions?.checker)).size, 2);
+    assert.equal(result.cost.totalUsd, "unknown"); assert.equal(result.attempts.length, 6);
+    const contract = JSON.parse(await readFile(trials[2]!.contractFile, "utf8")); contract.body.verification.args = [];
+    await writeFile(trials[2]!.contractFile, JSON.stringify(contract), "utf8");
+    result = await f.api.evaluateRealTaskResources({ registry: independent, identity: f.identity, versionId: independent.getActiveVersion(f.identity)!.versionId, trials });
+    assert.equal(result.conclusion, "unclear"); assert.equal(result.candidateTasks, 4);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("materialization consumes only active content, keeps TaskSpec authority, and follows CAS promotion and rollback", async () => {
   const f = await setup();
@@ -201,7 +283,7 @@ test("Node workflow requires an existing host-selected prepare binding and leave
   assert.throws(() => api.materializeTaskResources({ registry, projectRoot, logicalTaskId: "node", sourceRevision, spec: prepared, topics: ["node-preparation"], preparationBinding: { ...binding, args: ["different.mjs"] } }), /preparation binding/);
 });
 
-test("materialized prompt is consumed by a real TaskSpecSession and its actual host artifacts feed evaluation", { timeout: 60000 }, async () => {
+for (const topic of ["host-only-checks", "check-recipes"] as const) test(`materialized ${topic} is consumed by a real TaskSpecSession and its actual host artifacts feed evaluation`, { timeout: 60000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "resource-task-session-")), repo = path.join(root, "source"), stateRoot = path.join(root, "state");
   const session = new TaskSpecSession({ stateRoot, sandboxRoot: path.join(root, "candidates") });
   const git = (args: string[]) => { const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", windowsHide: true }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
@@ -212,9 +294,11 @@ test("materialized prompt is consumed by a real TaskSpecSession and its actual h
     git(["init", "-b", "fixture"]); git(["config", "core.autocrlf", "false"]);
     git(["config", "user.name", "Resource fixture"]); git(["config", "user.email", "fixture@example.invalid"]);
     git(["add", "."]); git(["-c", "commit.gpgsign=false", "commit", "-m", "fixture"]);
-    const revision = git(["rev-parse", "HEAD"]), f = await setup("host-only-checks", repo); f.promote();
+    const revision = git(["rev-parse", "HEAD"]);
+    const actualSpec = snapshotDevelopmentTaskSpec({ ...spec, checks: [{ ...spec.checks[0]!, command: topic === "check-recipes" ? "node" : process.execPath }], budget: { totalSeconds: 45, prepareSeconds: 5, workerSeconds: 10, checkSeconds: 15 } });
+    const f = topic === "check-recipes" ? await checkRecipeSetup(actualSpec, repo) : await setup("host-only-checks", repo); f.promote();
     const materialized = f.api.materializeTaskResources({ registry: f.registry, projectRoot: repo, logicalTaskId: "actual-task", sourceRevision: revision,
-      spec: snapshotDevelopmentTaskSpec({ ...spec, checks: [{ ...spec.checks[0]!, command: process.execPath }], budget: { totalSeconds: 45, prepareSeconds: 5, workerSeconds: 10, checkSeconds: 15 } }), topics: ["host-only-checks"] });
+      spec: actualSpec, topics: [topic], ...("bindings" in f ? { checkRecipeBindings: f.bindings } : {}) });
     const run = await session.run({ sourceRepo: repo, spec: materialized.spec, executorFactory: context => ({ async *execute(request, signal) {
       await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "after" }, signal);
       yield* new ProtocolChildExecutor().execute(request, signal);
