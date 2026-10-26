@@ -112,8 +112,9 @@ function buildCustomProvider(config: CustomProviderConfig) {
     cost: {
       input: model.inputCostPerMTok ?? 0,
       output: model.outputCostPerMTok ?? 0,
-      cacheRead: 0,
-      cacheWrite: 0
+      cacheRead: model.cacheReadCostPerMTok ?? 0,
+      cacheWrite: model.cacheWriteCostPerMTok ?? 0,
+      ...(model.costTiers === undefined ? {} : { tiers: [...model.costTiers] })
     },
     contextWindow: model.contextWindow ?? 8192,
     maxTokens: model.maxTokens ?? 4096,

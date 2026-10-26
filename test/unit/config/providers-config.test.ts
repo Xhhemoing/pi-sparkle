@@ -257,13 +257,36 @@ for (const field of ["contextWindow", "maxTokens"]) {
   }
 }
 
-for (const field of ["inputCostPerMTok", "outputCostPerMTok"]) {
+for (const field of ["inputCostPerMTok", "outputCostPerMTok", "cacheReadCostPerMTok", "cacheWriteCostPerMTok"]) {
   for (const value of [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, "1", null, true]) {
     test(`providers config rejects ${field}=${String(value)}`, () => {
       assert.throws(() => parseProvidersConfig(configWithModel({ [field]: value })), DomainValidationError);
     });
   }
 }
+
+test("providers config round-trips cache prices and long-context tiers", async () => {
+  const priced = {
+    inputCostPerMTok: 2, outputCostPerMTok: 10, cacheReadCostPerMTok: 0.1, cacheWriteCostPerMTok: 2.5,
+    costTiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }]
+  };
+  const config = parseProvidersConfig(configWithModel(priced));
+  assert.deepEqual(config.customProviders[0]!.models[0], { id: "model", ...priced });
+  await withStateRoot(async (root) => {
+    await saveProvidersConfig(root, config);
+    assert.deepEqual(await loadProvidersConfig(root), config);
+  });
+});
+
+test("providers config rejects incomplete, invalid or ambiguous price tiers", () => {
+  const tier = { inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 };
+  for (const costTiers of [null, {}, [null], [{ ...tier, input: -1 }], [{ ...tier, output: Infinity }],
+    [{ ...tier, cacheRead: "0.2" }], [{ ...tier, cacheWrite: undefined }],
+    [{ ...tier, inputTokensAbove: 1.5 }], [{ ...tier, inputTokensAbove: -1 }],
+    [tier, tier], [tier, { ...tier, inputTokensAbove: 100000 }]]) {
+    assert.throws(() => parseProvidersConfig(configWithModel({ costTiers })), DomainValidationError);
+  }
+});
 
 test("providers config preserves zero prices, positive safe token limits and missing prices", () => {
   const config = parseProvidersConfig(configWithModel({
