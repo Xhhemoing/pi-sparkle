@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { prepareDevelopmentCheckPlan } from "../../development/check-plan.js";
 import { DomainValidationError } from "../../domain/errors.js";
 import { isRecord } from "../../domain/record.js";
-import { parseEpisodeId, parseRunId, parseTaskId, type ResourceVersionId } from "../../domain/ids.js";
+import { isRunId, parseEpisodeId, parseRunId, parseTaskId, type ResourceVersionId } from "../../domain/ids.js";
 import { nowIso } from "../../domain/timestamp.js";
 import { createEvaluationRecord } from "../../evaluation/evaluator.js";
 import type { CriterionScore, EvaluationOutcome, EvaluationRecord } from "../../evaluation/types.js";
@@ -49,6 +49,7 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
   if (input.trials.length === 0 || input.trials.length > 1000) fail("require 1..1000 trial attempts");
   const identities = new Set<string>(), candidateTasks = new Set<string>(), baselineTasks = new Set<string>();
   const actualRuns = new Set<string>();
+  const claimedRuns = new Set<string>();
   const attempts: RealTaskTrialObservation[] = [], evaluations: EvaluationRecord[] = [];
   const strata = new Set<string>();
   let comparable = true;
@@ -59,6 +60,13 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
     const identity = JSON.stringify([row.source, row.arm, row.id]);
     if (identities.has(identity)) fail("duplicate attempt identity");
     identities.add(identity);
+    // Cost population only: a claimed run id is not proof of content consumption.
+    // Independent preflight failures may have no run id and retain their record identity.
+    if (isRunId(row.runId)) {
+      const claimedRun = JSON.stringify([row.source, row.runId]);
+      if (claimedRuns.has(claimedRun)) fail("duplicate claimed run identity");
+      claimedRuns.add(claimedRun);
+    }
     const lower = isRecord(row.cost) ? row.cost.knownLowerBoundUsd : undefined;
     if (row.referenceUsd !== "unknown" && row.referenceUsd !== undefined && !finite(row.referenceUsd)) fail("invalid reference cost");
     if (lower !== undefined && (!finite(lower) || (finite(row.referenceUsd) && lower > row.referenceUsd))) fail("invalid cost lower bound");

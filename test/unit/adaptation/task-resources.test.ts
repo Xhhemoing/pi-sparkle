@@ -111,7 +111,7 @@ for (const topic of ["host-only-checks", "input-validation", "node-preparation"]
     await assert.rejects(evaluate(), /duplicate/); trials.pop();
     const repeatedRun = JSON.parse(await readFile(trials[0]!.recordFile, "utf8")); repeatedRun.id = "renamed-baseline-attempt";
     trials.push({ ...trials[0]!, recordFile: await save("renamed-baseline-record.json", repeatedRun) });
-    await assert.rejects(evaluate(), /duplicate actual run/, "renaming an operator record cannot repeat a real run's cost or delivery result"); trials.pop();
+    await assert.rejects(evaluate(), /duplicate (?:claimed|actual) run/, "renaming an operator record cannot repeat a real run's cost or delivery result"); trials.pop();
     repeatedRun.source = ["pi-sparkle"];
     trials.push({ ...trials[0]!, recordFile: await save("array-source-record.json", repeatedRun) });
     await assert.rejects(evaluate(), /invalid native real-task record identity/, "source aliases cannot bypass actual-run identity"); trials.pop();
@@ -152,6 +152,37 @@ for (const topic of ["host-only-checks", "input-validation", "node-preparation"]
     assert.equal(result.conclusion, "unclear"); assert.equal(result.candidateTasks, topic === "node-preparation" ? 0 : 4);
     assert.equal(result.attempts.length, 6, "unverified attempts stay visible rather than disappearing");
     assert.ok(result.attempts.some(attempt => attempt.issues.some(issue => issue.includes("objective"))));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const contract of ["missing", "invalid"] as const) test(`cost accounting refuses renamed records for the same claimed run with ${contract} contract`, async () => {
+  const f = await setup(), root = await mkdtemp(path.join(tmpdir(), "resource-duplicate-cost-")); f.promote();
+  try {
+    const contractFile = path.join(root, "contract.json");
+    if (contract === "invalid") await writeFile(contractFile, JSON.stringify({ schemaVersion: "invalid" }), "utf8");
+    const trials = [];
+    for (const id of ["attempt-one", "renamed-attempt"]) {
+      const recordFile = path.join(root, `${id}.json`);
+      await writeFile(recordFile, JSON.stringify({ id, source: "pi-sparkle", arm: "sparkle", runId: "run_same_failed_attempt", status: "FAILED", referenceUsd: "unknown", cost: { knownLowerBoundUsd: 0.01 } }), "utf8");
+      trials.push({ recordFile, contractFile, inputFile: path.join(root, "input.json"), eventsFile: path.join(root, "events.jsonl") });
+    }
+    await assert.rejects(f.api.evaluateRealTaskResources({ registry: f.registry, identity: f.identity, versionId: f.registry.getActiveVersion(f.identity)!.versionId, trials }), /duplicate claimed run/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("cost accounting preserves independent preflight failures without a runId", async () => {
+  const f = await setup(), root = await mkdtemp(path.join(tmpdir(), "resource-preflight-cost-")); f.promote();
+  try {
+    const trials = [];
+    for (const id of ["preflight-one", "preflight-two"]) {
+      const recordFile = path.join(root, `${id}.json`);
+      await writeFile(recordFile, JSON.stringify({ id, source: "pi-sparkle", arm: "sparkle", status: "PREFLIGHT_FAILED", referenceUsd: "unknown", cost: { knownLowerBoundUsd: 0.01 } }), "utf8");
+      trials.push({ recordFile, contractFile: path.join(root, "missing-contract.json"), inputFile: path.join(root, "input.json"), eventsFile: path.join(root, "events.jsonl") });
+    }
+    const result = await f.api.evaluateRealTaskResources({ registry: f.registry, identity: f.identity, versionId: f.registry.getActiveVersion(f.identity)!.versionId, trials });
+    assert.equal(result.attempts.length, 2); assert.equal(result.cost.knownLowerBoundUsd, 0.02); assert.equal(result.cost.unknownAttempts, 2);
+    assert.equal(result.cost.totalUsd, "unknown"); assert.equal(result.conclusion, "unclear"); assert.equal(result.candidateTasks, 0);
+    assert.ok(result.attempts.every(attempt => !attempt.consumed && attempt.correctDelivery === false));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
