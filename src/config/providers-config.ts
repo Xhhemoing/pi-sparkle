@@ -10,6 +10,14 @@ import { parseModelRef } from "./model-ref.js";
 export const PROVIDERS_CONFIG_VERSION = 1 as const;
 export const PROVIDERS_CONFIG_FILE = "providers.json";
 
+export interface CustomProviderCostTier {
+  readonly inputTokensAbove: number;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+}
+
 export interface CustomProviderModel {
   readonly id: string;
   readonly name?: string;
@@ -17,6 +25,10 @@ export interface CustomProviderModel {
   readonly maxTokens?: number;
   readonly inputCostPerMTok?: number;
   readonly outputCostPerMTok?: number;
+  readonly cacheReadCostPerMTok?: number;
+  readonly cacheWriteCostPerMTok?: number;
+  /** Whole-request rates above each input-token threshold, including cached input. */
+  readonly costTiers?: readonly CustomProviderCostTier[];
   /** Reasoning-capable model: thinking levels map to provider reasoning params. */
   readonly reasoning?: boolean | undefined;
   /**
@@ -170,6 +182,28 @@ function parseOptionalModelRef(value: unknown, field: string): string | undefine
   return `${ref.providerId}/${ref.modelId}`;
 }
 
+function parseCostTiers(value: unknown, path: string): readonly CustomProviderCostTier[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new DomainValidationError(`${path} must be an array`);
+  let previousThreshold = -1;
+  return value.map((tier, index) => {
+    const location = `${path}[${index}]`;
+    if (!isRecord(tier) || typeof tier.inputTokensAbove !== "number" ||
+        !Number.isSafeInteger(tier.inputTokensAbove) || tier.inputTokensAbove <= previousThreshold) {
+      throw new DomainValidationError(`${location}.inputTokensAbove must be a non-negative safe integer in increasing order`);
+    }
+    previousThreshold = tier.inputTokensAbove;
+    for (const field of ["input", "output", "cacheRead", "cacheWrite"]) {
+      const rate = tier[field];
+      if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0) {
+        throw new DomainValidationError(`${location}.${field} must be a finite non-negative number`);
+      }
+    }
+    return { inputTokensAbove: tier.inputTokensAbove, input: tier.input as number, output: tier.output as number,
+      cacheRead: tier.cacheRead as number, cacheWrite: tier.cacheWrite as number };
+  });
+}
+
 function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -219,7 +253,7 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
           throw new DomainValidationError(`${path}.${field} must be a positive safe integer`);
         }
       }
-      for (const field of ["inputCostPerMTok", "outputCostPerMTok"]) {
+      for (const field of ["inputCostPerMTok", "outputCostPerMTok", "cacheReadCostPerMTok", "cacheWriteCostPerMTok"]) {
         const cost = model[field];
         if (cost !== undefined && (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0)) {
           throw new DomainValidationError(`${path}.${field} must be a finite non-negative number`);
@@ -231,6 +265,7 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
       if (model.compat !== undefined && !isRecord(model.compat)) {
         throw new DomainValidationError(`${path}.compat must be an object`);
       }
+      const costTiers = parseCostTiers(model.costTiers, `${path}.costTiers`);
       return {
         id: modelId,
         ...(typeof model.name === "string" ? { name: model.name } : {}),
@@ -238,6 +273,9 @@ function parseCustomProviders(value: unknown): readonly CustomProviderConfig[] {
         ...(typeof model.maxTokens === "number" ? { maxTokens: model.maxTokens } : {}),
         ...(typeof model.inputCostPerMTok === "number" ? { inputCostPerMTok: model.inputCostPerMTok } : {}),
         ...(typeof model.outputCostPerMTok === "number" ? { outputCostPerMTok: model.outputCostPerMTok } : {}),
+        ...(typeof model.cacheReadCostPerMTok === "number" ? { cacheReadCostPerMTok: model.cacheReadCostPerMTok } : {}),
+        ...(typeof model.cacheWriteCostPerMTok === "number" ? { cacheWriteCostPerMTok: model.cacheWriteCostPerMTok } : {}),
+        ...(costTiers === undefined ? {} : { costTiers }),
         ...(typeof model.reasoning === "boolean" ? { reasoning: model.reasoning } : {}),
         ...(isRecord(model.compat) ? { compat: model.compat } : {})
       };
