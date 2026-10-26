@@ -2,8 +2,8 @@
 
 See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
 
-- [ ] R0.2 Coordinator: integrate #80 d89c5649 first on adopted Rust, preserve containment/source invariants, run serial safety verification on C: with disk monitoring and affected review; after #80 verification process #82 serially; owner decides both runtime merges. Drop stale external plans.
-- [ ] R0.4–R0.6 Coordinator: private queue of at least 10 real tasks (pi-sparkle + Soul), verified isolated Soul clone procedure on a drive with space, per-task `budget.usd <= 5` and weekly total <= US$50.
+- [ ] R0.2 Coordinator: #80 conflict committed and runtime/test candidate verified in [#88](https://github.com/Xhhemoing/pi-sparkle/pull/88); process #82 serially next against it, dropping stale external plans. Owner decides both runtime main merges.
+- [ ] R0.6 Coordinator + owner: obtain trustworthy model reference prices before strict dispatch; verify per-task <=US$5 and current weekly total <=US$50 before R1. Queue and committed-only Soul clone procedure are prepared (plan evidence).
 - [ ] R1 Coordinator: run and record the first 10 real tasks alternating sources, at least 3 with a matched direct-Pi arm; never write the original Soul.
 - [ ] R2 Coordinator: review every 10 attempts or weekly; update run statistics; hypothesis + general fix for the top 1–2 failure classes; verify on later real tasks.
 - [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
