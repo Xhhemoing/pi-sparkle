@@ -109,7 +109,38 @@ test("Python profile only drafts fixed argv and protects existing configuration 
   await assert.rejects(lstat(path.join(repo, "sparkle.task.json")), { code: "ENOENT" });
 }));
 
+for (const table of ["project", "tool.ruff"]) {
+  test(`Python profile accepts pytest table comments on ${table}`, async () => fixture(async (repo) => {
+    const project = PROJECT.replace(`[${table}]`, `[${table}] # pytest is used for tests`);
+    await writeFile(path.join(repo, "pyproject.toml"), project, "utf8");
+    const drafted = await profile(repo);
+    assert.equal(drafted.profile, "python");
+    assert.equal(await readFile(path.join(repo, "pyproject.toml"), "utf8"), project);
+  }));
+}
+
+test("Python CLI init accepts pytest table comments without executing or changing inputs", async () => fixture(async (repo) => {
+  await writeFile(path.join(repo, "pyproject.toml"), PROJECT
+    .replace("[project]", "[project] # pytest project metadata")
+    .replace("[tool.ruff]", "[tool.ruff] # pytest companion checker"), "utf8");
+  await writeFile(path.join(repo, "conftest.py"), "raise RuntimeError('init must not import me')\n", "utf8");
+  await writeFile(path.join(repo, "tests/test_total.py"), "raise RuntimeError('init must not execute tests')\n", "utf8");
+  const inputs = ["pyproject.toml", "conftest.py", "src/total_api/__init__.py", "src/total_api/app.py", "tests/test_total.py"];
+  const before = await Promise.all(inputs.map((file) => readFile(path.join(repo, file))));
+  // Node is intentionally selected: init must locate it without probing Python modules.
+  const initialized = entrypoint(["init", "--task", "--dir", repo, "--python", process.execPath, "--json"]);
+  assert.equal(initialized.code, 0, initialized.stderr);
+  const output = JSON.parse(initialized.stdout);
+  assert.equal(output.type, "TASKSPEC_DRAFT");
+  assert.equal(output.profile, "python");
+  const drafted = parseDevelopmentTaskSpec(await readFile(path.join(repo, "sparkle.task.json"), "utf8"));
+  assert.ok(drafted.checks.every((check) => check.command === process.execPath));
+  assert.deepEqual(await Promise.all(inputs.map((file) => readFile(path.join(repo, file)))), before);
+}));
+
 for (const [name, replacement] of [
+  ["unsupported pytest table", PROJECT.replace("[tool.pytest.ini_options]", "[tool.pytest]")],
+  ["nested pytest table", `${PROJECT}\n[tool.pytest.ini_options.extra] # pytest configuration\nvalue = "unsupported"\n`],
   ["implicit test discovery", PROJECT.replace('testpaths = ["tests"]', 'testpaths = ["."]')],
   ["unbounded source imports", PROJECT.replace('pythonpath = ["src"]', 'pythonpath = ["../outside"]')],
   ["extra pytest options", PROJECT.replace('testpaths = ["tests"]', 'testpaths = ["tests"]\naddopts = "-p custom_plugin"')],

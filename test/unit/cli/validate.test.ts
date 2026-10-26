@@ -504,11 +504,9 @@ async function seedCwdCatalog(): Promise<string> {
 }
 
 /**
- * The real target defect on this command, and the reason it is pinned on
- * `--flowchart` rather than `--children`: only the flowchart branch resolves
- * the state root, and only to build the catalog its node models are checked
- * against. `--state-root ""` built that catalog out of the working directory's
- * own `providers.json`, so a spec naming a model the intended root does not
+ * A flowchart resolves the state root to build the catalog its node models
+ * are checked against. `--state-root ""` built that catalog out of the working
+ * directory's own `providers.json`, so a spec naming a model the intended root does not
  * expose was reported `valid` against whatever the operator happened to be
  * standing in — the opposite of the answer the same spec gets from the root
  * they meant.
@@ -568,18 +566,81 @@ test("validate --flowchart refuses a blank --state-root before any catalog is bu
 });
 
 /**
- * `--children` compiles with the default cheap/premium policy and consults no
- * catalog, and the usage says `--state-root` is ignored there. A documented
+ * Unpinned `--children` compiles with the default cheap/premium policy and
+ * consults no catalog, so `--state-root` is ignored there. A documented
  * ignored option does not become a blank-only incompatibility.
  */
 test("validate --children keeps ignoring --state-root, blank values included", async () => {
   await withSpecDir(async (specDir) => {
     const path = await writeSpec(specDir, "children.json", CHILDREN_SPEC);
-    for (const raw of ["", "  "]) {
+    for (const raw of ["", "  ", "\t"]) {
       const { io, out, err } = capture();
       assert.equal(await main(["validate", "--children", path, `--state-root=${raw}`], io), 0, err.join(""));
       assert.match(out.join(""), /valid: children 2 tasks → flowchart children \(2 nodes\)/);
       assert.deepEqual(err, []);
+    }
+  });
+});
+
+for (const raw of ["", "  ", "\t"]) {
+  for (const json of [false, true]) {
+    test(`validate pinned children refuses blank --state-root ${JSON.stringify(raw)} (${json ? "json" : "prose"})`, async () => {
+      await withSpecDir(async (specDir) => {
+        const path = await writeSpec(specDir, "pinned.json", {
+          tasks: [{ id: "tsk_pinned", role: "reviewer", objective: "Pinned task", model: "local/m1" }]
+        });
+        const cwd = await seedCwdCatalog();
+        try {
+          await withCwd(cwd, async () => {
+            const { io, out, err } = capture();
+            assert.equal(
+              await main(["validate", "--children", path, `--state-root=${raw}`, ...(json ? ["--json"] : [])], io),
+              1
+            );
+            assert.deepEqual(out, [], "a refusal never prints a valid: line or a VALIDATE_OK");
+            const parsed = parseCliErrorJson(err.join(""));
+            assert.equal(parsed?.command, "validate");
+            assert.equal(parsed?.stage, "parse-args");
+            assert.equal(parsed?.message, blankRootMessage(raw));
+            assert.equal(parsed?.next, BLANK_ROOT_NEXT);
+            assert.doesNotMatch(err.join(""), /providers\.json|local\/m1|could not build the model catalog/);
+          });
+        } finally {
+          await rm(cwd, { recursive: true, force: true });
+        }
+      });
+    });
+  }
+}
+
+test("validate pinned children preserves explicit relative and other state roots", async () => {
+  await withSpecDir(async (specDir, stateRoot) => {
+    const path = await writeSpec(specDir, "pinned.json", {
+      tasks: [{ id: "tsk_pinned", role: "reviewer", objective: "Pinned task", model: "local/m1" }]
+    });
+    const cwd = await seedCwdCatalog();
+    try {
+      await withCwd(cwd, async () => {
+        const relative = capture();
+        assert.equal(
+          await main(["validate", "--children", path, "--state-root", ".", "--json"], relative.io),
+          0,
+          relative.err.join("")
+        );
+        const report = JSON.parse(relative.out.join("")) as { type: string; catalogSource: string; stateRoot: string };
+        assert.equal(report.type, "VALIDATE_OK");
+        assert.equal(report.catalogSource, "live");
+        assert.equal(report.stateRoot, ".");
+
+        const other = capture();
+        assert.equal(await main(["validate", "--children", path, "--state-root", stateRoot], other.io), 1);
+        assert.deepEqual(other.out, []);
+        const parsed = parseCliErrorJson(other.err.join(""));
+        assert.equal(parsed?.stage, "validation");
+        assert.match(parsed?.message ?? "", /pinned model not in the live catalog: tsk_pinned -> "local\/m1"/);
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 });
