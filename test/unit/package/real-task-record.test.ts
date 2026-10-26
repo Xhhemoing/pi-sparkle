@@ -25,7 +25,7 @@ async function fixture(run: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "sparkle-real-task-"));
   try { await run(root); } finally { await rm(root, { recursive: true, force: true, maxRetries: 3 }); }
 }
-async function record(root: string, meta: object, capture?: object | object[], rows?: object[] | string, loop?: object) {
+async function record(root: string, meta: object, capture?: object | object[], rows?: object[] | string, loop?: object, direct?: object) {
   await writeFile(join(root, "metadata.json"), JSON.stringify(meta), "utf8");
   const args = [script, "--root", root, "--metadata", join(root, "metadata.json"), "--state-root", join(root, "state")];
   if (capture !== undefined) {
@@ -39,6 +39,10 @@ async function record(root: string, meta: object, capture?: object | object[], r
   if (loop !== undefined) {
     await writeFile(join(root, "loop.json"), JSON.stringify(loop), "utf8");
     args.push("--loop-artifact", join(root, "loop.json"));
+  }
+  if (direct !== undefined) {
+    await writeFile(join(root, "direct.json"), JSON.stringify(direct), "utf8");
+    args.push("--direct-cost-report", join(root, "direct.json"));
   }
   const { stdout } = await exec(process.execPath, args);
   const { path } = JSON.parse(stdout) as { path: string };
@@ -367,6 +371,26 @@ function nativeCostSummary(runIds = ["run_one"], amounts = runIds.map(() => 0.00
       report: { runId, taskId: "task_one", agentInstanceId: "agent_one", streamDispatches: dispatches[index], knownReferenceUsd: amounts[index], coverage: "complete", settled: true,
         ledger: { turns: dispatches[index], turnsWithoutUsage: 0, tokensIn: 1000 * (dispatches[index] ?? 0), tokensOut: 500 * (dispatches[index] ?? 0), spentUsd: amounts[index] } } })) };
 }
+
+test("direct host cost reports retain partial spend without execution authority", async () => {
+  await fixture(async root => {
+    const cost = nativeCostSummary(["run_direct"], [6], [2]).attempts[0]!.report;
+    cost.coverage = "partial"; cost.ledger.turnsWithoutUsage = 1;
+    const result = await record(root, metadata({ arm: "direct-pi", status: "FAILED" }), undefined, undefined, undefined, { cost });
+    assert.equal(result.referenceUsd, "unknown");
+    assert.equal(result.cost.knownLowerBoundUsd, 6);
+    assert.equal(result.runId, undefined);
+    assert.equal(result.accepted, "unknown");
+    assert.equal((await summarize(root)).budget.accountedUsd, 6);
+    await assert.rejects(() => record(root, metadata({ id: "wrong-arm" }), undefined, undefined, undefined, { cost }), /direct/i);
+    await assert.rejects(() => record(root, metadata({ id: "mixed-direct", arm: "direct-pi" }), {}, undefined, undefined, { cost }), /without TaskSpec evidence/);
+    const complete = nativeCostSummary(["run_direct"]).attempts[0]!.report;
+    const stillUnknown = await record(root, metadata({ id: "direct-complete", arm: "direct-pi", accepted: true, effectsSettled: true }), undefined, undefined, undefined, { cost: complete });
+    assert.equal(stillUnknown.referenceUsd, "unknown");
+    assert.equal(stillUnknown.accepted, "unknown");
+    assert.equal(stillUnknown.effectsSettled, "unknown");
+  });
+});
 
 async function childBinding(root: string, parent = "run_one", child = "run_child", overrides = {}) {
   const folder = join(root, "state/runtime/runs", parent);
