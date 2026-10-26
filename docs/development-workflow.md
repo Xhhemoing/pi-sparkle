@@ -65,3 +65,48 @@ A delivered candidate has its remote branch and current green CI; retain a faile
 ## 8. Process Health
 
 Improve this workflow only for a concrete recurring failure or material risk. Prefer correcting stale guidance, execution timing, ownership or integration order before adding mechanisms. Use existing Git/CI/plan evidence to observe time to the first usable flow, late integration defects, avoidable complete reruns and manual rework. Do not claim a speedup or infer skill use from counts or missing telemetry; validate proposed benefits in actual subsequent work.
+
+## 9. Real-task resource proposals (development only)
+
+`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. It does not change the public routing-only `adapt learn/eval` commands, register baselines, promote resources, execute checks, or call a model. The owner must approve runtime adoption and the exact resource contents before use.
+
+Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, and `node-preparation`.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$labState = Join-Path $PWD '.agent_workspace/resource-review'
+$originalProject = 'E:/Project/pi-sparkle'
+node --import tsx scripts/real-task-adapt.mjs propose `
+  --state-root $labState --project $originalProject `
+  --topic host-only-checks --input .agent_workspace/source-records.json |
+  Set-Content .agent_workspace/proposal.json -Encoding UTF8
+```
+
+`--project` identifies the original project, not each disposable source clone. Soul uses its own original project identity and isolated copies; never combine its task count under a pi-sparkle resource. Keep inputs, outputs and registry state private. A `needs-baseline-approval` packet leaves the registry uninitialized. An approved empty-guidance baseline represents the unchanged TaskSpec; existing explicit registry/promotion/rollback APIs retain their authority and CAS rules.
+
+Set `$sourceRevision` to the full registered source SHA and `$versionId` to the owner-approved resource version. After owner approval, `materialize` reads the active version once and returns an authoring artifact containing `baseSpec`, `spec`, and resource bindings. Save that artifact, review its `spec`, then explicitly execute that spec through the existing TaskSpec flow. Materialization changes only the objective text; it cannot grant commands, rewrite scopes, loosen checks or change budgets.
+
+```powershell
+node --import tsx scripts/real-task-adapt.mjs materialize `
+  --state-root $labState --project $originalProject `
+  --input .agent_workspace/base-task.json --task-id P06 `
+  --revision $sourceRevision --topics host-only-checks |
+  Set-Content .agent_workspace/materialized.json -Encoding UTF8
+$materialized = Get-Content .agent_workspace/materialized.json -Raw -Encoding UTF8 | ConvertFrom-Json
+$materialized.spec | ConvertTo-Json -Depth 100 |
+  Set-Content .agent_workspace/task.json -Encoding UTF8
+```
+
+Use the same logical ID as the later task record's `comparisonId`. Evaluate one resource delta at a time. The evaluation input is an array of objects naming `recordFile`, `inputFile` (saved materialization), `contractFile`, `eventsFile`, and the actual `checkFile`. All paths refer to existing private evidence. Keep failed and unknown attempts; changed operator labels cannot turn a repeated real run into a new attempt or task.
+
+```powershell
+node --import tsx scripts/real-task-adapt.mjs evaluate `
+  --state-root $labState --project $originalProject `
+  --topic host-only-checks --version $versionId `
+  --input .agent_workspace/trial-files.json |
+  Set-Content .agent_workspace/evaluation.json -Encoding UTF8
+```
+
+Evaluation binds actual task objectives, verifier definitions, source/run identities and later run events. Missing or conflicting checks cannot produce a successful delivery score. Model/thinking and non-check budgets remain operator-recorded comparison inputs, not independently reconstructed execution facts. Five distinct later applicable tasks permit a descriptive `better/worse/unclear` conclusion, not causal proof or ADR-010 benefit acceptance.
+
+Node preparation is deliberately unproven here: materialization requires an already authorized fixed recipe in `TaskSpec.prepare`, but current preflight records do not bind its actual command/argv. Its evaluation remains `UNOBSERVED` and does not satisfy the five-task exit. No automation is enabled by these tools.
