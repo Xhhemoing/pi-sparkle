@@ -59,8 +59,10 @@ async function recordsAt(root) {
   return records;
 }
 async function main() {
-  const { values } = parseArgs({ options: { root: { type: "string" }, week: { type: "string" }, json: { type: "boolean" } }, strict: true });
-  if (!values.root || !values.week) fail("Usage: node scripts/real-task-summary.mjs --root <repo> --week <YYYY-MM-DD Monday> [--json]");
+  const { values } = parseArgs({ options: { root: { type: "string" }, week: { type: "string" }, json: { type: "boolean" }, "weekly-limit-usd": { type: "string" } }, strict: true });
+  if (!values.root || !values.week) fail("Usage: node scripts/real-task-summary.mjs --root <repo> --week <YYYY-MM-DD Monday> [--weekly-limit-usd <positive finite number|none>] [--json]");
+  const weeklyLimitUsd = values["weekly-limit-usd"] === "none" ? null : values["weekly-limit-usd"] === undefined ? 50 : Number(values["weekly-limit-usd"]);
+  if (weeklyLimitUsd !== null && (!Number.isFinite(weeklyLimitUsd) || weeklyLimitUsd <= 0)) fail("--weekly-limit-usd must be a positive finite number or none");
   const start = localDate(values.week);
   if (new Date(`${start}T00:00:00Z`).getUTCDay() !== 1) fail("--week must be an ISO Monday");
   const end = new Date(Date.parse(`${start}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
@@ -69,19 +71,20 @@ async function main() {
   const unknownReservationUsd = selected.filter(row => !finite(row.referenceUsd)).reduce((sum, row) => sum + Math.max(5, observedUsd(row)), 0);
   const accountedUsd = selected.filter(row => finite(row.referenceUsd)).reduce((sum, row) => sum + row.referenceUsd, 0) + unknownReservationUsd;
   const overLimitAttempts = selected.filter(row => observedUsd(row) > 5).length;
+  const nextTaskWithinWeeklyLimit = weeklyLimitUsd === null || accountedUsd + 5 <= weeklyLimitUsd;
   const result = { timezone: "America/Los_Angeles", weekStart: start, weekEndExclusive: end,
-    allTime: aggregate(all), week, budget: { perTaskLimitUsd: 5, weeklyLimitUsd: 50, accountedUsd,
-      unknownReservationUsd, remainingUsd: Math.max(0, 50 - accountedUsd),
+    allTime: aggregate(all), week, budget: { perTaskLimitUsd: 5, weeklyLimitUsd, accountedUsd,
+      unknownReservationUsd, remainingUsd: weeklyLimitUsd === null ? null : Math.max(0, weeklyLimitUsd - accountedUsd),
       overLimitAttempts,
-      withinWeeklyLimit: accountedUsd <= 50, nextTaskReservationUsd: 5, canAdmitNextTask: overLimitAttempts === 0 && accountedUsd + 5 <= 50,
-      admissionReason: overLimitAttempts ? "current-week task exceeded US$5" : accountedUsd + 5 > 50 ? "next US$5 reservation exceeds weekly cap" : "within recorded caps" } };
+      withinWeeklyLimit: weeklyLimitUsd === null || accountedUsd <= weeklyLimitUsd, nextTaskReservationUsd: 5, canAdmitNextTask: overLimitAttempts === 0 && nextTaskWithinWeeklyLimit,
+      admissionReason: overLimitAttempts ? "current-week task exceeded US$5" : !nextTaskWithinWeeklyLimit ? "next US$5 reservation exceeds weekly cap" : "within recorded caps" } };
   if (values.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   else {
     const cost = row => row.cost.totalUsd === UNKNOWN ? `unknown (known US$${row.cost.knownUsd.toFixed(4)}; ${row.cost.unknownAttempts} unknown attempts)` : `US$${row.cost.totalUsd.toFixed(4)}`;
     process.stdout.write(`All time: ${all.length} attempts; reference cost ${cost(result.allTime)}\n` +
       `Week ${start} (America/Los_Angeles): ${week.attempts} attempts; reference cost ${cost(week)}\n` +
       `Correct deliveries: ${week.correctDeliveries}; unknown: ${week.correctDeliveryUnknown}\n` +
-      `Weekly budget: US$${accountedUsd.toFixed(4)}/50 accounted (max(US$5, observed cost lower bound) per unknown); task limit US$5; ${result.budget.overLimitAttempts} task overruns\n` +
+      `Weekly budget: US$${accountedUsd.toFixed(4)}/${weeklyLimitUsd === null ? "unlimited" : weeklyLimitUsd} accounted (max(US$5, observed cost lower bound) per unknown); task limit US$5; ${result.budget.overLimitAttempts} task overruns\n` +
       `Next task reservation: US$5; admission within recorded caps: ${result.budget.canAdmitNextTask} (${result.budget.admissionReason})\n` +
       `Week details: ${JSON.stringify(week)}\n`);
   }
