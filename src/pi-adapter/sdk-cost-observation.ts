@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs";
 import type { Api, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai";
 
-// Read the package actually supplying calculateCost; do not invent a catalog version.
-const sdkPackage: unknown = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-ai/models")), "utf8"));
-if (sdkPackage === null || typeof sdkPackage !== "object" || !("version" in sdkPackage) || typeof sdkPackage.version !== "string") {
-  throw new Error("SDK calculator package version unavailable");
+// Resolve the same root import as calculateCost. Older host loaders alias only that root to compat.js.
+// Metadata failure cannot prevent model execution or pretend that another calculator version was observed.
+function readCalculatorVersion(): string | undefined {
+  try {
+    const sdkPackage: unknown = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@earendil-works/pi-ai")), "utf8"));
+    return sdkPackage !== null && typeof sdkPackage === "object" && "name" in sdkPackage && sdkPackage.name === "@earendil-works/pi-ai" &&
+      "version" in sdkPackage && typeof sdkPackage.version === "string" && sdkPackage.version.trim() !== "" ? sdkPackage.version : undefined;
+  } catch { return undefined; }
 }
-const calculatorVersion = sdkPackage.version;
+const calculatorVersion = readCalculatorVersion();
 const reasons = ["stop", "length", "toolUse", "error", "aborted"] as const;
 type StopReason = typeof reasons[number];
 export type SdkModelCost = Readonly<Omit<Model<Api>["cost"], "tiers">> & {
@@ -22,7 +26,7 @@ export interface SdkCostObservation {
   readonly model: string;
   /** What the host submitted to the transport, not a claim about server reasoning. */
   readonly transportReasoning?: string;
-  readonly calculatorVersion: string;
+  readonly calculatorVersion?: string;
   readonly modelCost: SdkModelCost;
   readonly resultProvider?: string;
   readonly resultModel?: string;
@@ -37,7 +41,8 @@ export function captureSdkDispatch(index: number, model: Model<Api>, options: Si
     tiers: Object.freeze(model.cost.tiers.map(tier => Object.freeze({ inputTokensAbove: tier.inputTokensAbove, ...rates(tier) })))
   }) });
   const reasoning = options?.reasoning ?? "off";
-  return Object.freeze({ dispatchIndex: index, provider: model.provider, model: model.id, calculatorVersion, modelCost,
+  return Object.freeze({ dispatchIndex: index, provider: model.provider, model: model.id, modelCost,
+    ...(calculatorVersion === undefined ? {} : { calculatorVersion }),
     ...(levels.includes(reasoning) ? { transportReasoning: reasoning } : {}) });
 }
 export function finishSdkDispatch(snapshot: DispatchSnapshot, message: unknown, pricingComplete: boolean): SdkCostObservation {
@@ -50,7 +55,7 @@ export function finishSdkDispatch(snapshot: DispatchSnapshot, message: unknown, 
     ...(object(rawUsage.cost) ? { cost: Object.freeze(numeric(rawUsage.cost, ["input", "output", "cacheRead", "cacheWrite", "total"])) } : {})
   });
   const identity = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 1024;
-  return Object.freeze({ ...snapshot, pricingComplete,
+  return Object.freeze({ ...snapshot, pricingComplete: pricingComplete && snapshot.calculatorVersion !== undefined,
     ...(identity(row.provider) ? { resultProvider: row.provider } : {}), ...(identity(row.model) ? { resultModel: row.model } : {}),
     ...(reasons.includes(row.stopReason as StopReason) ? { stopReason: row.stopReason as StopReason } : {}),
     ...(usage === undefined ? {} : { usage }) });

@@ -206,7 +206,7 @@ function cachedProvider(responses: readonly CachedResponse[], cost?: Model<"faux
   };
   let calls = 0;
   const catalogReferences: number[] = [];
-  const stream = () => {
+  const stream = (selected: Model<"faux">) => {
     const response = responses[calls++] ?? { stopReason: "stop" as const };
     const usage: Usage = {
       input: response.input ?? 0, output: response.output ?? 0,
@@ -215,7 +215,7 @@ function cachedProvider(responses: readonly CachedResponse[], cost?: Model<"faux
       totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
     };
     usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-    calculateCost(model, usage);
+    calculateCost(selected, usage);
     catalogReferences.push(usage.cost.total);
     response.afterPricing?.(usage);
     const stopReason = response.stopReason ?? "toolUse";
@@ -223,7 +223,7 @@ function cachedProvider(responses: readonly CachedResponse[], cost?: Model<"faux
       ...fauxAssistantMessage(stopReason === "toolUse" ? fauxToolCall("continue_tool", {}) : "scripted", {
         stopReason, ...(stopReason === "error" ? { errorMessage: "HTTP 503 synthetic" } : {})
       }),
-      api: model.api, provider: model.provider, model: model.id, usage
+      api: selected.api, provider: selected.provider, model: selected.id, usage
     };
     const result = createAssistantMessageEventStream();
     queueMicrotask(() => {
@@ -297,13 +297,18 @@ for (const continuation of ["retry", "fallback"] as const) {
       { output: 1, cacheRead: 50 }
     ]);
     const costEvents: CostGateEvent[] = [];
+    const reports: import("../../../src/pi-adapter/execution-cost.js").ExecutionCostReport[] = [];
     const executor = new PiAgentExecutor({
       providerId: fixture.model.provider, modelId: fixture.model.id, models: fixture.models,
       tools: [continueTool], onCostGate: (event) => costEvents.push(event),
+      onExecutionCost: report => reports.push(report),
       retry: { maxAttempts: continuation === "retry" ? 2 : 1, sleep: async () => undefined },
       ...(continuation === "fallback" ? { fallbackModels: [{ providerId: fixture.model.provider, modelId: "fallback" }] } : {})
     });
     await drain(executor, request(200));
+    assert.deepEqual(reports[0]?.sdkObservations?.map(row => [row.model, row.resultModel]), [
+      ["synthetic", "synthetic"], [continuation === "fallback" ? "fallback" : "synthetic", continuation === "fallback" ? "fallback" : "synthetic"]
+    ], "each charged response must identify the model actually admitted for that dispatch");
     assert.equal(fixture.calls(), 2, "two 101-dollar turns exceed the shared 200-dollar cap");
     const stopped = costEvents.find((event) => event.kind === "stopped");
     assert.ok(stopped?.kind === "stopped");
