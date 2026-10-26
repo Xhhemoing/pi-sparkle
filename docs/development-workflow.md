@@ -65,3 +65,91 @@ A delivered candidate has its remote branch and current green CI; retain a faile
 ## 8. Process Health
 
 Improve this workflow only for a concrete recurring failure or material risk. Prefer correcting stale guidance, execution timing, ownership or integration order before adding mechanisms. Use existing Git/CI/plan evidence to observe time to the first usable flow, late integration defects, avoidable complete reruns and manual rework. Do not claim a speedup or infer skill use from counts or missing telemetry; validate proposed benefits in actual subsequent work.
+
+## 9. Real-task resource proposals (development only)
+
+`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. It does not change the public routing-only `adapt learn/eval` commands, register baselines, promote resources, execute checks, or call a model. The owner must approve runtime adoption and the exact resource contents before use.
+
+Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, and `check-recipes`.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$labState = Join-Path $PWD '.agent_workspace/resource-review'
+$originalProject = 'E:/Project/pi-sparkle'
+node --import tsx scripts/real-task-adapt.mjs propose `
+  --state-root $labState --project $originalProject `
+  --topic host-only-checks --input .agent_workspace/source-records.json |
+  Set-Content .agent_workspace/proposal.json -Encoding UTF8
+```
+
+`--project` identifies the original project, not each disposable source clone. Soul uses its own original project identity and isolated copies; never combine its task count under a pi-sparkle resource. Keep inputs, outputs and registry state private. A `needs-baseline-approval` packet leaves the registry uninitialized. An approved empty-guidance baseline represents the unchanged TaskSpec; existing explicit registry/promotion/rollback APIs retain their authority and CAS rules.
+
+Set `$sourceRevision` to the full registered source SHA and `$versionId` to the owner-approved resource version. After owner approval, `materialize` reads the active version once and returns an authoring artifact containing `baseSpec`, `spec`, and resource bindings. Save that artifact, review its `spec`, then explicitly execute that spec through the existing TaskSpec flow. Prompt materialization changes only the objective text. The check-recipe path below changes only explicitly authorized Node launcher wiring; neither path can rewrite scopes, reduce business coverage or change budgets.
+
+```powershell
+node --import tsx scripts/real-task-adapt.mjs materialize `
+  --state-root $labState --project $originalProject `
+  --input .agent_workspace/base-task.json --task-id P06 `
+  --revision $sourceRevision --topics host-only-checks |
+  Set-Content .agent_workspace/materialized.json -Encoding UTF8
+$materialized = Get-Content .agent_workspace/materialized.json -Raw -Encoding UTF8 | ConvertFrom-Json
+$materialized.spec | ConvertTo-Json -Depth 100 |
+  Set-Content .agent_workspace/task.json -Encoding UTF8
+```
+
+Use the same logical ID as the later task record's `comparisonId`. Evaluate one resource delta at a time. The evaluation input is an array of objects naming `recordFile`, `inputFile` (saved materialization), `contractFile`, `eventsFile`, and the actual `checkFile`. All paths refer to existing private evidence. Keep failed and unknown attempts; changed operator labels cannot turn a repeated real run into a new attempt or task.
+
+```powershell
+node --import tsx scripts/real-task-adapt.mjs evaluate `
+  --state-root $labState --project $originalProject `
+  --topic host-only-checks --version $versionId `
+  --input .agent_workspace/trial-files.json |
+  Set-Content .agent_workspace/evaluation.json -Encoding UTF8
+```
+
+Evaluation binds actual task objectives, verifier definitions, source/run identities and later run events. Missing or conflicting checks cannot produce a successful delivery score. Model/thinking and non-check budgets remain operator-recorded comparison inputs, not independently reconstructed execution facts. Five distinct later applicable tasks permit a descriptive `better/worse/unclear` conclusion, not causal proof or ADR-010 benefit acceptance.
+
+For a `check-recipes` proposal, provide `--check-launchers <JSON file>` with the exact conversions to review. Their values become part of the existing immutable candidate content and content hash; a mutable file path or authority label is not review evidence for new conversion values. For example, this conversion applies only to an original check whose command is already the bare `node`:
+
+```json
+[
+  {
+    "id": "explicit-node",
+    "fromCommand": "node",
+    "fromPrefixArgs": [],
+    "command": "C:/Program Files/nodejs/node.exe",
+    "prefixArgs": []
+  }
+]
+```
+
+Use the actual authorized Node path, rather than copying this example blindly. Do not weaken an already correct absolute launcher to manufacture a baseline failure. P06/P07's existing business-plus-unit checks and S06's combined UI check remain complete requirements; these preparation inputs are not later real-task adoption or improvement evidence. Preparation-only experiments, including a Windows native `--import C:\...` ESM scheme failure corrected to a `file:///...` URL, must not be relabeled as real model attempts or R2 task records.
+
+The unchanged check-recipe baseline content is `{"topic":"check-recipes","mode":"preserve","launchers":[],"sourceRefs":["owner/existing-checks"],"expectedEffect":"Keep all original checks unchanged"}`. Baseline registration is still a separate explicit decision. A candidate uses `mode: "host-bindings"` and nonempty fixed `launchers`; `propose` never initializes that baseline or activates the candidate.
+
+For materialization, provide `--check-bindings <JSON file>`. Its `authorityRef` identifies the host's prior authorization, `originalChecks` contains the complete original TaskSpec checks, and `selections` names exactly one approved launcher for every original check ID:
+
+```powershell
+$baseTask = Get-Content .agent_workspace/base-task.json -Raw -Encoding UTF8 | ConvertFrom-Json
+@{
+  authorityRef = 'private/authorized-check-launchers'
+  originalChecks = $baseTask.checks
+  selections = @($baseTask.checks | ForEach-Object {
+    @{ checkId = $_.id; launcherId = 'explicit-node' }
+  })
+} | ConvertTo-Json -Depth 100 | Set-Content .agent_workspace/check-bindings.json -Encoding UTF8
+node --import tsx scripts/real-task-adapt.mjs materialize `
+  --state-root $labState --project $originalProject `
+  --input .agent_workspace/base-task.json --task-id P06 `
+  --revision $sourceRevision --topics check-recipes `
+  --check-bindings .agent_workspace/check-bindings.json |
+  Set-Content .agent_workspace/materialized.json -Encoding UTF8
+```
+
+This selection example requires every original check to match that conversion; mixed launchers need their own exact approved entries. Missing, duplicate or extra check IDs and new command fields in selections are refused. A conversion replaces only an exact leading Node `--import` pair (or the empty prefix), preserving the complete remaining business argv, IDs, expectations, visibility, dependency protection and all limits. Replacement `--import` modules must be absolute local file URLs, including on Windows; package names, relative specifiers and native Windows paths are not accepted as replacement modules. No shell, eval flags, test filters, arbitrary argument patch or omitted checks can be introduced through a launcher prefix. Materialization performs no execution or installation.
+
+Check-recipe evaluation verifies each version's own exact actual checker. It compares the unchanged full original checks and other existing comparison inputs, rather than demanding identical launcher argv across versions. An existing promotion review with `reviewerKind: "independent"`, bound to the exact candidate ID, author and content hash, must review business equivalence of those fixed conversions; code does not infer executable equivalence from a Node filename or different argv. Without that review, consumption and outcomes remain visible but comparison is `unclear`. Changed import-module prefixes also remain `unclear`: current evidence binds consumed argv, not the imported module's stable implementation/version. Acceptance is never relaxed by this comparison logic, and failed, duplicate, missing or unknown evidence keeps the existing handling.
+
+Node preparation is deliberately unproven here: materialization requires an already authorized fixed recipe in `TaskSpec.prepare`, but current preflight records do not bind its actual command/argv. Its evaluation remains `UNOBSERVED` and does not satisfy the five-task exit. No automation is enabled by these tools.
+
+This adapter covers prompt guidance and bounded check-launcher recipes only. General TaskSpec defaults, actual context-rule consumption, Node preparation argv evidence and model/thinking resource adoption remain unfinished R3 work; a working adapter or synthetic test does not complete those obligations or the later-task outcome exit.
