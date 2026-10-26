@@ -9,7 +9,7 @@ import { createEvaluationRecord } from "../../evaluation/evaluator.js";
 import type { CriterionScore, EvaluationOutcome, EvaluationRecord } from "../../evaluation/types.js";
 import type { ResourceRegistry } from "./registry.js";
 import { identityEquals, type ResourceIdentity } from "./resource.js";
-import { verifyMaterializedTaskResources } from "./task-resources.js";
+import { parseTaskResourceContent, verifyMaterializedTaskResources } from "./task-resources.js";
 
 export interface RealTaskTrialFiles {
   readonly recordFile: string;
@@ -45,7 +45,8 @@ function delivery(row: Record<string, unknown>): boolean | "unknown" {
 export async function evaluateRealTaskResources(input: { registry: ResourceRegistry; identity: ResourceIdentity; versionId: ResourceVersionId; trials: readonly RealTaskTrialFiles[] }) {
   const version = input.registry.getVersion(input.versionId);
   if (!version || !identityEquals(version.identity, input.identity) || version.parentVersionId === undefined) fail("evaluation requires a known promoted candidate version and its parent");
-  if (!input.registry.ledger().some(entry => entry.kind === "promoted" && entry.toVersionId === version.versionId)) fail("candidate version has no approved promotion");
+  const promotion = input.registry.ledger().find(entry => entry.kind === "promoted" && entry.toVersionId === version.versionId);
+  if (!promotion) fail("candidate version has no approved promotion");
   if (input.trials.length === 0 || input.trials.length > 1000) fail("require 1..1000 trial attempts");
   const identities = new Set<string>(), candidateTasks = new Set<string>(), baselineTasks = new Set<string>();
   const actualRuns = new Set<string>();
@@ -96,8 +97,8 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       if (body.sourceRevision !== row.sourceRevision || body.sourceRevision !== materialized.sourceRevision) fail("task artifact source binding mismatch");
       if (body.objective !== materialized.spec.objective) fail("actual task objective did not consume materialized content");
       artifactId = artifact.id; taskId = body.taskId;
-      const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.baseSpec.write.allow, protectedPaths: materialized.baseSpec.write.protect },
-        checks: materialized.baseSpec.checks.map(({ expect: _expect, ...check }) => check) }).verification;
+      const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect },
+        checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) }).verification;
       const expected = { ...planned, timeoutMs: Math.round(materialized.baseSpec.budget.checkSeconds * 1000) };
       const actual = body.verification;
       if (!isRecord(actual) || !isRecord(actual.trustedVerification) || typeof actual.trustedVerification.id !== "string" || !actual.trustedVerification.id) fail("actual verifier descriptor is missing");
@@ -106,8 +107,22 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       if (!isDeepStrictEqual({ ...actual, trustedVerification: actualDescriptor }, { ...expected, trustedVerification: expectedDescriptor })) fail("actual verifier does not match materialized checker definitions");
       checkerVersion = JSON.stringify({ ...actual, trustedVerification: actualDescriptor });
       if (typeof row.model !== "string" || !row.model || typeof row.thinking !== "string" || !row.thinking) comparable = false;
-      strata.add(JSON.stringify({ source: row.source, model: row.model, thinking: row.thinking, verifier: checkerVersion,
-        prepare: materialized.baseSpec.prepare, budget: materialized.baseSpec.budget }));
+      const recipeComparison = binding.topic === "check-recipes";
+      if (recipeComparison) {
+        const review = promotion.review;
+        if (!review || review.reviewerKind !== "independent" || review.verdict !== "approved" || review.reviewerId === review.actorId ||
+            review.actorId !== version.author.identity || review.candidateId !== promotion.candidateId || review.contentHash !== version.contentHash) {
+          comparable = false; issues.push("independent business-equivalence review of the exact versioned launcher conversions is missing");
+        }
+        const content = parseTaskResourceContent(input.registry.getContent(version.contentHash)!);
+        if (content.topic !== "check-recipes") fail("check-recipe version content mismatch");
+        if (content.launchers.some(launcher => !isDeepStrictEqual(launcher.fromPrefixArgs, launcher.prefixArgs))) {
+          comparable = false; issues.push("import loader implementation/version equivalence is UNOBSERVED; consumed argv alone does not prove equal business checks");
+        }
+      }
+      // A recipe delta may change only the reviewed launcher. Business checks and write authority remain controls.
+      strata.add(JSON.stringify({ source: row.source, model: row.model, thinking: row.thinking, verifier: recipeComparison ? materialized.baseSpec.checks : checkerVersion,
+        write: materialized.baseSpec.write, prepare: materialized.baseSpec.prepare, budget: materialized.baseSpec.budget }));
       // A date-only operator record cannot prove a later trial. Use the actual host run creation event.
       const eventInfo = await lstat(files.eventsFile);
       if (!eventInfo.isFile() || eventInfo.isSymbolicLink() || eventInfo.size > 16 * 1024 * 1024) fail("run events must be a bounded regular file");
