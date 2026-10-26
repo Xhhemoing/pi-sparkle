@@ -29,7 +29,7 @@ function pytestConfiguration(text: string): void {
     if (line.startsWith("[")) {
       const header = /^\[([A-Za-z0-9_.-]+)\]\s*(?:#.*)?$/.exec(line);
       if (header === null || header[1] === "tool") fail("unsupported TOML configuration table; quoted or inline tool tables require an explicit TaskSpec");
-      if (line.includes("pytest") && header[1] !== "tool.pytest.ini_options") fail("unsupported pytest table; use [tool.pytest.ini_options]");
+      if (header[1]!.includes("pytest") && header[1] !== "tool.pytest.ini_options") fail("unsupported pytest table; use [tool.pytest.ini_options]");
       section = header[1]!;
       if (section === "tool.pytest.ini_options") {
         if (found) fail("duplicate pytest configuration table");

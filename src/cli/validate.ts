@@ -19,7 +19,7 @@ export interface ValidateIo {
 export const VALIDATE_USAGE = `pi-sparkle validate — check a spec file without starting a run
 
 Usage:
-  pi-sparkle validate --children <spec.json> [--json]
+  pi-sparkle validate --children <spec.json> [--state-root <dir>] [--json]
   pi-sparkle validate --flowchart <flowchart.json> [--state-root <dir>] [--json]
 
 Exactly one of --children / --flowchart. This command creates no run, writes
@@ -29,9 +29,9 @@ task: it runs the same parsers the run path runs and reports what they said.
 --children is parsed exactly as run --children parses it (ids, roles,
 objectives, acceptance criteria, limits.maxCostUsd, dependsOn) and then
 compiled with compileChildrenToFlowchart, so a cycle, a self-dependency or a
-missing dependency is refused here. The compile uses the default cheap/premium
-model policy; a real run assigns catalog models instead, so this does not
-check model availability for children.
+missing dependency is refused here. Unpinned tasks compile with the default
+cheap/premium model policy; a real run assigns catalog models instead, so
+model availability is checked only for tasks that pin "model".
 
 --flowchart runs the flowchart validator and then the same live-catalog check
 run --flowchart applies: node models are checked against the catalog built
@@ -65,10 +65,9 @@ export interface ValidateOkJson {
   readonly edgeCount?: number;
   readonly flowchartId?: string;
   /**
-   * Present for `--flowchart` only, and only ever `"live"`: the model check
-   * came from the catalog built out of `stateRoot`, the same one
-   * `run --flowchart` builds. `--children` omits both keys because it compiles
-   * with the default cheap/premium policy and checks no catalog at all.
+   * Present for `--flowchart` and pinned `--children`, and only ever `"live"`:
+   * the model check came from the catalog built out of `stateRoot`, the same
+   * one the run path builds. Unpinned children omit both keys.
    */
   readonly catalogSource?: "live";
   readonly stateRoot?: string;
@@ -76,6 +75,15 @@ export interface ValidateOkJson {
 
 function defaultStateRoot(): string {
   return join(homedir(), ".pi-sparkle");
+}
+
+function refuseBlankStateRoot(io: ValidateIo, raw: string): number {
+  return cliFail(io, {
+    command: "validate",
+    stage: "parse-args",
+    message: `invalid --state-root "${raw}": state root must be a non-empty directory path`,
+    next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
+  });
 }
 
 /**
@@ -153,22 +161,12 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
         : "pass --flowchart <flowchart.json>"
     });
   }
-  // Only `--flowchart` resolves the state root, and only to build the catalog
-  // its node models are checked against. A blank value — what an unset shell
-  // variable leaves behind — built that catalog out of a cwd-relative
-  // `providers.json`, so a flowchart naming a model the intended root does not
-  // expose was reported `valid` against whatever the current directory had
-  // enabled. `--children` never consults a catalog and its usage says
-  // `--state-root` is ignored there, so a documented ignored option does not
-  // become a blank-only incompatibility.
+  // Catalog reads need a nonblank root, otherwise an unset shell variable
+  // silently selects a cwd-relative providers.json. Pinned children apply
+  // the same guard once their pins are known; unpinned children ignore it.
   const rawStateRoot = values["state-root"];
   if (flowchartPath !== undefined && rawStateRoot !== undefined && rawStateRoot.trim() === "") {
-    return cliFail(io, {
-      command: "validate",
-      stage: "parse-args",
-      message: `invalid --state-root "${rawStateRoot}": state root must be a non-empty directory path`,
-      next: "pass --state-root <dir> or omit it to use the default ~/.pi-sparkle"
-    });
+    return refuseBlankStateRoot(io, rawStateRoot);
   }
 
   let report: ValidateOkJson;
@@ -187,6 +185,9 @@ export async function validateCommand(args: string[], io: ValidateIo): Promise<n
       let catalogSource: "live" | undefined;
       let childrenStateRoot: string | undefined;
       if (pins.length > 0) {
+        if (rawStateRoot !== undefined && rawStateRoot.trim() === "") {
+          return refuseBlankStateRoot(io, rawStateRoot);
+        }
         childrenStateRoot = values["state-root"] ?? defaultStateRoot();
         let catalogIds: readonly string[];
         try {
