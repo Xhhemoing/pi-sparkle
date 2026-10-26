@@ -166,6 +166,54 @@ shell history. Stored credentials live in `~/.pi-sparkle/runtime/auth.json`
 environment variables. `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` still work as
 a compatibility override for the default provider.
 
+#### Custom OpenAI-compatible provider
+
+Custom providers are read from `<state-root>/runtime/providers.json`. Add the
+provider entry to your existing configuration; do not overwrite the file, since
+it may already contain other providers, enabled models, or defaults. For example,
+merge this entry into the existing `customProviders` array (or use this complete
+minimal config only when creating a new file):
+
+```json
+{
+  "version": 1,
+  "enabled": [],
+  "customProviders": [
+    {
+      "id": "example",
+      "name": "Example local-compatible service",
+      "baseUrl": "https://api.example.invalid/v1",
+      "envVar": "EXAMPLE_API_KEY",
+      "models": [
+        { "id": "example-chat", "name": "Example chat model" }
+      ]
+    }
+  ]
+}
+```
+
+Keep `envVar` nonempty even when you plan to use interactive stored login. A
+custom provider without it uses a keyless local resolver and cannot use stored
+`auth.json` credentials. In PowerShell, choose one explicit state root and use
+it for registration, login, status, catalog lookup, and defaults:
+
+```powershell
+$stateRoot = Join-Path $HOME ".pi-sparkle-example"
+# Save the config above as $stateRoot\runtime\providers.json, merging it if present.
+pnpm cli auth login example --state-root $stateRoot
+pnpm cli auth status --all --state-root $stateRoot
+pnpm cli models list --available --provider example --state-root $stateRoot
+pnpm cli models set-default --primary example/example-chat --state-root $stateRoot
+```
+
+The login command prompts interactively and stores the credential. In the
+credentialed branch, stored login wins over the environment variable configured
+by `envVar`. `pnpm cli auth login example --from-env --state-root $stateRoot`
+checks only environment/ambient authentication and saves nothing; it does not
+test or store an interactive credential. Unpriced models are not free: absent cost metadata is not a price
+quote. Local auth and catalog checks confirm only local configuration, not that
+a remote request succeeds.
+
 Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`), or `--thinking <level>` on `run`, which wins over the env var for that run only and never persists. Google models silently clamp `xhigh`/`max`.
 
 ### Parent + children
