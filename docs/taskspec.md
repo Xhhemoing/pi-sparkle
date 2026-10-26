@@ -114,6 +114,74 @@ candidate is not reused by a later task invocation.
 
 Use `pnpm cli init --task --help` or `pnpm cli preflight --help` for flags.
 The configured CLI and current Pi host entries below share the same TaskSpec checks and lifecycle. Complete current-candidate and cross-platform qualification remain unfinished; the installed four-language examples have earlier Windows mechanism evidence.
+### Prepare Node dependencies without changing the source
+
+The Node draft leaves `prepare` empty; it does not infer or install dependencies.
+Read the project's `packageManager` and lockfile before selecting commands.
+An installed global pnpm does not prove that the pinned pnpm version or its
+offline packages are cached. A missing pinned manager is a preparation failure,
+before any model call, rather than a failing business test.
+
+Keep the source checkout free of untracked **and ignored** files. Installing
+`node_modules` there can make native admission refuse it; a large ignored tree
+can also exceed the Git status subprocess buffer. Do not bypass the source
+check or remove protection to make admission pass.
+
+If downloading dependencies needs owner approval, obtain it before preparing
+a separate disposable copy and private caches. Use the exact pinned manager,
+`--frozen-lockfile` and `--ignore-scripts`; preserve the lockfile. For pnpm,
+select a private store with `--store-dir`, and private manager/cache locations
+with `PNPM_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and
+`XDG_DATA_HOME` during that separate preparation. These settings do not install
+anything or change the global default version.
+
+TaskSpec preparation receives an empty environment; launching-shell variables
+are not inherited. Use a reviewed external wrapper to pass the same explicit
+private locations to the exact-version pnpm child. For example, save the
+following as `C:/private/node-tools/prepare.mjs`, replacing every example path
+with the reviewed locations. Its working directory is the current candidate.
+Do not place the wrapper or installed tools in the source checkout.
+
+```javascript
+import { spawnSync } from "node:child_process";
+
+const privateRoot = "C:/private/node-tools";
+const result = spawnSync(process.execPath, [
+  `${privateRoot}/pnpm/bin/pnpm.cjs`, "install", "--offline",
+  "--frozen-lockfile", "--ignore-scripts", "--store-dir", `${privateRoot}/store`
+], {
+  stdio: "inherit",
+  env: {
+    PNPM_HOME: `${privateRoot}/pnpm-home`,
+    XDG_CACHE_HOME: `${privateRoot}/cache`,
+    XDG_STATE_HOME: `${privateRoot}/state`,
+    XDG_CONFIG_HOME: `${privateRoot}/config`,
+    XDG_DATA_HOME: `${privateRoot}/data`
+  }
+});
+if (result.error) console.error("Locked dependency preparation could not start");
+process.exitCode = result.status ?? 1;
+```
+
+Register that wrapper in the TaskSpec's candidate preparation:
+
+```json
+"prepare": [{
+  "id": "locked-node-dependencies",
+  "command": "C:/Program Files/nodejs/node.exe",
+  "args": ["C:/private/node-tools/prepare.mjs"]
+}]
+```
+
+The preparation command runs in the isolated candidate, not the source.
+A separate standalone preflight removes its settled temporary candidate;
+`task run` must prepare its own candidate again from the same offline cache.
+An offline miss remains a refusal until the authorized cache is repaired.
+Check options against the selected pnpm version and subcommand: install/store
+options are not automatically valid for `pnpm exec`. A fixed Node test entry
+can avoid that wrapper when appropriate. Neither cache preparation nor a green
+preflight is a completed development change.
+
 ## Run with configured Pi from the CLI
 
 ```text
