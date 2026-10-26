@@ -48,8 +48,8 @@ async function record(root: string, meta: object, capture?: object | object[], r
   const { path } = JSON.parse(stdout) as { path: string };
   return JSON.parse(await readFile(path, "utf8"));
 }
-async function summarize(root: string, week = "2026-10-19") {
-  const { stdout } = await exec(process.execPath, [summary, "--root", root, "--week", week, "--json"]);
+async function summarize(root: string, week = "2026-10-19", extraArgs: string[] = []) {
+  const { stdout } = await exec(process.execPath, [summary, "--root", root, "--week", week, "--json", ...extraArgs]);
   return JSON.parse(stdout);
 }
 
@@ -173,6 +173,79 @@ test("summary rejects duplicate identity and exposes exhausted budget and per-ta
     assert.equal(over.budget.withinWeeklyLimit, false);
     await record(root, metadata({ id: "budget-0", date: "2026-10-24" }));
     await assert.rejects(summarize(root), /duplicate/i);
+  });
+});
+
+test("weekly limit is per invocation and preserves accounting across default, unlimited and numeric policies", async () => {
+  await fixture(async root => {
+    for (let index = 0; index < 10; index++) await record(root, metadata({ id: `weekly-${index}` }));
+    await record(root, metadata({ id: "prior", date: "2026-10-18" }));
+    await record(root, metadata({ id: "next", date: "2026-10-26" }));
+    const recordPaths = Array.from({ length: 10 }, (_, index) => join(root, `.agent_workspace/real-tasks/2026-10-25-weekly-${index}/record.json`));
+    const before = await Promise.all(recordPaths.map(file => readFile(file, "utf8")));
+    const baseline = await summarize(root);
+    assert.equal(baseline.allTime.attempts, 12);
+    assert.equal(baseline.week.attempts, 10);
+    assert.equal(baseline.week.cost.totalUsd, "unknown");
+    assert.equal(baseline.week.cost.unknownAttempts, 10);
+    assert.deepEqual(baseline.budget, { perTaskLimitUsd: 5, weeklyLimitUsd: 50, accountedUsd: 50,
+      unknownReservationUsd: 50, remainingUsd: 0, overLimitAttempts: 0, withinWeeklyLimit: true,
+      nextTaskReservationUsd: 5, canAdmitNextTask: false, admissionReason: "next US$5 reservation exceeds weekly cap" });
+    const policies = [
+      { args: [], limit: 50, remaining: 0, within: true, admit: false },
+      { args: ["--weekly-limit-usd", "none"], limit: null, remaining: null, within: true, admit: true },
+      { args: ["--weekly-limit-usd", "55"], limit: 55, remaining: 5, within: true, admit: true },
+      { args: ["--weekly-limit-usd", "54.99"], limit: 54.99, remaining: 54.99 - 50, within: true, admit: false },
+      { args: ["--weekly-limit-usd", "49.99"], limit: 49.99, remaining: 0, within: false, admit: false },
+    ];
+    for (const policy of policies) {
+      const result = await summarize(root, "2026-10-19", policy.args);
+      assert.deepEqual(result.allTime, baseline.allTime);
+      assert.deepEqual(result.week, baseline.week);
+      assert.deepEqual(result.budget, { ...baseline.budget, weeklyLimitUsd: policy.limit, remainingUsd: policy.remaining,
+        withinWeeklyLimit: policy.within, canAdmitNextTask: policy.admit,
+        admissionReason: policy.admit ? "within recorded caps" : "next US$5 reservation exceeds weekly cap" });
+      const { stdout } = await exec(process.execPath, [summary, "--root", root, "--week", "2026-10-19", ...policy.args]);
+      assert.ok(stdout.includes(`Weekly budget: US$50.0000/${policy.limit === null ? "unlimited" : policy.limit} accounted`));
+      assert.ok(stdout.includes("task limit US$5; 0 task overruns"));
+      assert.ok(stdout.includes(`admission within recorded caps: ${result.budget.canAdmitNextTask} (${result.budget.admissionReason})`));
+      assert.match(stdout, /reference cost unknown/);
+    }
+    assert.deepEqual(await summarize(root), baseline);
+    assert.deepEqual(await Promise.all(recordPaths.map(file => readFile(file, "utf8"))), before);
+  });
+});
+
+test("unlimited weekly policy retains an observed six dollar per-attempt overrun and unknown reservation", async () => {
+  await fixture(async root => {
+    await record(root, metadata(), projection(), [invocation({ tokensIn: 3_000_000, tokensOut: 0 })]);
+    const baseline = await summarize(root);
+    const result = await summarize(root, "2026-10-19", ["--weekly-limit-usd", "none"]);
+    assert.deepEqual(result.week, baseline.week);
+    assert.equal(result.week.cost.totalUsd, "unknown");
+    assert.equal(result.week.cost.knownUsd, 6);
+    assert.equal(result.week.cost.unknownAttempts, 1);
+    assert.deepEqual(result.budget, { ...baseline.budget, weeklyLimitUsd: null, remainingUsd: null });
+    assert.equal(result.budget.perTaskLimitUsd, 5);
+    assert.equal(result.budget.accountedUsd, 6);
+    assert.equal(result.budget.unknownReservationUsd, 6);
+    assert.equal(result.budget.withinWeeklyLimit, true);
+    assert.equal(result.budget.overLimitAttempts, 1);
+    assert.equal(result.budget.canAdmitNextTask, false);
+    assert.equal(result.budget.admissionReason, "current-week task exceeded US$5");
+    const { stdout } = await exec(process.execPath, [summary, "--root", root, "--week", "2026-10-19", "--weekly-limit-usd", "none"]);
+    assert.ok(stdout.includes("Weekly budget: US$6.0000/unlimited accounted"));
+    assert.ok(stdout.includes("task limit US$5; 1 task overruns"));
+    assert.ok(stdout.includes(`admission within recorded caps: false (${result.budget.admissionReason})`));
+  });
+});
+
+test("weekly limit rejects missing, empty, invalid, nonpositive and nonfinite arguments", async () => {
+  await fixture(async root => {
+    await assert.rejects(summarize(root, "2026-10-19", ["--weekly-limit-usd"]), /weekly-limit-usd/);
+    for (const value of ["", " ", "garbage", "55usd", "NONE", "0", "-1", "NaN", "Infinity", "-Infinity", "1e309"]) {
+      await assert.rejects(summarize(root, "2026-10-19", [`--weekly-limit-usd=${value}`]), /weekly-limit-usd/);
+    }
   });
 });
 
