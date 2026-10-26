@@ -13,7 +13,7 @@ import type { ApprovalProfile } from "./approval-profile.js";
 import { CANDIDATE_STATUSES } from "./candidate.js";
 import type { CandidateStatus, EvaluationPlan, ImprovementCandidate } from "./candidate.js";
 import type { RoutingEvalReport } from "./eval-routing.js";
-import { assertRoutingPolicyEvalReport, isIntentId, validatePromotionReview } from "./promotion-rules.js";
+import { assertRoutingPolicyEvalReport, isIntentId, snapshotManualDelegatedApproval, validatePromotionReview } from "./promotion-rules.js";
 import { ResourceRegistry } from "./registry.js";
 import type { RegistryOptions } from "./registry.js";
 import type { AuthorIdentity, ResourceIdentity, ResourceKind, ResourceScope, ResourceVersion } from "./resource.js";
@@ -50,15 +50,28 @@ export interface PromotionReview {
   readonly acceptProvisional?: boolean | undefined;
 }
 
+/** Audit of one explicit R3 decision; this JSON is not a live authorization. */
+export interface ManualDelegatedApproval {
+  readonly mode: "r3-manual";
+  readonly delegator: AuthorIdentity & { readonly kind: "human" };
+  readonly delegate: AuthorIdentity & { readonly kind: "model" };
+  readonly ownerInstructionRef: string;
+  readonly candidateId: CandidateId;
+  readonly contentHash: string;
+  readonly expectedCurrentVersionId: ResourceVersionId;
+  readonly resource: ResourceIdentity;
+}
+
 export interface PromoteInput {
   readonly candidateId: CandidateId;
   readonly expectedCurrentVersionId: ResourceVersionId;
   readonly content: string;
   readonly approvedBy: AuthorIdentity;
+  readonly delegatedApproval?: ManualDelegatedApproval;
   readonly review: PromotionReview;
   readonly changeNote: ChangeNote;
   readonly approvalProfile?: ApprovalProfile | undefined;
-  /** If false/undefined, require explicit human approval (approvedBy.kind === "human"). */
+  /** Explicit human approval, or a matching live host grant for an explicit R3 model decision. */
   readonly explicitApproval: boolean;
   /** Required when candidate.identity.kind === "routing-policy"; missing/undefined refuses. */
   readonly evalReport?: RoutingEvalReport | undefined;
@@ -71,6 +84,7 @@ export interface PromotionLedgerEntry {
   readonly toVersionId?: ResourceVersionId | undefined;
   readonly expectedCurrentVersionId: ResourceVersionId;
   readonly approvedBy: AuthorIdentity;
+  readonly delegatedApproval?: ManualDelegatedApproval;
   readonly review?: PromotionReview | undefined;
   readonly changeNote: ChangeNote;
   readonly at: IsoTimestamp;
@@ -82,6 +96,7 @@ export function reconstructPromotion(ledger: readonly PromotionLedgerEntry[]): {
   readonly expectedCurrentVersionId: ResourceVersionId;
   readonly toVersionId?: ResourceVersionId;
   readonly approvedBy?: AuthorIdentity;
+  readonly delegatedApproval?: ManualDelegatedApproval;
   readonly rollbackVersionId?: ResourceVersionId;
 } {
   let last: PromotionLedgerEntry | undefined;
@@ -97,6 +112,7 @@ export function reconstructPromotion(ledger: readonly PromotionLedgerEntry[]): {
     expectedCurrentVersionId: last.expectedCurrentVersionId,
     ...(last.toVersionId !== undefined ? { toVersionId: last.toVersionId } : {}),
     approvedBy: last.approvedBy,
+    ...(last.delegatedApproval === undefined ? {} : { delegatedApproval: last.delegatedApproval }),
     rollbackVersionId: last.changeNote.rollbackVersionId
   };
 }
@@ -119,6 +135,7 @@ export interface PendingPromotion {
   readonly expectedCurrentVersionId: ResourceVersionId;
   readonly pendingVersionId: ResourceVersionId;
   readonly approvedBy: AuthorIdentity;
+  readonly delegatedApproval?: ManualDelegatedApproval;
   readonly review?: PromotionReview | undefined;
   readonly changeNote: ChangeNote;
   readonly usedAutoPromote: boolean;
@@ -466,6 +483,7 @@ function parseLedgerEntry(value: unknown): PromotionLedgerEntry {
     fromVersionId: record.fromVersionId,
     expectedCurrentVersionId: record.expectedCurrentVersionId,
     approvedBy: parseAuthor(record.approvedBy, "ledger.approvedBy"),
+    ...(record.delegatedApproval === undefined ? {} : { delegatedApproval: snapshotManualDelegatedApproval(record.delegatedApproval) }),
     ...(record.review !== undefined ? { review: parsePromotionReview(record.review) } : {}),
     changeNote: parseChangeNote(record.changeNote),
     at: record.at
@@ -537,6 +555,7 @@ function parsePending(value: unknown): PendingPromotion {
     expectedCurrentVersionId: record.expectedCurrentVersionId,
     pendingVersionId: record.pendingVersionId,
     approvedBy: parseAuthor(record.approvedBy, "pending.approvedBy"),
+    ...(record.delegatedApproval === undefined ? {} : { delegatedApproval: snapshotManualDelegatedApproval(record.delegatedApproval) }),
     ...(record.review !== undefined ? { review: parsePromotionReview(record.review) } : {}),
     changeNote: parseChangeNote(record.changeNote),
     usedAutoPromote: record.usedAutoPromote

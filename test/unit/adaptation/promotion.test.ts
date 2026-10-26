@@ -20,8 +20,9 @@ import {
   reconstructPromotion,
   saveAdaptationRegistry
 } from "../../../src/adaptation/promotion.js";
-import type { ChangeNote, PromoteInput, ResourceRegistrySnapshot } from "../../../src/adaptation/promotion.js";
+import type { ChangeNote, ManualDelegatedApproval, PromoteInput, ResourceRegistrySnapshot } from "../../../src/adaptation/promotion.js";
 import { ResourceRegistry } from "../../../src/adaptation/registry.js";
+import type { RegistryOptions } from "../../../src/adaptation/registry.js";
 import type { AuthorIdentity, ResourceIdentity } from "../../../src/adaptation/resource.js";
 import { NON_AUTO_PROMOTABLE_KINDS } from "../../../src/adaptation/resource.js";
 import { hash32 } from "../../../src/domain/hash.js";
@@ -1118,5 +1119,213 @@ describe("routing-policy eval promotion gate", () => {
       () => parsePromotionReview(review("rejected")),
       /approved promotion review provenance is required/
     );
+  });
+});
+
+describe("R3 manual delegated promotion", () => {
+  function fixture(topic: "host-only-checks" | "input-validation" | "node-preparation" = "host-only-checks", liveAuthority = true) {
+    const generateId = sequentialIds();
+    const seed = new ResourceRegistry({ now: () => NOW, generateId });
+    const resource = identity({ kind: topic === "node-preparation" ? "workflow-template" : "prompt", name: topic });
+    const author: AuthorIdentity = { kind: "model", identity: "owner-delegated-coordinator" };
+    const content = JSON.stringify({ topic, guidance: "Use only the authorized task inputs.", sourceRefs: ["record:real-failure"], expectedEffect: "Reduce the observed failure class" });
+    const baseline = seed.registerBaseline({ identity: resource, content: "no added guidance", author });
+    const candidate = seed.createCandidate({ identity: resource, content, parentVersionId: baseline.versionId, author, evaluationPlan: PLAN });
+    const authority: ManualDelegatedApproval = {
+      mode: "r3-manual", delegator: { kind: "human", identity: "owner" }, delegate: { kind: "model", identity: author.identity },
+      ownerInstructionRef: "conversation:owner-standing-r0-r3-delegation", candidateId: candidate.candidateId,
+      contentHash: candidate.contentHash, expectedCurrentVersionId: baseline.versionId, resource
+    };
+    const options: RegistryOptions = { now: () => NOW, generateId, ...(liveAuthority ? { delegatedApprovals: [authority] } : {}) };
+    const reg = ResourceRegistry.fromSnapshot(seed.snapshot(), options);
+    const input: PromoteInput = promoteInput(candidate.candidateId, baseline.versionId, content, {
+      approvedBy: author, delegatedApproval: authority,
+      review: { reviewId: `review-${candidate.candidateId}`, candidateId: candidate.candidateId, contentHash: candidate.contentHash,
+        verdict: "approved", reviewerKind: "independent", reviewerId: "independent-content-reviewer", actorId: author.identity,
+        evidenceRefs: ["review:exact-r3-content"] }
+    });
+    return { reg, options, resource, author, content, baseline, candidate, authority, input };
+  }
+
+  it("records the actual model decision and distinct human delegator without enabling automation", () => {
+    for (const topic of ["host-only-checks", "input-validation", "node-preparation"] as const) {
+      const f = fixture(topic);
+      const result = f.reg.promote(f.input);
+      assert.equal(result.ok, true);
+      assert.equal(result.newVersion?.author.kind, "model");
+      assert.deepEqual(result.ledger.map(entry => entry.approvedBy), [f.author, f.author]);
+      assert.deepEqual(result.ledger.map(entry => entry.delegatedApproval), [f.authority, f.authority]);
+      assert.equal(f.reg.autoPromotionsUsed(), 0);
+      assert.deepEqual(Object.keys(result.ledger[0]!.delegatedApproval!).sort(), ["candidateId", "contentHash", "delegate", "delegator", "expectedCurrentVersionId", "mode", "ownerInstructionRef", "resource"]);
+      assert.deepEqual(Object.keys(f.reg.snapshot()).sort(), ["activeVersionIds", "autoPromotionsUsed", "candidates", "contents", "ledger", "pending", "retiredVersionIds", "rollbackLedger", "versions"]);
+      assert.deepEqual(reconstructPromotion(result.ledger).delegatedApproval, f.authority);
+      const restored = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(JSON.parse(JSON.stringify(f.reg.snapshot()))));
+      const rollback = restored.rollback({ identity: f.resource, expectedCurrentVersionId: result.newVersion!.versionId,
+        targetVersionId: f.baseline.versionId, reason: "user", evidence: ["owner:stop-r3-trial"], automatic: false });
+      assert.equal(rollback.active.versionId, f.baseline.versionId);
+      assert.deepEqual(restored.ledger().at(-1)?.delegatedApproval, f.authority);
+    }
+  });
+
+  it("does not accept candidate or review assertions as live host authority", () => {
+    const f = fixture("host-only-checks", false);
+    assert.throws(() => f.reg.promote({ ...f.input, review: { ...f.input.review, evidenceRefs: [f.authority.ownerInstructionRef] } }), /host.*delegat|delegat.*author/i);
+    assert.equal(f.reg.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    assert.equal(f.reg.ledger().length, 0);
+  });
+
+  it("binds every approval field to the independently supplied exact host grant", () => {
+    const changes: readonly [string, (raw: Record<string, unknown>) => void][] = [
+      ["delegate", raw => { raw.delegate = { kind: "model", identity: "another-model" }; }],
+      ["delegator", raw => { raw.delegator = { kind: "human", identity: "another-owner" }; }],
+      ["instruction", raw => { raw.ownerInstructionRef = "candidate:self-authorization"; }],
+      ["candidate", raw => { raw.candidateId = "cnd_another"; }],
+      ["content", raw => { raw.contentHash = "different-content"; }],
+      ["current", raw => { raw.expectedCurrentVersionId = "rsv_another"; }],
+      ["project", raw => { raw.resource = identity({ name: "host-only-checks", scope: { kind: "project", projectId: createProjectId(() => "other") } }); }]
+    ];
+    for (const [label, change] of changes) {
+      const f = fixture();
+      const altered = structuredClone(f.authority) as unknown as Record<string, unknown>;
+      change(altered);
+      assert.throws(() => f.reg.promote({ ...f.input, delegatedApproval: altered as unknown as ManualDelegatedApproval }), /delegat|author/i, label);
+      assert.equal(f.reg.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    }
+  });
+
+  it("detaches live host grants and pending audit records from mutable caller objects", () => {
+    const f = fixture();
+    const grants = [structuredClone(f.authority)];
+    const reg = ResourceRegistry.fromSnapshot(f.reg.snapshot(), { ...f.options, delegatedApprovals: grants });
+    const changed = structuredClone(f.authority);
+    Object.assign(changed.delegate, { identity: "changed-after-construction" });
+    grants[0] = changed;
+    grants.push(changed);
+    assert.throws(() => reg.promote({ ...f.input, approvedBy: changed.delegate, delegatedApproval: changed }), /host.*delegat|delegat.*author/i);
+    const inputAuthority = structuredClone(f.authority);
+    const began = reg.beginPromotion({ ...f.input, delegatedApproval: inputAuthority });
+    Object.assign(inputAuthority.delegate, { identity: "changed-after-begin" });
+    assert.equal(reg.snapshot().pending[0]!.delegatedApproval?.delegate.identity, f.author.identity);
+    assert.ok(Object.isFrozen(reg.snapshot().pending[0]!.delegatedApproval));
+    assert.ok(Object.isFrozen(reg.snapshot().pending[0]!.delegatedApproval?.resource.scope));
+    assert.equal(reg.commitPromotion(began.intentId).ok, true);
+    assert.equal(reg.ledger().at(-1)?.delegatedApproval?.delegate.identity, f.author.identity);
+  });
+
+  it("restores audit JSON without restoring authority and allows fresh host reauthorization", () => {
+    const f = fixture();
+    const began = f.reg.beginPromotion(f.input);
+    const snapshot = parseRegistrySnapshot(JSON.parse(JSON.stringify(f.reg.snapshot())));
+    assert.deepEqual(snapshot.pending[0]!.delegatedApproval, f.authority);
+    const noAuthority = ResourceRegistry.fromSnapshot(snapshot);
+    assert.throws(() => noAuthority.commitPromotion(began.intentId), /host.*delegat|delegat.*author/i);
+    assert.equal(noAuthority.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    const reauthorized = ResourceRegistry.fromSnapshot(noAuthority.snapshot(), f.options);
+    assert.equal(reauthorized.commitPromotion(began.intentId).ok, true);
+  });
+
+  it("cannot turn a delegated model decision into ordinary human approval by dropping audit metadata", () => {
+    const f = fixture();
+    const began = f.reg.beginPromotion(f.input);
+    const raw = JSON.parse(JSON.stringify(f.reg.snapshot())) as ResourceRegistrySnapshot;
+    const stripped = { ...raw, ledger: raw.ledger.map(({ delegatedApproval: _delegation, ...entry }) => entry),
+      pending: raw.pending.map(({ delegatedApproval: _delegation, ...entry }) => entry) };
+    const restored = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(stripped));
+    assert.throws(() => restored.commitPromotion(began.intentId), /model cannot promote/);
+    assert.equal(restored.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+  });
+
+  it("cannot restore R3 model authority by stripping delegation and flipping the persisted auto flag", () => {
+    const f = fixture();
+    const began = f.reg.beginPromotion(f.input);
+    const raw = JSON.parse(JSON.stringify(f.reg.snapshot())) as ResourceRegistrySnapshot;
+    const stripped = { ...raw, ledger: raw.ledger.map(({ delegatedApproval: _delegation, ...entry }) => entry),
+      pending: raw.pending.map(({ delegatedApproval: _delegation, ...entry }) => ({ ...entry, usedAutoPromote: true })) };
+    const restored = ResourceRegistry.fromSnapshot(parseRegistrySnapshot(stripped));
+    assert.throws(() => restored.commitPromotion(began.intentId), /R3.*delegat|model cannot promote/i);
+    assert.equal(restored.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    assert.equal(restored.autoPromotionsUsed(), 0);
+  });
+
+  it("does not start an R3 model decision through the generic automatic profile path", () => {
+    const f = fixture();
+    const { delegatedApproval: _delegation, ...input } = f.input;
+    assert.throws(() => f.reg.promote({ ...input, explicitApproval: false, approvalProfile: lowRiskProfile() }), /R3.*delegat|model cannot promote/i);
+    assert.equal(f.reg.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    assert.equal(f.reg.autoPromotionsUsed(), 0);
+  });
+
+  it("retains existing generic non-R3 automatic begin, commit and restored intent behavior", () => {
+    for (const kind of ["detector", "model"] as const) {
+      for (const restore of [false, true]) {
+        const reg = registry(), resource = identity();
+        const author = { kind, identity: "existing-generic-optimizer" };
+        const baseline = reg.registerBaseline({ identity: resource, content: "before", author });
+        const candidate = reg.createCandidate({ identity: resource, content: "after", parentVersionId: baseline.versionId, author, evaluationPlan: PLAN });
+        const began = reg.beginPromotion(promoteInput(candidate.candidateId, baseline.versionId, "after", {
+          approvedBy: author, explicitApproval: false, approvalProfile: lowRiskProfile(),
+          review: { reviewId: `review-${candidate.candidateId}`, candidateId: candidate.candidateId, contentHash: candidate.contentHash,
+            verdict: "approved", reviewerKind: "independent", reviewerId: "existing-critic", actorId: author.identity, evidenceRefs: ["review:generic-auto"] }
+        }));
+        const target = restore ? ResourceRegistry.fromSnapshot(parseRegistrySnapshot(JSON.parse(JSON.stringify(reg.snapshot())))) : reg;
+        assert.equal(target.commitPromotion(began.intentId).ok, true);
+        assert.equal(target.autoPromotionsUsed(), 1);
+        assert.equal(target.getActiveVersion(resource)?.contentHash, candidate.contentHash);
+      }
+    }
+  });
+
+  it("refuses delegated automation, altered content and self-review without moving active state", () => {
+    const f = fixture();
+    assert.throws(() => f.reg.promote({ ...f.input, explicitApproval: false, approvalProfile: lowRiskProfile() }), /manual|explicit/i);
+    assert.throws(() => f.reg.promote({ ...f.input, content: "different content" }), /content hash/);
+    assert.throws(() => f.reg.promote({ ...f.input, review: { ...f.input.review, reviewerId: f.author.identity } }), /self-review/);
+    assert.throws(() => f.reg.promote({ ...f.input, review: { ...f.input.review, actorId: "different-author" } }), /review must match/);
+    assert.equal(f.reg.getActiveVersion(f.resource)?.versionId, f.baseline.versionId);
+    assert.equal(f.reg.autoPromotionsUsed(), 0);
+  });
+
+  it("limits host grants to exact project-scoped real-task resource types", () => {
+    const f = fixture();
+    for (const resource of [identity({ kind: "routing-policy", name: "host-only-checks" }),
+      identity({ kind: "permission", name: "host-only-checks" }), identity({ kind: "security", name: "host-only-checks" }),
+      identity({ kind: "credential", name: "host-only-checks" }), identity({ name: "arbitrary-prompt" }),
+      identity({ name: "host-only-checks", scope: { kind: "user-global" } })]) {
+      assert.throws(() => new ResourceRegistry({ delegatedApprovals: [{ ...f.authority, resource }] }), /R3|real-task|project/i);
+    }
+    const invalidContent = "not a real-task resource content";
+    const seed = new ResourceRegistry();
+    const baseline = seed.registerBaseline({ identity: f.resource, content: "baseline", author: f.author });
+    const candidate = seed.createCandidate({ identity: f.resource, content: invalidContent, parentVersionId: baseline.versionId, author: f.author, evaluationPlan: PLAN });
+    const authority = { ...f.authority, candidateId: candidate.candidateId, contentHash: candidate.contentHash, expectedCurrentVersionId: baseline.versionId };
+    const reg = ResourceRegistry.fromSnapshot(seed.snapshot(), { delegatedApprovals: [authority] });
+    assert.throws(() => reg.promote({ ...f.input, candidateId: candidate.candidateId, expectedCurrentVersionId: baseline.versionId, content: invalidContent,
+      delegatedApproval: authority, changeNote: changeNote(baseline.versionId), review: { ...f.input.review, candidateId: candidate.candidateId, contentHash: candidate.contentHash } }), /content|JSON/);
+  });
+
+  it("rejects malformed or mismatched delegated audit JSON at parser and direct restore boundaries", () => {
+    const f = fixture();
+    f.reg.beginPromotion(f.input);
+    const snapshot = f.reg.snapshot();
+    const malformed = [null, {}, { ...f.authority, delegator: { kind: "model", identity: "owner" } },
+      { ...f.authority, ownerInstructionRef: "" }, { ...f.authority, mode: "automatic" },
+      { ...f.authority, candidateId: "cnd_other" }, { ...f.authority, contentHash: "wrong" },
+      { ...f.authority, extra: "unapproved-field" }];
+    for (const delegatedApproval of malformed) {
+      const raw = { ...snapshot, pending: snapshot.pending.map(entry => ({ ...entry, delegatedApproval })) };
+      assert.throws(() => parseRegistrySnapshot(raw), /delegat|author|candidate|content/i);
+      assert.throws(() => ResourceRegistry.fromSnapshot(raw as unknown as ResourceRegistrySnapshot), /delegat|author|candidate|content/i);
+    }
+    assert.throws(() => new ResourceRegistry({ delegatedApprovals: [{ ...f.authority, delegator: { kind: "model", identity: "owner" } } as ManualDelegatedApproval] }), /delegat|human/i);
+  });
+
+  it("preserves delegated audit provenance on CAS rejection", () => {
+    const f = fixture();
+    const began = f.reg.beginPromotion(f.input);
+    const other = f.reg.createCandidate({ identity: f.resource, content: "separate human-approved content", parentVersionId: f.baseline.versionId, author: AUTHOR, evaluationPlan: PLAN });
+    f.reg.promote(promoteInput(other.candidateId, f.baseline.versionId, "separate human-approved content"));
+    assert.throws(() => f.reg.commitPromotion(began.intentId), /active|expected|compare-and-swap|CAS/);
+    assert.equal(f.reg.ledger().at(-1)?.kind, "rejected");
+    assert.deepEqual(f.reg.ledger().at(-1)?.delegatedApproval, f.authority);
   });
 });

@@ -1,4 +1,5 @@
 import { DomainValidationError } from "../../domain/errors.js";
+import { isDeepStrictEqual } from "node:util";
 import {
   createCandidateId,
   createResourceVersionId,
@@ -28,11 +29,15 @@ import {
   intentIdFor,
   isIntentId,
   isPromotableStatus,
+  requiresManualR3Approval,
+  snapshotManualDelegatedApproval,
+  validateManualDelegatedPromotion,
   validateChangeNote,
   validatePromotionReview
 } from "./promotion-rules.js";
 import type {
   BeginPromotionResult,
+  ManualDelegatedApproval,
   PendingPromotion,
   PromoteInput,
   PromotionLedgerEntry,
@@ -47,6 +52,12 @@ import type { RollbackInput, RollbackLedgerEntry } from "./rollback.js";
 export interface RegistryOptions {
   readonly now?: () => IsoTimestamp;
   readonly generateId?: IdGenerator;
+  /**
+   * Trusted host input from an actual owner instruction, never candidate/review/snapshot data.
+   * Exact manual R3 grants are detached at construction and are not serialized. These
+   * records do not authenticate a human: the embedding host must verify the instruction.
+   */
+  readonly delegatedApprovals?: readonly ManualDelegatedApproval[];
 }
 
 export interface BaselineInput {
@@ -63,6 +74,7 @@ export interface BaselineInput {
 export class ResourceRegistry {
   private readonly now: () => IsoTimestamp;
   private readonly generateId: IdGenerator;
+  private readonly delegatedApprovals: readonly ManualDelegatedApproval[];
   private versionsById = new Map<ResourceVersionId, ResourceVersion>();
   private versionsByKey = new Map<string, readonly ResourceVersion[]>();
   private activeByKey = new Map<string, ResourceVersionId>();
@@ -78,6 +90,10 @@ export class ResourceRegistry {
   constructor(options: RegistryOptions = {}) {
     this.now = options.now ?? nowIso;
     this.generateId = options.generateId ?? (() => createResourceVersionId());
+    if (options.delegatedApprovals !== undefined && !Array.isArray(options.delegatedApprovals)) {
+      throw new DomainValidationError("host delegated approvals must be an array");
+    }
+    this.delegatedApprovals = Object.freeze((options.delegatedApprovals ?? []).map(snapshotManualDelegatedApproval));
   }
 
   static fromSnapshot(snapshot: ResourceRegistrySnapshot, options: RegistryOptions = {}): ResourceRegistry {
@@ -372,7 +388,8 @@ export class ResourceRegistry {
       candidateId: input.candidateId,
       expectedCurrentVersionId: input.expectedCurrentVersionId,
       pendingVersionId: prepared.pendingVersion.versionId,
-      approvedBy: input.approvedBy,
+      approvedBy: prepared.delegatedApproval?.delegate ?? input.approvedBy,
+      ...(prepared.delegatedApproval === undefined ? {} : { delegatedApproval: prepared.delegatedApproval }),
       review: input.review,
       changeNote: input.changeNote,
       usedAutoPromote: prepared.usedAutoPromote
@@ -384,7 +401,8 @@ export class ResourceRegistry {
       fromVersionId: input.expectedCurrentVersionId,
       toVersionId: prepared.pendingVersion.versionId,
       expectedCurrentVersionId: input.expectedCurrentVersionId,
-      approvedBy: input.approvedBy,
+      approvedBy: pending.approvedBy,
+      ...(prepared.delegatedApproval === undefined ? {} : { delegatedApproval: prepared.delegatedApproval }),
       review: input.review,
       changeNote: input.changeNote,
       at: this.now()
@@ -422,6 +440,15 @@ export class ResourceRegistry {
       throw new DomainValidationError(`unknown pending version: ${String(pending.pendingVersionId)}`);
     }
 
+    if (pending.delegatedApproval !== undefined) {
+      if (pending.usedAutoPromote) throw new DomainValidationError("R3 delegated approval is manual, never automatic");
+      this.assertHostDelegatedApproval(validateManualDelegatedPromotion({ approval: pending.delegatedApproval, candidate,
+        expectedCurrentVersionId: pending.expectedCurrentVersionId, approvedBy: pending.approvedBy, review: pending.review,
+        content: this.getContent(candidate.contentHash) }));
+    } else if (requiresManualR3Approval(pending.approvedBy, candidate.identity)) {
+      throw new DomainValidationError("R3 model cannot promote without manual delegated host authority");
+    } else if (!pending.usedAutoPromote) assertExplicitApprovalActor(pending.approvedBy);
+
     try {
       casActivePointer(
         this.activeByKey,
@@ -438,6 +465,7 @@ export class ResourceRegistry {
         toVersionId: pendingVersion.versionId,
         expectedCurrentVersionId: pending.expectedCurrentVersionId,
         approvedBy: pending.approvedBy,
+        ...(pending.delegatedApproval === undefined ? {} : { delegatedApproval: pending.delegatedApproval }),
         ...(pending.review !== undefined ? { review: pending.review } : {}),
         changeNote: pending.changeNote,
         at: this.now()
@@ -457,6 +485,7 @@ export class ResourceRegistry {
       toVersionId: pendingVersion.versionId,
       expectedCurrentVersionId: pending.expectedCurrentVersionId,
       approvedBy: pending.approvedBy,
+      ...(pending.delegatedApproval === undefined ? {} : { delegatedApproval: pending.delegatedApproval }),
       ...(pending.review !== undefined ? { review: pending.review } : {}),
       changeNote: pending.changeNote,
       at: this.now()
@@ -495,7 +524,7 @@ export class ResourceRegistry {
   restore(snapshot: ResourceRegistrySnapshot): void {
     // All validation and potentially throwing copies operate on fresh maps.
     // A rejected snapshot must not destroy the last readable registry.
-    const next = new ResourceRegistry({ now: this.now, generateId: this.generateId });
+    const next = new ResourceRegistry({ now: this.now, generateId: this.generateId, delegatedApprovals: this.delegatedApprovals });
     next.restoreIntoEmpty(snapshot);
     this.versionsById = next.versionsById;
     this.versionsByKey = next.versionsByKey;
@@ -599,8 +628,13 @@ export class ResourceRegistry {
       if (entry.toVersionId !== undefined) {
         requireIdentity(candidate.identity, requireVersion(entry.toVersionId, "ledger version").identity, "ledger");
       }
+      if (entry.delegatedApproval !== undefined) {
+        const delegatedApproval = validateManualDelegatedPromotion({ approval: entry.delegatedApproval, candidate,
+          expectedCurrentVersionId: entry.expectedCurrentVersionId, approvedBy: entry.approvedBy, review: entry.review,
+          content: this.getContent(candidate.contentHash) });
+        this.ledgerEntries.push({ ...entry, approvedBy: delegatedApproval.delegate, delegatedApproval });
+      } else this.ledgerEntries.push(entry);
     }
-    this.ledgerEntries.push(...snapshot.ledger);
     for (const pending of snapshot.pending) {
       if (!isIntentId(pending.intentId)) {
         throw new DomainValidationError(`invalid snapshot intent id: ${pending.intentId}`);
@@ -618,7 +652,13 @@ export class ResourceRegistry {
       if (version.contentHash !== candidate.contentHash || version.parentVersionId !== expected.versionId) {
         throw new DomainValidationError("snapshot pending version does not match candidate content and expected parent");
       }
-      this.pendingByIntent.set(pending.intentId, pending);
+      if (pending.delegatedApproval !== undefined) {
+        if (pending.usedAutoPromote) throw new DomainValidationError("delegated approval is manual, never automatic");
+        const delegatedApproval = validateManualDelegatedPromotion({ approval: pending.delegatedApproval, candidate,
+          expectedCurrentVersionId: pending.expectedCurrentVersionId, approvedBy: pending.approvedBy, review: pending.review,
+          content: this.getContent(candidate.contentHash) });
+        this.pendingByIntent.set(pending.intentId, { ...pending, approvedBy: delegatedApproval.delegate, delegatedApproval });
+      } else this.pendingByIntent.set(pending.intentId, pending);
     }
     for (const entry of snapshot.rollbackLedger ?? []) {
       const from = requireVersion(entry.fromVersionId, "rollback version");
@@ -640,6 +680,7 @@ export class ResourceRegistry {
   private preparePromotion(input: PromoteInput): {
     readonly pendingVersion: ResourceVersion;
     readonly usedAutoPromote: boolean;
+    readonly delegatedApproval?: ManualDelegatedApproval;
   } {
     validateChangeNote(input.changeNote, input.expectedCurrentVersionId);
     validatePromotionReview(input.review);
@@ -704,11 +745,20 @@ export class ResourceRegistry {
 
     const profile = input.approvalProfile ?? createDefaultApprovalProfile();
     validateApprovalProfile(profile);
+    if (input.delegatedApproval === undefined && requiresManualR3Approval(input.approvedBy, candidate.identity)) {
+      throw new DomainValidationError("R3 model cannot promote without manual delegated host authority");
+    }
     const autoEligible =
       canAutoPromote(profile, candidate.identity.kind, this.autoPromoteCount) &&
       candidate.autoPromotable;
     const usingAuto = autoEligible && input.explicitApproval !== true;
-    if (!usingAuto) {
+    let delegatedApproval: ManualDelegatedApproval | undefined;
+    if (input.delegatedApproval !== undefined) {
+      if (input.explicitApproval !== true) throw new DomainValidationError("delegated approval requires an explicit manual R3 decision");
+      delegatedApproval = validateManualDelegatedPromotion({ approval: input.delegatedApproval, candidate,
+        expectedCurrentVersionId: input.expectedCurrentVersionId, approvedBy: input.approvedBy, review: input.review, content: input.content });
+      this.assertHostDelegatedApproval(delegatedApproval);
+    } else if (!usingAuto) {
       if (input.explicitApproval !== true) {
         throw new DomainValidationError("explicit approval is required to promote");
       }
@@ -723,7 +773,13 @@ export class ResourceRegistry {
       parentVersionId: input.expectedCurrentVersionId,
       createdAt: this.now()
     };
-    return { pendingVersion, usedAutoPromote: usingAuto };
+    return { pendingVersion, usedAutoPromote: usingAuto, ...(delegatedApproval === undefined ? {} : { delegatedApproval }) };
+  }
+
+  private assertHostDelegatedApproval(approval: ManualDelegatedApproval): void {
+    if (!this.delegatedApprovals.some(grant => isDeepStrictEqual(grant, approval))) {
+      throw new DomainValidationError("matching live host delegated authority is required");
+    }
   }
 
   private addVersion(version: ResourceVersion): void {
