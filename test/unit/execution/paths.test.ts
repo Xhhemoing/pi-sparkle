@@ -25,6 +25,32 @@ test("isPathInside rejects siblings and escapes", () => {
   assert.equal(isPathInside(path.resolve("/tmp/other"), root), false);
 });
 
+test("isPathInside distinguishes dot-prefixed children from parent traversal", () => {
+  const root = path.resolve("/tmp/wt-root");
+  for (const child of ["..fixtures/value.test.cjs", ".../nested.txt", "..notes"]) {
+    assert.equal(isPathInside(path.join(root, child), root), true, child);
+  }
+  assert.equal(isPathInside(path.dirname(root), root), false);
+  assert.equal(isPathInside(path.resolve(root, "../..fixtures/value.test.cjs"), root), false);
+  if (process.platform === "win32") {
+    const otherDrive = path.parse(root).root.toLowerCase().startsWith("c:") ? "D:\\outside" : "C:\\outside";
+    assert.equal(isPathInside(otherDrive, root), false);
+  }
+});
+
+test("resolveInsideRoot accepts dot-prefixed children but rejects their escaping links", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "dot-path-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "dot-out-"));
+  try {
+    assert.equal(resolveInsideRoot(root, "..fixtures/new.txt"), path.join(root, "..fixtures/new.txt"));
+    linkParentDir(outside, path.join(root, "..linked"));
+    assert.throws(() => resolveInsideRoot(root, "..linked/new.txt"), /path escape refused/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("resolveInsideRoot refuses .. escape", () => {
   const root = path.resolve("/tmp/wt-root");
   assert.throws(() => resolveInsideRoot(root, "../secret"), /path escape refused/);

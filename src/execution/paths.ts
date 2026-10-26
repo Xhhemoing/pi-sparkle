@@ -7,7 +7,7 @@ export function isPathInside(target: string, root: string): boolean {
   const resolvedTarget = path.resolve(target);
   const resolvedRoot = path.resolve(root);
   const relative = path.relative(resolvedRoot, resolvedTarget);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 function lstatOrNone(p: string): Stats | undefined {
