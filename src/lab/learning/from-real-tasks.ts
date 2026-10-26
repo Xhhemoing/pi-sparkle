@@ -3,10 +3,11 @@ import { isRecord } from "../../domain/record.js";
 import type { CandidateId, ResourceVersionId } from "../../domain/ids.js";
 import type { ResourceRegistry } from "../adaptation/registry.js";
 import type { ResourceIdentity } from "../adaptation/resource.js";
-import { parseTaskResourceContent, taskResourceIdentity, taskResourceTopic, type TaskResourceContent, type TaskResourceTopic } from "../adaptation/task-resources.js";
+import { parseCheckRecipeLaunchers, parseTaskResourceContent, taskResourceIdentity, taskResourceTopic, type TaskResourceContent, type TaskResourceTopic } from "../adaptation/task-resources.js";
+import { isDeepStrictEqual } from "node:util";
 import type { FailureClass } from "../../routing/outcomes.js";
 
-const GUIDANCE: Readonly<Record<TaskResourceTopic, { guidance: string; expectedEffect: string }>> = {
+const GUIDANCE: Readonly<Record<Exclude<TaskResourceTopic, "check-recipes">, { guidance: string; expectedEffect: string }>> = {
   "node-preparation": {
     guidance: "Host preparation: select the exact packageManager version declared by the project and its locked dependency recipe. Prepare any external cache only under separate authorization. Keep the source pristine; install locked dependencies only in the isolated candidate through an explicitly reviewed fixed prepare wrapper. Declare the wrapper's child environment explicitly: TaskSpec commands do not inherit the launching shell environment. A standalone preflight removes its settled candidate; repeat candidate preparation for the actual task. Do not auto-install, loosen checks, change lockfiles, or give the file-only worker command authority.",
     expectedEffect: "Fewer Node preparation-routing failures on later comparable tasks, with every failure, intervention, time and unknown cost retained; not a causal improvement claim."
@@ -22,7 +23,7 @@ const GUIDANCE: Readonly<Record<TaskResourceTopic, { guidance: string; expectedE
 };
 export interface RealTaskSource { readonly ref: string; readonly record: unknown; }
 const RELATED_CLASSES: Readonly<Record<TaskResourceTopic, readonly FailureClass[]>> = {
-  "node-preparation": ["environment", "tool", "contract"], "host-only-checks": ["model", "contract", "run"], "input-validation": ["model", "contract"]
+  "node-preparation": ["environment", "tool", "contract"], "host-only-checks": ["model", "contract", "run"], "input-validation": ["model", "contract"], "check-recipes": ["environment", "tool", "contract", "run"]
 };
 export interface TaskResourceProposal {
   readonly proposalKind: "seeded-class-proposal";
@@ -41,11 +42,13 @@ function sameBehavior(raw: string | undefined, proposed: TaskResourceContent): b
   if (raw === undefined) return false;
   try {
     const previous = parseTaskResourceContent(raw);
+    if (previous.topic === "check-recipes" || proposed.topic === "check-recipes") return previous.topic === "check-recipes" && proposed.topic === "check-recipes" && previous.mode === proposed.mode &&
+      isDeepStrictEqual(previous.launchers, proposed.launchers) && previous.expectedEffect === proposed.expectedEffect;
     return previous.topic === proposed.topic && previous.guidance === proposed.guidance && previous.expectedEffect === proposed.expectedEffect;
   } catch { return false; }
 }
 /** Bounded source facts only: no task body, prompt, transcript or credential enters a packet. */
-export function proposeRealTaskResources(input: { registry: ResourceRegistry; projectRoot: string; topic: TaskResourceTopic; sourceRecords: readonly RealTaskSource[] }): TaskResourceProposal[] {
+export function proposeRealTaskResources(input: { registry: ResourceRegistry; projectRoot: string; topic: TaskResourceTopic; sourceRecords: readonly RealTaskSource[]; checkRecipeLaunchers?: unknown }): TaskResourceProposal[] {
   const topic = taskResourceTopic(input.topic);
   if (input.sourceRecords.length < 1 || input.sourceRecords.length > 1000) fail("require 1..1000 source records");
   const ids = new Set<string>(), refs = new Set<string>();
@@ -74,7 +77,10 @@ export function proposeRealTaskResources(input: { registry: ResourceRegistry; pr
   const proposal = { proposalKind: "seeded-class-proposal" as const, observations: { selectedRecords: sourceRecords.length, relatedFailures } };
   return [topic].map(topic => {
     const identity = taskResourceIdentity(input.projectRoot, topic);
-    const body: TaskResourceContent = { topic, ...GUIDANCE[topic], sourceRefs: sourceRecords.map(record => record.ref) };
+    const sourceRefs = sourceRecords.map(record => record.ref);
+    const body: TaskResourceContent = topic === "check-recipes" ? { topic, mode: "host-bindings", launchers: parseCheckRecipeLaunchers(input.checkRecipeLaunchers), sourceRefs,
+      expectedEffect: "Reduce recorded checker-launcher failures while preserving every original business check; independent equivalence review and later real-task evidence are required." } : { topic, ...GUIDANCE[topic], sourceRefs };
+    if (body.topic === "check-recipes" && body.launchers.length === 0) fail("check-recipes proposal requires exact fixed launcher conversions");
     const content = JSON.stringify(body, null, 2);
     const parent = input.registry.getActiveVersion(identity);
     if (parent === undefined) return { ...proposal, identity, content, state: "needs-baseline-approval", sourceRecords,
