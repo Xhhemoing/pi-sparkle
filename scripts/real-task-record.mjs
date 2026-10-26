@@ -111,7 +111,22 @@ function project(result, rows) {
   if (runId !== undefined) result.runId = runId;
   return result;
 }
-async function costPopulation(file, result, rows) {
+async function boundChildCostRun(stateRoot, parent, report) {
+  if (!isObject(report) || typeof report.runId !== "string" || !/^run_[A-Za-z0-9_-]{1,96}$/.test(report.runId) ||
+      typeof report.taskId !== "string") return false;
+  let events;
+  try { events = await readFile(path.join(stateRoot, "runtime", "runs", parent, "events.jsonl"), "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+  for (const line of events.split(/\r?\n/).filter(line => line.trim())) {
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+    const child = event?.payload?.childRun;
+    if (event?.type === "CHILD_RUN_CREATED" && event.runId === parent && event.taskId === report.taskId &&
+        child?.id === report.runId && child.parentRunId === parent && child.rootTaskId === report.taskId) return true;
+  }
+  return false;
+}
+async function costPopulation(file, result, rows, stateRoot) {
   if (file === undefined) return { runIds: result.runId === undefined ? [] : [result.runId], complete: false };
   const envelope = JSON.parse((await readFile(file, "utf8")).replace(/^\uFEFF/, ""));
   const body = envelope?.body, attempts = body?.attempts;
@@ -131,7 +146,19 @@ async function costPopulation(file, result, rows) {
   for (const key of ["candidatePath", "sourceRevision"]) {
     if (execution[key] !== undefined && body[key] !== execution[key]) fail(`loop artifact ${key} does not match execution`);
   }
-  return { runIds, complete: true, referenceCost: body.referenceCost };
+  // Native attempts identify parent task runs; the cost ledger and invocation
+  // sink identify their actual workers. Resolve that distinction through the
+  // persisted parent-child event, never from an arbitrary receipt ID alone.
+  let complete = true;
+  const workers = [];
+  for (const [index, parent] of runIds.entries()) {
+    const report = body.referenceCost?.attempts?.[index]?.report;
+    if (report === undefined || report?.runId === parent) { workers.push(parent); continue; }
+    if (!runIds.includes(report?.runId) && await boundChildCostRun(stateRoot, parent, report)) workers.push(report.runId);
+    else { workers.push(parent); complete = false; }
+  }
+  if (new Set(workers).size !== workers.length) { complete = false; workers.splice(0, workers.length, ...runIds); }
+  return { runIds: workers, complete, referenceCost: body.referenceCost };
 }
 function nativeCostAmount(summary, runIds, requireComplete) {
   const counter = value => Number.isSafeInteger(value) && value >= 0;
@@ -294,8 +321,9 @@ async function main() {
   }
   const rows = await captureProjection(values.projection);
   const result = project(validateMetadata(metadata), rows);
-  const population = await costPopulation(values["loop-artifact"], result, rows);
-  Object.assign(result, await costForRun(path.resolve(values["state-root"] ?? path.join(homedir(), ".pi-sparkle")), population));
+  const stateRoot = path.resolve(values["state-root"] ?? path.join(homedir(), ".pi-sparkle"));
+  const population = await costPopulation(values["loop-artifact"], result, rows, stateRoot);
+  Object.assign(result, await costForRun(stateRoot, population));
   result.correctDelivery = correctDelivery(result);
   const parent = await privateRecordsRoot(values.root, true);
   const directory = path.join(parent, `${result.date}-${result.id}`);

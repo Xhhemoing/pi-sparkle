@@ -368,6 +368,49 @@ function nativeCostSummary(runIds = ["run_one"], amounts = runIds.map(() => 0.00
         ledger: { turns: dispatches[index], turnsWithoutUsage: 0, tokensIn: 1000 * (dispatches[index] ?? 0), tokensOut: 500 * (dispatches[index] ?? 0), spentUsd: amounts[index] } } })) };
 }
 
+async function childBinding(root: string, parent = "run_one", child = "run_child", overrides = {}) {
+  const folder = join(root, "state/runtime/runs", parent);
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "events.jsonl"), JSON.stringify({ type: "CHILD_RUN_CREATED", runId: parent, taskId: "task_one",
+    payload: { childRun: { id: child, parentRunId: parent, rootTaskId: "task_one", ...overrides } } }) + "\n", "utf8");
+}
+
+test("parent task records retain bound child worker costs, including partial timeout usage", async () => {
+  await fixture(async root => {
+    await childBinding(root);
+    const complete = await record(root, metadata({ id: "bound-complete" }), projection(),
+      [invocation({ runId: "run_child" })], loopArtifact(["run_one"], { referenceCost: nativeCostSummary(["run_child"]) }));
+    assert.equal(complete.referenceUsd, 0.004);
+    const partial = nativeCostSummary(["run_child"], [0.0581076], [3]);
+    partial.coverage = "partial";
+    partial.attempts[0]!.report.coverage = "partial";
+    partial.attempts[0]!.report.ledger.turnsWithoutUsage = 1;
+    const result = await record(root, metadata({ id: "bound-partial" }), projection({ status: "FAILED" }),
+      [invocation({ runId: "run_child", callOutcome: "timeout", tokensIn: undefined, tokensOut: undefined })],
+      loopArtifact(["run_one"], { referenceCost: partial }));
+    assert.equal(result.referenceUsd, "unknown");
+    assert.equal(result.cost.invocationCount, 1);
+    assert.equal(result.cost.knownLowerBoundUsd, 0.0581076);
+  });
+});
+
+test("child cost binding refuses missing, wrong-parent, wrong-task and duplicate worker links", async () => {
+  await fixture(async root => {
+    for (const [index, overrides] of [undefined, { parentRunId: "run_elsewhere" }, { rootTaskId: "task_elsewhere" }].entries()) {
+      if (overrides !== undefined) await childBinding(root, "run_one", "run_child", overrides);
+      const result = await record(root, metadata({ id: `bad-child-${index}` }), projection(),
+        [invocation({ runId: "run_child" })], loopArtifact(["run_one"], { referenceCost: nativeCostSummary(["run_child"]) }));
+      assert.equal(result.referenceUsd, "unknown");
+      assert.equal(result.cost.knownLowerBoundUsd, 0);
+    }
+    await childBinding(root, "run_prior"); await childBinding(root);
+    const duplicate = await record(root, metadata({ id: "duplicate-child" }), projection(), [invocation({ runId: "run_child" })],
+      loopArtifact(["run_prior", "run_one"], { referenceCost: nativeCostSummary(["run_child", "run_child"]) }));
+    assert.equal(duplicate.referenceUsd, "unknown");
+    assert.equal(duplicate.cost.knownLowerBoundUsd, 0);
+  });
+});
+
 test("known direct failure remains false before positive review evidence is available", async () => {
   await fixture(async root => {
     for (const [index, fields] of [{ status: "FAILED" }, { status: "TIMEOUT" }, { kept: false }, { escapedDefects: 1 }].entries()) {
@@ -394,7 +437,8 @@ test("partial or inconsistent native cost receipts never certify complete task c
     const good = nativeCostSummary();
     const report = good.attempts[0]!.report;
     const invalid = [undefined, { ...good, coverage: "partial" }, { ...good, settled: false }, { ...good, knownReferenceUsd: 1 },
-      { ...good, attempts: [] }, { ...good, attempts: [{ ...good.attempts[0], fault: "dropped" }] },
+      { ...good, attempts: [] }, { ...good, attempts: [{ ...good.attempts[0], report: null }] },
+      { ...good, attempts: [{ ...good.attempts[0], fault: "dropped" }] },
       { ...good, attempts: [{ ...good.attempts[0], report: { ...report, runId: "run_other" } }] },
       { ...good, attempts: [{ ...good.attempts[0], report: { ...report, coverage: "partial" } }] },
       { ...good, attempts: [{ ...good.attempts[0], report: { ...report, settled: false } }] },
