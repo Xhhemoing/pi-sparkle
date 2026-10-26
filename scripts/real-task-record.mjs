@@ -111,7 +111,22 @@ function project(result, rows) {
   if (runId !== undefined) result.runId = runId;
   return result;
 }
-async function costPopulation(file, result, rows) {
+async function boundChildCostRun(stateRoot, parent, report) {
+  if (!isObject(report) || typeof report.runId !== "string" || !/^run_[A-Za-z0-9_-]{1,96}$/.test(report.runId) ||
+      typeof report.taskId !== "string") return false;
+  let events;
+  try { events = await readFile(path.join(stateRoot, "runtime", "runs", parent, "events.jsonl"), "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+  for (const line of events.split(/\r?\n/).filter(line => line.trim())) {
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+    const child = event?.payload?.childRun;
+    if (event?.type === "CHILD_RUN_CREATED" && event.runId === parent && event.taskId === report.taskId &&
+        child?.id === report.runId && child.parentRunId === parent && child.rootTaskId === report.taskId) return true;
+  }
+  return false;
+}
+async function costPopulation(file, result, rows, stateRoot) {
   if (file === undefined) return { runIds: result.runId === undefined ? [] : [result.runId], complete: false };
   const envelope = JSON.parse((await readFile(file, "utf8")).replace(/^\uFEFF/, ""));
   const body = envelope?.body, attempts = body?.attempts;
@@ -131,10 +146,35 @@ async function costPopulation(file, result, rows) {
   for (const key of ["candidatePath", "sourceRevision"]) {
     if (execution[key] !== undefined && body[key] !== execution[key]) fail(`loop artifact ${key} does not match execution`);
   }
-  return { runIds, complete: true, referenceCost: body.referenceCost };
+  // Native attempts identify parent task runs; the cost ledger and invocation
+  // sink identify their actual workers. Resolve that distinction through the
+  // persisted parent-child event, never from an arbitrary receipt ID alone.
+  let complete = true;
+  const workers = [];
+  for (const [index, parent] of runIds.entries()) {
+    const report = body.referenceCost?.attempts?.[index]?.report;
+    if (report === undefined || report?.runId === parent) { workers.push(parent); continue; }
+    if (!runIds.includes(report?.runId) && await boundChildCostRun(stateRoot, parent, report)) workers.push(report.runId);
+    else { workers.push(parent); complete = false; }
+  }
+  if (new Set(workers).size !== workers.length) { complete = false; workers.splice(0, workers.length, ...runIds); }
+  return { runIds: workers, complete, referenceCost: body.referenceCost };
+}
+function costReportAmount(report, runId, requireComplete) {
+  const counter = value => Number.isSafeInteger(value) && value >= 0;
+  const coverage = value => ["complete", "partial", "unknown"].includes(value);
+  const ledger = report?.ledger;
+  if (!isObject(report) || report.runId !== runId || typeof report.taskId !== "string" ||
+      typeof report.agentInstanceId !== "string" || !coverage(report.coverage) || typeof report.settled !== "boolean" ||
+      (requireComplete && (report.coverage !== "complete" || !report.settled)) ||
+      !finite(report.knownReferenceUsd) || !counter(report.streamDispatches) || !isObject(ledger) ||
+      !counter(ledger.turns) || ledger.turns > report.streamDispatches || !counter(ledger.turnsWithoutUsage) ||
+      ledger.turnsWithoutUsage > ledger.turns || !counter(ledger.tokensIn) || !counter(ledger.tokensOut) ||
+      (requireComplete && (ledger.turns !== report.streamDispatches || ledger.turnsWithoutUsage !== 0 || !finite(ledger.spentUsd))) ||
+      (ledger.spentUsd !== undefined && (!finite(ledger.spentUsd) || ledger.spentUsd !== report.knownReferenceUsd))) return undefined;
+  return report.knownReferenceUsd;
 }
 function nativeCostAmount(summary, runIds, requireComplete) {
-  const counter = value => Number.isSafeInteger(value) && value >= 0;
   const coverage = value => ["complete", "partial", "unknown"].includes(value);
   if (!isObject(summary) || !coverage(summary.coverage) || typeof summary.settled !== "boolean" ||
       (requireComplete && (summary.coverage !== "complete" || !summary.settled)) ||
@@ -145,21 +185,25 @@ function nativeCostAmount(summary, runIds, requireComplete) {
       !Array.isArray(summary.attempts) || summary.attempts.length !== runIds.length) return undefined;
   let total = 0;
   for (const [index, attempt] of summary.attempts.entries()) {
-    const report = attempt?.report, ledger = report?.ledger;
     if (!isObject(attempt) || attempt.number !== index + 1 ||
         (attempt.fault !== undefined && (requireComplete || typeof attempt.fault !== "string")) ||
-        !finite(attempt.offeredReferenceUsd) || attempt.offeredReferenceUsd <= 0 ||
-        !isObject(report) || report.runId !== runIds[index] || typeof report.taskId !== "string" ||
-        typeof report.agentInstanceId !== "string" || !coverage(report.coverage) || typeof report.settled !== "boolean" ||
-        (requireComplete && (report.coverage !== "complete" || !report.settled)) ||
-        !finite(report.knownReferenceUsd) || !counter(report.streamDispatches) || !isObject(ledger) ||
-        !counter(ledger.turns) || ledger.turns > report.streamDispatches || !counter(ledger.turnsWithoutUsage) ||
-        ledger.turnsWithoutUsage > ledger.turns || !counter(ledger.tokensIn) || !counter(ledger.tokensOut) ||
-        (requireComplete && (ledger.turns !== report.streamDispatches || ledger.turnsWithoutUsage !== 0 || !finite(ledger.spentUsd))) ||
-        (ledger.spentUsd !== undefined && (!finite(ledger.spentUsd) || ledger.spentUsd !== report.knownReferenceUsd))) return undefined;
-    total += report.knownReferenceUsd;
+        !finite(attempt.offeredReferenceUsd) || attempt.offeredReferenceUsd <= 0) return undefined;
+    const amount = costReportAmount(attempt.report, runIds[index], requireComplete);
+    if (amount === undefined) return undefined;
+    total += amount;
   }
   return finite(total) && total === summary.knownReferenceUsd ? total : undefined;
+}
+async function directCostObservation(file) {
+  const value = JSON.parse((await readFile(file, "utf8")).replace(/^\uFEFF/, ""));
+  const report = value?.cost;
+  if (typeof report?.runId !== "string" || !/^run_[A-Za-z0-9_-]{1,96}$/.test(report.runId)) fail("invalid direct cost report runId");
+  const amount = costReportAmount(report, report.runId, false);
+  if (amount === undefined) fail("invalid direct cost report");
+  // This is a host-observed subtotal, not invocation/pricing provenance and
+  // never TaskSpec acceptance or apply authority, even if the report is complete.
+  return { referenceUsd: UNKNOWN, cost: { reason: "direct host subtotal; complete reference cost remains unverified",
+    invocationCount: 0, knownLowerBoundUsd: amount, reportRunId: report.runId } };
 }
 async function costForRun(stateRoot, population) {
   let knownLowerBoundUsd = 0, invocationCount = 0;
@@ -281,21 +325,28 @@ async function updateRecord(root, meta) {
 // Backfill: node scripts/real-task-record.mjs --root . --metadata review.json --update
 // review.json contains identity + review observations only; execution and cost cannot be changed.
 // Direct Pi can supply accepted/effectsSettled at creation or review backfill only with reviewed:true and checkEvidence referencing independent checks.
+// Direct host cost subtotal: --direct-cost-report <runner-result.json>; full cost remains unknown.
 // Same-day comparison arms use distinct attempt ids and a shared comparisonId; date-id paths never overwrite.
 async function main() {
-  const { values } = parseArgs({ options: { root: { type: "string" }, metadata: { type: "string" }, projection: { type: "string" }, "loop-artifact": { type: "string" }, "state-root": { type: "string" }, update: { type: "boolean" } }, strict: true });
-  if (!values.root || !values.metadata) fail("Usage: node scripts/real-task-record.mjs --root <repo> --metadata <json> [--projection <json|jsonl>] [--state-root <dir>] [--loop-artifact <native-write-loop.json>] | --update");
+  const { values } = parseArgs({ options: { root: { type: "string" }, metadata: { type: "string" }, projection: { type: "string" }, "loop-artifact": { type: "string" }, "direct-cost-report": { type: "string" }, "state-root": { type: "string" }, update: { type: "boolean" } }, strict: true });
+  if (!values.root || !values.metadata) fail("Usage: node scripts/real-task-record.mjs --root <repo> --metadata <json> [--projection <json|jsonl>] [--state-root <dir>] [--loop-artifact <native-write-loop.json>] [--direct-cost-report <runner-result.json>] | --update");
   const metadata = JSON.parse((await readFile(values.metadata, "utf8")).replace(/^\uFEFF/, ""));
   if (values.update) {
-    if (values.projection !== undefined || values["state-root"] !== undefined || values["loop-artifact"] !== undefined) fail("update refuses --projection, --state-root and --loop-artifact");
+    if (values.projection !== undefined || values["state-root"] !== undefined || values["loop-artifact"] !== undefined || values["direct-cost-report"] !== undefined) fail("update refuses execution and cost evidence options");
     const output = await updateRecord(values.root, metadata);
     process.stdout.write(`${JSON.stringify({ path: output })}\n`);
     return;
   }
   const rows = await captureProjection(values.projection);
   const result = project(validateMetadata(metadata), rows);
-  const population = await costPopulation(values["loop-artifact"], result, rows);
-  Object.assign(result, await costForRun(path.resolve(values["state-root"] ?? path.join(homedir(), ".pi-sparkle")), population));
+  const stateRoot = path.resolve(values["state-root"] ?? path.join(homedir(), ".pi-sparkle"));
+  if (values["direct-cost-report"] !== undefined) {
+    if (result.arm !== "direct-pi" || values.projection !== undefined || values["loop-artifact"] !== undefined) fail("direct cost report requires direct-pi without TaskSpec evidence");
+    Object.assign(result, await directCostObservation(values["direct-cost-report"]));
+  } else {
+    const population = await costPopulation(values["loop-artifact"], result, rows, stateRoot);
+    Object.assign(result, await costForRun(stateRoot, population));
+  }
   result.correctDelivery = correctDelivery(result);
   const parent = await privateRecordsRoot(values.root, true);
   const directory = path.join(parent, `${result.date}-${result.id}`);
