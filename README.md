@@ -208,9 +208,9 @@ pnpm cli models set-default --primary example/example-chat --state-root $stateRo
 
 The login command prompts interactively and stores the credential. In the
 credentialed branch, stored login wins over the environment variable configured
-by `envVar`. `auth login example --from-env` checks only environment/ambient
-authentication and saves nothing; it does not test or store an interactive
-credential. Unpriced models are not free: absent cost metadata is not a price
+by `envVar`. `pnpm cli auth login example --from-env --state-root $stateRoot`
+checks only environment/ambient authentication and saves nothing; it does not
+test or store an interactive credential. Unpriced models are not free: absent cost metadata is not a price
 quote. Local auth and catalog checks confirm only local configuration, not that
 a remote request succeeds.
 
