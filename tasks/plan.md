@@ -1,5 +1,25 @@
 # Active implementation plan
 
+## Current execution checkpoint (2026-10-26)
+
+Resume from the current integration branch/HEAD and relevant dirty paths before using the dated evidence below. This checkout is `E:/Project/pi-sparkle`, branch `codex/agent-efficiency-20261026`, based on adopted main `e2ac01c0`; other active worktrees keep their own uncommitted candidates. The rows below distinguish adopted work from work still in progress.
+
+| Result | Current state and next action |
+|---|---|
+| R1 outcomes | The retained 24-attempt checkpoint has four kept changes and 12 interventions. The later P08 README delivery is adopted through #97; refresh the private summary for later attempts instead of treating the older review tables as a live total. Original Soul remains unchanged. |
+| Shared preparation and host-check guidance | Adopted. Later observations are 0/6 recurrences of the original Node preparation errors and five executions reaching the host checker; continue observing outcomes rather than reimplementing these corrections. |
+| Whole-candidate capacity | Separate four-file safety-core candidate in `agent-delivery-guidance`; its serial local gate is running. Its coordinator handles validation and PR closeout; the owner decides runtime merge. Do not start another full gate or use the unadopted candidate for real tasks. |
+| R3 adapter | #96 is adopted as `9971c6f6`. Resource approval/activation and five later applicable tasks per proposal remain separate exits; old statements that adapter adoption or its CI is pending are historical. |
+| SDK cost observations / check recipes | Separate active candidates in `real-task-tooling` / `real-task-pricing-docs`. Preserve their write ownership and unknown-cost evidence; do not recreate their implementations here. |
+
+### Agent efficiency optimization
+
+Owner instruction 2026-10-26: execute the preceding efficiency diagnosis. Next usable result: an agent can resume the correct candidate, dispatch an executable task with explicit worker/host check responsibilities, and capture task-authoring/review time through the existing real-task scripts. Scope: `tasks/README.md`, this plan/checklist and `docs/development-workflow.md`; no runtime, dependency, public CLI, budget, resource activation or safety-boundary change. Existing capacity/cost candidates continue under their owners.
+
+Implementation: make this checkpoint the recovery entry; correct superseded checklist items; put capability-aware dispatch and measured baseline selection beside the existing planning rules; document and exercise existing task metadata creation, review-only update and summary commands using synthetic private inputs. Keep historical failures and unresolved obligations. Acceptance: the documented commands create and update one synthetic attempt without rewriting execution/cost observations; elapsed review/task-authoring measurements appear in the summary and absent measurements stay unknown; workflow/diff/link checks and independent read-only review pass. Docs-only hosted CI is required before ADR-011 self-merge. This validates the workflow, not an observed speedup. Detailed command evidence stays in the PR/private workspace.
+
+Local result: all three extracted PowerShell blocks executed successfully against the existing scripts in a separate private synthetic root; the review update preserved execution/cost fields and the live records root was unchanged. Task-authoring/review time is measured; preparation/model/check and reference-cost totals remain unknown. Workflow/diff checks, 31 local links/anchors and independent read-only diff review passed. No runtime gate or model call was started for this documentation change. Remote delivery/current CI and later real-task speed measurements remain separate evidence.
+
 ## Real-task improvement loop (2026-10-25)
 
 Owner decision 2026-10-25 ([ADR-011](../docs/decisions/0011-real-task-improvement-loop.md)): the project had drifted toward synthetic tests and process. From now on, **real development tasks drive the work**. Run pi-sparkle on real tasks, record every outcome, review the failures periodically, and fix *classes* of problems with general mechanisms. On that basis, build bounded self-optimization in two steps: proposal → approval → verification, then automation. The previous Phase 1 plan is archived at [2026-10-25-phase1-plan](archive/2026-10-25-phase1-plan.md). TS (S4) is merged as #83; Rust (S5) is merged as #85; resume B1/B2 is deferred (see "Retained" below).
