@@ -195,6 +195,16 @@ candidate tools; it does not inherit an interactive parent's prompt, skills or
 hooks. Normal configured providers may incur charges. Optional `budget.usd`
 uses the same strict task-wide reference-usage pool as the host command.
 
+The default TaskSpec Pi worker has five scoped file tools, not a command
+execution tool. Visible check declarations describe what the host will verify;
+they do not grant the worker permission to execute those commands. Do not ask
+a file-only worker to claim it ran them, or to report a check as failed merely
+because it could not run it. It can finish with a normal response and omit the
+verdict tool when verification is unavailable: the adapter records
+`UNOBSERVED`, and the host then runs the declared checks against the exact
+candidate. Unknown worker verification is not a passing check. An actual
+reported failure still blocks the run; this path does not clear or override it.
+
 The default retains the candidate and returns its acceptance/evidence summary.
 Use `--review` to keep this process alive for one explicit `apply`, `discard` or
 `retain` decision. EOF also retains. Prompts go to stderr; `--json` emits a safe
