@@ -2,7 +2,7 @@
 
 See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; status is not authorization.
 
-- [ ] Owner: decide SDK-only #100 and separate capacity #103; retain failed/unknown local validation. Coordinator does not merge runtime or restart a full gate.
+- [ ] Owner: decide separate capacity #103; retain failed/unknown local validation. Coordinator does not merge runtime or restart a full gate.
 - [ ] Coordinator: use adopted runtime for P06 → P07 → S06(deadline+reminder) → S07 → S08; verify source/goal and private preparation, keep per-attempt≤US$5 and weekly-limit none, original Soul read-only.
 - [ ] Coordinator: record taskSpecMinutes and review duration for each attempt; missing stays unknown. Refresh the private summary before every paid admission; no unchanged P01/P02 retry.
 - [ ] R2 Coordinator: next review at30 attempts or weekly; report top1–2 failure classes and measured speed evidence, retaining all failures and unknowns. No speed claim beforehand.
