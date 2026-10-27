@@ -8,6 +8,7 @@ Existing decisions remain in force. Runtime main merges, resource promotion, rel
 
 - [#105](https://github.com/Xhhemoing/pi-sparkle/pull/105), `8b43a2fa`: two files preserve legal special child-result keys. Focused checks, type/lint, independent CLI/JSON/pinning review and exact-head CI40443509826 passed; recovery regression40443510449 passed. Unmerged.
 - [#106](https://github.com/Xhhemoing/pi-sparkle/pull/106), `6b5ec707`: two files fix literal init directories and PowerShell next-command quoting. Corresponding checks/review and exact-head CI40444143578 passed; recovery regression40444143060 passed. Unmerged. P06's original native cancellation remains; this is a reviewed salvage candidate.
+- [#108](https://github.com/Xhhemoing/pi-sparkle/pull/108), `b869db0e`: fixed model/thinking resource consumption and actual-submission evaluation,16 files. Focused42, actual task-run6/adapter1, type/lint/workflow and independent implementation/pinning review passed; exact-head CI pending. Unadopted; no resource promotion or real-model use. Single-attempt/same-provider and all-cost-fault consumption limits remain explicit in the PR.
 - The prepared order is #105 then #106, non-squash. Any later permitted ancestry-only sync must retain each two-file diff and obtain fresh exact-head CI. New conflicts/content changes remain for human hunk review. No merge authority is supplied by this entry.
 
 ## I-02 — R3 exact manual promotions, recorded for later handling
