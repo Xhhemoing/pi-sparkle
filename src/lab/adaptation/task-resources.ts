@@ -9,7 +9,7 @@ import { stableProjectKey } from "../../persist/project-key.js";
 import { hashCandidateContent } from "./candidate.js";
 import type { ResourceRegistry } from "./registry.js";
 import { identityEquals, type ResourceIdentity } from "./resource.js";
-import { parseTaskModelSelection, type TaskModelSelection } from "../../cli/task-model-selection.js";
+import { parseTaskModelSelection, type TaskModelSelection } from "../../domain/task-model-selection.js";
 
 export const TASK_RESOURCE_TOPICS = ["node-preparation", "host-only-checks", "input-validation", "check-recipes", "model-thinking"] as const;
 export type TaskResourceTopic = typeof TASK_RESOURCE_TOPICS[number];

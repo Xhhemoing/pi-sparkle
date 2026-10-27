@@ -10,6 +10,7 @@ import { startLoopbackOpenAiProvider } from "../../helpers/loopback-openai-provi
 import { ResourceRegistry } from "../../../src/lab/adaptation/registry.js";
 import { materializeTaskResources, taskResourceIdentity } from "../../../src/lab/adaptation/task-resources.js";
 import { snapshotDevelopmentTaskSpec } from "../../../src/development/task-spec.js";
+import { saveAdaptationRegistry } from "../../../src/lab/adaptation/promotion.js";
 
 const CLI = fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url));
 const TSX = import.meta.resolve("tsx");
@@ -63,13 +64,23 @@ async function fixture(options: { unpriced?: boolean; invalid?: boolean; onReque
   Object.assign(env, { HOME: home, USERPROFILE: home, TEMP: root, TMP: root, TMPDIR: root, PI_API_KEY: "synthetic-loopback-key" });
   const run = async (extra: string[] = [], input = "", command = ["task", "run", taskFile], hostRuntime?: Record<string, unknown>) => {
     let entry = [CLI, ...command];
-    if (hostRuntime !== undefined) {
+    let tail = ["--project", source, "--state-root", state, "--executor", "pi", "--json", ...extra];
+    if (hostRuntime?.resourceExecution !== undefined) {
+      const selected = hostRuntime.resourceExecution as { registry: Parameters<typeof ResourceRegistry.fromSnapshot>[0]; projectRoot: string; sourceRepo: string; stateRoot: string; materialized: unknown; authority: unknown };
+      await saveAdaptationRegistry(selected.stateRoot, ResourceRegistry.fromSnapshot(selected.registry));
+      const materializedFile = path.join(root, "materialized.json"), authorityFile = path.join(root, "host-authority.json");
+      await writeFile(materializedFile, JSON.stringify(selected.materialized), "utf8");
+      await writeFile(authorityFile, JSON.stringify(selected.authority), "utf8");
+      entry = [fileURLToPath(new URL("../../../scripts/real-task-adapt.mjs", import.meta.url)), "execute", "--state-root", selected.stateRoot,
+        "--project", selected.projectRoot, "--source", selected.sourceRepo, "--input", materializedFile, "--model-authority", authorityFile];
+      tail = extra;
+    } else if (hostRuntime !== undefined) {
       const bridge = path.join(root, "trusted-host.mjs"), runtimeFile = path.join(root, "trusted-host-input.json");
       await writeFile(runtimeFile, JSON.stringify(hostRuntime), "utf8");
-      await writeFile(bridge, `import {readFile} from 'node:fs/promises';\nconst {taskRunCommand}=await import(${JSON.stringify(new URL("../../../src/cli/task-run.ts", import.meta.url).href)});\nconst runtime=JSON.parse(await readFile(process.argv[2],'utf8'));\nconst io={stdout:text=>process.stdout.write(text),stderr:text=>process.stderr.write(text)};\nif(runtime.resourceExecution){\n const {ResourceRegistry}=await import(${JSON.stringify(new URL("../../../src/lab/adaptation/registry.ts", import.meta.url).href)});\n const {executeMaterializedTaskResources}=await import(${JSON.stringify(new URL("../../../src/lab/adaptation/execute-real-task.ts", import.meta.url).href)});\n const selected=runtime.resourceExecution;\n process.exitCode=await executeMaterializedTaskResources({registry:ResourceRegistry.fromSnapshot(selected.registry),projectRoot:selected.projectRoot,sourceRepo:selected.sourceRepo,materialized:selected.materialized,authority:selected.authority,stateRoot:selected.stateRoot,io});\n}else{process.exitCode=await taskRunCommand(process.argv.slice(3),io,runtime);}\n`, "utf8");
+      await writeFile(bridge, `import {readFile} from 'node:fs/promises';\nconst {taskRunCommand}=await import(${JSON.stringify(new URL("../../../src/cli/task-run.ts", import.meta.url).href)});\nconst runtime=JSON.parse(await readFile(process.argv[2],'utf8'));\nconst io={stdout:text=>process.stdout.write(text),stderr:text=>process.stderr.write(text)};\nif(runtime.resourceExecution){\n const {ResourceRegistry}=await import(${JSON.stringify(new URL("../../../src/lab/adaptation/registry.ts", import.meta.url).href)});\n const {executeMaterializedTaskResources}=await import(${JSON.stringify(new URL("../../../src/cli/real-task-resource-execution.ts", import.meta.url).href)});\n const selected=runtime.resourceExecution;\n process.exitCode=await executeMaterializedTaskResources({registry:ResourceRegistry.fromSnapshot(selected.registry),projectRoot:selected.projectRoot,sourceRepo:selected.sourceRepo,materialized:selected.materialized,authority:selected.authority,stateRoot:selected.stateRoot,io});\n}else{process.exitCode=await taskRunCommand(process.argv.slice(3),io,runtime);}\n`, "utf8");
       entry = [bridge, runtimeFile, ...command.slice(1)];
     }
-    const child = spawn(process.execPath, ["--import", TSX, ...entry, "--project", source, "--state-root", state, "--executor", "pi", "--json", ...extra],
+    const child = spawn(process.execPath, ["--import", TSX, ...entry, ...tail],
       { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let stdout = "", stderr = "";
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");

@@ -6,7 +6,7 @@ import type { ResourceIdentity } from "../adaptation/resource.js";
 import { parseCheckRecipeLaunchers, parseTaskResourceContent, taskResourceIdentity, taskResourceTopic, type TaskResourceContent, type TaskResourceTopic } from "../adaptation/task-resources.js";
 import { isDeepStrictEqual } from "node:util";
 import type { FailureClass } from "../../routing/outcomes.js";
-import { parseTaskModelSelection } from "../../cli/task-model-selection.js";
+import { parseTaskModelSelection } from "../../domain/task-model-selection.js";
 
 const GUIDANCE: Readonly<Record<Exclude<TaskResourceTopic, "check-recipes" | "model-thinking">, { guidance: string; expectedEffect: string }>> = {
   "node-preparation": {

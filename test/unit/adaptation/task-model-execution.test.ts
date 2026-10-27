@@ -12,7 +12,7 @@ import { snapshotDevelopmentTaskSpec } from "../../../src/development/task-spec.
 const selection = { providerId: "approved", modelId: "small", thinkingLevel: "xhigh" };
 const authority = { authorityRef: "host/owner-decision", approvedSelections: [selection] };
 async function api() {
-  const module = await import("../../../src/lab/adaptation/execute-real-task.js").catch((error: NodeJS.ErrnoException) => { if (error.code === "ERR_MODULE_NOT_FOUND") return undefined; throw error; });
+  const module = await import("../../../src/cli/real-task-resource-execution.js").catch((error: NodeJS.ErrnoException) => { if (error.code === "ERR_MODULE_NOT_FOUND") return undefined; throw error; });
   assert.equal(typeof module?.prepareMaterializedTaskExecution, "function", "explicit execution must validate active resource/source before delegating to the original task runner");
   return module!;
 }

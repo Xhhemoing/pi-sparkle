@@ -1,7 +1,7 @@
 import { DomainValidationError } from "../../domain/errors.js";
 import { isAgentInstanceId, isRunId, isTaskId } from "../../domain/ids.js";
 import { isRecord } from "../../domain/record.js";
-import type { TaskModelSelection } from "../../cli/task-model-selection.js";
+import type { TaskModelSelection } from "../../domain/task-model-selection.js";
 
 function fail(message: string): never { throw new DomainValidationError(`model submission: ${message}`); }
 /** Offline identity evidence only; never restores authority or calculates cost/server reasoning. */

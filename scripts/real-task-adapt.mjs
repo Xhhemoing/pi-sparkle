@@ -9,7 +9,6 @@ import { evaluateRealTaskResources, readRealTaskJson } from "../src/lab/adaptati
 import { loadAdaptationRegistry, loadAdaptationRegistryOrNew, saveAdaptationRegistry, withAdaptationRegistryLock } from "../src/lab/adaptation/promotion.ts";
 import { parseDevelopmentTaskSpec } from "../src/development/task-spec.ts";
 import { isResourceVersionId } from "../src/domain/ids.ts";
-import { executeMaterializedTaskResources } from "../src/lab/adaptation/execute-real-task.ts";
 
 const USAGE = `Development-only resource adapter. Propose/materialize/evaluate never execute commands or models.
 Run with: node --import tsx scripts/real-task-adapt.mjs <propose|materialize|evaluate|execute>
@@ -56,6 +55,7 @@ async function main() {
   } else {
     const registry = await loadAdaptationRegistry(stateRoot);
     if (command === "execute") {
+      const { executeMaterializedTaskResources } = await import("../src/cli/real-task-resource-execution.ts");
       process.exitCode = await executeMaterializedTaskResources({ registry, stateRoot, projectRoot, sourceRepo: path.resolve(required(values.source, "--source")), materialized: await readRealTaskJson(inputFile),
         authority: await readRealTaskJson(path.resolve(required(values["model-authority"], "--model-authority"))),
         io: { stdout: text => process.stdout.write(text), stderr: text => process.stderr.write(text) } });

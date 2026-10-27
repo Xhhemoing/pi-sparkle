@@ -2,12 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { taskRunCommand } from "../../cli/task-run.js";
-import { parseTaskModelSelectionAuthority } from "../../cli/task-model-selection.js";
-import { DomainValidationError } from "../../domain/errors.js";
-import { readWorktreeRevision } from "../../execution/worktree.js";
-import type { ResourceRegistry } from "./registry.js";
-import { verifyMaterializedTaskResources } from "./task-resources.js";
+import { taskRunCommand } from "./task-run.js";
+import { parseTaskModelSelectionAuthority } from "../domain/task-model-selection.js";
+import { DomainValidationError } from "../domain/errors.js";
+import { readWorktreeRevision } from "../execution/worktree.js";
+import type { ResourceRegistry } from "../lab/adaptation/registry.js";
+import { verifyMaterializedTaskResources } from "../lab/adaptation/task-resources.js";
 
 function fail(message: string): never { throw new DomainValidationError(`real-task execution: ${message}`); }
 function physicalComparisonPath(value: string): string {
