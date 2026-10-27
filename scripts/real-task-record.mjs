@@ -205,11 +205,76 @@ async function directCostObservation(file) {
   return { referenceUsd: UNKNOWN, cost: { reason: "direct host subtotal; complete reference cost remains unverified",
     invocationCount: 0, knownLowerBoundUsd: amount, reportRunId: report.runId } };
 }
+const sameCost = (left, right) => finite(left) && finite(right) && left === right;
+let sdkCalculator;
+async function sdkCostEvidence(population) {
+  const evidence = new Map();
+  const fields = ["input", "output", "cacheRead", "cacheWrite"];
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const attempts = population.referenceCost?.attempts;
+  for (const attempt of Array.isArray(attempts) ? attempts : []) {
+    const report = attempt?.report;
+    if (!isObject(report) || report.sdkObservations === undefined || !population.runIds.includes(report.runId)) continue;
+    const item = { report, valid: false, input: 0, output: 0, amount: 0, models: new Map() };
+    evidence.set(report.runId, item);
+    try {
+      sdkCalculator ??= Promise.all([import("@earendil-works/pi-ai/models"),
+        readFile(new URL("../package.json", import.meta.resolve("@earendil-works/pi-ai/models")), "utf8")]);
+      const [sdk, packageText] = await sdkCalculator;
+      const version = JSON.parse(packageText).version;
+      const observations = report.sdkObservations;
+      if (!Array.isArray(observations) || observations.length !== report.streamDispatches || observations.length === 0) continue;
+      const seen = new Set();
+      let valid = true;
+      for (const row of observations) {
+        if (!isObject(row) || !count(row.dispatchIndex) || row.dispatchIndex < 1 || row.dispatchIndex > observations.length || seen.has(row.dispatchIndex) ||
+            row.calculatorVersion !== version || typeof row.provider !== "string" || !row.provider.trim() || typeof row.model !== "string" || !row.model.trim() ||
+            row.resultProvider !== row.provider || row.resultModel !== row.model || row.pricingComplete !== true ||
+            !["stop", "length", "toolUse"].includes(row.stopReason) || !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(row.transportReasoning)) { valid = false; break; }
+        seen.add(row.dispatchIndex);
+        const rates = row.modelCost, usage = row.usage;
+        if (!isObject(rates) || !fields.every(field => finite(rates[field])) || !(rates.input > 0 || rates.output > 0) ||
+            (rates.tiers !== undefined && !Array.isArray(rates.tiers)) || !isObject(usage) || !fields.every(field => count(usage[field]))) { valid = false; break; }
+        let prior = -1;
+        if (!(rates.tiers ?? []).every(tier => {
+          if (!isObject(tier) || !count(tier.inputTokensAbove) || tier.inputTokensAbove <= prior || !fields.every(field => finite(tier[field]))) return false;
+          prior = tier.inputTokensAbove; return true;
+        })) { valid = false; break; }
+        const totalTokens = fields.reduce((sum, field) => sum + usage[field], 0);
+        if (!count(totalTokens) || totalTokens === 0 || (usage.totalTokens !== undefined && usage.totalTokens !== totalTokens) ||
+            (usage.cacheWrite1h !== undefined && (!count(usage.cacheWrite1h) || usage.cacheWrite1h > usage.cacheWrite)) ||
+            !isObject(usage.cost) || ![...fields, "total"].every(field => finite(usage.cost[field]))) { valid = false; break; }
+        // calculateCost mutates its usage argument. Never overwrite the persisted raw components before comparing them.
+        const expected = sdk.calculateCost({ cost: rates }, { input: usage.input, output: usage.output,
+          cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite, totalTokens,
+          ...(usage.cacheWrite1h === undefined ? {} : { cacheWrite1h: usage.cacheWrite1h }),
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+        if (![...fields, "total"].every(field => sameCost(expected[field], usage.cost[field])) ||
+            !sameCost(fields.reduce((sum, field) => sum + usage.cost[field], 0), usage.cost.total) ||
+            (usage.cacheRead > 0 && expected.cacheRead <= 0) || (usage.cacheWrite > 0 && expected.cacheWrite <= 0)) { valid = false; break; }
+        const shortWrites = usage.cacheWrite - (usage.cacheWrite1h ?? 0);
+        if (shortWrites > 0 && sdk.calculateCost({ cost: rates }, { input: usage.input, output: usage.output, cacheRead: usage.cacheRead,
+          cacheWrite: usage.cacheWrite, totalTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }).cacheWrite <= 0) { valid = false; break; }
+        item.input += usage.input; item.output += usage.output; item.amount += expected.total;
+        const key = JSON.stringify([row.provider, row.model]);
+        const model = item.models.get(key) ?? { input: 0, output: 0, cacheHit: false, matched: false };
+        model.input += usage.input; model.output += usage.output; model.cacheHit ||= usage.cacheRead > 0; item.models.set(key, model);
+      }
+      item.valid = valid && seen.size === observations.length && count(item.input) && count(item.output) && finite(item.amount) &&
+        report.coverage === "complete" && report.settled === true && report.ledger?.turns === observations.length && report.ledger?.turnsWithoutUsage === 0 &&
+        report.ledger.tokensIn === item.input && report.ledger.tokensOut === item.output && sameCost(item.amount, report.knownReferenceUsd) &&
+        sameCost(item.amount, report.ledger.spentUsd);
+    } catch { item.valid = false; }
+  }
+  return evidence;
+}
 async function costForRun(stateRoot, population) {
   let knownLowerBoundUsd = 0, invocationCount = 0;
   const receiptUsd = nativeCostAmount(population.referenceCost, population.runIds, true);
   const observedReceiptUsd = nativeCostAmount(population.referenceCost, population.runIds, false);
   const issues = new Set(), ids = new Set(), observedRuns = new Set();
+  const sdkEvidence = await sdkCostEvidence(population);
+  for (const item of sdkEvidence.values()) if (!item.valid) issues.add("SDK dispatch cost evidence incomplete or inconsistent");
   const report = () => ({ referenceUsd: issues.size ? UNKNOWN : receiptUsd,
     cost: { reason: [...issues].join("; ") || "complete worker population and real invocation usage/pricing",
       invocationCount, knownLowerBoundUsd: Math.max(knownLowerBoundUsd, observedReceiptUsd ?? 0) } });
@@ -231,6 +296,19 @@ async function costForRun(stateRoot, population) {
     if (ids.has(row.id)) { issues.add("duplicate invocation identity"); continue; }
     ids.add(row.id);
     if (row.callOutcome !== "ok" || row.attempt !== 1) issues.add("failed or internally retried call has incomplete attempt usage");
+    const sdk = sdkEvidence.get(row.runId);
+    if (sdk !== undefined) {
+      if (!sdk.valid || row.executorClass !== "pi" || row.taskId !== sdk.report.taskId || row.agentInstanceId !== sdk.report.agentInstanceId ||
+          !isObject(row.config) || !Number.isSafeInteger(row.tokensIn) || row.tokensIn < 0 || !Number.isSafeInteger(row.tokensOut) || row.tokensOut < 0) {
+        issues.add("SDK invocation identity or usage mismatch"); continue;
+      }
+      const model = sdk.models.get(JSON.stringify([row.config.provider, row.config.model]));
+      if (model === undefined || model.matched || model.input !== row.tokensIn || model.output !== row.tokensOut || model.cacheHit !== row.cacheHit) {
+        issues.add("SDK invocation model population mismatch"); continue;
+      }
+      model.matched = true;
+      continue;
+    }
     const priced = row.executorClass === "pi" && row.cacheHit === false &&
       Number.isSafeInteger(row.tokensIn) && row.tokensIn >= 0 && Number.isSafeInteger(row.tokensOut) && row.tokensOut >= 0 &&
       isObject(row.pricing) && typeof row.pricing.catalogVersion === "string" && row.pricing.catalogVersion.trim() &&
@@ -240,6 +318,12 @@ async function costForRun(stateRoot, population) {
     const usd = (row.tokensIn * row.pricing.inputUsdPerMTok + row.tokensOut * row.pricing.outputUsdPerMTok) / 1_000_000;
     if (!finite(usd) || !finite(knownLowerBoundUsd + usd)) { issues.add("reference cost is not finite"); continue; }
     knownLowerBoundUsd += usd;
+  }
+  for (const item of sdkEvidence.values()) {
+    if (item.valid) {
+      knownLowerBoundUsd += item.amount;
+      if (![...item.models.values()].every(model => model.matched)) issues.add("SDK dispatch invocation population incomplete");
+    }
   }
   if (population.runIds.some(runId => !observedRuns.has(runId))) issues.add("invocations missing for worker attempt");
   if (receiptUsd !== undefined) {

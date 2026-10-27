@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import type { FailureClass } from "../../../src/routing/outcomes.js";
+import { calculateCost } from "@earendil-works/pi-ai/models";
 
 const exec = promisify(execFile);
 const script = fileURLToPath(new URL("../../../scripts/real-task-record.mjs", import.meta.url));
@@ -444,6 +445,45 @@ function nativeCostSummary(runIds = ["run_one"], amounts = runIds.map(() => 0.00
       report: { runId, taskId: "task_one", agentInstanceId: "agent_one", streamDispatches: dispatches[index], knownReferenceUsd: amounts[index], coverage: "complete", settled: true,
         ledger: { turns: dispatches[index], turnsWithoutUsage: 0, tokensIn: 1000 * (dispatches[index] ?? 0), tokensOut: 500 * (dispatches[index] ?? 0), spentUsd: amounts[index] } } })) };
 }
+
+test("SDK receipt accounting distinguishes equal aggregate usage with different cached tier dispatches", async () => {
+  const sdk = JSON.parse(await readFile(new URL("../package.json", import.meta.resolve("@earendil-works/pi-ai/models")), "utf8"));
+  const modelCost = { input: 1, output: 2, cacheRead: .1, cacheWrite: 1,
+    tiers: [{ inputTokensAbove: 100, input: 3, output: 6, cacheRead: .3, cacheWrite: 3 }] };
+  const totals: number[] = [];
+  for (const [scenario, counts] of [[[50, 10], [50, 10]], [[100, 10], [0, 10]]].entries()) {
+    await fixture(async root => {
+      const sdkObservations = counts.map(([input, cacheRead], index) => {
+        const usage = { input: input!, output: 0, cacheRead: cacheRead!, cacheWrite: 1, cacheWrite1h: index === 1 ? 1 : 0,
+          totalTokens: input! + cacheRead! + 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+        calculateCost({ cost: modelCost } as Parameters<typeof calculateCost>[0], usage);
+        return { dispatchIndex: index + 1, provider: "test", model: "synthetic", transportReasoning: "high",
+          calculatorVersion: sdk.version, modelCost, usage, resultProvider: "test", resultModel: "synthetic",
+          stopReason: "stop", pricingComplete: true };
+      });
+      const amount = sdkObservations.reduce((sum, item) => sum + item.usage.cost.total, 0); totals.push(amount);
+      const referenceCost = nativeCostSummary(["run_one"], [amount], [2]);
+      Object.assign(referenceCost.attempts[0]!.report, { sdkObservations,
+        ledger: { turns: 2, turnsWithoutUsage: 0, tokensIn: 100, tokensOut: 0, spentUsd: amount } });
+      const row = invocation({ tokensIn: 100, tokensOut: 0, cacheHit: true, pricing: undefined });
+      const result = await record(root, metadata({ id: `sdk-cache-${scenario}` }), projection(), [row], loopArtifact(["run_one"], { referenceCost }));
+      assert.equal(result.referenceUsd, amount, "a complete same-source SDK receipt must price cache and each tier before aggregation");
+      for (const [index, mutate] of [
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[1]!.dispatchIndex = 1; },
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[0]!.usage.cost.total += 1; },
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[0]!.resultModel = "foreign"; },
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[0]!.usage.cost.output = Number.EPSILON / 4; },
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[0]!.usage.cacheWrite1h = 2; },
+        (copy: typeof referenceCost) => { (copy.attempts[0]!.report as (typeof referenceCost)["attempts"][number]["report"] & { sdkObservations: typeof sdkObservations }).sdkObservations[0]!.calculatorVersion = "unobserved-version"; }
+      ].entries()) {
+        const copy = structuredClone(referenceCost); mutate(copy);
+        const invalid = await record(root, metadata({ id: `sdk-invalid-${index}` }), projection(), [row], loopArtifact(["run_one"], { referenceCost: copy }));
+        assert.equal(invalid.referenceUsd, "unknown");
+      }
+    });
+  }
+  assert.notEqual(totals[0], totals[1], "aggregating before tier calculation loses necessary information");
+});
 
 test("direct host cost reports retain partial spend without execution authority", async () => {
   await fixture(async root => {

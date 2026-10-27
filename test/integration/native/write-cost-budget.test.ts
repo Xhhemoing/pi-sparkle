@@ -16,6 +16,7 @@ import { PiAgentExecutor, type ExecutionCostReport, type PiExecutorOptions } fro
 import { developmentPiTools } from "../../../src/pi-adapter/development-tools.js";
 import type { AgentExecutor } from "../../../src/execution/contract.js";
 import { createAgentInstanceId, createRunId, createTaskId } from "../../../src/domain/ids.js";
+import { createInvocationSink } from "../../../src/telemetry/invocation-log.js";
 
 function git(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -28,6 +29,7 @@ const budget = (context: NativeWriteExecutorFactoryInput) => (context as unknown
 interface Response { readonly value: string; readonly amount: "six" | "five"; readonly missing?: boolean; readonly partial?: boolean; readonly continue?: boolean; }
 async function fixture(responses: readonly Response[], options: { maxAttempts?: number; cap?: number; unsupported?: boolean;
   omitBudget?: boolean;
+  sdkPrices?: boolean;
   hostEvaluator?: boolean; onWrite?: (context: NativeWriteExecutorFactoryInput) => void;
   unpriced?: boolean; binding?: "foreign" | "duplicate" | "lookalike" | "missing-admission" | "foreign-admission"; mutateAdmission?: boolean;
   held?: { entered: ReturnType<typeof Promise.withResolvers<void>>; release: ReturnType<typeof Promise.withResolvers<void>>;
@@ -42,12 +44,17 @@ async function fixture(responses: readonly Response[], options: { maxAttempts?: 
   git(repo, ["add", "."]); git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "fixture"]);
   const revision = git(repo, ["rev-parse", "HEAD"]);
   const model = { ...fauxProvider().getModel()!, provider: "native-cost-local", id: "priced",
-    cost: options.unpriced ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } : { input: 600_000, output: 500_000, cacheRead: 1, cacheWrite: 1 } };
+    cost: options.sdkPrices ? { input: 2, output: 10, cacheRead: .1, cacheWrite: 2.5,
+      tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: .2, cacheWrite: 5 }] } :
+      options.unpriced ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } : { input: 600_000, output: 500_000, cacheRead: 1, cacheWrite: 1 } };
+  const pendingWrites: Promise<void>[] = [], sink = createInvocationSink(path.join(root, "state"));
   let dispatches = 0, executed = 0; const contexts: NativeWriteExecutorFactoryInput[] = []; const caps: (number | undefined)[] = [];
   const stream = (selected: Model<"faux">) => {
     const response = responses[dispatches++]; assert.ok(response, "unexpected provider work");
     const usage: Usage = { input: response.amount === "six" ? 1 : 0, output: response.amount === "five" ? 1 : 0,
       cacheRead: 0, cacheWrite: 0, totalTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+    if (options.sdkPrices) { usage.input = 271998; usage.output = 10; usage.cacheRead = response.amount === "six" ? 1 : 2;
+      usage.cacheWrite = 1; usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite; }
     calculateCost(selected, usage);
     if (response.partial) usage.cost.total += 0.1;
     const message = { ...fauxAssistantMessage([
@@ -75,6 +82,7 @@ async function fixture(responses: readonly Response[], options: { maxAttempts?: 
         }
       });
       const piOptions: PiExecutorOptions = { providerId: model.provider, modelId: model.id, models, tools: developmentPiTools(tools),
+        ...(options.sdkPrices ? { thinkingLevel: "high", onInvocation: row => { context.onInvocation(row); pendingWrites.push(sink(row)); } } : {}),
         stopAfterTaskResult: true, retry: { maxAttempts: 1 }, ...(cost === undefined ? {} : {
           strictReferenceBudget: true, onExecutionCost: cost.onExecutionCost,
           ...(options.binding === "missing-admission" ? {} : { referenceBudgetAdmission: options.binding === "foreign-admission" ? () => undefined : cost.assertDispatchAllowed }) }) };
@@ -99,9 +107,53 @@ async function fixture(responses: readonly Response[], options: { maxAttempts?: 
     budget: { totalSeconds: 30, prepareSeconds: 5, checkSeconds: 5, workerSeconds: 10,
       workerTotalSeconds: 20, checkTotalSeconds: 10, usd: options.cap ?? 1 } };
   const runSpec = () => startDevelopmentTaskSpec({ sourceRepo: repo, stateRoot: path.join(root, "spec-state"), sandboxRoot: path.join(root, "spec-candidates"), spec, executorFactory: factory });
-  return { root, repo, revision, model, models, checkLog, contexts, caps, session, run, runSpec, dispatches: () => dispatches, executed: () => executed,
+  return { root, repo, revision, model, models, checkLog, contexts, caps, session, run, runSpec, flush: () => Promise.all(pendingWrites), dispatches: () => dispatches, executed: () => executed,
     checks: async () => { try { return (await readFile(checkLog, "utf8")).trim().split("\n").length; } catch { return 0; } } };
 }
+
+test("SDK cache-tier receipts survive the real Native sink artifact and recorder without pricing telemetry", { timeout: 60000 }, async () => {
+  const f = await fixture([{ value: "bad", amount: "six", continue: true }, { value: "good", amount: "five" }], { sdkPrices: true, cap: 5, maxAttempts: 1 });
+  try {
+    const result = await f.run(); await f.flush();
+    assert.equal(result.acceptance.accepted, true); assert.notEqual(result.effectsSettled, false);
+    const loop = JSON.parse(await readFile(result.loop!.artifact.path, "utf8"));
+    const observations = loop.body.referenceCost.attempts[0].report.sdkObservations;
+    assert.equal(observations.length, 2); assert.equal(observations[0].usage.cacheRead, 1); assert.equal(observations[1].usage.cacheRead, 2);
+    assert.equal(result.referenceCost?.coverage, "complete");
+    const logPath = path.join(f.root, "state/runtime/invocations.jsonl");
+    const originalLog = await readFile(logPath, "utf8"), row = JSON.parse(originalLog.trim());
+    assert.equal(row.cacheHit, true); assert.equal(row.pricing, undefined);
+    const projectionPath = path.join(f.root, "projection.json"), metadataPath = path.join(f.root, "metadata.json");
+    await writeFile(projectionPath, JSON.stringify({ type: "TASKSPEC_EXECUTION", runId: result.runId, status: result.status,
+      accepted: true, effectsSettled: true }), "utf8");
+    const script = path.resolve("scripts/real-task-record.mjs");
+    const record = async (id: string, artifact: string) => {
+      await writeFile(metadataPath, JSON.stringify({ id, date: "2026-10-26", source: "pi-sparkle", arm: "sparkle", objective: "Synthetic cached tiers", interventions: 0 }), "utf8");
+      const command = spawnSync(process.execPath, [script, "--root", f.root, "--metadata", metadataPath, "--projection", projectionPath,
+        "--state-root", path.join(f.root, "state"), "--loop-artifact", artifact], { encoding: "utf8", windowsHide: true });
+      assert.equal(command.status, 0, command.stderr);
+      return JSON.parse(await readFile(JSON.parse(command.stdout).path, "utf8"));
+    };
+    assert.equal((await record("native-sdk", result.loop!.artifact.path)).referenceUsd, result.referenceCost!.knownReferenceUsd);
+    const invalidPath = path.join(f.root, "invalid-loop.json");
+    for (const [index, mutate] of [
+      (value: typeof loop) => { delete value.body.referenceCost.attempts[0].report.sdkObservations[0].usage; },
+      (value: typeof loop) => { value.body.referenceCost.attempts[0].report.agentInstanceId = "agt_other"; },
+      (value: typeof loop) => { value.body.referenceCost.attempts[0].report.sdkObservations[0].stopReason = "aborted"; },
+      (value: typeof loop) => { delete value.body.referenceCost.attempts[0].report.sdkObservations; }
+    ].entries()) {
+      const altered = structuredClone(loop); mutate(altered); await writeFile(invalidPath, JSON.stringify(altered), "utf8");
+      const rejected = await record(`native-invalid-${index}`, invalidPath); assert.equal(rejected.referenceUsd, "unknown");
+      assert.equal(rejected.cost.knownLowerBoundUsd, result.referenceCost!.knownReferenceUsd);
+    }
+    await writeFile(logPath, JSON.stringify({ ...row, attempt: 2 }) + "\n", "utf8");
+    assert.equal((await record("native-retry", result.loop!.artifact.path)).referenceUsd, "unknown");
+    await writeFile(logPath, "", "utf8");
+    const lostSink = await record("native-lost-sink", result.loop!.artifact.path);
+    assert.equal(lostSink.referenceUsd, "unknown"); assert.equal(lostSink.cost.knownLowerBoundUsd, result.referenceCost!.knownReferenceUsd);
+    await writeFile(logPath, originalLog, "utf8");
+  } finally { await f.session.shutdown(); }
+});
 
 test("one Native logical task deducts actual 0.6 then offers 0.4 and refuses successful 0.5 overrun", { timeout: 60000 }, async () => {
   const f = await fixture([{ value: "bad", amount: "six" }, { value: "good", amount: "five" }]);

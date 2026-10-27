@@ -1,5 +1,6 @@
 import type { AgentExecutionRequest } from "../execution/contract.js";
 import type { CostGate, CostGateLedger, CostGatePricingObservation } from "./cost-gate.js";
+import type { SdkCostObservation } from "./sdk-cost-observation.js";
 
 /** Host-only model reference accounting; excludes tool charges and is never a bill or hard prepaid cap. */
 export interface ExecutionCostReport {
@@ -15,6 +16,8 @@ export interface ExecutionCostReport {
   readonly settled: boolean;
   /** Host ledger dollars use the same unrounded subtotal; CostGateEvent retains its legacy display semantics. */
   readonly ledger: CostGateLedger;
+  /** Optional private evidence for independent SDK recomputation; legacy reports omit it. */
+  readonly sdkObservations?: readonly SdkCostObservation[];
 }
 
 type StrictDispatchRefusal = "invalid-cap" | "unpriced-model" | "incomplete-usage" | "exhausted";
@@ -26,6 +29,9 @@ export class ExecutionCostObservation {
   private sessions = 0;
   private referenceUsd = 0;
   private refusal: StrictDispatchRefusal | undefined;
+  private readonly sdkObservations: SdkCostObservation[] = [];
+  private sdkObservationFault = false;
+  private readonly streams = new WeakSet<object>();
   constructor(private readonly strictBudget?: { readonly maxCostUsd: number | undefined }) {}
   get strictDispatchRefusal(): StrictDispatchRefusal | undefined { return this.refusal; }
   /** The same admission check guards ordinary turns, retry and fallback. Never renew a refused allowance. */
@@ -35,6 +41,7 @@ export class ExecutionCostObservation {
     const limit = this.strictBudget.maxCostUsd;
     if (limit === undefined || !Number.isFinite(limit) || limit <= 0) return this.refusal = "invalid-cap";
     if (!priced) return this.refusal = "unpriced-model";
+    if (this.sdkObservationFault) return this.refusal = "incomplete-usage";
     const ledger = this.ledger();
     const known = this.knownReferenceUsd();
     if (ledger.turns !== this.requests || ledger.turnsWithoutUsage !== 0 || ledger.spentUsd === undefined || known === undefined) {
@@ -51,7 +58,13 @@ export class ExecutionCostObservation {
     if (refusal === "exhausted") gate.requestStopIfExceeded();
     return refusal !== undefined;
   }
-  dispatched(): void { this.requests++; }
+  dispatched(): number { return ++this.requests; }
+  observeSdk(observation: SdkCostObservation): void { this.sdkObservations.push(observation); }
+  failSdkObservation(): void { this.sdkObservationFault = true; }
+  claimStream(stream: object): boolean {
+    if (this.streams.has(stream)) return false;
+    this.streams.add(stream); return true;
+  }
   openingSession(): void { this.sessions++; }
   settledSession(): void { this.sessions--; }
   /** The same validated SDK pricing observation as the gate, before its legacy display rounding. */
@@ -76,10 +89,11 @@ export class ExecutionCostObservation {
     const ledger = Object.freeze(this.ledger());
     const knownReferenceUsd = this.knownReferenceUsd();
     const settled = this.sessions === 0;
-    const complete = settled && ledger.turns === this.requests && ledger.turnsWithoutUsage === 0 &&
+    const complete = !this.sdkObservationFault && settled && ledger.turns === this.requests && ledger.turnsWithoutUsage === 0 &&
       ledger.spentUsd !== undefined && knownReferenceUsd !== undefined;
     return Object.freeze({ runId: request.runId, taskId: request.taskId, agentInstanceId: request.agentInstanceId,
       streamDispatches: this.requests, knownReferenceUsd, settled, ledger,
+      ...(this.sdkObservations.length === 0 ? {} : { sdkObservations: Object.freeze([...this.sdkObservations].sort((a, b) => a.dispatchIndex - b.dispatchIndex)) }),
       coverage: complete ? "complete" : knownReferenceUsd !== undefined && knownReferenceUsd > 0 ? "partial" : "unknown" });
   }
 }
