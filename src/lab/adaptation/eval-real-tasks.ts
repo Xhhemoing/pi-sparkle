@@ -10,6 +10,7 @@ import type { CriterionScore, EvaluationOutcome, EvaluationRecord } from "../../
 import type { ResourceRegistry } from "./registry.js";
 import { identityEquals, type ResourceIdentity } from "./resource.js";
 import { parseTaskResourceContent, verifyMaterializedTaskResources } from "./task-resources.js";
+import { verifyTaskModelConsumption } from "./model-consumption.js";
 
 export interface RealTaskTrialFiles {
   readonly recordFile: string;
@@ -18,6 +19,7 @@ export interface RealTaskTrialFiles {
   readonly eventsFile: string;
   readonly checkFile?: string;
   readonly preflightFile?: string;
+  readonly loopFile?: string;
 }
 export interface RealTaskTrialObservation {
   readonly recordRef: string;
@@ -53,7 +55,16 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
   const claimedRuns = new Set<string>();
   const attempts: RealTaskTrialObservation[] = [], evaluations: EvaluationRecord[] = [];
   const strata = new Set<string>();
+  const modelComparison = input.identity.kind === "workflow-template" && input.identity.name === "model-thinking";
+  const modelControls = new Map<string, { signature: string; versions: Set<ResourceVersionId> }>();
   let comparable = true;
+  if (modelComparison) {
+    const selected = parseTaskResourceContent(input.registry.getContent(version.contentHash)!);
+    const parent = input.registry.getVersion(version.parentVersionId)!;
+    const previous = parseTaskResourceContent(input.registry.getContent(parent.contentHash)!);
+    if (selected.topic !== "model-thinking" || previous.topic !== "model-thinking") fail("model recipe versions must declare fixed selections");
+    if (isDeepStrictEqual(selected.selection, previous.selection)) comparable = false;
+  }
   let knownLowerBoundUsd = 0, unknownCosts = 0;
   for (const files of input.trials) {
     const row = await readRealTaskJson(files.recordFile);
@@ -106,22 +117,22 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       const { id: _expectedId, ...expectedDescriptor } = expected.trustedVerification!;
       if (!isDeepStrictEqual({ ...actual, trustedVerification: actualDescriptor }, { ...expected, trustedVerification: expectedDescriptor })) fail("actual verifier does not match materialized checker definitions");
       checkerVersion = JSON.stringify({ ...actual, trustedVerification: actualDescriptor });
-      if (typeof row.model !== "string" || !row.model || typeof row.thinking !== "string" || !row.thinking) comparable = false;
+      if (!modelComparison && (typeof row.model !== "string" || !row.model || typeof row.thinking !== "string" || !row.thinking)) comparable = false;
       const recipeComparison = binding.topic === "check-recipes";
-      if (recipeComparison) {
+      if (recipeComparison || modelComparison) {
         const review = promotion.review;
         if (!review || review.reviewerKind !== "independent" || review.verdict !== "approved" || review.reviewerId === review.actorId ||
             review.actorId !== version.author.identity || review.candidateId !== promotion.candidateId || review.contentHash !== version.contentHash) {
-          comparable = false; issues.push("independent business-equivalence review of the exact versioned launcher conversions is missing");
+          comparable = false; issues.push(recipeComparison ? "independent business-equivalence review of the exact versioned launcher conversions is missing" : "independent review of the exact versioned fixed model recipe is missing");
         }
         const content = parseTaskResourceContent(input.registry.getContent(version.contentHash)!);
-        if (content.topic !== "check-recipes") fail("check-recipe version content mismatch");
-        if (content.launchers.some(launcher => !isDeepStrictEqual(launcher.fromPrefixArgs, launcher.prefixArgs))) {
+        if (recipeComparison && content.topic !== "check-recipes") fail("check-recipe version content mismatch");
+        if (content.topic === "check-recipes" && content.launchers.some(launcher => !isDeepStrictEqual(launcher.fromPrefixArgs, launcher.prefixArgs))) {
           comparable = false; issues.push("import loader implementation/version equivalence is UNOBSERVED; consumed argv alone does not prove equal business checks");
         }
       }
       // A recipe delta may change only the reviewed launcher. Business checks and write authority remain controls.
-      strata.add(JSON.stringify({ source: row.source, model: row.model, thinking: row.thinking, verifier: recipeComparison ? materialized.baseSpec.checks : checkerVersion,
+      strata.add(JSON.stringify(modelComparison ? { source: row.source, selection: "reviewed-fixed-profile-delta" } : { source: row.source, model: row.model, thinking: row.thinking, verifier: recipeComparison ? materialized.baseSpec.checks : checkerVersion,
         write: materialized.baseSpec.write, prepare: materialized.baseSpec.prepare, budget: materialized.baseSpec.budget }));
       // A date-only operator record cannot prove a later trial. Use the actual host run creation event.
       const eventInfo = await lstat(files.eventsFile);
@@ -135,6 +146,18 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
         // Existing preflight artifacts record recipe id/result, not command/argv. Same-id replacement is indistinguishable.
         // Do not call guidance text or an author-supplied binding proof of actual preparation consumption.
         fail("workflow preparation consumption UNOBSERVED: existing preflight evidence does not bind command/argv");
+      }
+      if (modelComparison) {
+        if (!materialized.modelSelection || files.loopFile === undefined) fail("model submission consumption UNOBSERVED: bound native-loop SDK observations are required");
+        verifyTaskModelConsumption({ loop: await readRealTaskJson(files.loopFile), contract: artifact, events, selection: materialized.modelSelection });
+        const key = JSON.stringify([row.source, logicalTaskId]);
+        const signature = JSON.stringify({ revision: materialized.sourceRevision, spec: materialized.baseSpec });
+        const previous = modelControls.get(key);
+        if (previous && previous.signature !== signature) {
+          comparable = false; issues.push("original committed source/goal/spec differs within this model comparison");
+        }
+        if (previous) previous.versions.add(binding.versionId);
+        else modelControls.set(key, { signature, versions: new Set([binding.versionId]) });
       }
       consumed = true;
       if (files.checkFile !== undefined) {
@@ -186,6 +209,7 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
   const rate = (rows: readonly RealTaskTrialObservation[]) => rows.filter(row => row.correctDelivery === true).length / rows.length;
   // Descriptive only: no causal, non-inferiority or ADR-010 benefit claim follows from five observations.
   let conclusion: "better" | "worse" | "unclear" = "unclear";
+  if (modelComparison && [...modelControls.values()].some(control => !control.versions.has(version.versionId) || !control.versions.has(version.parentVersionId!))) comparable = false;
   if (candidateTasks.size >= 5 && baselineTasks.size > 0 && comparable && strata.size === 1 &&
       attempts.every(attempt => attempt.consumed && attempt.hostCheckReached === true && typeof attempt.correctDelivery === "boolean")) {
     conclusion = rate(candidate) > rate(baseline) ? "better" : rate(candidate) < rate(baseline) ? "worse" : "unclear";

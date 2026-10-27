@@ -7,16 +7,21 @@ import { test } from "node:test";
 import { main } from "../../../src/cli/main.js";
 import { saveProvidersConfig } from "../../../src/config/providers-config.js";
 import { startLoopbackOpenAiProvider } from "../../helpers/loopback-openai-provider.js";
+import { ResourceRegistry } from "../../../src/lab/adaptation/registry.js";
+import { materializeTaskResources, taskResourceIdentity } from "../../../src/lab/adaptation/task-resources.js";
+import { snapshotDevelopmentTaskSpec } from "../../../src/development/task-spec.js";
 
 const CLI = fileURLToPath(new URL("../../../src/cli/main.ts", import.meta.url));
 const TSX = import.meta.resolve("tsx");
 const PRIVATE_OUTPUT = "TASK_CLI_HIDDEN_CHECK_OUTPUT";
 const MODEL = "loopback-task";
+const FIXED_MODEL = "loopback-fixed";
+const FAST_MODEL = "loopback-fast";
 function git(cwd: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
 }
-async function fixture(options: { unpriced?: boolean; invalid?: boolean; onRequest?: () => void } = {}) {
+async function fixture(options: { unpriced?: boolean; invalid?: boolean; onRequest?: () => void; fixedProfiles?: boolean; failFixed?: boolean } = {}) {
   const parent = path.resolve(".agent_workspace/phase1-task-cli");
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, "actual-cli-"));
@@ -40,21 +45,31 @@ async function fixture(options: { unpriced?: boolean; invalid?: boolean; onReque
       protectedPaths: ["checks"], visibleToWorker: true, expect: { baseline: "fail", failureAssertion: "value-regression" } },
     { id: "private", command: process.execPath, args: ["checks/private.cjs"], verifierVersion: "v1", protectedPaths: ["checks"], visibleToWorker: false, expect: { baseline: "pass" } }],
     worker: { model: "inherit", maxAttempts: 1 }, budget: { totalSeconds: 120, prepareSeconds: 20, checkSeconds: 15, workerSeconds: 30, usd: options.invalid ? 0 : 0.01 } }), "utf8");
-  const provider = await startLoopbackOpenAiProvider({ modelIds: [MODEL], scriptedResponse: n => { options.onRequest?.(); return { toolCalls: n === 1 ? [
+  const modelIds: [string, ...string[]] = options.fixedProfiles ? [MODEL, FIXED_MODEL, FAST_MODEL] : [MODEL];
+  const provider = await startLoopbackOpenAiProvider({ modelIds, scriptedResponse: (n, body) => { options.onRequest?.();
+    if (options.failFixed && body.model === FIXED_MODEL) return { httpStatus: 503, errorMessage: "synthetic fixed profile unavailable" };
+    return { toolCalls: n === 1 ? [
     { name: "sparkle_write_file", arguments: { path: "outside.txt", contents: "forbidden" } },
     { name: "sparkle_write_file", arguments: { path: "checks/business.cjs", contents: "process.exit(0)" } },
     { name: "sparkle_write_file", arguments: { path: "value.txt", contents: "after" } }
   ] : [{ name: "sparkle_report_task_result", arguments: { verification: "PASSED", summary: "worker claim is not host acceptance" } }] }; } });
-  await saveProvidersConfig(state, { version: 1, enabled: [`loopback/${MODEL}`], primary: `loopback/${MODEL}`, fast: `loopback/${MODEL}`,
-    customProviders: [{ id: "loopback", baseUrl: provider.baseUrl, models: [{ id: MODEL, contextWindow: 8192, maxTokens: 256,
-      ...(options.unpriced ? {} : { inputCostPerMTok: 1, outputCostPerMTok: 2 }) }] }] });
+  await saveProvidersConfig(state, { version: 1, enabled: modelIds.map(id => `loopback/${id}`), primary: `loopback/${MODEL}`, fast: `loopback/${options.fixedProfiles ? FAST_MODEL : MODEL}`,
+    customProviders: [{ id: "loopback", baseUrl: provider.baseUrl, models: modelIds.map(id => ({ id, contextWindow: 8192, maxTokens: 256,
+      ...(options.fixedProfiles ? { reasoning: true } : {}), ...(options.unpriced ? {} : { inputCostPerMTok: 1, outputCostPerMTok: 2 }) })) }] });
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "ComSpec", "PATHEXT"]) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
   Object.assign(env, { HOME: home, USERPROFILE: home, TEMP: root, TMP: root, TMPDIR: root, PI_API_KEY: "synthetic-loopback-key" });
-  const run = async (extra: string[] = [], input = "", command = ["task", "run", taskFile]) => {
-    const child = spawn(process.execPath, ["--import", TSX, CLI, ...command, "--project", source, "--state-root", state, "--executor", "pi", "--json", ...extra],
+  const run = async (extra: string[] = [], input = "", command = ["task", "run", taskFile], hostRuntime?: Record<string, unknown>) => {
+    let entry = [CLI, ...command];
+    if (hostRuntime !== undefined) {
+      const bridge = path.join(root, "trusted-host.mjs"), runtimeFile = path.join(root, "trusted-host-input.json");
+      await writeFile(runtimeFile, JSON.stringify(hostRuntime), "utf8");
+      await writeFile(bridge, `import {readFile} from 'node:fs/promises';\nconst {taskRunCommand}=await import(${JSON.stringify(new URL("../../../src/cli/task-run.ts", import.meta.url).href)});\nconst runtime=JSON.parse(await readFile(process.argv[2],'utf8'));\nconst io={stdout:text=>process.stdout.write(text),stderr:text=>process.stderr.write(text)};\nif(runtime.resourceExecution){\n const {ResourceRegistry}=await import(${JSON.stringify(new URL("../../../src/lab/adaptation/registry.ts", import.meta.url).href)});\n const {executeMaterializedTaskResources}=await import(${JSON.stringify(new URL("../../../src/lab/adaptation/execute-real-task.ts", import.meta.url).href)});\n const selected=runtime.resourceExecution;\n process.exitCode=await executeMaterializedTaskResources({registry:ResourceRegistry.fromSnapshot(selected.registry),projectRoot:selected.projectRoot,sourceRepo:selected.sourceRepo,materialized:selected.materialized,authority:selected.authority,stateRoot:selected.stateRoot,io});\n}else{process.exitCode=await taskRunCommand(process.argv.slice(3),io,runtime);}\n`, "utf8");
+      entry = [bridge, runtimeFile, ...command.slice(1)];
+    }
+    const child = spawn(process.execPath, ["--import", TSX, ...entry, "--project", source, "--state-root", state, "--executor", "pi", "--json", ...extra],
       { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let stdout = "", stderr = "";
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
@@ -81,6 +96,95 @@ async function costSummaries(directory: string): Promise<Record<string, unknown>
   }
   return results;
 }
+
+const fixedSelection = { providerId: "loopback", modelId: FIXED_MODEL, thinkingLevel: "max" };
+const fixedAuthority = { authorityRef: "synthetic host selection authority", approvedSelections: [fixedSelection] };
+
+test("actual task run fixed host profile overrides ambient model/thinking and binds real SDK observations", { timeout: 180000 }, async () => {
+  const f = await fixture({ fixedProfiles: true });
+  try {
+    Object.assign(f.env, { PI_PROVIDER: "loopback", PI_MODEL: MODEL, PI_THINKING_LEVEL: "high" });
+    const configBefore = await readFile(path.join(f.state, "runtime/providers.json"), "utf8");
+    const output = await f.run([], "", undefined, { modelSelection: { selection: fixedSelection, authority: fixedAuthority }, expectedSourceRevision: f.revision });
+    assert.equal(output.code, 0, output.stderr);
+    const projection = output.records.find(record => record.type === "TASKSPEC_EXECUTION");
+    assert.equal(projection?.accepted, true); assert.equal(projection?.effectsSettled, true);
+    assert.equal(f.provider.requests.length, 2);
+    assert.ok(f.provider.requests.every(request => (request.body as { model: string }).model === FIXED_MODEL));
+    const reports = (await costSummaries(f.state)).flatMap(summary => (summary.attempts as Array<{ report?: Record<string, unknown> }>).flatMap(attempt => attempt.report ? [attempt.report] : []));
+    const observations = reports.flatMap(report => report.sdkObservations as Array<Record<string, unknown>>);
+    assert.equal(observations.length, 2);
+    for (const observed of observations) {
+      assert.equal(observed.provider, "loopback"); assert.equal(observed.model, FIXED_MODEL); assert.equal(observed.transportReasoning, "max");
+      assert.equal(observed.resultModel, FIXED_MODEL); assert.equal(observed.pricingComplete, true);
+    }
+    assert.equal(await readFile(path.join(f.state, "runtime/providers.json"), "utf8"), configBefore);
+    assert.equal(f.env.PI_MODEL, MODEL); assert.equal(f.env.PI_THINKING_LEVEL, "high");
+    assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+    assert.equal(git(f.source, ["rev-parse", "HEAD"]), f.revision);
+  } finally { await f.provider.close(); }
+});
+
+test("actual task run fixed unavailable profile never falls through to configured fast model", { timeout: 180000 }, async () => {
+  const f = await fixture({ fixedProfiles: true, failFixed: true });
+  try {
+    const output = await f.run([], "", undefined, { modelSelection: { selection: fixedSelection, authority: fixedAuthority } });
+    assert.equal(output.code, 1);
+    assert.ok(f.provider.requests.length > 0);
+    assert.ok(f.provider.requests.every(request => (request.body as { model: string }).model === FIXED_MODEL));
+    assert.equal(output.records.find(record => record.type === "TASKSPEC_EXECUTION")?.accepted, false);
+    assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+  } finally { await f.provider.close(); }
+});
+
+for (const sourceBinding of ["mismatch", "malformed"] as const) test(`actual task run expected source ${sourceBinding} refuses before provider dispatch`, { timeout: 180000 }, async () => {
+  const f = await fixture();
+  try {
+    const output = await f.run([], "", undefined, { expectedSourceRevision: sourceBinding === "mismatch" ? "0".repeat(40) : "INVALID" });
+    assert.equal(output.code, 1);
+    assert.equal(f.provider.requests.length, 0);
+    assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+  } finally { await f.provider.close(); }
+});
+
+test("actual fixed resource adapter keeps logical project identity separate from isolated source through SDK and retention", { timeout: 180000 }, async () => {
+  const f = await fixture({ fixedProfiles: true });
+  try {
+    Object.assign(f.env, { PI_PROVIDER: "loopback", PI_MODEL: MODEL, PI_THINKING_LEVEL: "high" });
+    // This identity intentionally does not exist: execution must only read the isolated source.
+    const projectRoot = path.join(f.root, "original-project-identity"), registry = new ResourceRegistry();
+    const identity = taskResourceIdentity(projectRoot, "model-thinking");
+    const version = registry.registerBaseline({ identity, author: { kind: "human", identity: "synthetic owner" },
+      content: JSON.stringify({ topic: "model-thinking", selection: fixedSelection, sourceRefs: ["synthetic/observation"], expectedEffect: "exercise actual consumption without presumed benefit" }) });
+    const spec = snapshotDevelopmentTaskSpec(JSON.parse(await readFile(f.taskFile, "utf8")));
+    const materialized = materializeTaskResources({ registry, projectRoot, logicalTaskId: "synthetic-fixed-resource", sourceRevision: f.revision, spec, topics: ["model-thinking"] });
+    assert.deepEqual(materialized.spec, spec, "the fixed profile must preserve TaskSpec scope, checks and budgets");
+    const configBefore = await readFile(path.join(f.state, "runtime/providers.json"), "utf8");
+    const output = await f.run([], "", undefined, { resourceExecution: { registry: registry.snapshot(), projectRoot, sourceRepo: f.source,
+      stateRoot: f.state, materialized, authority: fixedAuthority } });
+    assert.equal(output.code, 0, output.stderr);
+    const execution = output.records.find(record => record.type === "TASKSPEC_EXECUTION");
+    assert.equal(execution?.accepted, true); assert.equal(execution?.effectsSettled, true);
+    assert.equal(execution?.sourceRevision, f.revision);
+    assert.equal(output.records.some(record => record.type === "TASKSPEC_APPLICATION"), false);
+    const candidate = execution?.candidatePath as string;
+    await access(candidate); assert.equal(await readFile(path.join(candidate, "value.txt"), "utf8"), "after");
+    assert.equal(await readFile(path.join(f.source, "value.txt"), "utf8"), "before");
+    assert.equal(git(f.source, ["rev-parse", "HEAD"]), f.revision); assert.equal(git(f.source, ["status", "--porcelain=v1"]), "");
+    await assert.rejects(access(projectRoot), { code: "ENOENT" });
+    assert.equal(f.provider.requests.length, 2);
+    assert.ok(f.provider.requests.every(request => (request.body as { model: string }).model === FIXED_MODEL));
+    const summaries = await costSummaries(f.state);
+    assert.ok(summaries.some(summary => summary.coverage === "complete" && summary.settled === true));
+    const observations = summaries.flatMap(summary => (summary.attempts as Array<{ report?: Record<string, unknown> }>).flatMap(attempt =>
+      (attempt.report?.sdkObservations ?? []) as Array<Record<string, unknown>>));
+    assert.equal(observations.length, 2);
+    assert.ok(observations.every(observed => observed.provider === "loopback" && observed.model === FIXED_MODEL && observed.resultModel === FIXED_MODEL && observed.transportReasoning === "max"));
+    assert.equal(await readFile(path.join(f.state, "runtime/providers.json"), "utf8"), configBefore);
+    assert.equal(f.env.PI_MODEL, MODEL); assert.equal(f.env.PI_THINKING_LEVEL, "high");
+    assert.equal(registry.getActiveVersion(identity)?.versionId, version.versionId); assert.equal(registry.ledger().length, 0);
+  } finally { await f.provider.close(); }
+});
 
 for (const decision of ["default", "apply", "discard", "eof"] as const) test(`actual task run uses configured loopback SDK and ${decision} keeps explicit lifecycle authority`, { timeout: 180000 }, async () => {
   const f = await fixture();
