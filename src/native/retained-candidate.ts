@@ -16,8 +16,7 @@ interface HeldCandidate {
   readonly indexTree: string;
 }
 const heldCandidates = new WeakMap<RetainedCandidateHandle, HeldCandidate>();
-// Whole-tree ownership and apply use the same finite capacity; scoped checker limits stay independent.
-export const WHOLE_CANDIDATE_SNAPSHOT_LIMITS = Object.freeze({ maxFiles: 4096, maxBytes: 32 * 1024 * 1024 });
+const limits = { maxFiles: 1024, maxBytes: 16 * 1024 * 1024 };
 function fail(message: string): never { throw new DomainValidationError(`retained candidate: ${message}`); }
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync("git", ["--no-replace-objects", ...args], {
@@ -46,7 +45,7 @@ export function holdRetainedCandidate(input: RetainedCandidateHandle): RetainedC
   const handle = Object.freeze({ sourceRepo: authorization.sourceIdentity.root, sourceRevision: input.sourceRevision,
     candidatePath: authorization.candidateIdentity.root });
   assertUnlocked(handle.sourceRepo, handle.candidatePath);
-  const snapshot = captureExactSnapshot(handle.candidatePath, {}, WHOLE_CANDIDATE_SNAPSHOT_LIMITS);
+  const snapshot = captureExactSnapshot(handle.candidatePath, {}, limits);
   const indexTree = git(handle.candidatePath, ["write-tree"]).trim();
   heldCandidates.set(handle, { authorization, snapshot, indexTree });
   assertRetainedCandidate(handle);
@@ -62,7 +61,7 @@ export function assertRetainedCandidate(handle: RetainedCandidateHandle, prepare
   if (!sameIdentity(current.sourceIdentity, held.authorization.sourceIdentity) ||
     !sameIdentity(current.candidateIdentity, held.authorization.candidateIdentity)) fail("repository or candidate identity changed");
   assertUnlocked(handle.sourceRepo, handle.candidatePath);
-  if (!sameExactSnapshot(held.snapshot, captureExactSnapshot(handle.candidatePath, {}, WHOLE_CANDIDATE_SNAPSHOT_LIMITS))) fail("held candidate bytes or file set changed");
+  if (!sameExactSnapshot(held.snapshot, captureExactSnapshot(handle.candidatePath, {}, limits))) fail("held candidate bytes or file set changed");
   if (git(handle.candidatePath, ["write-tree"]).trim() !== (preparedIndexTree ?? held.indexTree)) fail("held candidate index changed");
 }
 

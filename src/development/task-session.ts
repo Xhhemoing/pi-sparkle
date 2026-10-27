@@ -4,7 +4,7 @@ import path from "node:path";
 import { DomainValidationError } from "../domain/errors.js";
 import { NativeApplySession, type NativeApplyPreparedTarget, type NativeApplyResult, type NativeDisposeResult } from "../native/apply.js";
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
-import { assertRetainedCandidate, discardRetainedCandidate, holdRetainedCandidate, WHOLE_CANDIDATE_SNAPSHOT_LIMITS, type RetainedCandidateHandle } from "../native/retained-candidate.js";
+import { assertRetainedCandidate, discardRetainedCandidate, holdRetainedCandidate, type RetainedCandidateHandle } from "../native/retained-candidate.js";
 import type { NativeWriteExecutorFactory, NativeWriteSessionResult } from "../native/write-session.js";
 import { prepareTrustedVerification, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import { runtimeRoot } from "../persist/state-layout.js";
@@ -80,7 +80,7 @@ export class TaskSpecSession {
       checks: spec.checks.map(({ expect: _expect, ...check }) => check) });
     const descriptor = planned.verification.trustedVerification!;
     const whole = prepareTrustedVerification({ command: planned.verification.command, args: planned.verification.args ?? [],
-      checkerFiles: descriptor.checkerFiles, snapshotManifest: {}, maxSnapshotFiles: WHOLE_CANDIDATE_SNAPSHOT_LIMITS.maxFiles, maxSnapshotBytes: WHOLE_CANDIDATE_SNAPSHOT_LIMITS.maxBytes });
+      checkerFiles: descriptor.checkerFiles, snapshotManifest: {}, maxSnapshotFiles: descriptor.maxSnapshotFiles, maxSnapshotBytes: descriptor.maxSnapshotBytes });
     return this.enter(input.signal, async signal => {
       const result = await startDevelopmentTaskSpec({ sourceRepo, stateRoot: this.stateRoot, sandboxRoot: this.sandboxRoot, spec, executorFactory: factory, signal });
       const execution = result.execution;
