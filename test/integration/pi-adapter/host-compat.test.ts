@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { findPackageJSON } from "node:module";
+import { createRequire, findPackageJSON } from "node:module";
 import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { setImmediate } from "node:timers/promises";
@@ -90,6 +90,48 @@ function deferred() {
   const promise = new Promise<void>((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+test("SDK calculator metadata respects a bare-only host compat alias without requiring a models subpath", async () => {
+  const sdk = await resolvePackage("@earendil-works/pi-coding-agent", import.meta.url);
+  const hostAi = await resolvePackage("@earendil-works/pi-ai", sdk.entryUrl);
+  const compat = hostAi.manifest.exports["./compat"];
+  assert.ok(compat);
+  const compatPath = await realpath(join(dirname(hostAi.packageJson), typeof compat === "string" ? compat : compat.import));
+  const { createJiti } = createRequire(sdk.entryUrl)("jiti") as {
+    createJiti: (base: string, options: { moduleCache: boolean; tryNative: boolean; alias: Record<string, string> }) => {
+      import: (file: string) => Promise<typeof import("../../../src/pi-adapter/sdk-cost-observation.js")>;
+    };
+  };
+  const helper = fileURLToPath(new URL("../../../src/pi-adapter/sdk-cost-observation.ts", import.meta.url));
+  const ai = await import(hostAi.entryUrl) as typeof import("@earendil-works/pi-ai");
+  const model = ai.fauxProvider().getModel()!;
+  const aliased = createJiti(import.meta.url, { moduleCache: false, tryNative: false, alias: { "@earendil-works/pi-ai": compatPath } });
+  const projection = await aliased.import(helper);
+  assert.equal(projection.captureSdkDispatch(1, model, { reasoning: "high" }).calculatorVersion, hostAi.manifest.version);
+});
+
+test("unavailable SDK calculator metadata leaves only the new receipt evidence incomplete", async () => {
+  const sdk = await resolvePackage("@earendil-works/pi-coding-agent", import.meta.url);
+  const { createJiti } = createRequire(sdk.entryUrl)("jiti") as {
+    createJiti: (base: string, options: { moduleCache: boolean; tryNative: boolean; alias: Record<string, string> }) => {
+      import: (file: string) => Promise<typeof import("../../../src/pi-adapter/sdk-cost-observation.js")>;
+    };
+  };
+  const parent = join(process.cwd(), ".agent_workspace/host-compat"); await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(join(parent, "metadata-"));
+  try {
+    const entry = join(root, "compat.js"); await writeFile(entry, "export {};", "utf8");
+    const aliased = createJiti(import.meta.url, { moduleCache: false, tryNative: false, alias: { "@earendil-works/pi-ai": entry } });
+    const projection = await aliased.import(fileURLToPath(new URL("../../../src/pi-adapter/sdk-cost-observation.ts", import.meta.url)));
+    const ai = await import("@earendil-works/pi-ai"); const model = ai.fauxProvider().getModel()!;
+    const snapshot = projection.captureSdkDispatch(1, model, undefined);
+    const observed = projection.finishSdkDispatch(snapshot, { role: "assistant", provider: model.provider, model: model.id,
+      stopReason: "stop", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0,
+        cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2 } } }, true);
+    assert.equal(observed.calculatorVersion, undefined); assert.equal(observed.pricingComplete, false);
+    assert.equal(observed.usage?.input, 1); assert.equal(observed.usage?.cost?.total, 2);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 async function fixture(t: TestContext, captureBudgets = false) {
   const { ai, getCurrentTools, loadExtensions } = await hostPackages(t);
