@@ -1,6 +1,6 @@
 # Task Management
 
-Start with the [active plan](plan.md) and its [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25), the [unfinished checklist](todo.md), [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). The active plan records the effective workspace, owner authorization and candidate-specific evidence. Operating guides do not pin the current phase or repeat volatile PR/job summaries.
+Start with the active plan's [current execution checkpoint](plan.md#current-execution-checkpoint-2026-10-26), then the [unfinished checklist](todo.md) and the relevant [real-task stage](plan.md#real-task-improvement-loop-2026-10-25). Check the actual branch/HEAD, dirty paths and relevant live PR before dispatching work from that checkpoint. [ADR-010](../docs/decisions/0010-evidence-bound-changes.md) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md) define the accepted boundaries. The active plan records owner authorization and candidate-specific evidence; dated review totals and old next-action paragraphs are retained evidence, not a second dispatch queue. Operating guides do not pin the current phase or repeat volatile PR/job summaries.
 
 ## Authoritative Files
 
