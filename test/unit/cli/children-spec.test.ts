@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { parseChildCostCeiling, parseChildSpec } from "../../../src/cli/children-spec.js";
+import { DomainValidationError } from "../../../src/domain/errors.js";
 import { parseTaskId } from "../../../src/domain/ids.js";
 
 async function withSpec(contents: unknown, run: (path: string) => Promise<void>): Promise<void> {
@@ -28,6 +29,7 @@ test("parseChildSpec keeps roles, dependsOn, limits and the declared cost ceilin
           objective: "Test the parser",
           dependsOn: ["tsk_parse"],
           acceptanceCriteria: [{ id: "ac1", description: "tests pass" }],
+          inputArtifactIds: ["art_input"],
           limits: { maxAttempts: 3, timeoutMs: 1_000, maxCostUsd: 0.5 }
         }
       ]
@@ -37,16 +39,78 @@ test("parseChildSpec keeps roles, dependsOn, limits and the declared cost ceilin
       assert.equal(tasks.length, 2);
       assert.equal(tasks[0]?.role, "implementer");
       assert.equal(tasks[0]?.dependsOn, undefined);
+      assert.equal(Object.hasOwn(tasks[0] ?? {}, "dependsOn"), false);
+      assert.deepEqual(tasks[0]?.acceptanceCriteria, []);
+      assert.deepEqual(tasks[0]?.inputArtifactIds, []);
       assert.equal(tasks[0]?.limits.maxAttempts, 1);
       assert.equal(tasks[0]?.limits.timeoutMs, 60_000);
       assert.equal(tasks[0]?.limits.maxCostUsd, undefined);
       assert.deepEqual(tasks[1]?.dependsOn, [parseTaskId("tsk_parse")]);
       assert.deepEqual(tasks[1]?.acceptanceCriteria, [{ id: "ac1", description: "tests pass" }]);
+      assert.deepEqual(tasks[1]?.inputArtifactIds, ["art_input"]);
       assert.equal(tasks[1]?.limits.maxAttempts, 3);
       assert.equal(tasks[1]?.limits.maxCostUsd, 0.5);
       assert.ok(tasks[1]?.profile !== undefined, "each task resolves an agent profile");
     }
   );
+});
+
+for (const field of ["dependsOn", "acceptanceCriteria", "inputArtifactIds"]) {
+  for (const value of ["tsk_parse", {}, null, 42, true, false]) {
+    test(`parseChildSpec refuses ${field}: ${JSON.stringify(value)}`, async () => {
+      await withSpec(
+        { tasks: [{ id: "tsk_a", role: "implementer", objective: "A", [field]: value }] },
+        async (path) => {
+          await assert.rejects(parseChildSpec(path), (error: unknown) => {
+            assert.ok(error instanceof DomainValidationError);
+            assert.equal(error.message, `Child task tsk_a: ${field} must be an array`);
+            return true;
+          });
+        }
+      );
+    });
+  }
+}
+
+test("parseChildSpec preserves explicitly empty lists", async () => {
+  await withSpec(
+    {
+      tasks: [{
+        id: "tsk_a",
+        role: "implementer",
+        objective: "A",
+        dependsOn: [],
+        acceptanceCriteria: [],
+        inputArtifactIds: []
+      }]
+    },
+    async (path) => {
+      const tasks = await parseChildSpec(path);
+      assert.deepEqual(tasks[0]?.dependsOn, []);
+      assert.deepEqual(tasks[0]?.acceptanceCriteria, []);
+      assert.deepEqual(tasks[0]?.inputArtifactIds, []);
+    }
+  );
+});
+
+test("parseChildSpec still refuses malformed list elements", async () => {
+  for (const [field, value, message] of [
+    ["dependsOn", ["invalid"], /Invalid TaskId/],
+    ["acceptanceCriteria", [null], /acceptanceCriteria must be objects/],
+    ["acceptanceCriteria", [{}], /acceptanceCriteria need \{id, description\}/],
+    ["inputArtifactIds", ["invalid"], /invalid inputArtifactId/]
+  ] as const) {
+    await withSpec(
+      { tasks: [{ id: "tsk_a", role: "implementer", objective: "A", [field]: value }] },
+      async (path) => {
+        await assert.rejects(parseChildSpec(path), (error: unknown) => {
+          assert.ok(error instanceof DomainValidationError);
+          assert.match(error.message, message);
+          return true;
+        });
+      }
+    );
+  }
 });
 
 test("parseChildSpec still refuses a duplicate task id", async () => {
