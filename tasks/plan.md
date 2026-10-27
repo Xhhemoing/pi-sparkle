@@ -2,21 +2,21 @@
 
 ## Current execution checkpoint (2026-10-26)
 
-Resume from the actual workspace, branch/HEAD and dirty paths. Adopted main is `49bb84ad` (#99, reviewed `bd922974`). Coordinator docs live in `real-task-pricing-docs` / `codex/s-doc-consolidation-20261026`. E:/Project/pi-sparkle has separate uncommitted documentation that remains untouched. Status and CI are observations, not authorization.
+Resume from the actual workspace, branch/HEAD and dirty paths. Adopted main is `6a35824f` (#100, owner-approved `5a8e147f`); #99 is adopted in `49bb84ad`. Coordinator docs live in `real-task-pricing-docs` / `codex/s-doc-consolidation-20261026`. E:/Project/pi-sparkle has separate uncommitted documentation that remains untouched. Status and CI are observations, not authorization.
 
 | Result | Current state and next action |
 |---|---|
 | Maintenance | #88/#89 integrate the fixes from #80/#82; both originals are closed. #68 awaits the owner. |
-| SDK cost evidence | #100, `5a8e147f`, nine files; no plan/todo/capacity changes. Independent accounting and frozen JSON/invocation reviews passed; exact-head CI40436694889 and root regression passed. Owner merge decision pending. |
-| Capacity | Separate #103, `3bc12e28`, four files, unadopted. Existing gate41432 ended failed(exit1); build/probes not reached. No new gate. Owner decision pending; follow exact-head CI. |
+| SDK cost evidence | #100 is owner-approved and merged non-squash as `6a35824f`; reviewed SDK-only `5a8e147f`, nine files, exact-head CI40436694889/root regression passed. No plan/todo/capacity changes. |
+| Capacity | Separate #103, `3bc12e28`, four files, unadopted. Existing gate41432 ended failed(exit1); build/probes not reached. No new gate. Exact-head CI40439074326/root regression passed; local gate remains failed. Owner decision pending. |
 | S-doc | Current docs-only candidate: compact checkpoint/acceptance/owner decisions, verbatim dated archive, separate coordinator updates and current-output rule. Content/link checks pass; independent review and exact-head CI pending. |
-| Real tasks | Next: P06 → P07 → S06 (deadline + reminder together) → S07 → S08. Use adopted runtime only; preparation and dispatch follow capacity validation's termination. |
+| Real tasks | P06 control cancelled on its worker time budget; post-run review ongoing. P07 preflight running; then S06 (deadline + reminder together) → S07 → S08. Use adopted runtime only. |
 | R3 | #96/#98 are adopted. Two prompt contents are approved; resource promotion and matched later trials remain separate owner/evidence boundaries. No resource is promoted. |
 | Parked work | #102 and the uncommitted host-check maintenance in phase1-ts-validation are unadopted and outside this ordered task batch. Preserve their changes and failures. |
 
 ### Run statistics
 
-Latest verified canonical summary: 26 attempts (13 Pi / 13 Soul), 5 reviewed-and-kept changes, 12 interventions, 0 escaped defects observed. Original Soul is not applied by this work. Full reference cost remains unknown for all 26 attempts; observed lower bound US$0.69969432. Task-authoring/review time is sparse or unknown. Speed benefit remains unmeasured.
+Latest verified canonical summary: 27 attempts (14 Pi / 13 Soul), 5 reviewed-and-kept changes, 12 interventions, 0 escaped defects observed. Original Soul is not applied by this work. Full reference cost remains unknown for all 27 attempts; observed lower bound US$0.78412072. Task-authoring/review time is sparse or unknown. Speed benefit remains unmeasured.
 
 The first two R2 reviews are retained in the [evidence archive](archive/2026-10-26-r1-r3-evidence.md#earlier-verification-and-review-snapshots). Next review: attempt30 or weekly. Refresh the private summary before every paid admission; do not use this checkpoint as a live budget calculation.
 
@@ -81,7 +81,6 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 
 | Item | Required decision |
 |---|---|
-| #100 | Decide merge of the reviewed SDK-only exact head; current CI does not supply approval. |
 | #103 | Review the four-file capacity candidate with its failed local gate evidence and decide merge. |
 | R3 resources | Preserve approved prompt contents; explicit promotion remains an owner boundary. |
 | #68 / Phase 1 / R4–R5 | Deferred to the owner; coordinator does not advance them from old plans. |
