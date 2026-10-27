@@ -1,14 +1,15 @@
 # Active checklist
 
-See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
+See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; status is not authorization.
 
-- [ ] Coordinator: refresh the private attempt summary before admission; keep per-task <=US$5 and the owner-adopted --weekly-limit-usd none policy; gateway billing remains unknown. Do not retry P01/P02 without a class correction or changed condition.
-- [ ] Capacity coordinator: finish the existing whole-candidate candidate's serial gate, PR/CI and owner runtime adoption; other work must not restart its gate or use the unadopted runtime.
-- [ ] R2 Coordinator: keep measuring later real-task preparation/check guidance outcomes and task-authoring/review time; review every 10 attempts or weekly. Shared Node guidance and the R3 adapter are already adopted.
-- [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
-- [ ] R4 Owner: decide entry to automation for outcome-supported proposal types only, after the stop/rollback chain is verified.
-- [ ] Owner: decide Phase 1 completion; deferred B1/B2 resume follows real-task need ([archived acceptance](archive/2026-10-25-phase1-plan.md)).
-- [ ] Coordinator: split #68 (host assembly / static routing / queue-read); keep #72 deferred lab evaluation.
-- [ ] Before adopting the older direct helper candidate: correct and retest its kill-error/successful-reap regression.
-- [ ] Owner: the old 15-task evaluation and ADR-010 benefit targets remain unproven; R5 benchmark and paid/publication steps need separate authorization.
-- [ ] Existing owners: retain [earlier unresolved obligations](archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production approval.
+- [ ] Owner: decide SDK-only #100 and separate capacity #103; retain failed/unknown local validation. Coordinator does not merge runtime or restart a full gate.
+- [ ] Coordinator: use adopted runtime for P06 → P07 → S06(deadline+reminder) → S07 → S08; verify source/goal and private preparation, keep per-attempt≤US$5 and weekly-limit none, original Soul read-only.
+- [ ] Coordinator: record taskSpecMinutes and review duration for each attempt; missing stays unknown. Refresh the private summary before every paid admission; no unchanged P01/P02 retry.
+- [ ] R2 Coordinator: next review at30 attempts or weekly; report top1–2 failure classes and measured speed evidence, retaining all failures and unknowns. No speed claim beforehand.
+- [ ] R3 Owner + coordinator: use approved prompt contents for matched applicable trials after required promotion approval; finish all resource types and≥5 distinct later tasks per≥2 proposals.
+- [ ] R4 Owner: decide entry only after supported outcomes and stop/rollback verification.
+- [ ] Owner: decide Phase 1 completion; keep B1/B2 deferred under [original acceptance](archive/2026-10-25-phase1-plan.md).
+- [ ] Owner: decide #68; coordinator leaves it unchanged. Keep #72 deferred.
+- [ ] Before old direct-helper adoption: fix/retest kill-error/successful-reap regression.
+- [ ] Owner: old15-task comparison, ADR-010 benefit targets, R5 benchmark and publication remain unproven/separately authorized.
+- [ ] Existing owners: preserve [earlier obligations](archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR#36 artifacts, privacy, containment and production approval.
