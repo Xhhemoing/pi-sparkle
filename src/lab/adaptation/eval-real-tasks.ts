@@ -1,6 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
-import { prepareDevelopmentCheckPlan } from "../../development/check-plan.js";
+import { prepareDevelopmentCheckPlan, renderVisibleDevelopmentChecks, visibleDevelopmentCriteria } from "../../development/check-plan.js";
 import { DomainValidationError } from "../../domain/errors.js";
 import { isRecord } from "../../domain/record.js";
 import { isRunId, parseEpisodeId, parseRunId, parseTaskId, type ResourceVersionId } from "../../domain/ids.js";
@@ -11,6 +11,8 @@ import type { ResourceRegistry } from "./registry.js";
 import { identityEquals, type ResourceIdentity } from "./resource.js";
 import { parseTaskResourceContent, verifyMaterializedTaskResources } from "./task-resources.js";
 import { verifyTaskModelConsumption } from "./model-consumption.js";
+import { parseTaskModelSelection } from "../../domain/task-model-selection.js";
+import { verifyTaskResourceRequest } from "./task-request.js";
 
 export interface RealTaskTrialFiles {
   readonly recordFile: string;
@@ -54,9 +56,8 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
   const actualRuns = new Set<string>();
   const claimedRuns = new Set<string>();
   const attempts: RealTaskTrialObservation[] = [], evaluations: EvaluationRecord[] = [];
-  const strata = new Set<string>();
   const modelComparison = input.identity.kind === "workflow-template" && input.identity.name === "model-thinking";
-  const modelControls = new Map<string, { signature: string; versions: Set<ResourceVersionId> }>();
+  const controls = new Map<string, { signature: string; versions: Set<ResourceVersionId>; candidate: boolean[]; baseline: boolean[]; issues: string[][] }>();
   let comparable = true;
   if (modelComparison) {
     const selected = parseTaskResourceContent(input.registry.getContent(version.contentHash)!);
@@ -109,15 +110,14 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       if (body.objective !== materialized.spec.objective) fail("actual task objective did not consume materialized content");
       artifactId = artifact.id; taskId = body.taskId;
       const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: materialized.spec.write.allow, protectedPaths: materialized.spec.write.protect },
-        checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) }).verification;
-      const expected = { ...planned, timeoutMs: Math.round(materialized.baseSpec.budget.checkSeconds * 1000) };
+        checks: materialized.spec.checks.map(({ expect: _expect, ...check }) => check) });
+      const expected = { ...planned.verification, timeoutMs: Math.round(materialized.baseSpec.budget.checkSeconds * 1000) };
       const actual = body.verification;
       if (!isRecord(actual) || !isRecord(actual.trustedVerification) || typeof actual.trustedVerification.id !== "string" || !actual.trustedVerification.id) fail("actual verifier descriptor is missing");
       const { id: _actualId, ...actualDescriptor } = actual.trustedVerification;
       const { id: _expectedId, ...expectedDescriptor } = expected.trustedVerification!;
       if (!isDeepStrictEqual({ ...actual, trustedVerification: actualDescriptor }, { ...expected, trustedVerification: expectedDescriptor })) fail("actual verifier does not match materialized checker definitions");
       checkerVersion = JSON.stringify({ ...actual, trustedVerification: actualDescriptor });
-      if (!modelComparison && (typeof row.model !== "string" || !row.model || typeof row.thinking !== "string" || !row.thinking)) comparable = false;
       const recipeComparison = binding.topic === "check-recipes";
       if (recipeComparison || modelComparison) {
         const review = promotion.review;
@@ -131,9 +131,6 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
           comparable = false; issues.push("import loader implementation/version equivalence is UNOBSERVED; consumed argv alone does not prove equal business checks");
         }
       }
-      // A recipe delta may change only the reviewed launcher. Business checks and write authority remain controls.
-      strata.add(JSON.stringify(modelComparison ? { source: row.source, selection: "reviewed-fixed-profile-delta" } : { source: row.source, model: row.model, thinking: row.thinking, verifier: recipeComparison ? materialized.baseSpec.checks : checkerVersion,
-        write: materialized.baseSpec.write, prepare: materialized.baseSpec.prepare, budget: materialized.baseSpec.budget }));
       // A date-only operator record cannot prove a later trial. Use the actual host run creation event.
       const eventInfo = await lstat(files.eventsFile);
       if (!eventInfo.isFile() || eventInfo.isSymbolicLink() || eventInfo.size > 16 * 1024 * 1024) fail("run events must be a bounded regular file");
@@ -147,18 +144,43 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
         // Do not call guidance text or an author-supplied binding proof of actual preparation consumption.
         fail("workflow preparation consumption UNOBSERVED: existing preflight evidence does not bind command/argv");
       }
+      const criteria = visibleDevelopmentCriteria(planned.checkPlan);
+      if (!isDeepStrictEqual(body.acceptanceCriteria, criteria)) fail("task contract does not match the materialized host acceptance criteria");
+      const declaredObjective = criteria === undefined ? materialized.spec.objective :
+        `${materialized.spec.objective}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}`;
+      verifyTaskResourceRequest({ contract: artifact, events,
+        expectedObjective: declaredObjective + renderVisibleDevelopmentChecks(planned.checkPlan), requiredFiles: materialized.spec.context,
+        acceptanceMetadata: criteria?.map(criterion => JSON.stringify(criterion)) ?? [] });
+      let actualSelection: unknown;
       if (modelComparison) {
         if (!materialized.modelSelection || files.loopFile === undefined) fail("model submission consumption UNOBSERVED: bound native-loop SDK observations are required");
         verifyTaskModelConsumption({ loop: await readRealTaskJson(files.loopFile), contract: artifact, events, selection: materialized.modelSelection });
-        const key = JSON.stringify([row.source, logicalTaskId]);
-        const signature = JSON.stringify({ revision: materialized.sourceRevision, spec: materialized.baseSpec });
-        const previous = modelControls.get(key);
-        if (previous && previous.signature !== signature) {
-          comparable = false; issues.push("original committed source/goal/spec differs within this model comparison");
+      } else {
+        // Operator labels do not prove a matched model. Keep prompt consumption separate
+        // from the actual dispatch control, including when fees or receipts are unknown.
+        try {
+          if (files.loopFile === undefined) fail("bound native-loop SDK observations are required for model controls");
+          const loop = await readRealTaskJson(files.loopFile);
+          const summary = isRecord(loop) && isRecord(loop.body) ? loop.body.referenceCost : undefined;
+          const costAttempt: unknown = isRecord(summary) && Array.isArray(summary.attempts) ? summary.attempts[0] : undefined;
+          const observation: unknown = isRecord(costAttempt) && isRecord(costAttempt.report) && Array.isArray(costAttempt.report.sdkObservations) ? costAttempt.report.sdkObservations[0] : undefined;
+          if (!isRecord(observation)) fail("actual model control is UNOBSERVED");
+          const selection = parseTaskModelSelection({ providerId: observation.provider, modelId: observation.model, thinkingLevel: observation.transportReasoning });
+          verifyTaskModelConsumption({ loop, contract: artifact, events, selection });
+          actualSelection = selection;
+        } catch (error) {
+          comparable = false; issues.push(error instanceof Error ? error.message : "actual model control is UNOBSERVED");
         }
-        if (previous) previous.versions.add(binding.versionId);
-        else modelControls.set(key, { signature, versions: new Set([binding.versionId]) });
       }
+      const key = JSON.stringify([row.source, logicalTaskId]);
+      const signature = JSON.stringify({ revision: materialized.sourceRevision, spec: materialized.baseSpec,
+        selection: modelComparison ? "reviewed-fixed-profile-delta" : actualSelection });
+      const previous = controls.get(key);
+      if (previous && previous.signature !== signature) {
+        comparable = false; issues.push("original committed source/goal/spec or actual model differs within this task pair");
+      }
+      if (previous) { previous.versions.add(binding.versionId); previous.issues.push(issues); }
+      else controls.set(key, { signature, versions: new Set([binding.versionId]), candidate: [], baseline: [], issues: [issues] });
       consumed = true;
       if (files.checkFile !== undefined) {
         const checked = await readRealTaskJson(files.checkFile);
@@ -187,6 +209,10 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
     const recordedDelivery = delivery(row);
     const correctDelivery = recordedDelivery === false || hostCheckPassed === false ? false :
       consumed && hostCheckPassed === true && recordedDelivery === true ? true : "unknown";
+    if (consumed && typeof correctDelivery === "boolean") {
+      const control = controls.get(registeredTask)!;
+      (resourceVersion === version.versionId ? control.candidate : control.baseline).push(correctDelivery);
+    }
     attempts.push({ recordRef: files.recordFile, logicalTaskId, ...(resourceVersion === undefined ? {} : { versionId: resourceVersion }),
       status: typeof row.status === "string" ? row.status : "unknown", consumed, correctDelivery, hostCheckReached, issues });
     if (artifactId && taskId && resourceVersion) {
@@ -197,22 +223,28 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
         rubric: { id: "real-task-resources", version: 1, scope: "task", createdAt: nowIso(), criteria: [] }, evidence: {},
         target: { artifactId, artifactVersion: String(row.sourceRevision) }, independenceClass: "same-author",
         dependencyVersions: { resource: resourceVersion, source: String(row.sourceRevision), checker: checkerVersion, rubric: "real-task-resources-v1" } });
-      const scores = [score("content-consumption", consumed ? true : "unknown", files.contractFile),
+      const scores = [score("content-consumption", consumed ? true : "unknown", files.eventsFile),
         score("host-check-reached", hostCheckReached, files.checkFile ?? files.contractFile), score("correct-delivery", correctDelivery, files.recordFile),
         score("complete-reference-cost", finite(row.referenceUsd) ? true : "unknown", files.recordFile)];
       const overall: EvaluationOutcome = !consumed ? "UNOBSERVED" : correctDelivery === false ? "FAIL" : correctDelivery === true ? "PASS" : "UNOBSERVED";
       evaluations.push({ ...base, scores, overall });
     }
   }
-  const candidate = attempts.filter(attempt => attempt.consumed && attempt.versionId === version.versionId);
-  const baseline = attempts.filter(attempt => attempt.consumed && attempt.versionId === version.parentVersionId);
-  const rate = (rows: readonly RealTaskTrialObservation[]) => rows.filter(row => row.correctDelivery === true).length / rows.length;
+  // Retain every retry, but weight each matched logical task equally. Unequal retry
+  // populations must not turn identical per-task outcomes into an apparent benefit.
+  const rate = (arm: "candidate" | "baseline") => [...controls.values()].reduce((sum, control) =>
+    sum + control[arm].filter(Boolean).length / control[arm].length, 0) / controls.size;
   // Descriptive only: no causal, non-inferiority or ADR-010 benefit claim follows from five observations.
   let conclusion: "better" | "worse" | "unclear" = "unclear";
-  if (modelComparison && [...modelControls.values()].some(control => !control.versions.has(version.versionId) || !control.versions.has(version.parentVersionId!))) comparable = false;
-  if (candidateTasks.size >= 5 && baselineTasks.size > 0 && comparable && strata.size === 1 &&
+  for (const control of controls.values()) {
+    if (!control.versions.has(version.versionId) || !control.versions.has(version.parentVersionId!)) {
+      comparable = false;
+      for (const issues of control.issues) issues.push("matching baseline and candidate attempts for this logical task are required");
+    }
+  }
+  if (candidateTasks.size >= 5 && baselineTasks.size >= 5 && comparable &&
       attempts.every(attempt => attempt.consumed && attempt.hostCheckReached === true && typeof attempt.correctDelivery === "boolean")) {
-    conclusion = rate(candidate) > rate(baseline) ? "better" : rate(candidate) < rate(baseline) ? "worse" : "unclear";
+    conclusion = rate("candidate") > rate("baseline") ? "better" : rate("candidate") < rate("baseline") ? "worse" : "unclear";
   }
   return { conclusion, interpretation: "descriptive correct-delivery comparison only; not causal evidence or ADR-010 benefit acceptance", candidateTasks: candidateTasks.size,
     baselineTasks: baselineTasks.size, attempts, evaluations, cost: { knownLowerBoundUsd, unknownAttempts: unknownCosts, totalUsd: unknownCosts ? "unknown" : knownLowerBoundUsd } };
