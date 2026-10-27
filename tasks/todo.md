@@ -1,11 +1,11 @@
 # Active checklist
 
-See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; status is not authorization.
+See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; unresolved matters go to the [single issue log](issues.md), without new questions or approval prompts.
 
-- [ ] Owner: decide separate capacity #103; retain failed/unknown local validation. Coordinator does not merge runtime or restart a full gate.
-- [ ] Coordinator: use adopted runtime for P06 → P07 → S06(deadline+reminder) → S07 → S08; verify source/goal and private preparation, keep per-attempt≤US$5 and weekly-limit none, original Soul read-only.
+- [ ] Coordinator: retain recorded #105/#106 merge items for consolidated handling; #103 stays unmerged at owner request, with failed local evidence retained. No new full gate or unadopted real-task use.
+- [ ] Coordinator: match the five retained controls to approved guidance only after explicit resource promotion, using each same committed source/goal; keep per-attempt≤US$5/weekly none and original Soul read-only.
 - [ ] Coordinator: record taskSpecMinutes and review duration for each attempt; missing stays unknown. Refresh the private summary before every paid admission; no unchanged P01/P02 retry.
-- [ ] R2 Coordinator: next review at30 attempts or weekly; report top1–2 failure classes and measured speed evidence, retaining all failures and unknowns. No speed claim beforehand.
+- [ ] R2 Coordinator: next review at40 attempts or weekly; after adoption, test file-only handoff target0/5 eligible distinct tasks per applicable resource, preserving real failures. Speed remains unmeasured.
 - [ ] R3 Owner + coordinator: use approved prompt contents for matched applicable trials after required promotion approval; finish all resource types and≥5 distinct later tasks per≥2 proposals.
 - [ ] R4 Owner: decide entry only after supported outcomes and stop/rollback verification.
 - [ ] Owner: decide Phase 1 completion; keep B1/B2 deferred under [original acceptance](archive/2026-10-25-phase1-plan.md).
