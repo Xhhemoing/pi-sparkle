@@ -4,7 +4,7 @@ Use this workflow for project-specific planning, integration, verification and d
 
 ## 1. Intake and Classification
 
-Confirm the effective workspace, branch, relevant existing changes and active plan before implementation. Read only the sources needed for the next result. Classify the work as analysis, documentation/process, behavior change, experiment or release; apply checks for that scope rather than every workflow step to every request.
+Confirm the effective workspace, branch/HEAD, relevant existing changes and the active plan's current execution checkpoint before implementation. If the checkout predates the integrated result, select a suitable clean checkout or reconcile the relevant changes before dispatch; keep active worktrees and their write ownership intact. Read the dated evidence only for the next unresolved question. Classify the work as analysis, documentation/process, behavior change, experiment or release; apply checks for that scope rather than every workflow step to every request.
 
 For non-trivial implementation, update the existing plan with the user outcome, scope/non-goals, next usable end-to-end result, dependencies, observable acceptance, affected paths and relevant verification. Reuse the [plan template](templates/task-plan.md) as a content guide, not a new form or per-slice file. Read-only questions need no implementation plan or runtime gate.
 
@@ -22,11 +22,13 @@ Choose the next result along the actual user flow, including its public entrypoi
 
 Assign disjoint write ownership and explicit dependencies. Share only necessary context; serialize shared interfaces, schema/lock files, authorization and transactions. The coordinator integrates completed work before growing the implementation queue and alone schedules full builds/gates/packages.
 
+In the existing task description, make the worker's actual tools and the host's checks explicit. A file-only worker edits the candidate and leaves unavailable verification UNOBSERVED; it must not invent PASSED/FAILED results. The host runs the declared exact-candidate checks. Select a check recipe that preserves the task's acceptance and fits its existing budget, using applicable baseline/preflight measurements. Reuse those measurements until the recipe, inputs or environment changes; this is not an additional probe before every task. If the recipe cannot fit, correct the task/check selection before model dispatch rather than retrying an unchanged worker, increasing the fixed cap or weakening coverage. See [TaskSpec preparation and execution](taskspec.md#run-with-configured-pi-from-the-cli).
+
 Review high-risk seams early: authority, source/candidate identity, settlement, remaining budgets and recovery. Findings that violate existing acceptance, compatibility or safety are repairs; unrelated improvements return to existing deferred work. If a public contract or authorization must change, update the relevant plan/ADR and obtain the applicable owner decision before crossing that boundary.
 
 ## 4. Test-First Implementation
 
-For a behavior change or bug fix, demonstrate the intended failure, make the smallest repair, then run its regression and affected neighboring checks. Preserve actual behavior assertions; mocks or startup smoke do not replace execution. Documentation and instruction edits use content/structural checks rather than invented runtime regressions.
+For a behavior change or bug fix, demonstrate the intended failure, make the smallest repair, then run its regression and affected neighboring checks. Include the directly related input boundaries exposed by the same cause before another model attempt or review; a passing narrow example does not settle that failure class. Preserve actual behavior assertions; mocks or startup smoke do not replace execution. Documentation and instruction edits use content/structural checks rather than invented runtime regressions.
 
 When blocked, state a testable cause and choose the smallest experiment that distinguishes it. If the next retry cannot add evidence, retain the failure, unknown cause and condition for resumption, then advance independent authorized work. Rerun after an actual fix or changed condition; a focused pass does not erase a failed full run.
 
@@ -58,13 +60,63 @@ Inspect final scope for accidental private data, conflict markers, generated art
 
 ## 7. Closeout and Handoff
 
-Close only the agreed scope after its acceptance and required review. Keep remaining phase exits, failed/unknown evidence and owner decisions explicit. Exact commands/results belong in the PR/CI; update the existing plan, remove only completed checklist entries, and generate STATUS with `pnpm status`. No per-slice reports, receipt-only commits or automatic history deletion; owner-authorized cleanup must check dependencies and preserve needed Git-history references.
+Close only the agreed scope after its acceptance and required review. Keep remaining phase exits, failed/unknown evidence and owner decisions explicit. Exact commands/results belong in the PR/CI; update the current checkpoint in the existing plan so it supersedes older pending/next-action statements, remove only completed checklist entries, and generate STATUS with `pnpm status`. No per-slice reports, receipt-only commits or automatic history deletion; owner-authorized cleanup must check dependencies and preserve needed Git-history references.
 
 A delivered candidate has its remote branch and current green CI; retain a failed or missing CI condition rather than calling it delivered. Main merge, release and original Soul application keep their existing authorization. Leave the next executable action and necessary evidence links so another session can resume without replaying completed effects or reading chat history.
 
 ## 8. Process Health
 
 Improve this workflow only for a concrete recurring failure or material risk. Prefer correcting stale guidance, execution timing, ownership or integration order before adding mechanisms. Use existing Git/CI/plan evidence to observe time to the first usable flow, late integration defects, avoidable complete reruns and manual rework. Do not claim a speedup or infer skill use from counts or missing telemetry; validate proposed benefits in actual subsequent work.
+
+### Capture task-authoring and review time
+
+Use the existing record script for ADR-011 attempts. Start timing before writing the TaskSpec, include `taskSpecMinutes` when creating the record, and backfill `phases.review` after review. Creation accepts seconds or timezone-qualified start/end timestamps for phases; `--update` accepts only review-phase timing, never replacement execution/cost observations or task-authoring time. Keep unmeasured phases `unknown`. The elapsed `task run` command includes preparation, worker and host checking: retain that wall time in existing `notes` if useful, rather than reporting it all as model time or adding overlapping measurements.
+
+The following operator example uses a separate private synthetic root and no model calls. Keep the same PowerShell session. Start the clock before authoring; continue with the next block when the task description is ready. For real work, use the actual task identity/metadata and captured `--projection`/cost evidence described by `node scripts/real-task-record.mjs`'s source usage; do not mix this sample with the live attempts.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$sampleRoot = Join-Path (Get-Location) ('.agent_workspace/efficiency-example/' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $sampleRoot -Force | Out-Null
+$taskClock = [Diagnostics.Stopwatch]::StartNew()
+```
+
+After authoring, create the synthetic refused attempt, then start review timing:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$taskClock.Stop()
+$identity = @{ id = 'timing-example'; date = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'America/Los_Angeles').ToString('yyyy-MM-dd'); source = 'pi-sparkle'; arm = 'sparkle' }
+$metadata = $identity.Clone()
+$metadata.objective = 'Exercise task-authoring and review timing without a model'
+$metadata.status = 'REFUSED'
+$metadata.taskSpecMinutes = $taskClock.Elapsed.TotalMinutes
+$metadata.phases = @{ prepare = 'unknown'; model = 'unknown'; check = 'unknown'; review = 'unknown' }
+$metadataFile = Join-Path $sampleRoot 'attempt.json'
+$metadata | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $metadataFile -Encoding UTF8
+node scripts/real-task-record.mjs --root $sampleRoot --metadata $metadataFile
+if ($LASTEXITCODE -ne 0) { throw 'Record creation failed' }
+$reviewStart = [DateTimeOffset]::UtcNow.ToString('o')
+```
+
+Review the candidate and evidence, then stop the clock. This example retains a refusal; it cannot demonstrate a correct delivery. A real review update supplies its actual `reviewed`, `kept`, `interventions`, `escapedDefects` and evidence observations as appropriate. Omitting `notes` preserves any previously recorded wall-time note.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$reviewEnd = [DateTimeOffset]::UtcNow.ToString('o')
+$review = $identity.Clone()
+$review.phases = @{ review = @{ start = $reviewStart; end = $reviewEnd } }
+$reviewFile = Join-Path $sampleRoot 'review.json'
+$review | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reviewFile -Encoding UTF8
+node scripts/real-task-record.mjs --root $sampleRoot --metadata $reviewFile --update
+if ($LASTEXITCODE -ne 0) { throw 'Review update failed' }
+$localDate = [datetime]::ParseExact($identity.date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+$monday = $localDate.AddDays(-(([int]$localDate.DayOfWeek + 6) % 7)).ToString('yyyy-MM-dd')
+node scripts/real-task-summary.mjs --root $sampleRoot --week $monday --weekly-limit-usd none --json
+if ($LASTEXITCODE -ne 0) { throw 'Summary failed' }
+```
+
+Read `week.taskSpecMinutes` and each `week.phases` entry as `{knownTotal, unknownAttempts}`. A partial known total is not complete elapsed time; retain missing observations and use later comparable tasks to evaluate any speed benefit. This example leaves preparation/model/check and total reference cost unknown.
 
 ## 9. Real-task resource proposals (development only)
 
