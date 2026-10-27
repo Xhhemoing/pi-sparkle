@@ -23,7 +23,7 @@ Prompt contents and independent review are ready; the registry still has two ori
 
 Exact content, independent model review and non-executing owner-action packets are private in `.agent_workspace/real-task-inputs/R3/promotion-review/` of the `real-task-tooling` checkout. That packet grants no approval. #102 remains parked and is not used to replace the reserved promotion boundary.
 
-All five controls retain their actual committed sources, original objectives, registry inputs and native contract/run references. Manual post-run checks are excluded from native acceptance evidence. Later comparisons use the same source/goal and report differences or missing equivalence as unclear; each resource still needs at least five distinct later applicable tasks.
+The five ordered controls and earlier P08/S09 retain committed sources, original objectives, registry inputs and native contract/run references. Offline request audit verified all seven actual host requests; only S07 has complete matching SDK observations. P06 has two bound loop artifacts; P07/P08/S06/S09 lack complete SDK observations, and S08 has a faulty report. Six unique loop references were added to existing private trial mappings, with P06 left unresolved. Manual post-run checks and operator model labels cannot fill these gaps. Keep all original outcomes and report missing model/source/goal equivalence as unclear; each resource still needs five distinct later applicable tasks.
 
 ## I-03 — Original Soul candidate packets, retained for later handling
 
