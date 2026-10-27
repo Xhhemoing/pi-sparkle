@@ -1,8 +1,8 @@
 # Active checklist
 
-See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; status is not authorization.
+See the [current plan](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work belongs here; unresolved matters go to the [single issue log](issues.md), without new questions or approval prompts.
 
-- [ ] Owner: decide ordered #105/#106 runtime merges; #103 stays unmerged at owner request, with failed local evidence retained. No new full gate or unadopted real-task use.
+- [ ] Coordinator: retain recorded #105/#106 merge items for consolidated handling; #103 stays unmerged at owner request, with failed local evidence retained. No new full gate or unadopted real-task use.
 - [ ] Coordinator: match the five retained controls to approved guidance only after explicit resource promotion, using each same committed source/goal; keep per-attempt≤US$5/weekly none and original Soul read-only.
 - [ ] Coordinator: record taskSpecMinutes and review duration for each attempt; missing stays unknown. Refresh the private summary before every paid admission; no unchanged P01/P02 retry.
 - [ ] R2 Coordinator: next review at40 attempts or weekly; after adoption, test file-only handoff target0/5 eligible distinct tasks per applicable resource, preserving real failures. Speed remains unmeasured.

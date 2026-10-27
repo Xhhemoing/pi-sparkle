@@ -10,9 +10,9 @@ Resume from the actual workspace, branch/HEAD and dirty paths. Adopted main is `
 | SDK cost evidence | #100 is owner-approved and merged non-squash as `6a35824f`; reviewed SDK-only `5a8e147f`, nine files, exact-head CI40436694889/root regression passed. No plan/todo/capacity changes. |
 | Capacity | Separate #103, `3bc12e28`, four files, unadopted. Existing gate41432 ended failed(exit1); build/probes not reached. No new gate. Exact-head CI40439074326/root regression passed; local gate remains failed. Owner chose to keep #103 unmerged; no new gate or real-task use. |
 | S-doc | Adopted through #104 (`fb13b4c8`), reviewed `ca9e419f`, exact-head CI40441624346 passed. Keep this compact checkpoint current; archive retains original evidence verbatim. |
-| Real tasks | Ordered controls done: P06 cancelled; P07/S06 accepted and reviewed/kept; S07 blocked by worker false FAILED; S08 request timeout/no edits. All settled, failures retained. #105/#106 current CI green, owner merge pending; Soul packets S06/S07 remain private, owner apply only. |
+| Real tasks | Ordered controls done: P06 cancelled; P07/S06 accepted and reviewed/kept; S07 blocked by worker false FAILED; S08 request timeout/no edits. All settled, failures retained. #105/#106 current CI green, merge items recorded in [I-01](issues.md#i-01--runtime-candidates-recorded-for-later-handling); Soul packets remain private, owner apply only. |
 | R2 | Review at30 completed: last10 have4 correct deliveries. Active class is file-only worker/host responsibility mismatch (two observed events, one in this cohort); next adopted-guidance window targets zero recurrence in five distinct eligible tasks, reported per project/resource. Speed unmeasured. |
-| R3 | #96/#98 are adopted. Two prompt contents and exact manual CAS packets are reviewed; specific promotion decision is pending. Five ordered controls retain committed sources/goals for later matching; zero guidance promotions/trials. |
+| R3 | #96/#98 are adopted. Two prompt contents and exact manual CAS packets are reviewed; specific promotions are recorded in [I-02](issues.md#i-02--r3-exact-manual-promotions-recorded-for-later-handling). Five ordered controls retain committed sources/goals for later matching; zero guidance promotions/trials. |
 | Parked work | #102 and the uncommitted host-check maintenance in phase1-ts-validation are unadopted and outside this ordered task batch. Preserve their changes and failures. |
 
 ### Run statistics
@@ -27,6 +27,7 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 
 ### Owner boundaries
 
+- Do not ask further questions or send approval prompts. Record unresolved matters in the [single issue log](issues.md) for later consolidated handling; continue independent authorized work under the existing boundaries.
 - Spend at most US$5 per attempt with the configured approved models/prices; weekly limit is `none`. Run the existing summary before admission and retain partial/unknown fees as unknown, never zero. Gateway billing is unknown; use valid long-context rates or refuse.
 - Main merges except docs-only self-merges, release, original Soul application and resource promotion require the owner's specific approval. New providers/models, budget overruns, frozen-interface/safety changes, R4/R5 entry and deleting worktrees/evidence retain separate authorization.
 - Every conflict hunk goes to the owner before resolution. Keep existing candidate/checker/source ownership, protected paths, explicit apply, cumulative budgets, cancellation, settlement and refusal on unknown effects.
@@ -83,8 +84,8 @@ The essential goal is to make Pi deliver real changes more correctly and efficie
 | Item | Required decision |
 |---|---|
 | #103 | Owner deferred merge; preserve the four-file candidate and failed local gate evidence. |
-| #105 / #106 | Owner decides ordered non-squash runtime merges; exact current heads8b43a2fa/6b5ec707 have green CI. Any permitted ancestry sync needs new-head CI; conflicts/content changes require owner review. |
-| R3 resources | Preserve approved prompt contents; explicit promotion remains an owner boundary. |
+| #105 / #106 | Unmerged; current candidates/evidence and permitted handling conditions are recorded in [I-01](issues.md#i-01--runtime-candidates-recorded-for-later-handling). |
+| R3 resources | Approved contents retained; exact deferred manual actions are in [I-02](issues.md#i-02--r3-exact-manual-promotions-recorded-for-later-handling). |
 | #68 / Phase 1 / R4–R5 | Deferred to the owner; coordinator does not advance them from old plans. |
 
 ### R0 preparation candidate (2026-10-25)
