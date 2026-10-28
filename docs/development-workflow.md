@@ -54,6 +54,117 @@ Reuse evidence only when the candidate, checked inputs, environment and coverage
 
 PR results identify candidate/environment, exact commands, pass/fail/skipped/not-run/not-applicable, inherited failures and artifact links. Preflight is not runtime success; green tests or CI do not close human or experiment approval.
 
+### Real-task operator example (ADR-011)
+
+Use [real-task-record.mjs](../scripts/real-task-record.mjs) for every attempt, including failures, and [real-task-summary.mjs](../scripts/real-task-summary.mjs) before each arm and at review. These PowerShell examples use synthetic identifiers and paths. Run from the repository root with an authorized TaskSpec and its configured private state root outside source/candidate. Keep inputs/captures private under `.agent_workspace/`; never commit credentials or private logs. Soul work requires an isolated copy and owner-authorized original application.
+
+Prepare private metadata and check the **current** America/Los_Angeles Monday week, recalculating it before every attempt, including the second comparison arm:
+
+```powershell
+$repo = (Get-Location).Path
+$private = Join-Path $repo '.agent_workspace/operator-example'
+New-Item -ItemType Directory -Force -Path $private | Out-Null
+$state = 'C:/synthetic-private/sparkle-state'
+$task = Join-Path $private 'synthetic-task.json' # already reviewed; not created here
+$weeklyLimit = 'none' # Current loop authorization; use the actual approved positive cap elsewhere.
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+try { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('America/Los_Angeles') }
+catch { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time') }
+
+function Assert-RealTaskBudget {
+    $today = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone).Date
+    $monday = $today.AddDays(-(([int]$today.DayOfWeek + 6) % 7)).ToString('yyyy-MM-dd')
+    $json = node scripts/real-task-summary.mjs --root $repo --week $monday --weekly-limit-usd $weeklyLimit --json
+    if ($LASTEXITCODE -ne 0) { throw 'Budget summary failed; stop.' }
+    $summary = $json | ConvertFrom-Json
+    $summary.budget | Format-List | Out-Host
+    if (-not $summary.budget.canAdmitNextTask) { throw 'No admission within recorded caps.' }
+    return $today.ToString('yyyy-MM-dd')
+}
+
+$date = Assert-RealTaskBudget
+$meta = @{
+    id = 'synthetic-fix-sparkle-01'; date = $date
+    source = 'pi-sparkle'; arm = 'sparkle'
+    comparisonId = 'synthetic-comparison-01'
+    objective = 'Repair the synthetic parser task'
+    status = 'unknown'; reviewed = 'unknown'; kept = 'unknown'
+    taskSpecMinutes = 'unknown'
+    phases = @{ prepare = 'unknown'; model = 'unknown'; check = 'unknown'; review = 'unknown' }
+    interventions = 'unknown'; escapedDefects = 'unknown'
+}
+```
+
+The summary defaults to US$5 per task and US$50 per week. Use the owner-authorized weekly limit with `--weekly-limit-usd <positive amount|none>`; this loop currently uses `none`, while the per-attempt US$5 rule remains. Each unknown-cost attempt reserves the greater of **US$5 and its observed cost subtotal**, not zero; an observed task overrun blocks further admission. Admission reflects recorded attempts only: record outstanding attempts first, serialize budget decisions, and stop if unresolved cost/effects could exceed the caps. Each comparison arm is a separate attempt with a distinct `id`, its own capture and budget check, and a shared `comparisonId`; never combine Sparkle and direct-Pi evidence into one record.
+
+Capture real CLI stdout, keeping stderr separate. `pnpm --silent` suppresses the package-script banner so `--projection` receives JSON/JSONL. Preserve the exit code even on failure; do not hand-author a projection. This command may incur authorized provider charges:
+
+```powershell
+$projection = Join-Path $private 'synthetic-sparkle-01.jsonl'
+$stderr = Join-Path $private 'synthetic-sparkle-01.stderr.txt'
+pnpm --silent cli task run $task --project $repo --state-root $state --executor pi --review --json 2> $stderr |
+    Set-Content -Encoding UTF8 -Path $projection
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
+```
+
+`--review` keeps that process alive for one explicit `apply`, `discard` or `retain` decision; prompts are on stderr, and EOF retains. Inspect the live capture/private evidence before deciding. Acceptance and effects settlement are separate from application. Saved JSON, run IDs and task records do not restore live verifier or apply authority after exit. Unknown effects require reconciliation before retrying.
+
+For a **failed zero-model preflight instead of the task-run command**, capture the actual preflight and use the following metadata only after observing its failure. A passing preflight is preparation, not a completed development change. If it later proceeds to a model run, record that as a new attempt and check the budget again.
+
+```powershell
+pnpm --silent cli preflight $task --project $repo --state-root $state --json 2> $stderr |
+    Set-Content -Encoding UTF8 -Path $projection
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
+# Only when the observed result is a failed preflight with no model dispatch:
+$meta.status = 'PREFLIGHT_FAILED'
+$meta.phases.model = 0
+$meta.kept = $false
+```
+
+The real `TASKSPEC_EXECUTION` overrides metadata status, including `FAILED`. Without an execution row, set `FAILED`/`ERROR` only for an observed failure. Inspect `$cliExit` and the capture; for empty/non-JSON stdout, set `$projectionInput = $null` below and retain the original privately. Never fabricate a projection. Optional `rootCause`/`notes` describe observed causes; `failureClass` accepts `model`, `contract`, `tool`, `environment`, `provider`, `run`. Phase times are seconds or timezone-qualified `{ start, end }` timestamps; leave unmeasured values `unknown`.
+
+Include an **actual matching native-write-loop artifact** when available; ordinary CLI output need not provide one. It must cover the ordered worker population, end at the execution run ID and match candidate/source identity. A preflight/ordinary execution artifact is not a loop receipt.
+
+```powershell
+$metadata = Join-Path $private 'synthetic-sparkle-01.metadata.json'
+[IO.File]::WriteAllText($metadata, ($meta | ConvertTo-Json -Depth 8), $utf8)
+$loopArtifact = $null # e.g. 'C:/synthetic-private/sparkle-state/native-loop.json'
+$recordArgs = @('--root', $repo, '--metadata', $metadata, '--state-root', $state)
+if ($null -ne $projectionInput -and (Test-Path $projectionInput) -and (Get-Item $projectionInput).Length -gt 0) {
+    $recordArgs += @('--projection', $projectionInput) # only if actual stdout is JSON/JSONL
+}
+if ($null -ne $loopArtifact) { $recordArgs += @('--loop-artifact', $loopArtifact) }
+node scripts/real-task-record.mjs @recordArgs
+if ($LASTEXITCODE -ne 0) { throw 'Record creation failed; inspect before continuing.' }
+```
+
+Explicit UTF-8 metadata writing works in Windows PowerShell and PowerShell 7; avoid their differing default output encodings. The recorder creates `.agent_workspace/real-tasks/<date>-<id>/record.json` exclusively: repeated creation fails without overwriting the existing record. Use a fresh ID for a new attempt, and `--update` for later review observations. Do not delete a record to retry creation.
+
+Metadata cannot manufacture execution, acceptance, settlement or application evidence. Sparkle acceptance/settlement comes from the execution projection; `applied` requires an actual application/disposal projection. A preflight projection does not supply execution authority. Missing worker population, usage, prices or independent native cost receipts leave `referenceUsd` **unknown**, preserving any observed lower bound even when a receipt is partial. A zero-model preflight does not establish a known zero cost. For a `direct-pi` arm, capture its own work/check evidence without TaskSpec projections; only `reviewed: true` plus independent `checkEvidence` supports operator-entered `accepted`/`effectsSettled`, and this does not create a run ID, application receipt or known cost.
+
+Later, backfill only observations actually made. For example, after independently reviewing a failed attempt and deciding to keep no change, reload its original identity and write a separate private review input:
+
+```powershell
+$original = Get-Content -Raw -Encoding UTF8 $metadata | ConvertFrom-Json
+$review = @{
+    id = $original.id; date = $original.date; source = $original.source; arm = $original.arm
+    reviewed = $true; kept = $false; escapedDefects = 'unknown'
+    phases = @{ review = 'unknown' }
+    checkEvidence = '.agent_workspace/operator-example/synthetic-review-checks.txt'
+    notes = 'Independently reviewed failed attempt; no change kept.'
+}
+$reviewFile = Join-Path $private 'synthetic-sparkle-01.review.json'
+[IO.File]::WriteAllText($reviewFile, ($review | ConvertTo-Json -Depth 8), $utf8)
+node scripts/real-task-record.mjs --root $repo --metadata $reviewFile --update
+if ($LASTEXITCODE -ne 0) { throw 'Review update failed.' }
+# Recompute the current week and inspect aggregate results before another arm:
+$date = Assert-RealTaskBudget
+```
+
+Use a real independent check reference at execution time; the path above is synthetic. Review updates may include `reviewed`, `kept`, `escapedDefects`, `interventions`, `notes`, `rootCause`, `failureClass`, `linkedPR`, `branch`, `checkEvidence` and only `phases.review`, alongside the unchanged identity. They cannot rewrite execution status, identity or cost, and reject `--projection`, `--state-root` and `--loop-artifact`. Only independently reviewed direct-Pi records without a run ID may additionally backfill `accepted`/`effectsSettled`. Keep future escaped defects unknown until observed. Review aggregates describe recorded outcomes, including failures and unknowns; neither this example nor adoption of the operators establishes real-task quality or benefit.
+
 ## 6. Review and Delivery
 
 Complex cross-module, authorization, security and data-correctness changes require independent read-only review of the actual candidate/diff. Reviewers report concrete defects and counterexamples, without making unrelated product expansion a blocker. After a repair, verify the original counterexample and review affected changes when needed; no fixed rounds of unchanged whole-repository review.
