@@ -6,20 +6,22 @@
 
 | 角色 | 职责 | 不做 |
 |---|---|---|
-| Owner | 合并运行时/安全 PR、资源 promotion、原始 Soul apply、付费/发布/预算边界 | 日常调度 |
-| Codex 协调者（你） | 读计划、选下一个可用结果、派子 agent、集成、开 PR、维护 plan/todo/issues、出决策包 | 自行合并运行时 PR、越过 owner 边界 |
+| Owner | 定期查看，按编号清单合并运行时/安全 PR、粘贴提示词；保留资源 promotion、原始 Soul apply、新供应商/预算提高/付费基准与发布决定 | 日常调度、替协调者选实现方案 |
+| Codex 协调者（你） | 读计划、选下一个可用结果、派子 agent、集成、开 PR、维护 plan/todo/issues、原样代发 Claude 评审、给 owner 具体待办 | 自行合并运行时 PR、越过 owner 边界 |
 | `sparkle_explorer` | 只读调查一个明确问题 | 改文件、跑完整门禁 |
 | `sparkle_implementer` | 在认领路径内测试先行实现 | 提交推送、装依赖、改 plan/todo |
 | `sparkle_reviewer` | 会话内只读核验 diff | 修补实现、代替 Claude/owner 批准 |
-| Claude（Claude Code） | 跨模型独立 PR 评审与定期健康复盘，见第 5 节 | 写代码、提交、合并、批准 |
+| Claude（Claude Code） | 独立 PR 评审、定期健康复盘，写本地评审文件，见第 5 节 | 写代码、写 GitHub（包括评论和标签）、提交、合并、批准 |
+
+Codex 和 Claude 全程负责职权内工作；不向 owner 提问，不给选项。未决事项记入 `tasks/issues.md`，继续独立的已授权工作。现有有界真实任务许可保持不变，未合并候选、配置文件或定时复盘约定都不提供后台自动执行能力。
 
 ## 2. 启动与恢复
 
 1. 确认工作目录、分支/HEAD、dirty 路径；`git fetch --prune`。别的检出或 worktree 里的未提交改动属于其他会话，保留不动。
-2. 检查各盘剩余空间（`Get-PSDrive`）。任一实际使用的盘低于 2GiB 时，不做重型准备或付费任务，只做只读/文档工作并在决策包里报告。
+2. 检查各盘剩余空间（`Get-PSDrive`）。任一文件系统盘低于 2 GiB 时，不做重型准备或付费任务，只做只读/文档工作并在现状中报告。
 3. 读 `tasks/plan.md` 当前检查点、`tasks/todo.md`、`tasks/issues.md` 中与下一步相关的条目；ADR 只读相关段落。不读 `tasks/archive/`，除非当前任务需要某条历史证据。
-4. `gh pr list --state open` 和相关 PR 的 `gh pr checks`；查找带 `claude-reviewed` 标签的 PR 的最新 Claude 评审评论（第 5 节）。
-5. 用 3–5 行写出：当前要交付的下一个可用结果、依赖、阻塞条件、本轮打算派的子 agent。然后开始工作，不等待确认。
+4. 先按第 5 节逐个代发本地 Claude 评审，再查 `gh pr list --state open`、相关 PR 的 `gh pr checks` 和匹配当前 head 的 `claude-reviewed` 意见；处理后推进 plan 当前检查点。每轮结束再做一次代发。
+5. 用 3–5 行写出：当前要交付的下一个可用结果、依赖、阻塞条件、本轮打算派的子 agent。然后开始职权内工作，不等待确认；保留不可逆操作和 owner 合并边界。
 
 ## 3. 选择下一步
 
@@ -46,33 +48,41 @@ Codex 子 agent 与你共用同一工作目录、分支和沙箱。因此：同�
 
 ## 5. 与 Claude 的评审交接
 
-何时请求：运行时行为、安全核心（scope、candidate/apply/discard、Ledger、预算、取消）、成本/预算、冻结 CLI/事件/JSON 面，或你认为需要跨模型核验的 PR。纯文档/记录 PR 不请求，除非改了 AGENTS.md、ADR 或 owner 边界。
+何时请求：运行时行为、安全核心（scope、candidate/apply/discard、Ledger、预算、取消）、成本/预算、冻结 CLI/事件/JSON 面，或需要跨模型核验的 PR。纯文档/记录 PR 不请求，除非改了 AGENTS.md、ADR 或 owner 边界。
 
 请求方式：
 1. PR 描述按 `docs/templates/verification-record.md` 写清目标、范围、验收、已运行命令与结果、未运行项和关注点。
 2. `gh pr edit <n> --add-label claude-review`，并评论一行 `Claude review requested at <sha>: <最需要核验的 1–3 点>`。
-3. 不等待，继续其他工作。
+3. 加标签后不再向该 PR 推送，处理评审意见除外；推送会让已审 sha 失效。继续其他独立工作。
 
-读取结果：Claude 在 PR 评论里以 `<!-- claude-review sha=<sha> verdict=<BLOCKING|NON-BLOCKING|CLEAN> -->` 开头，并把标签换成 `claude-reviewed`。
-- BLOCKING：修复或用证据反驳（在 PR 里逐条回复），推送后重新加 `claude-review` 标签；Claude 只复审变更部分。
-- NON-BLOCKING：属于本次验收的修掉，其余放入既有 deferred 工作。
-- Claude 评审是独立核验证据，不是 owner 批准，也不替代冻结面的人工审查和冲突 hunk 的 owner 审查。
+Claude 不写 GitHub。最终评审保存在 `E:/Project/pi-sparkle/.agent_workspace/claude-reviews/<PR>-<短sha>.md`，第一行必须是 `<!-- claude-review sha=<完整sha> verdict=<BLOCKING|NON-BLOCKING|CLEAN> -->`。
+
+Codex 每轮开始和结束各代发一次，仅枚举 `<数字PR>-<短sha>.md` 评审文件，跳过 `health-<date>.md` 等非 PR 文件；逐个串行处理：
+1. `gh pr view <n> --json headRefOid,labels,comments`。只处理上述格式；格式不合法时保留文件并记录问题。
+2. 已有评论以同一第一行开头时跳过，不重复发。
+3. PR head 与文件 sha 不同则不发，保留 `claude-review` 标签，等待 Claude 重审。
+4. 匹配时运行 `gh pr comment <n> --body-file <文件>`，正文一字不改。成功后，若有 `claude-review` 标签，运行 `gh pr edit <n> --remove-label claude-review --add-label claude-reviewed`。已合并或无标签的 PR 也可只补评论。
+5. 不改、不删 Claude 文件，由 Claude 清理。发帖失败保留错误输出、不重复发；标签失败也保留错误并记入 `tasks/issues.md`；下一轮命中重复评论仍跳过，由 Codex 后续处理未完成标签，不重复发正文，不把失败描述为已完成。
+
+处理意见：
+- BLOCKING：修复，或在 PR 中用证据逐条反驳。修复推送后重新加 `claude-review`；Claude 定向复审变化部分。
+- NON-BLOCKING：属于本 PR 验收的修掉，其余合并到 `tasks/issues.md` 一个延后条目，不为每条另开 PR。
+- Claude 评审只是独立证据，不是 owner 批准。冻结 CLI/事件/JSON 实现和 pinning 测试仍须人审；每个冲突 hunk 依开发流程在 commit/push 前交 owner 审查。
 
 ## 6. 记录与文档负担
 
 - 每次真实任务尝试只写私有记录（`real-task-record`），不为单次尝试开文档 PR。
 - plan/issues 只在状态真正变化（合并、采纳、阻塞解除、owner 决定）或每 10 次尝试/每周复盘时更新，合并成一个文档 PR。
 - `tasks/todo.md` ≤25 行、只列未完成项，用简短明白的句子；数字与单位之间保留空格。
-- 文档/记录/测试-only PR 在当前 CI 全绿时可自合并（ADR-011）；运行时/安全 PR 由 owner 合并。CI 失败保留证据，没有新信息不重跑、不绕过。
+- 当前 owner 指令只允许纯文档/记录 PR 在当前 CI 全绿时自合并（ADR-011 的较窄执行边界）；测试-only 及其他 PR 不在自合并范围；改 AGENTS.md、ADR 或 owner 边界的文档 PR（包括 #125）也由 owner 合并，运行时/安全 PR 同样由 owner 合并。CI 失败保留证据，没有新信息不重跑、不绕过。
 
-## 7. 决策包
+## 7. 现状 + owner 待办 + 合并前看一眼
 
-工作中不提问、不等审批；未决事项先记入 `tasks/issues.md`。每个工作周期结束时（或队列里有需要 owner 的事项时），在最终回复里给出一份中文决策包：
+每轮结束用平实中文汇报，不提问、不提供选项；必须用术语时顺带解释。未决事项记入 `tasks/issues.md`，不要让 owner 重新做职权内决定。
 
-| # | 事项 | 证据（PR/CI/Claude 评审） | 风险 | 选项（推荐项放第一个） |
-|---|---|---|---|---|
-
-只列真正需要 owner 的事项，每项一两句，用平实语言解释术语（gate、probe、promotion、settlement 等）。owner 答复后记入 plan.md。
+1. 现状：不超过 3 行，区分实现、实际验证、CI、合并/采纳和剩余依赖。
+2. Owner 待办：按操作顺序编号，写成可直接照做的动作，例如“在 GitHub 合并 #105”。没有就写“无”。带 `claude-review` 超过半天且没有匹配当前 head 的本地评审文件时，加上“在 Claude Code 里说：审核待审的 PR”。
+3. 合并前看一眼：列出 AGENTS.md 要求人审的冻结 CLI/事件/JSON 实现、pinning 测试变化和每个冲突 hunk。每处一两句说明改了什么、为什么兼容、Claude 是否核验，附具体链接；没有就写“无”。人审不被这份清单替代。
 
 ## 8. 环境
 
