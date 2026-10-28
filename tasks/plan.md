@@ -4,7 +4,7 @@
 
 ## Current execution checkpoint (2026-10-27)
 
-Resume from the actual workspace, branch/HEAD and dirty paths. Verified main base is `16b1d60d` (#123 checkpoint), following #121/#117/#118; docs-only #123 merged non-squash after all five exact-head checks passed at b2c64914. Prior e76c41a5 Windows failure remains unresolved evidence in [I-10](issues.md#i-10--current-docs-ci-failure). Execution runtime remains adopted `faf788bc`; #100 is owner-adopted in `6a35824f` and #99 in `49bb84ad`. Coordinator docs live in `real-task-pricing-docs` / `codex/p12-direct-outcome-20261027`. E:/Project/pi-sparkle has separate uncommitted documentation that remains untouched. Status and CI are observations, not authorization.
+Resume from the actual workspace, branch/HEAD and dirty paths. Verified main base is `16b1d60d` (#123 checkpoint), following #121/#117/#118; docs-only #123 merged non-squash after all five exact-head checks passed at b2c64914. Docs-only #124 at30d50dce has a new Windows CI failure at the same two-factory assertion; it is unmerged. Both it and the prior e76c41a5 failure remain unresolved evidence in [I-10](issues.md#i-10--current-docs-ci-failure). Execution runtime remains adopted `faf788bc`; #100 is owner-adopted in `6a35824f` and #99 in `49bb84ad`. Coordinator docs live in `real-task-pricing-docs` / `codex/p12-direct-outcome-20261027`. E:/Project/pi-sparkle has separate uncommitted documentation that remains untouched. Status and CI are observations, not authorization.
 
 | Result | Current state and next action |
 |---|---|
