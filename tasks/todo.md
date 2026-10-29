@@ -2,14 +2,13 @@
 
 See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [single issue log](issues.md) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Record unresolved matters there; no new owner questions or choices.
 
-- [ ] Owner：依次合并 #105、#106、#113、#115、#108；先看冻结面说明。
+- [ ] 协调者：证据副本已保护，继续保留丢失记录缺口；摘要重建前禁止付费，新尝试从 44 起。
+- [ ] Owner：暂不归档旧线程，等待协调者确认私有证据复制条件。
 - [ ] 协调者：父合并后依次修订 #111、#120、#122，补指定测试、新 CI 和 Claude 复审；逐处说明冲突。
-- [ ] 协调者：采纳后确认 main CI，再更新执行运行时；#103 保持不合并。
-- [ ] 协调者：#108 合并后补预算/独立仓库安全 PR；合并前真实任务不用 execute。
-- [ ] 协调者：更新 #125 协作配置并只读评审、请求 Claude；交 owner 合并。
+- [ ] 协调者：补 #108 预算/独立仓库安全 PR；合并前真实任务不用 execute。
 - [ ] Owner：合并独立的 #119 测试隔离修复；它尚未证明修好 #111 或 I-10。
-- [ ] 协调者：只读诊断 I-10；保留失败，无新证据不重跑 CI。
-- [ ] 协调者：整合准备 RED，复用 preflight；采纳依赖后实现、串行 gate、Claude 评审。
+- [ ] 协调者：I-10 已登记失败在不相关 PR 上仅重跑一次失败 job；保留前后证据。
+- [ ] 协调者：整合准备 RED，复用 preflight；现在先做核心接口，lab 消费方等 #122；串行 gate、Claude 评审。
 - [ ] 协调者：后续 5 个不同任务验证 H2；H1/H2 保持原比较预算和全部失败。
 - [ ] 协调者：记录 taskSpecMinutes、准备和评审时长；缺失时长/费用保持未知。
 - [ ] 协调者：付费准入前刷新私有 summary、预算和各盘空间；每次 ≤ US$5，weekly none。
