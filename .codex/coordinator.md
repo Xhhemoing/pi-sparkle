@@ -87,6 +87,8 @@ Codex 每轮开始和结束各代发一次，仅枚举 `<数字PR>-<短sha>.md` 
 ## 8. 环境
 
 - 命令用 `pwsh`，首行 `$ErrorActionPreference = 'Stop'`，文件读写显式 UTF-8。
-- CI 使用 Node 22.19.x；本地常是 Node 24，本地通过不能替代 CI。Windows CLI job 曾在 `write-loop.test.ts:67` 出现未诊断失败，见 issues I-10。
+- CI 使用 Node 22.19.x；本地常是 Node 24，本地通过不能替代 CI。Windows 失败统一沿 [I-10](../tasks/issues.md#i-10--retained-windows-two-factory-ci-failures) 跟进，不要只按某个测试行号判断。本轮新发现的 Git 路径枚举超时见 [40455633443](https://github.com/Xhhemoing/pi-sparkle/actions/runs/40455633443) 和 [40441428844](https://github.com/Xhhemoing/pi-sparkle/actions/runs/40441428844)；它们与累计预算、manager.lock 的分类和下述 owner 新重试规则由下一个记录 PR 补入 I-10。已登记偶发失败出现在不相关 PR 时，保留链接，仅重跑失败 job 一次并记录；第二次失败进入诊断，不重复全套或绕过分支保护。
 - 新 worktree 先 `pnpm install --frozen-lockfile --prefer-offline`；不更新锁文件。
-- 私有运行状态、转录、记录只放 `.agent_workspace/`，不写进公开 PR/评论（仓库是公开的）。
+- 规范私有真实任务记录根固定为 `E:/Project/pi-sparkle/.agent_workspace/real-tasks/`，必须位于 `.codex/worktrees/` 之外；临时 worktree 的证据不能作为唯一副本。新根摘要重建并验证前禁止付费准入，记录缺失记未知，不能当 0。
+- 归档任何 pi-sparkle 聊天或 worktree 前，先把其中被忽略的私有证据（尤其 `.agent_workspace/`，排除 node_modules、备份目标和全部 `worktree-evidence-*` 历史备份子树，不跟随目录链接；主 checkout 不递归复制回自身）复制到主 checkout 的 `E:/Project/pi-sparkle/.agent_workspace/worktree-evidence-<date>/<name>/`，核对文件数/错误，有 dirty 改动另存 patch；确认复制完成前不归档。Git snapshot 不保证保留被忽略的私有证据，不能替代证据备份；只复制、不删除源。
+- 私有运行状态、转录、记录不写进公开 PR/评论（仓库是公开的）。执行运行时在 owner 采纳和 main CI 通过后，用普通 Git worktree 在 E: 重建，不能放入 Codex 管理的 worktree 根。
