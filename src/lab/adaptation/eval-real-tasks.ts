@@ -144,6 +144,10 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
         // Do not call guidance text or an author-supplied binding proof of actual preparation consumption.
         fail("workflow preparation consumption UNOBSERVED: existing preflight evidence does not bind command/argv");
       }
+      if (binding.topic === "context-rule") {
+        // The planned contract does not independently bind required file bytes in the actual TASK_REQUEST.
+        fail("context-rule content consumption UNOBSERVED: existing real-task evaluation cannot certify context file consumption");
+      }
       const criteria = visibleDevelopmentCriteria(planned.checkPlan);
       if (!isDeepStrictEqual(body.acceptanceCriteria, criteria)) fail("task contract does not match the materialized host acceptance criteria");
       const declaredObjective = criteria === undefined ? materialized.spec.objective :

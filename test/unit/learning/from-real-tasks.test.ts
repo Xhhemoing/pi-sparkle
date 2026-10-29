@@ -39,28 +39,28 @@ test("developer adapter proposes fixed model choices without granting authority 
 test("operator-selected failure classes seed review packets without creating or activating baselines", async () => {
   const { proposeRealTaskResources } = await adapter();
   const registry = new ResourceRegistry(), before = registry.snapshot();
-  const packets = TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}) }));
-  assert.deepEqual(packets.map(packet => packet.identity.kind), ["workflow-template", "prompt", "prompt", "workflow-template", "workflow-template"]);
+  const packets = TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}), ...(topic === "context-rule" ? { contextFiles: ["src/host.ts"] } : {}) }));
+  assert.deepEqual(packets.map(packet => packet.identity.kind), ["workflow-template", "prompt", "prompt", "workflow-template", "workflow-template", "workflow-template"]);
   assert.ok(packets.every(packet => packet.state === "needs-baseline-approval" && packet.candidateId === undefined));
   assert.deepEqual(registry.snapshot(), before);
   assert.ok(!JSON.stringify(packets).includes("PRIVATE_NOT_FOR_PACKET"));
   assert.ok(packets[1]!.content.includes("UNOBSERVED"));
   assert.ok(packets[0]!.content.includes("packageManager"));
   assert.deepEqual(JSON.parse(packets[4]!.content).selection, modelSelection);
-  assert.ok(packets.every(packet => packet.proposalKind === "seeded-class-proposal" && packet.observations.selectedRecords === 1 && packet.observations.relatedFailures === 1));
+  assert.ok(packets.every(packet => packet.proposalKind === "seeded-class-proposal" && packet.observations.selectedRecords === 1 && packet.observations.relatedFailures === (packet.identity.name === "context-rule" ? 0 : 1)));
 });
 
 test("existing parents permit proposals and deduplicate content without moving active pointers", async () => {
   const { proposeRealTaskResources } = await adapter();
   const registry = new ResourceRegistry();
-  const propose = () => TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}) }));
+  const propose = () => TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}), ...(topic === "context-rule" ? { contextFiles: ["src/host.ts"] } : {}) }));
   const initial = propose();
   const parents = initial.map(packet => registry.registerBaseline({ identity: packet.identity, content: "owner-approved existing guidance", author: { kind: "human", identity: "owner" } }));
   const packets = propose();
   assert.ok(packets.every(packet => packet.state === "proposed" && packet.candidateId !== undefined));
   assert.deepEqual(packets.map(packet => registry.getActiveVersion(packet.identity)?.versionId), parents.map(parent => parent.versionId));
   assert.deepEqual(propose().map(packet => packet.candidateId), packets.map(packet => packet.candidateId));
-  assert.equal(registry.snapshot().candidates.length, 5);
+  assert.equal(registry.snapshot().candidates.length, 6);
 });
 
 test("proposal sources reject duplicate identities and malformed records instead of manufacturing observations", async () => {

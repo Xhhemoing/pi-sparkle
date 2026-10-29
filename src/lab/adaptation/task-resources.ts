@@ -5,16 +5,17 @@ import { isDeepStrictEqual } from "node:util";
 import { isResourceVersionId, parseProjectId, type ResourceVersionId } from "../../domain/ids.js";
 import { isRecord } from "../../domain/record.js";
 import { snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../development/task-spec.js";
+import { workItemScope } from "../../development/work-items.js";
 import { stableProjectKey } from "../../persist/project-key.js";
 import { hashCandidateContent } from "./candidate.js";
 import type { ResourceRegistry } from "./registry.js";
 import { identityEquals, type ResourceIdentity } from "./resource.js";
 import { parseTaskModelSelection, type TaskModelSelection } from "../../domain/task-model-selection.js";
 
-export const TASK_RESOURCE_TOPICS = ["node-preparation", "host-only-checks", "input-validation", "check-recipes", "model-thinking"] as const;
+export const TASK_RESOURCE_TOPICS = ["node-preparation", "host-only-checks", "input-validation", "check-recipes", "model-thinking", "context-rule"] as const;
 export type TaskResourceTopic = typeof TASK_RESOURCE_TOPICS[number];
 export interface TaskGuidanceContent {
-  readonly topic: Exclude<TaskResourceTopic, "check-recipes" | "model-thinking">;
+  readonly topic: Exclude<TaskResourceTopic, "check-recipes" | "model-thinking" | "context-rule">;
   readonly guidance: string;
   readonly sourceRefs: readonly string[];
   readonly expectedEffect: string;
@@ -40,7 +41,13 @@ export interface TaskModelRecipeContent {
   readonly sourceRefs: readonly string[];
   readonly expectedEffect: string;
 }
-export type TaskResourceContent = TaskGuidanceContent | TaskCheckRecipeContent | TaskModelRecipeContent;
+export interface TaskContextRuleContent {
+  readonly topic: "context-rule";
+  readonly requiredFiles: readonly string[];
+  readonly sourceRefs: readonly string[];
+  readonly expectedEffect: string;
+}
+export type TaskResourceContent = TaskGuidanceContent | TaskCheckRecipeContent | TaskModelRecipeContent | TaskContextRuleContent;
 export interface CheckRecipeBindings {
   readonly authorityRef: string;
   readonly originalChecks: DevelopmentTaskSpec["checks"];
@@ -80,7 +87,7 @@ export function taskResourceTopic(value: unknown): TaskResourceTopic {
 }
 export function taskResourceIdentity(projectRoot: string, topic: TaskResourceTopic): ResourceIdentity {
   taskResourceTopic(topic);
-  return { kind: topic === "node-preparation" || topic === "check-recipes" || topic === "model-thinking" ? "workflow-template" : "prompt", name: topic,
+  return { kind: topic === "node-preparation" || topic === "check-recipes" || topic === "model-thinking" || topic === "context-rule" ? "workflow-template" : "prompt", name: topic,
     scope: { kind: "project", projectId: parseProjectId(`prj_${stableProjectKey(projectRoot)}`) } };
 }
 function text(value: unknown, label: string, maximum = 4096): string {
@@ -151,12 +158,19 @@ export function parseTaskResourceContent(content: string): TaskResourceContent {
   try { value = JSON.parse(content); } catch { return fail("guidance content must be JSON"); }
   if (!isRecord(value)) fail("resource content must be an object");
   const topic = taskResourceTopic(value.topic);
-  fields(value, topic === "check-recipes" ? ["topic", "mode", "launchers", "sourceRefs", "expectedEffect"] : topic === "model-thinking" ? ["topic", "selection", "sourceRefs", "expectedEffect"] : ["topic", "guidance", "sourceRefs", "expectedEffect"]);
+  fields(value, topic === "context-rule" ? ["topic", "requiredFiles", "sourceRefs", "expectedEffect"] :
+    topic === "check-recipes" ? ["topic", "mode", "launchers", "sourceRefs", "expectedEffect"] : topic === "model-thinking" ? ["topic", "selection", "sourceRefs", "expectedEffect"] : ["topic", "guidance", "sourceRefs", "expectedEffect"]);
   if (!Array.isArray(value.sourceRefs) || value.sourceRefs.length === 0 || value.sourceRefs.length > 1000) fail("source references required");
   const sourceRefs = value.sourceRefs.map(ref => text(ref, "source reference"));
   if (new Set(sourceRefs).size !== sourceRefs.length) fail("duplicate source reference");
   const common = { sourceRefs: Object.freeze(sourceRefs), expectedEffect: text(value.expectedEffect, "expected effect") };
   if (topic === "model-thinking") return Object.freeze({ topic, selection: parseTaskModelSelection(value.selection), ...common });
+  if (topic === "context-rule") {
+    if (!Array.isArray(value.requiredFiles) || value.requiredFiles.length > 32) fail("context files must be an array of at most 32 literal paths");
+    const requiredFiles = value.requiredFiles.map(workItemScope);
+    if (new Set(requiredFiles).size !== requiredFiles.length) fail("duplicate context file path");
+    return Object.freeze({ topic, requiredFiles: Object.freeze(requiredFiles), ...common });
+  }
   if (topic === "check-recipes") {
     const launchers = parseCheckRecipeLaunchers(value.launchers);
     if ((value.mode !== "preserve" && value.mode !== "host-bindings") || (value.mode === "preserve" ? launchers.length !== 0 : launchers.length === 0)) fail("check-recipe mode requires preserve with no conversions or host-bindings with fixed conversions");
@@ -171,7 +185,7 @@ function resolveBinding(registry: ResourceRegistry, projectRoot: string, topic: 
   if (raw === undefined || hashCandidateContent(raw) !== version.contentHash) fail("resource content unavailable or changed");
   const content = parseTaskResourceContent(raw);
   if (content.topic !== topic) fail("content topic does not match identity");
-  if ((content.topic === "check-recipes" ? content.mode === "preserve" : content.topic !== "model-thinking" && content.guidance === "") && version.parentVersionId !== undefined) fail("only an owner-created original baseline may have empty guidance or preserve checks");
+  if ((content.topic === "context-rule" ? content.requiredFiles.length === 0 : content.topic === "check-recipes" ? content.mode === "preserve" : content.topic !== "model-thinking" && content.guidance === "") && version.parentVersionId !== undefined) fail("only an owner-created original baseline may have empty context files, empty guidance or preserve checks");
   return { binding: Object.freeze({ topic, identity, versionId, contentHash: version.contentHash }), content };
 }
 function build(input: { registry: ResourceRegistry; projectRoot: string; logicalTaskId: string; sourceRevision: string; spec: DevelopmentTaskSpec; preparationBinding?: PreparationBinding; checkRecipeBindings?: unknown }, versions: readonly { topic: TaskResourceTopic; versionId: ResourceVersionId }[]): MaterializedTaskResources {
@@ -192,9 +206,13 @@ function build(input: { registry: ResourceRegistry; projectRoot: string; logical
   } else if (input.preparationBinding !== undefined) fail("preparation binding requires the node-preparation topic");
   const annotation = JSON.stringify({ logicalTaskId, resources: resources.map(({ topic, versionId, contentHash }) => ({ topic, versionId, contentHash })) });
   const hostGuidance = Object.freeze(selected.flatMap(({ content }) => content.topic === "node-preparation" ? [content.guidance] : []));
-  const guidance = selected.flatMap(({ content }) => content.topic !== "node-preparation" && content.topic !== "check-recipes" && content.topic !== "model-thinking" && content.guidance !== "" ? [`[${content.topic}]\n${content.guidance}`] : []).join("\n\n");
+  const guidance = selected.flatMap(({ content }) => content.topic !== "node-preparation" && content.topic !== "check-recipes" && content.topic !== "model-thinking" && content.topic !== "context-rule" && content.guidance !== "" ? [`[${content.topic}]\n${content.guidance}`] : []).join("\n\n");
   const modelRecipe = selected.find(entry => entry.content.topic === "model-thinking")?.content;
   const modelSelection = modelRecipe?.topic === "model-thinking" ? modelRecipe.selection : undefined;
+  const context = [...baseSpec.context];
+  for (const { content } of selected) {
+    if (content.topic === "context-rule") for (const file of content.requiredFiles) if (!context.includes(file)) context.push(file);
+  }
   const recipe = selected.find(entry => entry.content.topic === "check-recipes")?.content;
   let checks = baseSpec.checks, checkRecipeBindings: CheckRecipeBindings | undefined;
   if (recipe?.topic === "check-recipes") {
@@ -203,7 +221,7 @@ function build(input: { registry: ResourceRegistry; projectRoot: string; logical
     if (checkRecipeBindings) checks = materializeChecks(baseSpec, recipe, checkRecipeBindings);
   } else if (input.checkRecipeBindings !== undefined) fail("check-recipe bindings require the check-recipes topic");
   const objective = guidance === "" ? baseSpec.objective : `${baseSpec.objective}\n\nHost-selected resource guidance (content only; no new command, permission or budget authority):\n${annotation}\n${guidance}`;
-  const spec = snapshotDevelopmentTaskSpec({ ...baseSpec, objective, checks });
+  const spec = snapshotDevelopmentTaskSpec({ ...baseSpec, objective, context, checks });
   return Object.freeze({ logicalTaskId, sourceRevision: input.sourceRevision, projectRoot, baseSpec, spec, resources, hostGuidance,
     ...(preparationBinding === undefined ? {} : { preparationBinding }), ...(checkRecipeBindings === undefined ? {} : { checkRecipeBindings }),
     ...(modelSelection === undefined ? {} : { modelSelection }) });
