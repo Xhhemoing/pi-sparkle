@@ -79,6 +79,11 @@ export async function parseChildSpec(path: string): Promise<ChildTaskInput[]> {
     if (typeof task.objective !== "string" || task.objective.trim() === "") {
       throw new DomainValidationError(`Child task ${taskId}: objective must be a non-empty string`);
     }
+    for (const field of ["dependsOn", "acceptanceCriteria", "inputArtifactIds"]) {
+      if (task[field] !== undefined && !Array.isArray(task[field])) {
+        throw new DomainValidationError(`Child task ${taskId}: ${field} must be an array`);
+      }
+    }
     const acceptanceCriteria = Array.isArray(task.acceptanceCriteria)
       ? task.acceptanceCriteria.map((criterion) => {
           if (typeof criterion !== "object" || criterion === null) {

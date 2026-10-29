@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { DomainValidationError } from "../domain/errors.js";
 import { createEpisodeId, parseEpisodeId } from "../domain/ids.js";
 import {
   withExclusiveFileLock,
@@ -21,8 +22,12 @@ import {
 import type { PreferenceScope } from "../preferences/types.js";
 import { lockWaitOptions, type CliIo } from "./options.js";
 
-function defaultStateRoot(): string {
-  return join(homedir(), ".pi-sparkle");
+function preferenceStateRoot(raw: string | undefined): string {
+  if (raw === undefined) return join(homedir(), ".pi-sparkle");
+  if (raw.trim() === "") {
+    throw new DomainValidationError("--state-root must be a nonblank path");
+  }
+  return raw;
 }
 
 const PREFERENCE_SCOPES = ["user", "project", "task-family", "role", "model"] as const;
@@ -98,7 +103,7 @@ async function prefList(args: string[], io: CliIo): Promise<number> {
     args,
     options: { scope: { type: "string" }, "state-root": { type: "string" } }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
+  bindPreferenceStore(preferenceStateRoot(values["state-root"]));
   let scope: PreferenceScope | undefined;
   if (values.scope !== undefined) {
     if (!isPreferenceScope(values.scope)) {
@@ -161,7 +166,7 @@ async function prefCorrect(args: string[], io: CliIo): Promise<number> {
   // invocation that is going to write: a misspelled scope has no business
   // making a concurrent mutator wait behind it.
   const obs = await withPreferenceSnapshotLock(
-    values["state-root"] ?? defaultStateRoot(),
+    preferenceStateRoot(values["state-root"]),
     () => correctPreference(scope, scopeKey, key, parsePreferenceValue(value), episodeId),
     lockWaitOptions(values["lock-wait-ms"])
   );
@@ -174,7 +179,7 @@ async function prefExport(args: string[], io: CliIo): Promise<number> {
     args,
     options: { scope: { type: "string" }, "state-root": { type: "string" } }
   });
-  bindPreferenceStore(values["state-root"] ?? defaultStateRoot());
+  bindPreferenceStore(preferenceStateRoot(values["state-root"]));
   let scopes: PreferenceScope[] | undefined;
   if (values.scope !== undefined) {
     if (!isPreferenceScope(values.scope)) {
@@ -203,7 +208,7 @@ async function prefDelete(args: string[], io: CliIo): Promise<number> {
     return 1;
   }
   const deleted = await withPreferenceSnapshotLock(
-    values["state-root"] ?? defaultStateRoot(),
+    preferenceStateRoot(values["state-root"]),
     () => deletePreference(id),
     lockWaitOptions(values["lock-wait-ms"])
   );

@@ -76,7 +76,7 @@ export function parseChildNodeResults(value: unknown): Readonly<Record<string, C
   if (!isRecord(value)) {
     throw new DomainValidationError("results file must be a JSON object mapping nodeId to ChildNodeResult");
   }
-  const results: Record<string, ChildNodeResult> = {};
+  const results = Object.create(null) as Record<string, ChildNodeResult>;
   for (const [nodeId, raw] of Object.entries(value)) {
     if (nodeId.trim() === "") {
       throw new DomainValidationError("results file must not use an empty node id");
