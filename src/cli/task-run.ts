@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { parseArgs } from "node:util";
+import { parseArgs, types } from "node:util";
 import { loadProvidersConfig } from "../config/providers-config.js";
 import { TaskSpecSession, type TaskExecutionProjection } from "../development/task-session.js";
 import { DomainValidationError } from "../domain/errors.js";
@@ -11,6 +11,8 @@ import { createInvocationSink } from "../telemetry/invocation-log.js";
 import { CLI_EXIT, cliFail } from "./errors.js";
 import { resolveCliPiExecutorOptions } from "./executor-factory.js";
 import { readTaskSpecFile } from "./task-spec.js";
+import { parseTaskModelSelection, parseTaskModelSelectionAuthority, resolveTaskModelSelectionOptions,
+  type TaskModelSelection, type TaskModelSelectionAuthority } from "./task-model-selection.js";
 
 interface Io { stdout(text: string): void; stderr(text: string): void; }
 const USAGE = `Usage: pi-sparkle task run <task.json|yaml> --project <repo> --executor pi [--state-root <dir>] [--review] [--json]
@@ -52,7 +54,13 @@ async function decision(io: Io, signal: AbortSignal): Promise<"apply" | "discard
 }
 
 /** User-only single-process execution. Serialized results never restore lifecycle authority. */
-export async function taskRunCommand(args: string[], io: Io, runtime: { readonly signal?: AbortSignal } = {}): Promise<number> {
+export async function taskRunCommand(args: string[], io: Io, runtime: {
+  readonly signal?: AbortSignal;
+  /** Trusted per-call host authority; never a public CLI or TaskSpec setting. */
+  readonly modelSelection?: { readonly selection: TaskModelSelection; readonly authority: TaskModelSelectionAuthority };
+  /** Bind materialized resources to the exact candidate revision before constructing Pi. */
+  readonly expectedSourceRevision?: string;
+} = {}): Promise<number> {
   if (args[0] === "resume") {
     if (args.includes("--help")) { io.stdout(USAGE); return CLI_EXIT.ok; }
     return cliFail(io, { command: "task resume", stage: "authority", message: "TaskSpec resume requires the original live verifier/session and remaining budget pools; persisted JSON cannot restore them",
@@ -78,12 +86,35 @@ export async function taskRunCommand(args: string[], io: Io, runtime: { readonly
     stage = "validation"; signal.throwIfAborted();
     const spec = await readTaskSpecFile(file);
     stage = "configuration";
-    const options = resolveCliPiExecutorOptions({ stateRoot, config: await loadProvidersConfig(stateRoot), env: process.env });
+    const expectedSourceRevision = runtime.expectedSourceRevision;
+    if (expectedSourceRevision !== undefined && (typeof expectedSourceRevision !== "string" || !/^[0-9a-f]{40}$/.test(expectedSourceRevision))) {
+      throw new DomainValidationError("expected source revision must be an exact lowercase Git revision");
+    }
+    const binding = runtime.modelSelection;
+    let modelSelection: { selection: TaskModelSelection; authority: TaskModelSelectionAuthority } | undefined;
+    if (binding !== undefined) {
+      if (binding === null || typeof binding !== "object" || types.isProxy(binding) || Array.isArray(binding) ||
+          (Object.getPrototypeOf(binding) !== Object.prototype && Object.getPrototypeOf(binding) !== null) ||
+          Reflect.ownKeys(binding).length !== 2 || Reflect.ownKeys(binding).some(key => key !== "selection" && key !== "authority")) {
+        throw new DomainValidationError("task model selection requires only a host selection and authority");
+      }
+      const selection = Object.getOwnPropertyDescriptor(binding, "selection"), authority = Object.getOwnPropertyDescriptor(binding, "authority");
+      if (selection === undefined || authority === undefined || !("value" in selection) || !("value" in authority)) {
+        throw new DomainValidationError("task model selection requires own data fields");
+      }
+      modelSelection = { selection: parseTaskModelSelection(selection.value), authority: parseTaskModelSelectionAuthority(authority.value) };
+    }
+    const config = await loadProvidersConfig(stateRoot);
+    const options = modelSelection === undefined ? resolveCliPiExecutorOptions({ stateRoot, config, env: process.env })
+      : resolveTaskModelSelectionOptions({ stateRoot, config, env: process.env, ...modelSelection });
     const sink = createInvocationSink(stateRoot, { onDrop: () => io.stderr("warning: model invocation telemetry unavailable; inspect private task evidence\n") });
     session = new TaskSpecSession({ stateRoot });
     stage = "execute";
     result = await session.run({ sourceRepo, spec, signal, executorFactory: async context => {
       const cost = context.executionCostBudget;
+      if (expectedSourceRevision !== undefined && context.sourceRevision !== expectedSourceRevision) {
+        throw new DomainValidationError("task source revision does not match the host resource binding");
+      }
       const executor = await createConfiguredPiExecutor({ ...options, tools: developmentPiTools(context.tools), stopAfterTaskResult: true,
         onInvocation: invocation => { context.onInvocation(invocation); pendingWrites.add(sink(invocation)); },
         ...(cost === undefined ? {} : { strictReferenceBudget: true as const, onExecutionCost: cost.onExecutionCost,
