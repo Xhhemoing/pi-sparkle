@@ -48,26 +48,52 @@ function session(root: string, calls: NativeWriteExecutorFactoryInput[], values:
     } });
 }
 
-test("cumulative Native worker pool limits the second actual worker and never starts a third factory", async () => fixture(async (root, repo) => {
-  let calls = 0; let secondMs = 0;
+test("cumulative Native worker pool limits the second actual worker and never starts a third factory", async (t) => fixture(async (root, repo) => {
+  let calls = 0; let secondMs = 0; let elapsedMs = 0;
+  t.mock.method(performance, "now", () => elapsedMs);
   const gated = new GatedExecutor();
   const write = new NativeWriteSession({ stateRoot: path.join(root, "state"), sandboxRoot: path.join(root, "candidates"),
     executorFactory(context) {
       calls++;
+      // Control each worker deadline, but restore real timers before the failed
+      // verifier spawns so its process-group settlement can run normally.
+      if (calls === 1) t.mock.timers.enable({ apis: ["setTimeout"] });
+      if (calls === 2) {
+        assert.equal(context.attempt?.previous?.exitCode, 1);
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+      }
       return { async *execute(request, signal) {
         if (calls === 1) {
-          await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "bad1" }, signal);
-          await new Promise((resolve) => setTimeout(resolve, 200));
-          yield success(request); yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
-        } else { const start = performance.now(); try { yield* gated.execute(request, signal); } finally { secondMs = performance.now() - start; } }
+          try {
+            await context.tools.find((tool) => tool.name === "sparkle_write_file")!.execute("write", { path: "value.txt", contents: "bad1" }, signal);
+            elapsedMs = 200;
+            yield success(request); yield { type: "EXECUTION_FINISHED", outcome: "SUCCESS" };
+          } finally { t.mock.timers.reset(); }
+        } else {
+          const start = performance.now();
+          let advanced = false;
+          try {
+            for await (const event of gated.execute(request, signal)) {
+              yield event;
+              if (advanced) continue;
+              advanced = true;
+              elapsedMs += 249; t.mock.timers.tick(249);
+              assert.equal(signal.aborted, false, "second worker must retain its remaining 250ms allowance");
+              elapsedMs += 1; t.mock.timers.tick(1);
+              assert.equal(signal.aborted, true, "second worker must not receive a fresh 450ms allowance");
+            }
+          } finally { secondMs = performance.now() - start; t.mock.timers.reset(); }
+        }
       } };
     } });
-  const result = await write.execute({ sourceRepo: repo, objective: "repair", verification, maxAttempts: 3,
-    workerTimeoutMs: 2000, phaseTimeLimits: { workerTotalMs: 450 } });
-  assert.equal(calls, 2); assert.equal(gated.sawAbort, true);
-  assert.ok(secondMs < 400, `second worker received a fresh allowance: ${secondMs}ms`);
-  assert.equal(result.acceptance.accepted, false);
-  assert.equal(result.loop?.stopReason, "time-budget");
+  try {
+    const result = await write.execute({ sourceRepo: repo, objective: "repair", verification, maxAttempts: 3,
+      workerTimeoutMs: 2000, phaseTimeLimits: { workerTotalMs: 450 } });
+    assert.equal(calls, 2); assert.equal(gated.sawAbort, true);
+    assert.equal(secondMs, 250);
+    assert.equal(result.acceptance.accepted, false);
+    assert.equal(result.loop?.stopReason, "time-budget");
+  } finally { t.mock.timers.reset(); }
 }));
 
 test("cumulative Native check pool refuses a later nominally successful verification", async () => fixture(async (root, repo) => {
