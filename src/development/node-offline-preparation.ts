@@ -91,8 +91,10 @@ export async function prepareNodeOffline(input: {
       if (previous?.required !== true || required) dependencies.set(name, { version, required: required || previous?.required === true });
     }
   }
-  await input.execute([...input.recipe.args, "--version"], declaration.packageManagerVersion);
-  await input.execute([...input.recipe.args, "install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store]);
+  // A fresh single-root candidate must not inherit an ancestor pnpm workspace.
+  // Keep this fixed option last so host CLI prefixes cannot switch discovery back on.
+  await input.execute([...input.recipe.args, "--version", "--ignore-workspace"], declaration.packageManagerVersion);
+  await input.execute([...input.recipe.args, "install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace"]);
   if (!readFileSync(manifestPath).equals(manifestBytes) || !readFileSync(lockPath).equals(lockBytes)) fail("installation changed package.json or the frozen lockfile");
   const modulesPath = path.join(candidate, "node_modules");
   const observeLinks = (selected: string): void => {

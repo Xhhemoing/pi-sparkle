@@ -102,3 +102,39 @@ for (const replaced of ["candidate", "installation parent", "scoped parent"] as 
     } finally { assert.equal(path.dirname(root), parent); await rm(root, { recursive: true, force: true }); }
   });
 }
+
+const actualPnpmCli = process.env.npm_execpath;
+test("fixed Node preparation isolates both pnpm phases from ancestor workspaces", {
+  skip: actualPnpmCli === undefined || !/pnpm/i.test(path.basename(actualPnpmCli))
+}, async () => {
+  const parent = path.resolve(".agent_workspace/node-offline-unit"); await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(path.join(parent, "workspace-")), candidate = path.join(root, "candidates", "candidate"), source = path.join(root, "source"), store = path.join(root, "store");
+  await mkdir(candidate, { recursive: true }); await mkdir(source); await mkdir(store);
+  await writeFile(path.join(root, "pnpm-workspace.yaml"), "onlyBuiltDependencies:\n  - esbuild\n", "utf8");
+  const manifest = JSON.stringify({ private: true, packageManager: "pnpm@10.17.1" });
+  await writeFile(path.join(root, "package.json"), manifest, "utf8"); await writeFile(path.join(candidate, "package.json"), manifest, "utf8");
+  await writeFile(path.join(candidate, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nimporters:\n  .: {}\n", "utf8");
+  const env = { COREPACK_ENABLE_NETWORK: "0", npm_config_offline: "true", npm_config_ignore_scripts: "true" };
+  try {
+    for (const recipeOptions of [[], ["--no-ignore-workspace"]]) {
+      const phases: string[] = [];
+      const pending = prepareNodeOffline({ candidatePath: candidate, sourceRepo: source,
+        recipe: { id: "offline", command: process.execPath, args: [actualPnpmCli!, ...recipeOptions], nodeOffline: { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: store, readOnlySharedStores: [] } },
+        onLink: () => assert.fail("read-only scope inspection creates no dependency links"), execute: async (args, expectedVersion) => {
+          const phase = args.includes("install") ? "install" : "version";
+          // Use the real pinned pnpm parser/root command with the actual phase's workspace options.
+          // The install itself is deliberately not executed by this regression.
+          const workspaceOptions = args.filter(arg => arg === "--ignore-workspace" || arg === "--no-ignore-workspace");
+          const scope = await runAuthorizedCommand({ executable: process.execPath, args: [actualPnpmCli!, ...workspaceOptions, "root", "--workspace-root"], cwd: candidate, env, timeoutMs: 5000, maxStdoutBytes: 4096, maxStderrBytes: 4096 });
+          assert.equal(scope.exitCode, 1, `${phase} must not select the ancestor workspace: ${scope.stdoutText}`);
+          assert.match(scope.stderrText, /workspace-root may only be used inside a workspace/);
+          phases.push(phase);
+          if (phase === "install") throw new Error("read-only phase scope verified; actual installation not executed");
+          const version = await runAuthorizedCommand({ executable: process.execPath, args, cwd: candidate, env, timeoutMs: 5000, maxStdoutBytes: 4096, maxStderrBytes: 4096 });
+          assert.equal(version.stdoutText.trim(), expectedVersion); return version;
+        } });
+      await assert.rejects(pending, /read-only phase scope verified; actual installation not executed/);
+      assert.deepEqual(phases, ["version", "install"]);
+    }
+  } finally { assert.equal(path.dirname(root), parent); await rm(root, { recursive: true, force: true }); }
+});

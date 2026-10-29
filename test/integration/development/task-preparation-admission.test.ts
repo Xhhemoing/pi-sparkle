@@ -303,7 +303,7 @@ if(${JSON.stringify(mode)}==='changed-lock')f.appendFileSync('pnpm-lock.yaml','\
       if (mode !== "missing-manager" && mode !== "missing-node") {
         assert.equal(installs.length, 2, "separate public invocations each install once");
         assert.notEqual(installs[0]!.cwd, installs[1]!.cwd);
-        for (const row of installs) assert.deepEqual(row.args, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store]);
+        for (const row of installs) assert.deepEqual(row.args, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace"]);
       } else assert.equal(installs.length, 0, "wrong exact manager must refuse before installation");
       assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
     }));
