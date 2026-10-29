@@ -12,13 +12,17 @@ import {
   captureExactSnapshot
 } from "../../../src/execution/exact-snapshot.js";
 
+// Fixture construction is outside the bounded product Git reads. Allow slow
+// Windows process startup while keeping setup failures finite and diagnosable.
 function git(root: string, args: string[], input?: Buffer | string): string {
+  const started = performance.now();
   const result = spawnSync("git", ["-C", root, ...args], {
-    input, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 10_000,
+    input, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 30_000,
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_ATTR_NOSYSTEM: "1" }
   });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, result.stderr);
+  const diagnostic = `fixture git ${args.join(" ")} after ${Math.round(performance.now() - started)}ms: ${result.error?.message ?? result.stderr}`;
+  assert.equal(result.error, undefined, diagnostic);
+  assert.equal(result.status, 0, diagnostic);
   return result.stdout.trim();
 }
 
