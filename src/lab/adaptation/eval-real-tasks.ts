@@ -12,7 +12,7 @@ import { identityEquals, type ResourceIdentity } from "./resource.js";
 import { parseTaskResourceContent, verifyMaterializedTaskResources } from "./task-resources.js";
 import { verifyTaskModelConsumption } from "./model-consumption.js";
 import { parseTaskModelSelection } from "../../domain/task-model-selection.js";
-import { verifyTaskResourceRequest } from "./task-request.js";
+import { verifyTaskResourceRequest, verifyTaskResourceWorkerMessages } from "./task-request.js";
 
 export interface RealTaskTrialFiles {
   readonly recordFile: string;
@@ -148,7 +148,7 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
       if (!isDeepStrictEqual(body.acceptanceCriteria, criteria)) fail("task contract does not match the materialized host acceptance criteria");
       const declaredObjective = criteria === undefined ? materialized.spec.objective :
         `${materialized.spec.objective}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}`;
-      verifyTaskResourceRequest({ contract: artifact, events,
+      const request = verifyTaskResourceRequest({ contract: artifact, events,
         expectedObjective: declaredObjective + renderVisibleDevelopmentChecks(planned.checkPlan), requiredFiles: materialized.spec.context,
         acceptanceMetadata: criteria?.map(criterion => JSON.stringify(criterion)) ?? [] });
       let actualSelection: unknown;
@@ -170,6 +170,7 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
           actualSelection = selection;
         } catch (error) {
           comparable = false; issues.push(error instanceof Error ? error.message : "actual model control is UNOBSERVED");
+          verifyTaskResourceWorkerMessages({ parentRunId: body.runId, request, events });
         }
       }
       const key = JSON.stringify([row.source, logicalTaskId]);
