@@ -86,8 +86,43 @@ describe("init writes example specs", () => {
 
       assert.ok(captured.out().startsWith(`wrote ${childrenPath}\n`));
       assert.ok(captured.out().includes(`wrote ${flowchartPath}\n`));
-      assert.ok(captured.out().endsWith(`next: pi-sparkle validate --children ${childrenPath}\n`));
+      assert.ok(
+        captured.out().endsWith(
+          `next: pi-sparkle validate --children '${childrenPath.replace(/'/g, "''")}'\n`
+        )
+      );
       assert.equal(captured.err(), "");
+    });
+  });
+
+  it("treats a literal help directory as a path", async () => {
+    await withDir(async (dir) => {
+      const previousCwd = process.cwd();
+      process.chdir(dir);
+      try {
+        const captured = capture();
+        assert.equal(await initExamplesCommand(["--dir", "help"], captured.io), 0);
+        assert.equal(
+          await readFile(join(dir, "help", CHILDREN_EXAMPLE_FILENAME), "utf8"),
+          CHILDREN_EXAMPLE_JSON
+        );
+      } finally {
+        process.chdir(previousCwd);
+      }
+    });
+  });
+
+  it("quotes a path with spaces, an apostrophe, and a dollar sign for PowerShell", async () => {
+    await withDir(async (dir) => {
+      const target = join(dir, "space path's $value");
+      const childrenPath = join(target, CHILDREN_EXAMPLE_FILENAME);
+      const captured = capture();
+      assert.equal(await initExamplesCommand(["--dir", target], captured.io), 0);
+      assert.ok(
+        captured.out().endsWith(
+          `next: pi-sparkle validate --children '${childrenPath.replace(/'/g, "''")}'\n`
+        )
+      );
     });
   });
 

@@ -118,7 +118,14 @@ const EXAMPLE_FILES: readonly ExampleFile[] = [
 ];
 
 function isHelp(args: readonly string[]): boolean {
-  return args.some((arg) => arg === "--help" || arg === "-h" || arg === "help");
+  return args.some(
+    (arg, index) =>
+      arg === "--help" || arg === "-h" || (arg === "help" && args[index - 1] !== "--dir")
+  );
+}
+
+function quotePowerShellArgument(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 export async function initExamplesCommand(
@@ -240,6 +247,6 @@ export async function initExamplesCommand(
   for (const target of targets) {
     io.stdout(`wrote ${target.path}\n`);
   }
-  io.stdout(`next: pi-sparkle validate --children ${childrenPath}\n`);
+  io.stdout(`next: pi-sparkle validate --children ${quotePowerShellArgument(childrenPath)}\n`);
   return CLI_EXIT.ok;
 }
