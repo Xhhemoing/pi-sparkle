@@ -39,6 +39,12 @@ const check = Type.Object({
 /** Experimental JSON authoring schema, not an execution or verification capability. */
 export const developmentTaskSpecSchema = Type.Object({
   version: Type.Literal(1),
+  limits: Type.Optional(Type.Object({
+    context: Type.Object({ tokenBudget: Type.Integer({ minimum: 1, maximum: 32768 }),
+      maxFiles: Type.Integer({ minimum: 1, maximum: 32 }), maxBytes: Type.Integer({ minimum: 1, maximum: 65536 }) }, { additionalProperties: false }),
+    snapshot: Type.Object({ maxFiles: Type.Integer({ minimum: 1, maximum: 1024 }),
+      maxBytes: Type.Integer({ minimum: 1, maximum: 16777216 }) }, { additionalProperties: false })
+  }, { additionalProperties: false })),
   objective: { ...text(4096), description: "Objective text. Explicit [[file:relative/path]] declarations join required context; ordinary path-like prose is unchanged." },
   context: Type.Optional(Type.Array(literalPath, { maxItems: 32, default: [] })),
   write: Type.Object({
@@ -46,7 +52,10 @@ export const developmentTaskSpecSchema = Type.Object({
     protect: Type.Array(selectedPath, { maxItems: 128, uniqueItems: true }),
     require: Type.Optional(Type.Array(literalPath, { maxItems: 32, uniqueItems: true, default: [], description: "Explicit required output locations. The parser requires each path within allow and outside protect; files need not exist yet. This grants no additional permission." }))
   }, { additionalProperties: false }),
-  prepare: Type.Optional(Type.Array(Type.Object({ id: identifier, command: text(512), args: argumentsSchema },
+  prepare: Type.Optional(Type.Array(Type.Object({ id: identifier, command: text(512), args: argumentsSchema,
+    nodeOffline: Type.Optional(Type.Object({ nodeVersion: Type.String({ pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$", maxLength: 64 }),
+      packageManagerVersion: Type.String({ pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$", maxLength: 64 }),
+      storePath: text(4096), readOnlySharedStores: Type.Array(text(4096), { maxItems: 8 }) }, { additionalProperties: false })) },
     { additionalProperties: false }), { maxItems: 8, default: [] })),
   checks: Type.Array(check, { minItems: 1, maxItems: 8 }),
   budget: Type.Object({

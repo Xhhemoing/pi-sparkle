@@ -163,3 +163,22 @@ test("input schema admits explicit required write declarations without pretendin
     assert.throws(() => check(definition, { ...source, write: { ...source.write, require } }));
   }
 });
+
+test("schema and parser preserve explicit limits and fixed Node preparation declarations", async () => {
+  const parameters = await schema();
+  const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
+  const sample = { ...valid(), limits, prepare: [{ id: "offline", command: process.execPath, args: ["/host/pnpm.cjs"],
+    nodeOffline: { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: path.resolve(".agent_workspace/store"), readOnlySharedStores: [] } }] };
+  check(parameters, sample);
+  assert.deepEqual(snapshotDevelopmentTaskSpec(sample).limits, limits);
+  for (const replacement of [{ ...limits, context: { ...limits.context, maxBytes: 65537 } },
+    { ...limits, snapshot: { ...limits.snapshot, maxFiles: 1025 } }, { context: limits.context }]) {
+    assert.throws(() => check(parameters, { ...sample, limits: replacement }));
+    assert.throws(() => snapshotDevelopmentTaskSpec({ ...sample, limits: replacement }));
+  }
+  for (const key of ["nodeVersion", "packageManagerVersion", "storePath", "readOnlySharedStores"] as const) {
+    const node = { ...sample.prepare[0]!.nodeOffline }; delete (node as Partial<typeof node>)[key];
+    const invalid = { ...sample, prepare: [{ ...sample.prepare[0]!, nodeOffline: node }] };
+    assert.throws(() => check(parameters, invalid)); assert.throws(() => snapshotDevelopmentTaskSpec(invalid));
+  }
+});

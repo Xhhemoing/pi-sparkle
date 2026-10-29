@@ -11,13 +11,12 @@ import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { ResourceRegistry } from "../../../src/lab/adaptation/registry.js";
 import { materializeTaskResources, taskResourceIdentity, verifyMaterializedTaskResources } from "../../../src/lab/adaptation/task-resources.js";
 
-// Proposed optional v1 data spelling, NOT a frozen interface or an adopted schema.
+// Optional v1 declarations; parser/schema and downstream limits are exercised below.
 // All values stay below current supported capacities; none imports #103.
 // One admission assertion precedes downstream probes, so a missing optional-field
 // implementation cannot masquerade as several successful invalid-input tests.
-// Current acceptance is RED-only: parser admission fails before any nested runtime
-// enforcement/repair/apply/materialization probe runs. Those probes remain NOT REACHED.
-// The two entry/evaluation TODOs below remain unimplemented and cannot count as coverage.
+// Parser admission precedes nested runtime/repair/apply/materialization probes.
+// Evaluation reconstruction remains a deferred integration probe until its authoring dependency is adopted.
 const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
 type Limits = typeof limits;
 function git(cwd: string, args: string[]): string {
@@ -67,7 +66,7 @@ test("legacy v1 without optional limits still reaches its checker and model boun
 }));
 
 test("explicit preparation limits are admitted before downstream enforcement/reconstruction probes", async t => {
-  // Today this is the single intended parser RED. No missing imports or made-up function calls.
+  // Initially the single intended parser RED; downstream probes run only after admission.
   // If it fails, NONE of the downstream probes below count as runtime RED/GREEN evidence.
   let admitted: DevelopmentTaskSpec | undefined;
   assert.doesNotThrow(() => { admitted = explicit(); }, "optional complete limits within existing capacities must be usable host input");
@@ -181,7 +180,4 @@ test("explicit preparation limits are admitted before downstream enforcement/rec
   });
 });
 
-// No strict fixed-Node preparation entry or #122 template is adopted on this base.
-// Wiring either to a fictional export/flag would produce accidental RED, not evidence.
-test.todo("new fixed-Node preparation entry requires all five explicit context/snapshot limits; legacy v1 remains optional");
 test.todo("evaluation and actual TASK_REQUEST reconstruction retain the explicit limits after the authoring dependencies are adopted");

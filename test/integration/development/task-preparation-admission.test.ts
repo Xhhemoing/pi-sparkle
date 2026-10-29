@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import fs, { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile, lstat } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import { test } from "node:test";
 import { DomainValidationError } from "../../../src/domain/errors.js";
 import { preflightDevelopmentTaskSpec, startDevelopmentTaskSpec } from "../../../src/development/start-task-spec.js";
-import type { DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
+import { snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 
 // Acceptance probes for #126's preparation design, using existing public entrypoints.
 // The installer is deliberately synthetic: successful stdout/exit is NOT installation evidence.
 // Dependency/version probes below preserve GREEN legacy generic prepare behavior.
-// Their TODOs record the fixed-Node admission gap; implementation must connect a real
-// fixed wrapper/entry and test it, never reject arbitrary legacy prepare commands to turn them GREEN.
+// Separate fixed-Node probes exercise its explicit declaration and actual admission;
+// arbitrary legacy preparation commands remain compatible.
 // The recipe ID is only a label, not evidence that a fixed wrapper was selected.
 // These probes do not claim arbitrary trusted commands are an OS security sandbox.
 const PACKAGE = "sparkle-preparation-fixture";
@@ -150,7 +151,7 @@ for (const mode of ["ancestor", "wrong-offline-version", "unavailable-package-ma
       { standaloneOk: true, factories: 1, dispatches: 1, accepted: true },
       "legacy arbitrary prepare remains valid; this observation does not establish fixed-recipe offline admission");
   }));
-  test.todo(`new fixed Node preparation recipe refuses ${mode} before dispatch; legacy generic prepare remains compatible`);
+
 }
 
 test("standalone preflight refuses preparation installing into its clean source", async () => fixture(async input => {
@@ -252,4 +253,154 @@ for(const args of [['add','value.txt'],['-c','commit.gpgsign=false','commit','-m
     assert.equal(standalone.ok, false, "a clean new source commit must not leave the old candidate preflight successful");
   }
 }));
+}
+
+const explicitNodeLimits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 16, maxBytes: 65536 } };
+test("fixed Node offline preparation admits a declared recipe before checking installed dependency evidence", async t => {
+  const declaration = { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: path.resolve(".agent_workspace/unused-offline-store"), readOnlySharedStores: [] };
+  const basic = { version: 1, objective: "fixture", context: [], write: { allow: ["value.txt"], protect: [] },
+    limits: explicitNodeLimits, prepare: [{ id: "offline", command: process.execPath, args: [], nodeOffline: declaration }],
+    checks: [{ id: "business", command: process.execPath, args: ["-e", ""], verifierVersion: "v1", expect: { baseline: "pass" } }],
+    budget: { totalSeconds: 60, prepareSeconds: 10, checkSeconds: 5, workerSeconds: 10 } };
+  assert.doesNotThrow(() => snapshotDevelopmentTaskSpec(basic), "fixed Node recipe must be admitted before behavioral probes");
+  const { limits: _limits, ...missing } = basic;
+  assert.throws(() => snapshotDevelopmentTaskSpec(missing), /explicit.*limit|limit.*required/i);
+  for (const mode of ["candidate", "ancestor", "wrong-version", "missing-manager", "missing-cache", "shared-store", "undeclared-shared", "escaped-entry", "missing-node", "changed-lock"] as const) {
+    await t.test(mode, async () => fixture(async input => {
+      const store = path.join(input.root, "offline-store");
+      if (mode === "missing-cache") await mkdir(store);
+      else await packageAt(store, mode === "wrong-version" ? "0.9.0" : "1.0.0");
+      if (mode === "escaped-entry") {
+        const escaped = path.join(input.root, "escaped-entry.cjs");
+        await writeFile(escaped, "module.exports={usable:true,version:'1.0.0'}", "utf8");
+        await writeFile(path.join(store, PACKAGE, "package.json"), JSON.stringify({ name: PACKAGE, version: "1.0.0", main: escaped }), "utf8");
+      }
+      if (mode === "ancestor") await packageAt(path.join(input.root, "node_modules"), "1.0.0");
+      const manager = `const f=require('node:fs'),p=require('node:path');
+if(process.argv[2]==='--version'){console.log(${JSON.stringify(mode === "missing-manager" ? "0.0.0" : "10.17.1")});process.exit(0)}
+f.appendFileSync(${JSON.stringify(path.join(input.root, "install.jsonl"))},JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})+'\\n');
+if(${JSON.stringify(mode)}==='missing-cache'){console.error('offline package version unavailable');process.exit(1)}
+if(${JSON.stringify(mode)}!=='ancestor'){const target=p.join(process.cwd(),'node_modules','${PACKAGE}');f.mkdirSync(p.dirname(target),{recursive:true});
+if(${JSON.stringify(mode)}==='shared-store'||${JSON.stringify(mode)}==='undeclared-shared')f.symlinkSync(${JSON.stringify(path.join(store, PACKAGE))},target,'junction');
+else f.cpSync(${JSON.stringify(path.join(store, PACKAGE))},target,{recursive:true});}
+if(${JSON.stringify(mode)}==='changed-lock')f.appendFileSync('pnpm-lock.yaml','\\n# mutated by installer');`;
+      const managerPath = path.join(input.root, "pnpm.cjs");
+      await writeFile(managerPath, manager, "utf8");
+      const spec = snapshotDevelopmentTaskSpec({ ...input.spec, limits: explicitNodeLimits,
+        prepare: [{ id: "offline", command: process.execPath, args: [managerPath], nodeOffline: { ...declaration, nodeVersion: mode === "missing-node" ? "0.0.0" : declaration.nodeVersion, storePath: store,
+          readOnlySharedStores: mode === "shared-store" ? [store] : [] } }] });
+      const standalone = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec });
+      if (mode === "missing-cache") assert.deepEqual(await readdir(store), [], "the exact offline version is actually absent");
+      else assert.equal(JSON.parse(await readFile(path.join(store, PACKAGE, "package.json"), "utf8")).version, mode === "wrong-version" ? "0.9.0" : "1.0.0", "standalone cleanup must preserve shared storage");
+      const observed = await run(input, spec);
+      if (mode === "missing-cache") assert.deepEqual(await readdir(store), [], "refusal must not populate the offline store");
+      else assert.equal(JSON.parse(await readFile(path.join(store, PACKAGE, "package.json"), "utf8")).version, mode === "wrong-version" ? "0.9.0" : "1.0.0", "task-run must preserve shared storage");
+      const valid = mode === "candidate" || mode === "shared-store";
+      assert.equal(standalone.ok, valid, standalone.reason);
+      assert.equal(observed.dispatches, valid ? 1 : 0, JSON.stringify(observed.outcome));
+      assert.equal(accepted(observed), valid);
+      const installs = await lines(path.join(input.root, "install.jsonl"));
+      if (mode !== "missing-manager" && mode !== "missing-node") {
+        assert.equal(installs.length, 2, "separate public invocations each install once");
+        assert.notEqual(installs[0]!.cwd, installs[1]!.cwd);
+        for (const row of installs) assert.deepEqual(row.args, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store]);
+      } else assert.equal(installs.length, 0, "wrong exact manager must refuse before installation");
+      assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+    }));
+  }
+});
+
+test("fixed Node version lookup and install disable online bootstrap in the actual command environment", async () => fixture(async input => {
+  const store = path.join(input.root, "offline-store"); await packageAt(store, "1.0.0");
+  const manager = path.join(input.root, "pnpm-offline.cjs");
+  await writeFile(manager, `const f=require('node:fs'),p=require('node:path');
+if(process.env.COREPACK_ENABLE_NETWORK!=='0'||process.env.npm_config_offline!=='true'){console.error('offline bootstrap guard absent');process.exit(1)}
+if(process.argv[2]==='--version'){console.log('10.17.1');process.exit(0)}
+const target=p.join(process.cwd(),'node_modules','${PACKAGE}');f.mkdirSync(p.dirname(target),{recursive:true});f.cpSync(${JSON.stringify(path.join(store, PACKAGE))},target,{recursive:true});`, "utf8");
+  const spec = snapshotDevelopmentTaskSpec({ ...input.spec, limits: explicitNodeLimits,
+    prepare: [{ id: "offline", command: process.execPath, args: [manager], nodeOffline: { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: store, readOnlySharedStores: [] } }] });
+  const result = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec });
+  assert.equal(result.ok, true, result.reason);
+}));
+
+test("standalone cleanup refuses a redirected installation parent and preserves the moved external dependency link", async () => fixture(async input => {
+  const store = path.join(input.root, "offline-store"); await packageAt(store, "1.0.0");
+  const external = path.join(input.root, "external-installation");
+  const manager = path.join(input.root, "pnpm-linked.cjs");
+  await writeFile(manager, `const f=require('node:fs'),p=require('node:path');
+if(process.argv[2]==='--version'){console.log('10.17.1');process.exit(0)}
+const target=p.join(process.cwd(),'node_modules','${PACKAGE}');f.mkdirSync(p.dirname(target),{recursive:true});f.symlinkSync(${JSON.stringify(path.join(store, PACKAGE))},target,'junction');`, "utf8");
+  const checker = `const f=require('node:fs');f.renameSync('node_modules',${JSON.stringify(external)});f.symlinkSync(${JSON.stringify(external)},'node_modules','junction');process.stdout.write(JSON.stringify({assertion:'${ASSERTION}',outcome:'failed'}));process.exit(1)`;
+  const spec = snapshotDevelopmentTaskSpec({ ...input.spec, limits: explicitNodeLimits,
+    checks: [{ ...input.spec.checks[0]!, args: ["-e", checker] }],
+    prepare: [{ id: "offline", command: process.execPath, args: [manager], nodeOffline: { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: store, readOnlySharedStores: [store] } }] });
+  const outcome = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec })
+    .then(result => ({ result }), (error: unknown) => ({ error }));
+  assert.ok("error" in outcome, "redirected cleanup must remain refused rather than publish standalone success");
+  assert.match(String(outcome.error), /cleanup|retained/i);
+  const artifacts = await readdir(path.join(input.stateRoot, "preflight"));
+  assert.equal(artifacts.length, 1);
+  const artifactPath = path.join(input.stateRoot, "preflight", artifacts[0]!);
+  const artifact = JSON.parse(await readFile(artifactPath, "utf8"));
+  const leaf = await lstat(path.join(external, PACKAGE)).then(value => value, (error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  });
+  assert.equal(leaf?.isSymbolicLink(), true, "cleanup must not unlink the original leaf through a redirected installation parent");
+  assert.ok(leaf);
+  assert.equal(leaf.ino, artifact.nodeInstallationLinks[0].inode, "the actual moved leaf retains its original identity");
+  assert.equal((await lstat(artifact.candidatePath)).isDirectory(), true, "uncertain cleanup retains the allocated candidate");
+  assert.ok(String(outcome.error).includes(artifactPath), "cleanup refusal retains the original observation locator");
+  assert.equal(artifact.modelInvocations, 0);
+  assert.equal(await readFile(path.join(store, PACKAGE, "index.cjs"), "utf8"), 'module.exports={usable:true,version:"1.0.0"}');
+  assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+}));
+
+for (const cancellationAtPersistence of [false, true]) {
+  test(`fixed preparation persistence failure retains the full candidate without cleanup through redirected parents (cancellation=${cancellationAtPersistence})`, async () => fixture(async input => {
+    const store = path.join(input.root, "offline-store"); await packageAt(store, "1.0.0");
+    const external = path.join(input.root, "external-installation"), trace = path.join(input.root, "installation.json");
+    const manager = path.join(input.root, "pnpm-persistence.cjs");
+    await writeFile(manager, `const f=require('node:fs'),p=require('node:path');
+if(process.argv[2]==='--version'){console.log('10.17.1');process.exit(0)}
+const target=p.join(process.cwd(),'node_modules','${PACKAGE}');f.mkdirSync(p.dirname(target),{recursive:true});f.symlinkSync(${JSON.stringify(path.join(store, PACKAGE))},target,'junction');
+f.writeFileSync(${JSON.stringify(trace)},JSON.stringify({candidate:process.cwd(),leafInode:f.lstatSync(target).ino}));`, "utf8");
+    const checker = `const f=require('node:fs');f.renameSync('node_modules',${JSON.stringify(external)});f.symlinkSync(${JSON.stringify(external)},'node_modules','junction');process.stdout.write(JSON.stringify({assertion:'${ASSERTION}',outcome:'failed'}));process.exit(1)`;
+    const spec = snapshotDevelopmentTaskSpec({ ...input.spec, limits: explicitNodeLimits,
+      checks: [{ ...input.spec.checks[0]!, args: ["-e", checker] }],
+      prepare: [{ id: "offline", command: process.execPath, args: [manager], nodeOffline: { nodeVersion: process.versions.node, packageManagerVersion: "10.17.1", storePath: store, readOnlySharedStores: [store] } }] });
+    await mkdir(input.stateRoot);
+    const blocked = path.join(input.stateRoot, "preflight"); await writeFile(blocked, "actual artifact-directory obstruction", "utf8");
+    const cancellation = new AbortController(), originalMkdir = fs.mkdir;
+    let interceptedPersistence = false;
+    fs.mkdir = (async (...args: Parameters<typeof fs.mkdir>) => {
+      if (path.resolve(String(args[0])) === blocked) {
+        interceptedPersistence = true;
+        if (cancellationAtPersistence) cancellation.abort();
+      }
+      return originalMkdir(...args);
+    }) as typeof fs.mkdir;
+    syncBuiltinESMExports();
+    let outcome: { error: unknown } | { result: unknown };
+    try {
+      outcome = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec, signal: cancellation.signal })
+        .then(result => ({ result }), (error: unknown) => ({ error }));
+    } finally { fs.mkdir = originalMkdir; syncBuiltinESMExports(); }
+    assert.equal(interceptedPersistence, true, "the actual artifact mkdir must be reached");
+    assert.equal(cancellation.signal.aborted, cancellationAtPersistence);
+    assert.ok("error" in outcome, "failed persistence cannot publish a successful standalone result");
+    const installation = JSON.parse(await readFile(trace, "utf8")) as { candidate: string; leafInode: number };
+    const candidateValue = await readFile(path.join(installation.candidate, "value.txt"), "utf8").catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    });
+    assert.equal(candidateValue, "before", "without the completed preparation result, cleanup must retain all allocated candidate bytes");
+    assert.equal((await lstat(path.join(external, PACKAGE))).ino, installation.leafInode, "the redirected external leaf stays untouched");
+    assert.ok(git(input.sourceRepo, ["worktree", "list", "--porcelain"]).replaceAll("\\", "/").includes(installation.candidate.replaceAll("\\", "/")), "unknown cleanup must retain the managed worktree registration");
+    assert.match(String(outcome.error), /retain|reconcil/i);
+    assert.ok(String(outcome.error).includes(installation.candidate), "failure identifies its retained candidate");
+    assert.ok(String(outcome.error).includes(input.stateRoot), "failure identifies the attempted evidence location");
+    assert.equal(await readFile(path.join(store, PACKAGE, "index.cjs"), "utf8"), 'module.exports={usable:true,version:"1.0.0"}');
+    assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+  }));
 }
