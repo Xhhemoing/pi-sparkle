@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { parseDevelopmentTaskSpec, snapshotDevelopmentTaskSpec, type DevelopmentTaskSpec } from "../../../src/development/task-spec.js";
@@ -10,13 +10,15 @@ import { DomainValidationError } from "../../../src/domain/errors.js";
 import { ProtocolChildExecutor } from "../../../src/testing/fake-executor.js";
 import { ResourceRegistry } from "../../../src/lab/adaptation/registry.js";
 import { materializeTaskResources, taskResourceIdentity, verifyMaterializedTaskResources } from "../../../src/lab/adaptation/task-resources.js";
+import { evaluateRealTaskResources } from "../../../src/lab/adaptation/eval-real-tasks.js";
+import { runtimeRoot } from "../../../src/persist/state-layout.js";
 
 // Optional v1 declarations; parser/schema and downstream limits are exercised below.
 // All values stay below current supported capacities; none imports #103.
 // One admission assertion precedes downstream probes, so a missing optional-field
 // implementation cannot masquerade as several successful invalid-input tests.
 // Parser admission precedes nested runtime/repair/apply/materialization probes.
-// Evaluation reconstruction remains a deferred integration probe until its authoring dependency is adopted.
+// Evaluation uses actual session contract/check/request artifacts below.
 const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
 type Limits = typeof limits;
 function git(cwd: string, args: string[]): string {
@@ -180,4 +182,51 @@ test("explicit preparation limits are admitted before downstream enforcement/rec
   });
 });
 
-test.todo("evaluation and actual TASK_REQUEST reconstruction retain the explicit limits after the authoring dependencies are adopted");
+test("evaluation reconstructs non-default snapshot and actual request limits from a real repaired task", { timeout: 60000 }, async () => fixture(async input => {
+  const registry = new ResourceRegistry(), identity = taskResourceIdentity(input.sourceRepo, "host-only-checks");
+  const content = (guidance: string) => JSON.stringify({ topic: "host-only-checks", guidance, sourceRefs: ["synthetic/limits"], expectedEffect: "Unobserved limits preservation" });
+  const baseline = registry.registerBaseline({ identity, content: content("Original host guidance"), author: { kind: "human", identity: "owner" } });
+  const selectedContent = content("Preserve the fixed host checker");
+  const candidate = registry.createCandidate({ identity, content: selectedContent, parentVersionId: baseline.versionId,
+    author: { kind: "detector", identity: "synthetic-author" }, evaluationPlan: { stages: ["static", "real-task"], metrics: ["correct-delivery"], planVersion: 1 } });
+  const promoted = registry.promote({ candidateId: candidate.candidateId, expectedCurrentVersionId: baseline.versionId, content: selectedContent,
+    approvedBy: { kind: "human", identity: "owner" }, explicitApproval: true,
+    review: { reviewId: "synthetic-limits-review", candidateId: candidate.candidateId, contentHash: candidate.contentHash,
+      verdict: "approved", reviewerKind: "independent", reviewerId: "synthetic-peer", actorId: candidate.author.identity, evidenceRefs: ["synthetic/review"] },
+    changeNote: { scope: "synthetic host guidance", evidence: ["synthetic/review"], guardrails: ["host limits"], rollbackVersionId: baseline.versionId } });
+  assert.equal(promoted.ok, true);
+  const materialized = materializeTaskResources({ registry, projectRoot: input.sourceRepo, logicalTaskId: "limits-evaluation",
+    sourceRevision: git(input.sourceRepo, ["rev-parse", "HEAD"]), spec: explicit(), topics: ["host-only-checks"] });
+  const session = new TaskSpecSession({ stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot });
+  try {
+    const run = await session.run({ sourceRepo: input.sourceRepo, spec: materialized.spec, executorFactory: context => ({ async *execute(request, signal) {
+      await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("fix", { path: "value.txt", contents: "after" }, signal);
+      yield* new ProtocolChildExecutor().execute(request, signal);
+    } }) });
+    assert.equal(run.accepted, true); assert.equal(run.effectsSettled, true);
+    const directory = path.dirname(run.artifactPath);
+    const artifacts = await Promise.all((await readdir(directory)).filter(file => file.endsWith(".json")).map(async file => ({ file: path.join(directory, file), value: JSON.parse(await readFile(path.join(directory, file), "utf8")) })));
+    const contract = artifacts.find(entry => entry.value.body.kind === "native-write-task-contract")!;
+    const check = artifacts.find(entry => entry.value.body.kind === "ps-p3-closed-loop")!;
+    assert.ok(contract); assert.ok(check);
+    const inputFile = path.join(input.root, "input.json"), recordFile = path.join(input.root, "record.json");
+    await writeFile(inputFile, JSON.stringify(materialized), "utf8");
+    await writeFile(recordFile, JSON.stringify({ id: "synthetic-limits-attempt", comparisonId: materialized.logicalTaskId, source: "pi-sparkle", arm: "sparkle",
+      runId: run.runId, sourceRevision: materialized.sourceRevision, status: run.status, accepted: true, effectsSettled: true,
+      reviewed: true, kept: true, escapedDefects: 0, referenceUsd: "unknown" }), "utf8");
+    const evaluate = () => evaluateRealTaskResources({ registry, identity, versionId: promoted.newVersion!.versionId,
+      trials: [{ recordFile, inputFile, contractFile: contract.file, checkFile: check.file, eventsFile: path.join(runtimeRoot(input.stateRoot), "runs", run.runId, "events.jsonl") }] });
+    const result = await evaluate();
+    assert.equal(result.attempts[0]!.consumed, true, result.attempts[0]!.issues.join("; "));
+    assert.equal(result.attempts[0]!.hostCheckReached, true); assert.equal(result.attempts[0]!.correctDelivery, true);
+    assert.equal(result.conclusion, "unclear"); assert.equal(result.cost.totalUsd, "unknown");
+    const changed = structuredClone(materialized);
+    await writeFile(inputFile, JSON.stringify({ ...changed, baseSpec: { ...changed.baseSpec, limits: { ...limits, context: { ...limits.context, maxBytes: 1 } } },
+      spec: { ...changed.spec, limits: { ...limits, context: { ...limits.context, maxBytes: 1 } } } }), "utf8");
+    const rejected = await evaluate();
+    assert.equal(rejected.attempts[0]!.consumed, false, "actual context cannot exceed the declared source byte budget");
+    assert.ok(rejected.attempts[0]!.issues.some(issue => /byte/.test(issue)));
+    assert.equal(rejected.conclusion, "unclear");
+    assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
+  } finally { await session.shutdown(); }
+}));

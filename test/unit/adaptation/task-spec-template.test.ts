@@ -76,6 +76,43 @@ function templateFixture() {
 
 function jsonRoundTrip<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 
+test("template authoring preserves complete host limits through historical reconstruction and rejects tampering", () => {
+  const f = templateFixture();
+  const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
+  const request = { ...f.request, bindings: { ...f.request.bindings, limits } };
+  const authored = authorTaskSpecFromTemplate({ registry: f.registry, ...request });
+  assert.deepEqual(authored.spec.limits, limits);
+  assert.deepEqual(Reflect.get(authored.bindings, "limits"), limits);
+  assert.equal(Object.isFrozen(authored.spec.limits!.context), true);
+  limits.context.maxBytes = 511;
+  assert.equal(authored.spec.limits!.context.maxBytes, 512, "authoring detaches the host declaration");
+  limits.context.maxBytes = 512;
+  assert.equal(f.registry.promote(f.promotion).ok, true);
+  assert.deepEqual(verifyAuthoredTaskSpecTemplate(f.registry, jsonRoundTrip(authored), jsonRoundTrip(request)), authored);
+  for (const field of ["bindings", "spec"] as const) {
+    const forged = jsonRoundTrip(authored);
+    (Reflect.get(forged[field], "limits") as typeof limits).snapshot.maxBytes--;
+    assert.throws(() => verifyAuthoredTaskSpecTemplate(f.registry, forged, request), /changed|match/);
+  }
+  const legacy = templateFixture();
+  assert.equal(Object.hasOwn(authorTaskSpecFromTemplate({ registry: legacy.registry, ...legacy.request }).spec, "limits"), false);
+});
+
+test("template limits reject partial, invalid, unknown and accessor declarations without executing getters", () => {
+  const f = templateFixture();
+  const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
+  for (const invalid of [
+    { context: limits.context }, { ...limits, context: { tokenBudget: 4000, maxFiles: 2 } },
+    { ...limits, context: { ...limits.context, maxBytes: 0 } },
+    { ...limits, snapshot: { ...limits.snapshot, maxFiles: 1025 } },
+    { ...limits, extra: true }
+  ]) assert.throws(() => authorTaskSpecFromTemplate({ registry: f.registry, ...f.request, bindings: { ...f.request.bindings, limits: invalid } }));
+  let reads = 0;
+  const accessor = Object.defineProperty({ ...limits }, "context", { enumerable: true, get() { reads++; return limits.context; } });
+  assert.throws(() => authorTaskSpecFromTemplate({ registry: f.registry, ...f.request, bindings: { ...f.request.bindings, limits: accessor } }), /data|accessor/);
+  assert.equal(reads, 0);
+});
+
 test("template authoring follows promotion and rollback while historical JSON artifacts remain verifiable", async () => {
   const { rollbackActive } = await import("../../../src/lab/adaptation/rollback.js");
   const f = templateFixture();

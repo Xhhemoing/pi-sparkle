@@ -136,8 +136,8 @@ function templateData(value: unknown, depth = 0): unknown {
   }
   return Object.freeze(result);
 }
-function templateFields(value: unknown, required: readonly string[]): Record<string, unknown> {
-  if (!isRecord(value) || Object.keys(value).length !== required.length || required.some(key => !Object.hasOwn(value, key))) fail("invalid or missing template field");
+function templateFields(value: unknown, required: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
+  if (!isRecord(value) || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key)) || required.some(key => !Object.hasOwn(value, key))) fail("invalid or missing template field");
   return value;
 }
 function templateRole(value: unknown): string {
@@ -330,6 +330,7 @@ export interface TaskSpecTemplateBindings {
   readonly authorityRef: string;
   readonly objective: DevelopmentTaskSpec["objective"];
   readonly context: DevelopmentTaskSpec["context"];
+  readonly limits?: DevelopmentTaskSpec["limits"];
   readonly write: DevelopmentTaskSpec["write"];
   readonly prepareByRole: Readonly<Record<string, DevelopmentTaskSpec["prepare"][number]>>;
   readonly checksByRole: Readonly<Record<string, DevelopmentTaskSpec["checks"][number]>>;
@@ -357,7 +358,7 @@ function authorTemplate(registry: ResourceRegistry, input: TaskSpecTemplateHostI
   const sourceRevision = text(request.sourceRevision, "source revision");
   if (!/^[0-9a-f]{40}$/.test(sourceRevision)) fail("source revision must be an exact Git revision");
   if (!isResourceVersionId(request.versionId)) fail("explicit template version id required");
-  const raw = templateFields(request.bindings, ["templateVersionId", "authorityRef", "objective", "context", "write", "prepareByRole", "checksByRole", "budget", "worker"]);
+  const raw = templateFields(request.bindings, ["templateVersionId", "authorityRef", "objective", "context", "write", "prepareByRole", "checksByRole", "budget", "worker"], ["limits"]);
   if (raw.templateVersionId !== request.versionId) fail("host templateVersionId must match the exact selected version");
   text(raw.authorityRef, "template authority reference");
   const selected = resolveBinding(registry, projectRoot, "task-spec-template", request.versionId);
@@ -375,7 +376,7 @@ function authorTemplate(registry: ResourceRegistry, input: TaskSpecTemplateHostI
   // Only the ordered arrays are supplied by the template. All values remain host-owned.
   const spec = snapshotDevelopmentTaskSpec({ version: 1, objective: raw.objective, context: raw.context, write: raw.write,
     prepare: layout.prepareRoles.map(role => prepareCatalog[role]), checks: layout.checkRoles.map(check => checkCatalog[check.role]),
-    budget: raw.budget, worker: raw.worker });
+    budget: raw.budget, worker: raw.worker, ...(raw.limits === undefined ? {} : { limits: raw.limits }) });
   if (layout.checkRoles.some((check, index) => check.requiredBaseline !== spec.checks[index]!.expect.baseline)) fail("host expect does not match template requiredBaseline");
   const ids = [...spec.prepare, ...spec.checks].map(recipe => recipe.id);
   if (new Set(ids).size !== ids.length) fail("duplicate host recipe id");
