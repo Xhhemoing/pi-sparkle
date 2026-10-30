@@ -233,9 +233,9 @@ Read `week.taskSpecMinutes` and each `week.phases` entry as `{knownTotal, unknow
 
 ## 9. Real-task resource proposals (development only)
 
-`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. Its `propose`, `materialize` and `evaluate` operations never execute commands or call a model. Only the explicit `execute` operation below runs a reviewed fixed model recipe through the original TaskSpec flow. The adapter does not change public routing-only `adapt learn/eval`, register baselines or promote resources. The owner must approve runtime adoption and exact resource promotion before use.
+`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. Its `propose`, `materialize`, `author` and `evaluate` operations never execute commands or call a model. Only the explicit `execute` operation below runs a reviewed fixed model recipe through the original TaskSpec flow. The adapter does not change public routing-only `adapt learn/eval`, register baselines or promote resources. The owner must approve runtime adoption and exact resource promotion before use.
 
-Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, `check-recipes` and `model-thinking`.
+Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, `check-recipes`, `model-thinking`, `context-rule` and `task-spec-template`. For template proposals, `propose --template-layout <JSON>` forwards an explicit reviewed role layout; `author --version <id> --input <host-bindings JSON>` creates a new TaskSpec from the selected active template and complete host catalogs, without execution or authority changes.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -323,15 +323,28 @@ Node preparation is deliberately unproven here: materialization requires an alre
 
 After specific promotion, materialize with `--topics model-thinking`. Its private `modelSelection` records the requested triple; `baseSpec`, `spec`, objective, checks, scope and budgets stay unchanged, and TaskSpec keeps `worker.model: "inherit"`. Materialization grants no authority and never executes. Use a separately supplied trusted host approval file with exactly `authorityRef` and `approvedSelections` (an array of the approved triples). A resource, TaskSpec or candidate cannot supply that authority or credentials.
 
+Before each explicit execution, complete the private metadata and `Assert-RealTaskBudget` setup in the [operator example](#real-task-operator-example-adr-011), using the canonical record-owning repository as `$repo`. Reconcile every unrecorded or unsettled attempt in the new ledger, starting at attempt 44; unresolved effects block admission even if a partial summary reports `canAdmitNextTask`. Preserve the historical 43-attempt baseline separately, with missing costs and times marked unknown; reconstructing those historical records is not an admission prerequisite. The execute path enforces the budget/isolation checks below; preparation changes must also be adopted before real-task use, with strict-cost checks and refusal on unknown effects. Keep admission and execution serialized. The current authorization is at most US$5 per attempt and `--weekly-limit-usd none`; `none` removes the weekly cap, not the per-attempt limit or unknown-cost accounting. Recompute the current week before every attempt, including each comparison arm.
+
 ```powershell
 $ErrorActionPreference = 'Stop'
+$weeklyLimit = 'none'
+$date = Assert-RealTaskBudget # Refreshes the current-week summary with --weekly-limit-usd none.
+$meta.id = 'synthetic-fixed-model-01' # Fresh ID for this attempt, including a failed attempt.
+$meta.date = $date
+$projection = Join-Path $private 'synthetic-fixed-model-01.jsonl'
+$stderr = Join-Path $private 'synthetic-fixed-model-01.stderr.txt'
 node --import tsx scripts/real-task-adapt.mjs execute `
   --state-root $labState --project $originalProject --source $isolatedSource `
   --input .agent_workspace/materialized-model.json `
-  --model-authority .agent_workspace/host-approved-models.json
+  --model-authority .agent_workspace/host-approved-models.json 2> $stderr |
+    Set-Content -LiteralPath $projection -Encoding UTF8
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
 ```
 
-The host explicitly selects the isolated committed source separately from the logical project identity; original Soul remains protected. The state root must already contain the adopted registry and approved provider configuration. Execution rejects a changed active version/source, mismatched project, multiple worker attempts, missing or above-US$5 reference budget, disabled/unapproved selection or another provider. It reuses original task-run context, strict SDK pricing/budget, cancellation, sink flush, settlement and independent acceptance; candidates are retained with no apply/review stdin. Fixed selection overrides ambient model/thinking for that invocation, disables implicit fast fallback and changes no process environment, defaults or credentials. Normal task-run behavior stays unchanged.
+Inspect `$cliExit`, stdout and stderr, then run the operator example's recording step with a fresh metadata filename, this `$meta` and `$projection`, and `--state-root $labState`. Set `$projectionInput = $null` for empty/non-JSON stdout; preserve the raw capture and record the observed failure or unknown status without fabricating a projection. Include an actual matching loop artifact only when available, retain unknown costs/times, and stop if record creation fails. Every attempt must reach `real-task-record.mjs` before another admission decision; later review uses `--update`.
+
+The host explicitly selects an independent committed source repository separately from the logical project identity; a linked worktree sharing the project's Git common directory is refused, and original Soul remains protected. The state root must already contain the adopted registry and approved provider configuration. Execution rejects unknown Git isolation, a changed active version/source, mismatched project, multiple worker attempts, missing or above-US$5 reference budget, disabled/unapproved selection or another provider. It reuses original task-run context, strict SDK pricing/budget, cancellation, sink flush, settlement and independent acceptance; candidates are retained with no apply/review stdin. Fixed selection overrides ambient model/thinking for that invocation, disables implicit fast fallback and changes no process environment, defaults or credentials. Normal task-run behavior stays unchanged.
 
 For evaluation, include `loopFile` alongside the actual contract/events/check references. The complete supported native-attempt/report population, parent-child request/agent binding and every SDK dispatch index must match the version's fixed provider/model/transport-thinking; operator model labels are not evidence. Missing, duplicate, extra or mixed submissions remain `UNOBSERVED`. Observations show host transport submissions only, not the server's internal model/reasoning or a successful response. All native cost faults conservatively remain `UNOBSERVED`, including `incomplete-usage`/`unknown-reference`: the current producer stores only its first fault, which cannot exclude a later identity fault. No price calculation or complete-cost claim is added; failed outcomes and unknown fees stay in the denominator.
 
