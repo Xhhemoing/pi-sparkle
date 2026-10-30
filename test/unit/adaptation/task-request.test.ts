@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { buildTaskContext } from "../../../src/context/task-context.js";
+import { estimateTokens } from "../../../src/context/packet.js";
 import { isAgentInstanceId } from "../../../src/domain/ids.js";
 import { verifyTaskResourceRequest, verifyTaskResourceWorkerMessages } from "../../../src/lab/adaptation/task-request.js";
 
@@ -51,6 +52,31 @@ test("planned-only, missing context, changed guidance, bare goal and prior feedb
     (f: ReturnType<typeof fixture>) => { f.input.expectedObjective = goal; },
     (f: ReturnType<typeof fixture>) => { f.message.objective = f.message.objective.replace(`\n\n${banner}`, `\n\nPrevious host check feedback: failed\n\n${banner}`); }
   ]) { const f = fixture(); change(f); assert.throws(() => verify(f.input)); }
+});
+
+test("actual renderer limits count the complete request, UTF-8 source bytes and original selected paths", async t => {
+  const f = fixture(), root = await mkdtemp(join(tmpdir(), "pi-task-request-limits-"));
+  try {
+    f.context.requiredFiles[0]!.text = "中文🙂";
+    f.context.requiredFiles[1]!.text = "é";
+    for (const file of f.context.requiredFiles) await writeFile(join(root, file.path), file.text, "utf8");
+    const requiredFiles = ["b.ts", "a.ts", "a.ts"];
+    const actual = await buildTaskContext({ candidatePath: root, sourceRevision: revision, objective: expectedObjective, acceptanceMetadata: metadata,
+      input: { requiredFiles, expectedSourceRevision: revision, tokenBudget: 4000, maxFiles: 3, maxBytes: 12 } });
+    f.message.objective = `${expectedObjective}\n\n${actual.renderedContext}`;
+    const completeTokens = estimateTokens(f.message.objective);
+    assert.ok(completeTokens > estimateTokens("中文🙂é"), "host criteria and renderer contribute tokens");
+    const limits = { tokenBudget: completeTokens, maxFiles: 3, maxBytes: 12 };
+    const input = { ...f.input, requiredFiles, contextLimits: limits };
+    assert.deepEqual(verifyTaskResourceRequest(input), { workerRunId: "run_worker", taskId: "tsk_task", agentInstanceId: "agt_worker" });
+    for (const [name, changed] of [
+      ["complete request tokens", { ...limits, tokenBudget: completeTokens - 1 }],
+      ["UTF-8 aggregate bytes", { ...limits, maxBytes: 11 }],
+      ["selected paths before deduplication", { ...limits, maxFiles: 2 }]
+    ] as const) await t.test(name, () => assert.throws(() => verifyTaskResourceRequest({ ...input, contextLimits: changed })));
+    assert.doesNotThrow(() => verifyTaskResourceRequest({ ...input, requiredFiles: ["b.ts", "a.ts"], contextLimits: { ...limits, maxFiles: 2 } }));
+    assert.equal(Object.hasOwn(f.message, "contextLimits"), false, "host limits are not protocol fields");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("wrong source, metadata, required paths and unexpected context claims are refused", async () => {

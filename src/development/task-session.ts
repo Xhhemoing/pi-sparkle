@@ -77,7 +77,7 @@ export class TaskSpecSession {
     assertTaskSpecStateOutside(sourceRepo, this.stateRoot); assertTaskSpecStateOutside(sourceRepo, this.sandboxRoot);
     const sourceBranch = git(sourceRepo, ["rev-parse", "--symbolic-full-name", "HEAD"]);
     const planned = prepareDevelopmentCheckPlan({ scopePolicy: { allowedScope: spec.write.allow, protectedPaths: spec.write.protect },
-      checks: spec.checks.map(({ expect: _expect, ...check }) => check) });
+      checks: spec.checks.map(({ expect: _expect, ...check }) => check), ...(spec.limits === undefined ? {} : { snapshotLimits: spec.limits.snapshot }) });
     const descriptor = planned.verification.trustedVerification!;
     const whole = prepareTrustedVerification({ command: planned.verification.command, args: planned.verification.args ?? [],
       checkerFiles: descriptor.checkerFiles, snapshotManifest: {}, maxSnapshotFiles: WHOLE_CANDIDATE_SNAPSHOT_LIMITS.maxFiles, maxSnapshotBytes: WHOLE_CANDIDATE_SNAPSHOT_LIMITS.maxBytes });

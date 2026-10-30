@@ -370,7 +370,8 @@ for (const topic of ["host-only-checks", "check-recipes"] as const) test(`materi
     git(["config", "user.name", "Resource fixture"]); git(["config", "user.email", "fixture@example.invalid"]);
     git(["add", "."]); git(["-c", "commit.gpgsign=false", "commit", "-m", "fixture"]);
     const revision = git(["rev-parse", "HEAD"]);
-    const actualSpec = snapshotDevelopmentTaskSpec({ ...spec, checks: [{ ...spec.checks[0]!, command: topic === "check-recipes" ? "node" : process.execPath }], budget: { totalSeconds: 45, prepareSeconds: 5, workerSeconds: 10, checkSeconds: 15 } });
+    const limits = { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 6 }, snapshot: { maxFiles: 8, maxBytes: 65536 } };
+    const actualSpec = snapshotDevelopmentTaskSpec({ ...spec, limits, context: ["value.txt", "value.txt"], checks: [{ ...spec.checks[0]!, command: topic === "check-recipes" ? "node" : process.execPath }], budget: { totalSeconds: 45, prepareSeconds: 5, workerSeconds: 10, checkSeconds: 15 } });
     const f = topic === "check-recipes" ? await checkRecipeSetup(actualSpec, repo) : await setup("host-only-checks", repo); f.promote();
     const materialized = f.api.materializeTaskResources({ registry: f.registry, projectRoot: repo, logicalTaskId: "actual-task", sourceRevision: revision,
       spec: actualSpec, topics: [topic], ...("bindings" in f ? { checkRecipeBindings: f.bindings } : {}) });
@@ -386,10 +387,30 @@ for (const topic of ["host-only-checks", "check-recipes"] as const) test(`materi
     await writeFile(inputFile, JSON.stringify(materialized), "utf8");
     await writeFile(recordFile, JSON.stringify({ id: "actual-attempt", comparisonId: "actual-task", source: "pi-sparkle", arm: "sparkle", model: "controlled", thinking: "none", runId: run.runId,
       sourceRevision: revision, status: run.status, accepted: run.accepted, effectsSettled: run.effectsSettled, reviewed: true, kept: true, escapedDefects: 0, referenceUsd: "unknown" }), "utf8");
-    const result = await f.api.evaluateRealTaskResources({ registry: f.registry, identity: f.identity, versionId: f.registry.getActiveVersion(f.identity)!.versionId,
+    const evaluate = () => f.api.evaluateRealTaskResources({ registry: f.registry, identity: f.identity, versionId: f.registry.getActiveVersion(f.identity)!.versionId,
       trials: [{ recordFile, inputFile, contractFile: contract.file, checkFile: checked.file, eventsFile: path.join(runtimeRoot(stateRoot), "runs", run.runId, "events.jsonl") }] });
+    const result = await evaluate();
     assert.equal(result.attempts[0]!.consumed, true, result.attempts[0]!.issues.join("; "));
     assert.equal(result.attempts[0]!.correctDelivery, true); assert.equal(result.conclusion, "unclear", "one controlled task is not a real-task benefit conclusion");
+    for (const field of ["maxSnapshotFiles", "maxSnapshotBytes"] as const) {
+      const forged = structuredClone(contract.value);
+      forged.body.verification.trustedVerification[field]--;
+      await writeFile(contract.file, JSON.stringify(forged), "utf8");
+      const rejected = await evaluate();
+      assert.equal(rejected.attempts[0]!.consumed, false);
+      assert.ok(rejected.attempts[0]!.issues.some(issue => /verifier/.test(issue)));
+      assert.equal(rejected.conclusion, "unclear");
+    }
+    await writeFile(contract.file, JSON.stringify(contract.value), "utf8");
+    for (const context of [{ ...limits.context, tokenBudget: 1 }, { ...limits.context, maxBytes: 5 }, { ...limits.context, maxFiles: 1 }]) {
+      const changed = structuredClone(materialized);
+      const packet = { ...changed, baseSpec: { ...changed.baseSpec, limits: { ...limits, context } }, spec: { ...changed.spec, limits: { ...limits, context } } };
+      await writeFile(inputFile, JSON.stringify(packet), "utf8");
+      const rejected = await evaluate();
+      assert.equal(rejected.attempts[0]!.consumed, false, "evaluation must enforce host limits on actual request content");
+      assert.ok(rejected.attempts[0]!.issues.some(issue => /token|byte|selected files/.test(issue)), rejected.attempts[0]!.issues.join("; "));
+      assert.equal(rejected.conclusion, "unclear");
+    }
     assert.equal(await readFile(path.join(repo, "value.txt"), "utf8"), "before");
   } finally { await session.shutdown(); await rm(root, { recursive: true, force: true }); }
 });
