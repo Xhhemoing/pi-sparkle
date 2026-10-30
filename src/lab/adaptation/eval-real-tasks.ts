@@ -94,6 +94,10 @@ export async function evaluateRealTaskResources(input: { registry: ResourceRegis
     let hostCheckPassed: boolean | "unknown" = "unknown";
     let checkerVersion = "unobserved";
     try {
+      if (input.identity.kind === "workflow-template" && input.identity.name === "task-spec-template") {
+        // Authoring artifacts/bindings are host assertions, not independent evidence of later consumption.
+        fail("TaskSpec template consumption UNOBSERVED: current evaluation cannot certify authoring-template consumption or benefit");
+      }
       const artifact = await readRealTaskJson(files.contractFile);
       if (!isRecord(artifact) || artifact.schemaVersion !== "loop-artifact-v2" || typeof artifact.id !== "string" || artifact.runId !== row.runId || !isRecord(artifact.body)) fail("task artifact run identity mismatch");
       const body = artifact.body;
