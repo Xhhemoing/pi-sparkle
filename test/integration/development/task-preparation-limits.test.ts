@@ -12,6 +12,8 @@ import { ResourceRegistry } from "../../../src/lab/adaptation/registry.js";
 import { materializeTaskResources, taskResourceIdentity, verifyMaterializedTaskResources } from "../../../src/lab/adaptation/task-resources.js";
 import { evaluateRealTaskResources } from "../../../src/lab/adaptation/eval-real-tasks.js";
 import { runtimeRoot } from "../../../src/persist/state-layout.js";
+import { buildTaskContext } from "../../../src/context/task-context.js";
+import { snapshotDevelopmentCheckPlan, visibleDevelopmentCriteria, renderVisibleDevelopmentChecks } from "../../../src/development/check-plan.js";
 
 // Optional v1 declarations; parser/schema and downstream limits are exercised below.
 // All values stay below current supported capacities; none imports #103.
@@ -65,6 +67,67 @@ test("legacy v1 without optional limits still reaches its checker and model boun
   assert.equal(dispatches, 1); assert.equal(result.preflight?.ok, true);
   assert.equal(result.execution.acceptance.accepted, true, result.execution.reason);
   assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
+}));
+
+test("near-budget standalone preflight counts the same complete first request as task-run", async () => fixture(async input => {
+  const spec = snapshotDevelopmentTaskSpec({ ...definition(), objective: "Fix", context: [],
+    limits: { ...limits, context: { ...limits.context, tokenBudget: 100 } } });
+  const revision = git(input.sourceRepo, ["rev-parse", "HEAD"]);
+  const worktrees = git(input.sourceRepo, ["worktree", "list", "--porcelain"]);
+  const bare = await buildTaskContext({ candidatePath: input.sourceRepo, sourceRevision: revision, objective: spec.objective,
+    acceptanceMetadata: [], input: { requiredFiles: [], expectedSourceRevision: revision, ...spec.limits!.context } });
+  assert.ok(bare.estimatedTokens <= 100, "the bare objective alone fits; the host request envelope is the missing cost");
+  const preflight = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec });
+  let factories = 0, dispatches = 0;
+  await assert.rejects(startDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec,
+    executorFactory: () => { factories++; return { async *execute(request, signal) { dispatches++; yield* new ProtocolChildExecutor().execute(request, signal); } }; } }), /token budget/);
+  assert.equal(factories, 0); assert.equal(dispatches, 0);
+  assert.equal(preflight.effectsSettled, true);
+  assert.equal(git(input.sourceRepo, ["rev-parse", "HEAD"]), revision);
+  assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+  assert.equal(git(input.sourceRepo, ["worktree", "list", "--porcelain"]), worktrees);
+  assert.deepEqual(await readdir(input.sandboxRoot), [], "both refused candidates must be cleaned up");
+  assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
+  assert.equal(preflight.ok, false, "standalone preflight must reject the complete first request that task-run refuses before allocation");
+  assert.match(preflight.reason, /token budget/);
+}));
+
+test("exact-budget padded objective uses Native trimming in standalone preflight and task-run", async () => fixture(async input => {
+  const padded = snapshotDevelopmentTaskSpec({ ...definition(), objective: "  Fix  ", context: [], limits });
+  const revision = git(input.sourceRepo, ["rev-parse", "HEAD"]), worktrees = git(input.sourceRepo, ["worktree", "list", "--porcelain"]);
+  const checkPlan = snapshotDevelopmentCheckPlan({ checks: padded.checks.map(({ expect: _expect, ...check }) => check) });
+  const criteria = visibleDevelopmentCriteria(checkPlan)!;
+  const objective = `Fix\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}${renderVisibleDevelopmentChecks(checkPlan)}`;
+  const complete = await buildTaskContext({ candidatePath: input.sourceRepo, sourceRevision: revision, objective,
+    acceptanceMetadata: criteria.map(criterion => JSON.stringify(criterion)),
+    input: { requiredFiles: [], expectedSourceRevision: revision, ...limits.context } });
+  const spec = snapshotDevelopmentTaskSpec({ ...padded, limits: { ...limits, context: { ...limits.context, tokenBudget: complete.estimatedTokens } } });
+  assert.equal(spec.objective, "  Fix  ", "TaskSpec preserves padding; Native owns objective normalization");
+  const preflight = await preflightDevelopmentTaskSpec({ sourceRepo: input.sourceRepo, stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot, spec });
+  const session = new TaskSpecSession({ stateRoot: input.stateRoot, sandboxRoot: input.sandboxRoot });
+  let factories = 0, dispatches = 0;
+  try {
+    const outcome = await session.run({ sourceRepo: input.sourceRepo, spec, executorFactory: context => {
+      factories++;
+      assert.equal(context.preparedContext!.estimatedTokens, complete.estimatedTokens, "actual Native request fits the exact trimmed request budget");
+      return { async *execute(request, signal) {
+        dispatches++;
+        await context.tools.find(tool => tool.name === "sparkle_write_file")!.execute("fix", { path: "value.txt", contents: "after" }, signal);
+        yield* new ProtocolChildExecutor().execute(request, signal);
+      } };
+    } }).then(result => ({ result }), (error: unknown) => { assert.ok(error instanceof DomainValidationError); return { error }; });
+    if ("result" in outcome) await session.discard(outcome.result.runId);
+    assert.equal(preflight.effectsSettled, true);
+    assert.equal(git(input.sourceRepo, ["rev-parse", "HEAD"]), revision);
+    assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
+    assert.equal(git(input.sourceRepo, ["worktree", "list", "--porcelain"]), worktrees);
+    assert.deepEqual(await readdir(input.sandboxRoot), []);
+    assert.equal(await readFile(path.join(input.sourceRepo, "value.txt"), "utf8"), "before");
+    assert.equal(preflight.ok, true, "standalone preflight must admit exactly the trimmed complete request budget");
+    assert.ok("result" in outcome, "task-run must admit the same exact-budget request");
+    assert.equal(outcome.result.accepted, true); assert.equal(outcome.result.effectsSettled, true);
+    assert.equal(factories, 1); assert.equal(dispatches, 1);
+  } finally { await session.shutdown(); }
 }));
 
 test("explicit preparation limits are admitted before downstream enforcement/reconstruction probes", async t => {

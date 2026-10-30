@@ -12,6 +12,7 @@ import { captureWorktreeFingerprint } from "../execution/worktree-snapshot.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec, type DevelopmentTaskPreparation } from "./task-spec.js";
 import { DEFAULT_RECIPE_OUTPUT_BYTES, DEFAULT_RECIPE_TIMEOUT_MS } from "./work-items.js";
 import { classifyTaskCheckRefusal, type TaskCheckRefusal } from "./task-check-refusal.js";
+import { snapshotDevelopmentCheckPlan, visibleDevelopmentCriteria, renderVisibleDevelopmentChecks } from "./check-plan.js";
 export interface TaskPreflightInput {
   readonly candidatePath: string;
   readonly sourceRepo?: string;
@@ -136,8 +137,13 @@ export async function runTaskSpecPreflight(input: TaskPreflightInput): Promise<T
     input.verifySource?.();
     const initial = captureWorktreeFingerprint(candidate);
     if (initial.headRevision !== input.sourceRevision || initial.entries.length !== 0) throw new DomainValidationError("preflight requires the unchanged candidate base revision");
-    await buildTaskContext({ candidatePath: candidate, sourceRevision: input.sourceRevision, objective: spec.objective,
-      acceptanceMetadata: [], input: { requiredFiles: spec.context, expectedSourceRevision: input.sourceRevision, tokenBudget: spec.limits?.context.tokenBudget ?? 16000, ...(spec.limits === undefined ? {} : { maxFiles: spec.limits.context.maxFiles, maxBytes: spec.limits.context.maxBytes }) }, signal });
+    const checkPlan = snapshotDevelopmentCheckPlan({ checks: spec.checks.map(({ expect: _expect, ...check }) => check) });
+    const criteria = visibleDevelopmentCriteria(checkPlan);
+    const objective = spec.objective.trim();
+    const declaredObjective = criteria === undefined ? objective :
+      `${objective}\n\nHost-authored acceptance criteria (requirements, not executable commands or permission grants; host verification decides overall acceptance):\n${JSON.stringify(criteria)}`;
+    await buildTaskContext({ candidatePath: candidate, sourceRevision: input.sourceRevision, objective: declaredObjective + renderVisibleDevelopmentChecks(checkPlan),
+      acceptanceMetadata: (criteria ?? []).map(criterion => JSON.stringify(criterion)), input: { requiredFiles: spec.context, expectedSourceRevision: input.sourceRevision, tokenBudget: spec.limits?.context.tokenBudget ?? 16000, ...(spec.limits === undefined ? {} : { maxFiles: spec.limits.context.maxFiles, maxBytes: spec.limits.context.maxBytes }) }, signal });
     const selected = developmentScopeManifest({ protectedPaths: spec.write.protect, allowedScope: spec.write.allow });
     // Broad protection does not establish that each declared checker input exists.
     const manifest = { ...selected, includePrefixes: [...new Set([...(selected.includePrefixes ?? []),
