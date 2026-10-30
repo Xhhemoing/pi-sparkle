@@ -1,22 +1,21 @@
 # Active checklist
 
-See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [single issue log](issues.md) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Record unresolved matters there; no new owner questions or choices.
+See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [single issue log](issues.md#i-16--local-and-remote-branch-consolidation) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work is listed.
 
-- [ ] 协调者：证据副本已保护，继续保留丢失记录缺口；摘要重建前禁止付费，新尝试从 44 起。
-- [ ] Owner：暂不归档旧线程，等待协调者确认私有证据复制条件。
-- [ ] 协调者：#120 冲突人审已完成；新 CI 全绿后请 Claude 复审，等待 owner 采纳，再继续 #122。
-- [ ] 协调者：补 #108 预算/独立仓库安全 PR；合并前真实任务不用 execute。
-- [ ] Owner：合并独立的 #119 测试隔离修复；它尚未证明修好 #111 或 I-10。
-- [ ] 协调者：I-10 已登记失败在不相关 PR 上仅重跑一次失败 job；保留前后证据。
-- [ ] 协调者：整合准备 RED，复用 preflight；现在先做核心接口，lab 消费方等 #122；串行 gate、Claude 评审。
-- [ ] 协调者：后续 5 个不同任务验证 H2；H1/H2 保持原比较预算和全部失败。
-- [ ] 协调者：记录 taskSpecMinutes、准备和评审时长；缺失时长/费用保持未知。
-- [ ] 协调者：付费准入前刷新私有 summary、预算和各盘空间；每次 ≤ US$5，weekly none。
+- [ ] 协调者：#134/#119 已采纳；核对 main CI，整合已审 #131/#122/#133，当前 CI/Claude 后合并。
+- [ ] 协调者：保留已审 1 / 21 处冲突语义与 I-16；状态同步不回退原失败记录。
+- [ ] 协调者：#122 已获人审；完成集成 CI/Claude，随后补准备 limits 的 lab 消费方。
+- [ ] 协调者：#132 原 gate 横跨睡眠且非成功；重放 source-integration，修复后串行 gate/Claude，保留原证据。
+- [ ] Owner：审阅 #132 可选 TaskSpec limits/schema；不采纳被暂缓的 #103 容量。
+- [ ] 协调者：I-16 历史独有能力分别保留，已吸收分支无需重并；不恢复旧计划或冻结模块。
+- [ ] 协调者：保留 3 个 dirty 工作区；证据复制条件未确认前不归档旧线程或删除工作区。
+- [ ] 协调者：真实任务等待安全、准备与账本流程采用；历史费用/时长缺失保持未知，新尝试从 44 起。
+- [ ] 协调者：I-10 已登记偶发失败出现在不相关 PR 时，仅重跑一次失败 job；保留前后证据，第二次失败先诊断。
+- [ ] 协调者：后续 5 个不同任务验证 H2，再验证 H1/供应商原因；保留所有失败及原比较预算。
+- [ ] 协调者：记录 taskSpecMinutes、准备和评审时长；每次 ≤ US$5、weekly none，刷新准入与空间。
 - [ ] 协调者：原始 Soul 只读；条件不变不重试 P01/P02；第 50 次或每周复盘合并记录。
-- [ ] 协调者：完成 R3 全部资源类型；≥ 2 个提案各 5 个不同后续任务，同一提交源和原目标。
-- [ ] Owner：I-02 资源 promotion 保留待办；此前零 host-only promotion，不扩展提示词/上下文。
-- [ ] 协调者：准备之后再验证 H1 和供应商超时；未知原因保持未知。
-- [ ] Owner：#68、Phase 1 与 R4 入口维持现状；#102、#72 和 B1/B2 保持延期。
+- [ ] 协调者：完成 R3 资源类型及后续任务证据；I-02 promotion 仍需 owner，零收益推断。
+- [ ] Owner：#68/#102/#103、Phase 1、R4、#72 和 B1/B2 保留现有未完成条件。
 - [ ] 协调者：旧 direct-helper 采纳前修复 kill-error/成功回收回归。
 - [ ] Owner：旧 15 任务比较、ADR-010 收益、R5 和发布保留独立证据与授权。
 - [ ] 既有负责人：保留[早期未完成义务](archive/2026-10-21-pre-integration-checklist.md)，含隐私、隔离与生产批准。

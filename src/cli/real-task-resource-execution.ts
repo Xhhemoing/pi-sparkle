@@ -1,5 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { taskRunCommand } from "./task-run.js";
@@ -16,12 +17,52 @@ function physicalComparisonPath(value: string): string {
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return process.platform === "win32" ? result.toLowerCase() : result;
 }
+function hasGitMetadata(directory: string): boolean {
+  for (let current = realpathSync.native(directory); ; current = path.dirname(current)) {
+    try { lstatSync(path.join(current, ".git")); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    const metadata = (name: string) => {
+      try { return lstatSync(path.join(current, name)); }
+      catch (error) {
+        if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+        return undefined;
+      }
+    };
+    const head = metadata("HEAD"), config = metadata("config");
+    const objectLayout = metadata("objects/info")?.isDirectory() && metadata("objects/pack")?.isDirectory();
+    const refsLayout = metadata("refs/heads")?.isDirectory() && metadata("refs/tags")?.isDirectory();
+    if ((objectLayout && (refsLayout || head?.isFile() || config?.isFile())) ||
+        (refsLayout && (head?.isFile() || config?.isFile()))) return true;
+    if (path.dirname(current) === current) return false;
+  }
+}
+function gitCommonDirectory(directory: string, logicalProject = false): string | undefined {
+  try {
+    if (!statSync(directory).isDirectory()) fail("Git identity path must be a directory");
+  } catch (error) {
+    if (logicalProject && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const result = spawnSync("git", ["-C", directory, "rev-parse", "--git-common-dir"], {
+    encoding: "utf8", windowsHide: true, timeout: 10_000, env: { ...process.env, LC_ALL: "C" }
+  });
+  if (result.error !== undefined) fail(`cannot inspect Git identity: ${result.error.message}`);
+  if (result.status !== 0) {
+    if (logicalProject && result.status === 128 && /^fatal: not a git repository \(or any of the parent directories\): \.git\s*$/.test(result.stderr) && !hasGitMetadata(directory)) return undefined;
+    fail("cannot inspect Git identity; isolation is unknown");
+  }
+  if (result.stdout.trim() === "") fail("Git common directory is missing; isolation is unknown");
+  const common = realpathSync.native(path.resolve(directory, result.stdout.trim()));
+  return process.platform === "win32" ? common.toLowerCase() : common;
+}
 export function prepareMaterializedTaskExecution(input: {
   readonly registry: ResourceRegistry; readonly projectRoot: string; readonly sourceRepo: string; readonly materialized: unknown; readonly authority: unknown;
 }) {
   const materialized = verifyMaterializedTaskResources(input.registry, input.materialized);
   if (path.resolve(input.projectRoot) !== path.resolve(materialized.projectRoot)) fail("project binding mismatch");
   if (physicalComparisonPath(input.sourceRepo) === physicalComparisonPath(input.projectRoot)) fail("real-task execution requires an explicitly selected isolated source, separate from the logical project");
+  const sourceCommonDirectory = gitCommonDirectory(input.sourceRepo), projectCommonDirectory = gitCommonDirectory(input.projectRoot, true);
+  if (projectCommonDirectory !== undefined && sourceCommonDirectory === projectCommonDirectory) fail("real-task execution requires an independent source repository; shared Git common storage is not isolated");
   if (materialized.resources.length !== 1 || materialized.resources[0]!.topic !== "model-thinking" || materialized.modelSelection === undefined) fail("explicit execution supports one fixed model-thinking resource only");
   const binding = materialized.resources[0]!;
   if (input.registry.getActiveVersion(binding.identity)?.versionId !== binding.versionId) fail("materialized version is no longer active; review and materialize again explicitly");
