@@ -2,11 +2,10 @@
 
 See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [single issue log](issues.md#i-16--local-and-remote-branch-consolidation) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work is listed.
 
-- [ ] 协调者：整合 #119 与状态更正，等待当前候选 CI 后合并；不绕过分支保护。
-- [ ] Owner：审阅 #131 的 1 处与 #122 的 21 处冲突；原 staged 候选保持不动。
-- [ ] Owner：核对 #133 的账本准入前提、新拒绝文案和 execute 示例；评审与 7 项 CI 已齐。
-- [ ] 协调者：#122 人审后提交，补当前 CI/Claude；之后整合 lab 消费方。
-- [ ] 协调者：#132 本地 gate 非成功、构建未到达；定位后完成安全验收和当前 Claude，保留草稿。
+- [ ] 协调者：#134/#119 已采纳；核对 main CI，整合已审 #131/#122/#133，当前 CI/Claude 后合并。
+- [ ] 协调者：保留已审 1 / 21 处冲突语义与 I-16；状态同步不回退原失败记录。
+- [ ] 协调者：#122 已获人审；完成集成 CI/Claude，随后补准备 limits 的 lab 消费方。
+- [ ] 协调者：#132 原 gate 横跨睡眠且非成功；重放 source-integration，修复后串行 gate/Claude，保留原证据。
 - [ ] Owner：审阅 #132 可选 TaskSpec limits/schema；不采纳被暂缓的 #103 容量。
 - [ ] 协调者：I-16 历史独有能力分别保留，已吸收分支无需重并；不恢复旧计划或冻结模块。
 - [ ] 协调者：保留 3 个 dirty 工作区；证据复制条件未确认前不归档旧线程或删除工作区。
