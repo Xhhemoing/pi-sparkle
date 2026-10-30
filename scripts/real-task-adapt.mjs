@@ -4,30 +4,37 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { proposeRealTaskResources } from "../src/lab/learning/from-real-tasks.ts";
-import { materializeTaskResources, taskResourceIdentity, taskResourceTopic } from "../src/lab/adaptation/task-resources.ts";
+import { authorTaskSpecFromTemplate, materializeTaskResources, taskResourceIdentity, taskResourceTopic } from "../src/lab/adaptation/task-resources.ts";
 import { evaluateRealTaskResources, readRealTaskJson } from "../src/lab/adaptation/eval-real-tasks.ts";
 import { loadAdaptationRegistry, loadAdaptationRegistryOrNew, saveAdaptationRegistry, withAdaptationRegistryLock } from "../src/lab/adaptation/promotion.ts";
 import { parseDevelopmentTaskSpec } from "../src/development/task-spec.ts";
 import { isResourceVersionId } from "../src/domain/ids.ts";
 
-const USAGE = `Development-only resource proposals; no baseline registration, promotion, model or command execution.
-Run with: node --import tsx scripts/real-task-adapt.mjs <propose|materialize|evaluate>
-  propose --state-root <dir> --project <root> --topic <operator-selected class> --input <JSON array of existing record paths> [--check-launchers <exact conversion JSON>]
+const USAGE = `Development-only resource adapter. Propose/materialize/author/evaluate never execute commands or models.
+Run with: node --import tsx scripts/real-task-adapt.mjs <propose|materialize|author|evaluate|execute>
+  propose --state-root <dir> --project <root> --topic <operator-selected class> --input <JSON array of existing record paths> [--check-launchers <exact conversion JSON>] [--model-selection <fixed triple JSON>] [--context-files <JSON-array-file>] [--template-layout <JSON-file>]
   materialize --state-root <dir> --project <root> --input <TaskSpec JSON> --task-id <logical-id> --revision <Git SHA> --topics <comma-separated topics> [--prepare-binding <host-selected binding JSON>] [--check-bindings <host-authorized original checks and selections JSON>]
+  author --state-root <dir> --project <root> --input <host-bindings JSON> --task-id <logical-id> --revision <Git SHA> --version <rsv_...>
   evaluate --state-root <dir> --project <root> --topic <topic> --version <rsv_...> --input <JSON array of trial file references>
-Topics: node-preparation, host-only-checks, input-validation, check-recipes.
-Materialize writes JSON to stdout only; host must review and explicitly run its spec. It never runs prepare commands.
+  execute --state-root <dir> --project <logical root> --source <isolated committed repo> --input <reviewed materialized JSON> --model-authority <separate trusted host approval JSON>
+Topics: node-preparation, host-only-checks, input-validation, check-recipes, model-thinking, context-rule, task-spec-template.
+Context-rule proposals require --context-files with explicit nonempty fixed candidate-relative files.
+TaskSpec-template proposals require --template-layout with an explicit ordered role layout; author requires all host-owned binding values.
+Source references describe an operator-selected hypothesis, not diagnosed omissions or demonstrated benefit.
+Context-rule and TaskSpec-template consumption and overall real-task evaluation remain UNOBSERVED; conclusion stays unclear.
+Author and materialize write JSON to stdout only; host must review and explicitly run its spec. It never runs prepare commands.
+Only explicit execute runs a single-attempt fixed model-thinking recipe through the original task-run pipeline; provider calls may incur charges. It requires an active version, unchanged source and a separate approved enabled same-provider profile, disables implicit fallback, caps reference budget at US$5, and always retains candidates. No apply, review stdin, promotion or global configuration change.
 Node workflow evaluation stays UNOBSERVED: existing preflight artifacts do not bind preparation argv.
 Use existing adapt show/promote --review-file --approve/rollback for owner decisions; a missing baseline is never initialized here.
 `;
 function required(value, label) { if (typeof value !== "string" || !value.trim()) throw Error(`${label} required`); return value; }
 async function main() {
   const [command, ...args] = process.argv.slice(2);
-  const { values } = parseArgs({ args, strict: true, options: { "state-root": { type: "string" }, project: { type: "string" }, input: { type: "string" },
+  const { values } = parseArgs({ args, strict: true, options: { "state-root": { type: "string" }, project: { type: "string" }, source: { type: "string" }, input: { type: "string" },
     "task-id": { type: "string" }, revision: { type: "string" }, topics: { type: "string" }, topic: { type: "string" }, version: { type: "string" },
-    "prepare-binding": { type: "string" }, "check-launchers": { type: "string" }, "check-bindings": { type: "string" }, help: { type: "boolean" } } });
+    "prepare-binding": { type: "string" }, "check-launchers": { type: "string" }, "check-bindings": { type: "string" }, "model-selection": { type: "string" }, "model-authority": { type: "string" }, "context-files": { type: "string" }, "template-layout": { type: "string" }, help: { type: "boolean" } } });
   if (values.help || command === undefined || command === "--help") { process.stdout.write(USAGE); return; }
-  if (!["propose", "materialize", "evaluate"].includes(command)) throw Error("unknown development adapter operation");
+  if (!["propose", "materialize", "author", "evaluate", "execute"].includes(command)) throw Error("unknown development adapter operation");
   const stateRoot = path.resolve(required(values["state-root"], "--state-root")), projectRoot = path.resolve(required(values.project, "--project"));
   const inputFile = path.resolve(required(values.input, "--input"));
   let result;
@@ -45,13 +52,26 @@ async function main() {
     result = await withAdaptationRegistryLock(stateRoot, async () => {
       const registry = await loadAdaptationRegistryOrNew(stateRoot), before = registry.snapshot().candidates.length;
       const packets = proposeRealTaskResources({ registry, projectRoot, topic: taskResourceTopic(values.topic), sourceRecords,
-        ...(values["check-launchers"] === undefined ? {} : { checkRecipeLaunchers: await readRealTaskJson(values["check-launchers"]) }) });
+        ...(values["check-launchers"] === undefined ? {} : { checkRecipeLaunchers: await readRealTaskJson(values["check-launchers"]) }),
+        ...(values["model-selection"] === undefined ? {} : { modelSelection: await readRealTaskJson(values["model-selection"]) }),
+        ...(values["context-files"] === undefined ? {} : { contextFiles: await readRealTaskJson(values["context-files"]) }),
+        ...(values["template-layout"] === undefined ? {} : { templateLayout: await readRealTaskJson(values["template-layout"]) }) });
       if (registry.snapshot().candidates.length !== before) await saveAdaptationRegistry(stateRoot, registry);
       return packets;
     });
   } else {
     const registry = await loadAdaptationRegistry(stateRoot);
-    if (command === "materialize") {
+    if (command === "execute") {
+      const { executeMaterializedTaskResources } = await import("../src/cli/real-task-resource-execution.ts");
+      process.exitCode = await executeMaterializedTaskResources({ registry, stateRoot, projectRoot, sourceRepo: path.resolve(required(values.source, "--source")), materialized: await readRealTaskJson(inputFile),
+        authority: await readRealTaskJson(path.resolve(required(values["model-authority"], "--model-authority"))),
+        io: { stdout: text => process.stdout.write(text), stderr: text => process.stderr.write(text) } });
+      return;
+    } else if (command === "author") {
+      if (!isResourceVersionId(values.version)) throw Error("--version must be a resource version id");
+      result = authorTaskSpecFromTemplate({ registry, projectRoot, logicalTaskId: required(values["task-id"], "--task-id"),
+        sourceRevision: required(values.revision, "--revision"), versionId: values.version, bindings: await readRealTaskJson(inputFile) });
+    } else if (command === "materialize") {
       result = materializeTaskResources({ registry, projectRoot, logicalTaskId: required(values["task-id"], "--task-id"),
         sourceRevision: required(values.revision, "--revision"), spec: parseDevelopmentTaskSpec(await readFile(inputFile, "utf8")),
         topics: required(values.topics, "--topics").split(",").map(taskResourceTopic),
@@ -63,7 +83,7 @@ async function main() {
       const resolved = trials.map(trial => {
         if (!trial || typeof trial !== "object" || Array.isArray(trial)) throw Error("invalid trial file references");
         return Object.fromEntries(Object.entries(trial).map(([key, file]) => {
-          if (!["recordFile", "inputFile", "contractFile", "eventsFile", "checkFile", "preflightFile"].includes(key) || typeof file !== "string") throw Error("invalid trial file reference");
+          if (!["recordFile", "inputFile", "contractFile", "eventsFile", "checkFile", "preflightFile", "loopFile"].includes(key) || typeof file !== "string") throw Error("invalid trial file reference");
           return [key, path.resolve(path.dirname(inputFile), file)];
         }));
       });

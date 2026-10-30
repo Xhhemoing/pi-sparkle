@@ -12,6 +12,8 @@ Preserve original Soul, synthetic/private-evidence boundaries, frozen capabiliti
 
 ## 2. Source of Truth and Persistence
 
+Runtime and test PRs must not modify `tasks/plan.md` or `tasks/todo.md`. Put their scope, commands, outcomes and review evidence in the PR description. After merges, the coordinator updates plan/checklist state separately in a docs-only change, editing the current checkpoint rather than appending receipt paragraphs.
+
 Resolve conflicts using accepted ADR/spec and explicit owner decisions, current plan/checklist for authorized scope, actual candidate/source/PR/CI for execution facts, and `docs/status-matrix.md` for scoped capability claims. A dated capability row cannot erase newer observed failures; tests cannot grant approval. Resolve discrepancies in existing authoritative records before claiming completion.
 
 Keep current phase and next action in the active plan, unfinished work in `tasks/todo.md` (at most 25 lines), and exact validation/review in the PR and CI artifacts. Generated STATUS is an ignored local snapshot: run `pnpm status`. CI generates `.agent_workspace/ci/STATUS.md` and includes it in existing quality/CLI job artifacts; see [retrieval guidance](../tasks/plan.md#retained-evidence-and-unfinished-obligations). A fresh checkout does not require this file. Private logs, transcripts and triage belong in `.agent_workspace/`; no credentials or unredacted private data in Git or uploaded artifacts.
@@ -51,6 +53,117 @@ Run inexpensive relevant type, lint and boundary checks before an expensive comp
 Reuse evidence only when the candidate, checked inputs, environment and coverage still apply. A new change, failure or unresolved concern determines what to rerun. Never stitch focused checks into a complete gate claim or weaken protected checks to manufacture green. Keep one full build/gate/package at a time and preserve shared dependencies while it runs.
 
 PR results identify candidate/environment, exact commands, pass/fail/skipped/not-run/not-applicable, inherited failures and artifact links. Preflight is not runtime success; green tests or CI do not close human or experiment approval.
+
+### Real-task operator example (ADR-011)
+
+Use [real-task-record.mjs](../scripts/real-task-record.mjs) for every attempt, including failures, and [real-task-summary.mjs](../scripts/real-task-summary.mjs) before each arm and at review. These PowerShell examples use synthetic identifiers and paths. Run from the repository root with an authorized TaskSpec and its configured private state root outside source/candidate. Keep inputs/captures private under `.agent_workspace/`; never commit credentials or private logs. Soul work requires an isolated copy and owner-authorized original application.
+
+Prepare private metadata and check the **current** America/Los_Angeles Monday week, recalculating it before every attempt, including the second comparison arm:
+
+```powershell
+$repo = (Get-Location).Path
+$private = Join-Path $repo '.agent_workspace/operator-example'
+New-Item -ItemType Directory -Force -Path $private | Out-Null
+$state = 'C:/synthetic-private/sparkle-state'
+$task = Join-Path $private 'synthetic-task.json' # already reviewed; not created here
+$weeklyLimit = 'none' # Current loop authorization; use the actual approved positive cap elsewhere.
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+try { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('America/Los_Angeles') }
+catch { $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time') }
+
+function Assert-RealTaskBudget {
+    $today = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone).Date
+    $monday = $today.AddDays(-(([int]$today.DayOfWeek + 6) % 7)).ToString('yyyy-MM-dd')
+    $json = node scripts/real-task-summary.mjs --root $repo --week $monday --weekly-limit-usd $weeklyLimit --json
+    if ($LASTEXITCODE -ne 0) { throw 'Budget summary failed; stop.' }
+    $summary = $json | ConvertFrom-Json
+    $summary.budget | Format-List | Out-Host
+    if (-not $summary.budget.canAdmitNextTask) { throw 'No admission within recorded caps.' }
+    return $today.ToString('yyyy-MM-dd')
+}
+
+$date = Assert-RealTaskBudget
+$meta = @{
+    id = 'synthetic-fix-sparkle-01'; date = $date
+    source = 'pi-sparkle'; arm = 'sparkle'
+    comparisonId = 'synthetic-comparison-01'
+    objective = 'Repair the synthetic parser task'
+    status = 'unknown'; reviewed = 'unknown'; kept = 'unknown'
+    taskSpecMinutes = 'unknown'
+    phases = @{ prepare = 'unknown'; model = 'unknown'; check = 'unknown'; review = 'unknown' }
+    interventions = 'unknown'; escapedDefects = 'unknown'
+}
+```
+
+The summary defaults to US$5 per task and US$50 per week. Use the owner-authorized weekly limit with `--weekly-limit-usd <positive amount|none>`; this loop currently uses `none`, while the per-attempt US$5 rule remains. Each unknown-cost attempt reserves the greater of **US$5 and its observed cost subtotal**, not zero; an observed task overrun blocks further admission. Admission reflects recorded attempts only: record outstanding attempts first, serialize budget decisions, and stop if unresolved cost/effects could exceed the caps. Each comparison arm is a separate attempt with a distinct `id`, its own capture and budget check, and a shared `comparisonId`; never combine Sparkle and direct-Pi evidence into one record.
+
+Capture real CLI stdout, keeping stderr separate. `pnpm --silent` suppresses the package-script banner so `--projection` receives JSON/JSONL. Preserve the exit code even on failure; do not hand-author a projection. This command may incur authorized provider charges:
+
+```powershell
+$projection = Join-Path $private 'synthetic-sparkle-01.jsonl'
+$stderr = Join-Path $private 'synthetic-sparkle-01.stderr.txt'
+pnpm --silent cli task run $task --project $repo --state-root $state --executor pi --review --json 2> $stderr |
+    Set-Content -Encoding UTF8 -Path $projection
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
+```
+
+`--review` keeps that process alive for one explicit `apply`, `discard` or `retain` decision; prompts are on stderr, and EOF retains. Inspect the live capture/private evidence before deciding. Acceptance and effects settlement are separate from application. Saved JSON, run IDs and task records do not restore live verifier or apply authority after exit. Unknown effects require reconciliation before retrying.
+
+For a **failed zero-model preflight instead of the task-run command**, capture the actual preflight and use the following metadata only after observing its failure. A passing preflight is preparation, not a completed development change. If it later proceeds to a model run, record that as a new attempt and check the budget again.
+
+```powershell
+pnpm --silent cli preflight $task --project $repo --state-root $state --json 2> $stderr |
+    Set-Content -Encoding UTF8 -Path $projection
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
+# Only when the observed result is a failed preflight with no model dispatch:
+$meta.status = 'PREFLIGHT_FAILED'
+$meta.phases.model = 0
+$meta.kept = $false
+```
+
+The real `TASKSPEC_EXECUTION` overrides metadata status, including `FAILED`. Without an execution row, set `FAILED`/`ERROR` only for an observed failure. Inspect `$cliExit` and the capture; for empty/non-JSON stdout, set `$projectionInput = $null` below and retain the original privately. Never fabricate a projection. Optional `rootCause`/`notes` describe observed causes; `failureClass` accepts `model`, `contract`, `tool`, `environment`, `provider`, `run`. Phase times are seconds or timezone-qualified `{ start, end }` timestamps; leave unmeasured values `unknown`.
+
+Include an **actual matching native-write-loop artifact** when available; ordinary CLI output need not provide one. It must cover the ordered worker population, end at the execution run ID and match candidate/source identity. A preflight/ordinary execution artifact is not a loop receipt.
+
+```powershell
+$metadata = Join-Path $private 'synthetic-sparkle-01.metadata.json'
+[IO.File]::WriteAllText($metadata, ($meta | ConvertTo-Json -Depth 8), $utf8)
+$loopArtifact = $null # e.g. 'C:/synthetic-private/sparkle-state/native-loop.json'
+$recordArgs = @('--root', $repo, '--metadata', $metadata, '--state-root', $state)
+if ($null -ne $projectionInput -and (Test-Path $projectionInput) -and (Get-Item $projectionInput).Length -gt 0) {
+    $recordArgs += @('--projection', $projectionInput) # only if actual stdout is JSON/JSONL
+}
+if ($null -ne $loopArtifact) { $recordArgs += @('--loop-artifact', $loopArtifact) }
+node scripts/real-task-record.mjs @recordArgs
+if ($LASTEXITCODE -ne 0) { throw 'Record creation failed; inspect before continuing.' }
+```
+
+Explicit UTF-8 metadata writing works in Windows PowerShell and PowerShell 7; avoid their differing default output encodings. The recorder creates `.agent_workspace/real-tasks/<date>-<id>/record.json` exclusively: repeated creation fails without overwriting the existing record. Use a fresh ID for a new attempt, and `--update` for later review observations. Do not delete a record to retry creation.
+
+Metadata cannot manufacture execution, acceptance, settlement or application evidence. Sparkle acceptance/settlement comes from the execution projection; `applied` requires an actual application/disposal projection. A preflight projection does not supply execution authority. Missing worker population, usage, prices or independent native cost receipts leave `referenceUsd` **unknown**, preserving any observed lower bound even when a receipt is partial. A zero-model preflight does not establish a known zero cost. For a `direct-pi` arm, capture its own work/check evidence without TaskSpec projections; only `reviewed: true` plus independent `checkEvidence` supports operator-entered `accepted`/`effectsSettled`, and this does not create a run ID, application receipt or known cost.
+
+Later, backfill only observations actually made. For example, after independently reviewing a failed attempt and deciding to keep no change, reload its original identity and write a separate private review input:
+
+```powershell
+$original = Get-Content -Raw -Encoding UTF8 $metadata | ConvertFrom-Json
+$review = @{
+    id = $original.id; date = $original.date; source = $original.source; arm = $original.arm
+    reviewed = $true; kept = $false; escapedDefects = 'unknown'
+    phases = @{ review = 'unknown' }
+    checkEvidence = '.agent_workspace/operator-example/synthetic-review-checks.txt'
+    notes = 'Independently reviewed failed attempt; no change kept.'
+}
+$reviewFile = Join-Path $private 'synthetic-sparkle-01.review.json'
+[IO.File]::WriteAllText($reviewFile, ($review | ConvertTo-Json -Depth 8), $utf8)
+node scripts/real-task-record.mjs --root $repo --metadata $reviewFile --update
+if ($LASTEXITCODE -ne 0) { throw 'Review update failed.' }
+# Recompute the current week and inspect aggregate results before another arm:
+$date = Assert-RealTaskBudget
+```
+
+Use a real independent check reference at execution time; the path above is synthetic. Review updates may include `reviewed`, `kept`, `escapedDefects`, `interventions`, `notes`, `rootCause`, `failureClass`, `linkedPR`, `branch`, `checkEvidence` and only `phases.review`, alongside the unchanged identity. They cannot rewrite execution status, identity or cost, and reject `--projection`, `--state-root` and `--loop-artifact`. Only independently reviewed direct-Pi records without a run ID may additionally backfill `accepted`/`effectsSettled`. Keep future escaped defects unknown until observed. Review aggregates describe recorded outcomes, including failures and unknowns; neither this example nor adoption of the operators establishes real-task quality or benefit.
 
 ## 6. Review and Delivery
 
@@ -120,9 +233,9 @@ Read `week.taskSpecMinutes` and each `week.phases` entry as `{knownTotal, unknow
 
 ## 9. Real-task resource proposals (development only)
 
-`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. It does not change the public routing-only `adapt learn/eval` commands, register baselines, promote resources, execute checks, or call a model. The owner must approve runtime adoption and the exact resource contents before use.
+`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. Its `propose`, `materialize` and `evaluate` operations never execute commands or call a model. Only the explicit `execute` operation below runs a reviewed fixed model recipe through the original TaskSpec flow. The adapter does not change public routing-only `adapt learn/eval`, register baselines or promote resources. The owner must approve runtime adoption and exact resource promotion before use.
 
-Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, and `check-recipes`.
+Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, `check-recipes` and `model-thinking`.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -204,4 +317,37 @@ Check-recipe evaluation verifies each version's own exact actual checker. It com
 
 Node preparation is deliberately unproven here: materialization requires an already authorized fixed recipe in `TaskSpec.prepare`, but current preflight records do not bind its actual command/argv. Its evaluation remains `UNOBSERVED` and does not satisfy the five-task exit. No automation is enabled by these tools.
 
-This adapter covers prompt guidance and bounded check-launcher recipes only. General TaskSpec defaults, actual context-rule consumption, Node preparation argv evidence and model/thinking resource adoption remain unfinished R3 work; a working adapter or synthetic test does not complete those obligations or the later-task outcome exit.
+### Fixed model/thinking recipes
+
+`model-thinking` is a fixed `workflow-template`, without conditions or routing rules. `propose --model-selection <JSON>` takes exactly `{ "providerId": "approved-provider", "modelId": "approved-model", "thinkingLevel": "high" }`; source records and an expected effect enter the existing candidate/review/CAS/rollback path. A provider timeout alone does not show another model is better. Dynamic routing policies retain their existing replay-review requirements and cannot be expressed through this recipe.
+
+After specific promotion, materialize with `--topics model-thinking`. Its private `modelSelection` records the requested triple; `baseSpec`, `spec`, objective, checks, scope and budgets stay unchanged, and TaskSpec keeps `worker.model: "inherit"`. Materialization grants no authority and never executes. Use a separately supplied trusted host approval file with exactly `authorityRef` and `approvedSelections` (an array of the approved triples). A resource, TaskSpec or candidate cannot supply that authority or credentials.
+
+Before each explicit execution, complete the private metadata and `Assert-RealTaskBudget` setup in the [operator example](#real-task-operator-example-adr-011), using the canonical record-owning repository as `$repo`. Reconcile every unrecorded or unsettled attempt in the new ledger, starting at attempt 44; unresolved effects block admission even if a partial summary reports `canAdmitNextTask`. Preserve the historical 43-attempt baseline separately, with missing costs and times marked unknown; reconstructing those historical records is not an admission prerequisite. Adoption of the budget/isolation safety follow-up and preparation changes remains required, together with strict-cost checks and refusal on unknown effects. Keep admission and execution serialized. The current authorization is at most US$5 per attempt and `--weekly-limit-usd none`; `none` removes the weekly cap, not the per-attempt limit or unknown-cost accounting. Recompute the current week before every attempt, including each comparison arm.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$weeklyLimit = 'none'
+$date = Assert-RealTaskBudget # Refreshes the current-week summary with --weekly-limit-usd none.
+$meta.id = 'synthetic-fixed-model-01' # Fresh ID for this attempt, including a failed attempt.
+$meta.date = $date
+$projection = Join-Path $private 'synthetic-fixed-model-01.jsonl'
+$stderr = Join-Path $private 'synthetic-fixed-model-01.stderr.txt'
+node --import tsx scripts/real-task-adapt.mjs execute `
+  --state-root $labState --project $originalProject --source $isolatedSource `
+  --input .agent_workspace/materialized-model.json `
+  --model-authority .agent_workspace/host-approved-models.json 2> $stderr |
+    Set-Content -LiteralPath $projection -Encoding UTF8
+$cliExit = $LASTEXITCODE
+$projectionInput = $projection # After inspection, set to $null for empty/non-JSON stdout.
+```
+
+Inspect `$cliExit`, stdout and stderr, then run the operator example's recording step with a fresh metadata filename, this `$meta` and `$projection`, and `--state-root $labState`. Set `$projectionInput = $null` for empty/non-JSON stdout; preserve the raw capture and record the observed failure or unknown status without fabricating a projection. Include an actual matching loop artifact only when available, retain unknown costs/times, and stop if record creation fails. Every attempt must reach `real-task-record.mjs` before another admission decision; later review uses `--update`.
+
+The host explicitly selects an independent committed source repository separately from the logical project identity; a linked worktree sharing the project's Git common directory is refused, and original Soul remains protected. The state root must already contain the adopted registry and approved provider configuration. Execution rejects unknown Git isolation, a changed active version/source, mismatched project, multiple worker attempts, missing or above-US$5 reference budget, disabled/unapproved selection or another provider. It reuses original task-run context, strict SDK pricing/budget, cancellation, sink flush, settlement and independent acceptance; candidates are retained with no apply/review stdin. Fixed selection overrides ambient model/thinking for that invocation, disables implicit fast fallback and changes no process environment, defaults or credentials. Normal task-run behavior stays unchanged.
+
+For evaluation, include `loopFile` alongside the actual contract/events/check references. The complete supported native-attempt/report population, parent-child request/agent binding and every SDK dispatch index must match the version's fixed provider/model/transport-thinking; operator model labels are not evidence. Missing, duplicate, extra or mixed submissions remain `UNOBSERVED`. Observations show host transport submissions only, not the server's internal model/reasoning or a successful response. All native cost faults conservatively remain `UNOBSERVED`, including `incomplete-usage`/`unknown-reference`: the current producer stores only its first fault, which cannot exclude a later identity fault. No price calculation or complete-cost claim is added; failed outcomes and unknown fees stay in the denominator.
+
+Only this family permits its declared model/thinking difference. Every logical task needs matched parent/candidate committed source and full original TaskSpec; independent review of the exact version remains required. An unchanged profile, altered controls, missing pairs or insufficient later tasks yields `unclear`. Conclusions describe correct-delivery observations, without a causal, speed or ADR-010 benefit claim.
+
+This adapter covers prompt guidance, bounded check-launcher recipes and a single-attempt fixed model/thinking execution path. General TaskSpec defaults, actual context-rule consumption, Node preparation argv evidence, specific model/thinking resource adoption and later-task outcomes remain unfinished R3 work; synthetic checks do not complete those exits.

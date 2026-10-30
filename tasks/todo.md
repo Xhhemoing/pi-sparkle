@@ -1,14 +1,21 @@
 # Active checklist
 
-See the [real-task improvement loop](plan.md#real-task-improvement-loop-2026-10-25) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md); run `pnpm status` for a local generated snapshot. Only unfinished work belongs here, ordered by the next usable result.
+See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [single issue log](issues.md#i-16--local-and-remote-branch-consolidation) and [ADR-011](../docs/decisions/0011-real-task-improvement-loop.md). Only unfinished work is listed.
 
-- [ ] Coordinator: refresh the private attempt summary before admission; keep per-task <=US$5 and the owner-adopted --weekly-limit-usd none policy; gateway billing remains unknown. Do not retry P01/P02 without a class correction or changed condition.
-- [ ] Capacity coordinator: finish the existing whole-candidate candidate's serial gate, PR/CI and owner runtime adoption; other work must not restart its gate or use the unadopted runtime.
-- [ ] R2 Coordinator: keep measuring later real-task preparation/check guidance outcomes and task-authoring/review time; review every 10 attempts or weekly. Shared Node guidance and the R3 adapter are already adopted.
-- [ ] R3 Owner + coordinator: extend the lab proposal-first path beyond routing; owner approves proposal batches; evaluate each on at least 5 later tasks.
-- [ ] R4 Owner: decide entry to automation for outcome-supported proposal types only, after the stop/rollback chain is verified.
-- [ ] Owner: decide Phase 1 completion; deferred B1/B2 resume follows real-task need ([archived acceptance](archive/2026-10-25-phase1-plan.md)).
-- [ ] Coordinator: split #68 (host assembly / static routing / queue-read); keep #72 deferred lab evaluation.
-- [ ] Before adopting the older direct helper candidate: correct and retest its kill-error/successful-reap regression.
-- [ ] Owner: the old 15-task evaluation and ADR-010 benefit targets remain unproven; R5 benchmark and paid/publication steps need separate authorization.
-- [ ] Existing owners: retain [earlier unresolved obligations](archive/2026-10-21-pre-integration-checklist.md), including F6, S0-min, R10/R11, PR #36 artifacts, privacy, containment and production approval.
+- [ ] 协调者：#134/#119 已采纳；核对 main CI，整合已审 #131/#122/#133，当前 CI/Claude 后合并。
+- [ ] 协调者：保留已审 1 / 21 处冲突语义与 I-16；状态同步不回退原失败记录。
+- [ ] 协调者：#122 已获人审；完成集成 CI/Claude，随后补准备 limits 的 lab 消费方。
+- [ ] 协调者：#132 原 gate 横跨睡眠且非成功；重放 source-integration，修复后串行 gate/Claude，保留原证据。
+- [ ] Owner：审阅 #132 可选 TaskSpec limits/schema；不采纳被暂缓的 #103 容量。
+- [ ] 协调者：I-16 历史独有能力分别保留，已吸收分支无需重并；不恢复旧计划或冻结模块。
+- [ ] 协调者：保留 3 个 dirty 工作区；证据复制条件未确认前不归档旧线程或删除工作区。
+- [ ] 协调者：真实任务等待安全、准备与账本流程采用；历史费用/时长缺失保持未知，新尝试从 44 起。
+- [ ] 协调者：I-10 已登记偶发失败出现在不相关 PR 时，仅重跑一次失败 job；保留前后证据，第二次失败先诊断。
+- [ ] 协调者：后续 5 个不同任务验证 H2，再验证 H1/供应商原因；保留所有失败及原比较预算。
+- [ ] 协调者：记录 taskSpecMinutes、准备和评审时长；每次 ≤ US$5、weekly none，刷新准入与空间。
+- [ ] 协调者：原始 Soul 只读；条件不变不重试 P01/P02；第 50 次或每周复盘合并记录。
+- [ ] 协调者：完成 R3 资源类型及后续任务证据；I-02 promotion 仍需 owner，零收益推断。
+- [ ] Owner：#68/#102/#103、Phase 1、R4、#72 和 B1/B2 保留现有未完成条件。
+- [ ] 协调者：旧 direct-helper 采纳前修复 kill-error/成功回收回归。
+- [ ] Owner：旧 15 任务比较、ADR-010 收益、R5 和发布保留独立证据与授权。
+- [ ] 既有负责人：保留[早期未完成义务](archive/2026-10-21-pre-integration-checklist.md)，含隐私、隔离与生产批准。

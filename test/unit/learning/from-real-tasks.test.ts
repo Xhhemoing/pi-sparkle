@@ -20,31 +20,49 @@ async function adapter() {
 }
 const sourceRecords = [{ ref: "private/record-one.json", record: { id: "attempt-one", date: "2026-10-26", source: "pi-sparkle", arm: "sparkle", status: "FAILED", failureClass: "contract", kept: false, prompt: "PRIVATE_NOT_FOR_PACKET" } }];
 const checkRecipeLaunchers = [{ id: "absolute-node", fromCommand: "node", fromPrefixArgs: [], command: process.execPath, prefixArgs: [] }];
+const modelSelection = { providerId: "approved", modelId: "small", thinkingLevel: "xhigh" };
+
+test("developer adapter proposes fixed model choices without granting authority or creating a baseline", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "model-choice-propose-"));
+  try {
+    await writeFile(path.join(root, "record.json"), JSON.stringify(sourceRecords[0]!.record), "utf8");
+    await writeFile(path.join(root, "records.json"), JSON.stringify(["record.json"]), "utf8");
+    await writeFile(path.join(root, "selection.json"), JSON.stringify(modelSelection), "utf8");
+    const script = fileURLToPath(new URL("../../../scripts/real-task-adapt.mjs", import.meta.url));
+    const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", script, "propose", "--state-root", path.join(root, "state"), "--project", path.join(root, "project"), "--topic", "model-thinking", "--input", path.join(root, "records.json"), "--model-selection", path.join(root, "selection.json")]);
+    const packet = JSON.parse(stdout)[0];
+    assert.equal(packet.state, "needs-baseline-approval"); assert.deepEqual(JSON.parse(packet.content).selection, modelSelection);
+    await assert.rejects(access(adaptationRegistryPath(path.join(root, "state"))));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+const templateLayout = { prepareRoles: [], checkRoles: [{ role: "business", requiredBaseline: "fail" }] };
 
 test("operator-selected failure classes seed review packets without creating or activating baselines", async () => {
   const { proposeRealTaskResources } = await adapter();
   const registry = new ResourceRegistry(), before = registry.snapshot();
-  const packets = TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}) }));
-  assert.deepEqual(packets.map(packet => packet.identity.kind), ["workflow-template", "prompt", "prompt", "workflow-template"]);
+  const packets = TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}), ...(topic === "context-rule" ? { contextFiles: ["src/host.ts"] } : {}), ...(topic === "task-spec-template" ? { templateLayout } : {}) }));
+  assert.deepEqual(packets.map(packet => packet.identity.kind), ["workflow-template", "prompt", "prompt", "workflow-template", "workflow-template", "workflow-template", "workflow-template"]);
   assert.ok(packets.every(packet => packet.state === "needs-baseline-approval" && packet.candidateId === undefined));
   assert.deepEqual(registry.snapshot(), before);
   assert.ok(!JSON.stringify(packets).includes("PRIVATE_NOT_FOR_PACKET"));
   assert.ok(packets[1]!.content.includes("UNOBSERVED"));
   assert.ok(packets[0]!.content.includes("packageManager"));
-  assert.ok(packets.every(packet => packet.proposalKind === "seeded-class-proposal" && packet.observations.selectedRecords === 1 && packet.observations.relatedFailures === 1));
+  assert.deepEqual(JSON.parse(packets[4]!.content).selection, modelSelection);
+  assert.ok(packets.every(packet => packet.proposalKind === "seeded-class-proposal" && packet.observations.selectedRecords === 1 && packet.observations.relatedFailures === (["context-rule", "task-spec-template"].includes(packet.identity.name) ? 0 : 1)));
 });
 
 test("existing parents permit proposals and deduplicate content without moving active pointers", async () => {
   const { proposeRealTaskResources } = await adapter();
   const registry = new ResourceRegistry();
-  const propose = () => TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}) }));
+  const propose = () => TASK_RESOURCE_TOPICS.flatMap(topic => proposeRealTaskResources({ registry, projectRoot: "/synthetic/project", topic, sourceRecords, ...(topic === "check-recipes" ? { checkRecipeLaunchers } : {}), ...(topic === "model-thinking" ? { modelSelection } : {}), ...(topic === "context-rule" ? { contextFiles: ["src/host.ts"] } : {}), ...(topic === "task-spec-template" ? { templateLayout } : {}) }));
   const initial = propose();
   const parents = initial.map(packet => registry.registerBaseline({ identity: packet.identity, content: "owner-approved existing guidance", author: { kind: "human", identity: "owner" } }));
   const packets = propose();
   assert.ok(packets.every(packet => packet.state === "proposed" && packet.candidateId !== undefined));
   assert.deepEqual(packets.map(packet => registry.getActiveVersion(packet.identity)?.versionId), parents.map(parent => parent.versionId));
   assert.deepEqual(propose().map(packet => packet.candidateId), packets.map(packet => packet.candidateId));
-  assert.equal(registry.snapshot().candidates.length, 4);
+  assert.equal(registry.snapshot().candidates.length, 7);
 });
 
 test("proposal sources reject duplicate identities and malformed records instead of manufacturing observations", async () => {

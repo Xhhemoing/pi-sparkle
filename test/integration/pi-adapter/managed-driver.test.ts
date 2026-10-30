@@ -1,6 +1,6 @@
 import { readPinnedPiVersions } from "../../../src/pi-compat/check.js";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -56,6 +56,15 @@ async function configure(stateRoot: string, baseUrl: string): Promise<void> {
     customProviders: [{ id: "loopback", baseUrl, envVar: "PI_DRIVER_LOOPBACK_DUMMY", models: [{ id: "driver-1", contextWindow: 8192, maxTokens: 256, inputCostPerMTok: 0.25, outputCostPerMTok: 1 }] }] });
 }
 
+async function cleanupManagerFixture(t: TestContext, root: string, managerRoot = root): Promise<void> {
+  const lock = await readFile(path.join(managerRoot, "manager.lock"), "utf8").catch((error: unknown) => {
+    if (error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (lock !== undefined) t.diagnostic(`Retained manager lock; preserving ${root}: ${lock}`);
+  else await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 // Two complete SDK generations are physically copied; the Windows aggregate took 259s.
 test("actual fixed managed driver loads qualified applications and retains event-bound selection", { timeout: 360_000 }, async (t) => {
   const start = await driver();
@@ -97,7 +106,7 @@ test("actual fixed managed driver loads qualified applications and retains event
     await provider.close();
     if (preserveRoot) t.diagnostic(`Unresolved instrumented child ownership; preserving ${root}`);
     else if (preserveFailure) t.diagnostic(`Unexpected managed application exit; preserving ${root}`);
-    else await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    else await cleanupManagerFixture(t, root, managerRoot);
   });
   // The root coordinator schedules this test serially; this is the mandatory
   // fresh build, not a reuse of potentially stale dist from another slice.
@@ -312,12 +321,6 @@ test("actual fixed managed driver loads qualified applications and retains event
     });
     assert.equal(preserveRoot, false, "unresolved child ownership forbids subsequent use of candidate B");
   }
-  await t.test("finite forced startup deadline reports unknown effects rather than a retry", async () => {
-    const result = await start({ managerRoot, request: run, timeoutMs: 1, stopGraceMs: 1 });
-    assert.equal(result.status, "timed_out", JSON.stringify(result));
-    assert.equal(result.settlement, "unknown", JSON.stringify(result));
-    assert.equal(result.receipt, undefined);
-  });
   await t.test("provider retry backoff stops without a later wire request", async () => {
     const stop = new AbortController();
     let timer: NodeJS.Timeout | undefined;
@@ -352,28 +355,6 @@ test("actual fixed managed driver loads qualified applications and retains event
       if (previousPath === undefined) delete process.env.NODE_PATH; else process.env.NODE_PATH = previousPath;
     }
   });
-  await t.test("actual malformed receipt and lost IPC channel cannot claim application settlement", async () => {
-    const entry = path.join(b.appRoot, "dist/pi-adapter/managed/driver-entry.js");
-    const original = await readFile(entry, "utf8");
-    // Deliberate negative-only cooperative-candidate tampering. Qualification
-    // is not a byte-integrity promise; restore exact bytes after each case.
-    for (const prefix of ['process.send?.({ type: "malformed" });\n', 'process.disconnect?.();\n']) {
-      await writeFile(entry, prefix + original, "utf8");
-      try {
-        const count = provider.requests.length;
-        const result = await start({ managerRoot, request: run });
-        assert.equal(result.status, "failed", JSON.stringify(result));
-        assert.equal(result.settlement, "unknown", JSON.stringify(result));
-        assert.equal(provider.requests.length, count, "lost/invalid channel stops before provider entry");
-      } finally { await writeFile(entry, original, "utf8"); }
-    }
-  });
-  await t.test("bounded output cannot be accepted as graceful success", async () => {
-    const result = await start({ managerRoot, request: { ...run, children, flowchart }, maxOutputBytes: 1 });
-    assert.equal(result.status, "output_limit", JSON.stringify(result));
-    assert.equal(result.settlement, "unknown", JSON.stringify(result));
-    assert.ok(Buffer.byteLength(result.stderr, "utf8") <= 1);
-  });
   await t.test("stop during startup is latched before provider dispatch", async () => {
     const stop = new AbortController();
     const count = provider.requests.length;
@@ -403,5 +384,76 @@ test("actual fixed managed driver loads qualified applications and retains event
     assert.notEqual(outside.status, 0);
     assert.match(outside.stderr, /identity mismatch/);
   });
+  // Unknown effects may retain manager.lock; never reuse this manager afterward.
+  await t.test("finite forced startup deadline reports unknown effects rather than a retry", async () => {
+    const result = await start({ managerRoot, request: run, timeoutMs: 1, stopGraceMs: 1 });
+    assert.equal(result.status, "timed_out", JSON.stringify(result));
+    assert.equal(result.settlement, "unknown", JSON.stringify(result));
+    assert.equal(result.receipt, undefined);
+  });
+  assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
+});
+
+async function isolatedNegativeRun(t: TestContext) {
+  const start = await driver();
+  const parent = path.join(process.cwd(), ".agent_workspace/managed-driver-tests");
+  await mkdir(parent, { recursive: true });
+  const managerRoot = await mkdtemp(path.join(parent, "negative-"));
+  let provider: Awaited<ReturnType<typeof startLoopbackOpenAiProvider>> | undefined;
+  let preserveFailure = false;
+  t.after(async () => {
+    await provider?.close();
+    if (preserveFailure) t.diagnostic(`Managed qualification failed; preserving ${managerRoot}`);
+    else await cleanupManagerFixture(t, managerRoot);
+  });
+  const projectRoot = path.join(managerRoot, "project"), stateRoot = path.join(managerRoot, "state");
+  for (const directory of [projectRoot, path.join(managerRoot, "generations")]) await mkdir(directory);
+  await writeFile(path.join(projectRoot, "package.json"), "{}\n", "utf8");
+  freshBuild(managerRoot);
+  const pins = readPinnedPiVersions(JSON.parse(await readFile(new URL("../../../package.json", import.meta.url), "utf8")));
+  const candidate = await stageManagedCandidate({ programRoot: process.cwd(), generationsRoot: path.join(managerRoot, "generations"),
+    expectedVersions: { core: pins.agentCore, ai: pins.ai } });
+  const issued = await qualifyManagedCandidate({ managerRoot, candidate });
+  if (issued.status === "failed") { preserveFailure = true; t.diagnostic(JSON.stringify(issued)); }
+  assert.equal(issued.status, "qualified", issued.status === "failed" ? issued.reason : "");
+  await new ManagedGenerationStore(managerRoot).approve(issued);
+  provider = await startLoopbackOpenAiProvider({ modelIds: ["driver-1"] });
+  await configure(stateRoot, provider.baseUrl);
+  return { start, managerRoot, candidate, provider, run: { kind: "run" as const, stateRoot, projectRoot, objective: "Controlled offline work" } };
+}
+
+test("actual malformed receipt and lost IPC channel cannot claim application settlement", { timeout: 360_000 }, async (t) => {
+  for (const [name, prefix] of [["malformed receipt", 'process.send?.({ type: "malformed" });\n'], ["lost IPC channel", 'process.disconnect?.();\n']] as const) {
+    await t.test(name, async (t) => {
+      // Each unknown result may leave its manager lock behind, including between prefixes.
+      const { start, managerRoot, candidate, provider, run } = await isolatedNegativeRun(t);
+      const entry = path.join(candidate.appRoot, "dist/pi-adapter/managed/driver-entry.js");
+      const original = await readFile(entry, "utf8");
+      // Deliberate negative-only cooperative-candidate tampering. Qualification
+      // is not a byte-integrity promise; restore exact bytes after each case.
+      await writeFile(entry, prefix + original, "utf8");
+      try {
+        const count = provider.requests.length;
+        const result = await start({ managerRoot, request: run });
+        assert.equal(result.status, "failed", JSON.stringify(result));
+        assert.equal(result.settlement, "unknown", JSON.stringify(result));
+        assert.equal(provider.requests.length, count, "lost/invalid channel stops before provider entry");
+      } finally { await writeFile(entry, original, "utf8"); }
+      assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
+    });
+  }
+});
+
+test("bounded output cannot be accepted as graceful success", { timeout: 360_000 }, async (t) => {
+  const { start, managerRoot, provider, run } = await isolatedNegativeRun(t);
+  const children = path.join(run.projectRoot, "children.json"), flowchart = path.join(run.projectRoot, "flowchart.json");
+  await writeFile(children, JSON.stringify({ tasks: [{ id: "tsk_child", role: "worker", objective: "Return the controlled offline result", model: "loopback/driver-1", limits: { maxAttempts: 1 } }] }), "utf8");
+  await writeFile(flowchart, JSON.stringify({ id: "driver-resume", nodes: ["prepare", "deliver"].map((id, index) => ({
+    id, taskId: `tsk_${id}`, role: "actor", objective: id, modelPolicy: { allowedModels: ["loopback/driver-1"] }, confidenceThreshold: 0.7, approvalRequired: index === 1
+  })), edges: [{ from: "prepare", to: "deliver", condition: { type: "success", expected: true } }] }), "utf8");
+  const result = await start({ managerRoot, request: { ...run, children, flowchart }, maxOutputBytes: 1 });
+  assert.equal(result.status, "output_limit", JSON.stringify(result));
+  assert.equal(result.settlement, "unknown", JSON.stringify(result));
+  assert.ok(Buffer.byteLength(result.stderr, "utf8") <= 1);
   assert.equal(provider.protocolErrors.length, 0, provider.protocolErrors.join("\n"));
 });
