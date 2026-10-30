@@ -269,10 +269,10 @@ test("whole-candidate capacity supports managed TaskSpec run and apply above bot
   await writeFile(path.join(bulk, "payload.bin"), Buffer.alloc(17 * 1024 * 1024, 1));
   git(f.sourceRepo, ["add", "."]); git(f.sourceRepo, ["-c", "commit.gpgsign=false", "commit", "-m", "large synthetic base"]);
   const revision = git(f.sourceRepo, ["rev-parse", "HEAD"]), session = f.create();
-  const spec = snapshotDevelopmentTaskSpec({ ...f.spec, budget: { totalSeconds: 120, prepareSeconds: 30, checkSeconds: 30, workerSeconds: 30 } });
+  const spec = snapshotDevelopmentTaskSpec({ ...f.spec, limits: { context: { tokenBudget: 4000, maxFiles: 2, maxBytes: 512 }, snapshot: { maxFiles: 8, maxBytes: 65536 } }, budget: { totalSeconds: 120, prepareSeconds: 30, checkSeconds: 30, workerSeconds: 30 } });
   try {
     const run = await session.run({ sourceRepo: f.sourceRepo, spec, executorFactory: f.factory() });
-    assert.equal(run.accepted, true); assert.equal(run.managed, true); assert.equal(run.sourceRevision, revision);
+    assert.equal(run.accepted, true); assert.equal(run.managed, true, "scoped snapshot limits must not cap whole-candidate apply ownership"); assert.equal(run.sourceRevision, revision);
     assert.equal(git(f.sourceRepo, ["rev-parse", "HEAD"]), revision); assert.equal(await f.count(), 2);
     const applied = await session.apply(run.runId);
     assert.equal(applied.status, "APPLIED"); assert.equal(applied.reverified, true); assert.equal(await f.count(), 3);
