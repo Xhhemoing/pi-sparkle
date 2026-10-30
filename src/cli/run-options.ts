@@ -1,17 +1,14 @@
 import { DomainValidationError } from "../domain/errors.js";
 import type { CostGateEvent } from "../pi-adapter/pi-executor.js";
 
-// Mirrors SparkleThinkingLevel on the adapter boundary (assignability is
-// checked where the level is passed to createConfiguredPiExecutor). Google
-// models silently clamp "xhigh"/"max" down; that is provider behaviour, not
-// something this CLI rewrites.
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+import {
+  TASK_THINKING_LEVELS as THINKING_LEVELS,
+  isTaskThinkingLevel as isThinkingLevel,
+  type TaskThinkingLevel as CliThinkingLevel
+} from "../domain/task-model-selection.js";
 
-export type CliThinkingLevel = (typeof THINKING_LEVELS)[number];
-
-export function isThinkingLevel(value: string): value is CliThinkingLevel {
-  return (THINKING_LEVELS as readonly string[]).includes(value);
-}
+export { THINKING_LEVELS, isThinkingLevel };
+export type { CliThinkingLevel };
 
 /**
  * Resolves the thinking level for one run: --thinking wins over

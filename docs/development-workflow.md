@@ -233,9 +233,9 @@ Read `week.taskSpecMinutes` and each `week.phases` entry as `{knownTotal, unknow
 
 ## 9. Real-task resource proposals (development only)
 
-`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. It does not change the public routing-only `adapt learn/eval` commands, register baselines, promote resources, execute checks, or call a model. The owner must approve runtime adoption and the exact resource contents before use.
+`scripts/real-task-adapt.mjs` adapts existing private task records to the lab ResourceRegistry. Its `propose`, `materialize` and `evaluate` operations never execute commands or call a model. Only the explicit `execute` operation below runs a reviewed fixed model recipe through the original TaskSpec flow. The adapter does not change public routing-only `adapt learn/eval`, register baselines or promote resources. The owner must approve runtime adoption and exact resource promotion before use.
 
-Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, and `check-recipes`.
+Select one failure class from an R2 review and save its existing record paths in a JSON array. `propose` builds a seeded proposal for the selected topic; it does not infer a cause from arbitrary successful records. Supported topics are `host-only-checks`, `input-validation`, `node-preparation`, `check-recipes` and `model-thinking`.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -317,4 +317,24 @@ Check-recipe evaluation verifies each version's own exact actual checker. It com
 
 Node preparation is deliberately unproven here: materialization requires an already authorized fixed recipe in `TaskSpec.prepare`, but current preflight records do not bind its actual command/argv. Its evaluation remains `UNOBSERVED` and does not satisfy the five-task exit. No automation is enabled by these tools.
 
-This adapter covers prompt guidance and bounded check-launcher recipes only. General TaskSpec defaults, actual context-rule consumption, Node preparation argv evidence and model/thinking resource adoption remain unfinished R3 work; a working adapter or synthetic test does not complete those obligations or the later-task outcome exit.
+### Fixed model/thinking recipes
+
+`model-thinking` is a fixed `workflow-template`, without conditions or routing rules. `propose --model-selection <JSON>` takes exactly `{ "providerId": "approved-provider", "modelId": "approved-model", "thinkingLevel": "high" }`; source records and an expected effect enter the existing candidate/review/CAS/rollback path. A provider timeout alone does not show another model is better. Dynamic routing policies retain their existing replay-review requirements and cannot be expressed through this recipe.
+
+After specific promotion, materialize with `--topics model-thinking`. Its private `modelSelection` records the requested triple; `baseSpec`, `spec`, objective, checks, scope and budgets stay unchanged, and TaskSpec keeps `worker.model: "inherit"`. Materialization grants no authority and never executes. Use a separately supplied trusted host approval file with exactly `authorityRef` and `approvedSelections` (an array of the approved triples). A resource, TaskSpec or candidate cannot supply that authority or credentials.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+node --import tsx scripts/real-task-adapt.mjs execute `
+  --state-root $labState --project $originalProject --source $isolatedSource `
+  --input .agent_workspace/materialized-model.json `
+  --model-authority .agent_workspace/host-approved-models.json
+```
+
+The host explicitly selects the isolated committed source separately from the logical project identity; original Soul remains protected. The state root must already contain the adopted registry and approved provider configuration. Execution rejects a changed active version/source, mismatched project, multiple worker attempts, missing or above-US$5 reference budget, disabled/unapproved selection or another provider. It reuses original task-run context, strict SDK pricing/budget, cancellation, sink flush, settlement and independent acceptance; candidates are retained with no apply/review stdin. Fixed selection overrides ambient model/thinking for that invocation, disables implicit fast fallback and changes no process environment, defaults or credentials. Normal task-run behavior stays unchanged.
+
+For evaluation, include `loopFile` alongside the actual contract/events/check references. The complete supported native-attempt/report population, parent-child request/agent binding and every SDK dispatch index must match the version's fixed provider/model/transport-thinking; operator model labels are not evidence. Missing, duplicate, extra or mixed submissions remain `UNOBSERVED`. Observations show host transport submissions only, not the server's internal model/reasoning or a successful response. All native cost faults conservatively remain `UNOBSERVED`, including `incomplete-usage`/`unknown-reference`: the current producer stores only its first fault, which cannot exclude a later identity fault. No price calculation or complete-cost claim is added; failed outcomes and unknown fees stay in the denominator.
+
+Only this family permits its declared model/thinking difference. Every logical task needs matched parent/candidate committed source and full original TaskSpec; independent review of the exact version remains required. An unchanged profile, altered controls, missing pairs or insufficient later tasks yields `unclear`. Conclusions describe correct-delivery observations, without a causal, speed or ADR-010 benefit claim.
+
+This adapter covers prompt guidance, bounded check-launcher recipes and a single-attempt fixed model/thinking execution path. General TaskSpec defaults, actual context-rule consumption, Node preparation argv evidence, specific model/thinking resource adoption and later-task outcomes remain unfinished R3 work; synthetic checks do not complete those exits.
