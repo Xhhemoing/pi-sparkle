@@ -1,7 +1,7 @@
 # pi-sparkle 整体架构
 
 > 阅读顺序：本页理解产品 → [执行流程](taskspec.md)开始使用 → [未来开发计划](roadmap.md)看先后顺序。
-> 本页区分当前实现与建议方向，不替代 [ADR-010](decisions/0010-evidence-bound-changes.md)、[ADR-011](decisions/0011-real-task-improvement-loop.md) 的安全、费用、晋升和发布条件。候选是否采用，以 [当前计划](../tasks/plan.md)和实际 main 为准。
+> 本页区分当前实现与建议方向，不替代 [ADR-010](decisions/0010-evidence-bound-changes.md)、[ADR-011](decisions/0011-real-task-improvement-loop.md)、[ADR-012](decisions/0012-three-pillar-architecture.md) 的安全、费用、晋升、解冻和发布条件。候选是否采用，以 [当前计划](../tasks/plan.md)和实际 main 为准。
 
 ## 1. 这是一个什么产品
 
@@ -74,14 +74,18 @@ Standalone preflight 使用自己的临时候选，不能把它当作下一次 t
 
 目录目前比概念架构多，存在旧 run/flowchart/controller 路径和兼容转发。**概念收敛不等于立即搬空所有目录。** 先查实际调用与默认 import closure；确认无消费者的代码才删除，既有命令先保留兼容或给出迁移说明。
 
-## 6. 核心、可选、暂不发展
+## 6. 三个板块与成熟度（ADR-012）
 
-| 分组 | 保留什么 | 当前开发态度 |
-|---|---|---|
-| 核心 | 单任务准备、Pi 执行、候选、检查、显式应用、预算/取消/对账 | 优先做顺真实使用链 |
-| 可选项目层 | 现有队列、有限 batch、GitHub 只读导入、明确偏好 | 真实项目需要时接入，不作为单任务前置 |
-| 可选改进层 | 真实任务记录、失败分类、批准后的资源与回滚 | 先证明某种提案有效，再考虑该类型有限自动化 |
-| 暂不发展 | 通用多 Agent 调度、全量向量记忆、自动模型路由研究、P4/P5、自动晋升、另一套持久工作流 | 不因旧分支里有代码就恢复，冻结仍按现有 ADR |
+产品分三块，但只有 TaskSpec 核心这一条执行路径。三块共用验收与应用内核、宿主授权策略、预算与对账、尝试记录，以及 ADR-011 的自进化反馈环。
+
+| 板块 | 现在（L0） | 下一级（L1，已解冻） | 仍冻结 |
+|---|---|---|---|
+| 1 单任务 | 准备 → 执行 → 检查 → 应用 | 完整尝试记录；Pi 内无命令入口；按类修复（L2，即 ADR-011 第 1 步） | 自动采用提案（L3） |
+| 2 长任务 | 有限队列、原子认领、依赖、GitHub 只读导入 | 由目标选下一项、受阻时继续推进、重新核验后续接；Watchdog 只暂停和提醒；异步检查 | 只在需要取舍时找人（L3） |
+| 3a 模型分配 | 继承宿主模型 | 宿主按角色设模型档位，按规则升级，记录结果 | 学习型或自动路由 |
+| 3b Worker 池 | 单 worker，加只读委派 | 异家族只读审查，只作参考 | 动态团队；并行（L2）要等长任务达到 L1 |
+
+旧的 run/flowchart/supervisor/track/children、cluster 邮箱和 bandit/R1 只做维护。有用的部分按需迁入核心；确认没有调用者之后才删除，不整包恢复。每项主动能力都由宿主设为 `off`、`observe` 或 `auto`；权限、凭据和安全设置永远不进 `auto`。
 
 ## 7. 当前已经有与仍然缺的能力
 
@@ -95,6 +99,7 @@ Standalone preflight 使用自己的临时候选，不能把它当作下一次 t
 - [任务操作与限制](taskspec.md)：实际 CLI/API、preflight、task-run 与应用。
 - [直接任务入口](direct-development-task.md)：宿主嵌入与候选工具。
 - [未来开发计划](roadmap.md)：顺序、交付与停止条件。
+- [ADR-012](decisions/0012-three-pillar-architecture.md)：三板块、成熟度等级与解冻范围。
 - [当前执行计划](../tasks/plan.md)：唯一活动队列与实际候选状态。
 - [状态矩阵](status-matrix.md)：细粒度证据与历史约束。
 - [原架构算法](architecture-algorithms.md)与[历史迁移设计](architecture-migration.md)：需要时追溯，不按旧 M 编号另起一条开发主线。
