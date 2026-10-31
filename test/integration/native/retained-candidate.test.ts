@@ -73,3 +73,27 @@ test("prepared retained ownership cannot be refreshed through the caller wrapper
   await access(path.join(f.candidatePath, "value.txt"));
   assert.equal(await readFile(path.join(f.sourceRepo, "value.txt"), "utf8"), "before");
 });
+
+test("whole-candidate hold covers more than the old file and byte limits without hiding ignored bytes", { timeout: 120000 }, async () => {
+  const f = await fixture(), extra = path.join(f.candidatePath, "ignored");
+  await mkdir(extra);
+  for (let index = 0; index < 1100; index++) await writeFile(path.join(extra, `part-${index}.txt`), "synthetic", "utf8");
+  await writeFile(path.join(extra, "payload.bin"), Buffer.alloc(17 * 1024 * 1024, 1));
+  const held = f.api.holdRetainedCandidate({ sourceRepo: f.sourceRepo, candidatePath: f.candidatePath, sourceRevision: f.sourceRevision });
+  f.api.assertRetainedCandidate(held);
+  await writeFile(path.join(extra, "part-0.txt"), "later user change", "utf8");
+  assert.throws(() => f.api.assertRetainedCandidate(held), /bytes or file set changed/);
+  await assert.rejects(f.api.discardRetainedCandidate({ handle: held }));
+  await access(path.join(extra, "payload.bin"));
+});
+
+for (const bound of ["files", "bytes"] as const) test(`whole-candidate hold refuses the finite ${bound} bound and retains the tree`, { timeout: 120000 }, async () => {
+  const f = await fixture(), extra = path.join(f.candidatePath, "ignored");
+  await mkdir(extra);
+  if (bound === "files") {
+    for (let index = 0; index < 4095; index++) await writeFile(path.join(extra, `part-${index}.txt`), "synthetic", "utf8");
+  } else await writeFile(path.join(extra, "payload.bin"), Buffer.alloc(32 * 1024 * 1024 + 1, 1));
+  assert.throws(() => f.api.holdRetainedCandidate({ sourceRepo: f.sourceRepo, candidatePath: f.candidatePath, sourceRevision: f.sourceRevision }),
+    bound === "files" ? /file count limit exceeded/ : /byte limit exceeded/);
+  await access(extra); assert.equal(git(f.sourceRepo, ["rev-parse", "HEAD"]), f.sourceRevision);
+});
