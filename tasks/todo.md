@@ -8,6 +8,7 @@ See the [current checkpoint](plan.md#current-execution-checkpoint-2026-10-26), [
 - [ ] 协调者：#103当前七项CI和匹配Claude已过；完成运行中的gate与适用探针，保留owner暂缓决定。
 - [ ] 协调者：保留I16历史独有能力、#68/#102延期项、host-check修改及旧dirty快照；不恢复冻结模块或删除工作树/证据。
 - [ ] 协调者：准备功能与新账本流程采用前不运行真实任务；历史未知费用/时长保持未知，新尝试从44起。
+- [ ] 协调者：TaskSpecSession fixed offline Node 的 managed/apply 真实链路仍受 whole-candidate 快照拒绝；保持 fail-closed，待设计支持依赖链接后再恢复，不将 accepted 误标为可应用。
 - [ ] 协调者：I10已登记偶发失败出现在不相关PR时仅重跑一次失败job；留前后证据，第二次失败先诊断。
 - [ ] 协调者：后续5个不同任务验证H2，再验证H1/供应商原因；保留所有失败和原比较预算。
 - [ ] 协调者：记录taskSpecMinutes、准备与评审时长；每次≤US$5/weekly none，刷新准入与空间。

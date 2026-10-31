@@ -7,7 +7,7 @@
 #### 2026-10-31 useful PR consolidation (integration branch)
 - Scope: integrate #132 offline Node preparation and #103 whole-candidate capacity from current main; preserve explicit candidate/apply/settlement boundaries. Non-goals: #68's superseded host/routing/work-store publication stack and #102's broader R3 promotion delegation are not adopted in this runtime slice.
 - Acceptance: actual preflight/start-task-spec/task-session/retained-candidate path compiles and focused tests pass; serial safety gate and applicable offline probes are recorded in the integration PR. Owner retains merge/adoption and human frozen-interface review.
-- Result: #132 and #103 merged onto `integrate/useful-pr-consolidation-20261031`; #68 is rejected as overlapping/frozen broad runtime replacement, #102 is retained parked because its live host-grant/promotion surface is outside this execution-chain consolidation.
+- Result: #132 and #103 merged onto `integrate/useful-pr-consolidation-20261031`; #68 and #102 are closed/rejected by the owner as overlapping or outside this execution-chain consolidation (their branches were deleted); neither is parked work.
 
 Main is `02d7f395` after docs-only #131 and runtime #135; #122/#133 are confirmed merged through preserved ancestry.
 
