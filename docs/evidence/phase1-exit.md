@@ -2,7 +2,7 @@
 
 Historical evidence moved from the plan at merged #79 (`bd841be3`). The [active plan](../../tasks/plan.md) and [checklist](../../tasks/todo.md) govern current work. Resume B and TS typechecking are already selected; old pending decisions and next actions below describe their original checkpoints, not new instructions. Failed, skipped, incomplete and unknown observations remain evidence, not passing acceptance.
 
-Only plan/STATUS maintenance is currently authorized. Private log locators below refer to their original workspaces, chiefly `C:/Users/86080/.codex/worktrees/taskspec-yaml-input/pi-sparkle`, not this document's directory. Git retains the original text; later factual corrections must explain their basis. Earlier phase/trial records are in the [pre-maintenance archive](../../tasks/archive/2026-10-25-pre-maintenance-plan.md).
+Only plan/STATUS maintenance is currently authorized. Private log locators below refer to their original workspaces, chiefly `C:/Users/86080/.codex/worktrees/taskspec-yaml-input/pi-sparkle`, not this document's directory. Git retains the original text; later factual corrections must explain their basis. Earlier phase/trial records are in the [pre-maintenance archive](../../archive/tasks/2026-10-25-pre-maintenance-plan.md).
 
 ### Historical records below
 

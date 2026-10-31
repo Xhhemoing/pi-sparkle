@@ -94,4 +94,4 @@ artifacts and reconcile the candidate first. Replaying an unknown external
 operation can duplicate side effects. Automatic application, policy promotion,
 live routing experiments and release publication retain their existing separate
 authorization/evidence boundaries. See the
-[architecture review and next queue](reports/2026-10-15-architecture-agent-loop.md).
+[architecture review and next queue](../archive/reports/2026-10-15-architecture-agent-loop.md).

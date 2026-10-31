@@ -300,7 +300,7 @@ Notes:
 - **B3.** `pi-sparkle` has a learned plane and proves the separation over the
   real transitive import closure from four live entry points, with a pinned
   two-entry allowlist [R5], re-certified by an independent second walker in
-  [the Round 3 isolation report](../reports/2026-08-24-sota-r3-isolation.md)
+  [the Round 3 isolation report](../../archive/reports/2026-08-24-sota-r3-isolation.md)
   and re-run green in Round 1 [E2]. The cells that read `n/a` in Round 1
   (Continue, Aider, OpenHands, Goose, Pi) now read `Unknown` under the §2
   ruling. The design reading they encoded is preserved here as prose: no
@@ -519,10 +519,10 @@ committed tree at `5c1421c`):
 | R3 | [ADR-002](../decisions/0002-event-log-and-checkpoints.md) |
 | R4 | [public-scene-prior.md](public-scene-prior.md) |
 | R5 | `test/unit/routing/live-isolation.test.ts` |
-| R6 | [kernel-reuse audit](../reports/2026-08-24-kernel-reuse-audit.md) |
+| R6 | [kernel-reuse audit](../../archive/reports/2026-08-24-kernel-reuse-audit.md) |
 | R7 | `.agents/skills/pi-sparkle/SKILL.md` — observed Pi subagent runs |
 | R8 | [ADR-004](../decisions/0004-controlled-adaptation.md) |
-| R9 | [P0 privacy review package](../reports/2026-08-22-p0-privacy-review-package.md) |
+| R9 | [P0 privacy review package](../../archive/reports/2026-08-22-p0-privacy-review-package.md) |
 | R10 | [ADR-006](../decisions/0006-pi-extension-reverse-adapter.md) and `package.json#pi` |
 | R11 | [node-engine-floor.md](node-engine-floor.md) — Round-2 evidence note behind the doctor message |
 | R12 | `test/integration/cli/answer-correlation.test.ts` — fail-closed answer correlation, committed `5c1421c`, re-run green in Round 3 |
@@ -675,7 +675,7 @@ strongest property produces nothing a third party can hold.
 
 ## 8. SOTA acceptance gap (new in R2)
 
-The [SOTA acceptance report](../reports/2026-08-24-sota-r3-acceptance.md)
+The [SOTA acceptance report](../../archive/reports/2026-08-24-sota-r3-acceptance.md)
 defines six properties this repo must keep. Round 1's re-check ([E2] §6) found
 **five of six intact or strengthened** at `80eb0bd` — persistence, isolation,
 privacy, telemetry honesty, and proposal-first adaptation all held, several
@@ -839,7 +839,7 @@ Round-3 dispositions on the six questions Round 2 posed:
 
 Close-out. This document is final for the 2026-08-25 market-eval loop. The
 companion acceptance re-check is the Round-3 report at
-[2026-08-25-market-eval-sota-acceptance.md](../reports/2026-08-25-market-eval-sota-acceptance.md),
+[2026-08-25-market-eval-sota-acceptance.md](../../archive/reports/2026-08-25-market-eval-sota-acceptance.md),
 which landed in-tree while this final was being edited; its verdict — all six
 properties hold at `5c1421c`, property 6 restored — matches §8 and §9 and was
 derived independently. H1/H2 remain exactly as stated in §9: no MCP client,
@@ -853,14 +853,14 @@ Status and evidence live in these documents; this note deliberately does not
 restate them.
 
 - [Status matrix](../status-matrix.md) — the authoritative capability grid
-- [Developer Preview readiness](../reports/2026-08-20-developer-preview-readiness.md)
-- [Gates readiness](../reports/2026-08-21-gates-readiness.md)
-- [SOTA acceptance, 2026-08-24 loop, final](../reports/2026-08-24-sota-r3-acceptance.md)
-- [SOTA acceptance, 2026-08-25 market-eval loop](../reports/2026-08-25-market-eval-sota-acceptance.md)
+- [Developer Preview readiness](../../archive/reports/2026-08-20-developer-preview-readiness.md)
+- [Gates readiness](../../archive/reports/2026-08-21-gates-readiness.md)
+- [SOTA acceptance, 2026-08-24 loop, final](../../archive/reports/2026-08-24-sota-r3-acceptance.md)
+- [SOTA acceptance, 2026-08-25 market-eval loop](../../archive/reports/2026-08-25-market-eval-sota-acceptance.md)
   — Round-3 companion to this final, landed in parallel with this edit
-- [Isolation & privacy certification, Round 3](../reports/2026-08-24-sota-r3-isolation.md)
-- [Kernel-reuse audit](../reports/2026-08-24-kernel-reuse-audit.md)
-- [P0 privacy review package](../reports/2026-08-22-p0-privacy-review-package.md)
+- [Isolation & privacy certification, Round 3](../../archive/reports/2026-08-24-sota-r3-isolation.md)
+- [Kernel-reuse audit](../../archive/reports/2026-08-24-kernel-reuse-audit.md)
+- [P0 privacy review package](../../archive/reports/2026-08-22-p0-privacy-review-package.md)
 - [Node engine floor evidence](node-engine-floor.md) — Round-2 note behind the doctor message
 - [MCP/interop position](mcp-position.md) — Round-2 position note, landed in
   parallel with this synthesis

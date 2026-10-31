@@ -12,4 +12,4 @@ This function does not claim tasks itself, accept candidates, apply edits, sched
 
 The controller can skip a planned item whose earlier overlapping effect is still running or uncertain and select a lower-priority disjoint item. The blocked action and task remain intact. When every candidate is blocked, the result retains the first blocked item/action identities for reconciliation. Eligibility is checked again during atomic claim; post-claim checks and final action admission still guard races. This changes candidate availability, not permission to replay an unresolved effect.
 
-Verification: `pnpm test --test-concurrency=1 test/integration/development/advance-project.test.ts test/integration/development/batch.test.ts test/unit/development/batch.test.ts`. See [the staged evidence](reports/2026-10-19-staged-continuation.md) for actual checks and review status.
+Verification: `pnpm test --test-concurrency=1 test/integration/development/advance-project.test.ts test/integration/development/batch.test.ts test/unit/development/batch.test.ts`. See [the staged evidence](../archive/reports/2026-10-19-staged-continuation.md) for actual checks and review status.

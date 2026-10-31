@@ -17,7 +17,7 @@ It must **never** contain plaintext taskSpecs or oracle material. Plaintext
 lives with the key-separated custodian mechanism (ADR-007 Q2), revealed to an
 isolated arm only when its block is scheduled. Existing public drafts are a
 recorded policy exception/exposure, not unexposed confirmatory samples; see the
-[current readiness record](../docs/reports/2026-09-18-delivery-gate-unblock.md).
+[current readiness record](../archive/reports/2026-09-18-delivery-gate-unblock.md).
 
 Backlog shape (pre-registration §3): 100 specs + 15 reserves =
 implementation ×30, testing ×30, review ×30, research ×10 (exploratory),

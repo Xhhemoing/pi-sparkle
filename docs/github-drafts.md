@@ -57,5 +57,5 @@ snapshots require host reconciliation. The deadline covers conforming fetch and
 body streams, and late results are rejected when control returns. Arbitrary
 injected host code remains cooperative; it cannot be forcibly stopped in process.
 
-[Plan](superpowers/plans/2026-10-19-local-followons.md) and
-[verification record](reports/2026-10-19-staged-continuation.md).
+[Plan](../archive/superpowers/plans/2026-10-19-local-followons.md) and
+[verification record](../archive/reports/2026-10-19-staged-continuation.md).

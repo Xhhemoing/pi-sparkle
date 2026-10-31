@@ -4,7 +4,7 @@
 - 状态：**Accepted（设计方向）**。用户明确接受经审阅的架构，要求写入项目并形成持续维护的宣讲入口。
 - 范围：职责边界、默认体验、算法选择与迁移原则；本次交付仅修改文档。
 - 实施入口：[当前架构](../framework.md)、[算法契约](../architecture-algorithms.md)、[迁移计划](../architecture-migration.md)。
-- 本轮任务：[current-architecture-guide](../superpowers/plans/2026-10-16-current-architecture-guide.md)。
+- 本轮任务：[current-architecture-guide](../../archive/superpowers/plans/2026-10-16-current-architecture-guide.md)。
 
 ## 背景
 
