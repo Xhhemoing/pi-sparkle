@@ -1,5 +1,9 @@
 # Active implementation plan
 
+## Documentation scope (2026-10-31)
+
+This documentation slice clarifies the current CLI/Pi extension → TaskSpec/preparation → Native/Pi execution → independent check → retained candidate → same-session explicit apply/discard chain, and separates optional project queue/offline improvement proposals from the core path. It updates the README and concise architecture/roadmap entry points, with static pointers from the legacy HTML guides; no runtime, authorization, package, or historical evidence is changed. The roadmap is proposed sequencing, not blanket implementation approval; current adoption remains governed by this plan and the ADRs.
+
 <a id="current-execution-checkpoint-2026-10-26"></a>
 
 ## Current execution checkpoint (2026-10-30)
