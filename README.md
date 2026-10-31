@@ -1,311 +1,57 @@
 # pi-sparkle
 
-**Evidence-bound changes for Pi.** Pi performs the coding work; pi-sparkle's target role is to define scope, isolate candidates, verify exact candidate bytes and keep acceptance separate from explicit application and effect reconciliation.
+**让 Pi 写代码，让 Sparkle 管好这次改动。** Pi does the coding; pi-sparkle scopes the task, runs it in an isolated candidate, checks the exact candidate bytes independently, and changes your source only when you explicitly apply.
 
-**Developer Preview (0.2.0-beta; `private: true`).** No npm release is available. Clone and use pnpm locally; published-package installation is not yet supported. The current fake-executor CLI (`run` / `inspect` / `resume` / `--flowchart` / `--children`) remains supported. The Pi executor now uses a controlled, in-memory coding-agent session; experimental TaskSpec execution and explicit same-session apply/discard are available; complete Phase 1 qualification and full host resource equivalence remain unfinished. App core/AI are pinned to Pi 1.4.0 with a required coding-agent peer range of `>=1.2.0 <2`. Compatibility CI covers 1.2.0, 1.4.0 and a 1.2 host with the pinned 1.4 app runtime; other versions in the declared peer range have no execution evidence yet.
+```
+CLI / Pi extension → TaskSpec → prepare + preflight → Candidate → Pi worker → independent check → Verdict → explicit apply / discard
+```
 
-The [accepted direction](docs/decisions/0010-evidence-bound-changes.md) and [active plan](tasks/plan.md) guide the transition from the broader internal runtime. Existing exact-byte verification, protected-path checks, accept/apply separation and unknown-effect handling remain. A worktree is not a sandbox: mediated tools can refuse writes and observed candidate paths can be checked, but arbitrary external shell/MCP/extension effects are not generally prevented or detected.
+## Status in five lines
 
-The isolated synthetic Soul trials remain evidence with failures and unknown costs, not proof of superiority. The original project remains protected. Research modules will leave the default dependency path; P4/P5 and live learning/promotion stay frozen. The future public comparison retains targets of at least 50% relative defective-delivery reduction and at most 1.3 times direct-Pi cost per correct delivery, with non-inferiority and uncertainty rules in ADR-010. These are targets, not achieved results. See the [capability status matrix](docs/status-matrix.md).
-Start with the [interactive architecture guide (中文)](docs/architecture.html) or the [detailed architecture map (中文)](docs/architecture-map.html): open the HTML locally to advance the explanation, explore diagrams, or switch to continuous reading. It is self-contained and works offline. These stable paths describe the maintained current design; a downloaded copy is a snapshot, not an automatically updating page.
+- **Developer Preview `0.2.0-beta`, `private: true`.** Not on npm; clone and use pnpm.
+- **Works today:** TaskSpec draft → zero-model preflight → Pi worker in a candidate → independent check → retain, apply or discard. Plus the older fake-executor `run` / `inspect` / `resume` CLI.
+- **Not a sandbox.** A worktree candidate limits mediated writes; arbitrary shell/MCP/extension effects are not generally prevented.
+- **Unknown stays unknown.** Missing cost or effect evidence is never reported as zero or success.
+- **Benefit not yet proven.** Targets (≥50% fewer defective deliveries, ≤1.3× direct-Pi cost per correct delivery) are goals in [ADR-010](docs/decisions/0010-evidence-bound-changes.md), not results. Current phase and next step: [roadmap](docs/roadmap.md) and [active plan](tasks/plan.md).
 
-Start with the concise [whole-project architecture (中文)](docs/framework.md) and [delivery roadmap (中文)](docs/roadmap.md): one task core, optional project coordination and evidence-driven improvement. They distinguish current implementation from proposed work. The detailed code map below explains responsibilities and implementation boundaries. Continue with the [algorithm decisions](docs/architecture-algorithms.md), [migration plan](docs/architecture-migration.md), and [accepted design decision](docs/decisions/0009-lightweight-adaptive-framework.md). The [development guide](docs/development-agent-loop.md) covers the existing work queues and candidate review.
+## Quick start
 
-For one host-driven coding task, use the experimental
-[`startDevelopmentTask` entry](docs/direct-development-task.md). It reuses the
-native candidate/check path without requiring a project queue. Current migration
-progress and remaining work are in the [migration checklist](tasks/migration-todo.md).
-
-## Quick Start
-
-### Install
-
-Requires Node.js >= 22.19.0 and corepack. Clone + pnpm is the only supported
-installation path:
+Requires Node.js >= 22.19.0 and corepack.
 
 ```bash
 git clone https://github.com/Xhhemoing/pi-sparkle.git
 cd pi-sparkle
 corepack enable
 pnpm install
-pnpm cli version
+pnpm cli version                     # no build needed
+pnpm cli init --task --dir <repo>    # draft a TaskSpec for your repo
+pnpm cli preflight <task.json> --project <repo>   # zero-model base check
+pnpm cli task run <task.json> --project <repo> --executor pi --review
 ```
 
-`pnpm cli` runs TypeScript in place (no build). After `pnpm build`, `pnpm
-pi-sparkle version` or `node dist/cli/main.js --version` runs the compiled CLI.
-The package metadata remains `private: true`; private tarballs are exercised by
-the security probe and the experimental [four-language installed examples](docs/taskspec.md#exercise-an-installed-package). The earlier scripted examples passed on Windows with actual Express, FastAPI, Rust CLI and Go service checks, independent acceptance and explicit fixture-only apply. The public CLI mode now exercises the same flow through a real SDK and an offline loopback provider; its candidate-specific results are in the active plan. This is not an npm publication, a general supported installation path, or evidence of real-model quality benefit. The Linux Rust profile checks now also pass in both Pi compatibility lanes; candidate-specific complete verification and the remaining Phase 1 resume-B, TypeScript typechecking and Rust offline-dependency work are recorded in the [active plan](tasks/plan.md).
+No API key? Try the deterministic fake executor:
 
-### TaskSpec walkthrough
+```bash
+pnpm cli run --project <repo> --objective "Add integration tests"
+pnpm cli inspect --run <runId>
+```
 
 ![Recorded offline TaskSpec CLI results: draft, preflight, accepted candidate, explicit apply and source verification](docs/assets/task-cli-walkthrough.gif)
 
-This replay condenses actual JSON results from the private `0.2.0-beta` Node/YAML
-example. Paths are shortened. It uses the real SDK and checks with a deterministic
-loopback provider; only the synthetic fixture is changed. Follow the
-[installed CLI walkthrough](docs/taskspec.md#exercise-an-installed-package) to
-run it locally. The replay is not a live-model comparison.
+The replay condenses real JSON results from the offline Node/YAML example (deterministic loopback provider, synthetic fixture). It is not a live-model comparison. Full walkthrough: [TaskSpec guide](docs/taskspec.md).
 
-### Install as a local Pi package
+## Where to read next
 
-The local package includes the native delegation extension, diagnostic skill
-and `/sparkle` prompt (ADR-006 Accepted). Local paths are referenced, not copied:
-
-```bash
-pi install /absolute/path/to/pi-sparkle
-pi list
-```
-
-Reload Pi after installing. In a normal session, ask the assistant to use
-`sparkle_delegate` for up to four read-only inspections/reviews. Workers use
-the host model catalogue/auth and actual file reads. Each delegation inherits
-the effective host system prompt and thinking level sampled at admission;
-request-time context or provider-payload transforms are not inherited. Parent
-transcripts and tool closures are not copied. `/sparkle-status` shows
-active runs. Workers default to the host model captured at admission; the tool
-accepts
-an explicit `provider/model` override and refuses unavailable/ambiguous models.
-Static eligibility checks can refuse that selection but cannot route to a
-different model.
-The main conversation model is unchanged. Esc and session shutdown cancel
-workers. `SPARKLE_NATIVE=0` disables the extension at load time.
-A [trusted host wrapper](docs/how-to-adapt-to-pi.md#explicit-worker-resources) can supply selected context and skill bodies; the default package does not discover extra resource text.
-
-Delegated evidence lives in `.agent_workspace/pi-sparkle/` under the project;
-use `pnpm cli inspect --run <id> --state-root <project>/.agent_workspace/pi-sparkle`.
-Results are bounded child reports, not independently verified acceptance.
-The initial slice does not write files or execute shell commands in workers.
-The default delegate does not load learned routing or run post-task adaptation.
-The legacy research session remains available separately.
-Offline checks exercise the actual Pi 1.2/1.4 loaders, host dispatch, usage and cancellation, including the mixed host/app installation. Earlier 0.84.4/0.85.1/0.86.1 results remain historical. Live-provider behavior is not
-established by the offline loopback tests.
-
-`/skill:pi-sparkle` and `/sparkle` remain diagnostic overlays. The CLI is also
-available independently. See the [native integration plan](archive/superpowers/plans/2026-09-18-native-pi.md)
-for isolated write tasks, quality routing and automatic improvement scope.
-
-### Run with the built-in fake executor (no API keys)
-
-```bash
-pnpm cli run \
-  --project /path/to/your/project \
-  --objective "Refactor the payment module and add integration tests"
-```
-
-This executes a deterministic fake agent, writes JSONL events, and produces a checkpoint under `~/.pi-sparkle/`.
-
-### Inspect a completed run (and its episode)
-
-```bash
-pnpm cli inspect --run <runId>
-pnpm cli inspect --run <runId> --json
-pnpm cli inspect --run <runId> --summary-json
-pnpm cli inspect --run <runId> --status-json
-pnpm cli inspect --episode <epId>
-```
-
-`--json` prints the raw event stream, one event per line, with nothing
-appended. `--summary-json` prints exactly one `INSPECT_SUMMARY` object with
-the run status and the evidence the latest stall/block asked for
-(`requiredEvidence`, empty for a run that never stalled). The summary is a
-**frozen additive-only contract** (`InspectSummaryJson` in
-`src/run/inspection.ts`, same policy as doctor `--json`): scripts may pin
-`type`, `runId`, `status`, and `requiredEvidence`; new keys may be added over
-time, and existing keys keep their meaning. It remains a developer-preview
-surface, is only available with `--run`, is not a domain event (no `id`, its
-`type` is outside the event union), and the two flags stay mutually
-exclusive. A stalled or blocked run also shows its `required evidence` list
-in the default prose view.
-
-`--status-json` prints exactly one `RUN_STATUS_PROJECTION` object: child-reported
-outcomes/verification/criteria (not independent acceptance), current blockers,
-this run's eligible token counts and fully priced USD subset, separate event
-and telemetry torn-tail flags, and advisory recovery commands. Missing files
-set `cost.invocationsAvailable: false`; empty files stay available. Unknown
-numeric totals are omitted, never invented as zero. Corruption, invalid rows,
-read limits and I/O failures are command errors, not missing data. Cost is not
-a bill, root-budget settlement, or child-run rollup. Outcome-success and
-unknown-verification counts can overlap. The output is a **frozen additive-only
-contract** (`RunStatusProjection` in `src/run/projection.ts`; field semantics in
-[the data dictionary](docs/data-dictionary.md#run-status-projection-ps-06)), only
-available with `--run`, mutually exclusive with `--json` / `--summary-json` /
-`--follow`, and read-only. It never invents a terminal status or accepts a
-model's "percent complete" as fact.
-
-### Resume an interrupted run
-
-```bash
-pnpm cli resume --run <runId>
-```
-
-### Run with a real Pi provider
-
-Configure providers and models (once), then run:
-
-```bash
-# Per-provider keys (Pi native). Stored login is optional.
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-
-pnpm cli models enable openai/gpt-4o-mini
-pnpm cli models enable anthropic/claude-sonnet-4-5
-pnpm cli models set-default --primary anthropic/claude-sonnet-4-5 --fast openai/gpt-4o-mini
-pnpm cli auth status
-
-pnpm cli run \
-  --project /path/to/your/project \
-  --objective "Implement the new checkout flow" \
-  --executor pi
-```
-
-`pi-sparkle auth login openai --from-env`, `--key-file /path/to/key`, or
-`--key-stdin` (piped, not a TTY) copies nothing from argv. `auth login openai
---key sk-...` still works but warns: the key is visible in process argv and
-shell history. Stored credentials live in `~/.pi-sparkle/runtime/auth.json`
-(owner-only; POSIX refuses a group/world-readable file) and win over
-environment variables. `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` still work as
-a compatibility override for the default provider.
-
-#### Custom OpenAI-compatible provider
-
-Custom providers are read from `<state-root>/runtime/providers.json`. Add the
-provider entry to your existing configuration; do not overwrite the file, since
-it may already contain other providers, enabled models, or defaults. For example,
-merge this entry into the existing `customProviders` array (or use this complete
-minimal config only when creating a new file):
-
-```json
-{
-  "version": 1,
-  "enabled": [],
-  "customProviders": [
-    {
-      "id": "example",
-      "name": "Example local-compatible service",
-      "baseUrl": "https://api.example.invalid/v1",
-      "envVar": "EXAMPLE_API_KEY",
-      "models": [
-        {
-          "id": "example-chat",
-          "name": "Example chat model",
-          "inputCostPerMTok": 1.25,
-          "outputCostPerMTok": 5,
-          "cacheReadCostPerMTok": 0.125,
-          "cacheWriteCostPerMTok": 1.5,
-          "costTiers": [
-            {
-              "inputTokensAbove": 128000,
-              "input": 2.5,
-              "output": 7.5,
-              "cacheRead": 0.25,
-              "cacheWrite": 3
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-These reference prices are illustrative, hypothetical values in USD per million
-tokens (including the rates in `costTiers`); actual gateway billing is unknown.
-Verify your own model/provider prices before using them. All rates must be finite
-and nonnegative. `costTiers` thresholds (`inputTokensAbove`) must be nonnegative
-safe integers in strictly increasing order. A tier applies only when total input
-including cached tokens (`input + cacheRead + cacheWrite`) is strictly above its
-threshold. The last applicable tier sets whole-request rates for input, output,
-cache reads and cache writes, rather than marginal pricing on only the excess
-tokens. With this example, 128,000 total input tokens use the base rates;
-128,001 use the tier rates for the whole request.
-
-Keep `envVar` nonempty even when you plan to use interactive stored login. A
-custom provider without it uses a keyless local resolver and cannot use stored
-`auth.json` credentials. In PowerShell, choose one explicit state root and use
-it for registration, login, status, catalog lookup, and defaults:
-
-```powershell
-$stateRoot = Join-Path $HOME ".pi-sparkle-example"
-# Save the config above as $stateRoot\runtime\providers.json, merging it if present.
-pnpm cli auth login example --state-root $stateRoot
-pnpm cli auth status --all --state-root $stateRoot
-pnpm cli models list --available --provider example --state-root $stateRoot
-pnpm cli models set-default --primary example/example-chat --state-root $stateRoot
-```
-
-The login command prompts interactively and stores the credential. In the
-credentialed branch, stored login wins over the environment variable configured
-by `envVar`. `pnpm cli auth login example --from-env --state-root $stateRoot`
-checks only environment/ambient authentication and saves nothing; it does not
-test or store an interactive credential. Unpriced models are not free: absent cost metadata is not a price
-quote. Local auth and catalog checks confirm only local configuration, not that
-a remote request succeeds.
-
-Optional reasoning effort: `PI_THINKING_LEVEL=medium` (`off` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max`), or `--thinking <level>` on `run`, which wins over the env var for that run only and never persists. Google models silently clamp `xhigh`/`max`.
-
-### Parent + children
-
-Provide a child spec JSON file. Task ids must be `tsk_<suffix>`. Roles must be one of `worker`, `scout`, `planner`, `implementer`, `reviewer`, `tester`, `debugger`. `--children` compiles the spec through `compileChildrenToFlowchart` and executes it on the same flowchart engine as `--flowchart`; the child coordinator preserves parent/child protocol semantics inside that run (bounded children, peer mail, exactly one terminal `TASK_RESULT` per task). The original M1 entry `startParentRun` remains a library/test-only path.
-
-A task may declare `"model": "<catalog-id>"` as an exact per-task pin (the children-spec counterpart of a flowchart node's single-model `modelPolicy`). A pinned task is not routed: the planner leaves it untouched, the flowchart node compiles to `allowedModels: [pin]`, no cascade escalates off it, and the run refuses to start if the pin names a model the live catalog does not expose. Pins print on their own `(pinned)` routing line so operator input is never mistaken for planner output. `validate --children` checks pins against the same live catalog (pass `--state-root` to point it at a non-default root).
-
-Honesty note: plain `--children` starts **without a requirement contract** —
-the run records `skipContract: true` and the coverage gate does not run on
-this path. Per-task `acceptanceCriteria` still gate each child's
-`TASK_RESULT`, but they are not compiled into a run-level contract, and the
-runtime deliberately does not invent one from them. For a coverage-gated
-start (refusing while mandatory criteria are uncovered), use `--track`.
-
-```json
-{
-  "tasks": [
-    {
-      "id": "tsk_research",
-      "role": "scout",
-      "objective": "Survey the latest payment gateway options",
-      "acceptanceCriteria": [
-        { "id": "ac1", "description": "List 3+ candidates with pros/cons" }
-      ]
-    },
-    {
-      "id": "tsk_impl",
-      "role": "implementer",
-      "objective": "Integrate the chosen gateway",
-      "inputArtifactIds": ["art_research-report"],
-      "model": "anthropic/claude-sonnet-4-5"
-    }
-  ]
-}
-```
-
-Run the compiled children with the **fake** executor (no API keys):
-
-```bash
-pnpm cli run \
-  --project /path/to/project \
-  --objective "Migrate to new payment provider" \
-  --children tasks.json
-```
-
-Real providers remain opt-in: add `--executor pi` after `models set-default` (and credentials). Do not treat that path as the preview default.
-
-Reusable child and flowchart input files belong under `examples/`; the
-`tasks.json` and `flow.json` names in these snippets are placeholders for
-those local examples.
-
-### Flowchart
-
-`--flowchart` takes an explicit flowchart JSON — the same DAG engine `--children` compiles onto, driven directly. Task ids must be `tsk_<suffix>`. Catalog aliases are `cheap` / `premium`. The flags are mutually exclusive: do not combine with `--children` or `--track`.
-
-Without `--results` or `--executor`, leased nodes stay RUNNING until stall. `--results` is an explicit nodeId → outcome map and wins over `--executor` for those nodes. `--executor fake` runs remaining RUNNING nodes through the protocol child fake (no API keys). `--executor pi` is opt-in.
-
-```bash
-pnpm cli run \
-  --project /path/to/project \
-  --objective "Add remember-me to login" \
-  --flowchart flow.json \
-  --executor fake
-```
+| I want to… | Read |
+|---|---|
+| Understand the product and architecture (中文) | [docs/framework.md](docs/framework.md) · [interactive guide](docs/architecture.html) |
+| Know what comes next and why (中文) | [docs/roadmap.md](docs/roadmap.md) |
+| Write and run a task | [docs/taskspec.md](docs/taskspec.md) |
+| Use pi-sparkle inside Pi | [docs/cli-usage.md](docs/cli-usage.md#install-as-a-local-pi-package) · [how to adapt to Pi](docs/how-to-adapt-to-pi.md) |
+| Configure a real provider, children, flowcharts | [docs/cli-usage.md](docs/cli-usage.md) |
+| Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) · [development workflow](docs/development-workflow.md) · [agent rules](AGENTS.md) |
+| See current tasks and open issues | [tasks/plan.md](tasks/plan.md) · [tasks/todo.md](tasks/todo.md) |
+| Find any other document | [docs/README.md](docs/README.md) · history in [archive/](archive/README.md) |
 
 ## Commands
 
@@ -361,70 +107,6 @@ the explicit research composition through the same command implementation;
 `pnpm exec tsx lab/cli.ts --help`. Lab source and compiled modules remain in the
 same package for compatibility. Existing explicit `--track` and `adapt` commands
 retain their research behavior and approval rules.
-
-## What it does
-
-- Executes Pi agents (or deterministic fakes) with structured event emission
-- Coordinates `--children` as a parent run over bounded child tasks, with peer mail and bounded spawn
-- After `--primary-model` (and optional `--fast-model`), analyzes each task and assigns a catalog model — no per-task manual model pick
-- `--track` asks clarifying questions from the objective and recorded habits, plans scout → implement → review → test, executes, and tracks the episode
-- Validates flowcharts and DAGs, prevents cycles, and schedules joins deterministically
-- Persists resumable checkpoints, JSONL event logs, and an episode bound to each run. A truncated final JSONL line is recovered, not treated as a corrupt log
-- Bounds retained runtime invocations and episodes to 90 days by default
-  through the explicit, dry-run-first `retain --apply` command
-- `--track` and explicit contracts refuse to start a task graph while mandatory criteria are uncovered; skip-contracts and already-answered questions still start. Plain `--children` is a skip-contract start (`skipContract: true`) — no coverage gate on that path
-- Detects stalls, records evidence on the ledger, and routes low-confidence work to human approval
-- Keeps adaptive R1/bandit/topology off the live loop; in the explicit research composition, auto-loop collects user and subagent feedback, attributes issues to (model, project), and may propose a **routing-policy** candidate. Promotion requires `adapt promote --approve`. `SPARKLE_AUTO_ADAPT=0` still collects and diagnoses, but nothing learns: no bandit update, no proposal. Other resource kinds stay proposal-first.
-
-## Project Status
-
-Two planes share this repo. They are not one numbered product line. The
-authoritative grid is [docs/status-matrix.md](docs/status-matrix.md).
-
-**Runtime (CLI spine, Developer Preview)**
-
-- M0: single-run CLI + event persistence — Wired + Exercised on the fake path
-- M1: parent/child protocol + bounded child runs (fake child executor by default); its `startParentRun` entry is now library/test-only
-- M2: DAG supervisor (`--supervised` resume still uses this path)
-- M2.5: `--flowchart` is the public orchestrator; optional `--executor` runs nodes; `--children` compiles onto the same flowchart engine (`compileChildrenToFlowchart`) with child-protocol semantics preserved
-
-**Adaptive library (spec M3–M6; not a later CLI rewrite)**
-
-- Live routing is R0-equivalent static `ModelRouter`; R1/bandit stay shadow-only
-- `adapt auto` proposes routing-policy candidates only; `adapt promote --approve` is required
-- Checkpoint F sealed holdout stays open (ADR-005); do not claim adaptive gains
-- Privacy dictionary: [docs/data-dictionary.md](docs/data-dictionary.md). P0
-  closed by technical re-verification on 2026-08-26; an independent
-  privacy-officer countersign remains welcome but does not block this
-  Developer Preview.
-
-Real-provider execution is opt-in via `PI_*` environment variables and `--executor pi`.
-
-## Documentation
-
-- [Interactive current architecture guide (中文, offline HTML)](docs/architecture.html)
-- [Detailed architecture map (中文, interactive HTML)](docs/architecture-map.html) · [standalone SVG](docs/architecture-map.svg)
-- [Current architecture and code map (中文)](docs/framework.md)
-- [Algorithm choices and validation contracts (中文)](docs/architecture-algorithms.md)
-- [Architecture migration plan (中文)](docs/architecture-migration.md)
-- [Lightweight adaptive framework decision](docs/decisions/0009-lightweight-adaptive-framework.md)
-- [Host work queue, durable development CLI and continuous agent workflow](docs/development-agent-loop.md)
-- [Development control-plane implementation and verification](archive/reports/2026-10-15-development-control-plane.md)
-- [Bounded native repair SDK and runnable offline demo](docs/native-development-loop.md)
-- [Architecture review and continuous development queue (2026-10-15)](archive/reports/2026-10-15-architecture-agent-loop.md)
-- [Status matrix](docs/status-matrix.md)
-- [Real-provider acceptance runbook](docs/preview-acceptance.md)
-- [Data dictionary](docs/data-dictionary.md)
-- [P0 technical re-verification (2026-08-26)](archive/reports/2026-08-26-p0-technical-reverification.md)
-- [Security policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
-- [Development workflow](docs/development-workflow.md) · [Agent rules](AGENTS.md) · [Active tasks](tasks/)
-- [Developer Preview 0.1.0-preview.3 (2026-10-06)](archive/reports/2026-10-06-preview-declaration.md) · [Developer Preview 0.1.0-preview.2 (2026-10-01)](archive/reports/2026-10-01-preview-declaration.md)
-- [Developer Preview readiness](archive/reports/2026-08-20-developer-preview-readiness.md)
-- [SOTA acceptance (2026-08-24 loop, final)](archive/reports/2026-08-24-sota-r3-acceptance.md)
-- [Foundational M0–M2 architecture specification](docs/specs/m0-m2-architecture.md)
-- [Adaptive work-loop spec](docs/specs/adaptive-agent-work-loop.md)
-- [ADRs](docs/decisions/)
 
 ## License
 
