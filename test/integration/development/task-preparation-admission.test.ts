@@ -303,7 +303,7 @@ if(${JSON.stringify(mode)}==='changed-lock')f.appendFileSync('pnpm-lock.yaml','\
       if (mode !== "missing-manager" && mode !== "missing-node") {
         assert.equal(installs.length, 2, "separate public invocations each install once");
         assert.notEqual(installs[0]!.cwd, installs[1]!.cwd);
-        for (const row of installs) assert.deepEqual(row.args, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace"]);
+        for (const row of installs) assert.deepEqual(row.args, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--store-dir", store, "--ignore-workspace", "--package-import-method=copy"]);
       } else assert.equal(installs.length, 0, "wrong exact manager must refuse before installation");
       assert.equal(git(input.sourceRepo, ["status", "--porcelain=v1", "--ignored"]), "");
     }));
@@ -315,6 +315,7 @@ test("fixed Node version lookup and install disable online bootstrap in the actu
   const manager = path.join(input.root, "pnpm-offline.cjs");
   await writeFile(manager, `const f=require('node:fs'),p=require('node:path');
 if(process.env.COREPACK_ENABLE_NETWORK!=='0'||process.env.npm_config_offline!=='true'){console.error('offline bootstrap guard absent');process.exit(1)}
+if(process.argv[2]!=='--version'&&!process.argv.includes('--package-import-method=copy')){console.error('copy import guard absent');process.exit(1)}
 if(process.argv[2]==='--version'){console.log('10.17.1');process.exit(0)}
 const target=p.join(process.cwd(),'node_modules','${PACKAGE}');f.mkdirSync(p.dirname(target),{recursive:true});f.cpSync(${JSON.stringify(path.join(store, PACKAGE))},target,{recursive:true});`, "utf8");
   const spec = snapshotDevelopmentTaskSpec({ ...input.spec, limits: explicitNodeLimits,

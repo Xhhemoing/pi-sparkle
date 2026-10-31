@@ -1,3 +1,7 @@
+import { assertPreparedDelivery, preparedDeliverySnapshot, preparedNodeArtifactIdentity, preparedNodeArtifactLinks,
+  type PreparedNodeArtifacts, type DeliveryProof } from "../execution/prepared-node-artifacts.js";
+import { detachNodeOfflineLinks } from "../development/node-offline-preparation.js";
+import { getPreparedNodeVerification, hasPreparedNodeVerification } from "../execution/trusted-verification.js";
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
@@ -6,6 +10,8 @@ import { runIndependentCheck } from "../execution/independent-check.js";
 import {
   assertExactSnapshotMatchesGitTree,
   assertGitAttributesPreserveExactBytes,
+  assertExactProjectionMatchesCompleteGitTree,
+  assertProjectionGitAttributesPreserveBytes,
   captureExactSnapshot,
   sameExactSnapshot,
   type ExactSnapshot
@@ -94,8 +100,8 @@ type GitResult = GitOk | GitErr;
 // conversion without editing the caller's configuration.
 const EXACT_GIT_OPTIONS = ["--no-replace-objects", "-c", "core.autocrlf=false", "-c", "core.eol=lf"] as const;
 
-function git(cwd: string, args: readonly string[]): GitResult {
-  const result = spawnSync("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", windowsHide: true });
+function git(cwd: string, args: readonly string[], input?: string): GitResult {
+  const result = spawnSync("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", windowsHide: true, ...(input === undefined ? {} : { input }) });
   if (result.error !== undefined) return { ok: false, detail: result.error.message };
   if (result.status !== 0) {
     return {
@@ -324,6 +330,7 @@ function captureWholeSnapshot(repository: string, descriptor: TrustedVerificatio
 
 export class NativeApplySession {
   private readonly managed = new Map<string, NativeDisposeAuthorization>();
+  private preparedDisposals = new WeakMap<NativeDisposeAuthorization, { readonly artifacts: PreparedNodeArtifacts; readonly delivery: DeliveryProof }>();
   private closed = false;
 
   get managedCount(): number {
@@ -381,13 +388,16 @@ export class NativeApplySession {
     const exact = trustedVerification === undefined ? undefined : {
       descriptor: trustedVerification,
       candidate: beginTrustedVerification(trustedVerification, candidate, verification.command, verification.args),
+      prepared: hasPreparedNodeVerification(trustedVerification, candidate),
       source: captureWholeSnapshot(preflight.sourceRepo, trustedVerification),
       baseTree: gitOrThrow(candidate, [...EXACT_GIT_OPTIONS, "rev-parse", `${preflight.revision}^{tree}`])
     };
+    const preparedBinding = exact?.prepared ? getPreparedNodeVerification(trustedVerification!, candidate) : undefined;
+    if (exact?.prepared && preparedBinding?.acceptedDelivery === undefined) fail("prepared apply requires the original final accepted delivery proof");
     const assertAttributes = (afterTree: string): void => {
       if (exact === undefined) return;
       const trees = { beforeTree: exact.baseTree, afterTree };
-      assertGitAttributesPreserveExactBytes(exact.candidate.candidate, candidate, trees);
+      (exact.prepared ? assertProjectionGitAttributesPreserveBytes : assertGitAttributesPreserveExactBytes)(exact.candidate.candidate, candidate, trees);
       assertGitAttributesPreserveExactBytes(exact.source, preflight.sourceRepo, trees);
     };
     const assertCheckedCandidate = (): void => {
@@ -431,12 +441,24 @@ export class NativeApplySession {
     // the candidate worktree (never the source), then write its tree object.
     // The source checkout's index is never touched by this.
     const gitOptions = exact === undefined ? [] : EXACT_GIT_OPTIONS;
-    const stage = git(candidate, [...gitOptions, "add", "-A"]);
+    let stage: GitResult;
+    if (exact?.prepared) {
+      // Positive literal paths avoid Git treating an ignored negative pathspec
+      // as an explicit request to stage the dependency directory. Do not force
+      // ignored delivery files into Git; complete proof/tree equality still
+      // refuses them. Deletions remain included through the cached path set.
+      const listed = git(candidate, [...gitOptions, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
+      if (!listed.ok) fail(`delivery path observation failed: ${listed.detail}`);
+      if (listed.stdout !== "" && !listed.stdout.endsWith("\0")) fail("delivery path observation has no NUL terminator");
+      const paths = [...new Set(listed.stdout.split("\0").filter(file => file !== "" && file !== "node_modules" && !file.startsWith("node_modules/")))];
+      stage = paths.length === 0 ? { ok: true, stdout: "" } : git(candidate,
+        [...gitOptions, "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"], paths.map(file => `:(top,literal)${file}\0`).join(""));
+    } else stage = git(candidate, [...gitOptions, "add", "-A"]);
     if (!stage.ok) fail(`candidate staging failed: ${stage.detail}`);
     const candidateTree = gitOrThrow(candidate, [...gitOptions, "write-tree"]);
     if (exact !== undefined) {
       assertCheckedCandidate();
-      assertExactSnapshotMatchesGitTree(exact.candidate.candidate, candidate, candidateTree);
+      (exact.prepared ? assertExactProjectionMatchesCompleteGitTree : assertExactSnapshotMatchesGitTree)(exact.candidate.candidate, candidate, candidateTree);
       assertAttributes(candidateTree);
     }
 
@@ -462,7 +484,7 @@ export class NativeApplySession {
     assertCheckedCandidate();
     assertExactSourceBefore();
     if (exact !== undefined) {
-      assertExactSnapshotMatchesGitTree(exact.candidate.candidate, candidate, candidateTree);
+      (exact.prepared ? assertExactProjectionMatchesCompleteGitTree : assertExactSnapshotMatchesGitTree)(exact.candidate.candidate, candidate, candidateTree);
       assertAttributes(candidateTree);
     }
     if (signal?.aborted) fail("apply aborted before source checkout; candidate not applied");
@@ -509,12 +531,10 @@ export class NativeApplySession {
       refuseAfterMutation(sourceIdentity, before, candidateCommit, "source did not retain the expected candidate revision and clean checkout");
     }
 
-    this.managed.set(candidate, {
-      sourceRepo: preflight.sourceRepo,
-      sourceRevision,
-      sourceIdentity,
-      candidateIdentity: identity
-    });
+    const authorization: NativeDisposeAuthorization = { sourceRepo: preflight.sourceRepo, sourceRevision, sourceIdentity, candidateIdentity: identity };
+    this.managed.set(candidate, authorization);
+    if (preparedBinding?.acceptedDelivery !== undefined) this.preparedDisposals.set(authorization,
+      Object.freeze({ artifacts: preparedBinding.artifacts, delivery: preparedBinding.acceptedDelivery }));
     return {
       status: "APPLIED",
       appliedRevision: candidateCommit,
@@ -572,6 +592,7 @@ export class NativeApplySession {
       ...authorization,
       candidatePath: resolved
     }, strictMissing);
+    this.preparedDisposals.delete(authorization);
     this.managed.delete(resolved);
     return disposed;
   }
@@ -631,14 +652,29 @@ export class NativeApplySession {
     // the source's current tree and there are no additional files, including
     // ignored files. Later edits require manual inspection, never deletion.
     const sourceTree = gitOrThrow(sourceIdentity.root, ["rev-parse", "HEAD^{tree}"]);
-    if (!git(candidate.root, ["diff", "--quiet", sourceTree, "--"]).ok
-      || !git(candidate.root, ["diff", "--cached", "--quiet", sourceTree, "--"]).ok
-      || gitOrThrow(candidate.root, ["ls-files", "--others", "--exclude-standard", "-z"]) !== ""
-      || gitOrThrow(candidate.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]) !== "") {
-      fail("candidate has changes beyond the source tree; retained for manual inspection");
+    const ownedAuthorization = this.managed.get(resolved);
+    const prepared = ownedAuthorization === undefined ? undefined : this.preparedDisposals.get(ownedAuthorization);
+    if (prepared === undefined) {
+      if (!git(candidate.root, ["diff", "--quiet", sourceTree, "--"]).ok
+        || !git(candidate.root, ["diff", "--cached", "--quiet", sourceTree, "--"]).ok
+        || gitOrThrow(candidate.root, ["ls-files", "--others", "--exclude-standard", "-z"]) !== ""
+        || gitOrThrow(candidate.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]) !== "") {
+        fail("candidate has changes beyond the source tree; retained for manual inspection");
+      }
+    } else {
+      const identity = preparedNodeArtifactIdentity(prepared.artifacts);
+      if (pathKey(identity.sourceRepo) !== pathKey(sourceIdentity.root) || pathKey(identity.candidatePath) !== pathKey(candidate.root) ||
+          identity.sourceRevision !== input.sourceRevision) fail("prepared disposal ownership does not match its original repository");
+      assertPreparedDelivery(prepared.artifacts, prepared.delivery);
+      assertExactProjectionMatchesCompleteGitTree(preparedDeliverySnapshot(prepared.artifacts, prepared.delivery), candidate.root, sourceTree);
+      if (!git(candidate.root, ["diff", "--quiet", sourceTree, "--"]).ok || !git(candidate.root, ["diff", "--cached", "--quiet", sourceTree, "--"]).ok) {
+        fail("prepared candidate tracked bytes or index differ from the current source tree; candidate retained");
+      }
+      assertPreparedDelivery(prepared.artifacts, prepared.delivery);
+      detachNodeOfflineLinks(candidate.root, preparedNodeArtifactLinks(prepared.artifacts));
     }
 
-    const remove = git(sourceIdentity.root, ["worktree", "remove", "--force", resolved]);
+    const remove = git(sourceIdentity.root, [...(prepared !== undefined && process.platform === "win32" ? ["-c", "core.longpaths=true"] : []), "worktree", "remove", "--force", resolved]);
     if (!remove.ok) {
       // A failed Git removal is an unresolved disposal. Never report success
       // and never recursively remove a path that may have been replaced.
@@ -649,6 +685,7 @@ export class NativeApplySession {
 
   async shutdown(): Promise<void> {
     this.closed = true;
+    this.preparedDisposals = new WeakMap();
     // Retained candidates are caller-owned evidence; shutdown never deletes.
   }
 }

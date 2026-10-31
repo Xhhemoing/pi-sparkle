@@ -6,12 +6,12 @@ import { NativeApplySession, type NativeApplyPreparedTarget, type NativeApplyRes
 import { physicalDirectoryWithoutLinks } from "../native/physical-directory.js";
 import { assertRetainedCandidate, discardRetainedCandidate, holdRetainedCandidate, type RetainedCandidateHandle } from "../native/retained-candidate.js";
 import type { NativeWriteExecutorFactory, NativeWriteSessionResult } from "../native/write-session.js";
-import { prepareTrustedVerification, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
+import { prepareTrustedVerification, bindPreparedNodeVerification, lookupCheckedDeliveryProof, type TrustedVerificationDescriptor } from "../execution/trusted-verification.js";
 import { runtimeRoot } from "../persist/state-layout.js";
 import { ActionLedger, type ActionClaim, type ActionRecord } from "./action-ledger.js";
 import { prepareDevelopmentCheckPlan } from "./check-plan.js";
 import { startDevelopmentTaskSpec, type DevelopmentTaskSpecResult } from "./start-task-spec.js";
-import { assertTaskSpecStateOutside } from "./task-preflight.js";
+import { assertTaskSpecStateOutside, lookupPreparedNodeArtifacts } from "./task-preflight.js";
 import { assertDevelopmentScope } from "./task-policy.js";
 import { snapshotDevelopmentTaskSpec, snapshotTaskSpecHostInput, type DevelopmentTaskSpec } from "./task-spec.js";
 import type { TaskCheckRefusal } from "./task-check-refusal.js";
@@ -87,7 +87,17 @@ export class TaskSpecSession {
       const settled = execution.effectsSettled !== false;
       let retained: RetainedCandidateHandle | undefined;
       if (settled && lstatSync(execution.candidatePath, { throwIfNoEntry: false }) !== undefined) {
-        try { retained = holdRetainedCandidate({ sourceRepo, candidatePath: execution.candidatePath, sourceRevision: execution.sourceRevision }); }
+        try {
+          const artifacts = result.preflight === undefined ? undefined : lookupPreparedNodeArtifacts(result.preflight);
+          const evidence = execution.acceptance.independentCheck?.trustedVerification;
+          const delivery = evidence === undefined ? undefined : lookupCheckedDeliveryProof(evidence);
+          if (artifacts !== undefined) {
+            if (delivery === undefined) fail("prepared candidate lacks the final live checked delivery proof");
+            bindPreparedNodeVerification(whole, artifacts, delivery);
+          }
+          retained = holdRetainedCandidate({ sourceRepo, candidatePath: execution.candidatePath, sourceRevision: execution.sourceRevision },
+            artifacts === undefined || delivery === undefined ? undefined : { artifacts, delivery });
+        }
         catch { /* Keep unholdable candidates and their evidence, without deletion permission. */ }
       }
       this.runs.set(execution.runId, { spec, execution, sourceRepo, sourceBranch, whole,
